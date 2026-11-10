@@ -7,7 +7,7 @@ import { attr, imageLines, parseTool } from "../agents/agentlog.ts";
 import { baseName, extension, mediaKind, resolvePath } from "./media-state.ts";
 
 /// How the tab shows an artifact.
-export type ArtifactKind = "html" | "md" | "svg" | "image" | "pdf";
+type ArtifactKind = "html" | "md" | "svg" | "image" | "pdf";
 
 const KINDS: Record<string, ArtifactKind> = {
   html: "html", htm: "html",
@@ -48,7 +48,7 @@ export interface Artifact {
 }
 
 /// What the tab shows `path` as, or null for any other file.
-export function artifactKind(path: string): ArtifactKind | null {
+function artifactKind(path: string): ArtifactKind | null {
   return KINDS[extension(path)] ?? null;
 }
 
@@ -101,7 +101,7 @@ export function toolArtifacts(text: string, cwd: string): { status: string; file
 
 /// The artifact files a note of the node names as made by the turn's
 /// commands, each resolved against `cwd`; none for any other note.
-export function madeArtifacts(text: string, cwd: string): string[] {
+function madeArtifacts(text: string, cwd: string): string[] {
   return madeNames(text).filter(name => artifactKind(name)).map(name => resolvePath(cwd, name));
 }
 
@@ -113,7 +113,7 @@ function madeNames(text: string) {
 }
 
 /// What the log groups made files by, in the order it shows them.
-export type MadeGroup = "images" | "documents" | "pdfs" | "pages" | "models" | "other";
+type MadeGroup = "images" | "documents" | "pdfs" | "pages" | "models" | "other";
 
 const GROUP_ORDER: readonly MadeGroup[] = ["images", "documents", "pdfs", "pages", "models", "other"];
 

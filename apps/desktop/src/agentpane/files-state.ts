@@ -18,7 +18,7 @@ export interface TreeEntry {
 }
 
 /// One folder as `agent_tree` gives it (TreeFolder).
-export interface TreeFolder {
+interface TreeFolder {
   path: string;
   entries: TreeEntry[];
   more: number;
@@ -38,7 +38,7 @@ export function isTree(value: unknown): value is Tree {
 }
 
 /// A folder's listing in one string, to tell a read that changed nothing.
-export function listingKey(l: Listing | undefined) {
+function listingKey(l: Listing | undefined) {
   if (!l) return "";
   const rows = l.entries ? l.entries.map(e => `${e.name}\t${+e.folder}\t${e.size}\t${+e.ignored}\t${e.change ?? ""}`).join("\n") : "-";
   return `${l.error}\n${l.more}\n${rows}`;

@@ -11,7 +11,7 @@ const START_SIZE = { cols: 100, rows: 30 };
 /// Attaches tried in a row before giving up until asked again.
 const MAX_TRIES = 6;
 
-export type PaneLink = "attaching" | "attached" | "detached" | "ended";
+type PaneLink = "attaching" | "attached" | "detached" | "ended";
 
 /// One terminal tab.
 export interface PaneTerm {

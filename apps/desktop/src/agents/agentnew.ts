@@ -134,9 +134,9 @@ function taskHint(missing: boolean) {
   return "Describe the task.";
 }
 
-export function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
+function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
 /// The agents the chosen machine offers; before one is picked, any machine's.
-export function formAgents() {
+function formAgents() {
   const host = formHost();
   const all = host ? host.agents : [...new Set((AG.hosts ?? []).flatMap(m => m.agents))];
   return all.sort(byPreference);

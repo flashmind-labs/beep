@@ -30,7 +30,7 @@ import { docked, main, paneOf, place, shell } from "./media-layout.ts";
 
 /// What the log has now for the Artifacts tab: its artifacts, and when
 /// each turn started, by its message's place.
-export interface PaneArtifacts {
+interface PaneArtifacts {
   list: Artifact[];
   turnStart: (turn: number) => number | undefined;
 }

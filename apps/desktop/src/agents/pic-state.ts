@@ -4,7 +4,7 @@ import { ICON } from "../ui/icons.tsx";
 
 /// A picture as read from its machine: the data URL, a promise while it is
 /// read, null when the machine no longer has it, nothing when not asked yet.
-export type PicRead = Promise<string | null> | string | null | undefined;
+type PicRead = Promise<string | null> | string | null | undefined;
 
 /// A session picture that is not here: its icon and name.
 export const gonePic = (label: string, message = label) => `<span class="pic none" title="${esc(label)}">${ICON.image}${esc(message)}</span>`;

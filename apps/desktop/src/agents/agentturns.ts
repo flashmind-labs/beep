@@ -226,7 +226,7 @@ export function rowParts(text: string, running = false, whole = false): RowParts
 
 /// One file's change as the node words it under an edit: `[diff] path +2
 /// -1`, then lines marked " ", "-" or "+", and `… N more lines` when cut.
-export interface DiffBlock {
+interface DiffBlock {
   path: string;
   added: number;
   removed: number;
@@ -461,7 +461,7 @@ export function heading(state: TurnState, ms: number | null) {
 }
 
 /// What is known of when a session's turns ran.
-export interface TurnTimes {
+interface TurnTimes {
   /// The turn opens the session.
   first: boolean;
   /// The turn is the newest.

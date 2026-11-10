@@ -313,7 +313,7 @@ export function drawWorktrees(host: HTMLElement, here: boolean) {
 }
 
 /// Closes the menu; true when one was open.
-export function closeWorktreeMenu() {
+function closeWorktreeMenu() {
   if (!W.open) return false;
   W.open = false;
   W.changed(false);

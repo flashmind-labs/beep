@@ -7,7 +7,7 @@ import { SubagentsView, type SubagentRow } from "../agentpane/subagents-view.tsx
 import type { MadeFile, MadeFiles } from "../agentpane/artifacts-state.ts";
 import type { Answered } from "./agentlog.ts";
 
-export type ToolActivity = { kind: "tool"; id: string; html: string; at: number; failed: boolean; open: boolean; artifact: string | null; toggle: boolean; keyboard: boolean; mark: string; after: string; layout: { kind: "beep"; head: string } | { kind: "standard"; parts: RowParts; tip: string; since: number | null } };
+type ToolActivity = { kind: "tool"; id: string; html: string; at: number; failed: boolean; open: boolean; artifact: string | null; toggle: boolean; keyboard: boolean; mark: string; after: string; layout: { kind: "beep"; head: string } | { kind: "standard"; parts: RowParts; tip: string; since: number | null } };
 export type ActivityRow =
   | { kind: "thought"; id: string; html: string; key: string; at: number; text: string; content: string | null; ms: number | null; live: boolean; open: boolean }
   | { kind: "live"; id: string; html: string; state: TurnState; thinking: boolean; start: number | null; doing: string }

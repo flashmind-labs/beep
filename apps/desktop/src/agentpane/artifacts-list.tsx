@@ -3,7 +3,7 @@ import { FRAME_SANDBOX, KIND_NAMES, relativeTo, type Artifact } from "./artifact
 
 export type ArtifactAction = "fold" | "pdf" | "claude" | "file" | "copy";
 
-export interface ArtifactsModel {
+interface ArtifactsModel {
   artifacts: readonly Artifact[]; cwd: string; picked: string | null; gone: ReadonlySet<string>; when: (artifact: Artifact) => number | undefined;
   actions: { shown: boolean; folded: boolean; note: string; url: string | null; inside: boolean };
   preview: { key: number; value: ArtifactPreview } | null;

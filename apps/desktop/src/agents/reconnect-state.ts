@@ -5,7 +5,7 @@
 import type { AgentPage } from "./agents.ts";
 
 /// Why `agent_view` failed, as the app tells it.
-export type ViewError = { kind: "lost" } | { kind: "gone" } | { kind: "failed"; message: string };
+type ViewError = { kind: "lost" } | { kind: "gone" } | { kind: "failed"; message: string };
 
 /// Reads lost in a row, and whether the session ended with its machine.
 export interface Link { lost: number; ended: boolean }

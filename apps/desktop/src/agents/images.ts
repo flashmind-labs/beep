@@ -107,7 +107,7 @@ function loadOnce(cache: typeof agentImages, command: string, o: OpenAgent, key:
   return Promise.resolve(got);
 }
 
-export const loadAgentImage = (o: OpenAgent, key: string) => loadOnce(agentImages, "agent_image", o, key);
+const loadAgentImage = (o: OpenAgent, key: string) => loadOnce(agentImages, "agent_image", o, key);
 
 /// The picture a tile of the log stands for, whole: what opens, saves or
 /// copies, as the tile itself may show a thumbnail. Null when it cannot be read.

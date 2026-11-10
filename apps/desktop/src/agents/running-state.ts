@@ -21,7 +21,7 @@ export interface RunningAgent {
 }
 
 /// A research running now.
-export interface RunningResearch {
+interface RunningResearch {
   kind: "research";
   session: string;
   topic: string;
@@ -67,7 +67,7 @@ export function runningLine(
 
 /// When a Running now row last moved: now for an agent in a turn, else its
 /// last step or reply (its end, once it stopped), a research's start.
-export const runningAt = (r: (Pick<RunningAgent, "kind" | "started_at" | "last_activity"> & { status?: string }) | Pick<RunningResearch, "kind" | "started_at">) =>
+const runningAt = (r: (Pick<RunningAgent, "kind" | "started_at" | "last_activity"> & { status?: string }) | Pick<RunningResearch, "kind" | "started_at">) =>
   r.kind !== "agent" ? r.started_at : r.status === "working" ? Date.now() : r.last_activity || r.started_at;
 
 /// Idle sessions show how long ago they were last active.

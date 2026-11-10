@@ -40,6 +40,142 @@ import { showAgentControl } from "./composer-ui.tsx";
 import { AgentStatus, AgentStopFace } from "./mode-view.tsx";
 import { contextHtml, promptHtml, replyHtml, type ContextRow, type PromptRow, type ReplyRow } from "./reply-view.tsx";
 
+/// Draws the log again. `keep` finds the row the reader just opened or
+/// folded, which stays where it is on screen. With `older` it is the row in
+/// view while older entries come in above, kept only when the reader is not
+/// at the end.
+export function drawAgentBody(keep?: string, polled = false, older = false) {
+  const b = $<ChatBody>("#agbody"), p = AG.page;
+  if (!b || !p) return;
+  const s = p.session, q = s.question;
+  const st = $("#agstate"), stopping = stoppingNow();
+  if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
+  // Read where the reader is before the log is drawn again: only a reader
+  // at the bottom follows new entries; anyone else stays where they are,
+  // and so does a row the reader opens or folds.
+  const redraw = older ? "older" : keep != null ? "toggle" : "news";
+  const scroll = logScroll(b.stuck !== false, redraw);
+  const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
+  // A plan waiting for approval shows above the field instead.
+  const question = q && AG.modes?.plan == null ? q : null;
+  const why = AG.why ? `Auto picked ${s.machine_name}. ${AG.why}` : null;
+  const olderText = olderNote(p, AG.older.stop, AG.older.loading);
+  const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
+  const parent = parentSession(p.session);
+  const crumb: ActivityRow | null = parent ? { kind: "crumb", id: "up", html: upCrumb(p), parent: parent.title || "Session", title: s.title || "Session" } : null;
+  const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", html: earlier, text: olderText } : null;
+  // The log goes in by turns, and only those near the view are drawn.
+  const units = p.entries.length && AG.log
+    ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p)] : null;
+  const note = AG.held ? { text: holdNote(s.machine_name), error: false }
+    : AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", error: false }
+    : AG.note && AG.note === AG.readError && AG.link.lost ? { text: AG.note, error: false }
+    : AG.note ? { text: AG.note, error: true } : null;
+  const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");
+  const subs = paneSubs(p);
+  const shell = { why, starting: s.status === "starting", log: !!units,
+    question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
+    questionKey: question ? questionKey(question, { machine_id: s.machine_id, agent: s.agent, session: s.id }) : null,
+    answering: !!question && question.id === AG.answering, plan: p.plan.map(item => ({ ...item })), asking: s.status === "asking",
+    error: p.error, external: s.external, note, retry };
+  if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
+  // The pane follows the open conversation into its worktree.
+  followAgent(p.entries, p.earlier, null);
+  const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
+  drawPane(subs, arts);
+  drawModelPill();
+  drawModes();
+  drawTasks();
+  drawQueue();
+  const owner = $("#agfield") ?? b;
+  if (st) showAgentControl(owner, st, createElement(AgentStatus, { status: s.status, stopping }));
+  tickTurns();
+  redrawAgentHints();
+  // Only a turn that runs can be stopped.
+  const stop = $<HTMLButtonElement>("#agstop");
+
+  if (stop) {
+    stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
+    // Stopped: it says so at once, while the agent winds the turn down.
+    if (stop.disabled !== stopping) {
+      stop.disabled = stopping;
+    }
+    showAgentControl(owner, stop, createElement(AgentStopFace, { stopping }));
+  }
+
+  if (scroll === "bottom") pinEnd(b);
+  else if (anchor) restoreScroll(b, anchor);
+  // A row opened at the bottom pushes the bottom away: the log follows
+  // new entries again once the reader scrolls back down.
+  if (redraw === "toggle") b.stuck = atBottom(b);
+  fillLog(b, scroll === "bottom");
+  drawnRows(b);
+  syncJump(b);
+}
+
+/// Puts the log's html in the page, replacing only the rows that changed.
+/// A poll leaves a row the reader is selecting in place until it is
+/// unselected: false then, with that row as it was.
+function showLog(b: HTMLElement, shell: Parameters<typeof showLogShell>[1], units: Unit[] | null, polled: boolean) {
+  const sel = getSelection(), held: Node[] = [];
+  const focused = document.activeElement;
+  if (polled && focused && b.contains(focused)) held.push(focused);
+  if (polled && sel && (!sel.isCollapsed || (pressed !== null && b.contains(pressed)))) {
+    if (sel.anchorNode) held.push(sel.anchorNode);
+    if (sel.focusNode) held.push(sel.focusNode);
+  }
+  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row.kind === "run" ? { ...row, html: prepareInlineImages(row.html), tools: row.tools.map(tool => ({ ...tool, after: prepareInlineImages(tool.after) })) } : row.kind === "folded-pictures" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row) })) ?? null;
+  return showLogShell(b, shell, prepared, held);
+}
+
+/// Scrolls the log to its newest entry, which it follows again from there.
+export function jumpToLatest() {
+  const b = $<ChatBody>("#agbody");
+  if (!b) return;
+  b.stuck = true;
+  // From far up it goes at once: a glide would end short of turns measured on the way.
+  const far = b.scrollHeight - b.scrollTop - b.clientHeight > b.clientHeight;
+  b.scrollTo({ top: b.scrollHeight, behavior: far || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  syncJump(b);
+}
+
+/// The row in view at the top of the log, to pass to `drawAgentBody` as the
+/// row that stays where it is when a key opens or folds many rows at once.
+export function rowInView() {
+  const b = $<ChatBody>("#agbody");
+  return (b && scrollAnchor(b).sel) || "[data-row]";
+}
+
+/// A part of the log that is not a turn, as one; an empty one is hidden.
+const fixed = (key: string, row: TranscriptRow | null): Unit => ({ key, rows: () => row ? [row] : [] });
+
+/// What rows just drawn need: their pictures and their live thoughts.
+function drawnRows(b: HTMLElement) {
+  fillAgentPics(b);
+  attachLive(b);
+}
+
+/// The log scrolled: the turns it reaches are drawn. At the bottom it stays there.
+export function scrolledLog(b: ChatBody) {
+  if (fillLog(b, b.stuck !== false)) drawnRows(b);
+}
+
+/// Shows "Jump to latest" while the log is scrolled up from the bottom.
+export function syncJump(b: ChatBody) {
+  const jump = b.querySelector<HTMLElement>("#agjump");
+  if (jump) jump.hidden = b.stuck !== false || atBottom(b);
+}
+
+/// Where a pointer is held down. Matching `:active` on every delta would force
+/// a style recalculation of the whole page.
+let pressed: Node | null = null;
+
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", e => { pressed = e.target instanceof Node ? e.target : null; }, true);
+  for (const type of ["pointerup", "pointercancel", "dragend"]) document.addEventListener(type, () => { pressed = null; }, true);
+  window.addEventListener("blur", () => { pressed = null; });
+}
+
 // Elapsed clocks use when this window first saw the call running.
 const toolStarts = new Map<string, number>();
 
@@ -280,7 +416,7 @@ function typedThought(en: AgentEntry, at: number, live: boolean): ActivityRow {
   return { kind: "thought", id: String(at), html: thoughtRow(en, at, live), key, at, text: en.text, content: en.html ?? null, ms: en.ms ?? null, live, open };
 }
 
-export function entryRow(en: AgentEntry, at: number) {
+function entryRow(en: AgentEntry, at: number) {
   const text = esc(en.text);
   if (en.kind === "thought") return thoughtRow(en, at);
   // Codex echoes answered questions as a message: show them as answered.
@@ -584,144 +720,8 @@ function restoreScroll(b: HTMLElement, a: ScrollAnchor) {
   if (top !== b.scrollTop) b.scrollTop = top;
 }
 
-/// The row in view at the top of the log, to pass to `drawAgentBody` as the
-/// row that stays where it is when a key opens or folds many rows at once.
-export function rowInView() {
-  const b = $<ChatBody>("#agbody");
-  return (b && scrollAnchor(b).sel) || "[data-row]";
-}
-
-/// Draws the log again. `keep` finds the row the reader just opened or
-/// folded, which stays where it is on screen. With `older` it is the row in
-/// view while older entries come in above, kept only when the reader is not
-/// at the end.
-export function drawAgentBody(keep?: string, polled = false, older = false) {
-  const b = $<ChatBody>("#agbody"), p = AG.page;
-  if (!b || !p) return;
-  const s = p.session, q = s.question;
-  const st = $("#agstate"), stopping = stoppingNow();
-  if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
-  // Read where the reader is before the log is drawn again: only a reader
-  // at the bottom follows new entries; anyone else stays where they are,
-  // and so does a row the reader opens or folds.
-  const redraw = older ? "older" : keep != null ? "toggle" : "news";
-  const scroll = logScroll(b.stuck !== false, redraw);
-  const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
-  // A plan waiting for approval shows above the field instead.
-  const question = q && AG.modes?.plan == null ? q : null;
-  const why = AG.why ? `Auto picked ${s.machine_name}. ${AG.why}` : null;
-  const olderText = olderNote(p, AG.older.stop, AG.older.loading);
-  const earlier = olderText ? `<div class="dmuted">${esc(olderText)}</div>` : "";
-  const parent = parentSession(p.session);
-  const crumb: ActivityRow | null = parent ? { kind: "crumb", id: "up", html: upCrumb(p), parent: parent.title || "Session", title: s.title || "Session" } : null;
-  const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", html: earlier, text: olderText } : null;
-  // The log goes in by turns, and only those near the view are drawn.
-  const units = p.entries.length && AG.log
-    ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p)] : null;
-  const note = AG.held ? { text: holdNote(s.machine_name), error: false }
-    : AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", error: false }
-    : AG.note && AG.note === AG.readError && AG.link.lost ? { text: AG.note, error: false }
-    : AG.note ? { text: AG.note, error: true } : null;
-  const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");
-  const subs = paneSubs(p);
-  const shell = { why, starting: s.status === "starting", log: !!units,
-    question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
-    questionKey: question ? questionKey(question, { machine_id: s.machine_id, agent: s.agent, session: s.id }) : null,
-    answering: !!question && question.id === AG.answering, plan: p.plan.map(item => ({ ...item })), asking: s.status === "asking",
-    error: p.error, external: s.external, note, retry };
-  if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
-  // The pane follows the open conversation into its worktree.
-  followAgent(p.entries, p.earlier, null);
-  const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
-  drawPane(subs, arts);
-  drawModelPill();
-  drawModes();
-  drawTasks();
-  drawQueue();
-  const owner = $("#agfield") ?? b;
-  if (st) showAgentControl(owner, st, createElement(AgentStatus, { status: s.status, stopping }));
-  tickTurns();
-  redrawAgentHints();
-  // Only a turn that runs can be stopped.
-  const stop = $<HTMLButtonElement>("#agstop");
-
-  if (stop) {
-    stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
-    // Stopped: it says so at once, while the agent winds the turn down.
-    if (stop.disabled !== stopping) {
-      stop.disabled = stopping;
-    }
-    showAgentControl(owner, stop, createElement(AgentStopFace, { stopping }));
-  }
-
-  if (scroll === "bottom") pinEnd(b);
-  else if (anchor) restoreScroll(b, anchor);
-  // A row opened at the bottom pushes the bottom away: the log follows
-  // new entries again once the reader scrolls back down.
-  if (redraw === "toggle") b.stuck = atBottom(b);
-  fillLog(b, scroll === "bottom");
-  drawnRows(b);
-  syncJump(b);
-}
-
-/// A part of the log that is not a turn, as one; an empty one is hidden.
-const fixed = (key: string, row: TranscriptRow | null): Unit => ({ key, rows: () => row ? [row] : [] });
-
-/// What rows just drawn need: their pictures and their live thoughts.
-function drawnRows(b: HTMLElement) {
-  fillAgentPics(b);
-  attachLive(b);
-}
-
-/// The log scrolled: the turns it reaches are drawn. At the bottom it stays there.
-export function scrolledLog(b: ChatBody) {
-  if (fillLog(b, b.stuck !== false)) drawnRows(b);
-}
-
-/// Where a pointer is held down. Matching `:active` on every delta would force
-/// a style recalculation of the whole page.
-let pressed: Node | null = null;
-
-if (typeof document !== "undefined") {
-  document.addEventListener("pointerdown", e => { pressed = e.target instanceof Node ? e.target : null; }, true);
-  for (const type of ["pointerup", "pointercancel", "dragend"]) document.addEventListener(type, () => { pressed = null; }, true);
-  window.addEventListener("blur", () => { pressed = null; });
-}
-
-/// Puts the log's html in the page, replacing only the rows that changed.
-/// A poll leaves a row the reader is selecting in place until it is
-/// unselected: false then, with that row as it was.
-function showLog(b: HTMLElement, shell: Parameters<typeof showLogShell>[1], units: Unit[] | null, polled: boolean) {
-  const sel = getSelection(), held: Node[] = [];
-  const focused = document.activeElement;
-  if (polled && focused && b.contains(focused)) held.push(focused);
-  if (polled && sel && (!sel.isCollapsed || (pressed !== null && b.contains(pressed)))) {
-    if (sel.anchorNode) held.push(sel.anchorNode);
-    if (sel.focusNode) held.push(sel.focusNode);
-  }
-  const prepared = units?.map(unit => ({ ...unit, rows: () => unit.rows().map(row => typeof row === "string" ? prepareInlineImages(row) : row.kind === "reply" ? { ...row, html: prepareInlineImages(row.html) } : row.kind === "prompt" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row.kind === "context" && row.type === "child" ? { ...row, body: prepareInlineImages(row.body) } : row.kind === "thought" ? { ...row, html: prepareInlineImages(row.html), content: row.content === null ? null : prepareInlineImages(row.content) } : row.kind === "tool" ? { ...row, html: prepareInlineImages(row.html), after: prepareInlineImages(row.after) } : row.kind === "run" ? { ...row, html: prepareInlineImages(row.html), tools: row.tools.map(tool => ({ ...tool, after: prepareInlineImages(tool.after) })) } : row.kind === "folded-pictures" ? { ...row, html: prepareInlineImages(row.html), pictures: prepareInlineImages(row.pictures) } : row) })) ?? null;
-  return showLogShell(b, shell, prepared, held);
-}
-
-/// Shows "Jump to latest" while the log is scrolled up from the bottom.
-export function syncJump(b: ChatBody) {
-  const jump = b.querySelector<HTMLElement>("#agjump");
-  if (jump) jump.hidden = b.stuck !== false || atBottom(b);
-}
-
-/// Scrolls the log to its newest entry, which it follows again from there.
-export function jumpToLatest() {
-  const b = $<ChatBody>("#agbody");
-  if (!b) return;
-  b.stuck = true;
-  // From far up it goes at once: a glide would end short of turns measured on the way.
-  const far = b.scrollHeight - b.scrollTop - b.clientHeight > b.clientHeight;
-  b.scrollTo({ top: b.scrollHeight, behavior: far || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-  syncJump(b);
-}
-
 /// The first line of a thought, without its Markdown bold or heading marks.
-export function thoughtLine(text: string) {
+function thoughtLine(text: string) {
   const line = text.split("\n").map(l => l.trim()).find(Boolean) ?? "";
   return line.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim();
 }

@@ -50,7 +50,7 @@ export function redrawAgentHints() {
 
 /// A session's folder as the header shows it: the repository and its
 /// worktree (`widget · fix-login`), else the folder's name.
-export function shortCwd(cwd: string) {
+function shortCwd(cwd: string) {
   const m = /^(.*?)\/(?:\.claude\/worktrees|\.worktrees)\/(.+?)\/?$/.exec(cwd);
   if (m) return `${folderName(m[1])} · ${m[2]}`;
   return folderName(cwd) || cwd;

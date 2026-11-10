@@ -1,7 +1,7 @@
 // Sessions the user closed, by machine and id: "closing" from the click until
 // the machine says the session ended, then "ended" until the lists read it so.
 
-export type CloseState = "closing" | "ended";
+type CloseState = "closing" | "ended";
 type Mark = { state: CloseState; at: number };
 type Ref = { machine_id: string; id: string };
 

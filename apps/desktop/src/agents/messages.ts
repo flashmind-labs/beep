@@ -298,7 +298,7 @@ export async function sendReview(text: string) {
 
 /// Resumes the ended session with `text`, then follows the session that
 /// goes on from it. Messages with images go together after resuming.
-export async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
+async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
   const o = AG.open!;
   input.value = "";
   input.disabled = true;

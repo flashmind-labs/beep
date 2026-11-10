@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { runningRow, type RunningProcess } from "./running-state.ts";
 
-export interface RunningModel { processes: readonly RunningProcess[]; local: boolean; stopping: ReadonlySet<number>; whole: ReadonlySet<number>; machine: string; error: string }
+interface RunningModel { processes: readonly RunningProcess[]; local: boolean; stopping: ReadonlySet<number>; whole: ReadonlySet<number>; machine: string; error: string }
 export interface RunningActions { open(url: string): void; toggle(pid: number): void; stop(pids: number[]): void }
 
 export function RunningView({ model, actions }: { model: RunningModel; actions: RunningActions }) {

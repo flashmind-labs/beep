@@ -8,10 +8,10 @@ import { folderOn } from "../project/projects-state.ts";
 
 /// The harnesses the picker's rail shows, in this order; others a machine
 /// offers (such as OpenCode) follow.
-export const RAIL = ["claude", "codex", "gemini", "pi", "flsh"];
+const RAIL = ["claude", "codex", "gemini", "pi", "flsh"];
 
 /// A rail badge: the harness, and whether the picked machine has it.
-export interface RailItem {
+interface RailItem {
   agent: string;
   enabled: boolean;
 }
@@ -31,7 +31,7 @@ export function harnessFor(picked: string | null, offered: readonly string[], or
 }
 
 /// A thinking level: what the start sends, and what the picker shows.
-export interface Effort {
+interface Effort {
   value: string;
   label: string;
 }
@@ -171,7 +171,7 @@ export type CheckoutPick = "current" | "branch" | "new" | { worktree: string };
 export const DEFAULT_CHECKOUT: CheckoutPick = "current";
 
 /// The session fields the worktree list reads.
-export interface SessionAt {
+interface SessionAt {
   machine_id: string;
   cwd: string;
 }
@@ -200,7 +200,7 @@ export function checkoutLabel(pick: CheckoutPick): string {
 /// What `agent_start` sends as `checkout`: the node makes a `beep/<slug>`
 /// branch from `base` (the checkout's HEAD when null), in the checkout or
 /// in a new worktree under `.worktrees/`.
-export type CheckoutPlan = { new_branch: { base: string | null } } | { new_worktree: { base: string | null } };
+type CheckoutPlan = { new_branch: { base: string | null } } | { new_worktree: { base: string | null } };
 
 /// Whether the pick makes a new branch, so the form asks for its base.
 export function makesBranch(pick: CheckoutPick): boolean {
@@ -227,7 +227,7 @@ export interface BaseBranches {
 }
 
 /// The most branches the Base menu lists.
-export const MAX_BASES = 30;
+const MAX_BASES = 30;
 
 /// The Base menu's branches: the default branch first, then the others,
 /// newest commit first, at most `MAX_BASES`.
@@ -311,7 +311,7 @@ export function projectAt(projects: readonly FormProject[], machine: string | nu
 }
 
 /// A row of the Folder menu outside a project.
-export type FolderRow =
+type FolderRow =
   | { kind: "workspace"; shown: string; on: boolean }
   | { kind: "project"; project: string; cwd: string; shown: string; on: boolean }
   | { kind: "type" }
@@ -341,7 +341,7 @@ export function folderPill(cwd: string, workspace: string | null | undefined, ho
 // ----- Picker placement -----
 
 /// A box on screen, in CSS pixels.
-export interface Rect {
+interface Rect {
   top: number;
   left: number;
   width: number;
@@ -350,7 +350,7 @@ export interface Rect {
 
 /// Where a popover goes, in viewport pixels; `maxHeight` is set when it
 /// does not fit whole on either side.
-export interface Placement {
+interface Placement {
   top: number;
   left: number;
   width: number;

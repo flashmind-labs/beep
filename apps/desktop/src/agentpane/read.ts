@@ -12,7 +12,7 @@ import { draw } from "./media-draw.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
-export const MAX_FILE = 128 * 1024 * 1024;
+const MAX_FILE = 128 * 1024 * 1024;
 
 function bytesOf(b64: string) {
   const s = atob(b64), out = new Uint8Array(s.length);

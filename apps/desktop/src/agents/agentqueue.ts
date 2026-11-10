@@ -14,7 +14,7 @@ export interface Attached {
 
 /// Where a steer is: on its way to the node, held there for the next tool
 /// boundary, or delivered to the agent.
-export type SteerState = "sending" | "sent" | "delivered";
+type SteerState = "sending" | "sent" | "delivered";
 
 /// A message typed while the turn runs.
 export interface Waiting {

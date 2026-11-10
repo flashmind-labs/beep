@@ -83,7 +83,7 @@ export interface AgentSession {
 
 /// Where the session that started another runs and the ids it is listed
 /// under: the agent's own, and the one its node gave it before that.
-export interface AgentParent {
+interface AgentParent {
   machine_id: string;
   id: string;
   key: string;
@@ -204,7 +204,7 @@ export interface OpenAgent {
 }
 
 /// The start form.
-export interface AgentForm {
+interface AgentForm {
   prompt: string;
   /// A machine id, or "" until one is picked.
   machine: string;
@@ -357,7 +357,7 @@ interface AgentKind {
   name: string;
   cls: string;
 }
-export const AGENT_KINDS: Record<string, AgentKind> = {
+const AGENT_KINDS: Record<string, AgentKind> = {
   claude: { ini: "CC", name: "Claude Code", cls: "claude" },
   codex: { ini: "CX", name: "Codex", cls: "codex" },
   gemini: { ini: "GE", name: "Gemini CLI", cls: "gemini" },

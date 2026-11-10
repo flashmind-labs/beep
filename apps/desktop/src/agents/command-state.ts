@@ -5,7 +5,7 @@ import { highlight, languageOf } from "../agentpane/files-state.ts";
 import { esc } from "../ui/format.ts";
 
 /// A run of whole lines and the language they are in ("" for plain text).
-export interface Segment {
+interface Segment {
   lang: string;
   lines: string[];
 }

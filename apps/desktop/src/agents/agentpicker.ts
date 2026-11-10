@@ -198,7 +198,7 @@ export function closedPicker(el: HTMLElement) {
 /// Puts the open picker above its pill, right edges lined up, whole and
 /// inside its bounds: below the pill when it does not fit above, else cut
 /// to the roomier side, where its columns scroll.
-export function placeOpen() {
+function placeOpen() {
   if (!shown || !shown.el.isConnected) { shown = null; return; }
   const pick = shown.el.querySelector<HTMLElement>(".agc-pick"), pill = shown.o.anchor(), area = shown.o.bounds();
   if (!pick || !pill || !area) return;
