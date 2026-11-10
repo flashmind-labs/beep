@@ -64,14 +64,17 @@ export function drawWaiting(focus = false) {
   W.sel = Math.min(W.sel, Math.max(0, W.rows.length - 1));
   const need = W.rows.filter(r => r.kind === "asking" || r.kind === "done").length;
   const summary = !known ? "Looking at your machines…" : need ? `${need} waiting for you` : "Nothing waiting";
-  const focused = focus || document.activeElement?.id === "wtlist" || !bar.contains(document.activeElement);
+  const active = document.activeElement;
+  const focused = focus || active?.id === "wtlist" || !active || active === document.body;
   if (!page || page.host.parentElement !== bar) page = openBarPage(() => { page = null; });
   const root = page.root;
   flushSync(() => root.render(createElement(WaitingList, {
     rows: W.rows.map(row), selected: W.sel, summary, query: W.query,
     hints: hintModel([[ICON.ret, "open"], ["↑↓", "move"], ["⌘N", "new agent"], ["esc", W.query ? "clear" : "to hide"]]),
   })));
-  if (focused) $("#wtlist")?.focus();
+  // The command center's hidden pane draws too; WebKit would focus a list
+  // it has not laid out yet and take the focus from the window's page.
+  if (focused && bar.checkVisibility()) $("#wtlist")?.focus();
   $(`#wt-${W.sel}`)?.scrollIntoView({ block: "nearest" });
   bar.onclick = e => {
     if (S.view !== "waiting") return;
