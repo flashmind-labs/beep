@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from "react";
+import { createElement, createRef, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { AddProjectView } from "./addproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
@@ -83,7 +83,9 @@ export async function rescanAll(start: (machines: FoundMachine[]) => void, each:
 }
 
 let syncthing = syncthingImportChoice();
-let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, opts: AddProjectOptions = {}, close: (() => void) | null = null;
+/// The search field and the box of found rows, while the sheet shows them.
+const searchField = createRef<HTMLInputElement>(), rowBox = createRef<HTMLDivElement>();
+let root: HTMLDivElement | null = null, opts: AddProjectOptions = {}, close: (() => void) | null = null;
 /// null while the machines look, then the rows they found.
 let found: FoundRow[] | null = null;
 /// null until the server lists the repositories to clone.
@@ -138,7 +140,7 @@ export function openAddProject(options: AddProjectOptions = {}) {
   picked = new Set();
   status.clear();
   batch = false;
-  ({ root, sheet, close, render: view } = openSheet("Add a project", "am-sheet ap-sheet", { canClose: () => !busy(), onKey, onClose: closed }));
+  ({ root, close, render: view } = openSheet("Add a project", "am-sheet ap-sheet", { canClose: () => !busy(), onKey, onClose: closed }));
   draw();
   looking.clear();
   unread.clear();
@@ -172,7 +174,7 @@ function closeAddProject() {
 function closed() {
   syncthing.dispose();
   view = null;
-  root = sheet = close = null;
+  root = close = null;
 }
 
 const busy = () => !!importing || batch;
@@ -184,12 +186,12 @@ function shownRows() {
 
 /// The rows' elements, in list order.
 function rowEls() {
-  return [...(sheet?.querySelectorAll<HTMLElement>(".ap-box .ap-row") || [])];
+  return [...rowBox.current?.querySelectorAll<HTMLElement>(".ap-row") ?? []];
 }
 
 function onKey(e: KeyboardEvent) {
   const stop = () => { e.preventDefault(); e.stopPropagation(); };
-  const search = sheet?.querySelector<HTMLInputElement>(".ap-q");
+  const search = searchField.current;
   if (e.key === "Escape" || e.isComposing || !search) return;
   if (e.metaKey && e.key === "Enter") { stop(); importPicked(); return; }
   const at = document.activeElement;
@@ -278,7 +280,7 @@ function draw() {
   const current = view;
   const active = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>(".ap-row") : null;
   flushSync(() => current(createElement(AddProjectView, {
-    found, shown: shownRows(), hosts, machines: opts.machines, query, looking: [...looking.values()], unread: [...unread.values()], error, importing, batch, picked, status, failed, sync: syncthing,
+    searchField, rowBox, found, shown: shownRows(), hosts, machines: opts.machines, query, looking: [...looking.values()], unread: [...unread.values()], error, importing, batch, picked, status, failed, sync: syncthing,
     search: (value: string) => { query = value; draw(); }, toggle, toggleAll: () => { picked = toggleAllShown(shownRows().map(row => row.name), picked, status); draw(); },
     importPicked: () => void importPicked(), importOne: (row: FoundRow) => void doImport(row),
     choose: () => { const action = opts.onChoose; closeAddProject(); action?.(); },
@@ -286,7 +288,7 @@ function draw() {
     create: () => { const action = opts.onNew; closeAddProject(); action?.(); },
   })));
   if (active && !active.isConnected) {
-    const search = sheet?.querySelector<HTMLInputElement>(".ap-q");
+    const search = searchField.current;
     if (search && !search.hidden) search.focus();
   }
 }

@@ -1,4 +1,4 @@
-import { createElement, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { createElement, createRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ImportProjectView } from "./importproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
@@ -54,7 +54,9 @@ export function keepLastImport(project: ProjectRow) {
 }
 
 let syncthing = syncthingImportChoice();
-let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
+let root: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
+/// The folder field, while the sheet shows it.
+const folderField = createRef<HTMLInputElement>();
 let macId: string | null = null, close: (() => void) | null = null, onDone: ((project: ProjectRow) => void) | null = null;
 /// The repository's checkouts and branches with work, once read: for the repo
 /// text `previewFor`, null from a server too old to say.
@@ -92,7 +94,7 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
   if (options.machine && machines.some(m => m.id === options.machine)) state = { ...state, machine: options.machine };
   if (options.repo) state = { ...state, repo: options.repo };
-  ({ root, sheet, close, render: view } = openSheet("Import a project", "am-sheet ip-sheet", {
+  ({ root, close, render: view } = openSheet("Import a project", "am-sheet ip-sheet", {
     canClose: () => state.step !== "cloning",
     onKey,
     onClose: closed,
@@ -150,7 +152,7 @@ function closeImportProject() {
 function closed() {
   syncthing.dispose();
   view = null;
-  root = sheet = close = null;
+  root = close = null;
   const done = state.step === "done" ? state.project : null;
   state = START;
   clearTimeout(previewTimer);
@@ -212,7 +214,7 @@ function draw() {
   const current = view;
   const folder = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
   flushSync(() => current(createElement(ImportProjectView, {
-    state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), menu, syncChoice: syncthing,
+    state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), menu, syncChoice: syncthing, folderField,
     edit: (repo: string) => { update({ type: "edit", repo }); schedulePreview(); },
     pick: (machine: string | null) => { update({ type: "pick", machine }); learnBase(); },
     submit: () => void submit(), close: closeImportProject, choose: () => void choose(), unchoose: () => update({ type: "unchoose" }),
@@ -222,7 +224,7 @@ function draw() {
     },
     folderKey: (event: ReactKeyboardEvent<HTMLInputElement>) => onFolderKey(event, event.currentTarget),
     folderBlur: () => { lookup++; clearTimeout(lookupTimer); setMenu(NO_MENU); },
-    acceptFolder: (text: string) => { const field = sheet?.querySelector<HTMLInputElement>(".ip-dir"); if (field) acceptFolder(field, text); },
+    acceptFolder: (text: string) => { const field = folderField.current; if (field) acceptFolder(field, text); },
     browse: browseTo, cancelBrowse: () => update({ type: "browse", listing: null }), useFolder: (listing: MachineFolder) => update({ type: "choose", listing }),
     pickBranch: (branch: string, machine: string | null) => { if (machine === null) delete picks[branch]; else picks[branch] = machine; draw(); },
   })));
@@ -362,7 +364,7 @@ function lookFolders() {
 
 /// Shows the folder suggestions while their field owns focus.
 function setMenu(next: FolderMenu) {
-  const field = sheet?.querySelector<HTMLInputElement>(".ip-dir");
+  const field = folderField.current;
   menu = field && document.activeElement === field ? next : NO_MENU;
   if (root) draw();
 }

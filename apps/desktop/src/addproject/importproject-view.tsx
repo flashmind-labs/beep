@@ -1,5 +1,5 @@
 import { FolderBrowser } from "./folderbrowser.tsx";
-import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import { checkoutNote, forkNote, placeChoices, previewLine, type BranchPicks, type ImportFork, type PreviewView } from "../review/branchwork.ts";
 import type { MachineFolder } from "../project/projects-state.ts";
 import { doneText, folderHelp, folderNote, looksLikeRepo, machineChips, progressText, type ImportState } from "./importproject-state.ts";
@@ -10,14 +10,14 @@ import type { SyncthingImportChoice } from "../project/syncthing.ts";
 
 interface Props {
   state: ImportState; machines: readonly Machine[]; preview: PreviewView | null | undefined; previewFor: string; previewError: string; fork: ImportFork | null | undefined; picks: BranchPicks;
-  reading: boolean; folder: string; goes: string; menu: FolderMenu; syncChoice: SyncthingImportChoice;
+  reading: boolean; folder: string; goes: string; menu: FolderMenu; syncChoice: SyncthingImportChoice; folderField: RefObject<HTMLInputElement | null>;
   edit(repo: string): void; pick(machine: string | null): void; submit(): void; close(): void; choose(): void; unchoose(): void; folderInput(value: string): void; folderKey(event: KeyboardEvent<HTMLInputElement>): void; folderBlur(): void;
   acceptFolder(text: string): void; browse(path: string | null): void; cancelBrowse(): void; useFolder(listing: MachineFolder): void; pickBranch(branch: string, machine: string | null): void;
 }
 function Folder({ p }: { p: Props }) {
   const active = useRef<HTMLDivElement>(null), opened = isOpen(p.menu);
   useLayoutEffect(() => { if (opened) active.current?.scrollIntoView({ block: "nearest" }); }, [opened, p.menu.index, p.menu.dir]);
-  return <div className="am-line"><div className="ip-folder"><input className="ip-path ip-dir" type="text" spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label={p.state.chosen ? "Folder" : "Clone into"} role="combobox" aria-autocomplete="list" aria-controls="ip-menu" aria-expanded={opened} aria-activedescendant={opened ? `ip-menu-${p.menu.index}` : undefined} placeholder={p.state.machine ? "The machine's projects folder" : "The default folder on the machine Beep picks"} disabled={!p.state.machine} value={p.folder} title={p.folder} onChange={e => p.folderInput(e.currentTarget.value)} onKeyDown={p.folderKey} onBlur={p.folderBlur} />
+  return <div className="am-line"><div className="ip-folder"><input ref={p.folderField} className="ip-path ip-dir" type="text" spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label={p.state.chosen ? "Folder" : "Clone into"} role="combobox" aria-autocomplete="list" aria-controls="ip-menu" aria-expanded={opened} aria-activedescendant={opened ? `ip-menu-${p.menu.index}` : undefined} placeholder={p.state.machine ? "The machine's projects folder" : "The default folder on the machine Beep picks"} disabled={!p.state.machine} value={p.folder} title={p.folder} onChange={e => p.folderInput(e.currentTarget.value)} onKeyDown={p.folderKey} onBlur={p.folderBlur} />
     {opened && <div className="ip-menu" id="ip-menu" role="listbox">{p.menu.items.map((name, i) => <div key={name} ref={i === p.menu.index ? active : null} id={`ip-menu-${i}`} className={i === p.menu.index ? "on" : ""} role="option" aria-selected={i === p.menu.index} onMouseDown={e => e.preventDefault()} onClick={() => p.acceptFolder(completed(p.menu.dir, name))}>{name}</div>)}</div>}</div><button type="button" className="dbtn quiet" disabled={!p.machines.length || p.reading} onClick={p.choose}>{p.reading ? "Reading…" : "Choose…"}</button>{p.state.chosen && <button type="button" className="dbtn quiet" onClick={p.unchoose}>Default</button>}</div>;
 }
 function Branches({ p }: { p: Props }) {

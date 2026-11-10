@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import { OrbAsks } from "../chat/approvals.ts";
 import { AppLogo } from "../chat/applogo-view.tsx";
 import { invoke, Channel, listen } from "../ui/tauri.ts";
@@ -11,6 +11,7 @@ type LiveEvent = ({ kind: "view" } & View) | { kind: "level"; level: number } | 
 type Decision = "allow" | "always" | "deny" | "session";
 type NoticeAction = "dismiss" | "play" | "open";
 const ignore = () => {};
+const ringStyle = (ms: number): CSSProperties & { "--ms": string } => ({ "--ms": `${ms}ms` });
 const clip = (s: string, n: number) => s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
 
 export function Orb() {
@@ -27,7 +28,8 @@ export function Orb() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frame = useRef<number | null>(null);
   const orb = useRef<HTMLDivElement>(null);
-  const ring = useRef<SVGSVGElement>(null);
+  /// The countdown ring before a send; a new key starts its animation over.
+  const [ring, setRing] = useState<{ ms: number; key: number } | null>(null);
   const card = useRef<HTMLDivElement>(null);
   const note = useRef<HTMLDivElement>(null);
   const noticeEl = useRef<HTMLDivElement>(null);
@@ -43,13 +45,7 @@ export function Orb() {
     });
   }, []);
   const soon = useCallback((ms: number | null) => {
-    const el = ring.current;
-    if (!el) return;
-    el.style.display = "none";
-    if (ms === null) return;
-    el.style.setProperty("--ms", `${Math.max(1, ms)}ms`);
-    void el.getBoundingClientRect();
-    el.style.display = "";
+    setRing(was => ms === null ? null : { ms: Math.max(1, ms), key: (was?.key ?? 0) + 1 });
   }, []);
   const ask = useCallback((w: Waiting) => {
     if (!asks.current.add(w)) return;
@@ -111,7 +107,7 @@ export function Orb() {
   return <>
     <div className="ospot"><div className={`omini${live.current && view?.phase === "holding" ? " hold" : ""}`} id="mini" role="button" aria-label="Open Beep" onClick={() => currentNotice.current && !live.current ? noticeAction("open") : void invoke("show_bar").catch(ignore)}>
       <div className={`dorb ${mode}`} id="orb" ref={orb} aria-hidden="true"><span className="ring b"/><span className="ring"/><span className="core"/></div>
-      <svg className="oring" id="ring" ref={ring} viewBox="0 0 70 70" aria-hidden="true" style={{ display: "none" }}><circle cx="35" cy="35" r="33"/></svg>
+      {ring && <svg key={ring.key} className="oring" id="ring" viewBox="0 0 70 70" aria-hidden="true" style={ringStyle(ring.ms)}><circle cx="35" cy="35" r="33"/></svg>}
       <button className="ox" id="x" aria-label={view?.title ? "Stop the voice note" : replying ? "Cancel the reply" : "Leave live mode"} onClick={e => { e.stopPropagation(); if (currentNotice.current && !live.current) noticeAction("dismiss"); else void invoke("cancel_live").catch(ignore); }}><CloseIcon/></button>
     </div></div>
     <div className={`otoast${toast !== null && /could not|not available|busy|failed/i.test(toast) ? " bad" : ""}`} id="toast" ref={note} role="status" hidden={!noteText}>{noteText}</div>
