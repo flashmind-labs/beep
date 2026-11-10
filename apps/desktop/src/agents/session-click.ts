@@ -1,0 +1,240 @@
+// What a click in the open session's log and pane does.
+import { $, S } from "../bar/core.ts";
+import { openViewer } from "../chat/media.ts";
+import { linkedPath } from "../agentpane/media-state.ts";
+import { openLinked, openPath, openPicture, showArtifact } from "../agentpane/media.ts";
+import { atBottom } from "./logscroll.ts";
+import { copyCode, toggleThought } from "./turnrows.ts";
+import { AG } from "./agents.ts";
+import { fullPic } from "./images.ts";
+import { childRow } from "./nesting-state.ts";
+import { parentSession, keepNativeSession, loadSessions, sessions } from "./sessions.ts";
+import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.ts";
+import { toggleModelPicker, closeModelPicker } from "./modelpill.ts";
+import { cycleMode } from "./modepill.ts";
+import { answerAgentQuestion } from "./messages.ts";
+import type { ChatBody } from "../ui/turn.ts";
+import { invoke } from "../ui/tauri.ts";
+import { readError } from "../agentpane/read.ts";
+import { nativeSession } from "./native-session-state.ts";
+import { isOpen, openAgent, resumeAgent } from "./session.ts";
+
+export function agentClick(e: MouseEvent) {
+  if (S.view !== "agent") return;
+  const target = e.target as HTMLElement;
+  const opt = target.closest<HTMLElement>("[data-agopt]");
+  if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
+  if (target.closest("#agmodelb")) return toggleModelPicker();
+  if (target.closest("#agmodeb")) { cycleMode(); $("#agmsg")?.focus(); return; }
+  if (AG.modelOpen && !target.closest(".agc-pick, [data-agtask]")) closeModelPicker();
+  const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
+  if (closing) return closeSub(Number(closing.dataset.subclose));
+  const stopping = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kidstop]");
+  if (stopping) return void stopKid(stopping);
+  const prompt = target.closest<HTMLElement>("#agbody [data-prompt]");
+
+  if (prompt) {
+    const at = Number(prompt.dataset.prompt);
+    AG.steps.set(at, prompt.getAttribute("aria-expanded") !== "true");
+    return drawAgentBody(clickedRow(prompt));
+  }
+
+  const summary = target.closest<HTMLElement>("[data-subsummary]");
+  if (summary) { const at = Number(summary.dataset.subsummary); AG.steps.set(at, !AG.steps.get(at)); drawAgentBody(); return; }
+  const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-native]");
+
+  if (sub && AG.page && AG.log) {
+    const entry = AG.page.entries[Number(sub.dataset.native) - AG.page.earlier];
+    if (!entry) return;
+    const { title, status, output } = AG.log.parseTool(AG.log.imageLines(entry.text).text);
+    const child = AG.log.subagent(output);
+    const row = child?.session && nativeSession(AG.page.session, child.session, title.split("\n")[0], status);
+    if (row) { keepNativeSession(row, AG.page.session); openAgent(row, { back: AG.back }); }
+    return;
+  }
+
+  // An agent another agent started opens as its own session.
+  const kid = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kid]");
+  if (kid) { void openKid(kid.dataset.kid!, kid.dataset.key); return; }
+  if (target.closest("#agup, #agup2")) return openParent();
+  // "Show all N lines" opens the whole output in a box that scrolls.
+  const all = target.closest<HTMLElement>("#agbody [data-all]");
+
+  if (all) {
+    const at = Number(all.dataset.all);
+    if (!AG.all.delete(at)) AG.all.add(at);
+    return drawAgentBody(clickedRow(all));
+  }
+
+  if (target.closest("#agbody pre.out.all")) return;
+  // A run of calls opens and folds in place, like a thought.
+  const runBtn = target.closest<HTMLElement>("#agbody [data-run]");
+
+  if (runBtn && AG.open) {
+    const opened = turnsOf(AG.open.session).runs, at = Number(runBtn.dataset.run);
+    const open = !opened.delete(at);
+    if (open) opened.add(at);
+    runBtn.parentElement?.classList.toggle("open", open);
+    runBtn.setAttribute("aria-expanded", String(open));
+    return;
+  }
+
+  // The files a turn made fold and open in place, like a run of calls.
+  const madeHead = target.closest<HTMLElement>("#agbody [data-madeat]");
+
+  if (madeHead && AG.open) {
+    const opened = turnsOf(AG.open.session).made, at = Number(madeHead.dataset.madeat);
+    const open = !opened.delete(at);
+    if (open) opened.add(at);
+    madeHead.parentElement?.classList.toggle("open", open);
+    madeHead.setAttribute("aria-expanded", String(open));
+    return;
+  }
+
+  // A file a turn made opens in the Artifacts tab, or else in its own tab.
+  const madeFile = target.closest<HTMLElement>("#agbody [data-made]");
+
+  if (madeFile) {
+    if (!showArtifact(madeFile.dataset.made!)) openLinked(madeFile.dataset.made!);
+    return;
+  }
+
+  const copy = target.closest<HTMLElement>("#agbody [data-copy]");
+  if (copy) return copyCode(copy);
+  if (target.closest("#agjump")) { jumpToLatest(); return; }
+  // A thought opens and folds in place, so only it animates.
+  const thought = target.closest<HTMLElement>("#agbody [data-thought]");
+
+  if (thought && AG.open) {
+    const m = turnsOf(AG.open.session), at = Number(thought.dataset.thought);
+    if (toggleThought(thought)) m.thoughts.add(at);
+    else m.thoughts.delete(at);
+    return;
+  }
+
+  // The heading toggles the steps; the bottom chevron returns to it.
+  const turn = target.closest<HTMLElement>("#agbody [data-turn]");
+
+  if (turn && AG.open) {
+    const opened = turnsOf(AG.open.session).opened, key = Number(turn.dataset.turn);
+    const collapse = turn.hasAttribute("data-collapse");
+    const heading = `#agbody .hd[data-turn="${key}"]`;
+    // Bring the heading into view before the shorter turn is virtualized.
+    if (collapse) $(heading)?.scrollIntoView({ block: "nearest" });
+    if (!opened.delete(key) && !collapse) opened.add(key);
+    drawAgentBody(clickedRow(turn));
+
+    if (collapse) {
+      const head = $<HTMLButtonElement>(heading);
+      head?.focus({ preventScroll: true });
+      head?.scrollIntoView({ block: "nearest" });
+    }
+
+    return;
+  }
+
+  // A file a step names opens in the media pane.
+  const step = target.closest<HTMLElement>("#agbody [data-media]");
+  if (step) { openPath(step.dataset.media!); return; }
+  // A markdown link to a file opens it in the pane; bar/events.ts sends web links out.
+  const fileLink = target.closest<HTMLAnchorElement>("#agbody a[href]");
+  const linkedFile = fileLink && linkedPath(fileLink.getAttribute("href")!);
+  if (linkedFile) { openLinked(linkedFile); return; }
+  // A file the reply names opens its picture, as its thumbnail does, or
+  // else the file itself from the machine, in the media pane.
+  const link = target.closest<HTMLElement>("#agbody a.imgl");
+  const linked = link?.dataset.img != null ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic, :scope > [data-tool-content] > .pics img.pic")[Number(link.dataset.img)] : null;
+  if (link && !linked?.getAttribute("src")) { if (link.dataset.path) openPath(link.dataset.path); return; }
+  // The agent's pictures open in the media pane, the user's own full size.
+  // One still loading opens once it is here. The tile may be a thumbnail, so
+  // what opens is read whole.
+  const pic = linked ?? target.closest<HTMLImageElement>("#agbody img.pic");
+
+  if (pic) {
+    const o = AG.open;
+    if (!o || !pic.getAttribute("src")) return;
+    const name = (link ? link.textContent : null) || pic.dataset.name || pic.alt;
+    const unread = () => { AG.note = "Could not read the whole picture."; drawAgentBody(); };
+
+    if (!pic.closest(".dcoderen.user")) {
+      fullPic(o, pic).then(url => { if (isOpen(o)) url ? openPicture(url, name) : unread(); });
+      return;
+    }
+
+    const all = [...pic.parentElement!.querySelectorAll<HTMLImageElement>("img.pic[src]")];
+    Promise.all(all.map(i => fullPic(o, i))).then(urls => {
+      if (!isOpen(o)) return;
+      // Each opens by its data URL, which can be saved or copied.
+      const read = all.flatMap((i, at) => { const url = urls[at]; return url ? [{ img: i, url }] : []; });
+      const at = read.findIndex(r => r.img === pic);
+      if (at < 0) return unread();
+      openViewer(read.map(({ img: i, url }) => ({ url, name: i.dataset.name || i.alt, caption: "", saves: url.startsWith("data:") })), at);
+    });
+    return;
+  }
+
+  // An Artifact call opens what it published in the Artifacts tab.
+  const art = target.closest<HTMLElement>("#agbody [data-artifact]");
+  if (art && !getSelection()!.toString() && showArtifact(art.dataset.artifact!)) return;
+  const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
+
+  if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd, .call-details")) {
+    const at = Number(tool.dataset.at);
+    AG.steps.set(at, !tool.classList.contains("open"));
+    return drawAgentBody(clickedRow(tool));
+  }
+
+  // A pasted block opens by itself; remember it so a redraw keeps it open.
+  const paste = target.closest<HTMLElement>("#agbody .dcoderen.user[data-at] details.paste > summary");
+
+  if (paste) {
+    const key = `${paste.closest<HTMLElement>("[data-at]")!.dataset.at}:${paste.parentElement!.dataset.paste}`;
+    if (!AG.opened.delete(key)) AG.opened.add(key);
+    // Once it opened, the next redraw follows the bottom only if it is still in view.
+    requestAnimationFrame(() => { const b = $<ChatBody>("#agbody"); if (b) b.stuck = atBottom(b); });
+    return;
+  }
+
+  if (target.closest("#agresume")) return resumeAgent();
+}
+
+/// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again.
+async function kidSession(id: string, key?: string) {
+  const row = childRow(sessions, id, key);
+  if (row) return row;
+  try { await loadSessions(); } catch { return null; }
+  return childRow(sessions, id, key);
+}
+
+async function openKid(id: string, key?: string) {
+  const row = await kidSession(id, key);
+  if (row) openAgent(row, { back: AG.back });
+}
+
+/// Stop on a running child's row: stops its turn, as Stop in its own log does.
+async function stopKid(x: HTMLElement) {
+  const kid = x.closest<HTMLElement>("[data-kid]");
+  const row = kid && await kidSession(kid.dataset.kid!, kid.dataset.key);
+  if (!row) return;
+
+  try {
+    await invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: "cancel" });
+  } catch (e) {
+    AG.note = readError(e);
+    drawAgentBody();
+  }
+}
+
+/// Opens the session that started the open one.
+export function openParent() {
+  const row = AG.open && AG.page && parentSession(AG.page.session);
+  if (row) openAgent(row, { back: AG.back });
+}
+
+/// Tool rows also open from the keyboard; details stay selectable.
+export function toolKey(event: KeyboardEvent) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || !target.matches('#agbody .dcoderen.tool[data-at][role="button"]') || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  target.click();
+}

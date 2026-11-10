@@ -6,7 +6,9 @@ import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type Wind
 import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
-import { agentHints, closeOpenSession, pollAgent, sessionPicks, forgetAgentFollows } from "../src/agents/session.ts";
+import { closeOpenSession, pollAgent, sessionPicks } from "../src/agents/session.ts";
+import { agentHints } from "../src/agents/session-head.ts";
+import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";

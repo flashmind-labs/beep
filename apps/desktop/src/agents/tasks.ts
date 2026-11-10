@@ -43,7 +43,7 @@ export function drawTasks() {
     return createElement("div", { className: "ag-task", key: t.id },
       createElement("span", { className: "dspin" }),
       createElement("span", { className: "nm", title: what }, t.name || what),
-      t.can_stop && createElement("button", { className: "dbtn quiet small", "data-agtask": t.id, disabled: going }, going ? "Stopping" : "Stop"));
+      t.can_stop && createElement("button", { className: "dbtn quiet small", "data-agtask": t.id, disabled: going, onClick: () => void stopTask(t.id) }, going ? "Stopping" : "Stop"));
   })), live.length);
 }
 
