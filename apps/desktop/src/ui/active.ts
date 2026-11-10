@@ -13,7 +13,7 @@ const told: (() => void)[] = [];
 /// Native events and interaction take precedence over WebKit's visibility
 /// and focus, which can both stay stale. Before either, use the page's state.
 export const pageShown = () => windowHidden === null
-  ? !!document.hasFocus?.() || document.visibilityState === "visible"
+  ? typeof document !== "undefined" && (!!document.hasFocus?.() || document.visibilityState === "visible")
   : !windowHidden;
 
 /// Whether the bar's views show: the window does and, in the command

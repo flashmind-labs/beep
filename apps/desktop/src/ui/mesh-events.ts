@@ -137,8 +137,7 @@ async function flush() {
     if (reader !== current) return;
     reader = null;
     resumeFrom = current.sent === null ? null : { seq: current.seq, topics: current.sent };
-    clearTimeout(retry);
-    if (interests().length) retry = setTimeout(refreshTopicSubscriptions, 5000);
+    if (interests().length) retryLater();
   });
 }
 
@@ -169,12 +168,17 @@ async function sendTopics(current: Reader) {
     console.warn("mesh topics:", error);
 
     if (reader === current) {
-      clearTimeout(retry);
-      retry = setTimeout(refreshTopicSubscriptions, 5000);
+      retryLater();
     }
   } finally {
     current.updating = false;
   }
+}
+
+/// A retry runs only while the page exists; a torn-down page (or test) is never revisited.
+function retryLater() {
+  clearTimeout(retry);
+  retry = setTimeout(() => { if (typeof document !== "undefined") refreshTopicSubscriptions(); }, 5000);
 }
 
 function report(error: unknown) { console.warn("mesh subscriber:", error); }
