@@ -1,4 +1,4 @@
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The copies this Mac keeps of other machines' sessions, in the Coding
 // agents list: a session whose machine is off offers Continue on this Mac,
 // and a version that lost to another machine's can be restored or thrown
@@ -26,7 +26,7 @@ let unfollow: (() => void) | undefined;
 /// Follows copy and machine changes while the list shows. Started once.
 export function keepCopiesFresh(isOpen: () => boolean) {
   showing = isOpen;
-  unfollow ??= subscribeTopics([topic("moves"), topic("machines")], () => loadCopies(), null, () => showing() && pageShown());
+  unfollow ??= subscribeChanges([topic("moves"), topic("machines")], { deliver: "latest", receive: () => loadCopies() }, { when: () => showing() && pageShown() });
 }
 
 /// Reads the copies the node keeps.

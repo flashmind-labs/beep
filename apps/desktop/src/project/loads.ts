@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/window-root.ts";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { refreshMoves, MV } from "../agents/move-store.ts";
-import { subscribeChanges, subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
@@ -114,12 +114,12 @@ const whereChanges = new Changes();
 const sessionChanges = new Changes();
 const termChanges = new Changes();
 const overviewChanges = new Changes();
-subscribeTopics([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
+subscribeEach([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
 // Home changes with every session's state and with moves.
-subscribeTopics(topic("home"), () => sessionChanges.changed());
+subscribeEach(topic("home"), () => sessionChanges.changed());
 for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
-subscribeTopics(topic("terminals"), () => termChanges.changed());
-subscribeTopics(topic("projects"), () => overviewChanges.changed());
+subscribeEach(topic("terminals"), () => termChanges.changed());
+subscribeEach(topic("projects"), () => overviewChanges.changed());
 
 /// Marks what opening project `name` reads behind its kept page.
 export function markDue(name: string) {
@@ -337,10 +337,10 @@ export function checkoutItems(p: Project, m: WhereRow, path: string): MenuItem[]
 
 /// Follows changes to the selected project's checkouts on each machine.
 export const readingWhere = new Set<string>();
-subscribeChanges([topic("projects"), topic("machines"), topic("sync")], async () => {
+subscribeChanges([topic("projects"), topic("machines"), topic("sync")], { deliver: "latest", receive: async () => {
   const name = state.picked;
   if (name) { await whereReads.get(name); await loadWhere(name); }
-}, null, () => currentLocation()?.view === "projects" && !!state.picked, AMBIENT_MS);
+} }, { when: () => currentLocation()?.view === "projects" && !!state.picked, wait: AMBIENT_MS });
 /// Projects whose kept places are due another read on the next draw.
 export const whereDue = new Set<string>();
 const whereReads = new Map<string, Promise<void>>();
@@ -523,7 +523,7 @@ async function refreshProjectSessions() {
   if (name) { sessionsDue.add(name); await loadSessions(name); }
 }
 // Agents report many times a second during turns; the list follows every two seconds.
-subscribeChanges([topic("agents"), topic("moves")], refreshProjectSessions, null, projectSessionsShown, SLOW_MS);
+subscribeChanges([topic("agents"), topic("moves")], { deliver: "latest", receive: refreshProjectSessions }, { when: projectSessionsShown, wait: SLOW_MS });
 listen("agent-title-changed", () => {
   if (projectSessionsShown()) void refreshProjectSessions().catch(e => console.warn("project session titles:", e));
 });

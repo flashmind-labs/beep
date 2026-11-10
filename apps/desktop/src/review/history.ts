@@ -75,11 +75,11 @@ export function makeGitHistory(deps: HistoryDeps) {
     if (watched === key) return;
     unfollow?.();
     watched = key;
-    unfollow = subscribeChanges(roots.map(root => topic("files", root)), async () => {
+    unfollow = subscribeChanges(roots.map(root => topic("files", root)), { deliver: "latest", receive: async () => {
       await refresh(p.name);
       const error = list(p, null, p.query).error;
       if (error) throw new Error(error);
-    }, p.data.machine_id, () => p.nav.isConnected && p.detail.isConnected, SLOW_MS);
+    } }, { machine: p.data.machine_id, when: () => p.nav.isConnected && p.detail.isConnected, wait: SLOW_MS });
   }
 
   function stop() {

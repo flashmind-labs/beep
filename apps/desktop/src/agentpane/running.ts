@@ -31,7 +31,7 @@ function syncSession() {
   key = next;
   readVersion++;
   unfollow?.();
-  unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), readRunning, s.machine_id, visible, AMBIENT_MS) : undefined;
+  unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), { deliver: "latest", receive: readRunning }, { machine: s.machine_id, when: visible, wait: AMBIENT_MS }) : undefined;
   list = [];
   local = false;
   error = "";

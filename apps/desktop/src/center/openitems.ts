@@ -12,6 +12,7 @@ import { draw } from "./home.ts";
 import { currentLocation, go } from "./views.ts";
 import { reloadChats, loadFound } from "./sidebar.ts";
 import { refresh } from "./refresh.ts";
+import { single } from "../ui/active.ts";
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
@@ -96,21 +97,6 @@ function importWithSettings(p: OpenRepo) {
     folder,
     onDone: () => refresh(),
   });
-}
-
-/// Calls during a read share its promise and request one fresh read after it.
-export function single(load: () => Promise<void>) {
-  let running: Promise<void> | undefined;
-  let dirty = false;
-  return async () => {
-    if (running) { dirty = true; return running; }
-    running = (async () => {
-      do { dirty = false; await load(); } while (dirty);
-    })();
-
-    try { await running; }
-    finally { running = undefined; }
-  };
 }
 
 /// Reads the open items through the machines and the saved tokens; the

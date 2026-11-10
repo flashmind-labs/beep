@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { showWindowParts } from "./window-root.ts";
 import { UsageWidget } from "./usage-view.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
 export { creditAmount, creditScope, type ProviderCredits } from "../ui/credits.ts";
@@ -268,6 +268,6 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
   document.addEventListener("keydown", e => { if (open && e.key === "Escape") toggle(false); });
   // Spending changes with every turn; the pill follows at most once a second.
   const reload = ambient(() => load(false), AMBIENT_MS);
-  subscribeTopics(topic("usage"), () => reload());
+  subscribeChanges(topic("usage"), { deliver: "latest", receive: () => reload() });
   void load(false);
 }

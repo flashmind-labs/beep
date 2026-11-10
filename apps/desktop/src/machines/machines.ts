@@ -211,7 +211,7 @@ function readList(): Promise<void> {
 export function followToolUpdates() {
   // Opened before the machines connected: the page follows them as they come.
   for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) { void readList(); void loadToolUpdates(); } });
-  subscribeChanges(topic("machines"), () => readList(), null, shown);
+  subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() }, { when: shown });
 }
 
 async function loadNodeRelease() {
@@ -397,7 +397,7 @@ async function waitForNode(id: string, to: string, polls: number) {
 
       reading = false;
     };
-    const unfollow = subscribeChanges(topic("machines"), () => check());
+    const unfollow = subscribeChanges(topic("machines"), { deliver: "latest", receive: () => check() });
     const deadline = setTimeout(() => {
       const now = MC.updates.get(id);
 

@@ -70,6 +70,21 @@ export function ambient(fn: () => unknown, ms: number, when: () => boolean = () 
   };
 }
 
+/// Calls during a read share its promise and request one fresh read after it.
+export function single(load: () => Promise<void>) {
+  let running: Promise<void> | undefined;
+  let dirty = false;
+  return async () => {
+    if (running) { dirty = true; return running; }
+    running = (async () => {
+      do { dirty = false; await load(); } while (dirty);
+    })();
+
+    try { await running; }
+    finally { running = undefined; }
+  };
+}
+
 /// A route or tab changed: dirty ambient views that now show run once.
 export function shownChanged() { for (const resume of ambients) resume(); }
 

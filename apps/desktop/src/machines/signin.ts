@@ -28,10 +28,10 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
   let active = true;
   let pending: Promise<void> = Promise.resolve();
   let root: DocumentView | null = null;
-  const unfollow = subscribeChanges(topic("sign-in", tool), async () => {
+  const unfollow = subscribeChanges(topic("sign-in", tool), { deliver: "latest", receive: async () => {
     await step({ step: "state" });
     if (error) throw new Error(error);
-  }, machine.id, () => active);
+  } }, { machine: machine.id, when: () => active });
   const shell = openSheet(`Sign in ${tool} on ${machine.name}`, "am-sheet", {
     onClose: () => {
       open = false;

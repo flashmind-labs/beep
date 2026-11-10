@@ -1,7 +1,7 @@
 import { createElement, Fragment, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { FeedbackControl, FeedbackNote, type FeedbackState } from "./feedback-view.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Review with agent: the diff header's button, the start form's picker
 // under it, and what follows a pick. A pick asks the node of the diff's
 // checkout to start a temporary reviewer there, a child of the session whose
@@ -110,7 +110,7 @@ function markTaken(key: string, id: string) {
 // ----- Following a review -----
 
 function schedule(run: Run) {
-  run.unfollow ??= subscribeTopics(topic("reviews", run.id), () => tick(run), run.machineId);
+  run.unfollow ??= subscribeChanges(topic("reviews", run.id), { deliver: "latest", receive: () => tick(run) }, { machine: run.machineId });
 }
 
 function finish(run: Run) {

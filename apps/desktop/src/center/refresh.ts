@@ -1,8 +1,8 @@
-import { subscribeChanges as subscribeTopics, topic, type MeshEvent } from "../ui/mesh-events.ts";
+import { type MeshEvent, subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { snapshotView } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
 import { invoke, listen } from "../ui/tauri.ts";
-import { AMBIENT_MS, SLOW_MS, ambient, onShownChange, pageShown } from "../ui/active.ts";
+import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
 import { applyTelemetry, keepUnchanged, withoutDismissed, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
 import { preloadModels } from "../agents/agentpicker.ts";
@@ -11,7 +11,7 @@ import { onlineMachines } from "./center.ts";
 import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pages, pagesAccount, keepPagesFile } from "./state.ts";
 import { cardKey, dismissedUpdates, problem, draw } from "./home.ts";
 import { readAllTerms } from "../terminals/view.ts";
-import { refreshGit, single } from "./openitems.ts";
+import { refreshGit } from "./openitems.ts";
 import { currentLocation, drawTop } from "./views.ts";
 import { reloadGroup, reloadChats, drawSide } from "./sidebar.ts";
 import { loadOverview } from "../project/projects.ts";
@@ -182,18 +182,18 @@ onShownChange(visible => {
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.
-subscribeTopics(topic("home"), event => homeChanged(needsChanged(event)));
+subscribeChanges(topic("home"), { deliver: "each", receive: event => homeChanged(needsChanged(event)) });
 for (const name of ["work-question", "work-resolved", "group-approval", "approval-answered"]) listen(name, () => homeChanged(true));
-subscribeTopics(topic("machines"), async () => { await refreshMac(); await reloadGroup("machines"); }, null, undefined, AMBIENT_MS);
-subscribeTopics(topic("projects"), refreshProjects, null, undefined, AMBIENT_MS);
-subscribeTopics(topic("sync"), refreshSync);
-subscribeTopics(topic("terminals"), readAllTerms, null, undefined, AMBIENT_MS);
-subscribeTopics(topic("forge"), async () => {
+subscribeChanges(topic("machines"), { deliver: "latest", receive: async () => { await refreshMac(); await reloadGroup("machines"); } }, { wait: AMBIENT_MS });
+subscribeChanges(topic("projects"), { deliver: "latest", receive: refreshProjects }, { wait: AMBIENT_MS });
+subscribeChanges(topic("sync"), { deliver: "latest", receive: refreshSync });
+subscribeChanges(topic("terminals"), { deliver: "latest", receive: readAllTerms }, { wait: AMBIENT_MS });
+subscribeChanges(topic("forge"), { deliver: "latest", receive: async () => {
   if (!snapshotView("git_items")) return;
   await refreshGit();
   if (state.gitError) throw new Error(state.gitError);
-}, null, () => currentLocation()?.view === "home");
-subscribeTopics(topic("telemetry"), event => {
+} }, { when: () => currentLocation()?.view === "home" });
+subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => {
   if (!event.data) return;
   telemetry = event.data as Telemetry;
   state.traffic = telemetry.traffic;
@@ -201,7 +201,7 @@ subscribeTopics(topic("telemetry"), event => {
   if (state.home) state.home = applyTelemetry(state.home, telemetry);
   if (kept) shown = state.home;
   draw();
-}, null, () => currentLocation()?.view === "home", SLOW_MS);
+} }, { when: () => currentLocation()?.view === "home", wait: SLOW_MS });
 // Signed out or removed: the kept project pages go with the account.
 listen<string>("link-state", e => { if (e.payload !== "linked") { pages.setAccount(null); keepPagesFile(undefined); } });
 // The chat rows follow other devices at most once a second.

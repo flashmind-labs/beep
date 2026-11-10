@@ -42,7 +42,7 @@ import { cycleMode } from "./modepill.ts";
 import { money } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
-import { subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { Changes } from "../ui/pagecache.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
@@ -380,7 +380,7 @@ export const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agen
 
 /// Machines and accounts decide which machines run agents.
 export const hostChanges = new Changes();
-subscribeTopics([topic("machines"), topic("accounts")], () => hostChanges.changed());
+subscribeEach([topic("machines"), topic("accounts")], () => hostChanges.changed());
 
 /// The machines that can run an agent; none for an account that may not use machines.
 export async function loadAgentHosts() {

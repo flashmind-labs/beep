@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView } from "../ui/document-root.tsx";
 import { AddMachineView } from "./addmachine-view.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // The "Add <project> to <machine>" sheet of a project's "Where it lives": the
 // folder there, then how far Beep's sync has brought the files. With `from`
 // it is the "Change folder" sheet: the machine points at another folder,
@@ -118,7 +118,7 @@ export function openAddToMachine(o: AddToMachine) {
     if (!open) return;
     if (copying?.done) { close(); return; }
     draw();
-    unfollow ??= subscribeTopics(topic("sync"), () => poll(), machine.id, () => open);
+    unfollow ??= subscribeChanges(topic("sync"), { deliver: "latest", receive: () => poll() }, { machine: machine.id, when: () => open });
   };
 
   draw();

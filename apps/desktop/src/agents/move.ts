@@ -2,7 +2,7 @@ import { createElement, Fragment, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { MoveMenu, MoveStatus, type MoveView } from "./move-view.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Moving the open session to another machine: the machine name in the head is
 // a menu, a turn that runs waits (or is stopped), steps tick above the
 // composer, and the lists say "laptop to studio". The records are in the
@@ -66,7 +66,7 @@ export function drawMove() {
   drawRoot(owner);
 }
 
-subscribeTopics([topic("moves"), topic("agents")], () => poll(), null, () => !!AG.open && S.view === "agent" && paneShown());
+subscribeChanges([topic("moves"), topic("agents")], { deliver: "latest", receive: () => poll() }, { when: () => !!AG.open && S.view === "agent" && paneShown() });
 async function poll() {
   try { await loadSessions(); } catch (e) { console.warn("sessions not read after a move", e); }
   drawMove();

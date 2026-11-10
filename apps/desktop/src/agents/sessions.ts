@@ -1,5 +1,5 @@
 import { invoke, listen } from "../ui/tauri.ts";
-import { subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { Changes } from "../ui/pagecache.ts";
 import type { AgentRow, AgentSession } from "./agents.ts";
 import { parentRow } from "./nesting-state.ts";
@@ -39,7 +39,7 @@ export const sessionsRead = new Set<() => void>();
 /// the last read stands.
 const changes = new Changes();
 const changed = () => changes.changed();
-subscribeTopics(topic("home"), changed);
+subscribeEach(topic("home"), changed);
 for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, changed);
 
 /// The sessions every page shares: the last read while nothing changed

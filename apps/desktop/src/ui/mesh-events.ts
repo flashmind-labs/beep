@@ -7,10 +7,17 @@ export { matchesTopic, topic, type Topic } from "./topic-state.ts";
 /// `seq` orders the updates native code retains, so a reader that attaches again asks only for newer ones.
 export interface MeshEvent { machine_id: string; topic: Topic; revision: number; query?: number | null; initial?: boolean; data?: unknown; seq?: number }
 interface Interest { machine: string | null; topic: Topic }
-type Receive = (event: MeshEvent) => unknown;
+/// How a coalesced subscriber takes the updates pending after its wait: `latest` rereads its own
+/// state once for all of them; `each` gets every update in arrival order, without waiting between them.
+export type Delivery =
+  | { deliver: "latest"; receive: () => unknown }
+  | { deliver: "each"; receive: (event: MeshEvent) => unknown };
+/// `machine` limits the topics to one machine; omitted, they cover the mesh. `when` pauses the
+/// subscriber while false. `wait` is how long a coalesced subscriber waits before it reads.
+export interface SubscribeOptions { machine?: string | null; when?: () => boolean; wait?: number }
 interface Subscriber {
   interests: Interest[];
-  receive: Receive;
+  delivery: Delivery;
   active: () => boolean;
   coalesce: boolean;
   pending: Map<string, { event: MeshEvent; bytes: number }>;
@@ -43,23 +50,23 @@ let queued = false;
 
 const active = (subscriber: Subscriber) => pageShown() && subscriber.active();
 
-/// Omitting a machine subscribes across the mesh. `*` includes plugin namespaces too.
-export function subscribeTopics(topics: Topic | Topic[], receive: Receive, machine: string | null = null, when: () => boolean = () => true): () => void {
-  return subscribe(topics, receive, machine, when, false);
+/// Every update as it arrives, uncoalesced. `*` includes plugin namespaces too.
+export function subscribeEach(topics: Topic | Topic[], receive: (event: MeshEvent) => unknown, options: Omit<SubscribeOptions, "wait"> = {}): () => void {
+  return subscribe(topics, { deliver: "each", receive }, options, false);
 }
 
 /// Initial query answers return through the requesting read; coalesce subsequent snapshots.
 /// Live views keep the default wait; ambient ones pass `AMBIENT_MS` or `SLOW_MS`.
-/// A receiver declared without parameters runs once for all pending updates.
-export function subscribeChanges(topics: Topic | Topic[], receive: Receive, machine: string | null = null, when: () => boolean = () => true, wait = 100): () => void {
-  return subscribe(topics, receive, machine, when, true, wait);
+export function subscribeChanges(topics: Topic | Topic[], delivery: Delivery, options: SubscribeOptions = {}): () => void {
+  return subscribe(topics, delivery, options, true);
 }
 
-function subscribe(topics: Topic | Topic[], receive: Receive, machine: string | null, when: () => boolean, coalesce: boolean, wait = 100): () => void {
+function subscribe(topics: Topic | Topic[], delivery: Delivery, options: SubscribeOptions, coalesce: boolean): () => void {
   if (typeof window === "undefined") return () => {};
+  const machine = options.machine ?? null;
   const subscriber: Subscriber = {
     interests: (Array.isArray(topics) ? topics : [topics]).map(topic => ({ machine, topic: normalizeTopic(topic) })),
-    receive, active: when, coalesce, pending: new Map(), pendingBytes: 0, running: false, failures: 0, wait,
+    delivery, active: options.when ?? (() => true), coalesce, pending: new Map(), pendingBytes: 0, running: false, failures: 0, wait: options.wait ?? 100,
   };
   subscribers.add(subscriber);
   // Module-level subscribers can depend on state in a circular import.
@@ -127,7 +134,7 @@ async function flush() {
       if (subscriber.coalesce && event.initial && event.query != null) continue;
 
       if (!subscriber.coalesce) {
-        try { void Promise.resolve(subscriber.receive(event)).catch(report); } catch (error) { report(error); }
+        try { void Promise.resolve(deliverOne(subscriber.delivery, event)).catch(report); } catch (error) { report(error); }
       } else {
         markDirty(subscriber, event);
         schedule(subscriber);
@@ -182,6 +189,10 @@ function retryLater() {
   retry = setTimeout(() => { if (typeof document !== "undefined") refreshTopicSubscriptions(); }, 5000);
 }
 
+function deliverOne(delivery: Delivery, event: MeshEvent) {
+  return delivery.deliver === "latest" ? delivery.receive() : delivery.receive(event);
+}
+
 function report(error: unknown) { console.warn("mesh subscriber:", error); }
 
 const MAX_PENDING = 256;
@@ -220,8 +231,6 @@ function schedule(subscriber: Subscriber, wait = subscriber.wait) {
 }
 
 /// Takes every pending update in one pass so a burst over many keys draws once after the wait.
-/// A receiver that takes no event argument rereads its state and runs once; one that reads the
-/// event gets each update in arrival order, without waiting between them.
 async function read(subscriber: Subscriber) {
   const taken = [...subscriber.pending];
   if (!taken.length) return;
@@ -234,14 +243,14 @@ async function read(subscriber: Subscriber) {
     for (const [key, update] of taken.slice(from)) if (!subscriber.pending.has(key)) markDirty(subscriber, update.event);
   };
 
-  if (subscriber.receive.length === 0) {
-    try { await subscriber.receive(taken[taken.length - 1][1].event); } catch (error) { report(error); errored = true; keep(0); }
+  if (subscriber.delivery.deliver === "latest") {
+    try { await subscriber.delivery.receive(); } catch (error) { report(error); errored = true; keep(0); }
   } else {
     for (const [index, [key, { event }]] of taken.entries()) {
       if (!subscribers.has(subscriber)) break;
       if (!active(subscriber)) { keep(index); break; }
 
-      try { await subscriber.receive(event); } catch (error) {
+      try { await deliverOne(subscriber.delivery, event); } catch (error) {
         report(error);
         errored = true;
         if (!subscriber.pending.has(key)) markDirty(subscriber, event);

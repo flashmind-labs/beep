@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderChatCoderCards } from "./work-view.tsx";
 import { CoderCardView, type CoderCardState } from "./codercard-view.tsx";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { paneShown } from "../ui/active.ts";
 import { type AgentReport, cardKey, parseAgentReport } from "./agentcard.ts";
 import { type AgentPage, type AgentSession } from "../agents/agents.ts";
@@ -72,7 +72,7 @@ function prune(owner: CardOwner) {
 // again; its chat's observer or `disposeCoderCards` lets it go.
 function follow(card: CoderCard, row: AgentSession) {
   card.unfollow?.();
-  card.unfollow = subscribeTopics(topic("agent", row.id), () => poll(card), row.machine_id, () => card.isConnected && paneShown());
+  card.unfollow = subscribeChanges(topic("agent", row.id), { deliver: "latest", receive: () => poll(card) }, { machine: row.machine_id, when: () => card.isConnected && paneShown() });
 }
 
 /// Releases subscriptions and selection listeners when a chat is evicted.
