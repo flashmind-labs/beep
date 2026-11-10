@@ -173,26 +173,38 @@ async function loadToolUpdates() {
   }
 }
 
-/// Reads the machines and draws them while the page shows.
-async function readList() {
-  try {
-    const [list, mac, updatable, traffic] = await Promise.all([
-      invoke<Machine[]>("list_machines"),
-      invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
-      invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
-      invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return []; }),
-      loadClocks(invoke),
-    ]);
-    MC.list = list;
-    MC.traffic = traffic;
-    MC.updatable = new Set(updatable.map(u => u.id));
-    MC.mac = mac?.id || null;
-    MC.error = "";
-  } catch (e) {
-    MC.error = String(e);
-  }
-
-  if (shown()) drawMachines();
+// Concurrent invalidations share one read and request a fresh pass before publishing.
+let listRead: Promise<void> | null = null;
+let listAgain = false;
+function readList(): Promise<void> {
+  if (listRead) { listAgain = true; return listRead; }
+  listRead = (async () => {
+    do {
+      listAgain = false;
+      try {
+        const [list, mac, updatable, traffic] = await Promise.all([
+          invoke<Machine[]>("list_machines"),
+          invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
+          invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
+          invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return []; }),
+          loadClocks(invoke),
+        ]);
+        if (listAgain) continue;
+        MC.list = list;
+        MC.traffic = traffic;
+        MC.updatable = new Set(updatable.map(u => u.id));
+        MC.mac = mac?.id || null;
+        MC.error = "";
+      } catch (e) {
+        if (listAgain) continue;
+        MC.error = String(e);
+      }
+      if (shown()) drawMachines();
+    } while (listAgain);
+  })();
+  const read = listRead;
+  void read.then(() => { if (listRead === read) listRead = null; }, () => { if (listRead === read) listRead = null; });
+  return read;
 }
 
 /// Starts the machine updates once per webview, from its entry point.

@@ -1,7 +1,7 @@
-import { answers, bar } from "./steer-env.ts";
+import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { machinesIn, machinesOut, renderMachines } from "../src/machines/machines.ts";
+import { MC, machinesIn, machinesOut, renderMachines } from "../src/machines/machines.ts";
 import { S } from "../src/bar/core.ts";
 
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -61,4 +61,26 @@ test("reattaching the machine host before observer delivery retains its controls
   assert.equal(mount.querySelector("#mcAdd"), button);
   machinesOut();
   host.remove();
+});
+
+test("overlapping machine refreshes wait for the latest read", async () => {
+  let finish: (value: unknown) => void = () => {};
+  const first = new Promise(resolve => { finish = resolve; });
+  answers.list_machines = first;
+  S.view = "machines";
+  const before = calls.filter(call => call.cmd === "list_machines").length;
+  const one = renderMachines();
+  const two = renderMachines();
+  await settle();
+  assert.equal(calls.filter(call => call.cmd === "list_machines").length - before, 1);
+  const newest = [{ id: "machine", name: "Current", online: true, seen_at: 0, version: "", env: null }];
+  answers.list_machines = newest;
+  finish([{ id: "machine", name: "Old", online: true, seen_at: 0, version: "", env: null }]);
+  await Promise.all([one, two]);
+  assert.equal(calls.filter(call => call.cmd === "list_machines").length - before, 2);
+  assert.equal(MC.list?.[0]?.name, "Current");
+  answers.list_machines = [];
+  S.view = "chat";
+  bar.replaceChildren();
+  await settle();
 });
