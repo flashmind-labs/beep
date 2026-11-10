@@ -52,11 +52,6 @@ export function Spinner({ dot = false, className, label, title }: { dot?: boolea
   return <span className={`${dot ? "drun" : "dspin"}${className ? ` ${className}` : ""}`} role={label ? "img" : undefined} aria-label={label} title={title} />;
 }
 
-/// A button inside a clickable row that does its own thing, not the row's.
-export function RowButton({ className = "small", onPress, children }: { className?: string; onPress(): void; children: ReactNode }) {
-  return <button type="button" className={`dbtn ${className}`} onClick={event => { event.stopPropagation(); onPress(); }}>{children}</button>;
-}
-
 /// Enter or Space on a focusable row that is not itself a button runs `run`,
 /// as a click on it would. Keys from controls inside the row pass by.
 export function onRowKey(run: () => void) {
