@@ -5,7 +5,6 @@ import { onClosing, visibleRunning } from "../agents/closing.ts";
 import { plural, reason } from "../ui/format.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
-import { splitPinned } from "./pinned.ts";
 import { openPalette } from "./palette.ts";
 import { pane } from "../bar/pane.ts";
 import { live, S, type View } from "../bar/core.ts";
@@ -346,6 +345,15 @@ function pickChat(c: SideChat) {
   if (c.kind === "group") return go("pane", { group: { id: c.id } });
   if (c.research) return openResearch(c.id);
   go("pane", { chat: { session: c.id } });
+}
+
+/// Pinned chats and groups go to the Pinned group; the newest of the rest stay
+/// under Chats. `rows` are newest first, as the pane lists them.
+function splitPinned<T extends { pinned: boolean }>(rows: T[], limit: number) {
+  return {
+    pinned: rows.filter(c => c.pinned),
+    recent: rows.filter(c => !c.pinned).slice(0, limit),
+  };
 }
 
 registerSidebarGroup<SideChat>("pinned", {

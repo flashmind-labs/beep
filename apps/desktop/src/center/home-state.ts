@@ -92,3 +92,13 @@ export function needsLine(n:
 
   return { title: n.question.text, sub: [agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
 }
+
+/// Drops the updates in `dismissed`, a Set of ids, from `listed`: updates the
+/// user dismissed stay off Home even when a list read before the dismiss
+/// reached the server comes back with them. An id a list no longer has is gone
+/// on the server too, so it leaves the set.
+export function withoutDismissed<T extends { id: number }>(listed: T[], dismissed: Set<number>): T[] {
+  const ids = new Set(listed.map(u => u.id));
+  for (const id of dismissed) if (!ids.has(id)) dismissed.delete(id);
+  return listed.filter(u => !dismissed.has(u.id));
+}
