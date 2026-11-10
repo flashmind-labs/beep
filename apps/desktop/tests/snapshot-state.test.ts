@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clearViews, installViews, snapshotView, takeSnapshotView, viewWrite } from "../src/ui/snapshot-state.ts";
+import { clearViews, installViews, snapshotView, takeSnapshotView, viewWrite, writeScope } from "../src/ui/snapshot-state.ts";
 
 test("snapshots match command arguments, preserve null and keep caller changes private", t => {
   t.after(clearViews);
@@ -30,6 +30,10 @@ test("only read views are accepted and cache size stays bounded", t => {
   assert.equal(viewWrite("save_agent_token"), true);
   assert.equal(viewWrite("agent_tree_edit"), true);
   assert.equal(viewWrite("center_project_runs"), false);
+  assert.equal(viewWrite("session_move_progress"), false, "move progress is a read");
+  assert.deepEqual(writeScope("send_prompt"), { kind: "views", commands: ["center_home"] });
+  assert.deepEqual(writeScope("set_zoom_level"), { kind: "none" });
+  assert.deepEqual(writeScope("save_credential"), { kind: "all" });
 });
 
 test("source errors replace successful projections, then a retry can read fresh state", t => {

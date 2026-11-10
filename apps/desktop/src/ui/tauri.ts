@@ -1,5 +1,5 @@
 // Tauri's global API (`withGlobalTauri`), typed for the pages.
-import { clearViews, takeSnapshotView, viewWrite } from "./snapshot-state.ts";
+import { dropViews, takeSnapshotView, writeScope } from "./snapshot-state.ts";
 
 /// A channel Rust streams events into, passed as an `invoke` argument.
 export interface TauriChannel<T> {
@@ -104,8 +104,9 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
     trace("snapshot", snapshot.kind === "value" ? "ok" : "error");
     return snapshot.kind === "value" ? Promise.resolve(snapshot.value as T) : Promise.reject(snapshot.error);
   }
-  const writing = viewWrite(cmd);
-  if (writing) clearViews();
+  // A write drops only the rendered views it can change, before and after it runs.
+  const writing = writeScope(cmd);
+  dropViews(writing);
   const lifecycle = cmd === "agent_start" || cmd === "agent_resume";
   const at = Date.now();
   const measure = TIMED_COMMANDS.has(cmd) ? performance.now() : null;
@@ -130,7 +131,7 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
     return value;
   }).finally(() => {
     if (timer !== null) clearTimeout(timer);
-    if (writing) clearViews();
+    dropViews(writing);
   }).catch((e: unknown) => {
     trace("returned", timedOut ? "timeout" : "error");
     if (measure !== null) recordTiming("command", cmd, performance.now() - measure, timedOut ? "timeout" : "error");

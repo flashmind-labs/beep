@@ -23,6 +23,8 @@ pub(crate) struct Views {
     pending: Mutex<Pending>,
     task: Mutex<Option<JoinHandle<()>>>,
     sync: Mutex<SyncPace>,
+    /// Views that changed while only hidden windows wanted them, drawn once one shows.
+    deferred: Mutex<BTreeSet<&'static str>>,
 }
 
 /// When the sync view was drawn last, and whether a draw waits for `SYNC_GAP`.
@@ -104,12 +106,47 @@ pub(crate) fn changed(app: AppHandle, topic: Topic) {
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
 
     for &name in affected(topic.name()) {
-        if events.controller_wanted(&Topic::new(name)) {
+        let topic = Topic::new(name);
+
+        if events.controller_wanted(&topic) {
             pending.topics.insert(name);
+        } else if events.controller_held(&topic) {
+            defer(&views, name);
         }
     }
 
     start(&app, &views, pending);
+}
+
+/// A window showed again: draw the views that changed while it was hidden.
+pub(crate) fn resumed(app: AppHandle) {
+    let views = app.state::<Views>();
+    let events = app.state::<Events>();
+    let deferred = std::mem::take(
+        &mut *views
+            .deferred
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner),
+    );
+    let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+
+    for name in deferred {
+        if events.controller_wanted(&Topic::new(name)) {
+            pending.topics.insert(name);
+        } else {
+            defer(&views, name);
+        }
+    }
+
+    start(&app, &views, pending);
+}
+
+fn defer(views: &Views, name: &'static str) {
+    views
+        .deferred
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(name);
 }
 
 /// A sync change; `moving` when it only reports files in transit, which waits for `SYNC_GAP`.
@@ -242,6 +279,10 @@ async fn render(app: AppHandle) {
             let topic = Topic::new(name);
 
             if !app.state::<Events>().controller_wanted(&topic) {
+                if app.state::<Events>().controller_held(&topic) {
+                    defer(&app.state::<Views>(), name);
+                }
+
                 continue;
             }
 

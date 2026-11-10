@@ -15,6 +15,12 @@ Other apps have independent versions and changelogs:
   native update dialog.
 - Release notes are kept for each version and included in desktop update feeds.
 
+### Changed
+
+- Desktop: a running agent session, or one waiting on a question, stays
+  followed after you leave it or hide the window, and shows what it did at
+  once when opened again. Idle sessions are let go after five minutes.
+
 ### Fixed
 
 - Desktop: preserve panel scroll, drafts and selections during live updates.
@@ -46,6 +52,19 @@ Other apps have independent versions and changelogs:
   pages update at most once a second (project sessions every two seconds)
   and skip redraws when nothing changed. Approvals and questions still show
   at once.
+- Desktop: Home, Terminals, Sync, project pages, Coding agents and the agent
+  list open at once from what the window already holds. They read again only
+  after something they show changed, instead of on every visit.
+- Desktop: a session's Changes and Files tabs show what they had at once when
+  you return to them, for the last four sessions and folders, and read the
+  diff or folders again only when something in the folder changed.
+- Desktop: large diffs and reviews open and scroll smoothly. Only the files
+  and lines near the viewport are drawn, in the diff and in its file list, so
+  a branch with hundreds of changed files no longer slows the whole window.
+- Desktop: hiding and showing a window no longer reloads every view. Live
+  updates pause while it is hidden and, if it shows again within five
+  minutes, only what changed meanwhile is sent. Sending a prompt or another
+  action reloads only the views it affects.
 
 ## [0.7.0] - 2026-11-09
 

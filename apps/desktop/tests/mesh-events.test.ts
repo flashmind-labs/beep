@@ -318,7 +318,7 @@ test("distinct projections sharing a topic survive coalescing", async t => {
   assert.deepEqual(heard.map(event => [event.query, event.revision]), [[2, 2], [1, 3]]);
 });
 
-test("controller view snapshots are installed before callbacks and discarded when hidden", async t => {
+test("controller view snapshots are installed before callbacks and kept while hidden", async t => {
   nativeEvent("center-shown");
   const heard: unknown[] = [];
   const stop = subscribeEvents("home.*", async () => heard.push(await invoke("center_home")));
@@ -341,23 +341,73 @@ test("controller view snapshots are installed before callbacks and discarded whe
   assert.equal(calls.some(call => call.cmd === "center_home"), false, "late source completion publishes a new projection instead of a UI refetch");
   nativeEvent("center-hidden");
   await settle();
-  assert.equal(snapshotView("center_home"), null);
+  assert.deepEqual(snapshotView("center_home"), { kind: "value", value: { machines: ["example"], sessions: ["late"] } });
+});
+
+test("hiding pauses the reader and showing again reads only what changed", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  nativeEvent("center-shown");
+  await settle();
+  const reads = { files: 0, reviews: 0, home: 0 };
+  const stops = [
+    subscribeTopics(topic("files"), () => reads.files++),
+    subscribeTopics(topic("reviews"), () => reads.reviews++),
+    subscribeTopics("home.*", () => reads.home++),
+  ];
+  t.after(() => { for (const stop of stops) stop(); nativeEvent("center-shown"); });
+  await settle();
+  const reader = latestReader();
+  reader.onEvent.onmessage({ ...update(1), seq: 1 });
+  reader.onEvent.onmessage({ ...update(2, "reviews"), seq: 2 });
+  reader.onEvent.onmessage({ machine_id: "controller", topic: "home.*", revision: 3, seq: 3,
+    data: { views: [{ command: "center_home", args: {}, value: { machines: [] } }] } });
+  t.mock.timers.tick(100);
+  await settle();
+  assert.deepEqual(reads, { files: 1, reviews: 1, home: 1 });
+  calls.length = 0;
+
+  nativeEvent("center-hidden");
+  await settle();
+  const paused = calls.filter(call => call.cmd === "mesh_topics");
+  assert.equal(paused.length, 1);
+  assert.equal((paused[0].args as { paused: boolean }).paused, true);
+  assert.notEqual((paused[0].args as { topics: unknown }).topics, null, "hiding keeps the native reader");
+  assert.ok(snapshotView("center_home"), "hiding keeps rendered views");
+
+  nativeEvent("center-shown");
+  await settle();
+  // Native code sends only the update made while hidden.
+  reader.onEvent.onmessage({ ...update(4, "reviews"), seq: 4 });
+  t.mock.timers.tick(100);
+  await settle();
+  const sent = calls.filter(call => call.cmd !== "log_webview");
+  assert.deepEqual(sent.map(call => call.cmd), ["mesh_topics", "mesh_topics"], "no new reader and no reads");
+  assert.equal((sent[1].args as { paused: boolean }).paused, false);
+  assert.deepEqual(reads, { files: 1, reviews: 2, home: 1 });
 });
 
 test("explicit refreshes bypass view snapshots and writes discard stale views", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  t.after(() => { clearViews(); delete answers.save_agent_token; });
+  t.after(() => { clearViews(); delete answers.save_credential; delete answers.send_prompt; });
   installViews({ views: [{ command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } }] });
   calls.length = 0;
   await invoke("center_project_runs", { projectId: "example", refresh: true });
   assert.equal(calls.filter(call => call.cmd === "center_project_runs").length, 1);
   let finish!: () => void;
-  answers.save_agent_token = new Promise<void>(resolve => { finish = resolve; });
-  const write = invoke("save_agent_token", { agentSlug: "example", secret: "fixture" });
+  answers.save_credential = new Promise<void>(resolve => { finish = resolve; });
+  const write = invoke("save_credential", { name: "example", secret: "fixture" });
   installViews({ views: [{ command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } }] });
   finish();
   await write;
-  assert.equal(snapshotView("center_project_runs", { projectId: "example" }), null);
+  assert.equal(snapshotView("center_project_runs", { projectId: "example" }), null, "an unlisted write drops every view");
+
+  installViews({ views: [
+    { command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } },
+    { command: "center_home", args: {}, value: { sessions: [] } },
+  ] });
+  await invoke("send_prompt", { session: "example", text: "fixture" });
+  assert.equal(snapshotView("center_home"), null, "a prompt drops the sessions view");
+  assert.ok(snapshotView("center_project_runs", { projectId: "example" }), "and keeps the others");
   t.mock.timers.tick(5000);
 });
 

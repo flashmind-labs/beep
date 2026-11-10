@@ -4,7 +4,8 @@ import { matchesTopic, normalizeTopic, type Topic } from "./topic-state.ts";
 import { clearViews, installViews } from "./snapshot-state.ts";
 export { matchesTopic, topic, type Topic } from "./topic-state.ts";
 
-export interface MeshEvent { machine_id: string; topic: Topic; revision: number; query?: number | null; initial?: boolean; data?: unknown }
+/// `seq` orders the updates native code retains, so a reader that attaches again asks only for newer ones.
+export interface MeshEvent { machine_id: string; topic: Topic; revision: number; query?: number | null; initial?: boolean; data?: unknown; seq?: number }
 interface Interest { machine: string | null; topic: Topic }
 type Receive = (event: MeshEvent) => unknown;
 interface Subscriber {
@@ -22,13 +23,21 @@ interface Subscriber {
 }
 
 const subscribers = new Set<Subscriber>();
+// While the window is hidden the reader is paused: native code keeps its node streams and the
+// newest updates for a grace period and sends only what changed once the window shows again.
 interface Reader {
   id: string;
   wanted: Interest[];
   sent: string | null;
+  paused: boolean;
   updating: boolean;
+  /// The highest update sequence received.
+  seq: number;
 }
+/// Where a reader that ended can attach again, for the same topics only.
+interface ResumePoint { seq: number; topics: string }
 let reader: Reader | null = null;
+let resumeFrom: ResumePoint | null = null;
 let retry: ReturnType<typeof setTimeout> | undefined;
 let queued = false;
 
@@ -63,8 +72,9 @@ function subscribe(topics: Topic | Topic[], receive: Receive, machine: string | 
   };
 }
 
+/// A hidden window keeps the interests of its views, so showing it again changes nothing natively.
 function interests() {
-  const wanted = [...subscribers].filter(active).flatMap(subscriber => subscriber.interests);
+  const wanted = [...subscribers].filter(subscriber => subscriber.active()).flatMap(subscriber => subscriber.interests);
   return [...new Map(wanted.map(interest => [JSON.stringify(interest), interest])).values()]
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
@@ -90,21 +100,28 @@ async function flush() {
   const topics = interests();
   if (!topics.length) { stop(); return; }
   if (reader) { reader.wanted = topics; void sendTopics(reader); return; }
-  const current: Reader = { id: crypto.randomUUID(), wanted: topics, sent: JSON.stringify(topics), updating: false };
+  if (!pageShown()) return;
+  const key = JSON.stringify(topics);
+  const since = resumeFrom?.topics === key ? resumeFrom.seq : null;
+  resumeFrom = null;
+  if (since === null) clearViews();
+  const current: Reader = { id: crypto.randomUUID(), wanted: topics, sent: key, paused: false, updating: false, seq: since ?? 0 };
   reader = current;
   const onEvent = new Channel<MeshEvent>();
   let first = true;
   onEvent.onmessage = event => {
-    if (reader !== current || !pageShown()) {
+    if (reader !== current) {
       void invoke("mesh_topics", { id: current.id, topics: null }).catch(() => {});
       return;
     }
 
-    if (first) { first = false; current.sent = null; refreshTopicSubscriptions(); }
+    if (typeof event.seq === "number" && event.seq > current.seq) current.seq = event.seq;
+    if (first) { first = false; current.sent = null; current.paused = false; refreshTopicSubscriptions(); }
     installViews(event.data);
 
+    // An update sent just before a pause is kept; hidden views read it once shown.
     for (const subscriber of subscribers) {
-      if (!active(subscriber) || !subscriber.interests.some(interest => (interest.machine === null || interest.machine === event.machine_id)
+      if (!subscriber.active() || !subscriber.interests.some(interest => (interest.machine === null || interest.machine === event.machine_id)
         && matchesTopic(interest.topic, event.topic))) continue;
       if (subscriber.coalesce && event.initial && event.query != null) continue;
 
@@ -116,10 +133,10 @@ async function flush() {
       }
     }
   };
-  void invoke("mesh_watch", { id: current.id, topics, onEvent }).catch(e => console.warn("mesh stream:", e)).finally(() => {
+  void invoke("mesh_watch", { id: current.id, topics, onEvent, since }).catch(e => console.warn("mesh stream:", e)).finally(() => {
     if (reader !== current) return;
     reader = null;
-    clearViews();
+    resumeFrom = current.sent === null ? null : { seq: current.seq, topics: current.sent };
     clearTimeout(retry);
     if (interests().length) retry = setTimeout(refreshTopicSubscriptions, 5000);
   });
@@ -133,10 +150,19 @@ async function sendTopics(current: Reader) {
   try {
     const { invoke } = await import("./tauri.ts");
 
-    while (reader === current && pageShown()) {
-      const wanted = current.wanted, key = JSON.stringify(wanted);
-      if (current.sent === key) break;
-      await invoke("mesh_topics", { id: current.id, topics: wanted });
+    while (reader === current) {
+      const wanted = current.wanted, key = JSON.stringify(wanted), hidden = !pageShown();
+
+      if (hidden) {
+        if (current.paused) break;
+        await invoke("mesh_topics", { id: current.id, topics: wanted, paused: true });
+        current.paused = true;
+      } else {
+        if (current.sent === key && !current.paused) break;
+        await invoke("mesh_topics", current.paused ? { id: current.id, topics: wanted, paused: false } : { id: current.id, topics: wanted });
+        current.paused = false;
+      }
+
       current.sent = key;
     }
   } catch (error) {
@@ -215,6 +241,7 @@ function stop() {
   clearTimeout(retry);
   const current = reader;
   reader = null;
+  resumeFrom = null;
   clearViews();
   if (current) void import("./tauri.ts").then(({ invoke }) => invoke("mesh_topics", { id: current.id, topics: null })).catch(() => {});
 }
