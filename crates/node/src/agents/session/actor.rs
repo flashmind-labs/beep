@@ -279,7 +279,7 @@ impl Actor {
         processes: Arc<super::Processes>,
     ) {
         let _cleanup = super::super::processes::Cleanup(processes.clone());
-        let _watch = processes.watch();
+        let _watch = processes.watch(self.live.subscribe());
         // Kills the agent's whole process group however the task ends,
         // aborted with its session included; `stop` below is the gentle way.
         let mut child = GroupLeader::new(child);

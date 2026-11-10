@@ -29,9 +29,11 @@ use macos as os;
 use windows as os;
 
 
-/// How often sessions read the process table while a client follows `processes`.
+/// How often a session reads the process table while it works or a client
+/// follows `processes`: a wrapper that daemonizes and exits between reads
+/// would lose its child, and closing the session would leave it running.
 const WATCHED: Duration = Duration::from_secs(1);
-/// How often they read it otherwise, only to keep track of children that
+/// How often an idle session reads it, only to keep track of children that
 /// leave the session's group, so closing the session can stop them.
 const UNWATCHED: Duration = Duration::from_secs(15);
 
@@ -56,10 +58,16 @@ impl Drop for Demand {
 }
 
 /// Waits until the next read of the process table: a second while someone
-/// follows `processes`, longer otherwise, and at once when a follower comes.
-/// `false` once the demand can no longer change.
-async fn pace(demand: &mut watch::Receiver<usize>) -> bool {
-    let wait = if *demand.borrow_and_update() > 0 {
+/// follows `processes` or the session works, longer otherwise, and at once
+/// when a follower comes or the session starts working. `false` once the
+/// demand can no longer change.
+async fn pace<T>(
+    demand: &mut watch::Receiver<usize>,
+    session: &mut watch::Receiver<T>,
+    works: impl Fn(&T) -> bool,
+) -> bool {
+    let working = works(&session.borrow_and_update());
+    let wait = if *demand.borrow_and_update() > 0 || working {
         WATCHED
     } else {
         UNWATCHED
@@ -68,6 +76,8 @@ async fn pace(demand: &mut watch::Receiver<usize>) -> bool {
     tokio::select! {
         () = sleep(wait) => true,
         changed = demand.changed() => changed.is_ok(),
+        // An ended session still keeps its watch until it is dropped.
+        Ok(_) = session.wait_for(&works), if !working => true,
     }
 }
 
@@ -174,8 +184,12 @@ impl Processes {
 
     /// Observe ancestry even while the desktop is closed. Remembering a child's
     /// birth time keeps it ours after its parent exits, without claiming a reused pid.
-    /// The table is read every second only while a client follows `processes`.
-    pub(super) fn watch(self: &Arc<Self>) -> AbortOnDropHandle<()> {
+    /// The table is read every second only while the session works or a
+    /// client follows `processes`.
+    pub(super) fn watch(
+        self: &Arc<Self>,
+        mut session: watch::Receiver<super::live::Live>,
+    ) -> AbortOnDropHandle<()> {
         let processes = self.clone();
         let mut demand = DEMAND.subscribe();
         AbortOnDropHandle::new(tokio::spawn(async move {
@@ -184,7 +198,7 @@ impl Processes {
                     log::debug!("could not read session processes: {e:#}");
                 }
 
-                if !pace(&mut demand).await {
+                if !pace(&mut demand, &mut session, super::live::Live::works).await {
                     return;
                 }
             }
