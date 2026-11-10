@@ -8,15 +8,58 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex, PoisonError},
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Listener, Manager};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
+/// The least time between two sync views while files move, whose progress
+/// changes twice a second on each machine.
+const SYNC_GAP: Duration = Duration::from_secs(1);
+
 #[derive(Default)]
 pub(crate) struct Views {
     pending: Mutex<Pending>,
     task: Mutex<Option<JoinHandle<()>>>,
+    sync: Mutex<SyncPace>,
+}
+
+/// When the sync view was drawn last, and whether a draw waits for `SYNC_GAP`.
+#[derive(Default)]
+struct SyncPace {
+    drawn: Option<Instant>,
+    waiting: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Pace {
+    Now,
+    At(Instant),
+    /// A draw waits already and will show this change too.
+    Waiting,
+}
+
+impl SyncPace {
+    /// When to draw for a change; a change while files move waits for `SYNC_GAP`
+    /// after the last draw, and any other change, such as the end of a transfer, draws now.
+    fn next(&mut self, now: Instant, moving: bool) -> Pace {
+        if !moving {
+            return Pace::Now;
+        }
+
+        if self.waiting {
+            return Pace::Waiting;
+        }
+
+        match self.drawn.map(|drawn| drawn + SYNC_GAP) {
+            Some(due) if due > now => {
+                self.waiting = true;
+                Pace::At(due)
+            }
+            _ => Pace::Now,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -67,6 +110,40 @@ pub(crate) fn changed(app: AppHandle, topic: Topic) {
     }
 
     start(&app, &views, pending);
+}
+
+/// A sync change; `moving` when it only reports files in transit, which waits for `SYNC_GAP`.
+pub(crate) fn sync_changed(app: AppHandle, moving: bool) {
+    let pace = app
+        .state::<Views>()
+        .sync
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .next(Instant::now(), moving);
+
+    match pace {
+        Pace::Now => changed(app, Topic::new("sync")),
+        Pace::At(due) => {
+            tokio::spawn(async move {
+                tokio::time::sleep_until(due.into()).await;
+                app.state::<Views>()
+                    .sync
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .waiting = false;
+                changed(app, Topic::new("sync"));
+            });
+        }
+        Pace::Waiting => {}
+    }
+}
+
+/// Whether a sync snapshot shows files in transit on that machine.
+pub(crate) fn moving(value: &beep_proto::node::events::Value) -> bool {
+    use beep_proto::node::{events::Value, sync::Reply};
+
+    matches!(value, Value::Sync(reply) if matches!(reply.as_ref(),
+        Reply::Status { projects } if projects.iter().any(|project| project.progress.is_some())))
 }
 
 /// Errors wake consumers without starting a read loop inside the source worker.
@@ -166,6 +243,14 @@ async fn render(app: AppHandle) {
 
             if !app.state::<Events>().controller_wanted(&topic) {
                 continue;
+            }
+
+            if name == "sync" {
+                app.state::<Views>()
+                    .sync
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .drawn = Some(Instant::now());
             }
 
             let data = snapshot(&app, name).await;
