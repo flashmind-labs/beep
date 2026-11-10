@@ -70,7 +70,7 @@ test("created project shows its destination and unmounts on close", async ({ pag
   await sheet.evaluate(el => Reflect.set(window, "projectSheet", el));
   await sheet.getByRole("button", { name: "Open project", exact: true }).click();
   await expect(sheet).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => { const node: unknown = Reflect.get(window, "projectSheet"); return node instanceof HTMLElement ? node.childElementCount : -1; })).toBe(0);
+  await expect.poll(() => page.evaluate(() => { const node: unknown = Reflect.get(window, "projectSheet"); return node instanceof HTMLElement ? node.isConnected : null; })).toBe(false);
 });
 
 test("unavailable credentials and failed clone remain actionable", async ({ page }) => {

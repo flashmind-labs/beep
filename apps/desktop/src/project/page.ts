@@ -21,7 +21,7 @@ import { NoProjects, Parts, viewPart, type PagePart } from "./page-view.tsx";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
-import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection } from "./loads.ts";
+import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection, disposeSessionPanel } from "./loads.ts";
 import { ensureHome } from "../center/refresh.ts";
 import { IC } from "../ui/icons.tsx";
 import { EmptyPanel } from "../ui/kit.tsx";
@@ -39,6 +39,7 @@ export function drawProjects() {
   const el = boxOf("projects");
   if (!el) return;
   const rows = projectRows();
+  if (!state.picked) disposeSessionPanel();
   const parts: PagePart[] = [];
   let one: Project | null = null;
 
@@ -150,5 +151,5 @@ export const projectsView: CenterView<"projects"> = {
     ensureHome();
     prefetchRecentSoon();
   },
-  unmount: () => { openTile(null, false); liveMode.follow(null); terms.stop(); },
+  unmount: () => { disposeSessionPanel(); openTile(null, false); liveMode.follow(null); terms.stop(); },
 };

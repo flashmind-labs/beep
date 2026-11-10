@@ -1,6 +1,6 @@
 // Shared command-center controls, dialog lifetimes, focus and clipboard behavior.
 import { button, el } from "./dom.ts";
-import { createElement, createRef, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { createElement, createRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createDocumentScope } from "./document-root.tsx";
 
 /// A `dbtn` button with `cls` that runs `on`.
@@ -62,7 +62,11 @@ export function sheetAbove(element: HTMLElement) {
   return openSheets.some(root => !!(element.compareDocumentPosition(root) & Node.DOCUMENT_POSITION_FOLLOWING));
 }
 
-interface SheetFrameOptions { host: HTMLElement; scrimClass: string; onScrim(): void }
+interface SheetFrameOptions {
+  host: HTMLElement; scrimClass: string; onScrim(): void;
+  /// The dialog takes focus itself and keeps its keys from the page behind.
+  ownKeys?: boolean;
+}
 
 /// A mounted React dialog frame. Its caller owns dismissal and focus behavior;
 /// `render` puts the dialog's content in it, in the caller's flush.
@@ -72,7 +76,8 @@ export function mountSheetFrame(label: string, cls: string, options: SheetFrameO
   const frame = (content: ReactNode) => createElement("div", {
     className: options.scrimClass, ref: rootRef,
     onMouseDown: (event: ReactMouseEvent) => { if (event.target === event.currentTarget) options.onScrim(); },
-  }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": label, ref: sheetRef }, content));
+  }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": label, ref: sheetRef,
+    ...options.ownKeys ? { tabIndex: -1, onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation() } : {} }, content));
   owner.set([{ slot: "sheet", host: options.host, content: frame(null) }]);
   const root = rootRef.current, sheet = sheetRef.current;
   // The scope commits synchronously, so its DOM refs must be available here.

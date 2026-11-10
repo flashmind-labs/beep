@@ -90,7 +90,7 @@ test("Apps renders inside its page host and leaves it with the sheet", async ({ 
   expect(await settings.locator("#apps-react").evaluate(node => node === Reflect.get(window, "appsView"))).toBe(true);
   await page.keyboard.press("Escape");
   await expect(settings).toHaveCount(0);
-  expect(await page.evaluate(() => { const node: unknown = Reflect.get(window, "appsHost"); return node instanceof HTMLElement ? node.childElementCount : -1; })).toBe(0);
+  expect(await page.evaluate(() => { const node: unknown = Reflect.get(window, "appsHost"); return node instanceof HTMLElement ? node.isConnected : null; })).toBe(false);
 });
 
 test("the bar leaves Models out when the server offers no choice", async ({ page }) => {
