@@ -1,4 +1,4 @@
-import { $$, bar, S } from "../bar/core.ts";
+import { $$, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { arrowKey, clampSel, confirmKey, type ListState, loadList, readDay } from "./memories.ts";
 import { dayDiff, plural } from "../ui/format.ts";
@@ -39,7 +39,7 @@ export interface Skill {
 type SkillChange = Partial<Pick<Skill, "name" | "description" | "body" | "enabled">>;
 
 type SkillMode = "list" | "actions" | "delete" | "view" | "edit" | "vdelete";
-type SkillAction = SkillMode | "toggle" | "undo" | "save" | "delete-yes";
+export type SkillAction = SkillMode | "toggle" | "undo" | "save" | "delete-yes";
 const MODES = new Set<string>(["list", "actions", "delete", "view", "edit", "vdelete"]);
 /// The modes that show one skill rather than the list.
 const ONE = new Set<string>(["view", "edit", "vdelete"]);
@@ -84,9 +84,8 @@ export function drawSkills(): void {
     ? [[ICON.ret, "open"], ["⌘Z", "undo"], ["⌘⌫", "delete"], ["tab", "hide actions"], ["esc", "back"]]
     : [["↑↓", "move"], [ICON.ret, "open"], ["space", "on or off"], ["tab", "actions"], ["esc", "back"]];
   const root = skillsRoot();
-  flushSync(() => root.show({ view: "skills", props: { list: K.list, selected: K.sel, mode: K.mode as "list" | "actions" | "delete", loaded: K.loaded, error: K.error, summary: sum, hints: hintModel(keys) } }));
-  bar.onclick = skillClick;
-  bar.oncontextmenu = skillMenu;
+  flushSync(() => root.show({ view: "skills", props: { list: K.list, selected: K.sel, mode: K.mode as "list" | "actions" | "delete", loaded: K.loaded, error: K.error, summary: sum, hints: hintModel(keys),
+    act: skillAct, pick: pickSkill, menu: skillMenu } }));
 }
 
 /// One skill: its instructions, or the editor.
@@ -94,22 +93,19 @@ export function drawSkill(): void {
   const k = K.list[K.sel];
   if (!k) { K.mode = "list"; return drawSkills(); }
   const root = skillsRoot();
-  bar.onclick = skillClick;
   if (K.mode === "edit") {
     flushSync(() => root.show({ view: "skill-editor", props: { skill: k, error: K.error, hints: hintModel([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]]), save: () => { void skillAction("save"); }, cancel: () => { void skillAction("view"); } } }));
     return;
   }
   const keys = K.mode === "vdelete" ? [[ICON.ret, "delete"], ["esc", "cancel"]] : [["space", "on or off"], [`⌘${ICON.ret}`, "edit"], ...(k.can_undo ? [["⌘Z", "undo"]] : []), ["esc", "back"]];
-  flushSync(() => root.show({ view: "skill", props: { skill: k, mode: K.mode as "view" | "vdelete", error: K.error, hints: hintModel(keys) } }));
+  flushSync(() => root.show({ view: "skill", props: { skill: k, mode: K.mode as "view" | "vdelete", error: K.error, hints: hintModel(keys), act: skillAct } }));
 }
 
 /// A skill row's right-click menu: what its buttons do. Delete asks first.
-function skillMenu(e: MouseEvent) {
-  if (S.view !== "skills") return;
-  const row = (e.target as HTMLElement).closest<HTMLElement>(".drt[data-i]");
-  if (!row) return;
-  K.sel = Number(row.dataset.i);
+function skillMenu(e: MouseEvent, index: number) {
+  K.sel = index;
   const k = K.list[K.sel];
+  if (!k) return;
   const items: MenuItem[] = [
     { label: "Open", on: () => void skillAction("view") },
     { label: k.enabled ? "Turn off" : "Turn on", on: () => void skillAction("toggle") },
@@ -128,18 +124,17 @@ function skillMenu(e: MouseEvent) {
   openMenu(e, k.name, items);
 }
 
-export function skillClick(e: MouseEvent) {
-  if (S.view !== "skills") return;
-  const target = e.target as HTMLElement;
-  const btn = target.closest<HTMLElement>("[data-k]");
-  const row = target.closest<HTMLElement>(".drt[data-i]");
-  if (btn?.dataset.i) K.sel = Number(btn.dataset.i);
-  if (btn) return skillAction(btn.dataset.k as SkillAction);
+/// A button of the list or of the open skill: one on a row acts on that row.
+function skillAct(a: SkillAction, index: number | null) {
+  if (index !== null) K.sel = index;
+  void skillAction(a);
+}
 
-  if (row && K.mode !== "delete") {
-    K.sel = Number(row.dataset.i);
-    skillAction("view");
-  }
+/// A click on a row opens the skill, unless a delete is being confirmed.
+function pickSkill(index: number) {
+  if (K.mode === "delete") return;
+  K.sel = index;
+  void skillAction("view");
 }
 
 /// Replaces the skill at `K.sel` with what the server sent back.

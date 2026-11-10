@@ -99,7 +99,7 @@ interface MemFilter {
 }
 
 type MemMode = "list" | "edit" | "clear";
-type MemAction = MemMode | "save" | "forget" | "clear-yes";
+export type MemAction = MemMode | "save" | "forget" | "clear-yes";
 
 export const MEM_SOURCE: Record<string, string> = { user: "You told Beep", learned: "Learned in a chat", email: "From your email", slack: "From Slack" };
 
@@ -223,17 +223,17 @@ export function drawMemories() {
     query: M.query, today: dateValue(new Date()), loaded: M.loaded, total: M.all.length, error: M.error,
     search: (value: string) => { M.query = value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); },
     filter: (key: string) => { M.filter = key; M.sel = 0; M.mode = "list"; drawMemories(); },
-    click: memClick, menu: memMenu,
+    act: (a: MemAction) => void memAction(a), pick: pickMemory, menu: memMenu,
   } }));
 
 }
 
 /// A memory row's right-click menu: Edit, and Forget, which asks first.
-function memMenu(e: MouseEvent) {
-  const row = (e.target as HTMLElement).closest<HTMLElement>(".dmem[data-i]");
-  if (!row || M.mode === "edit") return;
-  M.sel = Number(row.dataset.i);
+function memMenu(e: MouseEvent, index: number) {
+  if (M.mode === "edit") return;
+  M.sel = index;
   const m = M.list[M.sel];
+  if (!m) return;
   M.mode = "list";
   drawMemories();
   openMenu(e, "Memory", [
@@ -251,17 +251,12 @@ function memMenu(e: MouseEvent) {
   ]);
 }
 
-export function memClick(e: MouseEvent) {
-  const target = e.target as HTMLElement;
-  const btn = target.closest<HTMLElement>("[data-m]");
-  const row = target.closest<HTMLElement>(".dmem[data-i]");
-  if (btn) return memAction(btn.dataset.m as MemAction);
-
-  if (row && M.mode !== "edit") {
-    M.sel = Number(row.dataset.i);
-    M.mode = "list";
-    drawMemories();
-  }
+/// A click on a row selects it, unless a memory is being edited.
+function pickMemory(index: number) {
+  if (M.mode === "edit") return;
+  M.sel = index;
+  M.mode = "list";
+  drawMemories();
 }
 
 export async function memAction(a: MemAction) {
