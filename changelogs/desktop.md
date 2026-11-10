@@ -79,6 +79,9 @@ Other apps have independent versions and changelogs:
 
 ### Performance
 
+- Desktop: switching between recent sessions puts their messages back as
+  they were instead of drawing them again, and a streaming reply redraws
+  only its newest turn.
 - Desktop: sessions that stream in the background save their last messages
   to disk at most once a minute and when a turn ends, instead of every few
   seconds, with less work in the window.
