@@ -62,7 +62,7 @@ interface AppsState {
   error: string;
   /// The app whose sign-in is open, and the timer that looks for it.
   connecting: string | null;
-  poll: ReturnType<typeof setInterval> | undefined;
+  poll: ReturnType<typeof setInterval> | null;
   /// The app whose permissions are open, and them once read.
   open: App | null;
   perms: AppPermissions | null;
@@ -93,7 +93,7 @@ interface AppsState {
 
 /// The Apps view: every app, the one being connected and the one whose
 /// permissions are open.
-export const A: AppsState = { apps: null, error: "", connecting: null, poll: undefined, open: null, perms: null,
+export const A: AppsState = { apps: null, error: "", connecting: null, poll: null, open: null, perms: null,
   servers: null, adding: false, serverName: "", serverUrl: "", addError: "", waiting: null, busy: null,
   server: null, tools: null, asking: null, unadd: false,
   accounts: {}, removing: null, accountsError: "" };
@@ -328,8 +328,8 @@ async function connectApp(app: App | undefined) {
 
 function stopConnecting() {
   appConnectionVersion++;
-  clearInterval(A.poll);
-  A.poll = undefined;
+  if (A.poll !== null) clearInterval(A.poll);
+  A.poll = null;
   A.connecting = null;
   loadApps();
 }
