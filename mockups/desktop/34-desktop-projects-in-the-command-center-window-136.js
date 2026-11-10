@@ -80,6 +80,9 @@
 .mac .cc-org .twist.open svg { transform: rotate(90deg) }
 .mac .cc-org[aria-current="true"] { background: rgba(94,106,210,.26); color: var(--d-fg) }
 .mac .cc-si.pj-repo { padding-left: 18px }
+.mac .pj-find { display: block; max-width: 320px }
+.mac .pj-find input { display: block; width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--d-border); border-radius: 6px; background: #0f1011; color: var(--d-fg); font: inherit; font-size: 13px }
+.mac .pj-find input::placeholder { color: var(--d-dim) }
 .mac .pj-org { display: grid; gap: 8px }
 .mac .pj-org + .pj-org { margin-top: 6px }
 .mac .pj-org h3 { margin: 0; display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600; color: var(--d-fg) }
@@ -101,10 +104,10 @@
 })();
 
 const PJ = [
-  { name: "acme/widget", color: "var(--d-coral)", tasks: { running: 2, review: 1, blocked: 0, planned: 2, done: 7 }, issues: 3, workers: 2, machines: "build-box, mac-box", sync: "Beep sync", last: "Bump the sync crate: its PR waits for your review<small> · 1 h</small>" },
-  { name: "acme/relay", pin: true, color: "#6FA8DC", tasks: { running: 1, review: 0, blocked: 1, planned: 0, done: 3 }, issues: 1, workers: 1, machines: "build-box", sync: "Syncthing", last: "fix-clippy is blocked<small> · 12 min</small>" },
-  { name: "northwind/pines", color: "#B18CE0", tasks: { running: 0, review: 0, blocked: 0, planned: 1, done: 2 }, workers: 0, machines: "gpu-box", last: "Next: Rebuild the index on gpu-box<small> · 2 d</small>" },
-  { name: "northwind/a-very-long-project-name-that-needs-more-room-than-a-card", color: "#7BC47F", tasks: { running: 0, review: 0, blocked: 0, planned: 0, done: 0 }, workers: 0, machines: "gpu-box", sync: "Beep sync", last: "No tasks yet" },
+  { name: "acme/widget", color: "var(--d-coral)", tasks: { running: 2, review: 1, blocked: 0, planned: 2, done: 7 }, issues: 3, workers: 2, at: 60, machines: "build-box, mac-box", sync: "Beep sync", last: "Bump the sync crate: its PR waits for your review<small> · 1 h</small>" },
+  { name: "acme/relay", pin: true, color: "#6FA8DC", tasks: { running: 1, review: 0, blocked: 1, planned: 0, done: 3 }, issues: 1, workers: 1, at: 12, machines: "build-box", sync: "Syncthing", last: "fix-clippy is blocked<small> · 12 min</small>" },
+  { name: "northwind/pines", color: "#B18CE0", tasks: { running: 0, review: 0, blocked: 0, planned: 1, done: 2 }, workers: 0, at: 2880, machines: "gpu-box", last: "Next: Rebuild the index on gpu-box<small> · 2 d</small>" },
+  { name: "northwind/a-very-long-project-name-that-needs-more-room-than-a-card", color: "#7BC47F", tasks: { running: 0, review: 0, blocked: 0, planned: 0, done: 0 }, workers: 0, at: 30, machines: "gpu-box", sync: "Beep sync", last: "No tasks yet" },
 ];
 // Projects are grouped by GitHub org (or user); inside a group only the repo name shows.
 const PJ_ORGS = () => [...new Set(PJ.map(p => p.name.split("/")[0]))].map(org => ({ org, repos: PJ.filter(p => p.name.startsWith(org + "/")) }));
@@ -137,9 +140,14 @@ D.dWinProjects = () => {
       <span class="line">${p.last}</span>`}
       ${p.sync ? `<span class="line sync">${p.sync}</span>` : ""}</button>`;
   };
+  // Search filters by name, folder and remote across groups; inside a group,
+  // pinned first, then the most recent activity (agent sessions, visits, tasks).
+  const q = S.d.pjs === "search" ? "relay" : S.d.pjs === "nomatch" ? "zzz" : "";
+  const find = empty ? "" : `<label class="pj-find"><input type="search" placeholder="Search projects" aria-label="Search projects" value="${q}"></label>`;
+  const orgs = PJ_ORGS().map(g => ({ ...g, repos: g.repos.filter(p => p.name.includes(q)) })).filter(g => g.repos.length);
   const body = empty
     ? `<div class="cc-panel cc-empty"><b>No projects yet</b><span>A folder or a repository to clone.</span><button class="dbtn pri" data-dgo="dAddProject">${CC_IC.plus} Add a project</button></div>`
-    : PJ_ORGS().map(g => `<section class="pj-org"><h3>${g.org}/<small>${g.repos.length} ${g.repos.length === 1 ? "repo" : "repos"}</small></h3><div class="pj-grid">${[...g.repos].sort((x, y) => !!y.pin - !!x.pin).map(card).join("")}</div></section>`).join("") + `
+    : find + (orgs.length ? "" : `<div class="cc-panel cc-empty"><span>No projects match.</span></div>`) + orgs.map(g => `<section class="pj-org"><h3>${g.org}/<small>${g.repos.length} ${g.repos.length === 1 ? "repo" : "repos"}</small></h3><div class="pj-grid">${[...g.repos].sort((x, y) => (!!y.pin - !!x.pin) || (x.at - y.at)).map(card).join("")}</div></section>`).join("") + `
        <div class="cc-panel cc-row pj-add"><span class="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><button class="dbtn" data-dgo="dAddProject">Add</button></div>`;
   const imp = S.d.pjs === "import";
   const PR_IC = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V9a3 3 0 0 0-3-3h-3"/></svg>';
@@ -156,4 +164,4 @@ D.dWinProjects = () => {
       <span class="acts" style="display:flex;gap:6px"><button class="dbtn pri" data-toast="Imported; worktree for fix-windows-paths created on build-box">Import<kbd>⌘${DI.ret}</kbd></button><button class="dbtn quiet" data-toast="Cancelled">Cancel</button></span></div>`;
   return ccWin(ccSidePj("projects"), `<div class="cc-top"><h2>Projects</h2><small>${empty ? "" : (local ? "4 projects in 2 orgs, 3 agents running" : "4 projects in 2 orgs, 3 workers running")}</small></div><div class="cc-view">${imp ? importCard : ""}${body}${empty ? "" : apFoundSection()}${outside}</div>`);
 };
-VARIANTS.dWinProjects = [["Projects", "list"], ["Without task summaries", "local"], ["None yet", "empty"], ["Import with branches", "import"]].map(([l, k]) => [l, () => { S.d.pjs = k; render(); }, () => (S.d.pjs || "list") === k]);
+VARIANTS.dWinProjects = [["Projects", "list"], ["Without task summaries", "local"], ["None yet", "empty"], ["Import with branches", "import"], ["Search", "search"], ["Search without a match", "nomatch"]].map(([l, k]) => [l, () => { S.d.pjs = k; render(); }, () => (S.d.pjs || "list") === k]);

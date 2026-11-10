@@ -5,7 +5,7 @@
 .meter{height:4px;border-radius:2px;background:var(--elev);overflow:hidden;margin-top:2px}.meter i{display:block;height:100%;background:var(--accent)}
 .pj-li{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:center;min-height:56px;padding:8px 11px;border-top:1px solid var(--border)}
 .pj-li:first-child{border-top:0}
-.pj-li .t b{display:block;font-size:13.5px;font-weight:500}.pj-li .t span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pj-li .t{min-width:0}.pj-li .t b{display:block;font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pj-li .t span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fi{width:24px;height:24px;border-radius:6px;background:var(--elev);display:grid;place-items:center;color:var(--muted)}
 
 .machine-scroll { overflow-x: auto; flex: none; border: 1px solid var(--border); border-radius: var(--radius); }
@@ -17,3 +17,5 @@
 .machine-table .offline { color: var(--muted); }
 .machine-table .project-row td { color: var(--muted); padding-left: 26px; }
 .machine-table .btn { min-height: 44px; white-space: nowrap; font-size: 12px; }
+input.search{flex:none;width:100%;box-sizing:border-box;color:var(--fg);font:inherit;font-size:16px}
+input.search::placeholder{color:var(--dim)}
