@@ -35,6 +35,8 @@ const GLYPH_FLOATS = 12;
 /// Underline, strikethrough and overline.
 const DECORATIONS_PER_CELL = 3;
 const ATLAS_SIZE = 2048;
+/// The character kitty's Unicode placeholders put in each cell of an image.
+const KITTY_PLACEHOLDER = 0x10eeee;
 
 /// What a rect instance draws, read by the fragment shader.
 const Kind = { SOLID: 0, CURLY: 1, DOTTED: 2, DASHED: 3, HOLLOW: 4 } as const;
@@ -273,7 +275,9 @@ export class GridRenderer {
 
       if (cellBg !== background) rect(bg, x, left, top, cw * span, ch, cellBg, 1, Kind.SOLID);
 
-      const text = row.graphemes.get(x) ?? (row.codepoint[x] > 32 ? String.fromCodePoint(row.codepoint[x]) : "");
+      // A kitty placeholder cell shows its image, drawn apart, and no glyph.
+      const cp = row.codepoint[x];
+      const text = cp === KITTY_PLACEHOLDER ? "" : row.graphemes.get(x) ?? (cp > 32 ? String.fromCodePoint(cp) : "");
       if (text !== "") {
         const g = this.atlas.glyph(text, (attrs & Attr.BOLD) !== 0, (attrs & Attr.ITALIC) !== 0, span, this.cell, this.baseline);
         const alpha = attrs & Attr.FAINT ? 0.5 : 1;

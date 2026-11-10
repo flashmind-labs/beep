@@ -132,6 +132,23 @@ test("queries are answered through reply, apart from input", async () => {
   term.free();
 });
 
+test("size queries are answered in cells and pixels, once the cell size is known", async () => {
+  const g = await engine;
+  const replies: string[] = [];
+  const term = new Terminal(g, 20, 5, { reply: bytes => replies.push(new TextDecoder().decode(bytes)), bell: () => {}, titleChanged: () => {} });
+  write(term, "\x1b[16t");
+  assert.deepEqual(replies, []);
+
+  term.resize(30, 10, CELL);
+  write(term, "\x1b[16t\x1b[14t\x1b[18t");
+  assert.deepEqual(replies, [
+    `\x1b[6;${CELL.height};${CELL.width}t`,
+    `\x1b[4;${10 * CELL.height};${30 * CELL.width}t`,
+    "\x1b[8;10;30t",
+  ]);
+  term.free();
+});
+
 test("the bell and title reach the effects", async () => {
   const { term, heard } = await open();
   write(term, "\x07\x1b]2;build\x07");
