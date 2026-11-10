@@ -18,6 +18,19 @@ import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
 const visible = (on: boolean) => { (globalThis.document as { visibilityState?: string }).visibilityState = on ? "visible" : "hidden"; };
 visible(true);
 
+/// Frames wait until a test runs them.
+const frames = new Map<number, FrameRequestCallback>();
+let frameId = 0;
+Object.assign(globalThis, {
+  requestAnimationFrame: (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; },
+  cancelAnimationFrame: (id: number) => { frames.delete(id); },
+});
+function runFrames() {
+  const due = [...frames.values()];
+  frames.clear();
+  for (const callback of due) callback(performance.now());
+}
+
 /// The bar shows only `els`, by selector.
 function show(els: Record<string, unknown>) {
   Object.assign(bar, { querySelector: (sel: string) => els[sel] ?? null });
@@ -126,6 +139,7 @@ test("live suffixes preserve history and a late fallback read cannot replace the
   assert.ok(args);
   args.onEvent.onmessage({ kind: "snapshot", cursor: { start: 0, next: 2, fingerprint: "initial" }, resumed: false, page: { ...page, entries: [{ kind: "user", text: "hello" }, { kind: "agent", text: "working" }] }, modes: null, tasks: [] });
   args.onEvent.onmessage({ kind: "delta", cursor: { start: 0, next: 2, fingerprint: "updated" }, resumed: false, page: { ...page, earlier: 1, entries: [{ kind: "agent", text: "finished" }] }, modes: null, tasks: [] });
+  runFrames();
   finish({ ...page, entries: [{ kind: "agent", text: "stale" }] });
   await polling;
   assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello", "finished"]);
@@ -133,6 +147,43 @@ test("live suffixes preserve history and a late fallback read cannot replace the
   calls.length = 0;
   await pollAgent();
   assert.ok(!calls.some(c => ["agent_view", "agent_modes", "agent_tasks"].includes(c.cmd)));
+});
+
+test("a transcript burst draws once per frame and ends with the full text", async t => {
+  const page = openSession("working", true);
+  show({});
+  answers.agent_follow = new Promise<void>(() => {});
+  t.after(() => {
+    stopAgentFollow();
+    visible(false);
+    delete answers.agent_follow;
+  });
+  await pollAgent(true);
+  await settle();
+  const args = calls.find(c => c.cmd === "agent_follow")?.args as {
+    onEvent: { onmessage(update: TranscriptUpdate<AgentPage> & { modes: null; tasks: [] }): void };
+  };
+  assert.ok(args);
+  args.onEvent.onmessage({ kind: "snapshot", cursor: { start: 0, next: 1, fingerprint: "initial" }, resumed: false, page: { ...page, entries: [{ kind: "user", text: "hello" }] }, modes: null, tasks: [] });
+  runFrames();
+  assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello"]);
+  calls.length = 0;
+  // Each delta changes the turn count, so each draw asks for usage once.
+  let text = "";
+
+  for (let i = 1; i <= 30; i++) {
+    text += `word${i} `;
+    const entries = i % 10 ? [{ kind: "agent", text }] : [{ kind: "agent", text }, { kind: "tool", text: `Read: file-${i}.ts [completed]` }];
+    args.onEvent.onmessage({ kind: "delta", cursor: { start: 0, next: 1 + entries.length, fingerprint: `delta-${i}` }, resumed: false, page: { ...page, turns: i, earlier: 1, entries }, modes: null, tasks: [] });
+  }
+
+  assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello"], "nothing draws before the frame");
+  assert.equal(frames.size, 1);
+  runFrames();
+  assert.equal(calls.filter(c => c.cmd === "agent_usage").length, 1, "one draw for the burst");
+  assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello", text, "Read: file-30.ts [completed]"]);
+  assert.equal(AG.page?.turns, 30);
+  assert.equal(frames.size, 0);
 });
 
 test("a stalled first read logs the operation it is waiting for", async t => {

@@ -39,7 +39,7 @@ import { disposeQueue, editQueued, interruptAgent, answerAgentQuestion, sendAgen
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
 import { Channel, invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
-import { onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
+import { AMBIENT_MS, ambient, onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
@@ -174,6 +174,7 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     const page = transcripts.receive(transcriptKey(o), update);
 
     if (!page) {
+      flushDraw();
       feed.stop();
       void pollAgent(true);
       return;
@@ -181,8 +182,8 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
 
     AG.modes = update.modes;
     AG.tasks = update.tasks;
-    // Normal updates only compare and redraw their changed suffix.
-    applyAgentPage(o, update.kind === "delta" ? update.page : page, ++AG.polls, update.kind === "snapshot");
+    // Normal updates only redraw their changed suffix.
+    queueDraw(o, update.kind === "delta" ? update.page : page, update.kind === "snapshot");
   },
   disconnected: (o, error) => {
     if (!isOpen(o) || !agentOnScreen()) return;
@@ -195,6 +196,37 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
   },
 });
 
+/// Pushed updates held for the next frame, merged in the order they came.
+/// `read` numbers the newest, as a read before steers sent after it.
+let held: { open: OpenAgent; page: AgentPage; replace: boolean; read: number; frame: number } | null = null;
+
+/// Draws a burst of pushed updates once per frame: each delta joins the
+/// held page in order, and a snapshot replaces it.
+function queueDraw(o: OpenAgent, page: AgentPage, replace: boolean) {
+  if (held && held.open !== o) flushDraw();
+
+  if (held) {
+    held.page = replace ? page : joinRuns(held.page, page);
+    held.replace ||= replace;
+    held.read = ++AG.polls;
+    return;
+  }
+
+  held = { open: o, page, replace, read: ++AG.polls, frame: requestAnimationFrame(flushDraw) };
+}
+
+/// Applies the held updates now. A session no longer shown keeps them for
+/// when it shows again.
+function flushDraw() {
+  const next = held;
+  if (!next) return;
+  held = null;
+  cancelAnimationFrame(next.frame);
+
+  if (isOpen(next.open)) applyAgentPage(next.open, next.page, next.read, next.replace, true);
+  else if (AG.open === next.open && AG.page) AG.page = next.replace ? next.page : joinRuns(AG.page, next.page);
+}
+
 export function stopAgentFollow() {
   clearTimeout(AG.timer);
   feed.stop();
@@ -204,7 +236,9 @@ changeListeners.push(() => {
   if (S.view !== "agent") { stopAgentFollow(); disposeQueue(); }
 });
 
-function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false) {
+/// A `pushed` update always holds something new; a polled one is compared
+/// with the last read.
+function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false, pushed = false) {
   if (AG.page) page.session = nativeUpdate(AG.page.session, page.session);
 
   if (isNativeSession(page.session.id)) {
@@ -212,8 +246,8 @@ function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = f
     if (row) keepNativeSession({ ...row, ...page.session });
   }
 
-  const sig = JSON.stringify(page);
-  const moved = sig !== AG.sig;
+  const sig = pushed ? `pushed ${read}` : JSON.stringify(page);
+  const moved = pushed || sig !== AG.sig;
   if (moved) { AG.sig = sig; AG.changed = Date.now(); }
   if (page.session.question?.id !== AG.answering) AG.answering = null;
   // A session opened with no folder (from a notice) draws again once a read gives it.
@@ -301,6 +335,7 @@ export async function pollAgent(readNow = false) {
       AG.modes = modes;
       AG.tasks = tasks;
       // A push received while this fallback read ran is newer than its reply.
+      flushDraw();
       applyAgentPage(o, page, read);
       if (trace) traceSession("read-applied", o, { status: page.session.status, entries: page.entries.length, ms: Date.now() - current.at });
     }
@@ -364,10 +399,11 @@ onShownChange(shown => {
     pollAgent();
   }
 }, true);
-listen("agent-title-changed", () => {
+const titlesChanged = ambient(() => {
   if (S.view === "agent") void pollAgent(true);
-  void loadSessions().then(() => { if (S.view === "agents") drawAgents(false); }).catch(e => console.warn("session titles:", e));
-});
+  return loadSessions().then(() => { if (S.view === "agents") drawAgents(false); });
+}, AMBIENT_MS);
+listen("agent-title-changed", () => titlesChanged());
 
 // A notice about a session that asks may mean it was answered elsewhere.
 for (const name of ["sessions-changed", "work-resolved"]) {
