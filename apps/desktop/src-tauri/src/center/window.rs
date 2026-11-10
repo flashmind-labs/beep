@@ -369,10 +369,34 @@ fn tell<R: Runtime>(app: &AppHandle<R>, label: &str, shown: bool, when: Tell) {
         return;
     }
 
+    #[cfg(windows)]
+    webview_shows(app, label, shown);
+
     let event = if shown { SHOWN_EVENT } else { HIDDEN_EVENT };
 
     if let Err(e) = app.emit_to(label, event, ()) {
         log::warn!("telling {label} whether it shows: {e}");
+    }
+}
+
+/// Tells WebView2 whether window `label` shows. It throttles the page's
+/// timers and frees memory only while told it is hidden; a minimized or
+/// hidden window does not tell it.
+#[cfg(windows)]
+fn webview_shows<R: Runtime>(app: &AppHandle<R>, label: &str, shown: bool) {
+    let Some(window) = app.get_webview_window(label) else {
+        return;
+    };
+    let told = window.with_webview(move |webview| {
+        // SAFETY: Tauri hands out the webview's live controller and runs
+        // this on the main thread, where WebView2 expects its calls.
+        if let Err(e) = unsafe { webview.controller().SetIsVisible(shown) } {
+            log::warn!("telling WebView2 whether its window shows: {e}");
+        }
+    });
+
+    if let Err(e) = told {
+        log::warn!("reaching the webview of {label}: {e}");
     }
 }
 
