@@ -2,7 +2,7 @@
 // machines and its conflicts, those with conflicts first. The sidebar's count
 // comes from the same reads.
 import { type CenterView, state } from "../center/state.ts";
-import { boxOf, currentLocation, drawTop } from "../center/views.ts";
+import { currentLocation, drawPage, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { ensureHome } from "../center/refresh.ts";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
@@ -10,7 +10,6 @@ import { draw } from "../center/home.ts";
 import { conflictCount, conflictList, conflictTotal } from "./filesync.ts";
 import { fsync } from "./sections.ts";
 import { createElement } from "react";
-import { showWindowParts } from "../center/window-root.ts";
 import { SyncPage } from "./syncpage-view.tsx";
 
 /// How old a project's sync may get while the page shows and its summary
@@ -46,12 +45,15 @@ export function redrawSync() {
 }
 
 function drawSync() {
-  const el = boxOf("sync");
-  if (!el) return;
+  drawPage("sync");
+}
+
+/// The Sync page, projects with conflicts first.
+export function SyncRoute() {
   const count = (p: string) => conflictList(fsync.detail(p)).length;
   const projects = syncProjects().sort((a, b) => count(b) - count(a) || a.localeCompare(b));
   const models = projects.map(project => ({ project, model: fsync.page(project) }));
-  showWindowParts([{ part: "sync-page", host: el, content: createElement(SyncPage, { sync: fsync, models }) }]);
+  return createElement(SyncPage, { sync: fsync, models });
 }
 
 export const syncView: CenterView<"sync"> = {

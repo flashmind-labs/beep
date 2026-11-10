@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, memo } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
@@ -13,11 +13,11 @@ import { drawSide, openProjects, projectRows } from "./sidebar.ts";
 import { instructionsView, openSettings, providersView } from "../settings/sheet.ts";
 import { paneView, threadChats } from "./threadcard.ts";
 import { homeView } from "./home.ts";
-import { projectsView } from "../project/page.ts";
-import { syncView } from "../project/syncpage.ts";
-import { researchView } from "../research/page.ts";
-import { researchOpenView } from "../research/open.ts";
-import { terminalsView } from "../terminals/view.ts";
+import { ProjectsPage, projectsView } from "../project/page.ts";
+import { SyncRoute, syncView } from "../project/syncpage.ts";
+import { ResearchList, researchView } from "../research/page.ts";
+import { ResearchOpenPage, researchOpenView } from "../research/open.ts";
+import { TerminalsPage, terminalsView } from "../terminals/view.ts";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
@@ -47,14 +47,39 @@ const PAGES = ["projects", "sync", "instructions", "providers", "research", "res
 type Page = typeof PAGES[number];
 const boxes = new Map<Page, HTMLElement>();
 const keepBox = Object.fromEntries(PAGES.map(name => [name, (el: HTMLDivElement | null) => { if (el) boxes.set(name, el); else boxes.delete(name); }]));
-const shown = createStore<{ view: ViewName | null }>(() => ({ view: null }));
+/// The view showing, and how often each page drew; 0 leaves its box empty.
+const shown = createStore<{ view: ViewName | null; drawn: Record<Page, number> }>(() => ({
+  view: null, drawn: { projects: 0, sync: 0, instructions: 0, providers: 0, research: 0, researchopen: 0, terminals: 0 },
+}));
+
+/// Draws page `name` in its box again, or empties the box.
+export function drawPage(name: Page, on = true) {
+  flushSync(() => shown.setState(s => ({ drawn: { ...s.drawn, [name]: on ? s.drawn[name] + 1 : 0 } })));
+}
 
 /// Every page's box, the one showing unhidden. Hidden pages stay drawn, so
 /// coming back keeps their place.
 function CenterPages() {
-  const view = useStore(shown, s => s.view);
-  return PAGES.map(name => createElement("div", { key: name, className: "cc-box", hidden: view !== name, ref: keepBox[name] }));
+  const { view, drawn } = useStore(shown);
+  return PAGES.map(name => createElement(PageBox, { key: name, name, hidden: view !== name, drawn: drawn[name] }));
 }
+
+const PageBox = memo(function PageBox({ name, hidden, drawn }: { name: Page; hidden: boolean; drawn: number }) {
+  return createElement("div", { className: "cc-box", hidden, ref: keepBox[name] }, drawn ? createElement(PageContent, { name, drawn }) : null);
+});
+
+/// What page `name` draws, again only when it draws. Settings borrows
+/// Instructions and Coding agents, so those draw into whichever host mounted them.
+const PageContent = memo(function PageContent({ name }: { name: Page; drawn: number }) {
+  switch (name) {
+    case "projects": return createElement(ProjectsPage);
+    case "sync": return createElement(SyncRoute);
+    case "research": return createElement(ResearchList);
+    case "researchopen": return createElement(ResearchOpenPage);
+    case "terminals": return createElement(TerminalsPage);
+    case "instructions": case "providers": return null;
+  }
+});
 
 showWindowParts([{ part: "pages", host: $("#main"), content: createElement(CenterPages) }]);
 

@@ -13,12 +13,11 @@ import { NEW_WINDOW } from "./projectwindow.ts";
 import { agentFor, pageAgent } from "./agent.ts";
 import { type CenterView, state, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
-import { boxOf, windowProject } from "../center/views.ts";
+import { boxOf, drawPage, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { overviewSection, projectDetail } from "./projects.ts";
 import { NoProjects, Parts, viewPart, type PagePart } from "./page-view.tsx";
-import { createDocumentScope } from "../ui/document-root.tsx";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
@@ -27,9 +26,14 @@ import { ensureHome } from "../center/refresh.ts";
 import { IC } from "../ui/icons.tsx";
 import { EmptyPanel } from "../ui/kit.tsx";
 
-/// The page's outer view. It stays rendered while another page shows, so
+/// What the page last drew. It stays rendered while another page shows, so
 /// coming back keeps its place.
-const page = createDocumentScope<"page">();
+let shown: { project: string; split: boolean; parts: PagePart[] } | null = null;
+
+/// A new project gets a new view, so nothing of the last one carries over.
+export function ProjectsPage() {
+  return shown && createElement(Parts, { key: shown.project, className: shown.split ? "cc-view split" : "cc-view", project: shown.project, parts: shown.parts });
+}
 
 export function drawProjects() {
   const el = boxOf("projects");
@@ -61,9 +65,8 @@ export function drawProjects() {
   const inner = old ? [...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].flatMap(s => { const id = s.closest("[id]")?.id; return id ? [[id, s.scrollTop] as const] : []; }) : [];
   const cols = [".pj-list", ".pj-det", ".pj-scroll"].map(c => [c, old?.querySelector(c)?.scrollTop ?? 0] as const);
 
-  // A new project gets a new view, so nothing of the last one carries over.
-  page.set([{ slot: "page", host: el, identity: state.picked ?? "", content: createElement(Parts, {
-    className: one && splitOn(one) ? "cc-view split" : "cc-view", project: state.picked ?? "", parts }) }]);
+  shown = { project: state.picked ?? "", split: !!one && splitOn(one), parts };
+  drawPage("projects");
 
   const view = el.querySelector<HTMLElement>(":scope > .cc-view");
 
