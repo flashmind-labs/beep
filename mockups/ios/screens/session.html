@@ -180,6 +180,7 @@
        </span>
       </div>
      </div>
+     <div class="wq"><div class="ln"><i></i><span>6 running, 4 queued</span><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M6 15l6-6 6 6"></path></svg></div></div>
      <div class="comp one">
       <div class="fld">
        Message Claude
@@ -202,7 +203,199 @@
     </div>
    </div>
    <figcaption>
-    Session, not typing. Swiping up holds the reading position while replies arrive; return to the bottom to follow again. The tab bar is hidden. One line: field, Stop (only while a turn runs), round Send. Summary lines cut off with an ellipsis.
+    Session, not typing. Swiping up holds the reading position while replies arrive; return to the bottom to follow again. The tab bar is hidden. One line: field, Stop (only while a turn runs), round Send. Summary lines cut off with an ellipsis. Background commands and queued steers share one line above the field, here 6 running, 4 queued; it shows only while there are some.
+   </figcaption>
+  </figure>
+  <figure>
+   <div class="ph">
+    <div class="sb">
+     <span>
+      9:41
+     </span>
+     <span class="isl">
+     </span>
+     <span>
+      5G 82%
+     </span>
+    </div>
+    <div class="cwin">
+     <div class="dhead">
+      <div class="hl">
+       <div class="back">
+        <svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="22">
+         <path d="M15 5l-7 7 7 7">
+         </path>
+        </svg>
+       </div>
+       <div class="ag c" style="margin-right:6px">
+        <img alt="Claude" src="../../ios/assets/claude.svg"/>
+       </div>
+       <b>
+        Retry the sync upload
+       </b>
+      </div>
+      <div class="chips">
+       <span class="st">
+        <span class="sp">
+        </span>
+        Working
+       </span>
+       <span class="chip">
+        acme/app
+       </span>
+       <span class="chip">
+        @build-box
+       </span>
+       <span class="chip">
+        fix-sync
+       </span>
+       <span class="chip">
+        21% used
+       </span>
+      </div>
+     </div>
+     <div class="mnav">
+      <div class="on">
+       Log
+      </div>
+      <div>
+       Files
+      </div>
+      <div>
+       Changes
+       <small style="color:var(--dim)">
+        2
+       </small>
+      </div>
+     </div>
+     <div class="log">
+      <div class="user">
+       <b>
+        You
+       </b>
+       Retry the sync upload when the link drops, and add a test.
+      </div>
+      <div class="sum">
+       <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14">
+        <path d="M12 3a6 6 0 00-3 11v3h6v-3a6 6 0 00-3-11z">
+        </path>
+       </svg>
+       <span class="sm">
+        Thought for 8s · Ran 3 commands · Read 4 files · Edited 2 files
+       </span>
+       <svg fill="none" height="12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="12">
+        <path d="M9 6l6 6-6 6">
+        </path>
+       </svg>
+      </div>
+      <blockquote><p>Run the login tests before pushing the fix.</p></blockquote><button type="button" aria-label="Copy quote" onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(() => { this.setAttribute('aria-label', 'Copied'); this.innerHTML = '&#10003;'; }).catch(() => { this.textContent = 'Copy failed'; })"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="8" width="13" height="13"/><path d="M8 8V3h13v13h-5"/></svg></button>
+      <p>
+       The upload gives up after one failure. I will wrap it in a retry with backoff in
+       <code>
+        upload.rs
+       </code>
+       .
+      </p>
+      <p class="sm" title="Screenshot">The file is no longer on disk. Unable to load image.</p>
+      <div class="tool">
+       <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14">
+        <path d="M4 5h16v14H4z">
+        </path>
+        <path d="M7 9l3 3-3 3M12 15h5">
+        </path>
+       </svg>
+       <span class="vb">
+        Ran
+       </span>
+       <span class="cmd">
+        cargo test -p sync retry --no-fail-fast
+       </span>
+       <span class="rm">
+        2.1s
+       </span>
+      </div>
+      <div class="tool">
+       <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14">
+        <path d="M5 4h10l4 4v12H5z">
+        </path>
+       </svg>
+       <span class="vb">
+        Edited
+       </span>
+       <span class="cmd">
+        src/upload.rs
+       </span>
+       <span class="rm">
+        <span class="pl">
+         +18
+        </span>
+        <span class="mi">
+         -3
+        </span>
+       </span>
+      </div>
+      <div class="sum">
+       <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14">
+        <path d="M12 3a6 6 0 00-3 11v3h6v-3a6 6 0 00-3-11z">
+        </path>
+       </svg>
+       <span class="sm">
+        Thought for 3s
+       </span>
+       <svg fill="none" height="12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="12">
+        <path d="M9 6l6 6-6 6">
+        </path>
+       </svg>
+      </div>
+      <p>
+       Added
+       <code>
+        retries_after_drop
+       </code>
+       . Running the suite once more.
+      </p>
+      <div class="tool">
+       <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14">
+        <path d="M4 5h16v14H4z">
+        </path>
+        <path d="M7 9l3 3-3 3M12 15h5">
+        </path>
+       </svg>
+       <span class="vb">
+        Ran
+       </span>
+       <span class="cmd">
+        cargo test -p sync
+       </span>
+       <span class="rm">
+        running
+       </span>
+      </div>
+     </div>
+     <div class="wq"><div class="ls"><div class="r"><i class="d"></i><span class="t">cargo test -p sync</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">npm run dev</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">cargo watch -x check</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">tail -f node.log</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">docker compose up</span><em>Stop</em></div><div class="r"><i class="d"></i><span class="t">just desktop-dev</span><em>Stop</em></div><div class="r s"><b>Steer</b><span class="t">Also log each retry at debug level</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Then run clippy</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Keep the old name as an alias</span><em>Edit</em><em>&#215;</em></div><div class="r s"><b>Steer</b><span class="t">Open a PR when green</span><em>Edit</em><em>&#215;</em></div></div><div class="ln"><i></i><span>6 running, 4 queued</span><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M6 9l6 6 6-6"></path></svg></div></div>
+     <div class="comp one">
+      <div class="fld">
+       Message Claude
+      </div>
+      <div class="ib stop">
+       <i>
+       </i>
+      </div>
+      <div class="ib send">
+       <svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24" width="20">
+        <path d="M12 19V6M6 12l6-6 6 6">
+        </path>
+       </svg>
+      </div>
+     </div>
+    </div>
+    <div class="hp">
+     <span>
+     </span>
+    </div>
+   </div>
+   <figcaption>
+    Commands and steers listed. Tapping the line opens the list over the log, newest steer last; it scrolls past about half the screen. Stop ends a command; Edit puts a steer back in the field; the cross drops it. Tapping the line again closes it.
    </figcaption>
   </figure>
  </body>
