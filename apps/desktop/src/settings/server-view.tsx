@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { ACTION_LABEL, SIGN_OUT_ASK, serverKind, serverView, type Reach } from "./server-state.ts";
 import { signInWay } from "./subscription.ts";

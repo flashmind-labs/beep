@@ -1,7 +1,6 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { CSSProperties } from "react";
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
-import { ICON } from "../ui/icons.ts";
+import { HarnessIcon, ICON } from "../ui/icons.tsx";
 import { bareVersion, coderColumns, coders, machineTag, nodeBehind, specLine, toolChips } from "./machines-state.ts";
 import { adapterLine } from "./adapters-state.ts";
 import type { Machine } from "./machines.ts";
@@ -66,7 +65,7 @@ function MachineCard({ machine: m, columns, props: p }: { machine: Machine; colu
     </span>
     {p.hosted && <span className="ch" dangerouslySetInnerHTML={{ __html: ICON.chev }} />}
     {env && m.can_host !== false && <>
-      {agents.length ? agents.map(t => { const v = bareVersion(t.name, t.version) ?? "", login = env.logins.find(l => l.tool === t.name); const title = `${t.name} ${v}${!login ? "" : login.signed_in ? ", signed in" : ", not signed in"}`; const mark = harnessMark(t.name); const cls = `dmag-ic${/^[a-z0-9-]+$/.test(t.name) ? ` ${t.name}` : ""}${mark ? " mark" : ""}`; return <span key={t.name} className="dmag" style={{ gridColumn: columns.indexOf(t.name) + 1 }} title={title}><span className={cls} dangerouslySetInnerHTML={{ __html: harnessInner(t.name) }} /><span className="v">{v}</span>{login && <span className={login.signed_in ? "in" : "out"} />}</span>; }) : <span className="none">No coding agents</span>}
+      {agents.length ? agents.map(t => { const v = bareVersion(t.name, t.version) ?? "", login = env.logins.find(l => l.tool === t.name); const title = `${t.name} ${v}${!login ? "" : login.signed_in ? ", signed in" : ", not signed in"}`; return <span key={t.name} className="dmag" style={{ gridColumn: columns.indexOf(t.name) + 1 }} title={title}><HarnessIcon agent={t.name} className="dmag-ic" /><span className="v">{v}</span>{login && <span className={login.signed_in ? "in" : "out"} />}</span>; }) : <span className="none">No coding agents</span>}
       {!!tools.shown.length && <span className="l3">{tools.shown.map(n => <span className="dmt-t" key={n}>{n}</span>)}{!!tools.more.length && <span className="dmt-t" title={tools.more.join(", ")}>+{tools.more.length}</span>}</span>}
       {m.online && (m.adapters ?? []).map((a, i) => { const text = adapterLine(a); return <span key={`${a.agent}-${i}`} className={`dmad${a.failed === null ? "" : " bad"}`}><span title={text}>{text}</span>{a.failed !== null && <button type="button" className="dbtn small" disabled={tried?.busy} onClick={e => { e.stopPropagation(); p.retryAdapter(m.id); }}>{tried?.busy ? "Trying again…" : "Try again"}</button>}</span>; })}
       {m.online && tried?.error && <span className="dmad bad"><span>{tried.error}</span></span>}

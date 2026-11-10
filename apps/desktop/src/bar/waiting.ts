@@ -4,7 +4,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
-import { agentAvatar, type AgentSession, folderName } from "../agents/agents.ts";
+import { type AgentSession, folderName } from "../agents/agents.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { placeRepo } from "../agents/place-state.ts";
@@ -14,7 +14,7 @@ import { onClosing, sessionVisible } from "../agents/closing.ts";
 import type { Note } from "../center/notices-state.ts";
 import { ambient, AMBIENT_MS } from "../ui/active.ts";
 import { formatAgo } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { $, bar, PANE, S } from "./core.ts";
@@ -54,7 +54,7 @@ const pick = () => waitingSessions(sessions.filter(sessionVisible), unread, W.qu
 
 function row({ session: s, kind }: WaitingSession): WaitingRow {
   const title = s.title || folderName(s.cwd) || s.agent;
-  return { key: sessionKey(s), avatar: agentAvatar(s.agent), title, sub: [project(s), s.machine_name, formatAgo(s.last_activity, "short")].join(" · "), kind, doing: s.doing || "Working" };
+  return { key: sessionKey(s), agent: s.agent, title, sub: [project(s), s.machine_name, formatAgo(s.last_activity, "short")].join(" · "), kind, doing: s.doing || "Working" };
 }
 
 /// Draws the list; the list takes the focus with `focus`, or when it had it.

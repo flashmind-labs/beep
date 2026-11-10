@@ -2,7 +2,7 @@ import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { useLayoutEffect, useRef } from "react";
 import { chipClass, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { researchLine } from "./researches.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 export function ResearchesView(p: { list: ResearchRow[]; loaded: boolean; selected: number; mode: "list" | "actions"; error: string; initial: string; typed: boolean; hints: HintViewModel; edit(): void; choose(index: number, action: "open" | "pdf"): void }) {
   const input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null), last = useRef("");

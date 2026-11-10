@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, type ReactElement } from "react";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import type { Freshness } from "../ui/pagecache.ts";
 import type { ChatApproval } from "../agents/running-state.ts";
 import type { ProjectActs } from "./agent.ts";

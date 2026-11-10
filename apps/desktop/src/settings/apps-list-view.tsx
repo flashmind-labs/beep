@@ -1,7 +1,7 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { ReactNode } from "react";
 import { useLayoutEffect, useState, type KeyboardEvent, type RefObject } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { plural } from "../ui/format.ts";
 import { hostOf, type App, type AppAccount, type McpServer } from "./apps.ts";
 

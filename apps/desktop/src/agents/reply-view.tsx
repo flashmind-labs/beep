@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { esc } from "../ui/format.ts";
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { HarnessIcon } from "../ui/icons.tsx";
 import { childReplyHtml } from "./childreply-state.ts";
 import type { PromptPart } from "./promptparts-state.ts";
 
@@ -47,8 +47,8 @@ export const AgentContext = memo(function AgentContext({ row }: { row: ContextRo
   if (row.type === "child") {
     const title = row.part.name || "Child agent";
     const state = row.part.state === "asking" ? "Waiting on you" : row.part.state === "closed" ? "Session ended" : row.part.state === "stopped" ? "Stopped" : "Done";
-    const agent = row.agent, safe = agent && /^[a-z0-9-]+$/.test(agent) ? ` ${agent}` : "";
-    return <div className="dcoderen kidreply" role="group" aria-label={`Reply from ${title}`}><button className="kh" type="button" data-kid={row.part.id} title={`Open ${title}`}>{agent ? <span className={`dapp dcoderav${safe}${harnessMark(agent) ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }} /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5" /></svg>}<b>{title}</b><span className="m">{row.meta}</span><span className="ks">{state}</span></button><div className="dcoderen agent md" dangerouslySetInnerHTML={{ __html: row.body }} /></div>;
+    const agent = row.agent;
+    return <div className="dcoderen kidreply" role="group" aria-label={`Reply from ${title}`}><button className="kh" type="button" data-kid={row.part.id} title={`Open ${title}`}>{agent ? <HarnessIcon agent={agent} className="dapp dcoderav" /> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5" /></svg>}<b>{title}</b><span className="m">{row.meta}</span><span className="ks">{state}</span></button><div className="dcoderen agent md" dangerouslySetInnerHTML={{ __html: row.body }} /></div>;
   }
   return <div className="dcoderen fromsession"><b>Other session wrote{row.name && <span className="who">{row.name}</span>}</b><span dangerouslySetInnerHTML={{ __html: row.html }} /></div>;
 });

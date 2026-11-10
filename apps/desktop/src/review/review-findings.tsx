@@ -1,4 +1,4 @@
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { HarnessIcon } from "../ui/icons.tsx";
 import { findingsSub, isRunning, openFindings, readySummary, shardChip, shardLine, type FindingView, type ReviewView } from "./review.ts";
 
 export function ReviewFindings({ review, busy, dismiss }: { review: ReviewView; busy: string; dismiss: (finding: FindingView) => void }) {
@@ -10,8 +10,8 @@ export function ReviewFindings({ review, busy, dismiss }: { review: ReviewView; 
       : running ? <div className="cc-panel cc-empty"><span className="dspin" /><span>Findings show as the reviewers finish.</span></div>
       : <div className="cc-panel cc-empty"><b>No findings</b><span className="rv-sum">{readySummary(review)}</span></div>}</div>
     <div><div className="cc-sec"><h4>Shards</h4></div><div className="cc-panel">{review.shards.map((shard, index) => {
-      const chip = shardChip(shard), safe = /^[a-z0-9-]+$/.test(shard.agent) ? ` ${shard.agent}` : "";
-      return <div className="rv-shard" key={`${shard.area}:${shard.agent}:${index}`}><span className={`cc-ag${safe}${harnessMark(shard.agent) ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(shard.agent) }} />
+      const chip = shardChip(shard);
+      return <div className="rv-shard" key={`${shard.area}:${shard.agent}:${index}`}><HarnessIcon agent={shard.agent} />
         <span className="t"><b>{shard.area}</b><span>{shardLine(shard, review.machine_name)}</span></span><span className={`chip ${chip.cls}`} title={shard.note || chip.text}>{chip.spin && <span className="dspin" />}{chip.text}</span></div>;
     })}</div></div></>;
 }

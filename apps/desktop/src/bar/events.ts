@@ -16,7 +16,7 @@ import { closeRerunMenu, rerun, rerunMenu } from "../chat/rerun.ts";
 import { forgetHeight } from "./size.ts";
 import { show } from "./views.ts";
 import { copyCode } from "../agents/turnrows.ts";
-import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ambient, paneShown } from "../ui/active.ts";
 import type { Turn } from "../ui/turn.ts";

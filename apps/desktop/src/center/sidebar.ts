@@ -39,7 +39,7 @@ import { threadChats } from "./threadcard.ts";
 import { beepViews, groupShown } from "../settings/subscription.ts";
 import { signedOutFooter } from "../settings/server-state.ts";
 import { openSettings } from "../settings/sheet.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";

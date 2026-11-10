@@ -1,5 +1,5 @@
 import { openViewer } from "../chat/media.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import type { Attached } from "./agentqueue.ts";
 
 const ids = new WeakMap<object, number>();

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Animation } from "./model3d.ts";
 import { clipTime } from "./media-state.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 interface Playback { clip: number; playing: boolean; loop: boolean; time: number }
 const playback = (animation: Animation): Playback => ({ clip: animation.clip, playing: animation.playing, loop: animation.loop, time: animation.time() });

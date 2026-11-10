@@ -2,7 +2,7 @@ import { $$, bar, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { arrowKey, clampSel, confirmKey, type ListState, loadList, readDay } from "./memories.ts";
 import { dayDiff, plural } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { createElement } from "react";

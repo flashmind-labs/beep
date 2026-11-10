@@ -37,7 +37,7 @@ import { editorsFor, openInEditor } from "../project/editors.ts";
 import { ProjectEditors } from "../project/header-view.tsx";
 import { disposeQueue, editQueued, interruptAgent, answerAgentQuestion, sendAgentMessage, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { Channel, invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { AMBIENT_MS, ambient, onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { onPhone } from "../ui/platform.ts";

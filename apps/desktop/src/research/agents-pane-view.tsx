@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { agentOf, count, doing, kind, round, type Agent, type Entry, type Open } from "./research-state.ts";
 import { Avatar } from "./avatar-view.tsx";
 import { Citations } from "./live-pane-view.tsx";

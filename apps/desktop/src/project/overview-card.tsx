@@ -1,7 +1,7 @@
 import { memo, useLayoutEffect, useRef } from "react";
 import { shallow } from "zustand/shallow";
 import { formatAgo, plural } from "../ui/format.ts";
-import { IC, PROJECT_COLORS } from "../ui/icons.ts";
+import { IC, PROJECT_COLORS } from "../ui/icons.tsx";
 import { barSegments, countsLine, latestLine, workersLabel, type OverviewCard, type OverviewCardRow, type Project } from "./projects-state.ts";
 
 export function overviewCardModel(c: OverviewCardRow<Project, OverviewCard>, sync: string | null) {

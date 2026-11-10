@@ -10,7 +10,7 @@ import { hintModel } from "../bar/hints.ts";
 import { clock, dateValue } from "./routines.ts";
 import { cap } from "../chat/tools.ts";
 import { dayDiff, esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
 

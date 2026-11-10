@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { agentLabel } from "../project/projects-state.ts";
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { HarnessIcon } from "../ui/icons.tsx";
 import type { ReviewComment } from "./diff-state.ts";
 
 interface DiffCommentProps {
@@ -44,11 +44,10 @@ export function DiffComment({ comment, label, initiallyEditing, isNew, onSave, o
       <button type="button" className="dbtn small quiet" onClick={cancel}>Cancel</button></div>
   </div>;
 
-  const by = comment.by ?? "", name = by ? agentLabel(by) : "", mark = by ? harnessMark(by) : null;
-  const tile = `cc-ag${/^[a-z0-9-]+$/.test(by) ? ` ${by}` : ""}${mark ? " mark" : ""}`;
+  const by = comment.by ?? "", name = by ? agentLabel(by) : "";
   return <div className="dv-cmt">
     <div className="b">{by && <span className="by" title={`Written by ${name}`}>
-      <span className={tile} dangerouslySetInnerHTML={{ __html: harnessInner(by) }}/>{name}
+      <HarnessIcon agent={by} />{name}
     </span>}{label && <><code>{label}</code> </>}{comment.text}</div>
     <div className="a"><button type="button" onClick={() => setEditing(true)}>Edit</button>
       <button type="button" aria-label="Remove the comment" onClick={onRemove}>×</button></div>

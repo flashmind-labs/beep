@@ -2,7 +2,7 @@ import { MV } from "../agents/move-store.ts";
 import { createElement, Fragment, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import { Chip, Harness, ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
+import { Chip, ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
 import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
@@ -30,6 +30,7 @@ import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, red
 import { sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
+import { HarnessIcon } from "../ui/icons.tsx";
 
 interface ProjectShell {
   project: string;
@@ -203,7 +204,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   }
 
   const runItems: SplitItem[] = byRecent(running).map(r => ({
-    key: `run:${runningKey(r)}`, lead: createElement(Harness, { agent: r.agent }), ...runningLineAt(r, state.home?.projects || []),
+    key: `run:${runningKey(r)}`, lead: createElement(HarnessIcon, { agent: r.agent }), ...runningLineAt(r, state.home?.projects || []),
     right: createElement(RunningStatus, { row: r }), open: () => go("pane", { agent: r }),
     menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));

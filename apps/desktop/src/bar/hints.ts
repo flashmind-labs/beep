@@ -5,7 +5,7 @@ import { linkChip } from "../settings/server-state.ts";
 import { liveParts, LV } from "./live.ts";
 import { modelChipLabel } from "../settings/model.ts";
 import { waitingQuestion } from "./work.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import type { HintViewModel } from "./hints-view.tsx";
 
 // ---------- Hints ----------

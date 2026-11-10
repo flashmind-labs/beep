@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { plural } from "../ui/format.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import { machineDisk, type MachineCard, type MacRow } from "../machines/machine-state.ts";
 
 export type HomeTab = "overview" | "git" | "machines";

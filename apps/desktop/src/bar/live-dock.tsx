@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { HintView } from "./hints-view.tsx";
 import { hintModel, LIVE_SAY, LIVE_TALK } from "./hints.ts";
 import { invoke } from "../ui/tauri.ts";

@@ -1,7 +1,7 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { useLayoutEffect, useRef } from "react";
 import { type ChatRow, type ChatsState } from "../bar/core.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { LIVE_CHATS, VOICE_ICON } from "../bar/live.ts";
 import { RESEARCHES } from "../research/researches.ts";
 import { mark, type ChatAction } from "./chats.ts";

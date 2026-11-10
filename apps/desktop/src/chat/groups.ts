@@ -15,7 +15,7 @@ import { $, $$, changed, G, GROUP_VIEWS, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
 import { dayDiff, esc } from "../ui/format.ts";
-import { BEEP_MARK, ICON } from "../ui/icons.ts";
+import { BEEP_MARK, ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 // ---------- Groups ----------

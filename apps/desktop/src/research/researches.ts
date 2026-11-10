@@ -9,7 +9,7 @@ import { hintModel, refreshHints } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
 import { progressLine, type ResearchRow } from "./research-list.ts";
 import { formatAgo, plural } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 // ---------- Research ----------

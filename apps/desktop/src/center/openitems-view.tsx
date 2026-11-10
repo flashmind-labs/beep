@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatAgo } from "../ui/format.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import { LabelGroup } from "../project/split-view.tsx";
 import { arranged, issueSelection, setIssueSelection } from "../project/openlist.ts";
 import { OpenListControls, OpenListStart } from "../project/openlist-view.tsx";

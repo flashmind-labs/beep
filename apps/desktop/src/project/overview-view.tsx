@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { Input, SearchField } from "react-aria-components";
 import { commandKey } from "../ui/platform.ts";
 import { formatAgo, plural } from "../ui/format.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 import { itemChips, type GitItemRow } from "../center/openitems-state.ts";
 import { newWindowOn, openProjects, setProjectOnTop } from "../center/sidebar.ts";
 import { agentLabel, foundSessions, searchOverview, type FoundRow, type OverviewCard, type OverviewGroup, type Project } from "./projects-state.ts";

@@ -9,7 +9,7 @@ import { $, bar, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 
 // ---------- Attached images and files ----------
 

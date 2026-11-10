@@ -6,7 +6,7 @@ import { clock, duration, heading, thoughtLabel, KIND_ICONS, type ToolKind, type
 import { copy, writeClipboard } from "../ui/parts.ts";
 import { endedHtml, liveHtml } from "./thoughtlive.ts";
 import { esc } from "../ui/format.ts";
-import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { onShownChange, paneShown } from "../ui/active.ts";
 
 /// `word`, its letters lit one after another in a loop.

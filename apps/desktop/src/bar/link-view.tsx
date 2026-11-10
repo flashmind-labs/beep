@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import type { LinkState, LinkView, LoginStep, PhoneInvite } from "./link.ts";
 
 export type LinkScreen =

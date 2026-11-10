@@ -3,7 +3,7 @@ import { BackgroundView, type BackgroundQuestions } from "./background-view.tsx"
 import { createElement, Fragment, memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
-import { COPY_ICON, ICON } from "../ui/icons.ts";
+import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { PLAY_ICON } from "../lists/memories.ts";
 import type { ApprovalField, Decision } from "./chat.ts";
 import { invoke } from "../ui/tauri.ts";

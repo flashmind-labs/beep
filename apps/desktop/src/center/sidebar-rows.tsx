@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { IC, PROJECT_COLORS } from "../ui/icons.ts";
+import { IC, PROJECT_COLORS } from "../ui/icons.tsx";
 import type { Placed, Project } from "../project/projects-state.ts";
 import type { ThreadChatEntry } from "./sidechats.ts";
 import type { SideChat } from "./state.ts";

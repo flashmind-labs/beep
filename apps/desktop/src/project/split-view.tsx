@@ -1,5 +1,4 @@
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { closingNote } from "../agents/closing.ts";
 import { runningWhen, type RunningAgent } from "../agents/running-state.ts";
@@ -38,11 +37,6 @@ function Label({ label, filter, button = false }: { label: string; filter: Label
   const cls = `pj-tag lab${label === filter.on ? " on" : ""}`;
   const pick = (event: React.MouseEvent) => { event.stopPropagation(); filter.pick(label); };
   return button ? <button type="button" className={cls} onClick={pick}>{label}</button> : <i className={cls} onClick={pick}>{label}</i>;
-}
-
-export function Harness({ agent }: { agent: string }) {
-  const safe = /^[a-z0-9-]+$/.test(agent) ? ` ${agent}` : "";
-  return <span className={`cc-ag${safe}${harnessMark(agent) ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }}/>;
 }
 
 export function RunningStatus({ row }: { row: RunningAgent }) {

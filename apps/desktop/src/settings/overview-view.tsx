@@ -1,4 +1,4 @@
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { HarnessIcon } from "../ui/icons.tsx";
 import { CODING_AGENTS, subKey, type SettingsSub } from "./settings-nav.ts";
 import { harnessName } from "./providers-state.ts";
 import type { App } from "./apps.ts";
@@ -6,8 +6,8 @@ import type { Machine } from "../machines/machines.ts";
 
 export function CodingAgentOverview({ open }: { open(sub: SettingsSub): void }) {
   return <><div className="dset-h">Coding agents</div><div className="dset-box">{CODING_AGENTS.map(agent => {
-    const sub: SettingsSub = { kind: "agent", id: agent }, mark = harnessMark(agent);
-    return <div className="dset-row" key={agent} data-sub={subKey(sub)} role="button" tabIndex={0} onClick={() => open(sub)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(sub); } }}><span className={`cc-ag ${agent}${mark ? " mark" : ""}`} dangerouslySetInnerHTML={{ __html: harnessInner(agent) }} /><span className="tt"><b>{harnessName(agent)}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg></div>;
+    const sub: SettingsSub = { kind: "agent", id: agent };
+    return <div className="dset-row" key={agent} data-sub={subKey(sub)} role="button" tabIndex={0} onClick={() => open(sub)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(sub); } }}><HarnessIcon agent={agent} /><span className="tt"><b>{harnessName(agent)}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg></div>;
   })}</div></>;
 }
 function Placeholder() { return <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /></div>; }

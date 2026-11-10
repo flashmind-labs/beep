@@ -10,7 +10,7 @@ import { showWindowParts } from "../center/window-root.ts";
 import { ResearchPage } from "./page-view.tsx";
 import { currentLocation, registerView, go, drawTop, openResearch } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, reloadChats } from "../center/sidebar.ts";
-import { IC } from "../ui/icons.ts";
+import { IC } from "../ui/icons.tsx";
 
 /// Every research on the account, newest first (null before the first
 /// answer), why the last read or start failed, whether one is starting and

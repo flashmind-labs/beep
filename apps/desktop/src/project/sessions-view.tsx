@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { base, formatAgo } from "../ui/format.ts";
-import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
+import { HarnessIcon } from "../ui/icons.tsx";
 import { placeOf } from "../agents/place.ts";
 import { placeSub } from "../agents/place-state.ts";
 import { agentLabel, type SessionRow } from "./projects-state.ts";
@@ -18,9 +18,7 @@ const sessionKey = (row: SessionRow) => `${row.machine_id}:${row.agent}:${row.id
 
 function SessionRowView({ row: s, open, menu, index }: { row: SessionRow; open: SessionProps["open"]; menu: SessionProps["menu"]; index?: number }) {
   const worktree = placeSub(placeOf(s), s.machine_name);
-  const safe = /^[a-z0-9-]+$/.test(s.agent) ? ` ${s.agent}` : "";
-  const mark = harnessMark(s.agent);
-  return <button data-index={index} className="pv-row" data-key={`${s.machine_id}:${s.id}`} onClick={() => open(s)} onContextMenu={e => menu(e.nativeEvent, s)}><span className="t">{s.title || "Untitled session"}</span><span className="m"><span className={`cc-ag${safe}${mark ? " mark" : ""}`} title={agentLabel(s.agent)} dangerouslySetInnerHTML={{ __html: harnessInner(s.agent) }} />{[s.status, ...(worktree ? [worktree] : [s.machine_name, base(s.cwd)]), s.last_activity ? formatAgo(s.last_activity, "short") : ""].filter(Boolean).map((text, i) => <span key={i}>{text}</span>)}</span></button>;
+  return <button data-index={index} className="pv-row" data-key={`${s.machine_id}:${s.id}`} onClick={() => open(s)} onContextMenu={e => menu(e.nativeEvent, s)}><span className="t">{s.title || "Untitled session"}</span><span className="m"><HarnessIcon agent={s.agent} title={agentLabel(s.agent)} />{[s.status, ...(worktree ? [worktree] : [s.machine_name, base(s.cwd)]), s.last_activity ? formatAgo(s.last_activity, "short") : ""].filter(Boolean).map((text, i) => <span key={i}>{text}</span>)}</span></button>;
 }
 
 function SessionList({ rows, all, open, menu }: SessionProps & { all: boolean }) {

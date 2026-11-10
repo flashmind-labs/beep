@@ -9,7 +9,7 @@ import { notice } from "../chat/media.ts";
 import { forgetHeight } from "./size.ts";
 import { type HeldQuestion, waitingQuestion } from "./work.ts";
 import { esc } from "../ui/format.ts";
-import { ICON } from "../ui/icons.ts";
+import { ICON } from "../ui/icons.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import type { Turn } from "../ui/turn.ts";
 
