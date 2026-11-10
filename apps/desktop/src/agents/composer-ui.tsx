@@ -24,30 +24,32 @@ function ownerOf(field: HTMLElement): Owner {
 export function disposeComposerUi() {
   const owner = current; current = null;
   if (!owner) return;
-  owner.observer.disconnect(); owner.root.unmount(); owner.queue?.remove(); owner.attachments?.remove(); owner.menu?.remove();
+  owner.observer.disconnect(); owner.root.unmount();
 }
 export function showAgentAttachments(field: HTMLElement, view: ReactElement | null) {
   if (!view && (!current || current.field !== field || !current.attachments)) return;
   const owner = ownerOf(field);
   if (!view) {
-    const old = owner.attachments; owner.attachments = null; owner.attachmentView = null; draw(owner); old?.remove();
+    owner.attachments = null; owner.attachmentView = null; draw(owner);
     return;
   }
-  if (!owner.attachments) { owner.attachments = document.createElement("div"); owner.attachments.className = "ag-att"; owner.attachments.id = "agatt"; field.before(owner.attachments); }
-  owner.attachmentView = view; draw(owner);
+  owner.attachments ??= field.parentElement?.querySelector<HTMLElement>("[data-agent-attachment-slot]") ?? null;
+  if (!owner.attachments) return;
+  owner.attachmentView = createElement("div", { className: "ag-att", id: "agatt" }, view); draw(owner);
 }
 export function showAgentQueue(field: HTMLElement, items: readonly Waiting[]) {
   if (!items.length) {
     if (!current || current.field !== field || !current.queue) return;
-    const owner = current, old = owner.queue; owner.queue = null; owner.queueSignature = null; owner.queueView = null; draw(owner); old?.remove();
+    const owner = current; owner.queue = null; owner.queueSignature = null; owner.queueView = null; draw(owner);
     return;
   }
   const owner = ownerOf(field);
   const signature = JSON.stringify(items.map(item => [item.typed, item.text, item.images.map(image => image.name), item.paths, item.state]));
   if (owner.queue && owner.queueSignature === signature) return;
-  if (!owner.queue) { owner.queue = document.createElement("div"); owner.queue.className = "ag-queue"; owner.queue.id = "agqueue"; (document.getElementById("agatt") ?? field).before(owner.queue); }
+  owner.queue ??= field.parentElement?.querySelector<HTMLElement>("[data-agent-queue-slot]") ?? null;
+  if (!owner.queue) return;
   owner.queueSignature = signature;
-  owner.queueView = createElement(AgentQueue, { items }); draw(owner);
+  owner.queueView = createElement("div", { className: "ag-queue", id: "agqueue" }, createElement(AgentQueue, { items })); draw(owner);
 }
 function Menu({ rows, index, pick }: { rows: Row[]; index: number; pick(index: number): void }) {
   const selected = useRef<HTMLDivElement>(null);
@@ -56,11 +58,13 @@ function Menu({ rows, index, pick }: { rows: Row[]; index: number; pick(index: n
 }
 export function showAgentMenu(field: HTMLElement, rows: Row[], index: number, pick: (index: number) => void) {
   const owner = ownerOf(field);
-  if (!owner.menu) { owner.menu = document.createElement("div"); owner.menu.className = "cm-menu"; owner.menu.setAttribute("role", "listbox"); field.append(owner.menu); }
-  owner.menu.hidden = !rows.length;
-  owner.menuView = rows.length ? createElement(Menu, { rows, index, pick }) : null;
+  owner.menu ??= field.querySelector<HTMLElement>("[data-agent-menu-slot]");
+  if (!owner.menu) throw new Error("Agent menu slot is missing");
+  owner.menuView = createElement("div", { className: "cm-menu", role: "listbox", hidden: !rows.length }, rows.length ? createElement(Menu, { rows, index, pick }) : null);
   draw(owner);
-  return owner.menu;
+  const menu = owner.menu.querySelector<HTMLElement>(".cm-menu");
+  if (!menu) throw new Error("Agent menu did not mount");
+  return menu;
 }
 
 export function showAgentControl(field: HTMLElement, host: HTMLElement, node: ReactElement | null) {
