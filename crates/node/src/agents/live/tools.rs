@@ -44,6 +44,8 @@ pub(super) struct ToolCall {
     /// Its command went to the background and still runs, though the call
     /// itself completed.
     pub(super) backgrounded: bool,
+    /// The skill a Claude Code `Skill` call loads.
+    pub(super) skill: Option<String>,
     pub(super) details: AgentToolCall,
 }
 
@@ -127,6 +129,7 @@ impl Live {
                     }),
                     beep: None,
                     backgrounded: false,
+                    skill: None,
                     details: AgentToolCall::default(),
                 },
             );
@@ -224,6 +227,7 @@ impl Live {
                 },
             ),
             backgrounded: false,
+            skill: None,
             details: AgentToolCall {
                 name: call
                     .name
@@ -239,6 +243,8 @@ impl Live {
             call.raw_input.as_ref(),
             call.raw_output.as_ref(),
         );
+
+        tool.skill = skill_of(&tool.details, call.raw_input.as_ref());
 
         if let Some(subagent) = &mut subagent {
             if let Some(title) = subagent.title.take() {
@@ -383,6 +389,10 @@ impl Live {
             self.info.state.summary = cut(&call.own_title(), MAX_LINE);
         }
 
+        if call.skill.is_none() {
+            call.skill = skill_of(&call.details, fields.raw_input.as_ref());
+        }
+
         if call.subagent.is_none() {
             call.subagent = Subagent::of_call(&call.title, fields.raw_input.as_ref());
         }
@@ -470,6 +480,22 @@ impl Live {
     }
 }
 
+/// Claude Code's tool that loads a skill.
+const SKILL_TOOL: &str = "Skill";
+
+/// What the result of a skill that forked to the background says.
+const FORKED_SKILL: &str = "forked execution";
+
+/// The skill a call loads, when it is Claude Code's `Skill` call.
+fn skill_of(details: &AgentToolCall, input: Option<&Value>) -> Option<String> {
+    if details.name.as_deref() != Some(SKILL_TOOL) {
+        return None;
+    }
+
+    let skill = input?.get("skill")?.as_str()?.trim();
+    (!skill.is_empty()).then(|| cut(skill, MAX_LINE))
+}
+
 /// One call a subagent ran, as its parent's entry names it.
 pub(super) struct Step<'a> {
     pub(super) status: ToolCallStatus,
@@ -507,6 +533,14 @@ impl ToolCall {
     fn own_title(&self) -> Cow<'_, str> {
         if let Some(beep) = &self.beep {
             return Cow::Owned(beep.tool.title(beep.input.as_ref()));
+        }
+
+        // A skill that forks runs as a subagent: its calls name the Skill
+        // call as their parent, or its result says it went to the background.
+        if let Some(skill) = &self.skill
+            && (!self.steps.is_empty() || self.output.contains(FORKED_SKILL))
+        {
+            return Cow::Owned(format!("Skill: {skill} (subagent)"));
         }
 
         match self.paths.first() {
