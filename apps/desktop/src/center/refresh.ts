@@ -20,6 +20,7 @@ import { drawProjects } from "../project/page.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { followSync, readSync } from "../project/syncpage.ts";
+import { perfFresh } from "../ui/perf.ts";
 
 /// The server answered for Home in this window; until then Home may be
 /// the one the app kept from before.
@@ -36,6 +37,13 @@ let homeRead: Promise<void> | undefined;
 let lastRead: HomeView | null = null;
 let shown: HomeView | null = null;
 let undrawn = false;
+/// Times Home from its kept draw to the first fresh one.
+let homeFresh: (() => void) | null = null;
+
+/// Home drew what the app kept; called before any fresh read drew.
+export function homeCached() {
+  if (!fresh) homeFresh = perfFresh("home");
+}
 
 /// Reads membership, running sessions and Home data without refreshing unrelated panes.
 /// Sections that did not change keep their objects; an unchanged Home draws nothing.
@@ -75,6 +83,8 @@ async function readHome(): Promise<void> {
       if (!onScreen() || !undrawn) continue;
       undrawn = false;
       drawHome(false);
+      homeFresh?.();
+      homeFresh = null;
 
       // The groups load from Home without drawing; the sidebar draws once.
       const projects = !next || next.projects !== before?.projects || next.running !== before?.running;
