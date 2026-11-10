@@ -144,6 +144,8 @@ addEventListener("message", event => {
 const blocks = document.getElementsByClassName("language-mermaid");
 
 function scan() {
+  sweep();
+
   for (const code of blocks) {
     const pre = code.parentElement;
     if (code.localName !== "code" || !(pre instanceof HTMLElement) || pre.localName !== "pre" || pre.dataset.diagram) continue;
@@ -159,16 +161,17 @@ function scan() {
 
   next();
 }
-new MutationObserver(() => {
-  if (blocks.length || waiting.size) scan();
-
+/// Forgets frames a redraw removed; a block whose frame went shows its source and is found again.
+function sweep() {
   for (const [frame, diagram] of diagrams) if (!frame.isConnected) {
     clearTimeout(diagram.timer); diagrams.delete(frame);
     if (diagram.fallback) {
       delete diagram.fallback.dataset.diagram;
       diagram.fallback.hidden = false;
-      frame.remove();
     }
   }
-}).observe(document.body, { childList: true, subtree: true });
+}
+// A Mermaid block not yet drawn plays a 1 ms animation (style.css) as it shows, so a new block
+// costs one event, and the rest of the page's changes cost nothing.
+document.addEventListener("animationstart", event => { if (event.animationName === "diagram-found") scan(); });
 scan();

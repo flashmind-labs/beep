@@ -137,4 +137,9 @@ if (typeof window !== "undefined") {
   document.addEventListener("visibilitychange", () => { lastEvent = "visibilitychange"; changed(); });
   // Focus, a key or a click means the window is on screen.
   for (const name of ["focus", "keydown", "pointerdown"]) window.addEventListener?.(name, () => { setHidden(false, name); changed(); }, true);
+
+  // Spinners stop while the window is hidden (style.css). Test pages may have no root.
+  const mark = () => document.documentElement?.toggleAttribute?.("data-hidden", !pageShown());
+  told.push(mark);
+  mark();
 }
