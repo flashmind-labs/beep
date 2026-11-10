@@ -6,23 +6,23 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
-import { ago, reason, since } from "../ui/format.ts";
+import { reason, since } from "../ui/format.ts";
 import { copy, dbtn as button, emptyPanel, freshNote, svgEl } from "../ui/parts.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { FoundSection } from "./overview-view.tsx";
+import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
 import { panelSlot } from "./split.ts";
 import { foundFor, plainPath, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
-import { ITEMS_SHOWN, repoUrl } from "../center/openitems-state.ts";
+import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
-import { failure, section, rowButton } from "../ui/pieces.ts";
-import { openUrl, openItemRow, repoLine, refreshGit } from "../center/openitems.ts";
+import { failure, section } from "../ui/pieces.ts";
+import { openUrl, refreshGit, replyItem } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { projectRows, importSheet, addProject, importFromPage } from "../center/sidebar.ts";
@@ -593,28 +593,39 @@ export function foundSection(enabled: boolean) {
 }
 
 let askedGit = false;
+let elsewhereHost: HTMLElement | null = null;
+export function disposeElsewhereSection() {
+  if (!elsewhereHost) return;
+  removeWindowPart("project-elsewhere");
+  elsewhereHost = null;
+}
 /// The open PRs and issues in repos without a project, each repo with
 /// Import project, under the Projects overview.
-export function elsewhereSection(rows: Project[]) {
+export function elsewhereSection(rows: Project[], enabled: boolean) {
+  if (!enabled) { disposeElsewhereSection(); return null; }
   if (!state.git) {
     if (!askedGit) { askedGit = true; refreshGit().then(redrawProjects); }
+    disposeElsewhereSection();
     return null;
   }
 
   const repos = outsideThreads(state.git, rows).slice(0, 8);
-  if (!repos.length) return null;
-  const body = repos.flatMap((r, i) => {
+  if (!repos.length) { disposeElsewhereSection(); return null; }
+  const body = repos.map((r, i) => {
     // A checkout the machines found imports as it is; otherwise the sheet clones.
     const here = foundFor(state.found, r.repo);
-    const imp = rowButton(here && state.importing === here.name ? "Importing…" : "Import project", i ? "small" : "pri small", () => here ? importFromPage(here) : importSheet(r.repo));
-    imp.disabled = !!here && state.importing != null;
     const failed = here && state.foundError?.name === here.name ? state.foundError.message : null;
     const sub = failed ?? (here ? `on ${here.places.map(p => p.machine_name).join(", ")}` : r.host);
-    const head = repoLine(undefined, r.repo, sub, [h("span", "age", ago(r.last)), imp], () => openUrl(repoUrl(r.items[0].url)));
-    return [head, ...r.items.slice(0, ITEMS_SHOWN).map(item => openItemRow(item, null))];
+    return { key: `${r.host} ${r.repo}`, name: r.repo, sub, url: repoUrl(r.items[0].url), last: r.last,
+      importing: !!here && state.importing === here.name, disabled: !!here && state.importing != null, primary: i === 0,
+      items: r.items.slice(0, ITEMS_SHOWN), import: () => { if (here) void importFromPage(here); else importSheet(r.repo); } };
   });
-  return section("sec-elsewhere", "Your open PRs and issues in repos without a project", "", null,
-    h("div", "cc-panel cc-open", ...body));
+  if (!elsewhereHost) { elsewhereHost = h("div"); elsewhereHost.id = "sec-elsewhere"; }
+  showWindowParts([{ part: "project-elsewhere", host: elsewhereHost, content: createElement(ElsewhereSection, { repos: body, open: openUrl,
+    review: item => go("pane", { agentnew: reviewStart(item, null, state.home?.machines?.filter(m => m.can_host !== false)) }),
+    reply: item => { void replyItem(item); },
+  }) }]);
+  return panelSlot(elsewhereHost);
 }
 
 // Reopened sessions and moves change independently of project membership.

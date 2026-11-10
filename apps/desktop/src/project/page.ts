@@ -21,7 +21,7 @@ import { importButton, overviewSection, loadOverview, projectDetail } from "./pr
 import { splitOn, openTile, projectPanel } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
-import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, disposeFoundSection, elsewhereSection, sessionPanel, disposeSessionPanel } from "./loads.ts";
+import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, sessionPanel, disposeSessionPanel } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
 import { resetRows } from "../ui/lazyrows.ts";
@@ -53,7 +53,7 @@ function patchProjectView(current: Element, next: Element) {
 export function drawProjects(el: HTMLElement) {
   const rows = projectRows();
   if (!state.picked) disposeSessionPanel();
-  if (!state.home || !rows?.length) disposeFoundSection();
+  if (!state.home || !rows?.length) { disposeFoundSection(); disposeElsewhereSection(); }
   let view: HTMLElement = h("div", "cc-view");
   view.dataset.project = state.picked ?? "";
   let one: Project | null = null;
@@ -77,7 +77,7 @@ export function drawProjects(el: HTMLElement) {
 
     const found = foundSection(!one);
     if (found) view.append(found);
-    const elsewhere = !state.picked ? elsewhereSection(rows) : null;
+    const elsewhere = elsewhereSection(rows, !state.picked);
     if (elsewhere) view.append(elsewhere);
   }
 
@@ -185,5 +185,5 @@ registerView("projects", {
     refresh();
     prefetchRecentSoon();
   },
-  unmount: () => { disposeFoundSection(); disposeSessionPanel(); openTile(null, false); liveMode.follow(null); terms.stop(); },
+  unmount: () => { disposeFoundSection(); disposeElsewhereSection(); disposeSessionPanel(); openTile(null, false); liveMode.follow(null); terms.stop(); },
 });
