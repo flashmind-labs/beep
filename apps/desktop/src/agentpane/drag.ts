@@ -2,7 +2,9 @@
 import { createElement, Fragment } from "react";
 import { hasSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { type Box, type Dock, dropDock, moveTab, paneSize, SIDE_BY_SIDE_MIN } from "./media-state.ts";
-import { DRAG_START, P, saveLayout, DOCK_RIGHT, DOCK_BOTTOM, shell, main, paneOf, dockOf, draw } from "./media.ts";
+import { DRAG_START, P, saveLayout } from "./media.ts";
+import { DOCK_RIGHT, DOCK_BOTTOM, draw } from "./media-draw.ts";
+import { shell, main, paneOf, dockOf } from "./media-layout.ts";
 
 /// Where a tab drag stands: the tab, where the pointer went down, and once
 /// it moved far enough, the tab's ghost under the pointer and the dock it

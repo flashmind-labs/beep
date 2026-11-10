@@ -8,7 +8,7 @@ import { esc, linkified, money, tokenCount } from "../ui/format.ts";
 import { type BeepCall, beepCall, beepLine, commandOf, diffBlocks, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState, withoutDiffs } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
 import { $, S } from "../bar/core.ts";
-import { drawPane } from "../agentpane/media.ts";
+import { drawPane } from "../agentpane/media-draw.ts";
 import type { SubagentRow } from "../agentpane/subagents-view.tsx";
 import { SUB_ICON, type ActivityRow } from "./activity-view.tsx";
 import { followAgent } from "../agentpane/worktree.ts";
