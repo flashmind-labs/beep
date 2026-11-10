@@ -90,8 +90,8 @@ registerView("projects", {
       const rows = projectRows();
       const sub = rows?.length ? overviewSub(overviewGroups(rows, state.overview, state.top, state.groups)) : "Repositories on your machines";
       // Group controls follow mesh support, independently of task summaries.
-      const tools = [state.groups ? createElement("button", { key: "group", type: "button", className: "dbtn small", onClick: () => editGroup() }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }), " New group") : null,
-        createElement("button", { key: "add", type: "button", className: "dbtn small", onClick: addProject }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.plus } }), " Add a project")];
+      const tools = [state.groups ? createElement("button", { key: "group", type: "button", className: "dbtn small pj-tool", "aria-label": "New group", onClick: () => editGroup() }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }), " New group") : null,
+        createElement("button", { key: "add", type: "button", className: "dbtn small pj-tool", "aria-label": "Add a project", onClick: addProject }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.plus } }), " Add a project")];
       return { title: "Projects", sub, reactTools: tools };
     }
 

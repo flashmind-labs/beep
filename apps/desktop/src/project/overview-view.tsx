@@ -1,9 +1,11 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Input, SearchField } from "react-aria-components";
+import { commandKey } from "../ui/platform.ts";
 import { ago as itemAgo, plural } from "../ui/format.ts";
 import { IC } from "../ui/icons.ts";
 import { itemChips, type GitItemRow } from "../center/openitems-state.ts";
 import { newWindowOn, openProjects, setProjectOnTop } from "../center/sidebar.ts";
-import { agentLabel, foundSessions, type FoundRow, type OverviewCard, type OverviewGroup, type Project } from "./projects-state.ts";
+import { agentLabel, foundSessions, searchOverview, type FoundRow, type OverviewCard, type OverviewGroup, type Project } from "./projects-state.ts";
 import { ago } from "../addproject/addproject.ts";
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
 import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.ts";
@@ -11,7 +13,14 @@ import { state } from "../center/state.ts";
 import { redrawProjects } from "./sections.ts";
 
 type Group = OverviewGroup<Project, OverviewCard>;
-export function ProjectsOverview({ groups, sync, editing, add }: { groups: Group[]; sync(name: string): string | null; editing: { id: string; draft: string } | null; add(): void }) {
+/// What the search field holds, kept while the user is on other pages.
+let kept = "";
+
+export function ProjectsOverview({ groups: all, sync, editing, add }: { groups: Group[]; sync(name: string): string | null; editing: { id: string; draft: string } | null; add(): void }) {
+  const [query, setQuery] = useState(kept);
+  const groups = useMemo(() => searchOverview(all, query), [all, query]);
+  const field = useRef<HTMLInputElement>(null);
+  useSearchKeys(field);
   const [count, setCount] = useState(() => typeof IntersectionObserver === "undefined" ? groups.length : 1), [height, setHeight] = useState(0);
   const first = useRef<HTMLElement>(null), end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -30,8 +39,32 @@ export function ProjectsOverview({ groups, sync, editing, add }: { groups: Group
     observer.observe(marker);
     return () => observer.disconnect();
   }, [count, groups.length, height]);
-  return <>{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={group.group ? `group:${group.group.id}` : `org:${group.org ?? ""}`}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><button type="button" className="dbtn" onClick={add}>Add</button></div></>;
+  const search = (text: string) => { kept = text; setQuery(text); };
+  return <><SearchField className="pj-find" aria-label="Search projects" value={query} onChange={search}><Input ref={field} placeholder="Search projects" spellCheck={false} autoComplete="off"/></SearchField>{!groups.length && query.trim() && <div className="cc-panel cc-empty pj-none"><span>No projects match.</span></div>}{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={group.group ? `group:${group.group.id}` : `org:${group.org ?? ""}`}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><button type="button" className="dbtn" onClick={add}>Add</button></div></>;
 }
+/// `/` or Cmd/Ctrl+F focuses the search while the overview shows and no
+/// field, dialog or other handler has the key.
+function useSearchKeys(field: React.RefObject<HTMLInputElement | null>) {
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      const input = field.current;
+      if (!input || event.defaultPrevented || event.isComposing || event.altKey || !input.checkVisibility() || document.querySelector('[role="dialog"]')) return;
+
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const typing = !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+      const find = commandKey(event) && !event.shiftKey && event.key.toLowerCase() === "f";
+      const slash = event.key === "/" && !event.metaKey && !event.ctrlKey && !typing;
+      if (!find && !slash) return;
+
+      event.preventDefault();
+      input.focus();
+      input.select();
+    };
+    document.addEventListener("keydown", keys);
+    return () => document.removeEventListener("keydown", keys);
+  }, [field]);
+}
+
 export interface ElsewhereRepo { key: string; name: string; sub: string; url: string; last: number; importing: boolean; disabled: boolean; primary: boolean; items: GitItemRow[]; import(): void }
 export function ElsewhereSection({ repos, open, review, reply }: { repos: ElsewhereRepo[]; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
   const act = (event: React.MouseEvent, run: () => void) => { event.stopPropagation(); run(); };

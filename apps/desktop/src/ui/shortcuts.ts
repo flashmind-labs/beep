@@ -53,6 +53,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
   ] },
   { title: "Projects", rows: [
     { keys: "⇧⌘N", does: "Open project in a window" },
+    { keys: "⌘F", does: "Search projects, on the Projects page" },
     { keys: "⌘T", does: "New terminal in the project" },
     { keys: "↩", does: "Start a session from the project input" },
   ] },
