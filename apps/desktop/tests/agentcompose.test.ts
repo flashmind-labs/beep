@@ -469,11 +469,14 @@ function agentsListDom(t: TestContext) {
   }
   const originalHtml = Object.getOwnPropertyDescriptor(bar, "innerHTML");
   Object.defineProperty(bar, "innerHTML", { get: () => actual.innerHTML, set: (value: string) => { actual.innerHTML = value; }, configurable: true });
-  Object.defineProperty(bar, "replaceChildren", { value: (...nodes: HTMLElement[]) => { actual.replaceChildren(...nodes); for (const node of nodes) Object.defineProperty(node, "parentElement", { get: () => bar, configurable: true }); }, configurable: true });
+  // A box placed here reads as the bar's child until the test ends, then as detached, so the next test mounts its own.
+  const placed = new Set<HTMLElement>();
+  Object.defineProperty(bar, "replaceChildren", { value: (...nodes: HTMLElement[]) => { actual.replaceChildren(...nodes); for (const node of nodes) { placed.add(node); Object.defineProperty(node, "parentElement", { get: () => node.parentNode === actual ? bar : node.parentNode, configurable: true }); } }, configurable: true });
   t.after(async () => {
     // Leaving releases the page; the next test's document gets a box of its own.
     flushSync(() => openBarPage(() => {}).root.render(null));
-    actual.replaceChildren(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
+    actual.replaceChildren(); for (const node of placed) Reflect.deleteProperty(node, "parentElement");
+    await new Promise(resolve => setImmediate(resolve)); dom.window.close();
     if (originalHtml) Object.defineProperty(bar, "innerHTML", originalHtml);
     Reflect.deleteProperty(bar, "replaceChildren");
     for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
