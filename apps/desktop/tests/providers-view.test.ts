@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement, useState, type ComponentProps } from "react";
 import { modelContextPanel } from "../src/settings/model-context.ts";
+import { flshPanel } from "../src/settings/flsh.ts";
 import { draftOf, type HarnessView } from "../src/settings/providers-state.ts";
 
 test("coding agent runtime keeps focused drafts and dispatches nested actions", async () => {
@@ -17,7 +18,7 @@ test("coding agent runtime keeps focused drafts and dispatches nested actions", 
   const hv: HarnessView = { agent: "codex", installed: true, runnable: true, version: "1.0", latest: null, program: "codex", home_var: null, home_default: null, sign_in: { state: "signed_in", account: null, plan: null, last4: null }, install: null, settings: { enabled: true, program: "codex", home: "", args: [], env: [] } };
   let toggled = 0, picked = 0, saved = 0;
   const noOp = () => {};
-  const props: ComponentProps<typeof ProvidersView> = { loadOthers: noOp, loadCompact: noOp, changeCompact: noOp, saveCompact: noOp, discardCompact: noOp, machines: [{ id: "one", name: "build-box", online: true }], machine: "one", machineName: "build-box", view: { machine_id: "one", machine_name: "build-box", checked_at: 0, harnesses: [hv] }, picked: "codex", draft: null, others: false, saving: false, updating: false, adapter: null, error: "", inSettings: false, savedAll: "", includeProgram: false, shared: null, contexts: modelContextPanel(async () => { throw new Error("unexpected call"); }), flsh: { snapshot: () => ({ saved: null, draft: null, error: "", saving: false, requested: false }), subscribe: () => () => {}, load: async () => {}, save: async () => {}, change: () => {}, discard: () => {} }, loading: false, checked: "Check", updateCount: 0, canUpdate: false,
+  const props: ComponentProps<typeof ProvidersView> = { loadOthers: noOp, loadCompact: noOp, changeCompact: noOp, saveCompact: noOp, discardCompact: noOp, machines: [{ id: "one", name: "build-box", online: true }], machine: "one", machineName: "build-box", view: { machine_id: "one", machine_name: "build-box", checked_at: 0, harnesses: [hv] }, picked: "codex", draft: null, others: false, saving: false, updating: false, adapter: null, error: "", inSettings: false, savedAll: "", includeProgram: false, shared: null, contexts: modelContextPanel(async () => { throw new Error("unexpected call"); }), flsh: flshPanel(async () => { throw new Error("unexpected call"); }), loading: false, checked: "Check", updateCount: 0, canUpdate: false,
     pick: () => { picked++; }, toggle: () => { toggled++; }, update: noOp, retryAdapter: noOp, openAccounts: noOp, setDraft: noOp, save: () => { saved++; }, saveAll: noOp, discard: noOp, setIncludeProgram: noOp, dismissError: noOp, pickMachine: noOp, refresh: noOp, updateAll: noOp };
   function Harness({ error }: { error: string }) {
     const [draft, setDraft] = useState(() => draftOf(hv));

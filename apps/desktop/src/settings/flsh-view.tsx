@@ -1,11 +1,12 @@
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { useStore } from "zustand";
 import { QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshProblem, toggleQuantization, type FlshDraft, type Sort } from "./flsh-state.ts";
 import type { FlshPanel } from "./flsh.ts";
 
 const DEFAULT_TRIGGER = "Model's default trigger";
 
 export function FlshView({ panel }: { panel: FlshPanel }) {
-  const state = useSyncExternalStore(panel.subscribe, panel.snapshot);
+  const state = useStore(panel.state);
   useEffect(() => { void panel.load(); }, [panel]);
   if (state.saved === null) return <><h4>OpenRouter routing</h4><div className="hv-note">Loading flsh's settings…</div></>;
   if (state.saved === false) return <><h4>OpenRouter routing</h4><div className="hv-note">The server needs an update before it keeps flsh's settings.</div></>;

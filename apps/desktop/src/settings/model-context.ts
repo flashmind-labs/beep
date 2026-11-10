@@ -1,4 +1,6 @@
 // Harness-reported context limits and shared model compaction overrides.
+import { createStore } from "zustand";
+import { latest, STALE } from "../ui/active.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { AgentModels } from "../agents/agentmodels.ts";
 import { modelDraft, modelProblem, modelRules } from "./model-context-state.ts";
@@ -6,45 +8,55 @@ import type { ModelCompact, ModelCompactDraft } from "./model-context-state.ts";
 
 export interface ContextState { models: AgentModels | null; saved: ModelCompact[]; draft: ModelCompactDraft[]; loading: boolean; saving: boolean; error: string; loaded: boolean; filter: string; defaultModel: string; savedDefault: string; defaultText: string; customIndexes: number[]; unfilteredIndexes: number[]; savingDefault: boolean; defaultError: string }
 export const supportsOverrides = (agent: string) => ["codex", "claude", "pi"].includes(agent);
-const initial = (): ContextState => ({ models: null, saved: [], draft: [], loading: false, saving: false, error: "", loaded: false, filter: "", defaultModel: "", savedDefault: "", defaultText: "", customIndexes: [], unfilteredIndexes: [], savingDefault: false, defaultError: "" });
+const INITIAL: ContextState = { models: null, saved: [], draft: [], loading: false, saving: false, error: "", loaded: false, filter: "", defaultModel: "", savedDefault: "", defaultText: "", customIndexes: [], unfilteredIndexes: [], savingDefault: false, defaultError: "" };
+
+/// Each machine's and harness's panel state, keyed by `contextKey`.
+type ContextStates = Readonly<Record<string, ContextState>>;
+const contextKey = (machine: string, agent: string) => `${machine}\0${agent}`;
+
+/// The panel state of `agent` on `machine` in `states`.
+export const contextOf = (states: ContextStates, machine: string, agent: string) => states[contextKey(machine, agent)] ?? INITIAL;
 
 export function modelContextPanel(invoke: typeof Invoke) {
-  const states = new Map<string, ContextState>();
-  const listeners = new Set<() => void>();
-  const revisions = new Map<string, number>();
-  const key = (machine: string, agent: string) => `${machine}\0${agent}`;
-  function snapshot(machine: string, agent: string) {
-    const id = key(machine, agent);
-    let state = states.get(id);
-    if (!state) { state = initial(); states.set(id, state); }
-    return state;
-  }
+  const states = createStore<ContextStates>()(() => ({}));
+  // A save elsewhere makes each other machine's read of the same harness stale.
+  const reads = new Map<string, ReturnType<typeof latest>>();
+  const snapshot = (machine: string, agent: string) => contextOf(states.getState(), machine, agent);
+
   function update(machine: string, agent: string, change: Partial<ContextState>) {
-    states.set(key(machine, agent), { ...snapshot(machine, agent), ...change });
-    for (const listener of listeners) listener();
+    const id = contextKey(machine, agent);
+    states.setState(all => ({ ...all, [id]: { ...(all[id] ?? INITIAL), ...change } }));
   }
+
   function invalidate(machine: string, agent: string) {
-    for (const id of states.keys()) if (id !== key(machine, agent) && id.endsWith(`\0${agent}`)) {
-      revisions.set(id, (revisions.get(id) ?? 0) + 1);
-      states.delete(id);
-    }
-    for (const listener of listeners) listener();
+    const keep = contextKey(machine, agent);
+    states.setState(all => Object.fromEntries(Object.entries(all).filter(([id]) => {
+      if (id === keep || !id.endsWith(`\0${agent}`)) return true;
+      reads.get(id)?.cancel();
+      return false;
+    })), true);
   }
+
   async function load(machine: string, agent: string) {
     if (snapshot(machine, agent).loading) return;
     update(machine, agent, { loading: true, error: "" });
-    const id = key(machine, agent), revision = revisions.get(id) ?? 0;
-    const current = () => (revisions.get(id) ?? 0) === revision;
+    const id = contextKey(machine, agent);
+    const read = reads.get(id) ?? latest();
+    reads.set(id, read);
+
     try {
-      const [models, rules, defaultModel] = await Promise.all([
+      const answer = await read.run(Promise.all([
         invoke<AgentModels | null>("agent_models", { machineId: machine, agent }),
         supportsOverrides(agent) ? invoke<ModelCompact[]>("harness_model_compacts", { agent }) : Promise.resolve([]),
         invoke<string | null>("harness_default_model", { agent }),
-      ]);
-      if (current()) update(machine, agent, { models, saved: rules, draft: modelDraft(rules), customIndexes: rules.flatMap((rule, i) => models?.models.some(model => model.id === rule.model) ? [] : [i]), unfilteredIndexes: [], defaultModel: defaultModel ?? "", defaultText: models?.models.find(model => model.id === defaultModel)?.name ?? defaultModel ?? "", savedDefault: defaultModel ?? "", loaded: true });
-    } catch (error) { if (current()) update(machine, agent, { error: String(error) }); }
-    finally { if (current()) update(machine, agent, { loading: false }); }
+      ]));
+      if (answer === STALE) return;
+
+      const [models, rules, defaultModel] = answer;
+      update(machine, agent, { models, saved: rules, draft: modelDraft(rules), customIndexes: rules.flatMap((rule, i) => models?.models.some(model => model.id === rule.model) ? [] : [i]), unfilteredIndexes: [], defaultModel: defaultModel ?? "", defaultText: models?.models.find(model => model.id === defaultModel)?.name ?? defaultModel ?? "", savedDefault: defaultModel ?? "", loaded: true, loading: false });
+    } catch (error) { update(machine, agent, { error: String(error), loading: false }); }
   }
+
   async function save(machine: string, agent: string) {
     const state = snapshot(machine, agent);
     if (state.saving || modelProblem(state.draft)) return;
@@ -68,6 +80,6 @@ export function modelContextPanel(invoke: typeof Invoke) {
     } catch (error) { update(machine, agent, { defaultError: String(error) }); }
     finally { update(machine, agent, { savingDefault: false }); }
   }
-  return { snapshot, update, load, save, saveDefault, subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); } };
+  return { states, snapshot, update, load, save, saveDefault };
 }
 export type ModelContextPanel = ReturnType<typeof modelContextPanel>;
