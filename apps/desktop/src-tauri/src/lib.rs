@@ -51,11 +51,12 @@ pub fn run() {
 
     let _log = platform::logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
+    let context = tauri::generate_context!();
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
     #[cfg(all(unix, desktop))]
-    unsafe {
-        platform::login_path::adopt()
-    };
+    if let Some(refresh) = unsafe { platform::login_path::adopt(&context.config().identifier) } {
+        std::thread::spawn(move || refresh.run());
+    }
     let builder = tauri::Builder::default();
     #[cfg(target_os = "windows")]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -552,7 +553,7 @@ pub fn run() {
             settings::models::set_model,
             settings::models::set_thinking,
         ]))
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("the app failed to start")
         .run(|app, event| {
             match event {

@@ -486,6 +486,7 @@ dependencies = [
  "beep-proto",
  "beep-report",
  "block2",
+ "dirs 6.0.0",
  "futures",
  "image",
  "iroh",
