@@ -12,7 +12,9 @@ use tokio::time::{Instant, sleep, timeout};
 use tracing::{debug, warn};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
-const LAST_RETRY: Duration = Duration::from_secs(12);
+/// A member that stays away is tried about once a minute. One that comes
+/// back dials us itself, and its new address ends our wait early.
+const LAST_RETRY: Duration = Duration::from_secs(60);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// A connection that lasted this long counts as having worked.
 const STABLE: Duration = Duration::from_secs(5);
@@ -21,8 +23,7 @@ const GRACE: Duration = Duration::from_secs(3);
 /// The larger id lets the smaller dial first, so one dial does the work.
 const HEAD_START: Duration = Duration::from_millis(300);
 
-/// Matches `crates/node/src/link/reconnect.rs`: 1 s doubling to 12 s, each
-/// shifted by up to a quarter.
+/// 1 s doubling to `LAST_RETRY`, each shifted by up to a quarter.
 struct Backoff(Duration);
 
 impl Backoff {
@@ -227,3 +228,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/mesh_owner.rs"]
+mod tests;
