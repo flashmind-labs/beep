@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { SyncthingChoice } from "../project/syncthing-choice.tsx";
 import type { SyncthingImportChoice } from "../project/syncthing.ts";
 import { agentLabel, foundSessions, lookingText, type FoundRow } from "../project/projects-state.ts";
@@ -8,6 +8,7 @@ import { formatAgo } from "../ui/format.ts";
 
 interface Props {
   found: FoundRow[] | null; shown: FoundRow[]; hosts: HostRepos[] | null; machines: AddProjectOptions["machines"]; query: string; looking: string[]; unread: string[]; error: string | null; importing: string | null; batch: boolean; picked: ReadonlySet<string>; status: ReadonlyMap<string, ImportState>; failed: ReadonlyMap<string, string>; sync: SyncthingImportChoice;
+  searchField: RefObject<HTMLInputElement | null>; rowBox: RefObject<HTMLDivElement | null>;
   search(value: string): void; toggle(name: string): void; toggleAll(): void; importPicked(): void; importOne(row: FoundRow): void; choose(): void; clone(repo?: string): void; create(): void;
 }
 function SelectAll({ checked, mixed, disabled, toggle }: { checked: boolean; mixed: boolean; disabled: boolean; toggle(): void }) {
@@ -27,12 +28,12 @@ export function AddProjectView(p: Props) {
     const repos = host.repos.filter(repo => !have.has(repo.name.toLowerCase()) && words.every(word => repo.name.toLowerCase().includes(word))).slice(0, 30);
     return host.error || repos.length ? [{ host, repos }] : [];
   });
-  const input = useRef<HTMLInputElement>(null);
-  useLayoutEffect(() => { if ((any || remote) && !document.activeElement?.closest(".ap-sheet")) input.current?.focus(); }, [any, remote]);
+  const input = p.searchField;
+  useLayoutEffect(() => { if ((any || remote) && !document.activeElement?.closest(".ap-sheet")) input.current?.focus(); }, [any, remote, input]);
   return <><div className="am-head"><b>Add a project</b><kbd>esc</kbd></div><div className="ap-ways"><button type="button" className="dbtn small" onClick={p.choose}>Choose folder</button><button type="button" className="dbtn small" onClick={() => p.clone()}>Clone repository</button><button type="button" className="dbtn small" onClick={p.create}>New project</button></div>
     <div className="am-label">On your machines</div><input ref={input} className="ap-q" type="search" placeholder="Filter by repo, folder, machine or agent" autoComplete="off" spellCheck={false} aria-label="Filter found folders" hidden={!any && !remote} value={p.query} onChange={e => p.search(e.currentTarget.value)} />
     <div className="ap-bar" hidden={!any}><label><SelectAll checked={checked} mixed={!checked && open.some(name => p.picked.has(name))} disabled={p.batch || !open.length} toggle={p.toggleAll} />Select all shown</label><span>{p.query.trim() ? `${p.shown.length} of ${p.found?.length ?? 0} shown` : `${p.found?.length ?? 0} found`}</span><button type="button" className="dbtn pri small" disabled={!!p.importing || p.batch || !ready} onClick={p.importPicked}>{p.batch ? "Importing…" : `Import ${ready}`}<kbd>⌘↵</kbd></button></div>
-    <div className="am-wait ap-look" hidden={!still || !any}><span className="dspin" />{still}</div><div className="ap-results"><div className="ap-box">{p.found === null ? <div className="am-wait"><span className="dspin" />{lookingText(p.machines)}</div> : !any ? (() => { const empty = emptyText(p.looking, p.unread, p.error); return empty ? <div className="am-sub">{empty}</div> : <div className="am-wait"><span className="dspin" />{still}</div>; })() : !p.shown.length ? <div className="am-sub">Nothing found matches “{p.query.trim()}”.</div> : <div className="ap-list">{p.shown.map(row => <FoundRowView key={row.name} row={row} state={p.status.get(row.name)} error={p.failed.get(row.name) ?? null} busy={p.importing ?? (p.batch ? "" : null)} selected={p.picked.has(row.name)} toggle={() => p.toggle(row.name)} onImport={() => p.importOne(row)} />)}</div>}{any && !!p.unread.length && <div className="am-sub">{p.unread.join(" ")}</div>}</div>
+    <div className="am-wait ap-look" hidden={!still || !any}><span className="dspin" />{still}</div><div className="ap-results"><div className="ap-box" ref={p.rowBox}>{p.found === null ? <div className="am-wait"><span className="dspin" />{lookingText(p.machines)}</div> : !any ? (() => { const empty = emptyText(p.looking, p.unread, p.error); return empty ? <div className="am-sub">{empty}</div> : <div className="am-wait"><span className="dspin" />{still}</div>; })() : !p.shown.length ? <div className="am-sub">Nothing found matches “{p.query.trim()}”.</div> : <div className="ap-list">{p.shown.map(row => <FoundRowView key={row.name} row={row} state={p.status.get(row.name)} error={p.failed.get(row.name) ?? null} busy={p.importing ?? (p.batch ? "" : null)} selected={p.picked.has(row.name)} toggle={() => p.toggle(row.name)} onImport={() => p.importOne(row)} />)}</div>}{any && !!p.unread.length && <div className="am-sub">{p.unread.join(" ")}</div>}</div>
     <div className="ap-remote">{!!sections.length && <details open={!!p.query.trim() || browseOpen} onToggle={e => setBrowseOpen(e.currentTarget.open)}><summary>Browse repositories on connected hosts</summary>{sections.map(({ host, repos }) => <Fragment key={host.host}><div className="am-label">On {host.github ? "GitHub" : host.host}</div>{host.error ? <div className="am-sub">{host.error}</div> : <div className="ap-list">{repos.map(repo => <div className="ap-rm" key={repo.url}><span className="n">{repo.name}</span><span className="m">{formatAgo(repo.updated_at, "long")}</span><button type="button" className="dbtn small" onClick={() => p.clone(repo.url)}>Clone</button></div>)}</div>}</Fragment>)}</details>}</div></div>
     <details className="ap-sync"><summary>Sync options</summary><SyncthingChoice choice={p.sync} className="dcheck" /></details></>;
 }

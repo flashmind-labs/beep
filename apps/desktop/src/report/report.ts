@@ -8,7 +8,7 @@ import { ReportBody } from "./report-view.tsx";
 import { START, next, type Draft, type ReportEvent, type Sent } from "./report-state.ts";
 
 let state = START, sheet: HTMLDivElement | null = null, close: (() => void) | null = null;
-let render: ((content: ReactNode) => void) | null = null;
+let render: ((content: ReactNode, label: string) => void) | null = null;
 /// The file whose text shows under the list, and the issue body before Yes.
 let opened: string | null = null, issueText: string | null = null;
 /// Which opening of the sheet an answer belongs to; one that arrives after
@@ -130,7 +130,6 @@ function draw() {
   if (!sheet || !render) return;
   const box = sheet, show = render;
   const title = state.step === "sent" || state.step === "issue" ? "Sent" : "Report a problem";
-  box.setAttribute("aria-label", title);
   flushSync(() => show(createElement(ReportBody, {
     state, title, opened, issueText, debug: !!debug,
     update, collect, send, back, retry, openIssue,
@@ -139,7 +138,7 @@ function draw() {
     startDebug: () => { const typed = state.text; const start = debug; close?.(); start?.(typed); },
     openFile: (path: string) => { opened = opened === path ? null : path; draw(); },
     openUrl: () => { void invoke("open_url", { url: state.issueUrl }).catch(e => console.warn("opening the issue:", e)); },
-  })));
+  }), title));
   const first = box.querySelector<HTMLElement>("textarea, .rp-foot .pri");
   if (first && !box.contains(document.activeElement)) first.focus();
 }
