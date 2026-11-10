@@ -1,7 +1,7 @@
 import { createElement, Fragment, type MouseEvent, type ReactElement } from "react";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/page-root.ts";
+import { openBarPage } from "../bar/bar-app.tsx";
 import { GroupHeader, GroupShell } from "./group-shell-view.tsx";
 import { GroupFormView } from "./group-form-view.tsx";
 import { GroupInviteView, type GroupInvite, type InviteState } from "./group-invite-view.tsx";

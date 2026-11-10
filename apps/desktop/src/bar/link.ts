@@ -1,14 +1,12 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
 import { renderChat } from "../chat/chat.ts";
 import { copy } from "../ui/parts.ts";
-import { bar, S } from "./core.ts";
-import { openBarPage } from "./page-root.ts";
+import { S } from "./core.ts";
+import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
 import { loadModels } from "../settings/model.ts";
 import { renderSettings } from "../settings/settings.ts";
 import { invoke } from "../ui/tauri.ts";
-import { LinkScreenView, type LinkActions, type LinkScreen } from "./link-view.tsx";
+import type { LinkActions, LinkScreen } from "./link-view.tsx";
 
 export interface LinkView { uri: string; code: string; qr_svg: string; expires_in: number }
 export type PhoneInvite = Omit<LinkView, "uri">;
@@ -17,17 +15,15 @@ export type LoginStep = "signin" | "browser" | "signfail" | "ownserver";
 let offer: (LinkView & { until: number }) | null = null;
 let invite: PhoneInvite | null = null, login: LoginStep = "signin", loginError = "";
 let screen: LinkScreen = { kind: "loading" }, generation = 0;
-let view: { host: HTMLElement; root: Root } | null = null;
+let view: BarPageSlot | null = null;
 
 function mount() {
-  if (view?.host.parentElement === bar) return;
-  view = openBarPage(() => { view = null; generation++; clearInterval(S.timer); });
+  return view ??= openBarPage(() => { view = null; generation++; clearInterval(S.timer); });
 }
 function draw(next: LinkScreen) {
   screen = next;
-  mount();
-  const current = view;
-  if (current) flushSync(() => current.root.render(createElement(LinkScreenView, { screen, actions })));
+  const page = mount();
+  flushSync(() => page.show({ view: "link", props: { screen, actions } }));
 }
 const actions: LinkActions = {
   again: () => void renderLink(), here: () => void useHere(), joinScreen: () => renderJoinCode(),

@@ -1,0 +1,120 @@
+// The bar's one React tree, rooted in a box in `#bar`: the page on screen,
+// picked from the page store with a switch.
+import type { ComponentProps, ReactNode } from "react";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { createStore, useStore } from "zustand";
+import { bar } from "./core.ts";
+import { LinkScreenView } from "./link-view.tsx";
+import { WaitingList } from "./waiting-view.tsx";
+import { ModelView } from "../settings/model-view.tsx";
+import { SettingsBarShell, SettingsFailure } from "../settings/settings-shell-view.tsx";
+import { AppBarFrame } from "../settings/apps-list-view.tsx";
+import { GrantsList, RoutineEditor, RoutinesList } from "../lists/routines-view.tsx";
+import { SkillDetail, SkillsList } from "../lists/skills-view.tsx";
+import { SkillEditor } from "../lists/skill-editor.tsx";
+import { MemoriesShell } from "../lists/memories-shell.tsx";
+import { MachineList, MachineLoading } from "../machines/list-view.tsx";
+import { MachineDetail } from "../machines/detail-view.tsx";
+
+/// What the bar shows, with what it draws from. `drawn` is a page whose
+/// module builds its own tree, such as the chat and the agent views.
+export type BarPage =
+  | { view: "none" }
+  | { view: "drawn"; content: ReactNode }
+  | { view: "link"; props: ComponentProps<typeof LinkScreenView> }
+  | { view: "waiting"; props: ComponentProps<typeof WaitingList> }
+  | { view: "model"; props: ComponentProps<typeof ModelView> }
+  | { view: "settings"; props: ComponentProps<typeof SettingsBarShell> }
+  | { view: "settings-failure"; error: string }
+  | { view: "apps"; props: ComponentProps<typeof AppBarFrame> }
+  | { view: "routines"; props: ComponentProps<typeof RoutinesList> }
+  | { view: "routine-editor"; props: ComponentProps<typeof RoutineEditor> }
+  | { view: "grants"; props: ComponentProps<typeof GrantsList> }
+  | { view: "skills"; props: ComponentProps<typeof SkillsList> }
+  | { view: "skill"; props: ComponentProps<typeof SkillDetail> }
+  | { view: "skill-editor"; props: ComponentProps<typeof SkillEditor> }
+  | { view: "memories"; props: ComponentProps<typeof MemoriesShell> }
+  | { view: "machines"; props: ComponentProps<typeof MachineList> }
+  | { view: "machine"; props: ComponentProps<typeof MachineDetail> }
+  | { view: "machine-loading" };
+
+/// A page opened in the bar. It draws while no other page has opened since.
+export interface BarPageSlot {
+  /// The bar's page box, the same element for every page.
+  readonly host: HTMLElement;
+  isOpen(): boolean;
+  show(page: BarPage): void;
+  /// For pages that draw their own tree.
+  readonly root: { render(content: ReactNode): void; unmount(): void };
+}
+
+/// The page on screen; `id` counts openings, so a page opened again starts fresh.
+const pages = createStore<{ id: number; page: BarPage }>(() => ({ id: 0, page: { view: "none" } }));
+let app: { host: HTMLElement; root: Root } | null = null;
+let opened: { id: number; release: () => void } | null = null;
+
+/// Opens a page in the bar. The page before is released and unmounted first;
+/// `release` runs when the next page opens. Callers draw inside `flushSync`
+/// when they read the page's elements right after.
+export function openBarPage(release: () => void): BarPageSlot {
+  const box = mount();
+  const before = opened;
+  const id = pages.getState().id + 1;
+  opened = { id, release };
+  before?.release();
+  flushSync(() => pages.setState({ id, page: { view: "none" } }));
+
+  const isOpen = () => opened?.id === id;
+  const show = (page: BarPage) => { if (isOpen()) pages.setState({ page }); };
+  return {
+    host: box,
+    isOpen,
+    show,
+    root: { render: content => show({ view: "drawn", content }), unmount: () => show({ view: "none" }) },
+  };
+}
+
+/// The page box, mounted on first use. A box no longer in the page, as when
+/// a test replaced the document, is mounted again.
+function mount(): HTMLElement {
+  if (app?.host.isConnected) return app.host;
+
+  app?.root.unmount();
+  const host = document.createElement("div");
+  host.style.display = "contents";
+  host.dataset.barPage = "";
+  bar.replaceChildren(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<BarApp />));
+  app = { host, root };
+  return host;
+}
+
+function BarApp() {
+  const { id, page } = useStore(pages);
+  return <Page key={id} page={page} />;
+}
+
+function Page({ page }: { page: BarPage }) {
+  switch (page.view) {
+    case "none": return null;
+    case "drawn": return page.content;
+    case "link": return <LinkScreenView {...page.props} />;
+    case "waiting": return <WaitingList {...page.props} />;
+    case "model": return <ModelView {...page.props} />;
+    case "settings": return <SettingsBarShell {...page.props} />;
+    case "settings-failure": return <SettingsFailure error={page.error} />;
+    case "apps": return <AppBarFrame {...page.props} />;
+    case "routines": return <RoutinesList {...page.props} />;
+    case "routine-editor": return <RoutineEditor {...page.props} />;
+    case "grants": return <GrantsList {...page.props} />;
+    case "skills": return <SkillsList {...page.props} />;
+    case "skill": return <SkillDetail {...page.props} />;
+    case "skill-editor": return <SkillEditor key={page.props.skill.id} {...page.props} />;
+    case "memories": return <MemoriesShell {...page.props} />;
+    case "machines": return <MachineList {...page.props} />;
+    case "machine": return <MachineDetail {...page.props} />;
+    case "machine-loading": return <MachineLoading />;
+  }
+}

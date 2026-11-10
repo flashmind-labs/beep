@@ -2,6 +2,8 @@ import { answers, bar, calls } from "./bar-env.ts";
 import test, { type TestContext } from "node:test";
 import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
+import { flushSync } from "react-dom";
+import { openBarPage } from "../src/bar/bar-app.tsx";
 import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
 import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
@@ -469,6 +471,8 @@ function agentsListDom(t: TestContext) {
   Object.defineProperty(bar, "innerHTML", { get: () => actual.innerHTML, set: (value: string) => { actual.innerHTML = value; }, configurable: true });
   Object.defineProperty(bar, "replaceChildren", { value: (...nodes: HTMLElement[]) => { actual.replaceChildren(...nodes); for (const node of nodes) Object.defineProperty(node, "parentElement", { get: () => bar, configurable: true }); }, configurable: true });
   t.after(async () => {
+    // Leaving releases the page; the next test's document gets a box of its own.
+    flushSync(() => openBarPage(() => {}).root.render(null));
     actual.replaceChildren(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
     if (originalHtml) Object.defineProperty(bar, "innerHTML", originalHtml);
     Reflect.deleteProperty(bar, "replaceChildren");

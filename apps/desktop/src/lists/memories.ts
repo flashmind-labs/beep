@@ -1,10 +1,7 @@
 // lists/: Memories, Routines and Skills, each a list with one row picked.
 // Entry: this file, which holds the shared list parts.
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/page-root.ts";
-import { MemoriesShell } from "./memories-shell.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { $, $$, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { clock, dateValue } from "./routines.ts";
@@ -168,7 +165,7 @@ export function shortDate(day: string | null | undefined) {
   return m && d ? `${d} ${MONTHS[m - 1]}` : "";
 }
 
-let memoriesPage: { host: HTMLElement; root: Root } | null = null;
+let memoriesPage: BarPageSlot | null = null;
 export function renderMemories() {
   S.view = "memories";
   invoke("close_group").catch(() => {});
@@ -200,7 +197,7 @@ export async function loadMemories() {
 
 export function drawMemories() {
   const page = memoriesPage;
-  if (!page?.host.isConnected || S.view !== "memories") return;
+  if (!page || S.view !== "memories") return;
   const q = M.query.toLowerCase();
   // A search looks through everything, so the chips go while it is on.
   const filters = q ? [] : memFilters(), picked = filters.find(f => f.key === M.filter) ?? filters[0];
@@ -221,13 +218,13 @@ export function drawMemories() {
   const keys = M.mode === "edit"
     ? hintModel([[ICON.ret, "save"], [`⇧${ICON.ret}`, "new line"], ["esc", "cancel"]])
     : hintModel([["↑↓", "move"], [ICON.ret, "edit"], ["⌘⌫", "forget"], ...(filters.length ? [["tab", "filter"]] : []), ["esc", "back"]]);
-  flushSync(() => page.root.render(createElement(MemoriesShell, {
+  flushSync(() => page.show({ view: "memories", props: {
     filters, picked: M.filter, count, hints: keys, memories: M.list, selected: M.sel, mode: M.mode, scopes: M.scopes,
     query: M.query, today: dateValue(new Date()), loaded: M.loaded, total: M.all.length, error: M.error,
     search: (value: string) => { M.query = value.trim(); M.sel = 0; M.mode = "list"; drawMemories(); },
     filter: (key: string) => { M.filter = key; M.sel = 0; M.mode = "list"; drawMemories(); },
     click: memClick, menu: memMenu,
-  })));
+  } }));
 
 }
 

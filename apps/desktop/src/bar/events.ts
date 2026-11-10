@@ -12,7 +12,7 @@ import { learnedHotkey, refreshHints } from "./hints.ts";
 import { refreshSession } from "../chat/history.ts";
 import { drawLink, loginFailed, renderLink, renderRevoked } from "./link.ts";
 import { openViewer } from "../chat/media.ts";
-import { loadModels, modelClick, renderModel } from "../settings/model.ts";
+import { loadModels, renderModel } from "../settings/model.ts";
 import { renderSettings } from "../settings/settings.ts";
 import { closeRerunMenu, rerun, rerunMenu } from "../chat/rerun.ts";
 import { forgetHeight } from "./size.ts";
@@ -82,7 +82,6 @@ bar.addEventListener("click", e => {
   if (t.closest(".dhints .st")) return S.link === "revoked" ? renderRevoked() : S.signedOut ? renderSettings() : renderLink();
   if (t.closest('[data-act="model"]')) return renderModel();
   if (t.closest('[data-act="openWindow"]')) return openInWindow(S.session);
-  if (S.view === "model") return modelClick(e);
   const retry = t.closest<HTMLElement>('[data-act="retry"]');
   if (retry) return void rerun(retry.closest<Turn>(".turn")!, null, null);
   const menuButton = t.closest<HTMLElement>('[data-act="rerunMenu"]');

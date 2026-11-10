@@ -5,12 +5,8 @@ import { dayDiff, plural } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/page-root.ts";
-import { SkillEditor } from "./skill-editor.tsx";
-import { SkillDetail, SkillsList } from "./skills-view.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 
 // ---------- Skills ----------
 
@@ -49,7 +45,7 @@ const MODES = new Set<string>(["list", "actions", "delete", "view", "edit", "vde
 const ONE = new Set<string>(["view", "edit", "vdelete"]);
 
 export const K: ListState<Skill> & { mode: SkillMode } = { list: [], sel: 0, mode: "list", error: "", loaded: false };
-let editor: { host: HTMLElement; root: Root } | null = null;
+let editor: BarPageSlot | null = null;
 
 /// "Used today", "Used yesterday" or "Used 8 Oct".
 export function skillUsed(iso: string | null) {
@@ -77,10 +73,7 @@ export async function loadSkills() {
   if (S.view === "skills" && (K.mode === "list" || K.mode === "actions")) drawSkills();
 }
 
-function skillsRoot(): Root {
-  if (!editor || editor.host.parentElement !== bar) editor = openBarPage(() => { editor = null; });
-  return editor.root;
-}
+const skillsRoot = () => editor ??= openBarPage(() => { editor = null; });
 
 export function drawSkills(): void {
   clampSel(K);
@@ -91,7 +84,7 @@ export function drawSkills(): void {
     ? [[ICON.ret, "open"], ["⌘Z", "undo"], ["⌘⌫", "delete"], ["tab", "hide actions"], ["esc", "back"]]
     : [["↑↓", "move"], [ICON.ret, "open"], ["space", "on or off"], ["tab", "actions"], ["esc", "back"]];
   const root = skillsRoot();
-  flushSync(() => root.render(createElement(SkillsList, { list: K.list, selected: K.sel, mode: K.mode as "list" | "actions" | "delete", loaded: K.loaded, error: K.error, summary: sum, hints: hintModel(keys) })));
+  flushSync(() => root.show({ view: "skills", props: { list: K.list, selected: K.sel, mode: K.mode as "list" | "actions" | "delete", loaded: K.loaded, error: K.error, summary: sum, hints: hintModel(keys) } }));
   bar.onclick = skillClick;
   bar.oncontextmenu = skillMenu;
 }
@@ -103,11 +96,11 @@ export function drawSkill(): void {
   const root = skillsRoot();
   bar.onclick = skillClick;
   if (K.mode === "edit") {
-    flushSync(() => root.render(createElement(SkillEditor, { key: k.id, skill: k, error: K.error, hints: hintModel([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]]), save: () => { void skillAction("save"); }, cancel: () => { void skillAction("view"); } })));
+    flushSync(() => root.show({ view: "skill-editor", props: { skill: k, error: K.error, hints: hintModel([["tab", "next field"], [`⌘${ICON.ret}`, "save"], ["esc", "cancel"]]), save: () => { void skillAction("save"); }, cancel: () => { void skillAction("view"); } } }));
     return;
   }
   const keys = K.mode === "vdelete" ? [[ICON.ret, "delete"], ["esc", "cancel"]] : [["space", "on or off"], [`⌘${ICON.ret}`, "edit"], ...(k.can_undo ? [["⌘Z", "undo"]] : []), ["esc", "back"]];
-  flushSync(() => root.render(createElement(SkillDetail, { skill: k, mode: K.mode as "view" | "vdelete", error: K.error, hints: hintModel(keys) })));
+  flushSync(() => root.show({ view: "skill", props: { skill: k, mode: K.mode as "view" | "vdelete", error: K.error, hints: hintModel(keys) } }));
 }
 
 /// A skill row's right-click menu: what its buttons do. Delete asks first.

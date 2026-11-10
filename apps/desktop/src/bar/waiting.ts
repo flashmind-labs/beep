@@ -1,9 +1,7 @@
 // The bar's default view: the sessions waiting for the user, drawn from the
 // sessions every page shares and the notifications this Mac holds. Return
 // opens one in the bar, with its conversation and composer.
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
 import { type AgentSession, folderName } from "../agents/agents.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
@@ -19,16 +17,16 @@ import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { $, bar, PANE, S } from "./core.ts";
 import { hintModel } from "./hints.ts";
-import { openBarPage } from "./page-root.ts";
+import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
 import { sessionKey, waitingSessions, type WaitingSession } from "./waiting-state.ts";
-import { WaitingList, type WaitingRow } from "./waiting-view.tsx";
+import type { WaitingRow } from "./waiting-view.tsx";
 
 const W = { sel: 0, query: "", rows: [] as WaitingSession[] };
 /// Sessions with an unread finished turn, by `sessionKey`.
 let unread = new Set<string>();
 /// Whether the shared sessions were read once, so an empty list means none.
 let known = false;
-let page: { host: HTMLElement; root: Root } | null = null;
+let page: BarPageSlot | null = null;
 
 /// Shows the list, or the new agent form when nothing is recent. Known
 /// sessions draw at once; a read follows only when a change came since.
@@ -66,23 +64,15 @@ export function drawWaiting(focus = false) {
   const summary = !known ? "Looking at your machines…" : need ? `${need} waiting for you` : "Nothing waiting";
   const active = document.activeElement;
   const focused = focus || active?.id === "wtlist" || !active || active === document.body;
-  if (!page || page.host.parentElement !== bar) page = openBarPage(() => { page = null; });
-  const root = page.root;
-  flushSync(() => root.render(createElement(WaitingList, {
+  const slot = page ??= openBarPage(() => { page = null; });
+  flushSync(() => slot.show({ view: "waiting", props: {
     rows: W.rows.map(row), selected: W.sel, summary, query: W.query,
     hints: hintModel([[ICON.ret, "open"], ["↑↓", "move"], ["⌘N", "new agent"], ["esc", W.query ? "clear" : "to hide"]]),
-  })));
+    open: openRow, newAgent: () => renderAgentNew("", "waiting"),
+  } }));
   // The command center's hidden pane draws too; WebKit would focus a list
   // it has not laid out yet and take the focus from the window's page.
   if (focused && bar.checkVisibility()) $("#wtlist")?.focus();
-  $(`#wt-${W.sel}`)?.scrollIntoView({ block: "nearest" });
-  bar.onclick = e => {
-    if (S.view !== "waiting") return;
-    const t = e.target as HTMLElement;
-    const r = t.closest<HTMLElement>("[data-wti]");
-    if (r) return openRow(Number(r.dataset.wti));
-    if (t.closest("#wtNew")) renderAgentNew("", "waiting");
-  };
 }
 
 /// Opens row `i` in the bar. Opening it reads its notifications on every device.

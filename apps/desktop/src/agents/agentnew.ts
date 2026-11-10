@@ -1,7 +1,7 @@
 import { Spinner } from "../ui/kit.tsx";
 import { createElement, Fragment } from "react";
 import { flushSync } from "react-dom";
-import { openBarPage } from "../bar/page-root.ts";
+import { openBarPage } from "../bar/bar-app.tsx";
 import { AgentNewShell } from "./agentnew-shell.tsx";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer } from "./start-composer.ts";
