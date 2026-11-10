@@ -94,3 +94,25 @@ test("ambient runs once per wait, runs at once when urgent, and waits while hidd
   t.mock.timers.tick(0);
   assert.equal(runs, 4, "a hidden window catches up when it shows");
 });
+
+test("latest gives only the newest read its answer or error", async () => {
+  const { latest, STALE } = await import("../src/ui/active.ts");
+  const reads = latest();
+  let answerOld: (value: string) => void = () => {};
+  let failOld: (error: Error) => void = () => {};
+  const old = reads.run(new Promise<string>(resolve => { answerOld = resolve; }));
+  const newer = reads.run(Promise.resolve("new"));
+  answerOld("old");
+  assert.equal(await old, STALE);
+  assert.equal(await newer, "new");
+
+  const failing = reads.run(new Promise<string>((_, reject) => { failOld = reject; }));
+  void reads.run(Promise.resolve("next"));
+  failOld(new Error("late"));
+  assert.equal(await failing, STALE);
+  await assert.rejects(reads.run(Promise.reject(new Error("newest"))), /newest/);
+
+  const cancelled = reads.run(Promise.resolve("kept?"));
+  reads.cancel();
+  assert.equal(await cancelled, STALE);
+});
