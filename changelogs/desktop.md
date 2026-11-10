@@ -15,6 +15,10 @@ Other apps have independent versions and changelogs:
   native update dialog.
 - Release notes are kept for each version and included in desktop update feeds.
 
+### Fixed
+
+- Desktop: failed model lookups show Retry, preserve loaded models, and retry sooner.
+
 ## [0.7.0] - 2026-11-09
 
 ### Added

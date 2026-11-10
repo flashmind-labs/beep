@@ -7,7 +7,7 @@ import { effortNote, effortsOf, modelLabel, modelRows, pillDetail, placePopover,
 import { agentKind } from "./agents.ts";
 import { harnessTile } from "../ui/harnessicon.ts";
 import { esc } from "../ui/format.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, logError } from "../ui/tauri.ts";
 
 const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
@@ -17,7 +17,8 @@ const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" strok
 /// The models each machine's agents offer, by `machine/agent`: `null` when it
 /// could not say, `undefined` in `list` until the first answer.
 const MODELS = new Map<string, ModelsEntry>();
-interface ModelsEntry { list: AgentModels | null | undefined; at: number; asking: boolean; waiting: (() => void)[] }
+interface ModelsEntry { list: AgentModels | null | undefined; at: number; status: "idle" | "loading" | "ready" | "failed"; waiting: (() => void)[] }
+const MODELS_RETRY_MS = 10_000;
 
 /// Where the lists are kept between launches; both windows share it.
 const MODELS_STORE = "beep.agentModels.v1";
@@ -32,7 +33,7 @@ function restoreModels() {
   for (const [key, v] of Object.entries(kept)) {
     if (v && v.list && typeof v.at === "number" && now - v.at < MODELS_STORE_MAX_MS) {
       // Shown at once, and asked again the first time it is wanted.
-      MODELS.set(key, { list: v.list, at: 0, asking: false, waiting: [] });
+      MODELS.set(key, { list: v.list, at: 0, status: "idle", waiting: [] });
     }
   }
 }
@@ -46,29 +47,32 @@ function storeModels() {
 restoreModels();
 
 /// Asks `machine` for `agent`'s models unless a request is out; `loaded`
-/// runs once the answer comes, if it changed what is shown.
+/// runs once the answer comes, including a failed refresh.
 function askModels(key: string, machine: string, agent: string, loaded: (() => void) | null) {
   let entry = MODELS.get(key);
-  if (!entry) MODELS.set(key, entry = { list: undefined, at: 0, asking: false, waiting: [] });
+  if (!entry) MODELS.set(key, entry = { list: undefined, at: 0, status: "idle", waiting: [] });
   if (loaded) entry.waiting.push(loaded);
-  if (entry.asking) return;
-  entry.asking = true;
+  if (entry.status === "loading") return;
+  entry.status = "loading";
   invoke<AgentModels | null>("agent_models", { machineId: machine, agent })
-    .catch(() => null)
+    .catch((error: unknown) => {
+      logError(`Model lookup failed: machine=${machine} harness=${agent}: ${String(error)}`);
+      return null;
+    })
     .then(list => {
       const e = MODELS.get(key)!;
       const waiting = e.waiting;
       // A failed refresh keeps the list shown.
       const next = list ?? (e.list === undefined ? null : e.list);
-      const changed = JSON.stringify(next) !== JSON.stringify(e.list);
-      MODELS.set(key, { list: next, at: Date.now(), asking: false, waiting: [] });
+      MODELS.set(key, { list: next, at: Date.now(), status: list ? "ready" : "failed", waiting: [] });
       if (list) storeModels();
-      if (changed) for (const tell of waiting) tell();
+      for (const tell of waiting) tell();
     });
 }
 
 /// Whether `e` holds an answer read lately.
-const fresh = (e: ModelsEntry | undefined) => !!e && e.list !== undefined && Date.now() - e.at <= MODELS_KEPT_MS;
+const fresh = (e: ModelsEntry | undefined) => !!e && (e.status === "ready" || e.status === "failed")
+  && Date.now() - e.at <= (e.status === "failed" ? MODELS_RETRY_MS : MODELS_KEPT_MS);
 
 /// The models `agent` offers on `machine` as known now: `undefined` only before
 /// the first answer.
@@ -150,9 +154,15 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
     </div>`;
   el.onclick = e => {
     const at = (sel: string) => (e.target as HTMLElement).closest<HTMLElement>(sel);
+    const retry = at("[data-agretry]");
     const harness = at("[data-agh]"), model = at("[data-agmo]"), effort = at("[data-age]");
 
-    if (harness) { p.agent = harness.dataset.agh!; p.query = ""; p.model = ""; o.changed("agent"); }
+    if (retry && o.machine) {
+      const entry = MODELS.get(`${o.machine.id}/${p.agent}`);
+      if (entry && entry.status !== "loading") entry.status = "idle";
+      drawModels(el, o);
+    }
+    else if (harness) { p.agent = harness.dataset.agh!; p.query = ""; p.model = ""; o.changed("agent"); }
     else if (model) { p.model = model.dataset.agmo!; p.query = ""; o.changed("model"); }
     else if (effort) { p.effort = effort.dataset.age || null; o.changed("effort"); }
   };
@@ -204,9 +214,14 @@ function drawModels(el: HTMLElement, o: PickerOpts) {
 
   const machine = o.machine.id, agent = p.agent;
   const list = modelsOn(machine, agent, () => { if (shown?.el === el && el.isConnected && p.agent === agent) { drawModels(el, o); o.changed("models"); } });
+  const entry = MODELS.get(`${machine}/${agent}`);
+  const failed = entry?.status === "failed";
   const { rows, note } = modelRows(list, p.query);
+  const loading = entry?.status === "loading" && !list;
+  const message = failed ? "Couldn't load models." : loading ? "Asking the machine which models it has…" : note;
   box.innerHTML = rows.map(r => `<button type="button" data-agmo="${esc(r.value)}" class="${r.value === p.model ? "on" : ""}${r.value && agent === "flsh" ? " mono" : ""}">${esc(r.label)}${r.note ? `<small>${esc(r.note)}</small>` : ""}</button>`).join("")
-    + (note ? `<p class="none">${list === undefined ? '<span class="dspin"></span> ' : ""}${esc(note)}</p>` : "");
+    + (message ? `<p class="none" role="status">${loading ? '<span class="dspin"></span> ' : ""}${esc(message)}</p>` : "")
+    + (failed ? '<button type="button" data-agretry>Retry</button>' : "");
   placeOpen();
 }
 

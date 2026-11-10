@@ -92,7 +92,8 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   // Every word of the query, in any order, as flashmind-cli matches models.
   const fits = (r: ModelRow) => { const text = `${r.label} ${r.value}`.toLowerCase(); return words.every(w => text.includes(w)); };
   if (list === undefined) return { rows: [first], note: "Asking the machine which models it has…" };
-  if (!list || list.pick === "fixed") return { rows: [first], note: "It runs its own model here." };
+  if (list === null) return { rows: [first], note: "Couldn't load models." };
+  if (list.pick === "fixed") return { rows: [first], note: "It runs its own model here." };
 
   if (list.pick === "named" || !list.models.length) {
     return { rows: q ? [first, { value: q, label: q, note: "use this name" }] : [first], note: q ? "" : "Type a model name to use it." };

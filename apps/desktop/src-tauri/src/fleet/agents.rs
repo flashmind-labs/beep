@@ -554,7 +554,7 @@ pub(crate) async fn until_ended(fleet: &Fleet, machine: EndpointId, mut opened: 
     }
 }
 
-/// The models `list.agent` can run on a machine; a node too old to say gives `Fixed`.
+/// The models `list.agent` can run on a machine; lookup failures remain errors.
 pub(crate) async fn models(
     fleet: &Fleet,
     machine: EndpointId,
@@ -573,14 +573,7 @@ pub(crate) async fn models(
     }
 
     let found = sessions::models(&client, &list.agent).await?;
-    Ok(found.map_or(
-        AgentModels {
-            pick: beep_proto::AgentModelPick::Fixed {},
-            current: None,
-            models: Vec::new(),
-        },
-        machine::agent_models,
-    ))
+    Ok(machine::agent_models(found))
 }
 
 /// Part of a media file on a machine; nothing is kept.
