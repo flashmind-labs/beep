@@ -36,6 +36,7 @@ Earlier releases predate this changelog.
 - Node: more session views can stay open across desktop windows and phones at once (128 instead of 32); idle views drop their cached transcript when memory runs short.
 - Node: closing a session stops dev servers its commands left running, even when a wrapper started them and exited at once.
 - Node: Git branch and history views refresh for a folder that became a repository, or whose Git lookup failed once, after its next file change.
+- Node: a node started with its own `--dir` keeps its session presence file in that folder, so it no longer replaces or removes the installed node's.
 
 ### Performance
 
@@ -57,3 +58,10 @@ Earlier releases predate this changelog.
   last read, its subagents' files are read again only when they change, and a
   followed session looks up its file once and its processes only when they
   may have changed.
+- Node: following a Claude Code session started outside Beep takes far less
+  CPU: about 1% of a core instead of 17 to 50% for a session writing 20 lines
+  a second. Each update parses only the newly written lines
+  for the session's title and last prompt, reads only the entries the app
+  does not already hold, reads the process list at most every 10 seconds
+  when no process runs the session, and waits 200 ms to batch writes. Chats
+  Beep runs still update at once.

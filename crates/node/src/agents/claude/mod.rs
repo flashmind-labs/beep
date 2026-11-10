@@ -13,6 +13,7 @@ use std::{
     ffi::OsString,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
+    time::{Duration, Instant},
 };
 use tokio::task::spawn_blocking;
 
@@ -269,7 +270,8 @@ impl External {
 
     /// The session `followed` reads, as `list` describes it. The processes
     /// and pid files are read again only when `stale` says they may have
-    /// changed, or while no process is seen to run it.
+    /// changed, or once they are `MACHINE_KEPT` old: a session a new process
+    /// resumes may write no pid file.
     pub(crate) async fn followed(
         &self,
         followed: &mut Followed,
@@ -281,24 +283,26 @@ impl External {
         };
 
         let machine = match followed.machine.take() {
-            Some(machine) if !stale => machine,
+            Some((machine, read)) if !stale && read.elapsed() < MACHINE_KEPT => (machine, read),
             _ => {
                 let processes = procs::claude_processes().await;
                 let pid_files = {
                     let store = store.clone();
                     spawn_blocking(move || store.pid_files()).await?
                 };
-                discover::Snapshot {
+                let machine = discover::Snapshot {
                     processes,
                     pid_files,
                     ..discover::Snapshot::default()
-                }
+                };
+                (machine, Instant::now())
             }
         };
         let snapshot = Arc::new(discover::Snapshot {
             owned,
-            ..machine.clone()
+            ..machine.0.clone()
         });
+        followed.machine = Some(machine);
         let describe = |path: PathBuf| {
             let (store, snapshot) = (store.clone(), snapshot.clone());
             spawn_blocking(move || discover::describe_file(&store, &path, &snapshot))
@@ -318,24 +322,24 @@ impl External {
                 .context("reading Claude Code's session")?;
         }
 
-        let found = found.context("session is no longer on the machine")?;
-
-        if found.pid.is_some() {
-            followed.machine = Some(machine);
-        }
-
-        Ok(found)
+        found.context("session is no longer on the machine")
     }
 
-    /// The last `last` entries of the transcript `followed` reads.
+    /// The last `last` entries of the transcript `followed` reads, none
+    /// before entry `from` when it is given and the transcript reaches it.
     pub(crate) async fn followed_transcript(
         &self,
         followed: &Followed,
         last: usize,
+        from: Option<u64>,
     ) -> Result<Excerpt> {
         let path = followed.path.clone();
         let kept = self.transcripts.clone();
-        Ok(spawn_blocking(move || transcript::entries(&path, last, None, &kept)).await??)
+        Ok(spawn_blocking(move || match from {
+            Some(from) => transcript::newest_from(&path, last, from, &kept),
+            None => transcript::entries(&path, last, None, &kept),
+        })
+        .await??)
     }
 
     /// Deletes session `id`'s transcript and its side folder; `false` when
@@ -402,12 +406,16 @@ impl External {
     }
 }
 
+/// How long a follow reuses the processes and pid files it read, when
+/// nothing says they changed.
+const MACHINE_KEPT: Duration = Duration::from_secs(10);
+
 /// A Claude Code session a reader follows: its file, and the processes and
-/// pid files last read while a process was seen to run it.
+/// pid files last read, with when.
 pub(crate) struct Followed {
     id: String,
     path: PathBuf,
-    machine: Option<discover::Snapshot>,
+    machine: Option<(discover::Snapshot, Instant)>,
 }
 
 impl Followed {

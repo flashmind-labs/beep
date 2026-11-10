@@ -777,5 +777,65 @@ fn read_retained() -> Read<'static> {
         followed: None,
         stale: true,
         retained: RETAINED_ENTRIES,
+        from: None,
     }
+}
+
+/// A follow reads only from where its reader's entries start, and a
+/// transcript written again shorter than that still gives a fresh page.
+#[tokio::test]
+async fn a_follow_reads_from_its_reader_and_resets_on_a_shorter_rewrite() {
+    use std::{fs::OpenOptions, io::Write};
+    let root = tempfile::tempdir().unwrap();
+    let folder = root.path().join("projects/project");
+    std::fs::create_dir_all(&folder).unwrap();
+    let id = "0f3c2a9e-1111-4222-8333-944455556666";
+    let file = folder.join(format!("{id}.jsonl"));
+    let line = |n: u32| {
+        format!("{{\"type\":\"user\",\"message\":{{\"role\":\"user\",\"content\":\"entry {n}\"}}}}\n")
+    };
+    std::fs::write(&file, (0..10).map(line).collect::<String>()).unwrap();
+    let agents = Arc::new(Agents {
+        external: super::super::claude::External::locate_in(root.path()),
+        ..Agents::default()
+    });
+    let request = FollowSession {
+        agent: "claude".into(),
+        session: id.into(),
+        last: 2,
+        after: None,
+    };
+    let link = beep_proto::node::local_link();
+    let task = tokio::spawn(serve_follow(link.node.0, link.node.1, agents));
+    let (mut tx, mut rx) = link.caller;
+    tx.send(&request).await.unwrap();
+    let mut next = async || match timeout(Duration::from_secs(5), rx.recv::<SessionUpdate>())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+    {
+        SessionUpdate::Snapshot(snapshot) => (true, *snapshot),
+        SessionUpdate::Delta(snapshot) => (false, *snapshot),
+        other => panic!("expected a snapshot, got {other:?}"),
+    };
+    let texts = |page: &SessionSnapshot| page.entries.iter().map(|e| e.text.clone()).collect::<Vec<_>>();
+
+    let (fresh, page) = next().await;
+    assert!(fresh);
+    assert_eq!((page.cursor.start, texts(&page)), (8, vec!["entry 8".into(), "entry 9".into()]));
+
+    let mut writer = OpenOptions::new().append(true).open(&file).unwrap();
+    writer.write_all(line(10).as_bytes()).unwrap();
+    let (fresh, page) = next().await;
+    assert!(!fresh);
+    assert_eq!((page.cursor.start, page.earlier, texts(&page)), (8, 10, vec!["entry 10".into()]));
+
+    std::fs::write(&file, (20..23).map(line).collect::<String>()).unwrap();
+    let (fresh, page) = next().await;
+    assert!(fresh);
+    assert_eq!((page.cursor.start, texts(&page)), (1, vec!["entry 21".into(), "entry 22".into()]));
+
+    drop(tx);
+    timeout(Duration::from_secs(5), task).await.unwrap().unwrap().unwrap();
 }

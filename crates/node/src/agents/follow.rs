@@ -38,6 +38,10 @@ const CACHED_BYTES: usize = 64 * 1024 * 1024;
 static WINDOWS: LazyLock<Mutex<Windows>> = LazyLock::new(Mutex::default);
 
 const WRITE_WAIT: Duration = Duration::from_secs(15);
+/// How long a follow gathers changes before reading again: briefly for a
+/// session Beep runs, longer for one read from its transcript file.
+const COALESCE_LIVE: Duration = Duration::from_millis(40);
+const COALESCE_FILE: Duration = Duration::from_millis(200);
 
 mod sources;
 pub(crate) use sources::Sources;
@@ -147,6 +151,8 @@ async fn follow(
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut observed_pid = None;
     let mut exit = None;
+    // Where the reader's held entries start, once it holds some.
+    let mut held = None;
     // A newly opened view gets the newest page at once; later updates read
     // enough to validate and patch what the reader holds.
     let mut retained = match &request.after {
@@ -165,6 +171,7 @@ async fn follow(
             followed: followed.as_mut(),
             stale: stale.swap(false, Ordering::AcqRel),
             retained,
+            from: held,
         };
         retained = RETAINED_ENTRIES;
         let snapshot = match snapshot(agents, &request, read).await {
@@ -215,6 +222,7 @@ async fn follow(
             SessionSource::External(session) => recent_deadline(session),
             SessionSource::Owned(_) => None,
         };
+        held = Some(window.cursor.start);
         reader.keep(window);
 
         if changed {
@@ -263,7 +271,8 @@ async fn follow(
             break;
         }
         // Coalesce token bursts; the watch channel and file queue retain a dirty bit.
-        sleep(Duration::from_millis(40)).await;
+        // A session Beep runs is a live view; one read from its file can wait longer.
+        sleep(if live.is_some() { COALESCE_LIVE } else { COALESCE_FILE }).await;
 
         if live.is_none() {
             live = agents
@@ -677,6 +686,8 @@ struct Read<'a> {
     stale: bool,
     /// How many of the newest entries to read.
     retained: usize,
+    /// Where the reader's held entries start: earlier ones need not be read.
+    from: Option<u64>,
 }
 
 async fn snapshot(
@@ -688,6 +699,7 @@ async fn snapshot(
         mut followed,
         stale,
         retained,
+        from,
     } = read;
     let started = Instant::now();
     let source = match agents.get(request.session.as_ref()) {
@@ -736,7 +748,7 @@ async fn snapshot(
             Some(followed) => Some(
                 agents
                     .external
-                    .followed_transcript(followed, retained)
+                    .followed_transcript(followed, retained, from)
                     .await?,
             ),
             None => {

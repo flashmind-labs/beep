@@ -66,6 +66,16 @@ impl<V: Clone> Memo<V> {
     /// The value `read` makes from `path`, kept from the last time while
     /// the file is unchanged. A failed read is not kept.
     pub(crate) fn read<E>(&self, path: &Path, read: impl FnOnce() -> Result<V, E>) -> Result<V, E> {
+        self.read_files(&[path], |_| read())
+    }
+
+    /// As `read`, giving `read` the value kept for the file as it was
+    /// before it changed, when there is one, to bring up to date.
+    pub(crate) fn read_since<E>(
+        &self,
+        path: &Path,
+        read: impl FnOnce(Option<V>) -> Result<V, E>,
+    ) -> Result<V, E> {
         self.read_files(&[path], read)
     }
 
@@ -78,12 +88,16 @@ impl<V: Clone> Memo<V> {
     ) -> Result<V, E> {
         let mut wal = database.as_os_str().to_owned();
         wal.push("-wal");
-        self.read_files(&[database, Path::new(&wal)], read)
+        self.read_files(&[database, Path::new(&wal)], |_| read())
     }
 
     /// A value made from `files`, kept while none of them changes, appears
     /// or goes. The first must be there for it to be kept.
-    fn read_files<E>(&self, files: &[&Path], read: impl FnOnce() -> Result<V, E>) -> Result<V, E> {
+    fn read_files<E>(
+        &self,
+        files: &[&Path],
+        read: impl FnOnce(Option<V>) -> Result<V, E>,
+    ) -> Result<V, E> {
         let stamps: Vec<Option<Stamp>> = files
             .iter()
             .map(|file| {
@@ -94,30 +108,34 @@ impl<V: Clone> Memo<V> {
             })
             .collect();
         let Some((key, Some(_))) = files.first().zip(stamps.first()) else {
-            return read();
+            return read(None);
+        };
+        let before = match self.kept_value(key, &stamps) {
+            Ok(value) => return Ok(value),
+            Err(before) => before,
         };
 
-        if let Some(value) = self.kept_value(key, &stamps) {
-            return Ok(value);
-        }
-
-        let value = read()?;
+        let value = read(before)?;
         self.keep(key.to_path_buf(), stamps, value.clone());
         Ok(value)
     }
 
-    fn kept_value(&self, key: &Path, stamps: &[Option<Stamp>]) -> Option<V> {
+    /// The value kept for `key` while it has `stamps`, else the one kept
+    /// for it before, if any.
+    fn kept_value(&self, key: &Path, stamps: &[Option<Stamp>]) -> Result<V, Option<V>> {
         let mut kept = lock(&self.kept);
         kept.clock += 1;
         let now = kept.clock;
-        let entry = kept.entries.get_mut(key)?;
+        let Some(entry) = kept.entries.get_mut(key) else {
+            return Err(None);
+        };
 
         if entry.stamps != stamps {
-            return None;
+            return Err(Some(entry.value.clone()));
         }
 
         entry.used = now;
-        Some(entry.value.clone())
+        Ok(entry.value.clone())
     }
 
     fn keep(&self, key: PathBuf, stamps: Vec<Option<Stamp>>, value: V) {
