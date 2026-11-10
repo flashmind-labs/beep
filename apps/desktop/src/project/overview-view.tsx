@@ -46,7 +46,7 @@ export function OverviewGroupView({ group, sync, editing }: { group: Group; sync
   useLayoutEffect(() => {
     if (!editing || !input.current || document.activeElement === input.current) return;
     const field = input.current;
-    const frame = requestAnimationFrame(() => { if (field.isConnected) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); } });
+    const frame = requestAnimationFrame(() => { if (field.isConnected && document.activeElement !== field) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); } });
     return () => cancelAnimationFrame(frame);
   }, [editing]);
   const finish = (save: boolean) => {
