@@ -252,6 +252,9 @@ pub fn run() {
             agents::sessions::agent_tasks,
             agents::sessions::agent_view,
             agents::sessions::agent_older,
+            agents::kept_transcripts::transcript_kept,
+            agents::kept_transcripts::transcript_keep,
+            agents::kept_transcripts::transcript_forget,
             agents::follow::agent_follow,
             fleet::events::mesh_watch,
             fleet::events::mesh_topics,
@@ -696,6 +699,9 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         &dir.join("search.sqlite"),
     )?));
     app.manage(views);
+    app.manage(Arc::new(agents::kept_transcripts::KeptTranscripts::new(
+        dir.join("transcripts"),
+    )));
     let endpoint = tauri::async_runtime::block_on(bind_endpoint(
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),

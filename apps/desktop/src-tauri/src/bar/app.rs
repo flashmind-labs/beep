@@ -67,6 +67,8 @@ pub fn start_over(
 ) -> Result<()> {
     beep.chats().clear();
     views.clear();
+    app.state::<Arc<crate::agents::kept_transcripts::KeptTranscripts>>()
+        .clear();
     identity::forget(&app)?;
     app.restart()
 }
