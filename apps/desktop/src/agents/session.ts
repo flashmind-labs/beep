@@ -81,8 +81,8 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
     S.view = "agent";
     Object.assign(AG, { sig: "", rest: "" });
-    // A log the reader scrolled up in goes back where they left it; one at its end starts there again.
-    drawAgentFrame(false, left?.key === sessionKey(s) && left.body.stuck === false ? left.body : null);
+    // Its log goes back where the reader left it, or to its end.
+    drawAgentFrame(false, keptLogs.get(sessionKey(s)) ?? null);
     watchRead(AG.open!);
     return void pollAgent(true);
   }
@@ -113,7 +113,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   }
 
   firstRead = { open, at: performance.now() };
-  drawAgentFrame(inPlace);
+  drawAgentFrame(inPlace, inPlace ? null : keptLogs.get(sessionKey(s)) ?? null);
   watchRead(open);
   if (held) return void pollAgent(true);
   // Not held in this window: the page kept on disk draws at once, and the follow goes on from it.
@@ -156,9 +156,6 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: shownUsage(s), moveKey: moveKey(s), saveTitle });
   const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: moveKey(s), attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
-  if (left && left.body !== b) {
-    disposeLogShell(left.body);
-  }
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   drawAgentHeading();
   MN.redraw = drawAgentAttached;
@@ -176,10 +173,11 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
 
   drawAgentAttached();
   drawModelPill();
-  left = { key: sessionKey(s), body: b };
+  keepLog(sessionKey(s), b);
 
+  // A kept log at its end goes there as `drawAgentBody` fills it, with no layout read here.
   if (kept) {
-    kept.scrollTop = returnScroll(kept, keptTop);
+    if (kept.stuck === false) kept.scrollTop = keptTop;
   } else {
     b.stuck = true;
     // Release the end immediately; redraw visible turns once per frame.
@@ -338,8 +336,25 @@ sessionsRead.add(() => {
   if (there) openAgent(there, { back: AG.back });
 });
 
-/// The last log drawn and the session it is of, to go back to.
-let left: { key: string; body: ChatBody } | null = null;
+/// The logs drawn last, by session, to go back to as they were: switching
+/// between them puts their turns back without drawing them again. Out of the
+/// page they do no work; their clocks stop (`Since`).
+const keptLogs = new Map<string, ChatBody>();
+const KEPT_LOGS = 3;
+
+function keepLog(key: string, b: ChatBody) {
+  const prior = keptLogs.get(key);
+  if (prior && prior !== b) disposeLogShell(prior);
+  keptLogs.delete(key);
+  keptLogs.set(key, b);
+
+  for (const [old, body] of keptLogs) {
+    if (keptLogs.size <= KEPT_LOGS) break;
+    keptLogs.delete(old);
+    disposeLogShell(body);
+  }
+}
+
 const sessionKey = (s: AgentRow) => `${s.machine_id}\n${s.id}`;
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;

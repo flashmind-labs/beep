@@ -12,7 +12,7 @@ import type { ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import type { ActivityRow } from "./activity-view.tsx";
 import { TurnRows } from "./log-shell-view.tsx";
 import { frameResize } from "../ui/dom.ts";
-import { guess, shiftAbove, spacer, windowOf, type Resized } from "./logwindow-state.ts";
+import { endOf, guess, shiftAbove, spacer, windowOf, type Resized } from "./logwindow-state.ts";
 import { keptScrollTop, pinWait } from "./logscroll.ts";
 import type { ChatBody } from "../ui/turn.ts";
 
@@ -163,15 +163,17 @@ export function setUnits(w: LogWindow, units: readonly Unit[], held: readonly No
 export function fillLog(b: ChatBody, follow: boolean) {
   const w = bodies.get(b), log = w?.el;
   if (!log || !w) return false;
-  const pin = follow && pinEnd(b);
+  // A log at its end draws the turns there from their sizes, with no layout
+  // read before they are in, and goes to its end once they are.
+  const pin = follow && mayPin(b);
   // Turns measured at another width are guessed again.
   if (log.clientWidth !== w.width) { w.width = log.clientWidth; w.sizes.clear(); }
   let changed = false;
 
   // Measuring what was guessed moves the window; it settles in a few rounds.
   for (let round = 0; round < 4; round++) {
-    const bTop = b.getBoundingClientRect().top, y = bTop - log.getBoundingClientRect().top;
-    const { from, to } = windowOf(sizesOf(w), y - b.clientHeight, y + 2 * b.clientHeight);
+    const bTop = pin ? 0 : b.getBoundingClientRect().top;
+    const { from, to } = pin ? endOf(sizesOf(w), b.clientHeight) : viewOf(w, b, log, bTop);
     const shown = w.units.slice(from, to);
     const same = w.drawn.size === shown.length && shown.every(u => w.drawn.has(u.key));
     // The first turn in view that stays, and where it is on screen.
@@ -201,20 +203,29 @@ export function fillLog(b: ChatBody, follow: boolean) {
   return changed;
 }
 
+/// The turns around the view of `b`, whose top is at `bTop`.
+function viewOf(w: LogWindow, b: ChatBody, log: HTMLElement, bTop: number) {
+  const y = bTop - log.getBoundingClientRect().top;
+  return windowOf(sizesOf(w), y - b.clientHeight, y + 2 * b.clientHeight);
+}
+
 const pinning = new WeakSet<ChatBody>();
 
-/// Scrolls a log that follows its end to its end, true when done now. While
-/// the reader's wheel turns it waits until the wheel rests, then goes only
-/// if the log still follows: a write during a flick's glide stops it and
-/// holds back the next scroll.
+/// Scrolls a log that follows its end to its end, true when done now.
 export function pinEnd(b: ChatBody) {
+  if (!mayPin(b)) return false;
+  b.scrollTop = b.scrollHeight;
+  return true;
+}
+
+/// Whether a log that follows its end may go there now. While the reader's
+/// wheel turns it waits until the wheel rests, then goes only if the log
+/// still follows: a write during a flick's glide stops it and holds back
+/// the next scroll.
+function mayPin(b: ChatBody) {
   if (b.touching) return false;
   const wait = pinWait(performance.now(), b.wheel);
-
-  if (wait <= 0) {
-    b.scrollTop = b.scrollHeight;
-    return true;
-  }
+  if (wait <= 0) return true;
 
   if (!pinning.has(b)) {
     pinning.add(b);
