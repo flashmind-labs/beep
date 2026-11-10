@@ -1,4 +1,4 @@
-import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
+import { refreshTopicSubscriptions, subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { commandKey } from "../ui/platform.ts";
 // Settings as a sheet over the command center window.
 import { ago } from "../ui/format.ts";
@@ -117,4 +117,4 @@ connectSettingsSheet({
 registerInstructions({ registerView, invoke, h, button, ago, openSettings });
 registerProviders({ registerView, invoke, openSettings, redrawTop: () => {
   if (currentLocation()?.view === "providers") drawTop();
-} });
+}, follow: changed => { subscribeTopics([topic("machines"), topic("accounts")], changed); } });

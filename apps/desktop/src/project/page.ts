@@ -10,19 +10,19 @@ import { ProjectEditors } from "./header-view.tsx";
 import { createElement, type ReactNode } from "react";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { agentFor, pageAgent } from "./agent.ts";
-import { state, pages, warm } from "../center/state.ts";
+import { state, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { registerView, windowProject } from "../center/views.ts";
-import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, loadFound, addProject } from "../center/sidebar.ts";
+import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
-import { overviewSection, loadOverview, projectDetail } from "./projects.ts";
+import { overviewSection, projectDetail } from "./projects.ts";
 import { EmptyPanel, NoProjects, Parts, hostPart, viewPart, type PagePart } from "./page-view.tsx";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
-import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, disposeSessionPanel } from "./loads.ts";
-import { refresh } from "../center/refresh.ts";
+import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, disposeSessionPanel } from "./loads.ts";
+import { ensureHome } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
 
 /// The page's outer view. It stays rendered while another page shows, so
@@ -128,13 +128,11 @@ registerView("projects", {
     const run = arg?.run;
     pa.run = run && state.picked ? { project: state.picked, ...run } : null;
 
-    // What the project last showed draws at once; what is due reads again
-    // behind it.
+    // What the project last showed draws at once; what changed since its
+    // read reads again behind it.
     if (state.picked) {
       warm(state.picked);
-      if (pages.due("sessions", state.picked)) sessionsDue.add(state.picked);
-      if (pages.due("where", state.picked)) whereDue.add(state.picked);
-      if (pages.due("gitsync", state.picked)) gitDue.add(state.picked);
+      markDue(state.picked);
       noteRecent(state.picked);
     }
 
@@ -142,9 +140,9 @@ registerView("projects", {
     drawProjects(el);
 
     if (state.picked) revalidate(state.picked);
-    else { loadFound(); loadOverview(); }
+    else revalidateOverview();
 
-    refresh();
+    ensureHome();
     prefetchRecentSoon();
   },
   unmount: () => { disposeFoundSection(); disposeElsewhereSection(); disposeSessionPanel(); openTile(null, false); liveMode.follow(null); terms.stop(); },

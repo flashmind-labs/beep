@@ -33,7 +33,7 @@ test("provider save retains edits made while the command is in flight", async ()
   const { invoke } = await import("../src/ui/tauri.ts");
   const { registerProviders } = await import("../src/settings/providers.ts");
   const views: CenterView<"providers">[] = [];
-  registerProviders({ registerView: (_name, view) => { views.push(view); }, invoke, openSettings() {}, redrawTop() {} });
+  registerProviders({ registerView: (_name, view) => { views.push(view); }, invoke, openSettings() {}, redrawTop() {}, follow() {} });
   const host = dom.window.document.getElementById("host"), view = views[0];
   assert.ok(host); assert.ok(view);
   try {

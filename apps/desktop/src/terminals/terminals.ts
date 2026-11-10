@@ -313,7 +313,7 @@ export function makeTerminals(deps: TerminalDeps) {
   /// A project's terminals, from the cache until they are read.
   const of = (name: string) => {
     let t = all.get(name);
-    if (!t) all.set(name, t = { list: name === ALL ? undefined : kept.get(name), open: null, output: null, form: null, error: "", busy: false });
+    if (!t) all.set(name, t = { list: kept.get(name), open: null, output: null, form: null, error: "", busy: false });
     return t;
   };
 
@@ -336,7 +336,7 @@ export function makeTerminals(deps: TerminalDeps) {
         ? await invoke<TerminalRow[] | null>("terminals_all")
         : await invoke<TerminalRow[] | null>("terminals_list", { project: name });
       if (t.open && !t.list?.some(x => x.id === t.open)) t.open = null;
-      if (name !== ALL) kept.put(name, t.list);
+      kept.put(name, t.list);
       t.error = "";
     } catch (e) {
       t.list ??= [];

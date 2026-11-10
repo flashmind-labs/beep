@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/window-root.ts";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { refreshMoves, MV } from "../agents/move-store.ts";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
@@ -10,7 +10,7 @@ import { sessionVisible } from "../agents/closing.ts";
 import { reason, since } from "../ui/format.ts";
 import { copy } from "../ui/parts.ts";
 import { type MenuItem } from "../ui/menu.ts";
-import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
+import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
@@ -26,7 +26,8 @@ import { failure } from "../ui/pieces.ts";
 import { openUrl, refreshGit, replyItem } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { projectRows, importSheet, addProject, importFromPage } from "../center/sidebar.ts";
+import { projectRows, importSheet, addProject, importFromPage, loadFound } from "../center/sidebar.ts";
+import { loadOverview } from "./projects.ts";
 import { terms, fsync, revs, thr, runs, projectsEl, redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
@@ -105,42 +106,77 @@ export function noteRecent(name: string) {
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(recent)); } catch {}
 }
 
+// What a project page shows changes with these topics, which the window
+// follows on every page. A section reads again on opening only after one
+// of its topics changed since its last read; one no topic follows reads
+// once it is `UNWATCHED_MS` old. Sync details follow their own changes.
+const whereChanges = new Changes();
+const sessionChanges = new Changes();
+const termChanges = new Changes();
+const overviewChanges = new Changes();
+subscribeTopics([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
+// Home changes with every session's state and with moves.
+subscribeTopics(topic("home"), () => sessionChanges.changed());
+for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
+subscribeTopics(topic("terminals"), () => termChanges.changed());
+subscribeTopics(topic("projects"), () => overviewChanges.changed());
+
+/// Marks what opening project `name` reads behind its kept page.
+export function markDue(name: string) {
+  if (whereChanges.dirty(name)) whereDue.add(name);
+  if (sessionChanges.dirty(name)) sessionsDue.add(name);
+  if (pages.due("gitsync", name, UNWATCHED_MS)) gitDue.add(name);
+}
+
+/// Reads project `name`'s terminals once they changed since the last read.
+function loadTerms(name: string) {
+  if (!termChanges.dirty(name)) return;
+  termChanges.read(name);
+  return terms.load(name);
+}
+
 /// On opening project `name`, behind what the page drew from the cache:
-/// its view at once rather than after Home, and what the server keeps of
-/// its code host once that is `SWITCH_MS` old, so issues closed or opened
-/// and new runs show. The drawing asks for the rest as it is due.
+/// what changed since it was read, and what no topic follows once it is
+/// old. The drawing asks for the rest as it is due.
 export function revalidate(name: string) {
-  loadView(name);
+  if (pages.due("view", name, UNWATCHED_MS)) loadView(name);
   const agent = pageAgent(state.agents, name, state.subscribed);
 
   if (agent) {
-    thr.ensure(agent.project_id, SWITCH_MS);
-    runs.ensure(agent.project_id, SWITCH_MS);
+    thr.ensure(agent.project_id);
+    runs.ensure(agent.project_id);
   }
 
-  terms.ensure(name);
-  fsync.ensure(name);
+  loadTerms(name);
+  fsync.ensure(name, UNWATCHED_MS);
   if (sessionsDue.has(name) || !state.sessions.has(name)) loadSessions(name);
 }
 
-/// Reads project `name` ahead, as opening it would, without drawing it:
-/// only what is due, so pointing at projects never asks more often than
-/// opening them would.
+/// The Projects overview: the found checkouts and the task summaries, read
+/// the first time and after a project change.
+export function revalidateOverview() {
+  if (!state.found || overviewChanges.dirty("found")) { overviewChanges.read("found"); void loadFound(); }
+  if (state.overview === undefined || overviewChanges.dirty("overview")) { overviewChanges.read("overview"); void loadOverview(); }
+}
+
+/// Reads project `name` ahead without drawing it: only what changed since
+/// its last read and is old as well, so pointing at projects asks less
+/// often than opening them would.
 function prefetch(name: string): Promise<unknown> {
   const p = (projectRows() || []).find(r => r.name === name);
   if (!p?.imported) return Promise.resolve();
   const agent = pageAgent(state.agents, name, state.subscribed);
-  const reads: (Promise<unknown> | undefined)[] = [revs.ensure(name), terms.ensure(name), fsync.ensure(name, MACHINE_REFRESH_MS)];
+  const reads: (Promise<unknown> | undefined)[] = [revs.ensure(name), pages.due("terminals", name) ? loadTerms(name) : undefined, fsync.ensure(name, UNWATCHED_MS)];
 
   if (agent) {
-    if (agentFor(state.agents, name) && pages.due("view", name, MACHINE_REFRESH_MS)) reads.push(loadView(name));
+    if (agentFor(state.agents, name) && pages.due("view", name, UNWATCHED_MS)) reads.push(loadView(name));
     // The code host's lists at their own pace: an ask keeps the server
     // reading the host for that project a while.
     reads.push(thr.ensure(agent.project_id), runs.ensure(agent.project_id));
   }
 
-  if (pages.due("where", name)) reads.push(loadWhere(name));
-  if (pages.due("sessions", name)) reads.push(loadSessions(name));
+  if (whereChanges.dirty(name) && pages.due("where", name)) reads.push(loadWhere(name));
+  if (sessionChanges.dirty(name) && pages.due("sessions", name)) reads.push(loadSessions(name));
   return Promise.allSettled(reads);
 }
 
@@ -319,6 +355,7 @@ async function readWhere(name: string) {
   if (readingWhere.has(name)) return;
   readingWhere.add(name);
   whereDue.delete(name);
+  whereChanges.read(name);
   const before = state.where.get(name);
   // A kept list shows a spinner in its header meanwhile.
   if (before && state.picked === name) queueMicrotask(redrawProjects);
@@ -332,6 +369,7 @@ async function readWhere(name: string) {
     got = withSyncthing(machines, places);
   } catch (e) {
     console.warn("project machines:", e);
+    whereChanges.changed();
   } finally {
     readingWhere.delete(name);
   }
@@ -405,12 +443,14 @@ export async function loadSessions(name: string): Promise<void> {
 async function readSessions(name: string) {
   readingSessions.add(name);
   sessionsDue.delete(name);
+  sessionChanges.read(name);
   let got: SessionRow[] | null = null;
 
   try {
     [got] = await Promise.all([invoke<SessionRow[]>("project_sessions", { project: name }), refreshMoves()]);
   } catch (e) {
     console.warn("project sessions:", e);
+    sessionChanges.changed();
   } finally {
     readingSessions.delete(name);
   }

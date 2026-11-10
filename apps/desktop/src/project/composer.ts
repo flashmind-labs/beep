@@ -20,7 +20,7 @@ import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadMo
 import { AG, AGENT_ORDER, type AgentHost, byPreference } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.ts";
 import { S } from "../bar/core.ts";
-import { loadSessions, sessions } from "../agents/sessions.ts";
+import { ensureSessions, sessions } from "../agents/sessions.ts";
 import { issueBranch, issuePrompt, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.ts";
@@ -185,7 +185,7 @@ subscribeChanges([topic("machines"), topic("accounts")], () => readProjectHosts(
 function loadProjectBar(name: string) {
   const redraw = () => { if (barOn(name)) redrawProjects(); };
   void readProjectHosts();
-  loadSessions().then(redraw).catch(e => console.warn("agent sessions:", e));
+  ensureSessions().then(redraw).catch(e => console.warn("agent sessions:", e));
 
   if (!pc.branches.has(name)) {
     invoke<BaseBranches | null>("project_branches", { project: name })
@@ -264,8 +264,8 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
   pc.target = target;
   projectComp.input.value = text;
   projectComp.err.textContent = "";
-  // Read again: a session may have started in the worktree since.
-  loadSessions().then(redrawProjects).catch(e => console.warn("agent sessions:", e));
+  // A session may have started in the worktree since.
+  ensureSessions().then(redrawProjects).catch(e => console.warn("agent sessions:", e));
   redrawProjects();
   projectComp.form.scrollIntoView({ block: "nearest" });
   projectComp.input.focus();
@@ -346,7 +346,7 @@ export async function reviewPr(name: string, pr: PullRequestRow) {
   if (!agent) return;
   const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
   const forge = forgeOf(pr.url);
-  await loadSessions().catch(e => console.warn("agent sessions:", e));
+  await ensureSessions().catch(e => console.warn("agent sessions:", e));
   const review = { number: pr.number, earlier: earlierReview(name, pr.number) };
   const target: BarTarget = head.fork
     ? { kind: "issue", number: pr.number, branch: `review-pr-${pr.number}`, base: baseFor(null, pc.branches.get(name)), review }

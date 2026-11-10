@@ -4,16 +4,16 @@ import { createElement } from "react";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { ALL, byMachine, makeTerminals, terminalsCount } from "./terminals.ts";
 import { makeScreen } from "./termview.ts";
-import { state, views } from "../center/state.ts";
+import { keptSection, state, views } from "../center/state.ts";
 import { draw } from "../center/home.ts";
 import { currentLocation, registerView, go, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
-import { refresh } from "../center/refresh.ts";
+import { ensureHome } from "../center/refresh.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 
 /// Every terminal on every machine: the Terminals page, and Home's section.
 export const allTerms = makeTerminals({
-  invoke, Channel, makeScreen, ago,
+  invoke, Channel, makeScreen, ago, kept: keptSection("terminals"),
   redraw: () => {
     if (currentLocation()?.view === "terminals") { drawTerminals(); drawTop(); }
     else if (currentLocation()?.view === "home") draw();
@@ -21,6 +21,19 @@ export const allTerms = makeTerminals({
     drawSide();
   },
 });
+
+/// Reads every terminal once in this window, behind the list kept from
+/// before; the terminals topic keeps it current after that.
+let allRead = false;
+export function ensureAllTerms() {
+  if (!allRead) void readAllTerms();
+}
+
+/// Reads every terminal; a read already on its way answers for this one.
+export function readAllTerms() {
+  allRead = true;
+  return allTerms.load(ALL);
+}
 
 /// The machines terminals are listed under, as Home has them.
 export const termMachines = () => (state.home?.machines || []).filter(m => m.can_host !== false).map(m => ({ id: m.id, name: m.name, online: m.online }));
@@ -48,9 +61,10 @@ registerView("terminals", {
     return { title: "Terminals", sub, reactTools: list === null ? null : add };
   },
   mount() {
+    // The list the window holds draws at once; the terminals topic keeps it.
     drawTerminals();
-    allTerms.load(ALL);
-    refresh();
+    ensureAllTerms();
+    ensureHome();
   },
   unmount() {
     // Detached, not stopped: they keep running on their machines.
