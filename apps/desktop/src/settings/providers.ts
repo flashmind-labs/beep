@@ -5,6 +5,7 @@ import { ProviderHeader, ProvidersView, type SharedProviderSettings } from "./pr
 // ...) with its version, sign-in and an on/off switch, and the picked one's
 // runtime settings.
 import type { invoke as Invoke } from "../ui/tauri.ts";
+import { Changes } from "../ui/pagecache.ts";
 import { checkedLabel, compactOf, compactProblem, draftOf, hasCompact, listRows, savedToLabel, settingsInput, toggledInput, updatable } from "./providers-state.ts";
 import type { AutoCompactDraft, Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings } from "./providers-state.ts";
 import type { CenterView } from "../center/state.ts";
@@ -23,6 +24,8 @@ interface ProvidersDeps {
   openSettings: (section?: string) => void;
   /// Redraws the window's header, where the machine chips are.
   redrawTop: () => void;
+  /// Calls `changed` whenever a machine or an account changes.
+  follow: (changed: () => void) => void;
 }
 
 /// The page's state.
@@ -65,6 +68,12 @@ export function registerProviders(deps: ProvidersDeps) {
   let inSettings = false;
   const contexts = modelContextPanel(invoke);
   const flsh = flshPanel(invoke);
+  /// The machine list (id "") and each machine's agents stand until a
+  /// machine or an account changes.
+  const changes = new Changes();
+  deps.follow(() => changes.changed());
+  /// Reads machine `id`'s agents unless the ones shown are still current.
+  const ensure = (id: string | null) => { if (id && (!st.views.has(id) || st.views.get(id) === null || changes.dirty(id))) void load(false, id); };
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
   const view = () => (st.machine ? st.views.get(st.machine) : undefined);
@@ -72,6 +81,8 @@ export function registerProviders(deps: ProvidersDeps) {
   const machineName = () => st.machines?.find(m => m.id === st.machine)?.name ?? "this machine";
 
   async function loadMachines() {
+    changes.read("");
+
     try {
       const all = await invoke<MachineRow[]>("list_machines");
       st.machines = all.filter(m => m.can_host !== false);
@@ -80,15 +91,17 @@ export function registerProviders(deps: ProvidersDeps) {
     } catch (e) {
       st.machines = null;
       st.note = fail(e);
+      changes.changed();
     }
 
     deps.redrawTop();
     draw();
-    if (st.machine) void load(false);
+    ensure(st.machine);
   }
 
   async function load(refresh: boolean, machine = st.machine) {
     if (!machine) return;
+    changes.read(machine);
     const version = (readVersion.get(machine) ?? 0) + 1;
     readVersion.set(machine, version);
     loading.set(machine, (loading.get(machine) ?? 0) + 1);
@@ -101,6 +114,7 @@ export function registerProviders(deps: ProvidersDeps) {
       if (readVersion.get(machine) === version) {
         if (!st.views.get(machine)) st.views.set(machine, null);
         st.errors.set(machine, fail(e));
+        changes.changed();
       }
     } finally {
       const remaining = (loading.get(machine) ?? 1) - 1;
@@ -118,7 +132,7 @@ export function registerProviders(deps: ProvidersDeps) {
     if (!inSettings) st.picked = null;
     deps.redrawTop();
     draw();
-    if (!st.views.has(id)) load(false);
+    ensure(id);
   }
 
   /// How `agent`'s adapter stands on the machine picked, when it is pending.
@@ -362,7 +376,9 @@ export function registerProviders(deps: ProvidersDeps) {
       if (want?.agent) st.picked = want.agent;
       inSettings = want?.settings === true;
       draw();
-      loadMachines();
+      // What the page showed last draws at once; it reads only after a change.
+      if (st.machines === undefined || st.machines === null || changes.dirty("")) void loadMachines();
+      else ensure(st.machine);
     },
     unmount() { removeWindowPart("settings-page:providers"); root = null; },
   });

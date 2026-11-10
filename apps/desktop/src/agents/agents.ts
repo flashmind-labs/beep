@@ -12,7 +12,7 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { nest } from "./nesting-state.ts";
-import { parentSession, loadSessions, reviewers, sessions } from "./sessions.ts";
+import { parentSession, ensureSessions, loadSessions, reviewers, sessions } from "./sessions.ts";
 import { copiesClick, copiesHtml, keepCopiesFresh, onCopies, onCopyAction } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
@@ -41,6 +41,8 @@ import { cycleMode } from "./modepill.ts";
 import { money } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
+import { subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { Changes } from "../ui/pagecache.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
@@ -375,13 +377,20 @@ export const byPreference = (a: string, b: string) => (AGENT_ORDER.indexOf(a) + 
 /// The session `o` names, as the node's commands take it.
 export const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agent, session: o.session });
 
+/// Machines and accounts decide which machines run agents.
+export const hostChanges = new Changes();
+subscribeTopics([topic("machines"), topic("accounts")], () => hostChanges.changed());
+
 /// The machines that can run an agent; none for an account that may not use machines.
 export async function loadAgentHosts() {
+  hostChanges.read("");
+
   try {
     AG.hosts = await invoke<AgentHost[]>("agent_hosts");
     preloadModels(AG.hosts);
   } catch {
     AG.hosts = [];
+    hostChanges.changed();
   }
 
   drawQueue();
@@ -397,7 +406,7 @@ export async function renderAgents() {
   drawAgents(true);
 
   try {
-    await loadSessions();
+    await ensureSessions();
     AG.error = "";
   } catch (e) {
     AG.error = String(e);

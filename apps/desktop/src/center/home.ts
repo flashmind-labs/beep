@@ -11,7 +11,9 @@ import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, registerView, go } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
-import { loading, refresh, fresh } from "./refresh.ts";
+import { loading, refresh, fresh, ensureHome } from "./refresh.ts";
+import { UNWATCHED_MS } from "../ui/pagecache.ts";
+import { ensureAllTerms } from "../terminals/view.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
 import { onPlaces } from "../agents/place.ts";
@@ -204,10 +206,24 @@ onPlaces(() => draw());
 onMoves(() => draw());
 onClosing(() => draw());
 
+/// When Home last asked for the open items; null before the first ask.
+let gitReadAt: number | null = null;
+
 registerView("home", {
   el: $("#home-box"),
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) }),
-  mount() { draw(); refresh(); refreshGit(); },
+  mount() {
+    draw();
+    ensureHome();
+    ensureAllTerms();
+
+    // Forge changes reach Home only while it shows, so the open items read
+    // again on opening once they are old or failed.
+    if (gitReadAt === null || state.gitError !== null || Date.now() - gitReadAt >= UNWATCHED_MS) {
+      gitReadAt = Date.now();
+      void refreshGit();
+    }
+  },
 });
 
 /// Element Home scrolls to once it has drawn.

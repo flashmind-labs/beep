@@ -33,7 +33,7 @@ test("machine selection preserves shared drafts and each save writes only its sc
   document.body.append(root);
   const { registerProviders } = await import("../src/settings/providers.ts");
   const { fireEvent } = await import("@testing-library/react");
-  registerProviders({ invoke, redrawTop: () => {}, openSettings: () => {},
+  registerProviders({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {},
     registerView: (_name, view) => { void view.mount(root, { settings: true, agent: "claude" }); },
   });
   await settle();
@@ -83,7 +83,7 @@ test("shared compaction stays editable when no machine is online", async () => {
   const root = el("div");
   document.body.replaceChildren(root);
   const { registerProviders } = await import("../src/settings/providers.ts");
-  registerProviders({ invoke, redrawTop: () => {}, openSettings: () => {},
+  registerProviders({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {},
     registerView: (_name, view) => { void view.mount(root, { settings: true, agent: "claude" }); },
   });
   await settle();

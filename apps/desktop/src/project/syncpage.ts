@@ -5,7 +5,8 @@ import { svgEl as icon } from "../ui/parts.ts";
 import { state, views } from "../center/state.ts";
 import { currentLocation, registerView, drawTop, go } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
-import { refresh } from "../center/refresh.ts";
+import { ensureHome } from "../center/refresh.ts";
+import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { draw } from "../center/home.ts";
 import { conflictCount, conflictList, conflictSub, conflictTotal } from "./filesync.ts";
 import { line, rowButton } from "../ui/pieces.ts";
@@ -15,7 +16,8 @@ import { createElement } from "react";
 import { showWindowParts } from "../center/window-root.ts";
 import { SyncProject } from "./syncpage-view.tsx";
 
-/// How old a project's sync may get while the page shows.
+/// How old a project's sync may get while the page shows and its summary
+/// changes.
 const PAGE_MAX_AGE_MS = 5000;
 
 /// The projects some machine syncs.
@@ -37,9 +39,9 @@ export function conflictLines() {
   });
 }
 
-/// Reads the projects' sync that are due; what changed draws itself.
-export async function readSync() {
-  const age = currentLocation()?.view === "sync" ? PAGE_MAX_AGE_MS : undefined;
+/// Reads the projects' sync that are due, `age` old by default; what
+/// changed draws itself.
+export async function readSync(age = currentLocation()?.view === "sync" ? PAGE_MAX_AGE_MS : undefined) {
   await Promise.all(syncProjects().map(p => fsync.ensure(p, age)));
 }
 
@@ -76,8 +78,10 @@ registerView("sync", {
     return { title: "Sync", sub: n ? conflictCount(n) : syncProjects().length ? "All in sync" : "" };
   },
   mount() {
+    // Sync changes read the projects they touch on any page, so opening it
+    // reads only a project not read in a long while.
     drawSync();
-    readSync();
-    refresh();
+    void readSync(UNWATCHED_MS);
+    ensureHome();
   },
 });

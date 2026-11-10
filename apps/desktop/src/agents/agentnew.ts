@@ -7,8 +7,8 @@ import { makeStartComposer } from "./start-composer.ts";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, AGENT_ORDER, agentKind, byPreference, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
-import { loadSessions, sessions } from "./sessions.ts";
+import { AG, AGENT_ORDER, agentKind, byPreference, hostChanges, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
+import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.ts";
 import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
@@ -119,9 +119,11 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "chat", at: Agen
   fixedProject = !!at?.project;
   drawFrame();
   $("#agprompt")?.focus();
-  loadAgentHosts();
-  loadSessions().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
-  invoke<Machine[]>("list_machines").then(list => { KNOWN = list.filter(m => m.can_host !== false); if (S.view === "agentnew") drawParts(); }).catch(() => {});
+  // What the form showed last stands until machines or accounts change.
+  const changed = !AG.hosts || hostChanges.dirty("");
+  if (changed) loadAgentHosts();
+  ensureSessions().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
+  if (changed || !KNOWN) invoke<Machine[]>("list_machines").then(list => { KNOWN = list.filter(m => m.can_host !== false); if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (at?.project) loadBranches(at.project);
   loadProjects();
 }

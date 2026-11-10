@@ -37,6 +37,22 @@ export const MACHINE_REFRESH_MS = 60_000;
 /// run started since shows.
 export const SWITCH_MS = 20_000;
 
+/// Data no topic reports changes for is read again on opening once it is
+/// this old; data a topic covers waits for its change.
+export const UNWATCHED_MS = 5 * 60_000;
+
+/// Whether a change arrived since each id was last read. A topic's events
+/// call `changed`; a read calls `read` as it starts, so a change during the
+/// read leaves it due. An id not read in this window is due.
+export class Changes {
+  private seen = 0;
+  private reads = new Map<string, number>();
+
+  changed() { this.seen++; }
+  read(id: string) { this.reads.set(id, this.seen); }
+  dirty(id: string) { return this.reads.get(id) !== this.seen; }
+}
+
 /// Each section's `REFRESH_MS` or `MACHINE_REFRESH_MS`. The project
 /// chat's view follows the window's own refresh, so it is never due here.
 export const REFRESH: Record<PageSection, number> = {

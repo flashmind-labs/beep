@@ -1,4 +1,6 @@
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
+import { subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { Changes } from "../ui/pagecache.ts";
 import type { AgentRow, AgentSession } from "./agents.ts";
 import { parentRow } from "./nesting-state.ts";
 import { loadCopies } from "./copies.ts";
@@ -32,13 +34,29 @@ let loading: Promise<AgentSession[]> | null = null;
 /// Called after each read of the sessions, with the new list in `sessions`.
 export const sessionsRead = new Set<() => void>();
 
+/// Home's topic changes with every session's state and moves, and the
+/// window hears of titles and sessions on other devices: until one of those,
+/// the last read stands.
+const changes = new Changes();
+const changed = () => changes.changed();
+subscribeTopics(topic("home"), changed);
+for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, changed);
+
+/// The sessions every page shares: the last read while nothing changed
+/// since, otherwise a read.
+export function ensureSessions(): Promise<AgentSession[]> {
+  return loading ?? (changes.dirty("") ? loadSessions() : Promise.resolve(sessions));
+}
+
 /// Reads the sessions again into `sessions` and returns them. A call made
 /// while another read is out waits for that one, so pages that ask together
 /// cost one request. A failed read rejects and leaves `sessions` as it was.
 export function loadSessions() {
   // The copies are read with the sessions: whether a machine is off changes.
   void loadCopies();
-  loading ??= Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])
+  if (loading) return loading;
+  changes.read("");
+  loading = Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])
     // A session that moved is on two machines for a while: it shows once.
     .then(([list]) => {
       sessions = withoutCopies([...list.filter(s => !s.reviewer), ...nativeSessions.values()]);
@@ -46,6 +64,7 @@ export function loadSessions() {
       for (const f of sessionsRead) f();
       return sessions;
     })
+    .catch(e => { changes.changed(); throw e; })
     .finally(() => { loading = null; });
   return loading;
 }

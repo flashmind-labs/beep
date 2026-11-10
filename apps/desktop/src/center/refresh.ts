@@ -8,11 +8,10 @@ import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./
 import { type ProjectGroup } from "../project/projects-state.ts";
 import { preloadModels } from "../agents/agentpicker.ts";
 import type { AgentHost } from "../agents/agents.ts";
-import { ALL } from "../terminals/terminals.ts";
 import { onlineMachines } from "./center.ts";
 import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pages, pagesAccount, keepPagesFile } from "./state.ts";
 import { cardKey, dismissedUpdates, problem, draw } from "./home.ts";
-import { allTerms } from "../terminals/view.ts";
+import { readAllTerms } from "../terminals/view.ts";
 import { refreshGit, single } from "./openitems.ts";
 import { currentLocation, drawTop } from "./views.ts";
 import { reloadGroup, reloadChats, drawSide } from "./sidebar.ts";
@@ -143,17 +142,29 @@ const refreshMac = single(async () => {
   pagesAccount(state.mac);
 });
 
+/// Whether a first load ran or runs in this window.
+let started = false;
+
+/// Pages call this as they mount. The first load reads every Home domain;
+/// after it the topic subscriptions keep them current, so a page draws what
+/// the window holds and reads nothing.
+export function ensureHome() {
+  if (!started) void refresh();
+}
+
 /// Explicit refresh and first load reconcile all Home domains.
 export async function refresh() {
   clearTimeout(retryTimer);
+  started = true;
 
   try {
+    const terminals = onScreen() && (currentLocation()?.view === "home" || currentLocation()?.view === "terminals");
     await Promise.all([readHome(), refreshMac(), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
-      ...["machines", "research"].map(name => reloadGroup(name, false))]);
-    if (onScreen() && (currentLocation()?.view === "home" || currentLocation()?.view === "terminals")) await allTerms.load(ALL);
+      ...["machines", "research"].map(name => reloadGroup(name, false)), terminals ? readAllTerms() : undefined]);
     if (currentLocation()?.view === "projects" && !state.picked && onScreen()) loadOverview();
   } catch (error) {
     console.warn("Home:", error);
+    started = false;
     if (!fresh && !problem() && onScreen()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
   }
 }
@@ -173,7 +184,7 @@ for (const name of ["work-question", "work-resolved", "group-approval", "approva
 subscribeTopics(topic("machines"), async () => { await refreshMac(); await reloadGroup("machines"); }, null, undefined, AMBIENT_MS);
 subscribeTopics(topic("projects"), refreshProjects, null, undefined, AMBIENT_MS);
 subscribeTopics(topic("sync"), refreshSync);
-subscribeTopics(topic("terminals"), () => allTerms.load(ALL), null, undefined, AMBIENT_MS);
+subscribeTopics(topic("terminals"), readAllTerms, null, undefined, AMBIENT_MS);
 subscribeTopics(topic("forge"), async () => {
   if (!snapshotView("git_items")) return;
   await refreshGit();
