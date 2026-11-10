@@ -56,6 +56,7 @@ const COMMANDS: &[&str] = &[
     "session_moves",
     "session_move_progress",
     "agent_view",
+    "agent_older",
     "agent_modes",
     "agent_tasks",
     "agent_sessions",

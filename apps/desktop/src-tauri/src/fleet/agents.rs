@@ -253,6 +253,25 @@ pub(crate) async fn session(
     Ok(view)
 }
 
+/// The `last` entries before entry `before` of one session, without listing the sessions.
+pub(crate) async fn older(
+    fleet: &Fleet,
+    machine: EndpointId,
+    get: &GetAgentSession,
+) -> Result<(Vec<beep_proto::AgentEntry>, u32)> {
+    let client = fleet.client(machine).await?;
+    let last = get.last.clamp(1, MAX_ENTRIES);
+    let (entries, earlier) = limited(sessions::transcript_before(
+        &client,
+        &get.session,
+        last,
+        true,
+        get.before,
+    ))
+    .await?;
+    Ok((machine::entries_for(entries, true), earlier))
+}
+
 /// The session `session` of `agent` as the node lists it now.
 async fn info(client: &PeerClient, agent: &str, session: &str) -> Result<agent::SessionInfo> {
     limited(sessions::list_all(client))
