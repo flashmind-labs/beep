@@ -25,6 +25,48 @@ fn a_machine_offline_for_two_minutes_is_told_once_and_again_when_back() {
 }
 
 #[test]
+fn the_watch_wakes_when_a_machine_away_is_due() {
+    let mut away = Away::default();
+    let start = Instant::now();
+    let at = |secs| start + Duration::from_secs(secs);
+    away.step(&online(&[(1, true), (2, true)]), at(0));
+    assert_eq!(away.due(), None, "nothing is away");
+
+    away.step(&online(&[(1, false), (2, true)]), at(10));
+    away.step(&online(&[(1, false), (2, false)]), at(20));
+    assert_eq!(away.due(), Some(at(10) + AWAY));
+
+    away.step(&online(&[(1, false), (2, false)]), at(10) + AWAY);
+    assert_eq!(
+        away.due(),
+        Some(at(20) + AWAY),
+        "a told machine waits no more"
+    );
+}
+
+#[test]
+fn reads_that_ask_the_machines_follow_changes_at_most_once_a_minute() {
+    let mut slow = Slow::default();
+    let start = Instant::now();
+    assert!(slow.due(start), "the first read goes at once");
+
+    slow.read(start);
+    assert!(!slow.due(start + Duration::from_secs(30)));
+    assert_eq!(
+        slow.next(),
+        Some(start + SLOW_EVERY),
+        "idle, only the fallback"
+    );
+
+    slow.wanted = true;
+    assert!(
+        !slow.due(start + Duration::from_secs(30)),
+        "a change waits for the gap"
+    );
+    assert!(slow.due(start + SLOW_GAP));
+}
+
+#[test]
 fn a_short_drop_says_nothing() {
     let mut away = Away::default();
     let start = Instant::now();
