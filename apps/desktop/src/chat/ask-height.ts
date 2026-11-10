@@ -2,9 +2,9 @@
 import { $$ } from "../bar/core.ts";
 import { dragHandle } from "../ui/drag.ts";
 
-export const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
+const ASK_HEIGHT = "bar.askHeight", ASK_MAX = 420;
 /// A height the user dragged the bar's prompt to; null lets it follow its lines.
-export let askHeight: number | null = null;
+let askHeight: number | null = null;
 try { askHeight = Number(localStorage.getItem(ASK_HEIGHT)) || null; } catch {}
 /// The prompt grows with its lines, up to six, then scrolls. A height the
 /// user dragged it to is the least it shows, so its lines still fit.
