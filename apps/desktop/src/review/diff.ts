@@ -12,6 +12,7 @@ import { DiffViewer } from "./diff-view.tsx";
 import { addAgentComments } from "./diff-comments.ts";
 import { saveDraft } from "./draftstore.ts";
 import { feedbackButton } from "./feedback.ts";
+import { perfOpen } from "../ui/perf.ts";
 
 /// The one part a diff draws into the window or the session that owns it.
 export type DiffSlot = "viewer";
@@ -68,7 +69,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
   });
 
   src.owner.set("viewer", createPortal(createElement(DiffViewer, { v }), v.root));
-  void load(v);
+  const opened = perfOpen("diff");
+  void load(v).then(() => { if (v.state.view) opened(); });
 
   return {
     el: v.root,

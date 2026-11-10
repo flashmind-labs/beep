@@ -11,6 +11,7 @@ import { type AgentRow, AG, agentKind, canTakeOver } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.ts";
 import { drawAgentBody } from "./logview.ts";
 import { steerAgent } from "./messages.ts";
+import { perfLayer, perfOpen } from "../ui/perf.ts";
 
 export const resumePicks = new Map<string, SessionPick>();
 /// The model pill, which the picker opens from.
@@ -35,8 +36,10 @@ export function drawModelPill() {
 
 export function toggleModelPicker() {
   AG.modelOpen = !AG.modelOpen;
+  const opened = AG.modelOpen ? perfOpen("picker") : null;
   drawModelPicker();
   drawModelPill();
+  opened?.();
 }
 
 /// Closes the model picker; true when it was open, so Esc goes no further.
@@ -49,11 +52,20 @@ export function closeModelPicker() {
   return true;
 }
 
+/// Interactions while the picker shows are the picker's.
+let pickerShown = false;
+function pickerLayer(on: boolean) {
+  if (on === pickerShown) return;
+  pickerShown = on;
+  perfLayer("picker", on);
+}
+
 /// The picker by the pill, for the session's own harness: a model or a
 /// thinking level picked goes to the session for its next turn.
 function drawModelPicker() {
   const el = modelPickHost.current, s = AG.page?.session;
   if (!el) return;
+  pickerLayer(AG.modelOpen && !!s);
   if (!AG.modelOpen || !s) { closedPicker(el); return; }
   const now = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const pending = resumePicks.get(s.id);

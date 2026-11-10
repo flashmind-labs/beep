@@ -58,6 +58,8 @@ uuid = { version = "1", features = ["v4"] }
 pulldown-latex = "0.8"
 
 [dev-dependencies]
+# The exporter the embedded node renders metrics with, to check what a UI batch adds.
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 rmp-serde = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }

@@ -5,6 +5,7 @@ import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { shownChanged } from "../ui/active.ts";
 // The window's views: their boxes, going to one, and the header it draws.
 import { invoke, recordTiming } from "../ui/tauri.ts";
+import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
 import { chatProject, shortName } from "../project/agent.ts";
@@ -134,7 +135,7 @@ export function toMain(target: CenterTarget) {
 const pages = windowHistory;
 /// Set while ⌘[ or ⌘] moves, so the move is not a new visit.
 let moving = false;
-const pageTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => recordTiming("page", page, ms));
+const pageTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { recordTiming("page", page, ms); perfOpened(perfViewOf(page), ms); });
 
 /// The page showing, as `go` opens it again.
 export function currentLocation(): Location | null {
@@ -215,6 +216,7 @@ export function goTo(target: Location): boolean {
   if (!moving) { if (previous) pages.visit(previous, next, replaceDraft); else pages.start(next); }
   if (previous && previous.view !== name) viewOf(previous.view).unmount?.();
   currentPage = page;
+  perfView(perfViewOf(pageName(name, arg)));
   show(name);
   const mounted = view.mount(box, arg);
   refreshTopicSubscriptions();
