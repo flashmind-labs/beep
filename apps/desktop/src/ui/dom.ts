@@ -13,12 +13,6 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, 
   return e;
 }
 
-/// `b` marked pressed or not, for a chip or a segment of a choice.
-export function press<B extends HTMLElement>(b: B, on: boolean) {
-  b.setAttribute("aria-pressed", String(on));
-  return b;
-}
-
 /// How the window's `h` makes elements, as the views it hands it to call it.
 export type MakeEl = typeof el;
 
@@ -43,13 +37,6 @@ export function h<T extends Element = HTMLElement>(html: string): T {
   const t = document.createElement("template");
   t.innerHTML = html.trim();
   return t.content.firstElementChild as T;
-}
-
-/// Children for `replaceChildren` or `append` without the empty slots a
-/// conditional leaves (`null`, `undefined`, `false`), which the DOM would
-/// print as text.
-export function present<T>(kids: readonly (T | null | undefined | false)[] | null | undefined) {
-  return (kids || []).filter((k): k is T => k != null && k !== false);
 }
 
 // Layout writes run in the next frame, outside ResizeObserver delivery.

@@ -2,7 +2,6 @@
 import { button, el, type Kid } from "./dom.ts";
 import { createElement, createRef, type MouseEvent as ReactMouseEvent } from "react";
 import { createDocumentScope } from "./document-root.tsx";
-import type { Freshness } from "./pagecache.ts";
 
 /// Fixed SVG markup as a node, never server text.
 export function svgEl(markup: string) {
@@ -33,34 +32,6 @@ export function emptyPanel(...kids: Kid[]) {
 /// A section's head: its title, then notes or a button.
 export function secHead(title: Kid, ...kids: Kid[]) {
   return el("div", "cc-sec", el("h4", "", title), ...kids);
-}
-
-/// A section: `secHead` over `body`, which the caller may give an id.
-export function secBlock(title: Kid, sub: string, ...body: Kid[]) {
-  return el("div", "", secHead(title, sub ? el("small", "", sub) : null), ...body);
-}
-
-/// A note in red above a list: what failed.
-export function errorNote(text: string) {
-  return el("div", "cc-note", el("span", "ddot bad"), el("span", "cc-err", text));
-}
-
-/// A section header's note on its data: a spinner while it reads again
-/// data that is not new, else "updated 4 min ago"; null for nothing to say.
-export function freshNote(f: Freshness) {
-  if (f.spin) {
-    const spin = el("span", "dspin sw-spin");
-    spin.title = "Updating";
-    return spin;
-  }
-
-  return f.text ? el("small", "sw-age", f.text) : null;
-}
-
-/// A state chip such as "running" or "needs reply"; `cls` colours it, and
-/// `spin` puts a spinner before the text.
-export function stateChip(cls: string, text: string, spin = false) {
-  return el("span", cls ? `chip ${cls}` : "chip", spin ? el("span", "dspin") : null, text);
 }
 
 /// `text` on the clipboard. The webview may refuse the async way; the old way
