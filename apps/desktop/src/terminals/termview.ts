@@ -59,10 +59,9 @@ export function makeScreen(): Screen {
     if (!bar) return;
     const vv = window.visualViewport;
     const shown = inputOn && el.isConnected && !document.hidden && el.clientWidth > 0 && el.clientHeight > 0;
-    bar.setShown(shown);
-    if (!shown) { el.style.maxHeight = ""; return; }
+    if (!shown) { bar.show(null); el.style.maxHeight = ""; return; }
     const bottom = vv ? vv.height + vv.offsetTop : window.innerHeight;
-    bar.el.style.bottom = `${Math.max(0, window.innerHeight - bottom)}px`;
+    bar.show(Math.max(0, window.innerHeight - bottom));
     const room = bottom - el.getBoundingClientRect().top - bar.height();
     el.style.maxHeight = `${Math.max(120, Math.floor(room))}px`;
   };
@@ -124,7 +123,6 @@ export function makeScreen(): Screen {
   document.addEventListener("visibilitychange", fitNow);
 
   if (bar) {
-    document.body.append(bar.el);
     window.visualViewport?.addEventListener("resize", fitNow);
     window.visualViewport?.addEventListener("scroll", fitNow);
   }

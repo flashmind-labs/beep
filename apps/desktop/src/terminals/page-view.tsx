@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { createRef, useLayoutEffect, useRef, type ReactNode } from "react";
 import { TerminalMachines } from "./machines-view.tsx";
 import type { Ago } from "../ui/dom.ts";
 import type { MachineTerminals, TerminalRow } from "./terminals.ts";
@@ -21,11 +21,14 @@ export function TerminalScreen({ element }: { element: HTMLElement }) {
   return <div ref={host} style={{ display: "contents" }} />;
 }
 
+/// The view-only terminal's output while the Terminals page shows one.
+export const terminalOutput = createRef<HTMLPreElement>();
+
 /// A view-only terminal's last lines. The element stays mounted across reads,
 /// so focus, selection and an upward scroll survive; it follows new lines only
 /// while scrolled to the end.
 export function TerminalOutput({ command, earlier, lines }: { command: string; earlier: boolean; lines: readonly string[] }) {
-  const screen = useRef<HTMLPreElement>(null), follow = useRef(true);
+  const screen = terminalOutput, follow = useRef(true);
   const text = lines.join("\n");
 
   useLayoutEffect(() => {
