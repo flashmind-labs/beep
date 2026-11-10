@@ -1,0 +1,396 @@
+body.cbody
+  div.cwin [aria-label="Beep" role="main"] style(--side-w)
+    aside#side.cc-side
+      div.cc-head
+      div.cc-brand
+        b "Beep"
+        button.cc-side-toggle [aria-controls="side-content" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
+          span
+            svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
+      div#side-content.cc-side-list
+        div.cc-grp.cc-nav
+          button.cc-search.cc-si [aria-label="Search" title="Search" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Search"
+            kbd "⌘K"
+          button.cc-si [aria-label="Home" title="Home" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Home"
+          button.cc-si [aria-label="Running" title="Running" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Running"
+            span.n "2"
+        div.cc-grp.projects
+          h3
+            button.cc-gt [type="button"] "Projects"
+            button [aria-label="Add a project" title="Add a project" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div style(display)
+            button.cc-org [aria-expanded="true" aria-label="example/" title="example/" type="button"]
+              span.open.twist
+                svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+              span.tt "example/"
+            div.cc-pjthreads
+              div.cc-chat.cc-si.pj-repo
+                button.open [aria-label="example/gadget" title="example/gadget build-box: /srv/example/gadget" type="button"]
+                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  span.tt "gadget"
+                  span.n "1"
+                button.pa [aria-label="Pin to top" data-id="example/gadget" type="button"]
+                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-pjthreads
+              div.cc-chat.cc-si.pj-repo
+                button.open [aria-current="true" aria-label="example/widget" title="example/widget build-box: /srv/example/widget" type="button"]
+                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  span.tt "widget"
+                  span.n "1"
+                button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            button.cc-org [aria-expanded="true" aria-label="tools/" title="tools/" type="button"]
+              span.open.twist
+                svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+              span.tt "tools/"
+            div.cc-pjthreads
+              div.cc-chat.cc-si.pj-repo
+                button.open [aria-label="tools/delta" title="tools/delta build-box: /srv/tools/delta" type="button"]
+                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  span.tt "delta"
+                button.pa [aria-label="Pin to top" data-id="tools/delta" type="button"]
+                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+        div.cc-grp.machines
+          h3
+            button.cc-gt [type="button"] "Machines"
+            button [aria-label="Add a machine" title="Add a machine" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div style(display)
+            button.cc-si [aria-label="build-box" title="build-box: 2 agents running" type="button"]
+              span.busy.ddot [title="Online · 2 agents running"]
+              span.tt "build-box"
+              span.n "2"
+            button.cc-si [aria-label="test-box" title="test-box: offline" type="button"]
+              span.ddot.off [title="Offline"]
+              span.tt "test-box"
+        div.cc-grp.cc-nav.views
+          h3 "Beep"
+          div style(display)
+            button.cc-si [aria-label="Settings" title="Settings" type="button"]
+              span.sidebar-icon style(display)
+                svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span.tt "Settings"
+              kbd "⌘,"
+        div.cc-foot
+          span "of 2 machines online"
+            span.ddot
+            b "1"
+          button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
+            svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+    div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
+    div#main.cc-main
+      div.cc-top
+        button.mb-back [aria-label="Back" hidden type="button"]
+          svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
+        h2#title "example/widget"
+        span#scope
+        small#date "example.test"
+        span#tools.tools
+          button.dbtn.small [title="https://example.test/example/widget" type="button"] "Forgejo"
+          button.dbtn.quiet.small [aria-label="More" title="More" type="button"] "⋯"
+        span#usage.us [hidden]
+        span#bell.nt
+          button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
+            span style(display)
+              svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+      div#home-box.cc-box [hidden]
+        div#view.cc-view
+          div.cc-mstrip
+            button.m [type="button"]
+              span.busy.ddot [title="Online · 2 agents running"]
+              b "build-box"
+              span "2 agents"
+            button.m.off [type="button"]
+              span.ddot.off [title="Offline"]
+              b "test-box"
+              span "offline"
+            button.dbtn.quiet.small [type="button"] "Add a machine"
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div.cc-tabs [role="tablist"]
+            button [aria-selected="true" role="tab" type="button"] "Overview"
+            button [aria-selected="false" role="tab" type="button"] "PRs and issues"
+            button [aria-selected="false" role="tab" type="button"] "Machines"
+          div#sec-updates
+            div.cc-sec
+              h4 "Updates"
+                span.n "2"
+              button.dbtn.quiet.small [type="button"] "Clear"
+            div.cc-panel
+              div.cc-line.cc-row
+                span.beep.cc-ag "A"
+                button.t [title="Ask Beep about this" type="button"]
+                  b "Release 0.9.0 is out"
+                  span "App · 11:00"
+                span.r
+                  button.dbtn.quiet [aria-label="Dismiss" type="button"] style(padding-bottom,padding-left,padding-right,padding-top)
+                    svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+              div.cc-line.cc-row
+                span.beep.cc-ag "C"
+                button.t [title="Ask Beep about this" type="button"]
+                  b "Nightly build passed"
+                  span "CI · 10:00"
+                span.r
+                  button.dbtn.quiet [aria-label="Dismiss" type="button"] style(padding-bottom,padding-left,padding-right,padding-top)
+                    svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+          div#sec-running
+            div.cc-sec
+              h4
+                button.dbtn.lk [type="button"] "Running"
+                span.n "2"
+            div.cc-panel
+              div.cc-line.cc-row
+                span.cc-ag.codex.mark
+                  svg [aria-hidden="true" viewBox="0 0 24 24"]
+                button.t [title="Fix the login redirect" type="button"]
+                  b "Fix the login redirect"
+                  span "example/widget · build-box"
+                span.r
+                  span.cc-running "now"
+                    span.dspin [aria-label="Working" role="img"]
+              div.cc-line.cc-row
+                span.cc-ag.codex.mark
+                  svg [aria-hidden="true" viewBox="0 0 24 24"]
+                button.t [title="Update the changelog" type="button"]
+                  b "Update the changelog"
+                  span "example/gadget · build-box"
+                span.r "10m ago"
+        form#home-comp.cc-comp style(display;display:none)
+          input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep, or start an agent on a machine" spellcheck="false" type="text" value] value=""
+          span#home-err.cc-err [role="status"]
+          button#home-agent.dbtn [title="Start a coding agent on a machine" type="button"] "Agent"
+          button.dbtn.pri [type="submit"] "Send"
+            kbd "⏎"
+      div#pane-box.cc-box [hidden]
+        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="chat"]
+      div.cc-box
+        div.cc-view.split [data-project="example/widget"]
+          div.cc-mstrip.pj-strip
+            button.m [type="button"]
+              b "main"
+              span "branch"
+            button.m [type="button"]
+              b "1 agent"
+              span "running"
+            button.m [type="button"]
+              b "Machines"
+              span "1/1"
+            button.m [type="button"]
+              b "0 PRs"
+              span "open"
+            button.m [type="button"]
+              b "0 issues"
+              span "open"
+          div.pj-split
+            div.pj-list
+              button.nav.pj-li [aria-current="true" title="Overview" type="button"]
+                span.t
+                  b "Overview"
+                span.c
+              button.nav.pj-li [title="Running" type="button"]
+                span.t
+                  b "Running"
+                span.c "1"
+              hr
+              button.nav.pj-li [title="Actions" type="button"]
+                span.t
+                  b "Actions"
+                span.c
+              button.nav.pj-li [title="Machines" type="button"]
+                span.t
+                  b "Machines"
+                span.c "1/1"
+              button.nav.pj-li [title="Issues" type="button"]
+                span.t
+                  b "Issues"
+                span.c "The server needs an update before it lists these."
+              hr
+              button.nav.pj-li [title="Sessions" type="button"]
+                span.t
+                  b "Sessions"
+                span.c "6 past"
+              button.nav.pj-li [title="Git" type="button"]
+                span.t
+                  b "Git"
+                span.c "History and worktrees"
+              h4 "Pull requests"
+              div.note "The server needs an update before it lists these."
+              div.pj-ctl
+                span.seg
+                  button.dbtn.on.quiet.small [aria-pressed="true" type="button"] "Any time"
+                  button.dbtn.quiet.small [aria-pressed="false" type="button"] "Today"
+                  button.dbtn.quiet.small [aria-pressed="false" type="button"] "Yesterday"
+                  button.dbtn.quiet.small [aria-pressed="false" type="button"] "This week"
+                span.sp
+                button.dbtn.quiet.small [type="button"] "Newest first"
+            div.pj-det
+              div.pj-ov
+                div
+                  div
+                    div.cc-sec
+                      h4
+                        button.dbtn.lk [type="button"] "Running"
+                        span.n "1"
+                    div.cc-panel
+                      div.cc-line.cc-row
+                        span.cc-ag.codex.mark
+                          svg [aria-hidden="true" viewBox="0 0 24 24"]
+                        button.t [title="Fix the login redirect" type="button"]
+                          b "Fix the login redirect"
+                          span "example/widget · build-box"
+                        span.r
+                          span.cc-running "now"
+                            span.drun [aria-label="Working" role="img"]
+                  div#sec-sessions
+                    div.cc-sec
+                      h4 "Past sessions"
+                        span.n "6"
+                    div style(display)
+                      div.cc-panel
+                        div.pj-scroll style(max-height)
+                          button.pv-row [data-key="build-box:past-0"]
+                            span.t "Past session 1"
+                            span.m
+                              span.cc-ag.codex.mark [title="Codex"]
+                                svg [aria-hidden="true" viewBox="0 0 24 24"]
+                              span "ended"
+                              span "build-box"
+                              span "project"
+                              span "1 h"
+                          button.pv-row [data-key="build-box:past-1"]
+                            span.t "Past session 2"
+                            span.m
+                              span.cc-ag.codex.mark [title="Codex"]
+                                svg [aria-hidden="true" viewBox="0 0 24 24"]
+                              span "ended"
+                              span "build-box"
+                              span "project"
+                              span "2 h"
+                          button.pv-row [data-key="build-box:past-2"]
+                            span.t "Past session 3"
+                            span.m
+                              span.cc-ag.codex.mark [title="Codex"]
+                                svg [aria-hidden="true" viewBox="0 0 24 24"]
+                              span "ended"
+                              span "build-box"
+                              span "project"
+                              span "3 h"
+                          button.pv-row [data-key="build-box:past-3"]
+                            span.t "Past session 4"
+                            span.m
+                              span.cc-ag.codex.mark [title="Codex"]
+                                svg [aria-hidden="true" viewBox="0 0 24 24"]
+                              span "ended"
+                              span "build-box"
+                              span "project"
+                              span "4 h"
+                          button.pv-row [data-key="build-box:past-4"]
+                            span.t "Past session 5"
+                            span.m
+                              span.cc-ag.codex.mark [title="Codex"]
+                                svg [aria-hidden="true" viewBox="0 0 24 24"]
+                              span "ended"
+                              span "build-box"
+                              span "project"
+                              span "5 h"
+                          button.pv-row [data-key="build-box:past-5"]
+                            span.t "Past session 6"
+                            span.m
+                              span.cc-ag.codex.mark [title="Codex"]
+                                svg [aria-hidden="true" viewBox="0 0 24 24"]
+                              span "ended"
+                              span "build-box"
+                              span "project"
+                              span "6 h"
+                  div
+                    div.cc-sec
+                      h4
+                        button.dbtn.lk [type="button"] "Machines"
+                        span.n "1/1"
+                    div.cc-panel
+                      div.cc-line.cc-row [title="build-box: /srv/project"]
+                        span.ddot
+                        button.t [title="build-box" type="button"]
+                          b "build-box"
+                          span "project"
+                        span.r
+                div
+                  div
+                    div.cc-sec
+                      h4 "Pull requests"
+                    div.cc-empty.cc-panel
+                      span "The server needs an update before it lists these."
+                  div
+                    div.cc-sec
+                      h4 "Issues"
+                    div.cc-empty.cc-panel
+                      span "The server needs an update before it lists these."
+        form.cc-pjc
+          div.box
+            div.ag-att [hidden]
+            div.cx-layer [aria-hidden="true" hidden]
+            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Add example/widget to a machine to start an agent" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
+            div.row
+              span.choices
+                button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "Add to a machine"
+                button.pill [data-composer="folder" disabled title="The checkout, a new worktree, or an existing worktree" type="button"] "Current checkout"
+                  small "as it is"
+                span.choices [data-composer="extra"]
+                input.branch [aria-label="Branch name" autocomplete="off" hidden spellcheck="false" title="The new branch, in a new worktree" type="text" value] value=""
+                button.dbtn.quiet.small [hidden title="Back to a plain start" type="button"] "Clear"
+              span.sp
+              button.pill [aria-expanded="false" disabled title="Harness, model and thinking" type="button"] "Coding agent"
+              button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              input [hidden multiple type="file"] value=""
+              button.dbtn.pri [disabled type="submit"] "Start"
+                kbd "⏎"
+            div.pick
+          span.cc-err [role="status"]
+          div.agkeys.prompt-stash-bar
+            div.dhints.slim
+              span "model"
+                kbd "⌘M"
+              span "back"
+                kbd "esc"
+            span.prompt-stash-slot [data-stash-project="example/widget"]
+            details
+              summary "Show more"
+              div.agkeys-list
+                section
+                  b "Stash"
+                  button [data-stash-action="save" type="button"] "Stash draft"
+                    kbd "Ctrl S"
+                  button [data-stash-action="pop" type="button"] "Pop latest"
+                    kbd "Ctrl P"
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+    nav#mb-tabs.mb-tabs [aria-label="Sections"]
+      button [type="button"] "Home"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Projects"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Agents"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Terminals"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Machines"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]

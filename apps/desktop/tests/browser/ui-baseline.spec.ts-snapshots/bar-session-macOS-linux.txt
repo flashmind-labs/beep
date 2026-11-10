@@ -1,0 +1,262 @@
+body
+  div#bar.dbar [aria-label="Beep" role="dialog"]
+    div [data-bar-page] style(display)
+      div.dhead
+        span.claude.dapp.dcoderav.mark
+          svg [aria-hidden="true" viewBox="0 0 24 24"]
+        span.tt
+          b#agtitle [aria-label="Rename session" role="button" tabindex="0" title="Asks a question Double-click to rename (Enter)"] "Asks a question"
+          small.aglocation [title="/srv/project"]
+            span.agfolder
+              span#agproj "project"
+              span#agbranch
+            span "@"
+            span#aghere "build-box"
+        small#aguse.aguse [title="Context used / capacity · session tokens · session spend / remaining credits"]
+        span#agstate
+          span.ask.dstate "Waiting for you"
+        span#agedit.agedit
+      div#agshell.agshell
+        div#agmain.agmain
+          div#agconv.agconv
+            div style(display)
+              div#agbody.dbody
+                div.dagmain
+                  div.dcoderlog
+                    div.agspace [hidden] style(height)
+                    div.agturn [data-find-key="up" hidden]
+                    div.agturn [data-find-key="older" hidden]
+                    div.agturn [data-find-key="t0"]
+                      div style(display)
+                        div.dcoderen.md.user [data-at="0"]
+                          b "You"
+                          div.said
+                            p "The login page redirects to a blank page after sign in. Find out why and fix it."
+                      div style(display)
+                        div.dcoderturn
+                          span.hd
+                            span "Worked"
+                          span.when "10:00"
+                      div style(display)
+                        div.dcoderturn
+                          button.hd [aria-expanded="false" data-turn="1" title="Show the steps"]
+                            span "Ran 1 command, read 1 file"
+                            svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                      div style(display)
+                        div.dcoderen.other [data-row="3"] "The redirect reads `next` before the session cookie is set. - Moved the read after the cookie write - Added a test for the empty `next` case All tests pass."
+                    div.agturn [data-find-key="t4"]
+                      div style(display)
+                        div.dcoderen.md.user [data-at="4"]
+                          b "You"
+                          div.said
+                            p "Also keep the query string."
+                      div style(display)
+                        div.dcoderen.other [data-row="5"] "Done. The query string now survives the redirect."
+                      div style(display)
+                        div.dlive.dthink
+                          span.lb "Waiting for you"
+                    div.agspace [hidden] style(height)
+                  div.dcard.dcoder [data-log-part="card"]
+                    div.q
+                      b "Run cargo test?"
+                      code "cargo test"
+                      div.dups
+                        button.dbtn.pri [data-agallow="true" data-agopt="0" data-agquestion="[\"build-box\",\"claude\",\"asks\",1,\"Run cargo test?\",\"cargo test\",[[\"allow\",\"Allow\",true]]]"] "Allow"
+                          kbd "⌘"
+                            svg [fill="none" height="11" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="11"]
+                button#agjump.dagjump [hidden] "Jump to latest"
+                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+            div#agmovebox
+            div#agplan
+            div.ag-work
+              div.ag-worklist
+                div#agtasks
+                div [data-agent-queue-slot="true"] style(display)
+              div [data-agent-work-line="true"] style(display)
+            div [data-agent-attachment-slot="true"] style(display)
+            div#agfield.dinput.small style(position)
+              button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              input [hidden multiple type="file"] value=""
+              div.cx-layer [aria-hidden="true" hidden]
+              textarea#agmsg.cx-field [autocomplete="off" data-prompt-stash placeholder="Message Claude Code" rows="1" spellcheck="false"] style(height) value="" (focused)
+              span#agmode
+              span#agmodel
+                button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"] "Model unknown"
+                  span.cc-ag.claude.mark
+                    svg [aria-hidden="true" viewBox="0 0 24 24"]
+                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+              button#agstop.dbtn [aria-label="Stop the turn" title="Stop the turn (⌘.)"] "Stop"
+                span.dstopico
+              button#agsend.dbtn [aria-label="Send"]
+                svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
+              div [data-agent-menu-slot="true"] style(display)
+            div#agpickm
+            div.agkeys
+              div.dhints.slim
+                span "allow"
+                  kbd "⌘"
+                    svg [fill="none" height="11" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="11"]
+                span "deny"
+                  kbd "⌘D"
+                span.lo "back"
+                  kbd "esc"
+              details#agshortcuts
+                summary "Show more"
+                div.agkeys-list
+                  section
+                    b "Agent session"
+                    span "Send, or steer a running turn"
+                      kbd "↩"
+                    span "New line"
+                      kbd "⇧↩"
+                    span "Change mode"
+                      kbd "⇧tab"
+                    span "Allow, or start the agent"
+                      kbd "⌘↩"
+                    span "Deny"
+                      kbd "⌘D"
+                    span "Stop the turn"
+                      kbd "⌘."
+                    span "Close session"
+                      kbd "⇧⌘W"
+                    span "Pick the model, on the start form"
+                      kbd "⌘M"
+                    span "Move through models, in the model search"
+                      kbd "↑ ↓"
+                    span "Open or fold thoughts"
+                      kbd "⌘U"
+                    span "Open or fold commands"
+                      kbd "⌘Y"
+                    span "Open or fold the last command"
+                      kbd "⇧⌘Y"
+                    span "Top of the log"
+                      kbd "home / ⌘↑"
+                    span "End of the log"
+                      kbd "end / ⌘↓"
+                  section
+                    b "Side pane"
+                    span "Focus chat"
+                      kbd "⌘1"
+                    span "Files"
+                      kbd "⌘2"
+                    span "Changes"
+                      kbd "⌘3"
+                    span "Artifacts"
+                      kbd "⌘4"
+                    span "Open folder in the editor"
+                      kbd "⌘O"
+                    span "Zoom the pane"
+                      kbd "⇧esc"
+                    span "Next tab"
+                      kbd "⌃tab"
+                    span "Previous tab"
+                      kbd "⌃⇧tab"
+                    span "Terminal back to the input"
+                      kbd "esc"
+                  section
+                    b "Terminals"
+                    span "Focus the selected terminal on the Terminals page"
+                      kbd "Shift+Esc"
+                    span "New terminal like this one"
+                      kbd "⌘N"
+                    span "New terminal in the session folder"
+                      kbd "⌃`"
+                    span "Word back"
+                      kbd "⌃← / ⌥←"
+                    span "Word forward"
+                      kbd "⌃→ / ⌥→"
+                    span "Line start"
+                      kbd "⌘←"
+                    span "Line end"
+                      kbd "⌘→"
+                    span "Delete word"
+                      kbd "⌥⌫"
+                    span "Delete to line start"
+                      kbd "⌘⌫"
+                    span "Delete next word"
+                      kbd "⌥⌦"
+                  section
+                    b "Stash"
+                    button [data-stash-action="save" type="button"] "Stash draft"
+                      kbd "Ctrl S"
+                    button [data-stash-action="pop" type="button"] "Pop latest"
+                      kbd "Ctrl P"
+          div#agdiv-bottom.agdiv [data-dock="bottom" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
+          aside#agpane-bottom.agpane [data-dock="bottom" hidden tabindex="-1"]
+            div.agpane-content
+              div.agphead
+                div.agtabs [role="tablist"]
+                span.agwtw [hidden]
+                button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
+                button.agpbtn [data-pact="dock" title="Dock these tabs on the right"]
+                  span style(display)
+                    svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                button.agpbtn [data-pact="fold" title="Hide the pane"]
+                  span style(display)
+                    svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              div.agpviews
+          button#agpstrip-bottom.agpstrip [data-dock="bottom" hidden title="Show the pane"]
+            span style(display)
+              svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+            span "Files"
+            small "0"
+        div#agdiv-right.agdiv [aria-orientation="vertical" data-dock="right" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
+        aside#agpane-right.agpane [data-dock="right" tabindex="-1"] style(flex-basis)
+          div.agpane-content
+            div.agphead
+              div.agtabs [role="tablist"]
+                button.agtab.on [aria-selected="true" data-mtab="files" role="tab" title="Files" type="button"]
+                  i style(display)
+                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                  span "Files"
+                button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
+                  i style(display)
+                    svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                  span "Changes"
+              span.agwtw [hidden]
+              button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
+              button.agpbtn [data-pact="dock" title="Dock these tabs at the bottom"]
+                span style(display)
+                  svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              button.agpbtn [data-pact="fold" title="Hide the pane"]
+                span style(display)
+                  svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            div.agpviews
+              div.agpview.files
+                div.agfbar
+                  input.agffind [aria-label="Filter files" placeholder="Filter files" spellcheck="false" value] value=""
+                  label.agfign "Show ignored"
+                    input [type="checkbox"] value="on" unchecked
+                  button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
+                div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
+                  div#agfile-src.agtr [aria-expanded="false" aria-selected="false" data-ffolder="1" data-fpath="src" draggable="true" role="treeitem" title="src"] style(--d)
+                    span.tw
+                      svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                    span.nm "src"
+                  div#agfile-README.md.agtr [aria-selected="false" data-fpath="README.md" draggable="true" role="treeitem" title="README.md"] style(--d)
+                    span.tw
+                    svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                    span.nm "README.md"
+                  div#agfile-package.json.agtr [aria-selected="false" data-fpath="package.json" draggable="true" role="treeitem" title="package.json"] style(--d)
+                    span.tw
+                    svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                    span.nm "package.json"
+                    span.gm.modified [title="Changed"] "M"
+                  div#agfile-sample.ts.agtr [aria-selected="false" data-fpath="sample.ts" draggable="true" role="treeitem" title="sample.ts"] style(--d)
+                    span.tw
+                    svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                    span.nm "sample.ts"
+                    span.gm.modified [title="Changed"] "M"
+                div.agpacts
+                  span.meta.mono [title="/srv/project"] "/srv/project"
+                  span [data-fstatus="true" role="status"]
+                  span.sp
+                  span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
+        button#agpstrip-right.agpstrip [data-dock="right" hidden title="Show the pane"]
+          span style(display)
+            svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+          span "Files"
+          small "2"
+        div#agdropzone.agdropzone [hidden]

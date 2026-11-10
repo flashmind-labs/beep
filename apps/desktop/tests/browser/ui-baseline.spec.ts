@@ -1,0 +1,428 @@
+// UI baseline: a "no visual or DOM change" check for refactors.
+//
+// Each test opens one representative state through the browser harness with
+// fixed fixture data and a frozen clock, then compares two things against the
+// committed baselines in `ui-baseline.spec.ts-snapshots/`:
+//   - a normalized DOM snapshot of the window (tags, sorted classes, ids,
+//     roles, aria and other stable attributes, text, focus), and
+//   - a screenshot with a small tolerance.
+// Generated ids, `data-sig`, inline style values and other volatile details
+// are left out of the DOM snapshot.
+//
+// Chromium only (the macOS project); WebKit renders fonts differently.
+//
+// Run from the repository root:
+//   flock .artifacts/browser.lock sh -c 'npm --prefix apps/desktop run build && cd apps/desktop && npx playwright test ui-baseline --project=macOS --workers=6 --reporter=line'
+//
+// When a change to the UI is intentional, rerun with `--update-snapshots`,
+// review the changed files under `ui-baseline.spec.ts-snapshots/` with
+// `git diff`, and commit them with the change.
+
+import { expect, test, type Page } from "@playwright/test";
+import { openDesktop, projectName } from "./harness.ts";
+
+/// The frozen wall clock every state renders at.
+const NOW = Date.UTC(2026, 0, 15, 12, 0, 0);
+const PHONE = { width: 375, height: 812 };
+
+test.describe.configure({ mode: "parallel" });
+test.use({ timezoneId: "UTC", locale: "en-US" });
+test.beforeEach(async ({ page, browserName }, info) => {
+  test.skip(browserName !== "chromium" || info.project.name !== "macOS", "The baseline is recorded once, on Chromium");
+  await page.clock.setFixedTime(NOW);
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
+});
+
+// Fixtures
+
+const machineId = "build-box";
+const folder = "/srv/project";
+const linked = { link: "linked", signed_out: false, server: true, live: false, session: null };
+
+const machine = (id: string, name: string, online: boolean, agents: number) => ({ id, name, online, can_host: true, seen_at: NOW - 3_600_000, version: "0.9.0", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents, stats: null });
+const project = (name: string, url = `https://example.test/${name}`, box = machineId) => ({ name, url, machine_id: box, machine_name: box, folder: `/srv/${name}`, cloned: true, imported_at: NOW - 86_400_000 });
+const agentRow = (id: string, title: string, status: string, ago: number, cwd = folder) => ({ kind: "agent", machine_id: machineId, machine_name: machineId, id, agent: "codex", title, cwd, status, doing: status === "working" ? "Running tests" : null, started_at: NOW - 7_200_000, last_activity: NOW - ago, external: false, question: null });
+
+const projects = [project(projectName), project("example/gadget"), project("tools/delta", "https://forge.test/team/delta")];
+const running = [agentRow("notice-one", "Fix the login redirect", "working", 30_000, "/srv/example/widget"), agentRow("notice-two", "Update the changelog", "idle", 600_000, "/srv/example/gadget")];
+const updates = [{ id: 1, summary: "Release 0.9.0 is out", app: "app", app_name: "App", at: NOW - 3_600_000 }, { id: 2, summary: "Nightly build passed", app: "ci", app_name: "CI", at: NOW - 7_200_000 }];
+const home = { machines: [machine("build-box", "build-box", true, 2), machine("test-box", "test-box", false, 0)], projects, running, needs_you: [], coming_up: null, updates };
+const sidebar = { status: linked, list_sessions: [{ id: "chat-one", title: "Plan the release", pinned: true, updated_at: NOW - 60_000 }, { id: "chat-two", title: "Sketch the onboarding", pinned: false, updated_at: NOW - 3_600_000 }], list_groups: [], active_runs: [] };
+
+const session = { kind: "agent", machine_id: machineId, machine_name: machineId, id: "notice-one", agent: "codex", title: "Fix the login redirect", cwd: folder, status: "working", doing: null, started_at: NOW - 7_200_000, last_activity: NOW - 30_000, external: false };
+const transcript = [
+  { kind: "user", text: "The login page redirects to a blank page after sign in. Find out why and fix it." },
+  { kind: "tool", text: "Read: src/login.ts [completed]" },
+  { kind: "tool", text: "Bash: npm test [completed]" },
+  { kind: "assistant", text: "The redirect reads `next` before the session cookie is set.\n\n- Moved the read after the cookie write\n- Added a test for the empty `next` case\n\nAll tests pass." },
+  { kind: "user", text: "Also keep the query string." },
+  { kind: "assistant", text: "Done. The query string now survives the redirect." },
+];
+const agentView = { session: { ...session, question: null }, plan: [], files: [], entries: transcript, earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 2 };
+const listing = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1200, ignored: false, change: null }, { name: "package.json", folder: false, size: 640, ignored: false, change: "modified" }, { name: "sample.ts", folder: false, size: 300, ignored: false, change: "modified" }], more: 0, git: true }], truncated: false };
+
+const commits = [
+  { id: "c3d4e5f6a7b8", parents: ["b2c3d4e5f6a7"], author: "Example", committed_at: NOW - 3_600_000, subject: "Keep the query string on redirect" },
+  { id: "b2c3d4e5f6a7", parents: ["a1b2c3d4e5f6"], author: "Example", committed_at: NOW - 86_400_000, subject: "Read next after the cookie write" },
+  { id: "a1b2c3d4e5f6", parents: [], author: "Example", committed_at: NOW - 172_800_000, subject: "Initial commit" },
+];
+const gitHistory = { machine_id: machineId, machine_name: machineId, root: folder, refs: [{ name: "main", head: "c3d4e5f6a7b8", kind: "local" }], worktrees: [], commits, next: null };
+const emptyDiff = { root: folder, base: "", merge_base: "", working_tree: false, additions: 0, deletions: 0, more: 0, files: [] };
+const pastSessions = Array.from({ length: 6 }, (_, i) => ({ ...agentRow(`past-${i}`, `Past session ${i + 1}`, "ended", (i + 1) * 3_600_000), external: false }));
+const projectPage = { project_git_history: gitHistory, project_git_files: [], project_git_diff: emptyDiff, project_sessions: pastSessions };
+
+// DOM snapshot
+
+/// Serializes `selector` as an indented outline of the stable parts of each
+/// element. Runs in the page.
+function serializeDom(selector: string): string {
+  const generated = /react-aria[\w-]*|«[^»]*»|:r[0-9a-z]+:|_r_[0-9a-z]+_|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+  const clean = (value: string) => value.replace(generated, "<id>").replace(/\s+/g, " ").trim();
+  const volatile = new Set(["class", "id", "style", "data-sig", "data-identity", "data-tauri-drag-region"]);
+  const stable = (name: string) => !volatile.has(name) && !name.startsWith("on");
+  const skipped = new Set(["script", "style", "link", "meta", "noscript", "template"]);
+  const leaves = new Set(["svg", "canvas", "iframe"]);
+  const lines: string[] = [];
+
+  const walk = (element: Element, depth: number) => {
+    const tag = element.tagName.toLowerCase();
+    if (skipped.has(tag)) return;
+
+    let line = tag;
+    if (element.id) line += `#${clean(element.id)}`;
+    const classes = [...element.classList].sort();
+    if (classes.length) line += `.${classes.join(".")}`;
+    const attributes = [...element.attributes].filter(attribute => stable(attribute.name))
+      .map(attribute => {
+        const value = clean(attribute.value);
+        const shown = value.startsWith("data:") ? `${value.slice(0, 40)}…` : value;
+        return shown === "" ? attribute.name : `${attribute.name}=${JSON.stringify(shown)}`;
+      })
+      .sort();
+    if (attributes.length) line += ` [${attributes.join(" ")}]`;
+    if (element instanceof HTMLElement && element.style.length) {
+      const names = [...element.style].sort();
+      line += ` style(${names.join(",")}${element.style.display === "none" ? ";display:none" : ""})`;
+    }
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) line += ` value=${JSON.stringify(element.value)}`;
+    if (element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio")) line += element.checked ? " checked" : " unchecked";
+    if (document.activeElement === element && element !== document.body) line += " (focused)";
+    const text = [...element.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent ?? "").join(" ");
+    const cleanText = clean(text);
+    if (cleanText) line += ` "${cleanText}"`;
+    lines.push(`${"  ".repeat(depth)}${line}`);
+
+    if (leaves.has(tag)) return;
+    for (const child of element.children) walk(child, depth + 1);
+  };
+
+  const root = document.querySelector(selector);
+  if (!root) return `missing ${selector}`;
+  walk(root, 0);
+  return `${lines.join("\n")}\n`;
+}
+
+/// Waits until fonts are in and the DOM stops changing, then compares the DOM
+/// snapshot and a screenshot against the baselines named `name`.
+async function baseline(page: Page, name: string, root = "body") {
+  await page.evaluate(() => document.fonts.ready);
+  let previous = "";
+  await expect.poll(async () => {
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const current = await page.evaluate(serializeDom, root);
+    const same = current === previous;
+    previous = current;
+    return same;
+  }, { intervals: [100, 150, 200, 250], timeout: 10_000 }).toBe(true);
+
+  expect(previous).toMatchSnapshot(`${name}.txt`);
+  await expect(page).toHaveScreenshot(`${name}.png`, { maxDiffPixelRatio: 0.002, animations: "disabled", caret: "hide" });
+}
+
+async function openAgent(page: Page, responses: Record<string, unknown> = {}) {
+  await openDesktop(page, false, { agent_view: agentView, agent_tree: listing, ...responses });
+  await page.evaluate(target => window.__navigation.open({ agent: target }), session);
+  await expect(page.getByText("The query string now survives the redirect.")).toBeVisible();
+}
+
+async function openProject(page: Page, responses: Record<string, unknown> = {}) {
+  await openDesktop(page, false, { center_home: home, ...projectPage, ...responses });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
+  await expect(page.locator(".pj-strip")).toBeVisible();
+}
+
+// Desktop window
+
+test("home overview", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, ...sidebar });
+  await expect(page.getByRole("button", { name: "Release 0.9.0 is out" })).toBeVisible();
+  await baseline(page, "home-overview");
+});
+
+test("home machines", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, terminals_all: [] });
+  await page.getByRole("tab", { name: "Machines" }).click();
+  await expect(page.locator("#sec-machines")).toBeVisible();
+  await baseline(page, "home-machines");
+});
+
+test("sidebar groups folded and collapsed", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, ...sidebar });
+  const projectsGroup = page.locator("#side .cc-grp.projects");
+  await expect(projectsGroup.getByRole("button", { name: "tools/delta", exact: true })).toBeVisible();
+  await projectsGroup.getByRole("button", { name: "example/", exact: true }).click();
+  await expect(projectsGroup.getByRole("button", { name: projectName, exact: true })).toHaveCount(0);
+  await baseline(page, "sidebar-folded");
+  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+  await baseline(page, "sidebar-collapsed");
+});
+
+const groups = [{ id: "g", name: "Client work", paths: ["srv/example"] }];
+const overview = [{ project_id: "p", name: projectName, tasks: { planned: 3, running: 2, blocked: 1, review: 4, done: 12 }, workers: 3, latest: { slug: "login-redirect", title: "Fix the login redirect", state: "review", pr_url: "https://example.test/pr/1", updated_at: NOW - 3_600_000 } }];
+
+test("projects overview grouped", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home, project_groups: groups, project_overview: overview });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await expect(page.locator(".pj-card")).toHaveCount(3);
+  await baseline(page, "projects-grouped");
+});
+
+test("projects overview search", async ({ page }) => {
+  await openDesktop(page, false, { center_home: home });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await page.getByRole("searchbox", { name: "Search projects" }).fill("gadget");
+  await expect(page.locator(".pj-card")).toHaveCount(1);
+  await baseline(page, "projects-search");
+  await page.getByRole("searchbox", { name: "Search projects" }).fill("nothing");
+  await expect(page.getByText("No projects match.")).toBeVisible();
+  await baseline(page, "projects-search-none");
+});
+
+test("projects overview empty", async ({ page }) => {
+  await openDesktop(page, false, { center_home: { ...home, projects: [], running: [] } });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await expect(page.locator(".cc-view[data-project]")).toBeVisible();
+  await baseline(page, "projects-empty");
+});
+
+test("project page", async ({ page }) => {
+  await openProject(page);
+  await baseline(page, "project-page");
+});
+
+test("project sessions", async ({ page }) => {
+  await openProject(page);
+  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await expect(page.locator(".pj-det .pv-row").filter({ hasText: "Past session 3" })).toBeVisible();
+  await baseline(page, "project-sessions");
+});
+
+test("project git history", async ({ page }) => {
+  await openProject(page);
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  await expect(page.getByRole("heading", { name: "Keep the query string on redirect" })).toBeVisible();
+  await baseline(page, "project-git");
+});
+
+test("review with findings", async ({ page }) => {
+  const finding = (id: number, severity: string, title: string, line: number) => ({ id, area: "src", severity, title, file: "src/login.ts", line, why: "The redirect target is read before the session exists.", verdict: "verified", dropped_why: "", dismissed: false });
+  const review = { id: "review-one", project: projectName, branch: "feature", base: "main", head: "c3d4e5f6a7b8", head_at: NOW - 3_600_000, started_at: NOW - 1_800_000, machine_name: machineId, changed_lines: 42, files: 3, merge: "clean", conflicts: [], pr: null, shards: [], findings: [finding(1, "high", "Redirect reads next too early", 12), finding(2, "low", "Unused import", 3)] };
+  const branches = { machine_id: machineId, machine_name: machineId, default_branch: "main", branches: [{ name: "feature", worktree: folder, ahead: 2, behind: 0, head: "c3d4e5f6a7b8", subject: "Keep the query string on redirect", committed_at: NOW - 3_600_000, local: true, pushed: true }] };
+  await openProject(page, { project_branches: branches, reviews_list: [review], review_get: review, review_check: { head: "c3d4e5f6a7b8", stale: false }, project_git_history: { ...gitHistory, refs: [{ name: "feature", head: "c3d4e5f6a7b8", kind: "local" }] } });
+  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
+  await page.getByRole("button", { name: "Review branch" }).click();
+  await expect(page.getByText("Redirect reads next too early")).toBeVisible();
+  await baseline(page, "review-findings");
+});
+
+test("sync page", async ({ page }) => {
+  const box = { machine_id: machineId, machine_name: machineId, folder, status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: ["notes (conflict 12345678).txt"], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, git_only: false };
+  const detail = { project: projectName, pinned: false, paused: false, machines: [box] };
+  await openDesktop(page, false, { center_home: home, project_sync: [{ project: projectName, machine_id: machineId, status: "in_sync", files: 18, pending: 0, error: null }], project_sync_detail: detail });
+  await page.getByRole("button", { name: "Sync", exact: true }).click();
+  await expect(page.locator(".fs-conflict")).toBeVisible();
+  await baseline(page, "sync");
+});
+
+test("terminals", async ({ page }) => {
+  const terminal = (id: string, name: string, state: string) => ({ id, project: "", machine_id: machineId, machine_name: machineId, name, command: "shell", cwd: folder, state, code: state === "exited" ? 0 : null, started_at: NOW - 600_000 });
+  await openDesktop(page, false, { terminals_all: [terminal("t1", "dev server", "running"), terminal("t2", "tests", "running"), terminal("t3", "build", "exited")] });
+  await page.evaluate(() => window.__navigation.open("terminals"));
+  await expect(page.locator(".tl-list").getByRole("button", { name: /dev server/ })).toBeVisible();
+  await baseline(page, "terminals");
+});
+
+const settingsResponses = { status: linked, settings: { name: machineId, version: "0.9.0", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [], agent_accounts: { claude: null, codex_key: null, machines: [] } };
+for (const section of [null, "Agent accounts", "Appearance"] as const) {
+  const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
+  test(name, async ({ page }) => {
+    await openDesktop(page, false, settingsResponses);
+    await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+    const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
+    await expect(nav).toBeVisible();
+    if (section !== null) {
+      await nav.getByRole("button", { name: section, exact: true }).click();
+      await expect(nav.getByRole("button", { name: section, exact: true })).toHaveAttribute("aria-current", "true");
+    }
+
+    await baseline(page, name);
+  });
+}
+
+// Agent session
+
+test("agent session transcript", async ({ page }) => {
+  await openAgent(page);
+  await baseline(page, "agent-transcript");
+});
+
+test("agent composer with a draft", async ({ page }) => {
+  await openAgent(page);
+  await page.locator("#agmsg").fill("Also add a test for the query string");
+  await baseline(page, "agent-composer");
+});
+
+test("agent files", async ({ page }) => {
+  await openAgent(page);
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await expect(page.locator('[data-fpath="README.md"]')).toBeVisible();
+  await baseline(page, "agent-files");
+});
+
+test("agent changes", async ({ page }) => {
+  await openAgent(page);
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
+  await baseline(page, "agent-changes");
+});
+
+test("agent running", async ({ page }) => {
+  await openAgent(page);
+  const process = (pid: number, command: string) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false });
+  await page.evaluate(rows => window.__navigation.processes(rows), [process(41, "npm run dev"), process(42, "cargo watch -x check")]);
+  await page.getByRole("tab", { name: /Running/ }).click();
+  await expect(page.locator(".agrunningrow").filter({ hasText: "cargo watch" })).toBeVisible();
+  await baseline(page, "agent-running");
+});
+
+test("agent artifacts", async ({ page }) => {
+  const entries = [...transcript, { kind: "tool", text: "Artifact: /srv/project/report.html" }, { kind: "tool", text: "Artifact: /srv/project/chart.html" }];
+  await openAgent(page, { agent_view: { ...agentView, entries }, agent_artifact: { kind: "html", size: 30, src: "data:text/html,%3Cp%3EPreview%3C%2Fp%3E" } });
+  await page.getByRole("tab", { name: /Artifacts/ }).click();
+  await expect(page.getByRole("listbox", { name: "Artifacts" }).getByRole("option", { name: /report.html/ })).toBeVisible();
+  await expect(page.locator(".agartframe")).toBeVisible();
+  await baseline(page, "agent-artifacts");
+});
+
+// Popovers
+
+test("notices popover", async ({ page }) => {
+  const note = (id: string, kind: string, title: string, ago: number) => ({ id, at: NOW - ago, kind, title, text: "", source: machineId, read: false, done: false, target: null });
+  await openDesktop(page, false, { alerts_list: null, notes_list: [note("first", "finished", "Codex finished", 60_000), note("second", "asks", "Permission required", 120_000), note("third", "finished", "Claude Code finished", 3_600_000)] });
+  await page.getByRole("button", { name: /Notifications/ }).click();
+  await expect(page.locator('.nt-row[data-id="third"]')).toBeVisible();
+  await baseline(page, "notices");
+});
+
+const usage = (() => {
+  const spend = (name: string, tokens: number) => ({ project: name, cost_usd: 0, unpriced: [], metered_tokens: 0, subscription: [{ name: "claude", tokens }] });
+  const period = {
+    total: { project: "", cost_usd: 0, unpriced: [], metered_tokens: 0, subscription: [] }, tokens: 39_300_000,
+    projects: [spend("example/widget", 38_000_000), spend("example/gadget", 1_300_000)],
+    harnesses: [{ agent: "claude", subscription: true, cost_usd: null, tokens: 39_300_000, models: [{ name: "claude-sonnet", tokens: 39_300_000 }] }],
+  };
+  const window = (minutes: number, used: number) => ({ minutes, used_percent: used, resets_at: NOW + 3_600_000, scope: null });
+  return {
+    limits: [
+      { agent: "claude", plan: "max", machine_name: machineId, as_of: NOW, windows: [window(300, 38), window(10_080, 76)], credits: [] },
+      { agent: "codex", plan: "pro", machine_name: machineId, as_of: NOW, windows: [window(10_080, 20)], credits: [] },
+    ],
+    today: period, week: period, month: period, metered: true,
+  };
+})();
+
+test("usage popover", async ({ page }) => {
+  await openDesktop(page, false, { usage_get: usage });
+  await page.getByRole("button", { name: /^Plan usage/ }).click();
+  await expect(page.getByRole("dialog", { name: "Plan usage and cost" })).toBeVisible();
+  await baseline(page, "usage");
+});
+
+// Tray bar
+
+const barRows = [
+  { ...agentRow("asks", "Asks a question", "asking", 600_000), agent: "claude", question: { id: 1, text: "Run cargo test?", detail: "cargo test", options: [{ id: "allow", name: "Allow", allow: true }] } },
+  agentRow("done", "Finished turn", "idle", 300_000),
+  agentRow("runs", "Still running", "working", 30_000),
+  agentRow("old", "Old idle work", "idle", 60_000),
+];
+
+async function openBar(page: Page) {
+  const done = { id: "n1", kind: "finished", title: "Codex finished", text: "Done", source: machineId, at: NOW, read: false, done: false, target: { agent: barRows[1] } };
+  await openDesktop(page, false, { agent_sessions: barRows, notes_list: [done], session_moves: [], session_copies: [], agent_tree: listing, agent_view: { ...agentView, session: barRows[0] } });
+  await page.goto("https://app.test/index.html");
+  await expect(page.locator("#bar")).toBeAttached();
+  await page.evaluate(() => window.__navigation.emit("bar-shown", null));
+  await expect(page.locator("#wtlist [role=option]")).toHaveCount(4);
+}
+
+test("bar waiting list", async ({ page }) => {
+  await openBar(page);
+  await expect(page.locator("#wtlist")).toBeFocused();
+  await baseline(page, "bar-waiting");
+});
+
+test("bar session", async ({ page }) => {
+  await openBar(page);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#agmsg")).toBeFocused();
+  await expect(page.getByText("The query string now survives the redirect.")).toBeVisible();
+  await baseline(page, "bar-session");
+});
+
+// Phone layout
+
+test("phone home", async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { center_home: home });
+  await expect(page.locator("body")).toHaveClass(/mobile/);
+  await expect(page.getByRole("button", { name: "Release 0.9.0 is out" })).toBeVisible();
+  await baseline(page, "phone-home");
+});
+
+test("phone projects", async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { center_home: home });
+  await page.getByRole("navigation", { name: "Sections" }).getByRole("button", { name: "Projects", exact: true }).click();
+  await expect(page.locator(".pj-card")).toHaveCount(3);
+  await baseline(page, "phone-projects");
+});
+
+test("phone session with the command strip folded", async ({ page }) => {
+  const steers = ["Also log each retry", "Then run clippy"];
+  const commands = ["cargo test -p sync", "npm run dev", "tail -f node.log"];
+  const tasks = commands.map((name, i) => ({ id: `task-${i}`, name, description: name, state: "running", can_stop: true, output_file: null, summary: null, entry: null }));
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { agent_view: { ...agentView, queued: steers.length, queued_messages: steers }, agent_tasks: tasks, agent_steer: [] });
+  await page.evaluate(target => window.__navigation.open({ agent: target }), session);
+  await expect(page.locator(".ag-workline")).toHaveText("3 running, 2 queued");
+  await baseline(page, "phone-session");
+});
+
+test("phone projects overflow", async ({ page }) => {
+  const long = "a-very-long-repository-name-that-keeps-going-without-any-break-at-all";
+  const boxes = Array.from({ length: 4 }, (_, i) => ({ id: `box-${i}`, name: `build-box-with-a-long-name-${i}` }));
+  const rows = [
+    ...boxes.map(box => ({ name: `example/${long}`, url: `https://example.test/example/${long}`, machine_id: box.id, machine_name: box.name, folder: `/srv/work/deeply/nested/folder/${long}`, cloned: true, imported_at: 1 })),
+    { name: "plain-folder-without-an-org-and-a-long-name-too", url: "", machine_id: "box-1", machine_name: boxes[1].name, folder: "/srv/plain", cloned: false, imported_at: 1 },
+  ];
+  const longGroups = [{ id: "g", name: `A group with a long name ${long}`, paths: ["work/deeply/nested/folder"] }];
+  const found = [{ name: `found-org/${long}`, remote: "https://example.test/found", places: boxes.map(box => ({ machine_id: box.id, machine_name: box.name, folder: `/srv/found/${long}` })), agents: [{ agent: "codex", sessions: 2 }], last_activity: NOW - 3_600_000 }];
+  await page.setViewportSize(PHONE);
+  await openDesktop(page, false, { center_home: { ...home, projects: rows, running: [] }, project_groups: longGroups, found_projects: found });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await expect(page.locator("#sec-found")).toBeVisible();
+  await baseline(page, "phone-projects-overflow");
+});
+
