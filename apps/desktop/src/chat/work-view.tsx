@@ -10,7 +10,7 @@ import { invoke } from "../ui/tauri.ts";
 import type { WebSource } from "./history.ts";
 import { liveText } from "../agents/karaoke.ts";
 import { duration, thoughtLabel } from "../agents/agentturns.ts";
-import { KIND_ICONS } from "../agents/turnrows.ts";
+import { KIND_ICONS } from "../agents/agentturns.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { AgentTurnHeading, type TurnHeading } from "../agents/turn-heading-view.tsx";
 import { RouteView } from "./route-view.tsx";
