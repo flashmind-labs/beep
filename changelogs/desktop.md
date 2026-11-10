@@ -19,6 +19,8 @@ Other apps have independent versions and changelogs:
 
 ### Changed
 
+- Desktop: a session's background commands and queued messages take at
+  most about a third of the window and scroll inside it.
 - Desktop: the usage pill shows each harness's icon and the share of its
   most used limit, without bars. The popover hides empty sections and keeps
   its note on dollars to periods that show dollars.

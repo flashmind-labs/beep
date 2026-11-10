@@ -10,6 +10,9 @@ Earlier releases predate this changelog.
 
 ### Changed
 
+- iOS: background commands and queued messages in a session fold into
+  one line above the message field, such as "6 running, 4 queued"; tap it
+  to list them with Stop, Edit and remove.
 - iOS: the Home usage pill shows each harness's icon and the share of its
   most used limit, without bars.
 - iOS: the Projects page lists the most recently active projects first
@@ -20,6 +23,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: the message field and its Send and Stop buttons stay fully above
+  the keyboard, and a log read to the end stays at the end.
 - iOS: the usage popover shows percentages, project and harness tokens,
   models and the total again.
 - iOS: the Projects page no longer runs off the side of the screen with
