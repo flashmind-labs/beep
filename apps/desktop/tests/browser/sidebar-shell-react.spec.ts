@@ -57,12 +57,12 @@ test("sidebar project rows retain focus and update another project", async ({ pa
   const project = (name: string) => ({ name, url: `https://example.test/${name}`, machine_id: "box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true, imported_at: 1 });
   const home = { machines: [], projects: [project("team/alpha"), project("team/beta")], running: [], needs_you: [], coming_up: null, updates: null };
   await openDesktop(page, false, { center_home: home });
-  const beta = page.locator("#side .cc-grp.projects").getByRole("button", { name: "beta", exact: true });
+  const beta = page.locator("#side .cc-grp.projects").getByRole("button", { name: "team/beta", exact: true });
   await expect(beta).toBeVisible();
   await beta.focus();
   await beta.evaluate(element => { (window as any).__sidebarProject = element; });
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, projects: [{ ...home.projects[0], machine_name: "Changed box" }, home.projects[1]] });
-  await expect(page.locator("#side .cc-grp.projects").getByRole("button", { name: "alpha", exact: true })).toHaveAttribute("title", /Changed box/);
+  await expect(page.locator("#side .cc-grp.projects").getByRole("button", { name: "team/alpha", exact: true })).toHaveAttribute("title", /Changed box/);
   await expect(beta).toBeFocused();
   expect(await beta.evaluate(element => element === (window as any).__sidebarProject)).toBe(true);
 });
@@ -70,8 +70,8 @@ test("sidebar project rows retain focus and update another project", async ({ pa
 test("sidebar project headings fold and middle-click opens a project window", async ({ page }) => {
   const project = { name: "team/widget", url: "https://example.test/team/widget", machine_id: "box", machine_name: "Build box", folder: "/srv/widget", cloned: true, imported_at: 1 };
   await openDesktop(page, false, { center_home: { machines: [], projects: [project], running: [], needs_you: [], coming_up: null, updates: null } });
-  const group = page.locator("#side .cc-grp.projects"), heading = group.getByRole("button", { name: "team/" });
-  const row = group.getByRole("button", { name: "widget", exact: true });
+  const group = page.locator("#side .cc-grp.projects"), heading = group.getByRole("button", { name: "team/", exact: true });
+  const row = group.getByRole("button", { name: "team/widget", exact: true });
   await expect(row).toBeVisible();
   await heading.click();
   await expect(row).toHaveCount(0);
