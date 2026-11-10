@@ -65,8 +65,8 @@ test("a folder picked is the project whose checkout it is", () => {
 
 test("the harness's own default entry folds into one Default row", () => {
   const claude: AgentModels = { pick: "listed", current: "default", models: [
-    { id: "default", name: "Default (recommended)", description: "Opus 4.6 · Most capable for complex work" },
-    { id: "sonnet", name: "Sonnet", description: null },
+    { id: "default", name: "Default (recommended)", description: "Opus 4.6 · Most capable for complex work", provider: null },
+    { id: "sonnet", name: "Sonnet", description: null, provider: null },
   ] };
   assert.deepEqual(modelRows(claude, "").rows.map(r => [r.value, r.label, r.note]),
     [["", "Default", "Opus 4.6"], ["sonnet", "Sonnet", "sonnet"]]);
@@ -74,8 +74,8 @@ test("the harness's own default entry folds into one Default row", () => {
 
 test("a model matches when every word of the query is in it, in any order", () => {
   const list: AgentModels = { pick: "listed", current: "", models: [
-    { id: "mistral:deepseek-v4-1-flash-1017", name: "", description: null },
-    { id: "openrouter:deepseek/deepseek-chat", name: "", description: null },
+    { id: "mistral:deepseek-v4-1-flash-1017", name: "", description: null, provider: null },
+    { id: "openrouter:deepseek/deepseek-chat", name: "", description: null, provider: null },
   ] };
   const ids = (q: string) => modelRows(list, q).rows.map(r => r.value).filter(Boolean);
   assert.deepEqual(ids("deepseek 1017"), ["mistral:deepseek-v4-1-flash-1017"]);
@@ -86,24 +86,45 @@ test("a model matches when every word of the query is in it, in any order", () =
 
 test("the pill resolves the default model when the machine reports it", async () => {
   const { modelLabel } = await import("../src/agents/agentpick.ts");
-  const list: AgentModels = { pick: "listed", current: "sol", models: [{ id: "sol", name: "6.1 Sol", description: null }] };
+  const list: AgentModels = { pick: "listed", current: "sol", models: [{ id: "sol", name: "6.1 Sol", description: null, provider: null }] };
   assert.equal(modelLabel(list, ""), "6.1 Sol");
-  assert.equal(modelLabel({ pick: "listed", current: "default", models: [{ id: "default", name: "Default", description: "Opus 4.6 · Most capable" }] }, ""), "Opus 4.6");
+  assert.equal(modelLabel({ pick: "listed", current: "default", models: [{ id: "default", name: "Default", description: "Opus 4.6 · Most capable", provider: null }] }, ""), "Opus 4.6");
   assert.equal(modelLabel(null, ""), "Default");
 });
 
 test("model titles resolve to IDs while labels stay readable", async () => {
   const { modelId, modelLabel } = await import("../src/agents/agentpick.ts");
   const list: AgentModels = { pick: "listed", current: "model-sol", models: [
-    { id: "model-sol", name: "Sol", description: null },
+    { id: "model-sol", name: "Sol", description: null, provider: null },
   ] };
   assert.equal(modelId(list, " Sol "), "model-sol");
   assert.equal(modelId(list, "sol"), "model-sol");
   assert.equal(modelId(list, "model-sol"), "model-sol");
   assert.equal(modelId(null, "custom-model"), "custom-model");
   assert.equal(modelLabel(list, modelId(list, "Sol")), "Sol");
-  list.models.push({ id: "another-sol", name: "Sol", description: null });
+  list.models.push({ id: "another-sol", name: "Sol", description: null, provider: null });
   assert.equal(modelId(list, "Sol"), "Sol");
+});
+
+test("a name under several providers shows its provider and resolves with it", async () => {
+  const { modelId } = await import("../src/agents/agentpick.ts");
+  const list: AgentModels = { pick: "listed", current: "", models: [
+    { id: "openrouter:deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", description: null, provider: "openrouter" },
+    { id: "mistral:deepseek-v4-1-flash", name: "DeepSeek V4.1 Flash", description: null, provider: "mistral" },
+  ] };
+  assert.deepEqual(modelRows(list, "").rows.slice(1).map(r => [r.label, r.note]), [
+    ["DeepSeek V4.1 Flash", "openrouter · openrouter:deepseek/deepseek-v4.1-flash"],
+    ["DeepSeek V4.1 Flash", "mistral · mistral:deepseek-v4-1-flash"],
+  ]);
+  const ids = (q: string) => modelRows(list, q).rows.map(r => r.value).filter(Boolean);
+  assert.deepEqual(ids("flash mistral"), ["mistral:deepseek-v4-1-flash"], "the provider is searched");
+  assert.deepEqual(ids("deepseek v4.1"), ["openrouter:deepseek/deepseek-v4.1-flash", "mistral:deepseek-v4-1-flash"], "the name is searched");
+  assert.deepEqual(ids("v4-1"), ["mistral:deepseek-v4-1-flash"], "the id is searched");
+
+  assert.equal(modelId(list, "DeepSeek V4.1 Flash"), "DeepSeek V4.1 Flash", "a bare name under two providers stays as typed");
+  assert.equal(modelId(list, "mistral · DeepSeek V4.1 Flash"), "mistral:deepseek-v4-1-flash");
+  assert.equal(modelId(list, "openrouter/deepseek v4.1 flash"), "openrouter:deepseek/deepseek-v4.1-flash");
+  assert.equal(modelId(list, "mistral:deepseek-v4-1-flash"), "mistral:deepseek-v4-1-flash");
 });
 
 test("lookup failures differ from a harness with a fixed model", () => {

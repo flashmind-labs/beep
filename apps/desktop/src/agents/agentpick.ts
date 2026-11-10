@@ -89,8 +89,9 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
     : current && !isDefault(current) ? current.name || current.id
     : !own && list?.current ? list.current : "its own";
   const first: ModelRow = { value: "", label: "Default", note: resolves };
-  // Every word of the query, in any order, as flashmind-cli matches models.
-  const fits = (r: ModelRow) => { const text = `${r.label} ${r.value}`.toLowerCase(); return words.every(w => text.includes(w)); };
+  // Every word of the query, in any order, as flashmind-cli matches models: in the
+  // name, the id or the provider.
+  const fits = (r: ModelRow) => { const text = `${r.label} ${r.value} ${r.note}`.toLowerCase(); return words.every(w => text.includes(w)); };
   if (list === undefined) return { rows: [first], note: "Asking the machine which models it has…" };
   if (list === null) return { rows: [first], note: "Couldn't load models." };
   if (list.pick === "fixed") return { rows: [first], note: "It runs its own model here." };
@@ -99,7 +100,9 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
     return { rows: q ? [first, { value: q, label: q, note: "use this name" }] : [first], note: q ? "" : "Type a model name to use it." };
   }
 
-  const rows = [first, ...list.models.filter(m => !isDefault(m)).map(m => ({ value: m.id, label: m.name || m.id, note: m.name && m.name !== m.id ? m.id : "" }))].filter(fits);
+  // The provider leads the note: the same name can show under several.
+  const note = (m: ModelInfo) => [m.provider ?? "", m.name && m.name !== m.id ? m.id : ""].filter(Boolean).join(" · ");
+  const rows = [first, ...list.models.filter(m => !isDefault(m)).map(m => ({ value: m.id, label: m.name || m.id, note: note(m) }))].filter(fits);
   return { rows, note: rows.length ? "" : "No model matches." };
 }
 
@@ -111,7 +114,13 @@ export function modelId(list: AgentModels | null | undefined, model: string): st
   const exact = list?.models.find(m => m.id === value);
   if (exact) return exact.id;
 
-  const matches = list?.models.filter(m => m.name.toLowerCase() === value.toLowerCase()) ?? [];
+  // A name under several providers resolves when the text names its provider too,
+  // as in "openrouter · DeepSeek V4.1" or "openrouter/DeepSeek V4.1".
+  const typed = value.toLowerCase();
+  const served = list?.models.find(m => m.provider && m.name && [" · ", "/", ":", " "].some(sep => `${m.provider}${sep}${m.name}`.toLowerCase() === typed));
+  if (served) return served.id;
+
+  const matches = list?.models.filter(m => m.name.toLowerCase() === typed) ?? [];
   return matches.length === 1 ? matches[0].id : value;
 }
 

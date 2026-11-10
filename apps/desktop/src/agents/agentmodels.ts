@@ -4,6 +4,9 @@ export interface ModelInfo {
   id: string;
   name: string;
   description: string | null;
+  /// Who serves it, such as `openrouter`, when its id names one; the same name can
+  /// show under several providers.
+  provider: string | null;
   context_window?: number | null;
   max_context_window?: number | null;
 }

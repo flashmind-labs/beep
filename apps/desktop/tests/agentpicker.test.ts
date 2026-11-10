@@ -7,7 +7,7 @@ import type { AgentModels } from "../src/agents/agentmodels.ts";
 import { MODELS_KEPT_MS } from "../src/agents/agentmodels.ts";
 import { drawPicker, modelsOn, preloadModels, type PickerOpts } from "../src/agents/agentpicker.ts";
 
-const list: AgentModels = { pick: "listed", current: "model-a", models: [{ id: "model-a", name: "Model A", description: null }] };
+const list: AgentModels = { pick: "listed", current: "model-a", models: [{ id: "model-a", name: "Model A", description: null, provider: null }] };
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const requests = () => calls.filter(call => call.cmd === "agent_models").length;
 

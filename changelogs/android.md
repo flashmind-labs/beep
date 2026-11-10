@@ -10,6 +10,9 @@ Earlier releases predate this changelog.
 
 ### Changed
 
+- Android: the model picker shows flsh models by name, with their provider
+  and full id under each, so a name offered by several providers can be told
+  apart. Search matches the name, the id or the provider.
 - Android: a session's background commands fold into one line above the
   message field, such as "3 commands running"; tap it to open the Running
   tab, where each command has its Stop button. Queued messages fold into a
