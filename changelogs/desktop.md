@@ -79,6 +79,9 @@ Other apps have independent versions and changelogs:
 
 ### Performance
 
+- Desktop: a diff of thousands of files opens faster and scrolls without
+  dropped frames, a project page opens with less work, and the model picker
+  opens and filters quickly with hundreds of models.
 - Desktop: switching between recent sessions puts their messages back as
   they were instead of drawing them again, and a streaming reply redraws
   only its newest turn.
