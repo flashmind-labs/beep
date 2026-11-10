@@ -71,6 +71,11 @@ Other apps have independent versions and changelogs:
 
 ### Performance
 
+- Desktop: Home draws from what the last run kept at about the moment the
+  window opens, instead of showing "Connecting" until every machine answers.
+  Machines, projects and accounts no longer wait for each other, the main
+  window loads before the hidden bar, and on a Mac the login shell is no
+  longer read before the window opens, except on the first launch.
 - Desktop: spinners stop turning while the window is hidden, sync progress
   and review and Actions status follow at most once a second, and turning on
   "Use this Mac" no longer reloads all of Home twice. Chat diagrams and the
