@@ -44,31 +44,58 @@ fn adapters_and_harness_helpers_are_hidden_but_commands_are_not() {
 #[tokio::test(start_paused = true)]
 async fn the_process_table_is_read_every_second_only_while_followed() {
     let (demand, mut seen) = tokio::sync::watch::channel(0usize);
+    let (_session, mut idle) = tokio::sync::watch::channel(false);
     let unfollowed = tokio::spawn(async move {
         let started = Instant::now();
-        assert!(pace(&mut seen).await);
-        (started.elapsed(), seen)
+        assert!(pace(&mut seen, &mut idle, |works: &bool| *works).await);
+        (started.elapsed(), seen, idle)
     });
     tokio::time::sleep(WATCHED * 2).await;
     assert!(!unfollowed.is_finished());
     // A follower arriving is answered at once, without waiting out the slow pace.
     let waited_from = Instant::now();
     demand.send_replace(1);
-    let (elapsed, mut seen) = unfollowed.await.unwrap();
+    let (elapsed, mut seen, mut idle) = unfollowed.await.unwrap();
     assert_eq!(elapsed, WATCHED * 2);
     assert_eq!(Instant::now(), waited_from);
 
     let started = Instant::now();
-    assert!(pace(&mut seen).await);
+    assert!(pace(&mut seen, &mut idle, |works: &bool| *works).await);
     assert_eq!(started.elapsed(), WATCHED);
 
     demand.send_replace(0);
-    assert!(pace(&mut seen).await);
+    assert!(pace(&mut seen, &mut idle, |works: &bool| *works).await);
     let started = Instant::now();
-    assert!(pace(&mut seen).await);
+    assert!(pace(&mut seen, &mut idle, |works: &bool| *works).await);
     assert_eq!(started.elapsed(), UNWATCHED);
     drop(demand);
-    assert!(!pace(&mut seen).await);
+    assert!(!pace(&mut seen, &mut idle, |works: &bool| *works).await);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_process_table_is_read_every_second_while_the_session_works() {
+    let (_demand, mut seen) = tokio::sync::watch::channel(0usize);
+    let (session, mut works) = tokio::sync::watch::channel(false);
+    let idle = tokio::spawn(async move {
+        let started = Instant::now();
+        assert!(pace(&mut seen, &mut works, |works: &bool| *works).await);
+        (started.elapsed(), seen, works)
+    });
+    tokio::time::sleep(WATCHED * 2).await;
+    assert!(!idle.is_finished());
+    // A turn starting is answered at once, so a quick wrapper's child is seen.
+    session.send_replace(true);
+    let (elapsed, mut seen, mut works) = idle.await.unwrap();
+    assert_eq!(elapsed, WATCHED * 2);
+
+    let started = Instant::now();
+    assert!(pace(&mut seen, &mut works, |works: &bool| *works).await);
+    assert_eq!(started.elapsed(), WATCHED);
+
+    session.send_replace(false);
+    let started = Instant::now();
+    assert!(pace(&mut seen, &mut works, |works: &bool| *works).await);
+    assert_eq!(started.elapsed(), UNWATCHED);
 }
 
 #[test]

@@ -115,6 +115,13 @@ impl Live {
         }
     }
 
+    /// Whether the session works, its subagents run, or a command it left
+    /// in the background still runs.
+    pub(crate) fn works(&self) -> bool {
+        let state = &self.info.state;
+        state.runs() || state.tasks.iter().any(|task| !task.state.ended())
+    }
+
     fn task_mut(&mut self, id: &str) -> Option<&mut Task> {
         self.info.state.tasks.iter_mut().find(|task| task.id == id)
     }
