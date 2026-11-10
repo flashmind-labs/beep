@@ -627,3 +627,11 @@ fn scheduling_workers_does_not_consume_a_pending_mesh_swap() {
     assert!(!mesh_is_open(&changed));
     assert!(changed.has_changed().unwrap());
 }
+
+#[test]
+fn one_sessions_live_state_or_the_processes_do_not_list_every_machine_again() {
+    assert!(!lists_sessions_again("agent"));
+    assert!(!lists_sessions_again("processes"));
+    assert!(lists_sessions_again("agents"));
+    assert!(lists_sessions_again("*"));
+}
