@@ -9,6 +9,7 @@ import { drawProjectComp, pointBar, projectComp } from "../project/composer.ts";
 import type { BarPlace } from "../project/projectbar.ts";
 import { pc } from "../project/sections.ts";
 import { AG } from "./agents.ts";
+import type { ChatBody } from "../ui/turn.ts";
 import { DraftHead, showSessionFrame } from "./session-frame.tsx";
 import { draftCwd } from "./draft-state.ts";
 import { agentHints, drawEditors, stopAgentFollow } from "./session.ts";
@@ -39,11 +40,11 @@ export function openDraft(project: string, machine: string | null) {
 }
 
 function drawFrame(project: string) {
-  const body = document.createElement("div");
+  const body = document.createElement("div") as ChatBody;
   body.className = "dbody agdraft-body"; body.id = "agbody";
   const draft = document.createElement("div"); draft.id = "agdraft"; body.append(draft);
-  showSessionFrame({ head: createElement(DraftHead, { project }), field: null, body, hints: agentHints() }, false, () => {});
-  $$("#agproj").addEventListener("click", () => windowHooks?.goBack({ view: "projects", arg: { project } }));
+  const openProject = () => windowHooks?.goBack({ view: "projects", arg: { project } });
+  showSessionFrame({ head: createElement(DraftHead, { project, openProject }), field: null, body, hints: agentHints() }, false, () => {});
   $$("#agdraft").append(projectComp.form);
   bound = "";
   drawProjectComp(project);
