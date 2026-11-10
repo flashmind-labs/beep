@@ -10,6 +10,9 @@ import zlib from "node:zlib";
 const desktop = fileURLToPath(new URL("../../", import.meta.url));
 const dist = resolve(desktop, "dist");
 
+/// The app's native calls, which the screen makes only to log: kept for the test.
+const NATIVE = `window.__TAURI__ = { core: { invoke: async (command, args) => { (window.logged ??= []).push(args); return null; }, Channel: class {} }, event: { listen: async () => () => {} } };`;
+
 /// The screen bundled as a page script, with hooks for the test.
 const ENTRY = `
 import { makeScreen } from "./src/terminals/termview.ts";
@@ -62,7 +65,7 @@ declare global {
 async function open(page: Page) {
   const bundle = await build({
     stdin: { contents: ENTRY, resolveDir: desktop, loader: "ts" },
-    bundle: true, format: "esm", write: false, target: "safari16",
+    bundle: true, format: "esm", write: false, target: "safari16", banner: { js: NATIVE },
   });
   const script = bundle.outputFiles[0].text;
   const types = new Map([[".css", "text/css"], [".wasm", "application/wasm"], [".woff2", "font/woff2"]]);
@@ -117,7 +120,7 @@ function png(width: number, height: number, rgb: [number, number, number]): stri
   ]).toString("base64");
 }
 
-test("the screen fits its element and draws text, colours and images", async ({ page }) => {
+test("the screen fits its element and draws text, colours and images, placeholders included", async ({ page }) => {
   await open(page);
   const size = await page.evaluate(() => window.term.screen.size());
   expect(size.cols).toBeGreaterThan(40);
@@ -132,6 +135,17 @@ test("the screen fits its element and draws text, colours and images", async ({ 
 
   await expect.poll(() => pixels(page, [200, 30, 30])).toBeGreaterThan(500);
   await expect.poll(() => pixels(page, blue)).toBeGreaterThan(500);
+
+  // Placed by Unicode placeholders, as yazi does: the image's cells show it,
+  // and no glyph of the placeholder character.
+  const green: [number, number, number] = [30, 200, 60];
+  await page.evaluate(image => {
+    const cell = (row: string, col: string) => `\u{10EEEE}${row}${col}`;
+    const [r0, r1, c0, c1] = ["\u0305", "\u030D", "\u0305", "\u030D"];
+    window.term.write(`\r\n\r\n\x1b_Ga=t,f=100,i=9,q=2;${image}\x1b\\\x1b_Ga=p,U=1,i=9,c=2,r=2,q=2\x1b\\`);
+    window.term.write(`\x1b[38;5;9m${cell(r0, c0)}${cell(r0, c1)}\r\n${cell(r1, c0)}${cell(r1, c1)}\x1b[0m\r\n`);
+  }, png(64, 64, green));
+  await expect.poll(() => pixels(page, green)).toBeGreaterThan(180);
   // The theme's foreground draws the text.
   await expect.poll(() => pixels(page, [0xcf, 0xe3, 0xd8])).toBeGreaterThan(20);
 });

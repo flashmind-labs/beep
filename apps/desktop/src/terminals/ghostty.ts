@@ -28,6 +28,7 @@ import {
   GhosttyRenderStateRowSelection,
   GhosttyResult,
   GhosttySgrUnderline,
+  GhosttySizeReportSize,
   GhosttyString,
   GhosttyStyle,
   GhosttyStyleColor,
@@ -263,7 +264,7 @@ export class Ghostty {
   private readonly scratch: number;
   private readonly terminals = new Map<number, Terminal>();
   private nextTerminal = 1;
-  readonly callbacks: { writePty: number; bell: number; titleChanged: number };
+  readonly callbacks: { writePty: number; bell: number; titleChanged: number; size: number };
   readonly x: Exports;
 
   constructor(x: Exports) {
@@ -277,6 +278,7 @@ export class Ghostty {
       }),
       bell: this.callback(2, false, (_t: number, userdata: number) => by(userdata)?.effects.bell()),
       titleChanged: this.callback(2, false, (_t: number, userdata: number) => by(userdata)?.effects.titleChanged()),
+      size: this.callback(3, true, (_t: number, userdata: number, out: number) => (by(userdata)?.reportSize(out) ? 1 : 0)),
     };
   }
 
@@ -363,12 +365,15 @@ export class Terminal {
   private input = 0;
   private inputLen = 0;
   private freed = false;
+  /// The grid and cell size of the last resize, for size queries.
+  private grid: { cols: number; rows: number; cell: CellSize | null };
   private readonly g: Ghostty;
   readonly effects: TerminalEffects;
 
   constructor(g: Ghostty, cols: number, rows: number, effects: TerminalEffects) {
     this.g = g;
     this.effects = effects;
+    this.grid = { cols, rows, cell: null };
     const x = g.x;
     const out = g.out(4);
     check(x.ghostty_terminal_new(0, out, cols, rows), "ghostty_terminal_new");
@@ -379,6 +384,9 @@ export class Terminal {
     check(x.ghostty_terminal_set(this.handle, GhosttyTerminalOption.WRITE_PTY, g.callbacks.writePty), "setting write_pty");
     check(x.ghostty_terminal_set(this.handle, GhosttyTerminalOption.BELL, g.callbacks.bell), "setting bell");
     check(x.ghostty_terminal_set(this.handle, GhosttyTerminalOption.TITLE_CHANGED, g.callbacks.titleChanged), "setting title_changed");
+    // Programs that size pictures to cells (yazi) ask for the cell size in
+    // pixels, which the pseudo-terminal does not carry.
+    check(x.ghostty_terminal_set(this.handle, GhosttyTerminalOption.SIZE, g.callbacks.size), "setting size");
 
     const limit = g.out(8);
     g.view().setBigUint64(limit, IMAGE_STORAGE_LIMIT, true);
@@ -409,7 +417,23 @@ export class Terminal {
   }
 
   resize(cols: number, rows: number, cell: CellSize) {
+    this.grid = { cols, rows, cell };
     check(this.g.x.ghostty_terminal_resize(this.handle, cols, rows, cell.width, cell.height), "ghostty_terminal_resize");
+  }
+
+  /// Fills Ghostty's size report at `out`; false until the cell size is
+  /// known, so a query goes unanswered rather than wrong.
+  reportSize(out: number): boolean {
+    const { cols, rows, cell } = this.grid;
+    if (cell === null) return false;
+
+    const view = this.g.view();
+    const f = GhosttySizeReportSize.field;
+    view.setUint16(out + f.rows, rows, true);
+    view.setUint16(out + f.columns, cols, true);
+    view.setUint32(out + f.cell_width, cell.width, true);
+    view.setUint32(out + f.cell_height, cell.height, true);
+    return true;
   }
 
   /// Sets the default colours programs see and draw with, as 0xRRGGBB.
