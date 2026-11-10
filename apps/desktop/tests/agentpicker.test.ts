@@ -66,6 +66,8 @@ test("Retry reloads immediately, stays open and preserves the model selection", 
   t.mock.method(Date, "now", () => 3_000_000);
   const dom = new JSDOM("<body><div id='picker'></div></body>");
   Object.assign(dom.window, { __TAURI__: window.__TAURI__ });
+  // jsdom lays nothing out; the model list draws the rows that fit its height.
+  Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 340 });
   const previous = new Map<string, PropertyDescriptor | undefined>();
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
