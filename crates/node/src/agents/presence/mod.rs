@@ -4,7 +4,7 @@ mod local;
 mod registry;
 mod stream;
 
-pub use local::listen;
+pub use local::{listen, listen_in};
 use registry::Registration;
 pub(super) use registry::Registry;
 pub(super) use stream::follow;

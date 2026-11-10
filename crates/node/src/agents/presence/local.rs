@@ -1,5 +1,7 @@
-//! Local session-presence discovery. The locator is per user so a CLI
-//! finds an embedded desktop node or a standalone node with any --dir.
+//! Local session-presence discovery. A CLI finds the node through its
+//! locator: the user's, in the default node folder, for an embedded desktop
+//! node and a standalone node in that folder; a node run with another
+//! `--dir` keeps its own there, so it never replaces the installed node's.
 
 use super::Registration;
 use crate::agents::Agents;
@@ -7,6 +9,7 @@ use crate::link::local_socket::{Listener, Stream};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::{
+    ffi::OsString,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -48,8 +51,10 @@ impl Drop for Published {
     }
 }
 
-fn locator_path() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os("BEEP_PRESENCE_FILE") {
+/// Where the locator goes: `set` by `BEEP_PRESENCE_FILE`, else in the
+/// standalone node's folder `dir`, else in the default node folder.
+fn locator_path(set: Option<OsString>, dir: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = set {
         let path = PathBuf::from(path);
 
         if !path.is_absolute() {
@@ -59,7 +64,11 @@ fn locator_path() -> Result<PathBuf> {
         return Ok(path);
     }
 
-    Ok(crate::link::state::default_dir()?.join("presence.json"))
+    let dir = match dir {
+        Some(dir) => std::path::absolute(dir)?,
+        None => crate::link::state::default_dir()?,
+    };
+    Ok(dir.join("presence.json"))
 }
 
 fn publish(path: &Path, address: &str) -> Result<Published> {
@@ -100,8 +109,20 @@ fn publish(path: &Path, address: &str) -> Result<Published> {
     })
 }
 
-/// Serves native session presence until cancelled by the node's owner.
+/// Serves native session presence until cancelled by the node's owner,
+/// with the user's locator: for a node embedded in the desktop.
 pub async fn listen(agents: Arc<Agents>, dir: &Path) -> Result<()> {
+    let path = locator_path(std::env::var_os("BEEP_PRESENCE_FILE"), None)?;
+    serve_at(agents, dir, path).await
+}
+
+/// As `listen`, for a standalone node in `dir`, with its locator in `dir`.
+pub async fn listen_in(agents: Arc<Agents>, dir: &Path) -> Result<()> {
+    let path = locator_path(std::env::var_os("BEEP_PRESENCE_FILE"), Some(dir))?;
+    serve_at(agents, dir, path).await
+}
+
+async fn serve_at(agents: Arc<Agents>, dir: &Path, path: PathBuf) -> Result<()> {
     // A short private socket folder, including for long desktop paths.
     let dir = std::path::absolute(dir)?;
     let socket = super::super::mcp::presence_socket(&dir);
@@ -114,7 +135,6 @@ pub async fn listen(agents: Arc<Agents>, dir: &Path) -> Result<()> {
         .to_owned();
     #[cfg(windows)]
     let address = crate::link::local_socket::pipe_name(&socket);
-    let path = locator_path()?;
     let _published = tokio::task::spawn_blocking(move || publish(&path, &address)).await??;
     serve(&mut listener, agents).await
 }
