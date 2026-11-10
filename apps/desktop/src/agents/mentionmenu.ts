@@ -80,17 +80,15 @@ async function readFiles(key: string, machine: string, root: string, again: () =
 /// Makes `field`, a session's message field, offer commands and files as it
 /// is typed in. Call it once for each field drawn.
 export function bindMentionMenu(field: HTMLTextAreaElement) {
-  const parent = field.parentElement;
-  if (!parent) return;
-  let box: HTMLElement | null = null;
+  let open = false;
   let rows: Row[] = [];
   let trigger: Trigger | null = null;
   let index = 0;
   let composing = false;
 
-  const refresh = () => { box = showAgentMenu(parent, rows, index, pick); };
+  const refresh = () => { open = rows.length > 0; showAgentMenu(rows, index, pick); };
   const close = () => {
-    if (!box || box.hidden) return;
+    if (!open) return;
     rows = []; trigger = null; refresh();
   };
   const light = (to: number) => { index = to; refresh(); };
@@ -105,7 +103,7 @@ export function bindMentionMenu(field: HTMLTextAreaElement) {
     const s = AG.page?.session;
     const t = composing || !s || s.external ? null : triggerAt(field.value, field.selectionStart);
     if (!t || !s) return close();
-    const opening = !box || box.hidden || trigger?.kind !== t.kind;
+    const opening = !open || trigger?.kind !== t.kind;
 
     if (t.kind === "command") {
       const key = `${s.machine_id}\n${s.id}`;
@@ -137,7 +135,7 @@ export function bindMentionMenu(field: HTMLTextAreaElement) {
   field.addEventListener("compositionend", () => { composing = false; update(); });
   field.addEventListener("blur", close);
   field.addEventListener("keydown", e => {
-    if (!box || box.hidden) return;
+    if (!open) return;
     const act = menuKey(rows.length, index, e.key, { shift: e.shiftKey, alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey, composing: composing || e.isComposing || e.keyCode === 229 });
     if (act.type === "none") return;
     // The window's keys (Enter sends, Esc goes back) are not for the menu's.

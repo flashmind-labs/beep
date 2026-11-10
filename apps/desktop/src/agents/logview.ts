@@ -7,7 +7,7 @@ import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
 import { beepCall, beepLine, commandOf, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
-import { $, S } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media-draw.ts";
 import type { SubagentRow } from "../agentpane/subagents-view.tsx";
 import type { ActivityRow, ToolActivity, ToolBody } from "./activity-view.tsx";
@@ -36,8 +36,8 @@ import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
 import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { showAgentControl } from "./composer-ui.tsx";
-import { AgentStatus, AgentStopFace } from "./mode-view.tsx";
+import { showAgentControl, showAgentStop } from "./composer-ui.tsx";
+import { AgentStatus } from "./mode-view.tsx";
 import type { ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
 
@@ -49,7 +49,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   const b = sessionBody(), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
-  const st = $("#agstate"), stopping = stoppingNow();
+  const stopping = stoppingNow();
   if (!AG.log) agentLog().then(() => { if (S.view === "agent") drawAgentBody(); }).catch(console.warn);
   // Read where the reader is before the log is drawn again: only a reader
   // at the bottom follows new entries; anyone else stays where they are,
@@ -87,21 +87,12 @@ export function drawAgentBody(keep?: string, polled = false, older = false) {
   drawModes();
   drawTasks();
   drawQueue();
-  const owner = $("#agfield") ?? b;
-  if (st) showAgentControl(owner, st, createElement(AgentStatus, { status: s.status, stopping }));
+  showAgentControl("state", createElement(AgentStatus, { status: s.status, stopping }));
   tickClocks();
   redrawAgentHints();
-  // Only a turn that runs can be stopped.
-  const stop = $<HTMLButtonElement>("#agstop");
-
-  if (stop) {
-    stop.style.display = AGENT_ACTIVE.has(s.status) ? "" : "none";
-    // Stopped: it says so at once, while the agent winds the turn down.
-    if (stop.disabled !== stopping) {
-      stop.disabled = stopping;
-    }
-    showAgentControl(owner, stop, createElement(AgentStopFace, { stopping }));
-  }
+  // Only a turn that runs can be stopped; stopped, it says so at once,
+  // while the agent winds the turn down.
+  showAgentStop({ shown: AGENT_ACTIVE.has(s.status), stopping });
 
   if (scroll === "bottom") pinEnd(b);
   else if (anchor) restoreScroll(b, anchor);

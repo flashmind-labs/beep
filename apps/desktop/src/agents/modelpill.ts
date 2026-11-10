@@ -1,25 +1,26 @@
 // The model and thinking pill by a session's field, and switching them.
 import { agentMessage } from "./session-frame.tsx";
-import { createElement } from "react";
-import { showAgentControl } from "./composer-ui.tsx";
+import { createElement, createRef } from "react";
+import { modelPickHost, showAgentControl, showAgentControlFor } from "./composer-ui.tsx";
 import type { SessionPick } from "./agentmodels.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { modelId } from "./agentpick.ts";
 import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillContent } from "./agentpicker.ts";
-import { $, bar } from "../bar/core.ts";
+import { bar } from "../bar/core.ts";
 import { type AgentRow, AG, agentKind, canTakeOver } from "./agents.ts";
 import { SWITCHES, sessionPicks } from "./session.ts";
 import { drawAgentBody } from "./logview.ts";
 import { steerAgent } from "./messages.ts";
 
 export const resumePicks = new Map<string, SessionPick>();
-const shownPills = new WeakMap<HTMLElement, { field: HTMLElement; signature: string }>();
+/// The model pill, which the picker opens from.
+const modelPill = createRef<HTMLButtonElement>();
 
 /// The pill by the field: the harness, the model and thinking switched to.
 /// A harness that cannot switch in a running session shows it disabled.
 export function drawModelPill() {
-  const el = $("#agmodel"), field = $("#agfield"), s = AG.page?.session;
-  if (!el || !field || !s) return;
+  const s = AG.page?.session;
+  if (!s) return;
   const can = SWITCHES.has(s.agent) && !isNativeSession(s.id)
     && (s.status === "ended" ? !s.external || canTakeOver(s.agent) : !s.external);
   const p = sessionPicks.get(s.id) ?? { model: "", effort: null };
@@ -29,10 +30,7 @@ export function drawModelPill() {
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
   const content = pillContent(s.agent, displayModel, p.effort, s.machine_id);
   const signature = JSON.stringify([s.agent, content.props.detail, AG.modelOpen, why, can]);
-  const shown = shownPills.get(el);
-  if (shown?.field === field && shown.signature === signature && el.querySelector("#agmodelb")) return;
-  shownPills.set(el, { field, signature });
-  showAgentControl(field, el, createElement("button", { className: "agc-pill agm", id: "agmodelb", "aria-expanded": AG.modelOpen, title: why, disabled: !can }, content));
+  showAgentControlFor("model", signature, () => createElement("button", { ref: modelPill, className: "agc-pill agm", id: "agmodelb", "aria-expanded": AG.modelOpen, title: why, disabled: !can }, content));
 }
 
 export function toggleModelPicker() {
@@ -54,20 +52,20 @@ export function closeModelPicker() {
 /// The picker by the pill, for the session's own harness: a model or a
 /// thinking level picked goes to the session for its next turn.
 function drawModelPicker() {
-  const el = $("#agpickm"), s = AG.page?.session;
+  const el = modelPickHost.current, s = AG.page?.session;
   if (!el) return;
   if (!AG.modelOpen || !s) { closedPicker(el); return; }
   const now = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const pending = resumePicks.get(s.id);
   const picked: Picked = { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: pending ? pending.effort : now.effort, query: "" };
   drawPicker(el, {
-    render: view => { const field = $("#agfield"); if (field?.isConnected && el.isConnected) showAgentControl(field, el, view); },
+    render: view => { if (el.isConnected) showAgentControl("pick", view); },
     picked,
     offered: [s.agent],
     everywhere: [s.agent],
     machine: { id: s.machine_id, name: s.machine_name },
     noMachine: "",
-    anchor: () => $("#agmodelb"),
+    anchor: () => modelPill.current,
     bounds: () => bar,
     changed: what => {
       if (what === "models") return drawModelPill();

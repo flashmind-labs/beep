@@ -3,7 +3,6 @@
 import { createElement } from "react";
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentMode, AgentPlan } from "./mode-view.tsx";
-import { $ } from "../bar/core.ts";
 import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, where } from "./agents.ts";
 import { questionKey, steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -55,8 +54,6 @@ const FULL_MODES = new Set(["bypassPermissions", "agent-full-access", "yolo"]);
 export function drawModes() {
   const m = AG.modes, s = AG.page?.session, q = s?.question;
   const name = m?.modes.find(x => x.id === m.current)?.name ?? m?.current ?? "";
-  const field = $("#agfield"), mode = $("#agmode"), plan = $("#agplan");
-  if (!field) return;
-  if (mode) showAgentControl(field, mode, hasModes() && !FULL_MODES.has(m?.current ?? "") ? createElement(AgentMode, { name, plan: m?.current === "plan" }) : null);
-  if (plan) showAgentControl(field, plan, s && q && m?.plan != null ? createElement(AgentPlan, { harness: agentKind(s.agent).name, plan: m.plan, question: q, approvalKey: questionKey(q, { machine_id: s.machine_id, agent: s.agent, session: s.id }), answering: AG.answering }) : null);
+  showAgentControl("mode", hasModes() && !FULL_MODES.has(m?.current ?? "") ? createElement(AgentMode, { name, plan: m?.current === "plan" }) : null);
+  showAgentControl("plan", s && q && m?.plan != null ? createElement(AgentPlan, { harness: agentKind(s.agent).name, plan: m.plan, question: q, approvalKey: questionKey(q, { machine_id: s.machine_id, agent: s.agent, session: s.id }), answering: AG.answering }) : null);
 }

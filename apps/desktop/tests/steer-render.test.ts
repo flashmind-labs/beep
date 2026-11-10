@@ -13,7 +13,9 @@ import { askUpload, MN } from "../src/agents/workdrop.ts";
 import { drawTasks } from "../src/agents/tasks.ts";
 import { drawAgentAttached } from "../src/agents/images.ts";
 import { createElement } from "react";
-import { showAgentControl } from "../src/agents/composer-ui.tsx";
+import { FieldControl, showAgentControl } from "../src/agents/composer-ui.tsx";
+import { flushSync } from "react-dom";
+import { createDocumentView } from "../src/ui/document-root.tsx";
 import { AgentPlan } from "../src/agents/mode-view.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
 
@@ -71,6 +73,10 @@ test("session status updates preserve the status element for writable and read-o
   const { page } = setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
   bar.insertAdjacentHTML("afterbegin", '<span id="agstate"></span>');
+  const stateHost = bar.querySelector<HTMLElement>("#agstate"); assert.ok(stateHost);
+  const head = createDocumentView(stateHost);
+  t.after(() => head.unmount());
+  flushSync(() => head.render(createElement(FieldControl, { slot: "state" })));
   const status = () => bar.querySelector("#agstate .dstate");
   drawAgentBody();
   const first = status(); assert.ok(first); assert.equal(first.textContent, "Working");
@@ -86,21 +92,20 @@ test("session status updates preserve the status element for writable and read-o
 test("unchanged primitive control props skip rendering without hiding later updates", t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const field = bar.querySelector<HTMLElement>("#agfield"); assert.ok(field);
-  const host = document.createElement("span"); field.append(host);
+  const host = bar.querySelector<HTMLElement>("#agmode"); assert.ok(host);
   let renders = 0;
   const Probe = ({ value }: { value: string }) => { renders++; return createElement("span", null, value); };
-  showAgentControl(field, host, createElement(Probe, { value: "same" }));
-  showAgentControl(field, host, createElement(Probe, { value: "same" }));
+  showAgentControl("mode", createElement(Probe, { value: "same" }));
+  showAgentControl("mode", createElement(Probe, { value: "same" }));
   assert.equal(renders, 1);
-  showAgentControl(field, host, createElement(Probe, { value: "changed" }));
+  showAgentControl("mode", createElement(Probe, { value: "changed" }));
   assert.equal(renders, 2);
   assert.equal(host.textContent, "changed");
   const data = { value: "before" };
   const Mutable = ({ item }: { item: { value: string } }) => createElement("span", null, item.value);
-  showAgentControl(field, host, createElement(Mutable, { item: data }));
+  showAgentControl("mode", createElement(Mutable, { item: data }));
   data.value = "after";
-  showAgentControl(field, host, createElement(Mutable, { item: data }));
+  showAgentControl("mode", createElement(Mutable, { item: data }));
   assert.equal(host.textContent, "after");
 });
 
@@ -139,7 +144,6 @@ test("attachment updates preserve chips and upload choices", async t => {
 test("background task updates preserve existing controls and focus", t => {
   setup();
   t.after(() => { disposeQueue(); AG.tasks = []; });
-  bar.querySelector("#agfield")?.insertAdjacentHTML("beforebegin", '<div id="agtasks"></div>');
   const task = { id: "first", name: "Build", description: "Build the app", state: "running", can_stop: true, output_file: null, summary: null, entry: null };
   AG.tasks = [task]; drawTasks();
   const button = bar.querySelector<HTMLButtonElement>('[data-agtask="first"]'); assert.ok(button); button.focus();
@@ -428,9 +432,7 @@ test("plan approval shortcuts validate the displayed question", t => {
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const first = { id: 4, text: "Approve plan?", detail: null, options: [{ id: "allow", name: "Allow", allow: true }] };
   page.session.question = first;
-  const field = bar.querySelector<HTMLElement>("#agfield"); assert.ok(field);
-  const host = bar.querySelector<HTMLElement>("#agplan"); assert.ok(host);
-  showAgentControl(field, host, createElement(AgentPlan, { harness: "Agent", plan: "Plan", question: first, approvalKey: questionKey(first, AG.open!), answering: null }));
+  showAgentControl("plan", createElement(AgentPlan, { harness: "Agent", plan: "Plan", question: first, approvalKey: questionKey(first, AG.open!), answering: null }));
   page.session.question = { ...first, id: 5 };
   assert.equal(answerFirst(true), true);
   assert.equal(calls.filter(call => call.cmd === "center_answer_agent").length, 0);

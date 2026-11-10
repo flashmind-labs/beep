@@ -21,10 +21,10 @@ export function disposeQueue() { disposeComposerUi(); }
 
 /// The pending steers above the field, each with what goes with it.
 export function drawQueue() {
-  const field = $("#agfield");
-  if (!field) { if (S.view !== "agent" || !sessionBody()) disposeQueue(); return; }
+  // Without a field the queue waits, delivered messages included, until one shows.
+  if (!agentMessage.current?.isConnected) { if (S.view !== "agent" || !sessionBody()) disposeQueue(); return; }
   dropDelivered(AG.queue);
-  showAgentQueue(field, AG.queue, editQueued);
+  showAgentQueue(AG.queue, editQueued);
 }
 
 /// A message as `agent_steer` takes it, its images without what only the

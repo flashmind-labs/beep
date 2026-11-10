@@ -13,7 +13,9 @@ import { agentHints } from "../src/agents/session-head.ts";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
-import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
+import { disposeComposerUi, FieldControl } from "../src/agents/composer-ui.tsx";
+import { createElement } from "react";
+import { createDocumentView } from "../src/ui/document-root.tsx";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 import { agentMessage } from "../src/agents/session-frame.tsx";
@@ -292,8 +294,12 @@ function modelPill(t: TestContext) {
   }
   const pill = dom.window.document.getElementById("pill");
   assert.ok(pill);
+  // The session field draws the pill from the composer's state.
+  disposeComposerUi();
+  const view = createDocumentView(pill);
+  flushSync(() => view.render(createElement(FieldControl, { slot: "model" })));
   t.after(async () => {
-    pill.remove(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
+    view.unmount(); disposeComposerUi(); pill.remove(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
     for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
   });
   return pill;
@@ -303,7 +309,7 @@ test("the model pill does not display the harness default for an unknown session
   const page = openSession("idle");
   sessionPicks.delete(page.session.id);
   const pill = modelPill(t);
-  show({ "#agmodel": pill, "#agfield": pill.parentElement });
+  show({});
   drawModelPill();
   assert.match(pill.innerHTML, /Model unknown/);
   sessionPicks.set(page.session.id, { model: "selected-model", effort: null });
@@ -315,7 +321,7 @@ test("the model pill does not display the harness default for an unknown session
 test("the model pill uses the model reported by the session", t => {
   const page = openSession("idle");
   const pill = modelPill(t);
-  show({ "#agmodel": pill, "#agfield": pill.parentElement });
+  show({});
   sessionPicks.set(page.session.id, { model: "previous-model", effort: null });
   page.model = "current-model";
   drawModelPill();
@@ -330,7 +336,7 @@ test("the model pill uses the model reported by the session", t => {
 test("the model pill returns when its composer owner is recreated", t => {
   openSession("idle");
   const pill = modelPill(t);
-  show({ "#agmodel": pill, "#agfield": pill.parentElement });
+  show({});
   drawModelPill();
   const first = pill.querySelector("#agmodelb"); assert.ok(first);
   drawModelPill();
@@ -344,7 +350,7 @@ test("the model pill returns when its composer owner is recreated", t => {
 test("a session refresh updates the model pill", async t => {
   const page = openSession("idle");
   const pill = modelPill(t);
-  show({ "#agmodel": pill, "#agfield": pill.parentElement });
+  show({});
   await read({ ...page, model: "reported-model" });
   assert.match(pill.innerHTML, /reported-model/);
 });
@@ -352,7 +358,7 @@ test("a session refresh updates the model pill", async t => {
 test("the model pill keeps the model that runs", async t => {
   const page = openSession("idle");
   const pill = modelPill(t);
-  show({ "#agmodel": pill, "#agfield": pill.parentElement });
+  show({});
   const s = page.session;
 
   await switchSessionModel(s, { model: "opus-x", effort: null }, "model");
@@ -376,7 +382,7 @@ test("flsh can switch its model and thinking from a working session", async t =>
   page.session.agent = "flsh";
   AG.open!.agent = "flsh";
   const pill = modelPill(t);
-  show({ "#agmodel": pill, "#agfield": pill.parentElement });
+  show({});
   drawModelPill();
   assert.equal(pill.querySelector("button")?.disabled, false);
   await switchSessionModel(page.session, { model: "ollama:example", effort: null }, "model");
