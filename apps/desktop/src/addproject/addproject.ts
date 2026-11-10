@@ -12,8 +12,7 @@ import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { IMPORTS_AT_ONCE, eachLimited, foundMatches, tickable, toImport, toggleAllShown, unreadText } from "./addproject-state.ts";
 import type { ImportState } from "./addproject-state.ts";
-import { agentLabel, foundSessions, importPlan } from "../project/projects-state.ts";
-import { button, el } from "../ui/dom.ts";
+import { importPlan } from "../project/projects-state.ts";
 import type { FoundRow, ProjectRow } from "../project/projects-state.ts";
 import { reason } from "../ui/format.ts";
 
@@ -82,17 +81,6 @@ export async function rescanAll(start: (machines: FoundMachine[]) => void, each:
 
   start(machines);
   await Promise.all(machines.map(machine => rescan(machine).then(after => each(machine, after))));
-}
-
-/// How a found row shows: `busy` names the row being imported (any non-null
-/// value disables Import), `error` is why this one failed, `quiet` drops the
-/// primary look from Import.
-export interface FoundRowState {
-  busy?: string | null;
-  error?: string | null;
-  quiet?: boolean;
-  pick?: { on: boolean; toggle: () => void } | null;
-  status?: ImportState | null;
 }
 
 let syncthing = syncthingImportChoice();
@@ -303,46 +291,6 @@ function draw() {
     const search = sheet?.querySelector<HTMLInputElement>(".ap-q");
     if (search && !search.hidden) search.focus();
   }
-}
-
-/// One found checkout: its name, where it is on each machine, its sessions per
-/// agent and when one last ran, and Import.
-export function foundRow(row: FoundRow, state: FoundRowState = {}, onImport: (row: FoundRow) => void = doImport) {
-  const st = state.status;
-  const go = button(state.busy === row.name ? "Importing…" : st?.state === "failed" ? "Retry" : "Import", "dbtn small", () => onImport(row));
-  go.disabled = state.busy != null;
-  go.title = `Import ${row.name} with ${foundSessions(row)} sessions`;
-  const act = st?.state === "importing" ? el("span", "ap-st", el("span", "dspin"), "Importing…")
-    : st?.state === "done" ? el("span", "ap-st ok", "Imported")
-    : go;
-  const why = st?.state === "failed" ? `Failed: ${st.why}` : state.error;
-  const places = row.places.map(p => {
-    const where = el("span", "", el("b", "", p.machine_name), " ", el("code", "", p.folder));
-    where.title = `${p.machine_name}: ${p.folder}`;
-    return el("span", "m", where);
-  });
-  const agents = el("span", "m", ...row.agents.map(a => el("span", "ap-ag", `${agentLabel(a.agent)} ${a.sessions}`)),
-    row.last_activity ? el("span", "", ago(row.last_activity)) : null);
-  const out = el("div", `ap-row${state.pick ? " ap-pick" : ""}`, el("span", "n", row.name), ...places, agents,
-    why ? el("span", "m bad", why) : null, el("span", "acts", act));
-
-  if (state.pick) {
-    const pick = state.pick;
-    const box = el("input");
-    box.type = "checkbox";
-    box.className = "dcheck";
-    box.checked = pick.on;
-    box.disabled = !tickable(st ?? undefined);
-    box.tabIndex = -1;
-    box.setAttribute("aria-label", `Select ${row.name}`);
-    box.addEventListener("change", () => pick.toggle());
-    out.prepend(box);
-    out.tabIndex = 0;
-    out.dataset.name = row.name;
-    out.setAttribute("aria-selected", String(pick.on));
-  }
-
-  return out;
 }
 
 /// "12 min ago", "yesterday", "3 days ago".

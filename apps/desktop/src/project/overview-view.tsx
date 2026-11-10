@@ -1,13 +1,17 @@
 import { useLayoutEffect, useRef } from "react";
 import { plural } from "../ui/format.ts";
 import { newWindowOn, openProjects, setProjectOnTop } from "../center/sidebar.ts";
-import { type OverviewCard, type OverviewGroup, type Project } from "./projects-state.ts";
+import { agentLabel, foundSessions, type FoundRow, type OverviewCard, type OverviewGroup, type Project } from "./projects-state.ts";
+import { ago } from "../addproject/addproject.ts";
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
 import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.ts";
 import { state } from "../center/state.ts";
 import { redrawProjects } from "./sections.ts";
 
 type Group = OverviewGroup<Project, OverviewCard>;
+export function FoundSection({ rows, importing, error, importOne, add }: { rows: FoundRow[]; importing: string | null; error: { name: string; message: string } | null; importOne(row: FoundRow): void; add(): void }) {
+  return <><div className="cc-sec"><h4>Found on your machines</h4>{rows.length > 3 && <button type="button" className="dbtn quiet small" onClick={add}>All {rows.length}</button>}</div><div className="cc-panel ap-list">{rows.slice(0, 3).map(row => <div className="ap-row" key={row.name}><span className="n">{row.name}</span>{row.places.map(place => <span className="m" key={`${place.machine_name}:${place.folder}`}><span title={`${place.machine_name}: ${place.folder}`}><b>{place.machine_name}</b> <code>{place.folder}</code></span></span>)}<span className="m">{row.agents.map((agent, index) => <span className="ap-ag" key={index}>{agentLabel(agent.agent)} {agent.sessions}</span>)}{row.last_activity ? <span>{ago(row.last_activity)}</span> : null}</span>{error?.name === row.name && <span className="m bad">{error.message}</span>}<span className="acts"><button type="button" className="dbtn small" disabled={importing !== null} title={`Import ${row.name} with ${foundSessions(row)} sessions`} onClick={() => importOne(row)}>{importing === row.name ? "Importing…" : "Import"}</button></span></div>)}</div></>;
+}
 export function OverviewGroupView({ group, sync, editing }: { group: Group; sync: (name: string) => string | null; editing: { id: string; draft: string } | null }) {
   const g = group.group;
   const input = useRef<HTMLInputElement>(null);

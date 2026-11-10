@@ -12,7 +12,8 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { MACHINE_REFRESH_MS, SWITCH_MS } from "../ui/pagecache.ts";
 import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { foundRow } from "../addproject/addproject.ts";
+import { FoundSection } from "./overview-view.tsx";
+import { panelSlot } from "./split.ts";
 import { foundFor, plainPath, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -576,12 +577,19 @@ async function readSessions(name: string) {
 
 /// The checkouts the machines found that are not projects yet: the first
 /// three, each with Import; the sheet lists them all.
-export function foundSection() {
-  if (!state.found?.length) return null;
-  const list = state.found.slice(0, 3).map(row => foundRow(row,
-    { busy: state.importing, error: state.foundError?.name === row.name ? state.foundError.message : null }, importFromPage));
-  const more = state.found.length > 3 ? button(`All ${state.found.length}`, "quiet small", addProject) : null;
-  return section("sec-found", "Found on your machines", "", more, h("div", "cc-panel ap-list", ...list));
+let foundHost: HTMLElement | null = null;
+export function disposeFoundSection() {
+  if (!foundHost) return;
+  removeWindowPart("project-found");
+  foundHost = null;
+}
+export function foundSection(enabled: boolean) {
+  if (!enabled || !state.found?.length) { disposeFoundSection(); return null; }
+  if (!foundHost) { foundHost = h("div"); foundHost.id = "sec-found"; }
+  showWindowParts([{ part: "project-found", host: foundHost, content: createElement(FoundSection, {
+    rows: state.found, importing: state.importing, error: state.foundError, importOne: importFromPage, add: addProject,
+  }) }]);
+  return panelSlot(foundHost);
 }
 
 let askedGit = false;
