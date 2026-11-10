@@ -12,7 +12,7 @@ import { loadSessions } from "./sessions.ts";
 import { S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
-import { latest, paneShown, STALE } from "../ui/active.ts";
+import { latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
 
 const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "", errorSession: "" };
@@ -66,6 +66,26 @@ async function poll() {
   drawMove();
 }
 const outside = () => { UI.open = false; menuRead.cancel(); closeOutside(); drawMove(); };
+
+/// Closes the machine menu; false when it was not open.
+export function closeMoveMenu() {
+  if (!UI.open) return false;
+  outside();
+  return true;
+}
+// The center keeps a session's page while another view shows: hiding it closes the menu.
+onShownChange(shown => { if (!shown) closeMoveMenu(); }, true);
+
+/// Closes the menu and forgets the views, as when the session leaves the page.
+export function closeMove() {
+  // The click listener is there only while the menu is open.
+  if (UI.open) closeOutside();
+  UI.open = false; UI.loading = false; UI.targets = [];
+  menuRead.cancel();
+  menuSession = "";
+  moveViews.setState({ key: "", menu: null, status: null }, true);
+}
+
 function closeOutside() { document.removeEventListener("click", outside); }
 async function toggle(s: AgentRow) {
   UI.open = !UI.open;
