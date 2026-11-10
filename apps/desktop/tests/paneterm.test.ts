@@ -1,7 +1,7 @@
-import { answers, calls } from "./bar-env.ts";
+import { answers, calls, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attach, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
+import { attach, dropTerm, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
 import { P, closeTab, closePaneTabs, type MediaTab } from "../src/agentpane/media.ts";
 import { makeTerminals, ALL, type Screen, type TermEvent, type TerminalRow } from "../src/terminals/terminals.ts";
 
@@ -289,4 +289,68 @@ test("a stop refused after leaving cannot reconnect the disposed terminal", asyn
   assert.equal(count("terminal_attach"), 1);
   assert.equal(disposed, 1);
   assert.equal(P.tabs.length, 0);
+});
+
+/// Sends `ev` down the latest stream of view `view`.
+function sendTo(view: string, ev: TermEvent) {
+  const call = calls.findLast(c => c.cmd === "terminal_attach" && (c.args as { view: string }).view === view)!;
+  (call.args as { onEvent: { onmessage(ev: TermEvent): void } }).onEvent.onmessage(ev);
+}
+
+test("a terminal hidden then shown again shows the output from meanwhile, in order", () => {
+  nativeEvent("bar-shown");
+  calls.length = 0;
+  nextAttach();
+  const screen = fakeScreen();
+  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape() {} });
+  const mine = (cmd: string) => calls.filter(c => c.cmd === cmd && (c.args as { view: string }).view === term.view);
+  attach(term);
+  sendTo(term.view, { kind: "attached" });
+  sendTo(term.view, { kind: "output", at: 0, data: btoa("one\r\n") });
+
+  nativeEvent("bar-hidden");
+  assert.equal(mine("terminal_detach").length, 1, "a hidden pane lets go of the stream");
+  sendTo(term.view, { kind: "output", at: 5, data: btoa("two\r\n") });
+  assert.deepEqual(screen.shown, ["one\r\n"], "nothing is drawn while hidden");
+
+  nativeEvent("bar-shown");
+  assert.equal(mine("terminal_attach").length, 2);
+  assert.equal((mine("terminal_attach").at(-1)!.args as { from: number }).from, 5, "it picks up after what the screen shows");
+  sendTo(term.view, { kind: "attached" });
+  sendTo(term.view, { kind: "output", at: 0, data: btoa("one\r\ntwo\r\nthree\r\n") });
+  assert.deepEqual(screen.shown, ["one\r\n", "two\r\nthree\r\n"]);
+  assert.equal(term.link, "attached");
+  dropTerm(term);
+});
+
+test("the Terminals page lets go while the window is hidden and picks up after", async () => {
+  nativeEvent("center-shown");
+  calls.length = 0;
+  nextAttach();
+  const screen = fakeScreen();
+  answers.terminals_all = [ROW];
+  const terms = makeTerminals({
+    invoke: (async (cmd: string, args?: Record<string, unknown>) => {
+      calls.push({ cmd, args });
+      return answers[cmd] ?? null;
+    }) as never,
+    Channel: class { onmessage = (_: unknown) => {}; } as never,
+    makeScreen: () => screen,
+    ago: () => "",
+    redraw() {},
+  });
+  await terms.load(ALL);
+  terms.show("t1");
+  const view = (calls.findLast(c => c.cmd === "terminal_attach")!.args as { view: string }).view;
+  sendTo(view, { kind: "attached" });
+  sendTo(view, { kind: "output", at: 0, data: btoa("a") });
+
+  nativeEvent("center-hidden");
+  const mine = (cmd: string) => calls.filter(c => c.cmd === cmd && (c.args as { view: string }).view === view);
+  assert.equal(mine("terminal_detach").length, 1);
+  nativeEvent("center-shown");
+  assert.equal((mine("terminal_attach").at(-1)!.args as { from: number }).from, 1);
+  sendTo(view, { kind: "output", at: 0, data: btoa("ab") });
+  assert.deepEqual(screen.shown, ["a", "b"]);
+  terms.stop();
 });

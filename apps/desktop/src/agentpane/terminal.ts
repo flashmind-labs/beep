@@ -4,6 +4,7 @@
 
 import { endsForGood, fromBase64, newView, retryDelay, sizeChanged, splice, type Screen, type TermEvent, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
+import { onShownChange } from "../ui/active.ts";
 
 /// The size a terminal starts at, before its screen is fitted.
 const START_SIZE = { cols: 100, rows: 30 };
@@ -27,6 +28,8 @@ export interface PaneTerm {
   /// Counts attaches, so a stream that an attach replaced is ignored.
   attaches: number;
   disposed?: boolean;
+  /// Let go while the pane was off screen, to follow again when it shows.
+  paused?: boolean;
   /// The size the node last got from this tab.
   sent: TermSize | null;
   /// Its shell exited, or its machine no longer has it.
@@ -75,7 +78,35 @@ export function paneTerm(row: TerminalRow, screen: Screen, hooks: TermHooks): Pa
   });
   screen.onResize(() => { if (t.link === "attached") sendSize(t); });
   screen.onEscape(() => t.onEscape());
+  follow(t);
   return t;
+}
+
+/// Tabs that may be following their terminal. While the pane is off screen
+/// they let go, and when it shows they attach again from `next`, so the
+/// output from meanwhile arrives in order and the screen keeps its state.
+const tabs = new Set<PaneTerm>();
+let watching = false;
+
+function follow(t: PaneTerm) {
+  tabs.add(t);
+  if (watching || typeof document === "undefined") return;
+  watching = true;
+  onShownChange(shown => { for (const tab of tabs) if (shown) resume(tab); else pause(tab); }, true);
+}
+
+function pause(t: PaneTerm) {
+  if (t.link !== "attached" && t.link !== "attaching") return;
+  detachTerm(t);
+  t.paused = true;
+}
+
+function resume(t: PaneTerm) {
+  if (!t.paused) return;
+  t.paused = false;
+  if (t.disposed || t.link !== "detached") return;
+  t.tries = 0;
+  attach(t);
 }
 
 /// Tells the node the screen's size, when it changed since it last heard:
@@ -148,6 +179,7 @@ export function detachTerm(t: PaneTerm) {
   clearTimeout(t.timer);
   const was = t.link;
   t.link = "detached";
+  t.paused = false;
   t.screen.setInput(false);
   if (was === "attached" || was === "attaching") invoke("terminal_detach", { id: t.row.id, view: t.view }).catch(() => {});
 }
@@ -156,6 +188,7 @@ export function detachTerm(t: PaneTerm) {
 export function dropTerm(t: PaneTerm) {
   if (t.disposed) return;
   t.disposed = true;
+  tabs.delete(t);
   detachTerm(t);
   t.screen.dispose();
 }
