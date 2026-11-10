@@ -1,18 +1,19 @@
 // PLAYWRIGHT_DIR=/path/to/package.json node tests/perf/chat-work-react.mjs
 import assert from 'node:assert/strict';
 import { buildSync } from 'esbuild';
-import { playwright } from './stub.mjs';
+import { playwright, stubInit } from './stub.mjs';
 
 const code = buildSync({ entryPoints: [new URL('../../src/chat/work-view.tsx', import.meta.url).pathname], bundle: true, write: false, format: 'iife', globalName: 'chatWork' }).outputFiles[0].text;
 const browser = await playwright().chromium.launch({ executablePath: process.env.CHROMIUM_BIN || undefined });
 try {
   const page = await browser.newPage();
-  await page.setContent('<div class="dbody"><div class="turn"><div class="tools"></div></div><div class="turn"><div class="tools"></div></div></div>');
+  await page.setContent('<div id="bar"><div class="dbody"><div class="turn"><div class="tools"></div></div><div class="turn"><div class="tools"></div></div></div></div>');
+  await page.evaluate(stubInit, JSON.stringify({ status: { server: false } }));
   await page.addScriptTag({ content: code });
   const result = await page.evaluate(() => {
     const body = document.querySelector('.dbody'), [turn, second] = body.querySelectorAll('.turn'), box = turn.firstElementChild, other = second.firstElementChild;
     const heading = stats => ({ kind: 'heading', id: '1', html: '', state: 'working', start: null, ms: null, stats, turn: '1', opened: false });
-    const model = (stats, thought) => ({ heading: heading(stats), thought: `<div class="dthink"><div class="tx">${thought}</div></div>`, steps: [{ key: 'tool', html: '<div class="tool">Read</div>' }], live: '' });
+    const model = (stats, thought) => ({ heading: heading(stats), thought: { key: 'thought', text: thought, ms: null, live: false, open: true, folding: false }, steps: [{ key: 'tool', kind: 'read', verb: 'Read', target: '', label: '', state: 'ok' }], live: null });
     let done = 0;
     chatWork.renderChatWork(body, turn, box, model('1 tool', 'First thought'), () => done++);
     chatWork.renderChatWork(body, second, other, model('Other', 'Other thought'), () => done++);
@@ -29,6 +30,6 @@ try {
     value.otherKept = other.textContent === value.otherBefore;
     return value;
   });
-  assert.deepEqual(result, { held: 'First thought', text: 'Changed thought', buttonKept: true, focused: true, done: 3, otherBefore: 'OtherOther thoughtRead', firstGone: true, otherKept: true });
+  assert.deepEqual(result, { held: 'First thought', text: 'Changed thought', buttonKept: true, focused: true, done: 3, otherBefore: 'OtherThoughtOther thoughtRead', firstGone: true, otherKept: true });
   console.log('chromium: chat work keeps focus, selected text and independent turn ownership');
 } finally { await browser.close(); }
