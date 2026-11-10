@@ -19,6 +19,17 @@ const MAX_PLUGIN_STATE: usize = 1024 * 1024;
 #[derive(Clone, Debug)]
 pub struct Change {
     pub topic: Topic,
+    pub kind: ChangeKind,
+}
+
+/// How much of a topic's state a change can touch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ChangeKind {
+    /// Only files in a checkout's working tree; its Git refs and index stayed.
+    WorkTree,
+    /// Anything.
+    #[default]
+    Any,
 }
 
 #[derive(Clone, Debug)]
@@ -47,13 +58,23 @@ impl Hub {
     }
 
     pub fn changed(&self, topic: Topic) {
+        self.changed_as(topic, ChangeKind::Any);
+    }
+
+    /// Files in the checkout `topic` names changed, but not its Git metadata.
+    #[cfg(feature = "host")]
+    pub(crate) fn changed_work_tree(&self, topic: Topic) {
+        self.changed_as(topic, ChangeKind::WorkTree);
+    }
+
+    fn changed_as(&self, topic: Topic, kind: ChangeKind) {
         #[cfg(feature = "host")]
         if topic.valid() {
             metrics::counter!("beep_topic_changed_total", "name" => topic.name().to_owned())
                 .increment(1);
         }
 
-        self.forward(Change { topic });
+        self.forward(Change { topic, kind });
     }
 
     /// Passes on a change another hub counted already.

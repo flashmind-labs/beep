@@ -112,24 +112,27 @@ pub(crate) async fn serve(
                     batch.push(event);
                 }
 
-                let mut changed = HashSet::new();
+                let mut changed = HashMap::new();
                 let mut lagged = false;
 
                 for event in batch {
                     match event {
-                        Ok(event) => { changed.insert(event.topic); }
+                        Ok(event) => {
+                            let kind = changed.entry(event.topic).or_insert(event.kind);
+                            *kind = (*kind).max(event.kind);
+                        }
                         Err(BroadcastStreamRecvError::Lagged(_)) => lagged = true,
                     }
                 }
 
                 let reconcile = lagged || broad_files(&sources(&topics, &queries))
-                    && changed.iter().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
+                    && changed.keys().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
                 if reconcile {
                     sources::reconcile(&offers, &subscriptions).await?;
                     roots = sources::roots(&subscriptions);
                 }
                 // Publication can add a previously unknown exact plugin topic.
-                if reconcile || changed.iter().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
+                if reconcile || changed.keys().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
                     snapshots.replace(&offers, &topics, &queries, &roots);
                 }
 
@@ -137,8 +140,8 @@ pub(crate) async fn serve(
                     snapshots.reset();
                 }
 
-                for topic in changed {
-                    snapshots.changed(&topic);
+                for (topic, kind) in changed {
+                    snapshots.changed(&topic, kind);
                 }
             },
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {

@@ -1,6 +1,7 @@
 use super::*;
 use beep_proto::node::events::{Query, Read, Snapshot, Value};
 use beep_proto::node::subscriptions::Reply;
+use crate::events::ChangeKind;
 
 const MAX_READS: usize = 4;
 const MAX_VALUE_BYTES: usize = 4 * 1024 * 1024;
@@ -320,9 +321,12 @@ impl Snapshots {
         self.entries = next;
     }
 
-    pub(super) fn changed(&mut self, topic: &Topic) {
+    pub(super) fn changed(&mut self, topic: &Topic, kind: ChangeKind) {
         for entry in self.entries.values_mut() {
-            if affected(&entry.topic, topic) {
+            // Git projections read refs, the index and history, never working-tree files.
+            let git = matches!(entry.source, Source::Read(Read::Git { .. }));
+
+            if affected(&entry.topic, topic) && !(git && kind == ChangeKind::WorkTree) {
                 entry.dirty = true;
             }
         }

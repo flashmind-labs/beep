@@ -127,3 +127,17 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
         .unwrap()
         .unwrap();
 }
+
+#[test]
+fn git_internals_do_not_touch_a_checkout_root_but_its_watched_refs_do() {
+    let root = Path::new("/srv/project");
+    assert!(affects(root, &root.join("src/main.rs")));
+    assert!(!affects(root, &root.join(".git/objects/ab/cdef")));
+    assert!(!affects(root, &root.join(".git/index")));
+    assert!(!affects(root, &root.join("target/debug/app")));
+
+    let refs = root.join(".git/refs");
+    assert!(affects(&refs, &refs.join("heads/main")));
+    let head = root.join(".git/HEAD");
+    assert!(affects(&head, &head));
+}

@@ -137,6 +137,27 @@ pub(super) fn wakes(path: &Path) -> bool {
     path == Path::new(".git/packed-refs")
 }
 
+/// Whether `path` is Git metadata a Git read depends on: the branch, index,
+/// refs, configuration, worktrees or exclusions, not objects or logs.
+pub(super) fn is_metadata(path: &Path) -> bool {
+    let mut parts = path.components().map(|part| part.as_os_str());
+    parts.next() == Some(GIT.as_ref())
+        && parts.next().is_some_and(|name| {
+            [
+                "HEAD",
+                "index",
+                "refs",
+                "packed-refs",
+                "config",
+                "worktrees",
+                "info",
+                "commondir",
+            ]
+            .iter()
+            .any(|known| name == *known)
+        })
+}
+
 /// Whether a peer's delete leaves `path` here.
 pub(super) fn is_kept_from_deletes(path: &str) -> bool {
     in_git(path) && !is_ref(path)

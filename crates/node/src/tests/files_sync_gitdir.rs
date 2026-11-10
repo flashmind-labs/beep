@@ -81,3 +81,28 @@ fn a_conflict_ref_is_named_from_its_branch_and_back() {
     assert_eq!(conflict_ref(".git/HEAD", "01020304"), None);
     assert_eq!(original_ref(".git/refs/heads/a-01020304"), None);
 }
+
+#[test]
+fn only_refs_index_and_settings_count_as_git_metadata() {
+    for path in [
+        ".git/HEAD",
+        ".git/index",
+        ".git/refs/heads/main",
+        ".git/packed-refs",
+        ".git/config",
+        ".git/worktrees/fix/HEAD",
+        ".git/info/exclude",
+    ] {
+        assert!(is_metadata(Path::new(path)), "{path}");
+    }
+
+    for path in [
+        ".git/objects/ab/cdef",
+        ".git/logs/HEAD",
+        ".git/FETCH_HEAD",
+        "src/HEAD",
+        "refs/heads/main",
+    ] {
+        assert!(!is_metadata(Path::new(path)), "{path}");
+    }
+}

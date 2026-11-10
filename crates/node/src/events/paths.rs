@@ -259,12 +259,15 @@ pub(crate) fn counted(watcher: &'static str, event: &notify::Result<notify::Even
         .increment(1);
 }
 
+/// Git's own folder is left out of a checkout's root: objects, logs and
+/// fetch results change on every Git command. Callers that need its refs or
+/// index watch those paths as roots of their own.
 fn affects(root: &Path, path: &Path) -> bool {
     if let Ok(relative) = path.strip_prefix(root) {
         return !relative.components().any(|component| {
             matches!(
                 component.as_os_str().to_str(),
-                Some("node_modules" | "target" | ".worktrees")
+                Some("node_modules" | "target" | ".worktrees" | ".git")
             )
         });
     }
