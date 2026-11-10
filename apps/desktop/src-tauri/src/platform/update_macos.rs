@@ -1,0 +1,52 @@
+//! Sparkle presents its standard native UI, verifies downloads and owns installation.
+
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use tauri::{AppHandle, Manager};
+use tauri_plugin_sparkle_updater::{SparkleUpdaterExt, events::EVENT_WILL_RELAUNCH_APPLICATION};
+
+#[derive(Default)]
+pub struct Updates(AtomicBool);
+
+/// Sparkle's relaunch must pass the app's window-close exit guard.
+pub fn relaunching(app: &AppHandle) -> bool {
+    app.state::<Updates>().0.load(Ordering::Acquire)
+}
+
+pub async fn follow(app: AppHandle) {
+    let Some(updater) = app.sparkle_updater() else {
+        return;
+    };
+    let handle = app.clone();
+    updater.set_event_callback(Some(Arc::new(move |event, _| {
+        if event == EVENT_WILL_RELAUNCH_APPLICATION {
+            handle.state::<Updates>().0.store(true, Ordering::Release);
+        }
+    })));
+}
+
+pub async fn check(app: &AppHandle, _asked: bool) {
+    let Some(updater) = app.sparkle_updater() else {
+        crate::notices::notify::text(app, "Updates require an installed Beep app", "");
+        return;
+    };
+
+    if let Err(error) = updater.check_for_updates() {
+        log::warn!("checking for an update: {error}");
+        crate::notices::notify::text(app, "Could not check for updates", "Try again later.");
+    }
+}
+
+// Sparkle presents pending downloads in its own dialog when checking again.
+pub fn ready(_app: &AppHandle) -> Option<String> {
+    None
+}
+
+pub fn install(_app: &AppHandle) {}
+
+pub fn restart(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move { check(&app, true).await });
+}

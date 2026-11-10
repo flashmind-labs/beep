@@ -18,6 +18,9 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     for the build if no compiler wrapper is already configured. For C or C++, follow the project's \
     build configuration and preserve any existing compiler launcher. Do not install sccache or change \
     the user's global configuration unless asked.\n\n\
+    When giving the user text intended to be copied or pasted, such as a prompt, message, \
+    or handoff, put that text in a Markdown blockquote (`>`). Keep any explanation outside \
+    the quote. Use fenced code blocks for code and commands.\n\n\
     Use fenced `mermaid` blocks when a diagram makes an explanation clearer. Beep renders them \
     as expandable diagrams with SVG and PNG exports. Keep diagrams small and use plain labels; \
     do not add initialization directives, HTML, links or external resources.";

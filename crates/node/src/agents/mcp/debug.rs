@@ -12,6 +12,8 @@ use crate::{
 };
 use beep_proto::node::{
     agent::{AnswerOption, OptionKind},
+    logs::Query as LogQuery,
+    metrics::Query as MetricsQuery,
     report::MAX_BYTES,
     tools::{Reply, Request, Tool},
 };
@@ -19,6 +21,8 @@ use beep_report::{
     Answer, Period, SendError, Sender, Share, Target, collect, collect_within, draft, redact, send,
     server_url, zip,
 };
+use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
+use regex::RegexBuilder;
 use serde::{Deserialize, de::DeserializeOwned};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::{task::spawn_blocking, time::timeout};
@@ -140,6 +144,115 @@ struct LogsArgs {
     machine: Option<String>,
     minutes: Option<u32>,
     lines: Option<usize>,
+    offset: Option<u32>,
+    search: Option<String>,
+    regex: Option<bool>,
+    start: Option<String>,
+    end: Option<String>,
+}
+
+struct QueryWindow {
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+}
+
+impl QueryWindow {
+    fn new(
+        start: Option<&str>,
+        end: Option<&str>,
+        lookback: ChronoDuration,
+    ) -> Result<Self, String> {
+        let parse = |value: &str| {
+            let time = DateTime::parse_from_rfc3339(value).map_err(|_| {
+                "Use UTC RFC 3339 timestamps, for example 2026-01-02T03:04:05Z.".to_owned()
+            })?;
+
+            if time.offset().local_minus_utc() != 0 {
+                return Err("start and end must be in UTC (Z or +00:00).".to_owned());
+            }
+
+            Ok(time.with_timezone(&Utc))
+        };
+        let end = end.map(parse).transpose()?.unwrap_or_else(Utc::now);
+        let start = match start.map(parse).transpose()? {
+            Some(start) => start,
+            None => end
+                .checked_sub_signed(lookback)
+                .ok_or("The metrics or logs lookback is outside the supported timestamp range.")?,
+        };
+
+        if start >= end || end.signed_duration_since(start) > ChronoDuration::days(7) {
+            return Err("start must precede end by at most 7 days.".to_owned());
+        }
+
+        Ok(Self { start, end })
+    }
+}
+
+fn validate_search(search: Option<&str>, regex: bool) -> Result<(), String> {
+    if regex && search.is_none() {
+        return Err("regex requires search.".to_owned());
+    }
+
+    if let Some(search) = search {
+        if search.len() > 4096 {
+            return Err("search must be at most 4096 bytes.".to_owned());
+        }
+
+        if regex {
+            RegexBuilder::new(search)
+                .size_limit(1024 * 1024)
+                .build()
+                .map_err(|e| format!("Invalid regex: {e}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+impl LogsArgs {
+    fn query(&self) -> Result<Option<LogQuery>, String> {
+        if self.offset.is_none()
+            && self.search.is_none()
+            && self.regex.is_none()
+            && self.start.is_none()
+            && self.end.is_none()
+        {
+            return Ok(None);
+        }
+
+        if self.start.is_some() && self.minutes.is_some() {
+            return Err("Use start or minutes, not both.".to_owned());
+        }
+
+        let minutes = self
+            .minutes
+            .unwrap_or(DEFAULT_MINUTES)
+            .clamp(1, MAX_MINUTES);
+        let QueryWindow { start, end } = QueryWindow::new(
+            self.start.as_deref(),
+            self.end.as_deref(),
+            ChronoDuration::minutes(i64::from(minutes)),
+        )?;
+
+        let offset = self.offset.unwrap_or(0);
+
+        if offset > 100_000 {
+            return Err("offset must be at most 100000.".to_owned());
+        }
+
+        validate_search(self.search.as_deref(), self.regex.unwrap_or(false))?;
+
+        Ok(Some(LogQuery {
+            start: start.to_rfc3339_opts(SecondsFormat::Nanos, true),
+            end: end.to_rfc3339_opts(SecondsFormat::Nanos, true),
+            search: self.search.clone(),
+            regex: self.regex.unwrap_or(false),
+            lines: self.lines.unwrap_or(DEFAULT_LINES).clamp(1, MAX_LINES) as u32,
+            offset,
+            allow_untimed: self.start.is_none() && self.end.is_none(),
+        }))
+    }
 }
 
 /// Whether `target` is the machine the agent named, by name or id.
@@ -149,6 +262,7 @@ fn named(target: &Target, name: &str) -> bool {
 
 /// One machine's log for the last `minutes`, its newest `lines` lines.
 async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
+    let query = args.query()?;
     let minutes = args
         .minutes
         .unwrap_or(DEFAULT_MINUTES)
@@ -191,6 +305,38 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
         });
     }
 
+    if let Some(query) = query {
+        use beep_proto::node::logs::{QUERY_PROTOCOL, Reply};
+        let target = targets
+            .into_iter()
+            .next()
+            .ok_or("The machine gave nothing.")?;
+        let client = target
+            .client
+            .map_err(|reason| format!("{}: {reason}", target.name))?;
+        let reply = timeout(
+            beep_report::ASK_LIMIT,
+            client.call::<_, Reply>(QUERY_PROTOCOL, &query),
+        )
+        .await
+        .map_err(|_| "Log query timed out.".to_owned())?
+        .map_err(|e| {
+            format!("Log query failed: {e:#}. This requires a machine supporting log-query/1.")
+        })?;
+        return match reply {
+            Reply::Log { text } => Ok(format!(
+                "{}'s Beep log, {} matching lines, offset {}, UTC [{}, {}):\n{text}",
+                target.name,
+                text.lines().count(),
+                query.offset,
+                query.start,
+                query.end
+            )),
+            Reply::Failed { reason } => Err(reason),
+            _ => Err("The machine returned an unknown log query reply.".to_owned()),
+        };
+    }
+
     let since = now() - i64::from(minutes) * 60;
     let Some(share) = collect_within(targets, since, MAX_BYTES).await.pop() else {
         return Err("The machine gave nothing.".to_owned());
@@ -218,15 +364,66 @@ async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
     ))
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MetricsArgs {
     machine: Option<String>,
     period: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
+    search: Option<String>,
+    regex: Option<bool>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+}
+
+impl MetricsArgs {
+    fn query(&self, duration: Duration) -> Result<Option<MetricsQuery>, String> {
+        if self.start.is_none()
+            && self.end.is_none()
+            && self.search.is_none()
+            && self.regex.is_none()
+            && self.limit.is_none()
+            && self.offset.is_none()
+        {
+            return Ok(None);
+        }
+
+        if self.start.is_some() && self.period.is_some() {
+            return Err("Use start or period, not both.".to_owned());
+        }
+
+        let QueryWindow { start, end } = QueryWindow::new(
+            self.start.as_deref(),
+            self.end.as_deref(),
+            ChronoDuration::from_std(duration).map_err(|e| e.to_string())?,
+        )?;
+
+        if start.timestamp() < 0 {
+            return Err("start must be on or after 1970.".to_owned());
+        }
+
+        validate_search(self.search.as_deref(), self.regex.unwrap_or(false))?;
+        let limit = self.limit.unwrap_or(200);
+        let offset = self.offset.unwrap_or(0);
+
+        if !(1..=2048).contains(&limit) || offset > 2048 {
+            return Err("limit must be between 1 and 2048, and offset at most 2048.".to_owned());
+        }
+
+        Ok(Some(MetricsQuery {
+            start: start.to_rfc3339_opts(SecondsFormat::Nanos, true),
+            end: end.to_rfc3339_opts(SecondsFormat::Nanos, true),
+            search: self.search.clone(),
+            regex: self.regex.unwrap_or(false),
+            limit,
+            offset,
+        }))
+    }
 }
 
 async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
-    use beep_proto::node::metrics::{PROTOCOL, Reply, Request};
+    use beep_proto::node::metrics::{PROTOCOL, QUERY_PROTOCOL, Reply, Request};
     let period = args.period.as_deref().unwrap_or("1h");
     let duration =
         humantime::parse_duration(period).map_err(|e| format!("Invalid metrics period: {e}"))?;
@@ -236,6 +433,7 @@ async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
         return Err("The metrics period must be between 1s and 7d.".to_owned());
     }
 
+    let query = args.query(duration)?;
     let seconds = duration.as_secs();
     let name = args.machine.as_deref().map(str::trim).unwrap_or_default();
     let me = peers.key().public();
@@ -253,22 +451,34 @@ async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
         since: until.saturating_sub(seconds),
         until,
     };
-    let reply = timeout(
-        Duration::from_secs(30),
-        client.call::<_, Reply>(PROTOCOL, &request),
-    )
+    let protocol = if query.is_some() {
+        QUERY_PROTOCOL
+    } else {
+        PROTOCOL
+    };
+    let reply = timeout(Duration::from_secs(30), async {
+        match &query {
+            Some(query) => client.call::<_, Reply>(protocol, query).await,
+            None => client.call::<_, Reply>(protocol, &request).await,
+        }
+    })
     .await
     .map_err(|_| "The machine did not answer within 30 seconds.".to_owned())?
     .map_err(|e| {
         format!(
-            "{}: {e:#}. Metrics collection requires a version supporting metrics/1.",
+            "{}: {e:#}. Metrics collection requires a version supporting {protocol}.",
             target.name
         )
     })?;
 
+    let window = query.as_ref().map_or_else(
+        || period.to_owned(),
+        |query| format!("UTC [{}, {})", query.start, query.end),
+    );
+
     match reply {
         Reply::Summary { text } => Ok(format!(
-            "{}'s Beep metrics, requested {period}:\n{text}",
+            "{}'s Beep metrics, requested {window}:\n{text}",
             target.name
         )),
         Reply::Failed { reason } => Err(format!("{}: {reason}", target.name)),

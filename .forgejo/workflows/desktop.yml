@@ -32,6 +32,7 @@ jobs:
 
       - name: Check signing credentials and version
         env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
@@ -40,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           for name in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD \
-            APPLE_API_PRIVATE_KEY APPLE_API_KEY_ID APPLE_API_ISSUER_ID; do
+            APPLE_API_PRIVATE_KEY APPLE_API_KEY_ID APPLE_API_ISSUER_ID SPARKLE_PRIVATE_KEY; do
             if [[ -z "${!name}" ]]; then
               echo "Missing secret $name" >&2
               exit 1
@@ -52,6 +53,8 @@ jobs:
             echo "The tag $GITHUB_REF_NAME does not match the app's version $version." >&2
             exit 1
           fi
+          python3 -m unittest discover -s scripts/tests
+          python3 scripts/changelog.py notes "$version" > "$RUNNER_TEMP/release-notes.md"
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Set up the toolchain
@@ -65,6 +68,9 @@ jobs:
           if [ -d "$target" ] && [ "$(du -sk "$target" | cut -f1)" -gt $((30 * 1024 * 1024)) ]; then
             rm -rf "$target"
           fi
+
+      - name: Prepare the native macOS updater
+        run: bash scripts/download-sparkle.sh
 
       - name: Build the web UI
         working-directory: apps/desktop
@@ -98,6 +104,10 @@ jobs:
           printf '%s' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/notary-key.p8"
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/notary-key.p8" >> "$GITHUB_ENV"
 
+      # Copied as a custom bundle file so Tauri preserves these helper signatures.
+      - name: Sign the native updater helpers
+        run: bash scripts/sign-sparkle.sh
+
       - name: Build the app
         working-directory: apps/desktop/src-tauri
         env:
@@ -129,6 +139,15 @@ jobs:
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: bash scripts/release-macos-dmg.sh
 
+      - name: Sign the Sparkle update and write release notes
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          python3 scripts/write-macos-appcast.py \
+            --app "$CARGO_TARGET_DIR/release/bundle/macos/Beep.app" \
+            --dmg "target/macos-release/Beep-$VERSION-$(uname -m).dmg" \
+            --version "$VERSION" --output target/macos-release/appcast.xml
+
       - name: Remove signing material
         if: always()
         run: |
@@ -140,7 +159,7 @@ jobs:
           done < <(security list-keychains -d user | sed 's/^ *"//; s/"$//')
           security list-keychains -d user -s "${keychains[@]}"
           security delete-keychain "$RUNNER_TEMP/beep-signing.keychain-db" || true
-          rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/beep-keychains.txt"
+          rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/beep-keychains.txt" "$RUNNER_TEMP/beep-sparkle.key"
 
       - uses: actions/upload-artifact@v3
         with:
@@ -148,6 +167,7 @@ jobs:
           path: |
             target/macos-release/*.dmg
             target/macos-release/*.sha256
+            target/macos-release/appcast.xml
 
       - name: Publish the release
         if: env.RELEASE == 'true'
@@ -158,11 +178,12 @@ jobs:
           set -euo pipefail
           dmg="target/macos-release/Beep-$VERSION-$(uname -m).dmg"
           release=$(jq -n --arg tag "$GITHUB_REF_NAME" --arg name "Beep desktop $VERSION" \
-            '{tag_name: $tag, name: $name}' \
+            --rawfile notes "$RUNNER_TEMP/release-notes.md" \
+            '{tag_name: $tag, name: $name, body: $notes}' \
             | curl -sSf -X POST -H "Authorization: token $TOKEN" \
                 -H "Content-Type: application/json" --data @- "$API/releases" \
             | jq -r .id)
-          for file in "$dmg" "$dmg.sha256"; do
+          for file in "$dmg" "$dmg.sha256" target/macos-release/appcast.xml; do
             name=${file##*/}
             curl -sSf -X POST -H "Authorization: token $TOKEN" \
               -F "attachment=@$file" "$API/releases/$release/assets?name=$name" > /dev/null
@@ -190,12 +211,14 @@ jobs:
           manifest="$RUNNER_TEMP/r2-manifest"
           mkdir -p "$files" "$manifest"
           cp "$dmg" "$dmg.sha256" "$files/"
+          cp target/macos-release/appcast.xml "$manifest/"
           cp "$dmg" "$files/Beep-latest.dmg"
           cp "$bundle/Beep.app.tar.gz" "$files/$archive"
           jq -n --arg version "$VERSION" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --rawfile notes "$RUNNER_TEMP/release-notes.md" \
             --arg signature "$(cat "$bundle/Beep.app.tar.gz.sig")" \
             --arg url "https://releases.flashmind.com/beep/macos/$archive" \
-            '{version: $version, pub_date: $date, platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' \
+            '{version: $version, notes: $notes, pub_date: $date, platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' \
             > "$manifest/latest.json"
           echo "files=$files" >> "$GITHUB_OUTPUT"
           echo "manifest=$manifest" >> "$GITHUB_OUTPUT"

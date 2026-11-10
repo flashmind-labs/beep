@@ -116,6 +116,12 @@ test("returning and reloading reconnects the same terminal without stopping it",
   await open("notice-one");
   await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect.poll(attaches).toBeGreaterThan(1);
+  const beforeHome = await attaches();
+  await page.evaluate(() => window.__navigation.open("home"));
+  await expect(page.locator("#agshell")).toBeHidden();
+  await open("notice-one");
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  await expect.poll(attaches).toBeGreaterThan(beforeHome);
   const calls = await page.evaluate(() => window.__navigation.calls());
   expect(calls.filter(c => c.command === "terminal_open")).toHaveLength(1);
   expect(calls.filter(c => c.command === "terminal_close")).toHaveLength(0);
@@ -196,4 +202,16 @@ test("terminal tab menu and dragging preserve the running screen", async ({ page
   await expect(screen).toHaveAttribute("data-identity", "kept");
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_open").length)).toBe(1);
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_close").length)).toBe(0);
+});
+
+
+test("restoring a cached pane binds its terminal action once", async ({ page }) => {
+  await openDesktop(page, true, { terminal_open: { id: "shell-one", project: "", machine_id: "build-box", machine_name: "build-box", name: "shell", command: "", cwd: "/srv/project", state: "running", code: null, started_at: 1 } });
+  const open = () => page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await open();
+  await page.evaluate(() => window.__navigation.open("home"));
+  await open();
+  await page.getByRole("button", { name: "+ Terminal", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_open").length)).toBe(1);
+  await expect(page.locator('[role="tab"][data-mtab^="term:"]')).toHaveCount(1);
 });

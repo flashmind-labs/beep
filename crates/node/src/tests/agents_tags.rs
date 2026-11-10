@@ -64,13 +64,17 @@ fn untagged_text_is_the_users() {
 #[test]
 fn a_bare_brief_becomes_context() {
     let brief = BRIEF;
+    let kept = cut(brief, MAX_CONTEXT);
     assert_eq!(bare_block(brief), context(brief));
     assert_eq!(bare_block("ok"), "ok");
     let glued = format!("{brief}ok, let's keep going");
     assert_eq!(said(&glued), "ok, let's keep going");
     assert_eq!(
         parts(&untagged(&glued)),
-        [Part::Context(brief), Part::User("ok, let's keep going")]
+        [
+            Part::Context(kept.trim()),
+            Part::User("ok, let's keep going")
+        ]
     );
     let worktree = format!("{BARE_WORKTREE}\n\n{brief}fix it");
     assert_eq!(said(&worktree), "fix it");

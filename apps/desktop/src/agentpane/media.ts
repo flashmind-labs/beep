@@ -174,6 +174,9 @@ export const shell = () => document.getElementById("agshell");
 export const main = () => document.getElementById("agmain");
 export const paneOf = (d: Dock) => document.getElementById(`agpane-${d}`);
 
+// A cached session can restore the same dock nodes more than once.
+const wiredPanes = new WeakSet<HTMLElement>();
+
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
   closePaneTabs();
@@ -195,8 +198,10 @@ export function startPane(s: PaneSession) {
   P.watch.observe(el);
 
   for (const d of DOCKS) {
-    wireDivider(d);
     const pane = paneOf(d)!;
+    if (wiredPanes.has(pane)) continue;
+    wiredPanes.add(pane);
+    wireDivider(d);
     pane.addEventListener("click", e => paneClick(e, d));
     pane.addEventListener("contextmenu", tabMenu);
     // A viewer may keep the pointer to itself; ⌘W still needs the pane focused.
@@ -306,6 +311,11 @@ export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
 }
 
 window.addEventListener("pagehide", rememberPane);
+
+/// Reusing a conversation frame also restores views released when leaving it.
+export function restorePane() {
+  if (paneReleased && P.session) startPane(P.session);
+}
 
 export function closePaneTabs() {
   rememberPane();

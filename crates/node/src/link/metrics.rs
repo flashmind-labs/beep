@@ -3,8 +3,10 @@
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    metrics::{MAX_PERIOD, Reply, Request},
+    metrics::{MAX_PERIOD, Query, Reply, Request},
 };
+use chrono::{DateTime, Duration as ChronoDuration, FixedOffset};
+use regex::{Regex, RegexBuilder};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::File,
@@ -29,6 +31,90 @@ pub(super) async fn serve(mut tx: LinkTx, mut rx: LinkRx, path: PathBuf) -> Resu
     };
     tx.send(&reply).await?;
     tx.finish().await
+}
+
+pub(super) async fn serve_query(mut tx: LinkTx, mut rx: LinkRx, path: PathBuf) -> Result<()> {
+    let Some(query) = rx.recv::<Query>().await? else {
+        return Ok(());
+    };
+    let reply = match tokio::task::spawn_blocking(move || summarize_query(&path, &query)).await? {
+        Ok(text) => Reply::Summary { text },
+        Err(e) => Reply::Failed {
+            reason: format!("{e:#}"),
+        },
+    };
+    tx.send(&reply).await?;
+    tx.finish().await
+}
+
+struct Selection {
+    start: DateTime<FixedOffset>,
+    end: DateTime<FixedOffset>,
+    pattern: Option<Regex>,
+    limit: usize,
+    offset: usize,
+}
+
+impl TryFrom<&Query> for Selection {
+    type Error = anyhow::Error;
+
+    fn try_from(query: &Query) -> Result<Self> {
+        let start = DateTime::parse_from_rfc3339(&query.start)?;
+        let end = DateTime::parse_from_rfc3339(&query.end)?;
+        anyhow::ensure!(
+            start.offset().local_minus_utc() == 0 && end.offset().local_minus_utc() == 0,
+            "start and end must be UTC"
+        );
+        anyhow::ensure!(
+            start.timestamp() >= 0
+                && start < end
+                && end.signed_duration_since(start) <= ChronoDuration::days(7),
+            "start must be on or after 1970 and precede end by at most 7 days"
+        );
+        anyhow::ensure!(
+            (1..=2048).contains(&query.limit),
+            "limit must be between 1 and 2048"
+        );
+        anyhow::ensure!(query.offset <= 2048, "offset must be at most 2048");
+        anyhow::ensure!(
+            !query.regex || query.search.is_some(),
+            "regex requires search"
+        );
+        let pattern = query
+            .search
+            .as_ref()
+            .map(|search| {
+                anyhow::ensure!(search.len() <= 4096, "search must be at most 4096 bytes");
+                let pattern = if query.regex {
+                    search.clone()
+                } else {
+                    regex::escape(search)
+                };
+                Ok::<_, anyhow::Error>(
+                    RegexBuilder::new(&pattern)
+                        .size_limit(1024 * 1024)
+                        .build()?,
+                )
+            })
+            .transpose()?;
+
+        Ok(Self {
+            start,
+            end,
+            pattern,
+            limit: usize::try_from(query.limit)?,
+            offset: usize::try_from(query.offset)?,
+        })
+    }
+}
+
+fn summarize_query(path: &Path, query: &Query) -> Result<String> {
+    let selection = Selection::try_from(query)?;
+    let request = Request {
+        since: u64::try_from(selection.start.timestamp())?,
+        until: u64::try_from(selection.end.timestamp())?,
+    };
+    summarize_selected(path, &request, Some(&selection))
 }
 
 #[derive(Default)]
@@ -71,6 +157,14 @@ fn summarize(path: &Path, request: &Request) -> Result<String> {
         bail!("The metrics period must be positive and at most 7d");
     }
 
+    summarize_selected(path, request, None)
+}
+
+fn summarize_selected(
+    path: &Path,
+    request: &Request,
+    selection: Option<&Selection>,
+) -> Result<String> {
     let parent = path.parent().context("metrics path has no directory")?;
     let mut paths = Vec::new();
 
@@ -114,7 +208,15 @@ fn summarize(path: &Path, request: &Request) -> Result<String> {
                 time = stamp
                     .parse::<u64>()
                     .ok()
-                    .filter(|t| *t >= request.since && *t <= request.until);
+                    .filter(|t| *t >= request.since && *t <= request.until)
+                    .filter(|t| {
+                        selection.is_none_or(|selection| {
+                            i64::try_from(*t)
+                                .ok()
+                                .and_then(|time| DateTime::from_timestamp(time, 0))
+                                .is_some_and(|time| time >= selection.start && time < selection.end)
+                        })
+                    });
             } else if line == "# end snapshot" {
                 if let Some(time) = time.take() {
                     // A repeated or out-of-order timestamp must not look like a counter reset.
@@ -149,6 +251,15 @@ fn summarize(path: &Path, request: &Request) -> Result<String> {
                             continue;
                         }
 
+                        if selection.is_some_and(|selection| {
+                            selection
+                                .pattern
+                                .as_ref()
+                                .is_some_and(|pattern| !pattern.is_match(key))
+                        }) {
+                            continue;
+                        }
+
                         if !series.contains_key(key) && series.len() >= MAX_SERIES {
                             bail!("Metrics exceed the 2048 series limit");
                         }
@@ -172,12 +283,34 @@ fn summarize(path: &Path, request: &Request) -> Result<String> {
     let (Some(first), Some(last)) = (first, last) else {
         return Ok("No complete metrics snapshots in this period. Metrics may be unavailable or outside retention.\n".to_owned());
     };
+    let requested = match selection {
+        Some(selection) => format!(
+            "UTC [{}, {})",
+            selection.start.to_rfc3339(),
+            selection.end.to_rfc3339()
+        ),
+        None => format!("Unix seconds {}..{}", request.since, request.until),
+    };
     let mut text = format!(
-        "Requested Unix seconds {}..{}; observed {first}..{last}, {snapshots} complete snapshots.\nCounter increases cover observed samples only; activity before the first sample and between restarts can be missing.\nQuantile ranges are sampled exporter-window quantiles, not whole-period percentiles.\n",
-        request.since, request.until
+        "Requested {requested}; observed {first}..{last}, {snapshots} complete snapshots.\nCounter increases cover observed samples only; activity before the first sample and between restarts can be missing.\nQuantile ranges are sampled exporter-window quantiles, not whole-period percentiles.\n"
     );
 
-    for (key, sample) in series {
+    let total = series.len();
+    let (offset, limit) =
+        selection.map_or((0, total), |selection| (selection.offset, selection.limit));
+
+    if selection.is_some() {
+        let returned = total.saturating_sub(offset).min(limit);
+        let next = offset + returned;
+        let next_offset = if next < total {
+            next.to_string()
+        } else {
+            "none".to_owned()
+        };
+        text.push_str(&format!("Matching series: {total}; offset: {offset}; returned: {returned}; next_offset: {next_offset}.\n"));
+    }
+
+    for (key, sample) in series.into_iter().skip(offset).take(limit) {
         let name = key.split('{').next().unwrap_or(&key);
         let cumulative = counters.contains(name)
             || name
@@ -199,6 +332,10 @@ fn summarize(path: &Path, request: &Request) -> Result<String> {
         };
 
         if text.len() + line.len() > MAX_REPLY {
+            if selection.is_some() {
+                bail!("Metrics page exceeds 256 KiB; request a smaller limit");
+            }
+
             text.push_str("Output truncated at 256 KiB; additional series omitted.\n");
             break;
         }

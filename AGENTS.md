@@ -94,6 +94,20 @@ and wire representations independently. Prefer explicit
   When adding an acting tool that takes an ID, add its read tool to `LOOKUPS`
   in `crates/server/src/apps/permissions/`.
 
+## Changelog
+
+Every agent must add user-visible changes under `[Unreleased]` before finishing
+work: desktop in `changelogs/desktop.md`, other apps in `changelogs/node.md`,
+`changelogs/android.md`, `changelogs/ios.md`, or `changelogs/server.md`.
+Record shared changes in each affected app. Use `Added`, `Changed`, `Fixed`,
+`Security`, then `Performance`; write from the user's view and name the platform.
+Skip internal churn. Never invent past release notes or edit published entries.
+
+Release preparation moves each app's Unreleased notes into a dated version
+entry. All release paths must freeze the matching changelog. Desktop and node
+release pages and desktop updater feeds use those notes. Keep an empty
+Unreleased section for the next changes. Never publish without release notes.
+
 ## Releases and deployment
 
 Apps remain on 0.x until production, with minor or patch bumps only. Do not run

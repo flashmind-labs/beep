@@ -2,9 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>LSUIElement</key>
-  <true/>
-  <key>NSMicrophoneUsageDescription</key>
-  <string>Beep listens in live mode, after you tap Option three times or while you hold it, so you can talk to it.</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Beep listens in live mode, after you tap Option three times or while you hold it, so you can talk to it.</string>
+	<key>SUFeedURL</key>
+	<string>https://releases.flashmind.com/beep/macos/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>FngKNNWKoL668elFXKs0q5FISZkd353iGdLZt3Q42to=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>3600</integer>
 </dict>
 </plist>

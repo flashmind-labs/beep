@@ -157,6 +157,18 @@ export function barOn(name: string) {
   return (currentLocation()?.view === "projects" && state.picked === name) || (currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name);
 }
 
+// A host can return after the project opened during its update.
+subscribeChanges([topic("machines"), topic("accounts")], async () => {
+  try {
+    const list = await invoke<AgentHost[]>("agent_hosts");
+    pc.hosts = list;
+    preloadModels(list);
+    if (pc.project && barOn(pc.project)) redrawProjects();
+  } catch (error) {
+    console.warn("agent hosts:", error);
+  }
+}, null, () => !!pc.project && barOn(pc.project));
+
 /// Reads what the bar needs for project `name`: the machines that run
 /// agents, the sessions (for worktrees) and the project's branches.
 function loadProjectBar(name: string) {
