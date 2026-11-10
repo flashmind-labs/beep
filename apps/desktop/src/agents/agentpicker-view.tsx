@@ -152,7 +152,8 @@ function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
   return <div ref={box} style={{ position: "relative", height: virtual.getTotalSize() }}>
     {virtual.getVirtualItems().map(item => {
       const row = rows[item.index];
-      return <button key={item.key} ref={virtual.measureElement} data-index={item.index} type="button" data-agmo={row.value}
+      // The search field is the list's one Tab stop: a focused row would unmount as it scrolls away.
+      return <button key={item.key} ref={virtual.measureElement} data-index={item.index} type="button" tabIndex={-1} data-agmo={row.value}
         className={`${row.value === picked.model ? "on" : ""}${row.value && picked.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
         style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start - above}px)` }}
         onClick={() => onModel(row.value)}>{row.label}{row.note && <small>{row.note}</small>}</button>;
