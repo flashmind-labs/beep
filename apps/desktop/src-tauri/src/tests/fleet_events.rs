@@ -635,3 +635,83 @@ fn one_sessions_live_state_or_the_processes_do_not_list_every_machine_again() {
     assert!(lists_sessions_again("agents"));
     assert!(lists_sessions_again("*"));
 }
+
+#[test]
+fn an_unchanged_view_is_not_sent_again_and_a_new_window_still_gets_it() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let output = heard.clone();
+    let _one = register(
+        &events,
+        "one",
+        Uuid::new_v4(),
+        vec![interest("sync", None)],
+        Arc::new(move |event| {
+            output.lock().unwrap().push(event);
+            true
+        }),
+    );
+    let view = serde_json::json!({ "views": [{ "command": "project_sync", "value": [] }] });
+
+    events.publish_views(machine, Topic::new("sync"), view.clone());
+    events.publish_views(machine, Topic::new("sync"), view.clone());
+    assert_eq!(heard.lock().unwrap().len(), 1);
+
+    let changed = serde_json::json!({ "views": [{ "command": "project_sync", "value": [1] }] });
+    events.publish_views(machine, Topic::new("sync"), changed.clone());
+    assert_eq!(heard.lock().unwrap().len(), 2);
+
+    let primed = events
+        .registry
+        .lock()
+        .unwrap()
+        .latest
+        .values()
+        .filter(|update| update.topic == Topic::new("sync"))
+        .map(|update| update.data.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(primed, [Some(changed)]);
+}
+
+#[test]
+fn a_window_that_takes_a_topic_is_primed_with_its_held_view() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let _one = register(
+        &events,
+        "one",
+        Uuid::new_v4(),
+        vec![interest("sync", None)],
+        Arc::new(|_| true),
+    );
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let output = heard.clone();
+    let two = Uuid::new_v4();
+    let _two = register(
+        &events,
+        "two",
+        two,
+        vec![interest("usage", None)],
+        Arc::new(move |event| {
+            output.lock().unwrap().push(event);
+            true
+        }),
+    );
+    let view = serde_json::json!({ "views": [] });
+    events.publish_views(machine, Topic::new("sync"), view.clone());
+    assert!(heard.lock().unwrap().is_empty());
+
+    events
+        .retopic(
+            "two",
+            two,
+            vec![interest("usage", None), interest("sync", None)],
+        )
+        .unwrap();
+    events.publish_views(machine, Topic::new("sync"), view.clone());
+
+    let heard = heard.lock().unwrap();
+    assert_eq!(heard.len(), 1);
+    assert_eq!(heard[0].data, Some(view));
+}
