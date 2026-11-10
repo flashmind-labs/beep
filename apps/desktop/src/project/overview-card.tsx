@@ -3,7 +3,8 @@ import { shallow } from "zustand/shallow";
 import { formatAgo, plural } from "../ui/format.ts";
 import { Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { onRowKey } from "../ui/kit.tsx";
-import { barSegments, countsLine, latestLine, workersLabel, type OverviewCard, type OverviewCardRow, type Project } from "./projects-state.ts";
+import { type OverviewCard, type Project } from "./projects-state.ts";
+import { barSegments, countsLine, latestLine, workersLabel, type OverviewCardRow } from "./overview-state.ts";
 
 export function overviewCardModel(c: OverviewCardRow<Project, OverviewCard>, sync: string | null) {
   const [open = "", ...rest] = c.sum ? countsLine(c.sum.tasks) : [];
