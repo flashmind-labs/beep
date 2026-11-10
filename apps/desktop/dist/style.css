@@ -65,8 +65,10 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dstep > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dstep .s { width: 16px; height: 16px; display: grid; place-items: center; flex: none }
 .dstep.run { color: var(--fg) }
-/* Spinners show work in progress, so they still turn. */
+/* Spinners turn only for a wait the user started and for the open transcript. */
 .dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); display: inline-block; animation: spin .8s linear infinite }
+/* Work that runs for minutes or hours shows a still dot, so it draws nothing while it runs. */
+.drun, .cc-running .dspin, .chip .dspin, .rr-st .dspin, .dchat .run .dspin, .ddock .step .dspin, .ag-task .dspin, .dspin.sw-spin, .cc-si > .dspin { display: inline-block; flex: none; width: 7px; height: 7px; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); animation: none }
 @keyframes spin { to { transform: rotate(360deg) } }
 .dok { color: var(--accent); display: grid } .dbad { color: var(--err); display: grid }
 .caret { display: inline-block; width: 2px; height: 16px; margin-left: 1px; background: var(--accent); vertical-align: -3px }
@@ -858,8 +860,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dthink > button:hover { color: var(--fg) } .dthink > button:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; border-radius: 4px }
 .dthink .lb { flex: none; font-size: 12.5px; color: var(--muted) }
 /* One light passes over the whole line, however long it is. */
-.dthink.live .lb { color: transparent; background: linear-gradient(90deg, var(--dim) 40%, var(--fg) 50%, var(--dim) 60%) 100% 0 / 300% 100% no-repeat; -webkit-background-clip: text; background-clip: text; animation: dthinksweep 2s linear infinite }
-@keyframes dthinksweep { to { background-position: 0 0 } }
+/* A few soft pulses on its own layer, then still: a long think draws nothing. */
+.dthink.live .lb { color: var(--fg); will-change: opacity; animation: dthinkpulse 2s ease-in-out 3 }
+@keyframes dthinkpulse { 50% { opacity: .45 } }
 .dlive { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 4px 0; font-size: 12.5px }
 .dlive .since { flex: none; color: var(--dim); font-variant-numeric: tabular-nums }
 .dlive .lb { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -875,7 +878,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 /* A thought while it streams: open, its text muted, the newest words lit by a band that follows them like karaoke lyrics. At most 9 lines; it follows the newest, and older lines go out under a fade. */
 .dthink .kk { max-height: calc(1.55em * 9); overflow-y: auto; scrollbar-width: none; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted) }
 .dthink .kk::-webkit-scrollbar { display: none }
-@media (prefers-reduced-motion: reduce) { .dthink.live .lb { animation: none; background: none; color: var(--muted) } .dthink .bd, .dthink .cv { transition: none } }
+@media (prefers-reduced-motion: reduce) { .dthink.live .lb { animation: none } .dthink .bd, .dthink .cv { transition: none } }
 .dcoderthought { margin-top: -6px; padding-left: 24px; font-size: 12.5px; font-style: italic; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dcoderen.qa { display: grid; gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); white-space: normal }
 .dcoderen.qa .q { font-size: 12.5px; color: var(--muted) } .dcoderen.qa .a { font-size: 13.5px }
@@ -1269,7 +1272,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .chip.review { color: var(--link); border-color: color-mix(in srgb, var(--link) 45%, transparent) }
 .chip.term { color: var(--fg) }
 .chip.dropped { color: var(--dim); text-decoration: line-through }
-.chip .dspin { width: 9px; height: 9px }
 /* A running research's steps. */
 .cc-rsteps { display: flex; gap: 3px; width: 54px; flex: none }
 .cc-rsteps i { flex: 1; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent) }
@@ -1280,7 +1282,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agshell.zoomed .agdiv { visibility: hidden; pointer-events: none }
 #agtasks:empty { display: none }
 .ag-task { display: flex; align-items: center; gap: 8px; margin: 6px 16px 0; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-size: 12.5px }
-.ag-task .dspin { flex: none; width: 10px; height: 10px }
 .ag-task .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono) }
 /* The worktree dropdown in a dock's header. */
 .agwtw { position: relative; margin-left: auto; flex: none }

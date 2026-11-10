@@ -23,5 +23,5 @@ export function ResearchHead({ research, entries, sending }: Props) {
 function Status({ status, label }: { status: ResearchStatus; label: string }) {
   const cls = chipClass(status);
   const spinning = status === "researching" || status === "reviewing" || status === "writing";
-  return <span className={`chip${cls ? ` ${cls}` : ""}`}>{spinning && <span className="dspin"/>}{label}</span>;
+  return <span className={`chip${cls ? ` ${cls}` : ""}`}>{spinning && <span className="drun"/>}{label}</span>;
 }

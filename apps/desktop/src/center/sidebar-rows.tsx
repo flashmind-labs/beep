@@ -5,7 +5,7 @@ import type { ThreadChatEntry } from "./sidechats.ts";
 import type { SideChat } from "./state.ts";
 
 function Icon({ svg }: { svg: string }) { return <span className="sidebar-icon" style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: svg }} />; }
-function Spinner() { return <span className="dspin cc-run" title="Answering" aria-label="Answering" />; }
+function Spinner() { return <span className="drun cc-run" role="img" title="Answering" aria-label="Answering" />; }
 function Pin({ id, pinned, toggle }: { id: string; pinned: boolean; toggle(): void }) {
   return <button type="button" className="pa" data-id={id} aria-label={pinned ? "Unpin" : "Pin to top"} onClick={event => { event.stopPropagation(); toggle(); }} dangerouslySetInnerHTML={{ __html: IC.pin }} />;
 }

@@ -64,9 +64,9 @@ export function NoProjects({ add }: { add: () => void }) {
   </div>;
 }
 
-/// The note on a list being read again: a spinner, else how old it is.
+/// The note on a list being read again: a still dot, else how old it is.
 export function FreshNote({ freshness, className = "" }: { freshness: Freshness; className?: string }) {
-  if (freshness.spin) return <span className={`dspin sw-spin${className}`} title="Updating"/>;
+  if (freshness.spin) return <span className={`drun sw-spin${className}`} title="Updating"/>;
   return freshness.text ? <small className={`sw-age${className}`}>{freshness.text}</small> : null;
 }
 

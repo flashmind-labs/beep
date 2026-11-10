@@ -50,12 +50,12 @@ export function RunningStatus({ row }: { row: RunningAgent }) {
   if (moving) return <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span>;
   if (closing) return closing;
   if (row.status === "asking") return <span className="chip wait">needs you</span>;
-  if (["working", "running", "starting"].includes(row.status)) return <span className="cc-running"><span className="dspin" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"}/>{runningWhen(row)}</span>;
+  if (["working", "running", "starting"].includes(row.status)) return <span className="cc-running"><span className="drun" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"}/>{runningWhen(row)}</span>;
   return runningWhen(row);
 }
 
 export function Chip({ cls, text, spin }: { cls: string; text: string; spin: boolean }) {
-  return <span className={cls ? `chip ${cls}` : "chip"}>{spin && <span className="dspin"/>}{text}</span>;
+  return <span className={cls ? `chip ${cls}` : "chip"}>{spin && <span className="drun"/>}{text}</span>;
 }
 
 export function RetainedHost({ host, contents = true }: { host: HTMLElement; contents?: boolean }) {
@@ -71,7 +71,7 @@ export function RetainedHost({ host, contents = true }: { host: HTMLElement; con
 
 export interface RecentSessions { host: HTMLElement | null; empty: string | null; count: number; freshness: Freshness | null }
 export function RecentSessionsSection({ session }: { session: RecentSessions }) {
-  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness?.spin ? <span className="dspin sw-spin ss-updating" title="Updating"/> : session.freshness?.text ? <small className="sw-age ss-updating">{session.freshness.text}</small> : null}</h4></div>{session.host ? <RetainedHost host={session.host}/> : <div className="cc-panel cc-empty"><span>{session.empty}</span></div>}</div>;
+  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness?.spin ? <span className="drun sw-spin ss-updating" title="Updating"/> : session.freshness?.text ? <small className="sw-age ss-updating">{session.freshness.text}</small> : null}</h4></div>{session.host ? <RetainedHost host={session.host}/> : <div className="cc-panel cc-empty"><span>{session.empty}</span></div>}</div>;
 }
 
 export function ProjectFallback({ session, machines, running, agents }: { session: RecentSessions; machines: HTMLElement; running: HTMLElement; agents: HTMLElement }) {
