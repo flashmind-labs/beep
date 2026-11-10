@@ -100,12 +100,11 @@ export class PerfAggregate {
 
   cost(ms: number) { this.overhead += ms; }
 
-  /// Samples or shown time are waiting; hidden time alone waits for them.
-  get pending(): boolean { return this.histograms.size > 0 || this.shown.size > 0; }
-
-  /// The batch to send, emptying the aggregate; null when nothing is pending.
-  take(window: PerfWindow, supported: PerfEntry[]): PerfBatch | null {
-    if (!this.pending) return null;
+  /// The batch to send, emptying the aggregate; null when nothing is pending. Hidden time
+  /// alone waits for samples or shown time; with `samplesOnly`, as on the timer, shown time
+  /// waits too, so an idle window sends nothing.
+  take(window: PerfWindow, supported: PerfEntry[], samplesOnly = false): PerfBatch | null {
+    if (!this.histograms.size && (samplesOnly || !this.shown.size)) return null;
     const batch: PerfBatch = {
       window,
       histograms: [...this.histograms.values()],
@@ -222,13 +221,16 @@ export class PerfRecorder {
     else this.flush();
   }
 
-  /// Sends what is pending: on a timer, on hide, and as the page goes.
-  flush() {
+  /// Sends what is pending on hide and as the page goes.
+  flush() { this.sendPending(false); }
+
+  /// The timer sends only samples; shown time joins them, or goes on hide.
+  private sendPending(samplesOnly: boolean) {
     const started = this.clock.now();
     if (this.timer !== null) this.clock.cancel(this.timer);
     this.timer = null;
     this.settle();
-    const batch = this.aggregate.take(this.window, this.supported);
+    const batch = this.aggregate.take(this.window, this.supported, samplesOnly);
     if (batch) this.send(batch);
     // Building and sending this batch is counted in the next one.
     this.aggregate.cost(this.clock.now() - started);
@@ -256,6 +258,6 @@ export class PerfRecorder {
       this.clock.cancel(this.timer);
     }
 
-    this.timer = this.clock.later(() => { this.timer = null; this.flush(); }, ms);
+    this.timer = this.clock.later(() => { this.timer = null; this.sendPending(true); }, ms);
   }
 }
