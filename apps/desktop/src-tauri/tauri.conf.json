@@ -46,8 +46,7 @@
     ],
     "category": "Productivity",
     "resources": {
-      "icons/icon.png": "notification-icon.png",
-      "Sparkle-LICENSE.txt": "Sparkle-LICENSE.txt"
+      "icons/icon.png": "notification-icon.png"
     },
     "icon": [
       "icons/32x32.png",
@@ -58,9 +57,6 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "files": {
-        "Frameworks/Sparkle.framework": "sparkle/Sparkle.framework"
-      },
       "signingIdentity": "-",
       "entitlements": "Entitlements.plist"
     }
