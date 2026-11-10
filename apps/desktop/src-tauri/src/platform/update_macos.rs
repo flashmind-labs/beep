@@ -1,10 +1,11 @@
 //! Sparkle presents its standard native UI, verifies downloads and owns installation.
+//! Only release builds have it (the `sparkle` feature); others cannot update.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+#[cfg(feature = "sparkle")]
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager};
+#[cfg(feature = "sparkle")]
 use tauri_plugin_sparkle_updater::{SparkleUpdaterExt, events::EVENT_WILL_RELAUNCH_APPLICATION};
 
 #[derive(Default)]
@@ -15,6 +16,10 @@ pub fn relaunching(app: &AppHandle) -> bool {
     app.state::<Updates>().0.load(Ordering::Acquire)
 }
 
+#[cfg(not(feature = "sparkle"))]
+pub async fn follow(_app: AppHandle) {}
+
+#[cfg(feature = "sparkle")]
 pub async fn follow(app: AppHandle) {
     let Some(updater) = app.sparkle_updater() else {
         return;
@@ -27,6 +32,12 @@ pub async fn follow(app: AppHandle) {
     })));
 }
 
+#[cfg(not(feature = "sparkle"))]
+pub async fn check(app: &AppHandle, _asked: bool) {
+    crate::notices::notify::text(app, "Updates require an installed Beep app", "");
+}
+
+#[cfg(feature = "sparkle")]
 pub async fn check(app: &AppHandle, _asked: bool) {
     let Some(updater) = app.sparkle_updater() else {
         crate::notices::notify::text(app, "Updates require an installed Beep app", "");

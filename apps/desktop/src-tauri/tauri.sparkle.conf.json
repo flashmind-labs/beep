@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "resources": {
+      "Sparkle-LICENSE.txt": "Sparkle-LICENSE.txt"
+    },
+    "macOS": {
+      "files": {
+        "Frameworks/Sparkle.framework": "sparkle/Sparkle.framework"
+      }
+    }
+  }
+}
