@@ -42,6 +42,8 @@ Earlier releases predate this changelog.
 
 ### Performance
 
+- iOS: the app watches only the page's main area for new tooltips, and
+  spinners stop turning while it is in the background.
 - iOS: update changed conversation rows independently during streaming.
 - iOS: returning to the app shows what changed while it was in the
   background instead of reloading every view, for up to a minute.
