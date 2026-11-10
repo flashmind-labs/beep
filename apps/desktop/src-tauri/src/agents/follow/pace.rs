@@ -72,9 +72,22 @@ impl Pushed {
         let mut entries = std::mem::take(&mut self.view.entries);
         entries.truncate(keep);
         entries.extend(next.view.entries);
+
+        // What the cursor no longer covers goes, as the webview drops it, so
+        // a hidden window does not hold a growing run.
+        let cut = next
+            .cursor
+            .start
+            .saturating_sub(held)
+            .min(entries.len() as u64);
+        let (cut, earlier) = match (usize::try_from(cut), u32::try_from(held + cut)) {
+            (Ok(cut), Ok(earlier)) => (cut, earlier),
+            _ => (0, self.view.earlier),
+        };
+        entries.drain(..cut);
         self.view = AgentSessionView {
             entries,
-            earlier: self.view.earlier,
+            earlier,
             ..next.view
         };
         self.cursor = next.cursor;

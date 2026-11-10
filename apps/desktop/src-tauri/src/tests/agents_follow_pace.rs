@@ -180,3 +180,27 @@ fn a_hidden_window_hears_nothing_until_it_shows() {
     assert_eq!(texts(&shown), ["a", "b"]);
     assert!(pace.window(false, later).is_none());
 }
+
+#[test]
+fn a_hidden_window_holds_only_what_the_cursor_covers() {
+    let mut pace = Pace::default();
+    let start = Instant::now();
+    pace.window(true, start);
+    pace.push(
+        pushed(UpdateKind::Snapshot, 0, &["a"], WORKING),
+        false,
+        start,
+    );
+
+    for at in 1..200u32 {
+        let mut delta = pushed(UpdateKind::Delta, at, &["x"], WORKING);
+        delta.cursor.start = u64::from(at.saturating_sub(2));
+        assert!(pace.push(delta, false, start).is_empty());
+    }
+
+    let shown = pace
+        .window(false, start)
+        .expect("the held state goes on show");
+    assert_eq!(shown.view.earlier, 197);
+    assert_eq!(texts(&shown), ["x", "x", "x"]);
+}
