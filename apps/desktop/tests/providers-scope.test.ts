@@ -11,6 +11,7 @@ import type { HarnessView } from "../src/settings/providers-state.ts";
 process.env.NODE_ENV = "test";
 
 const dom = new JSDOM("<!doctype html><body></body>", { url: "https://app.test" });
+Reflect.set(dom.window, "__TAURI__", Reflect.get(globalThis, "__TAURI__"));
 Object.assign(globalThis, { ...routerWindowGlobals(dom.window), window: dom.window, document: dom.window.document,
   Node: dom.window.Node, HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement });
 const settle = () => new Promise(resolve => setImmediate(resolve));
