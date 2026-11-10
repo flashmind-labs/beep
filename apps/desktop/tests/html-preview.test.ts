@@ -5,13 +5,17 @@ import { JSDOM } from "jsdom";
 import { isHtmlFile } from "../src/agentpane/html-preview-state.ts";
 
 const dom = new JSDOM("<body></body>");
-Object.assign(globalThis, { window: dom.window, document: dom.window.document });
+Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node });
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+const { createRoot } = await import("react-dom/client");
+const { flushSync } = await import("react-dom");
+Object.assign(globalThis, { previewPortal: (host: HTMLElement, view: React.ReactNode) => { const root = createRoot(host); flushSync(() => root.render(view)); } });
 const state = { session: { machine_id: "remote", cwd: "/srv/project" }, tabs: [] as any[] };
 const calls: unknown[] = [];
 let answer: () => Promise<unknown> = async () => ({ kind: "html", src: "beepview://localhost/test/" });
 Object.assign(globalThis, { previewState: state, previewInvoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answer(); } });
 const stubs = new Map(Object.entries({
-  "agents/session-frame.tsx": "export const setSessionPortal = () => {};",
+  "agents/session-frame.tsx": "export const setSessionPortal = globalThis.previewPortal;",
   "agentpane/media.ts": "export const P = globalThis.previewState; export const closeTab = () => {}; export const saveWorkFile = () => {};",
   "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const drawTermStatus = () => {};",
   "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
@@ -51,6 +55,7 @@ test("remote HTML offers preview and returns to source", async () => {
   assert.equal(frame.getAttribute("referrerpolicy"), "no-referrer");
   assert.equal(frame.src, "beepview://localhost/test/");
   t.el.querySelector("[data-preview]").click();
+  await tick();
   assert.ok(t.el.querySelector(".agcode"));
   assert.equal(t.el.querySelector("iframe"), null);
   assert.equal(tab("notes.txt").el.querySelector("[data-preview]"), null);
@@ -63,9 +68,11 @@ test("a failed read leaves source accessible and preview can be retried", async 
   await tick();
   assert.match(t.el.textContent, /Machine offline/);
   t.el.querySelector("[data-preview]").click();
+  await tick();
   assert.ok(t.el.querySelector(".agcode"));
   answer = async () => ({ kind: "html", src: "beepview://localhost/retry/" });
   t.el.querySelector("[data-preview]").click();
+  await tick();
   await tick();
   assert.equal(t.el.querySelector("iframe").src, "beepview://localhost/retry/");
 });
@@ -75,8 +82,10 @@ test("returning to source while the preview loads keeps the source visible", asy
   answer = () => new Promise(resolve => { finish = resolve; });
   const t = tab();
   t.el.querySelector("[data-preview]").click();
+  await tick();
   assert.match(t.el.textContent, /Loading preview/);
   t.el.querySelector("[data-preview]").click();
+  await tick();
   finish({ kind: "html", src: "beepview://localhost/late/" });
   await tick();
   assert.ok(t.el.querySelector(".agcode"));

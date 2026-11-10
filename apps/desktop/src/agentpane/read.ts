@@ -1,3 +1,4 @@
+import { removeSessionPortal } from "../agents/session-frame.tsx";
 import { takeQueuedPreview } from "./html-preview-state.ts";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
@@ -72,6 +73,7 @@ export async function loadText(t: MediaTab) {
 
 /// Draws tab `t` again, from scratch.
 function redraw(t: MediaTab) {
+  if (t.el) removeSessionPortal(t.el);
   t.el?.remove();
   t.el = null;
   draw();
