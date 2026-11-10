@@ -27,7 +27,8 @@ test("a session kept on disk draws at once and follows on from its cursor", asyn
   expect((await calls(page, "agent_view")).filter(args => "last" in args)).toHaveLength(0);
 });
 
-test("a followed session is kept on disk when the view leaves, not on each update", async ({ page }) => {
+test("a streaming session is kept by the native follow, with no keep call from the page", async ({ page }) => {
+  await page.clock.install();
   await openDesktop(page, true);
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
@@ -48,13 +49,18 @@ test("a followed session is kept on disk when the view leaves, not on each updat
 
   await page.evaluate(session => window.__navigation.open({ agent: session }), running);
   await expect(page.locator("#agbody")).toContainText("Check");
-  for (const text of ["One", "Two", "Three"]) await page.evaluate(value => (Reflect.get(window, "pushEntry") as (text: string) => void)(value), text);
-  await expect(page.locator("#agbody")).toContainText("Three");
-  expect(await calls(page, "transcript_keep")).toHaveLength(0);
+  const before = await page.evaluate(() => window.__navigation.calls().length);
 
+  // A minute of streaming, one update a second.
+  for (let second = 0; second < 60; second++) {
+    await page.evaluate(value => (Reflect.get(window, "pushEntry") as (text: string) => void)(value), `Line ${second}`);
+    await page.clock.runFor(1000);
+  }
+
+  await expect(page.locator("#agbody")).toContainText("Line 59");
+  const minute = await page.evaluate(() => window.__navigation.calls().map(call => call.command));
+  console.log(`IPC in a streaming minute: ${minute.length - before}, transcript_keep: ${minute.filter(command => command === "transcript_keep").length}`);
   await page.evaluate(() => window.__navigation.open("home"));
-  await expect.poll(() => calls(page, "transcript_keep")).toHaveLength(1);
-  const [kept] = await calls(page, "transcript_keep");
-  expect(kept).toMatchObject({ machineId: "build-box", agent: "codex", session: "notice-one", cursor: { start: 0, next: 4, fingerprint: "3" } });
-  expect(JSON.stringify(kept.page)).toContain("Three");
+  await page.clock.runFor(1000);
+  expect(await calls(page, "transcript_keep")).toHaveLength(0);
 });
