@@ -1,3 +1,4 @@
+import "react-dom/client";
 import "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -94,4 +95,11 @@ test("composers without a draft key do not save prompts", () => {
   const before = stored.size;
   open().type("temporary");
   assert.equal(stored.size, before);
+});
+
+
+test("a never-attached composer with a code draft does not mount an overlay", () => {
+  const field = open("detached");
+  assert.doesNotThrow(() => field.type("Request\n\n\nconst answer = 42;"));
+  assert.equal(field.isConnected, false);
 });

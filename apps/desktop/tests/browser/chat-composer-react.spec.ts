@@ -123,3 +123,32 @@ test("bar sizing observes turn boxes inside React hosts", async ({ page }) => {
   await expect(page.locator("#body .turn")).toBeVisible();
   await expect.poll(() => page.locator("#body .turn").evaluate(el => Reflect.get(window, "observedChatBoxes").has(el))).toBe(true);
 });
+
+test("composer overlay keeps paste pills and code outline through detach and reattach", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const ask = page.locator("#ask");
+  await ask.fill("Explain\n\n\n");
+  await ask.evaluate(el => {
+    if (!(el instanceof HTMLTextAreaElement)) return;
+    el.setSelectionRange(el.value.length, el.value.length);
+    const data = new DataTransfer(); data.setData("text/plain", Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\n"));
+    el.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+  });
+  const layer = page.locator(".cx-layer");
+  await expect(layer.locator(".cx-pill")).toHaveCount(1);
+  await expect(layer.locator(".cx-code")).toHaveCount(1);
+  await ask.evaluate(el => {
+    const box = el.parentElement?.querySelector(".cx-pill")?.getBoundingClientRect();
+    if (box) el.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: box.left + 1, clientY: box.top + 1 }));
+  });
+  await expect(page.locator(".cx-pop")).toContainText("Pasted text");
+  await ask.press("Escape");
+  await expect(page.locator(".cx-pop")).toHaveCount(0);
+  await ask.evaluate(el => { Reflect.set(window, "composeField", el); Reflect.set(window, "composeParent", el.parentElement); el.parentElement?.remove(); });
+  await expect.poll(() => page.evaluate(() => (Reflect.get(window, "composeField") as HTMLElement).isConnected)).toBe(false);
+  await page.evaluate(() => document.querySelector("#bar")?.append(Reflect.get(window, "composeParent")));
+  await expect(layer.locator(".cx-pill")).toHaveCount(1);
+  await expect(layer.locator(".cx-code")).toHaveCount(1);
+  expect(await ask.evaluate(el => el === Reflect.get(window, "composeField"))).toBe(true);
+});

@@ -1,3 +1,6 @@
+import { createElement } from "react";
+import { createDocumentScope } from "../ui/document-root.tsx";
+import { ComposeOverlay } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpan, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -36,9 +39,28 @@ interface Field {
   pop: HTMLDivElement | null;
   closePop: (() => void) | null;
   drawing: number;
+  slot: string;
+  connected: boolean;
+  active: boolean;
 }
 
 const fields = new WeakMap<HTMLTextAreaElement, Field>();
+const overlay = createDocumentScope<string>();
+const watched = new Set<WeakRef<HTMLTextAreaElement>>();
+let nextSlot = 0;
+// Cached fields may leave the document and return. Release portal ownership
+// while detached, then restore the overlay without retaining discarded fields.
+new MutationObserver(() => {
+  for (const ref of watched) {
+    const field = ref.deref();
+    if (!field) { watched.delete(ref); continue; }
+    const state = fields.get(field);
+    if (!state || state.connected === field.isConnected) continue;
+    state.connected = field.isConnected;
+    if (state.connected) draw(field);
+    else if (state.active) { overlay.remove([state.slot]); state.active = false; }
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });
 const VALUE = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!;
 
 /// Makes `field` a composer. Calling it again on the same field does nothing.
@@ -69,7 +91,8 @@ export function composeField(field: HTMLTextAreaElement, opts: ComposeOptions = 
   field.classList.add("cx-field");
   const parent = field.parentElement;
   if (parent && getComputedStyle(parent).position === "static") parent.style.position = "relative";
-  fields.set(field, { layer, opts, caret: field.selectionStart, composing: false, pop: null, closePop: null, drawing: 0 });
+  fields.set(field, { layer, opts, caret: field.selectionStart, composing: false, pop: null, closePop: null, drawing: 0, slot: String(++nextSlot), connected: field.isConnected, active: false });
+  watched.add(new WeakRef(field));
   // Text set from code (sending, a queued message put back) draws too.
   Object.defineProperty(field, "value", {
     configurable: true,
@@ -116,7 +139,7 @@ function draw(field: HTMLTextAreaElement) {
 
   if (!pills.length && !fence) {
     layer.hidden = true;
-    layer.replaceChildren();
+    if (f.active) { overlay.remove([f.slot]); f.active = false; }
     return;
   }
 
@@ -127,52 +150,9 @@ function draw(field: HTMLTextAreaElement) {
   layer.style.top = `${field.offsetTop + field.clientTop}px`;
   layer.style.width = `${field.clientWidth}px`;
   layer.style.height = `${field.clientHeight}px`;
-  // Text from `a` to `b`, each pill in it a span.
-  const run = (a: number, b: number) => {
-    const out: Node[] = [];
-    let at = a;
-
-    for (const p of pills) {
-      if (p.start < a || p.end > b) continue;
-      out.push(document.createTextNode(value.slice(at, p.start)));
-      const span = document.createElement("span");
-      span.className = "cx-pill";
-      span.dataset.id = String(p.id);
-      span.textContent = value.slice(p.start, p.end);
-      out.push(span);
-      at = p.end;
-    }
-
-    out.push(document.createTextNode(value.slice(at, b)));
-    return out;
-  };
-  let code: HTMLSpanElement | null = null;
-
-  if (fence) {
-    code = document.createElement("span");
-    code.append(...run(fence.start, fence.end));
-    layer.replaceChildren(...run(0, fence.start), code, ...run(fence.end, value.length));
-  } else {
-    layer.replaceChildren(...run(0, value.length));
-  }
-
-  // A last empty line still takes its height, as in the field.
-  layer.append(document.createTextNode(" "));
+  overlay.set([{ slot: f.slot, host: layer, content: createElement(ComposeOverlay, { value, pills, fence }) }]);
+  f.active = true;
   layer.scrollTop = field.scrollTop;
-  if (code) outline(layer, code);
-}
-
-/// A dim box around the lines of `code`, the part sent as a code block.
-function outline(layer: HTMLDivElement, code: HTMLSpanElement) {
-  const rects = [...code.getClientRects()];
-  if (!rects.length) return;
-  const top = Math.min(...rects.map(r => r.top)), bottom = Math.max(...rects.map(r => r.bottom));
-  const at = layer.getBoundingClientRect();
-  const box = document.createElement("div");
-  box.className = "cx-code";
-  box.style.top = `${top - at.top + layer.scrollTop - 3}px`;
-  box.style.height = `${bottom - top + 6}px`;
-  layer.append(box);
 }
 
 addEventListener("resize", () => document.querySelectorAll<HTMLTextAreaElement>("textarea.cx-field").forEach(later));
