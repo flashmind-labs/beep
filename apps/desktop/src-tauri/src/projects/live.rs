@@ -17,13 +17,11 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, async_runtime::JoinHandle};
-use tokio::time::interval;
+use tokio::time::{MissedTickBehavior, interval};
 use uuid::Uuid;
 
 /// How often a polled project's page reads the host again.
 const POLL_EVERY: Duration = Duration::from_secs(120);
-/// Tells the usage pill a plan or the spending changed.
-const USAGE_CHANGED: &str = "usage-changed";
 /// Why a mesh project is not live.
 const POLLING_WHY: &str = "Beep reads the host every couple of minutes while this page shows.";
 
@@ -306,10 +304,6 @@ pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'stati
                 app.clone(),
                 beep_proto::node::events::Topic::new("usage"),
             );
-
-            if let Err(e) = app.emit(USAGE_CHANGED, ()) {
-                log::debug!("the usage pill missed an update: {e}");
-            }
         }
     }
 }
@@ -319,6 +313,7 @@ async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid,
     let mut before_lists = None;
     let mut before_runs = None;
     let mut ticks = interval(POLL_EVERY);
+    ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
         ticks.tick().await;

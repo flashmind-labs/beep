@@ -409,7 +409,7 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
         "forge" => append(
             &mut views,
             "git_items",
-            crate::projects::git_items::git_items(app.clone(), app.state(), app.state()).await,
+            crate::projects::git_items::git_items(app.state(), app.state()).await,
         ),
         "accounts" => append(
             &mut views,
