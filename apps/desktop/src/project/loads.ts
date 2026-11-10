@@ -21,7 +21,7 @@ import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts"
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
-import { failure, section } from "../ui/pieces.ts";
+import { failure } from "../ui/pieces.ts";
 import { openUrl, refreshGit, replyItem } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
@@ -506,11 +506,6 @@ function sessionListSlot(project: string, rows: SessionRow[], all: boolean) {
   const slot = h("div");
   sessionSlots.set(slot, list.host);
   return slot;
-}
-
-export function sessionsSection(p: Project, running: RunningAgent[]) {
-  const { body, note, count } = sessionsList(p, running, false);
-  return section("sec-sessions", "Past sessions", count || "", null, body, note);
 }
 
 /// The project's past sessions, newest first: five rows tall unless `all`,

@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectRunning } from "./running-view.tsx";
 import { ProjectsOverview } from "./overview-view.tsx";
+import { ProjectFallback } from "./split-view.tsx";
 import { MV } from "../agents/move-store.ts";
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
@@ -26,10 +27,10 @@ import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { single } from "../center/openitems.ts";
 import { newWindowOn, openProjects, addProject } from "../center/sidebar.ts";
-import { splitOn, projectSplit, panelSlot } from "./split.ts";
+import { splitOn, projectSplit, panelSlot, projectPanel, disposeProjectShell } from "./split.ts";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
-import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsSection } from "./loads.ts";
+import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionPanel, sessionsList } from "./loads.ts";
 import { terminalNote, terminalWhere } from "../terminals/terminals.ts";
 import { go } from "../center/views.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
@@ -131,16 +132,32 @@ export function projectDetail(p: Project) {
   if (p.imported && (!state.gitsync.has(p.name) || gitDue.has(p.name))) loadGit(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
   const running = projectRunning(p, state.home?.running, state.sessions.get(p.name), [...MV.records.values()]).filter(sessionVisible);
-  if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
+  if (splitOn(p)) { disposeProjectFallback(); return projectSplit(p, rows, !!machines, running); }
+  disposeProjectShell();
 
   // The project agent's view is on its way, or who has an agent is not known yet.
   if (awaitsView(p, state.agents)) {
+    disposeProjectFallback();
     const error = state.pview.get(p.name)?.error;
     return [error ? errorNote(`Could not read the project: ${error}`) : emptyPanel(h("span", "", "Reading the project…"))];
   }
 
   // Without a project agent there are no tasks, runs or code host lists.
-  return [h("div", "pj-cols pj-half", sessionsSection(p, running), h("div", "ca-col", whereSection(p, rows, !!machines), agentsSection(running), customAgentsSection(rows)))];
+  if (fallback?.project !== p.name) { disposeProjectFallback(); fallback = { project: p.name, host: h("div", "pj-cols pj-half") }; }
+  const sessions = sessionsList(p, running, false);
+  const host = (slot: HTMLElement) => projectPanel(slot) ?? slot;
+  showWindowParts([{ part: "project-fallback", host: fallback.host, identity: p.name, content: createElement(ProjectFallback, {
+    session: { host: sessionPanel(sessions.body), empty: sessions.empty, count: sessions.count, freshness: sessions.freshness },
+    machines: host(whereSection(p, rows, !!machines)), running: host(agentsSection(running)), agents: host(customAgentsSection(rows)),
+  }) }]);
+  return [panelSlot(fallback.host)];
+}
+
+let fallback: { project: string; host: HTMLElement } | null = null;
+export function disposeProjectFallback() {
+  if (!fallback) return;
+  removeWindowPart("project-fallback");
+  fallback = null;
 }
 
 /// The project's custom agents: the named agents its folder defines for
