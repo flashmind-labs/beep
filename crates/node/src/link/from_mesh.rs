@@ -33,6 +33,10 @@ use std::{
 };
 use tokio::sync::{broadcast::error::RecvError, watch};
 
+/// How often the state is applied again with no change to wake it, for what
+/// sends no news, such as Syncthing coming back.
+const RECHECK: Duration = Duration::from_secs(5 * 60);
+
 /// The mesh the node belongs to, once it does.
 #[derive(Clone)]
 pub(crate) struct Membership {
@@ -77,15 +81,22 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
     let preferences_offers = offers.clone();
     let _preferences = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
         let mut changes = preferences_mesh.changes();
+        let mut transfers = preferences_offers.transfers.subscribe();
 
         loop {
             apply_syncthing(&preferences_mesh, me, &preferences_offers).await;
             tokio::select! {
                 change = changes.recv() => if matches!(change, Err(RecvError::Closed)) { return; },
-                () = tokio::time::sleep(Duration::from_secs(30)) => {},
+                Ok(()) = transfers.changed() => {}
+                // Syncthing that was away or busy says nothing when it is back.
+                () = tokio::time::sleep(RECHECK) => {},
             }
         }
     }));
+    let mut transfers = offers.transfers.subscribe();
+    let reopened = offers.agents.until_reopened();
+    tokio::pin!(reopened);
+    let mut waiting_reopen = true;
 
     loop {
         applied.apply(&mesh, me, &offers).await;
@@ -98,7 +109,11 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             moved = updates.changed() => if moved.is_err() {
                 return;
             },
-            () = tokio::time::sleep(Duration::from_secs(30)) => {},
+            // The sync set waits for the node's transfers to start.
+            Ok(()) = transfers.changed() => {}
+            // Git recovery waits for the sessions open before a restart.
+            () = &mut reopened, if waiting_reopen => waiting_reopen = false,
+            () = tokio::time::sleep(RECHECK) => {},
         }
     }
 }

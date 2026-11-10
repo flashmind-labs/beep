@@ -18,7 +18,6 @@ use crate::{
         peer_tools::{self, Caller},
         peers::{self, Peers, Reach},
     },
-    lock,
     machine::provision::Provision,
     machine::service::logs::Logs,
     run::shell,
@@ -35,11 +34,12 @@ use std::{
     future::Future,
     path::Path,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tokio::sync::watch;
 use tokio::time::timeout;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -305,16 +305,27 @@ async fn stop_step<T>(name: &str, limit: Duration, step: impl Future<Output = T>
 
 /// The node's transfers, set once its services are up and read by whoever
 /// holds a copy of the offers.
-#[derive(Clone, Default)]
-pub(crate) struct Sharing(Arc<Mutex<Option<Transfers>>>);
+#[derive(Clone)]
+pub(crate) struct Sharing(Arc<watch::Sender<Option<Transfers>>>);
+
+impl Default for Sharing {
+    fn default() -> Self {
+        Self(Arc::new(watch::Sender::new(None)))
+    }
+}
 
 impl Sharing {
     pub(crate) fn get(&self) -> Option<Transfers> {
-        lock(&self.0).clone()
+        self.0.borrow().clone()
     }
 
     pub(crate) fn set(&self, transfers: Transfers) {
-        *lock(&self.0) = Some(transfers);
+        self.0.send_replace(Some(transfers));
+    }
+
+    /// Changes when the transfers are set.
+    pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Transfers>> {
+        self.0.subscribe()
     }
 }
 

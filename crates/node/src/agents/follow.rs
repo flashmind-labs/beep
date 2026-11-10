@@ -1,5 +1,6 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
+use crate::link::HEARTBEAT;
 use super::{Agents, MAX_TRANSCRIPT, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
@@ -33,7 +34,6 @@ const CACHED_BYTES: usize = 64 * 1024 * 1024;
 
 static WINDOWS: LazyLock<Mutex<Windows>> = LazyLock::new(Mutex::default);
 
-const HEARTBEAT: Duration = Duration::from_secs(10);
 const WRITE_WAIT: Duration = Duration::from_secs(15);
 
 mod sources;

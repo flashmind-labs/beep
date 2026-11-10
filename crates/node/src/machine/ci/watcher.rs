@@ -40,7 +40,7 @@ use tokio::{
     select,
     sync::watch,
     task::{AbortHandle, Id, JoinError, JoinSet, spawn_blocking},
-    time::{Instant, MissedTickBehavior, interval, interval_at, timeout},
+    time::{Instant, MissedTickBehavior, interval, interval_at, sleep_until, timeout},
 };
 
 /// How often a busy project's runs are listed: one with a run going, or
@@ -188,21 +188,19 @@ impl<F: Forge, W: World> Watcher<F, W> {
         // The first list comes with the first tick; the first check after.
         let mut check = interval_at(Instant::now() + CHECK, CHECK);
         check.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        // With nothing held here, the machines are asked again every `QUIET`
+        // and nothing else wakes until the mesh changes.
+        let mut parked_until = Instant::now() + QUIET;
 
         loop {
-            select! {
-                _ = check.tick() => self.check_due().await,
-                _ = tick.tick() => {
-                    let due = self
-                        .asked
-                        .as_ref()
-                        .is_none_or(|(at, _)| at.elapsed() >= QUIET);
-                    if due {
-                        self.ask_peers().await;
-                    }
+            let parked = self.held.is_empty() && self.asked.is_some();
 
-                    self.elect();
-                    self.list_due().await;
+            select! {
+                _ = check.tick(), if !parked => self.check_due().await,
+                _ = tick.tick(), if !parked => self.poll().await,
+                () = sleep_until(parked_until), if parked => {
+                    parked_until = Instant::now() + QUIET;
+                    self.poll().await;
                 }
                 alive = self.world.changed() => {
                     if !alive {
@@ -224,6 +222,21 @@ impl<F: Forge, W: World> Watcher<F, W> {
                 }
             }
         }
+    }
+
+    /// Asks the machines again when that is due, elects the watchers and
+    /// lists the held projects that are due.
+    async fn poll(&mut self) {
+        let due = self
+            .asked
+            .as_ref()
+            .is_none_or(|(at, _)| at.elapsed() >= QUIET);
+        if due {
+            self.ask_peers().await;
+        }
+
+        self.elect();
+        self.list_due().await;
     }
 
     /// Asks every online machine with a checkout of a pinned project how it
