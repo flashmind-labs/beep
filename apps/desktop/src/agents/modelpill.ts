@@ -1,4 +1,5 @@
 // The model and thinking pill by a session's field, and switching them.
+import { agentMessage } from "./session-frame.tsx";
 import { createElement } from "react";
 import { showAgentControl } from "./composer-ui.tsx";
 import type { SessionPick } from "./agentmodels.ts";
@@ -46,7 +47,7 @@ export function closeModelPicker() {
   AG.modelOpen = false;
   drawModelPicker();
   drawModelPill();
-  $("#agmsg")?.focus();
+  agentMessage.current?.focus();
   return true;
 }
 

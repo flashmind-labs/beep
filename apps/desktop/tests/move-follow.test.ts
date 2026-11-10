@@ -28,7 +28,7 @@ test("the open conversation follows a completed move even when its target lists 
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   // This check draws the header; the composer needs native textarea accessors.
   const query = bar.querySelector.bind(bar);
-  t.mock.method(bar, "querySelector", (selector: string) => selector === "#agmsg" || selector === "#agmovebox" || selector === "#agmodel" ? null : query(selector));
+  t.mock.method(bar, "querySelector", (selector: string) => selector === "#agmovebox" || selector === "#agmodel" ? null : query(selector));
   const byId = document.getElementById.bind(document);
   t.mock.method(document, "getElementById", (id: string) => id === "agshell" || id.startsWith("agpane-") ? null : byId(id));
   Object.assign(AG, { open: { machine_id: source.machine_id, agent: source.agent, session: source.id }, page, inflight: null });

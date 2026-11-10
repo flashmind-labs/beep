@@ -1,5 +1,5 @@
 // What a click in the open session's log and pane does.
-import { $, S } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
 import { openViewer } from "../chat/media.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, showArtifact } from "../agentpane/media.ts";
@@ -17,7 +17,7 @@ import { invoke } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
 import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent } from "./session.ts";
-import { sessionBody } from "./session-frame.tsx";
+import { agentMessage, sessionBody } from "./session-frame.tsx";
 
 export function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
@@ -28,7 +28,7 @@ export function agentClick(e: MouseEvent) {
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
   if (target.closest("#agmodelb")) return toggleModelPicker();
-  if (target.closest("#agmodeb")) { cycleMode(); $("#agmsg")?.focus(); return; }
+  if (target.closest("#agmodeb")) { cycleMode(); agentMessage.current?.focus(); return; }
   if (AG.modelOpen && !target.closest(".agc-pick, [data-agtask]")) closeModelPicker();
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
   if (closing) return closeSub(Number(closing.dataset.subclose));

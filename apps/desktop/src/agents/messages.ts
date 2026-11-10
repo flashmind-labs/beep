@@ -15,7 +15,7 @@ import { redrawAgentHints } from "./session-head.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
 import { invoke } from "../ui/tauri.ts";
-import { sessionBody } from "./session-frame.tsx";
+import { agentMessage, sessionBody } from "./session-frame.tsx";
 
 export function disposeQueue() { disposeComposerUi(); }
 
@@ -54,7 +54,7 @@ function takeMessage(input: HTMLTextAreaElement | null): Waiting | null {
 type Draft = Pick<Waiting, "typed" | "paths" | "images" | "files">;
 
 function backInField(q: Draft, sep = "\n") {
-  const input = $<HTMLTextAreaElement>("#agmsg");
+  const input = agentMessage.current;
   if (input && q.typed) input.value = input.value ? `${q.typed}${sep}${input.value}` : q.typed;
   MN.paths = [...q.paths, ...MN.paths.filter(p => !q.paths.includes(p))];
   for (const { path, file } of q.files ?? []) MN.files.set(path, file);
@@ -127,7 +127,7 @@ export function interruptAgent() {
   redrawAgentHints();
   drawAgentBody();
   steerAgent({ cancel: null });
-  $("#agmsg")?.focus();
+  agentMessage.current?.focus();
   return true;
 }
 
@@ -228,7 +228,7 @@ async function takenAfterDrop(o: OpenAgent, queued: number, text: string): Promi
 }
 
 export async function sendAgentMessage() {
-  const input = $<HTMLTextAreaElement>("#agmsg"), draft = takeMessage(input);
+  const input = agentMessage.current, draft = takeMessage(input);
   if (!draft) return;
   const page = AG.page!;
   return page.session.status === "ended"
@@ -273,7 +273,7 @@ export async function sendReview(text: string) {
   let ok: boolean;
 
   if (page.session.status === "ended") {
-    const input = $<HTMLTextAreaElement>("#agmsg");
+    const input = agentMessage.current;
     if (!input) return "This session cannot be continued from here.";
     const typed = input.value;
     ok = await continueAgent(input, text, []);
@@ -326,7 +326,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
     input.disabled = false;
     input.focus();
     openAgent(started.session, { back: AG.back });
-    if (images.length) return sendMessage($<HTMLTextAreaElement>("#agmsg") ?? input, text, images, draft);
+    if (images.length) return sendMessage(agentMessage.current ?? input, text, images, draft);
     return true;
   } catch (e) {
     if (!isOpen(o)) return false;

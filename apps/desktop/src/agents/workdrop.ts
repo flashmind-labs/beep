@@ -2,6 +2,7 @@
 // or pasted on the session: pictures attach as before, other files upload into
 // its host's temporary cache and are mentioned by absolute path.
 
+import { agentMessage } from "./session-frame.tsx";
 import { MAX_UPLOAD, joinPath, uploadParts, uploadRefusal } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.ts";
 import { reloadFolder } from "../agentpane/files.ts";
@@ -50,7 +51,7 @@ export function addMention(path: string) {
   const p = path.replace(/^\.\/+/, "").replace(/\/+$/, "");
   if (p && !MN.paths.includes(p)) MN.paths.push(p);
   MN.redraw();
-  document.querySelector<HTMLInputElement>("#agmsg")?.focus();
+  agentMessage.current?.focus();
 }
 
 /// Takes the mentions for a message being sent.
@@ -65,7 +66,7 @@ export function takeMentions() {
 export function removeMention(index: number) {
   MN.paths.splice(index, 1);
   MN.redraw();
-  document.querySelector<HTMLInputElement>("#agmsg")?.focus();
+  agentMessage.current?.focus();
 }
 
 export function answerUpload(choice: "there" | "default" | "cancel") {
