@@ -9,9 +9,8 @@ import { type Entry, type Tree, finishedTools, follow, followSteps, matchesTree,
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { type WorkPlace, placeName } from "../agents/place-state.ts";
 import { baseName } from "./media-state.ts";
-import { createElement } from "react";
-import { hasSessionPortal, removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
-import { WorktreeMenu } from "./worktree-view.tsx";
+import type { WorktreeMenuModel } from "./worktree-view.tsx";
+import { writingComment } from "./changes.ts";
 import { invoke } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 
@@ -183,17 +182,13 @@ function want() {
   return W.child ?? (W.follow ? W.seen ?? reported : W.pick) ?? W.cwd;
 }
 
-/// A comment box with text in the Changes tab: a switch waits for it to close.
-function typing() {
-  return !!document.querySelector<HTMLTextAreaElement>(".agpview.changes .dv-cmt.open textarea")?.value.trim();
-}
-
 /// Points the tabs at `want()`. A switch the agent or a subagent caused
 /// waits while a comment is being written.
 function apply(auto: boolean) {
   const next = want();
   if (next === W.shown) return;
-  if (auto && typing()) return;
+  // A switch waits while a comment in the Changes tab has text.
+  if (auto && writingComment()) return;
   W.shown = next;
   W.changed(true);
 }
@@ -280,17 +275,12 @@ export function removedBranch() {
   return p && main && removed(p) && W.shown === W.cwd ? treeName(main) : null;
 }
 
-/// Draws the dropdown into `host`, in the header of a dock: only while the
-/// dock shows Files or Changes (`here`) and there is more than one worktree
-/// to show, or the pane is not on the session's folder.
-export function drawWorktrees(host: HTMLElement, here: boolean) {
+/// The dropdown in the head of a dock showing Files or Changes: only while
+/// there is more than one worktree to show, or the pane is not on the
+/// session's folder. Null when it does not show.
+export function worktreeMenu(): WorktreeMenuModel | null {
   const p = W.place;
-  const show = !!p && here && (W.trees.length > 1 || W.shown !== bare(p.cwd) || removed(p) || !!W.placed?.linked);
-  const sig = show ? JSON.stringify([W.trees, W.shown, W.follow, W.seen, W.open, W.search, W.cwd, W.placed]) : "";
-  if (host.dataset.sig === sig && (!show || hasSessionPortal(host))) return;
-  host.dataset.sig = sig;
-  host.hidden = !show;
-  if (!show || !p) { removeSessionPortal(host); return; }
+  if (!p || !(W.trees.length > 1 || W.shown !== bare(p.cwd) || removed(p) || !!W.placed?.linked)) return null;
   const now = W.trees.find(t => rootOf(t, W.cwd) === W.shown);
   const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
   const main = W.trees.find(t => t.own);
@@ -300,16 +290,15 @@ export function drawWorktrees(host: HTMLElement, here: boolean) {
       : main && t.path.startsWith(`${bare(main.path)}/`) ? t.path.slice(bare(main.path).length + 1) : t.path;
     return { path, title: t.path, name: treeName(t), sub: sub + (W.seen === path ? " · agent here" : ""), visible: matchesTree(t, W.search) };
   });
-  setSessionPortal(host, createElement(WorktreeMenu, {
+  return {
     label, items, shown: W.shown, follow: W.follow, open: W.open, search: W.search,
     pick: pickRoot, searchChanged: (value: string) => { W.search = value; W.changed(false); },
     toggle: () => {
       W.open = !W.open;
       W.search = "";
       W.changed(false);
-      if (W.open) host.querySelector<HTMLInputElement>(".agwt-search")?.focus();
     },
-  }));
+  };
 }
 
 /// Closes the menu; true when one was open.

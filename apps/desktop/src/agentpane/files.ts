@@ -1,16 +1,14 @@
-import { createElement, Fragment, type ReactElement } from "react";
-import { createPortal } from "react-dom";
-import { setSessionChild } from "../agents/session-frame.tsx";
-import { FilesShell, FilesTree } from "./files-tree.tsx";
-import { FilesMenu, type FilesMenuProps } from "./files-menu.tsx";
-import { isHtmlFile } from "./html-preview-state.ts";
 // The Files tab of a coding agent session's pane: the session's working folder
 // on its machine as a tree, read three levels at a time, what git ignores left
 // out unless asked, git's marks beside what changed. The trees of the last few
 // folders are kept: showing one again draws it as it was left and reads its
 // folders again only when the folder's `files` topic said something changed.
-
-import { type Listing, isTree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
+// The view is `FilesView` in files-tree.tsx, drawn from `filesModel`.
+import { createRef, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { createStore } from "zustand";
+import type { FilesMenuProps } from "./files-menu.tsx";
+import { isHtmlFile } from "./html-preview-state.ts";
+import { type Listing, type TreeRow, isTree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
 import { paneRoot, watchRoot, worktreesReady } from "./worktree.ts";
@@ -18,6 +16,7 @@ import { mentioned } from "./worktree-state.ts";
 import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
+import { hideDropOverlay } from "../chat/attach.ts";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
 import { confirmSheet, renameSheet } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -79,68 +78,75 @@ const F = {
   busy: false,
   fresh: false,
   generation: 0,
-  el: null as HTMLElement | null,
+  /// The tab drew once, so the tree has a key.
+  made: false,
   /// A path to scroll into view once its row is drawn.
   reveal: null as string | null,
 };
 
-let treeHost: HTMLElement | null = null;
+/// What the tree shows: rows, or a message in their place.
+export type TreeView =
+  | { kind: "rows"; rows: TreeRow[]; more: number; walking: boolean; capped: boolean }
+  | { kind: "message"; text: string; error: boolean; loading: boolean };
+
+/// What `FilesView` draws.
+interface FilesModel {
+  root: string;
+  filter: string;
+  ignored: boolean;
+  label: string;
+  busy: boolean;
+  /// The id of the picked row, and the paths selected.
+  active: string | null;
+  selected: ReadonlySet<string>;
+  status: string;
+  /// Null for a session with no folder yet.
+  tree: TreeView | null;
+  menu: FilesMenuProps | null;
+  /// The folder a drag of files from this computer would drop into; "" for
+  /// the top, over the tree's empty space.
+  drop: string | null;
+  reveal: string | null;
+}
+
+export const filesModel = createStore<FilesModel>(() => ({
+  root: "", filter: "", ignored: false, label: "", busy: false, active: null, selected: new Set(), status: "", tree: null, menu: null, drop: null, reveal: null,
+}));
+
+/// The Files view and its tree, while they are drawn.
+export const filesRef = createRef<HTMLDivElement>();
+export const treeRef = createRef<HTMLDivElement>();
+
+/// The rows the tree last drew: a refresh that has not read the top
+/// folder yet leaves them on screen.
 let showingRows = false;
-let treeView: ReactElement | null = null;
-let menuView: FilesMenuProps | null = null;
-let shell = { label: "", busy: false, active: null as string | null, status: "" };
 
-// The tree and its menu share one owner so folder refreshes keep an open menu.
-function renderViews() {
-  const host = F.el;
-  if (!host) return;
-
-  // A rebuilt session frame remounts the shell: draw it, then take its new tree.
-  const tree = host.querySelector<HTMLElement>(".agtree");
-  if (!tree || tree !== treeHost) {
-    treeHost = null;
-    drawViews(host);
-    treeHost = host.querySelector<HTMLElement>(".agtree");
-  }
-
-  drawViews(host);
-}
-
-// Keep one element shape so updates never remount the shell.
-function drawViews(host: HTMLElement) {
-  setSessionChild("files", createElement(Fragment, null,
-    createPortal(createElement(FilesShell, { root: paneRoot(), filter: F.filter, ignored: F.ignored, label: shell.label || paneRoot(), busy: shell.busy, active: shell.active, status: shell.status }), host, "shell"),
-    treeHost && treeView ? createPortal(treeView, treeHost, "tree") : null,
-    menuView && createPortal(createElement(FilesMenu, menuView), host, "menu")));
-}
+const setModel = (change: Partial<FilesModel>) => filesModel.setState(change);
 
 /// Folder reads run at once, and the entries a filter stops at.
 const WALK_AT_ONCE = 8;
-const WALK_ENTRIES = 50_000;
+export const WALK_ENTRIES = 50_000;
 
-/// The Files view of the pane's session, made once and showing the tree of
-/// the folder the pane reads.
-export function filesView() {
-  if (!F.el) {
-    const el = document.createElement("div");
-    el.className = "agpview files";
-    F.el = el;
-    wire(el);
-  }
-
+/// The pane drew the Files tab: `on` when it is the dock's tab on screen,
+/// `visible` when it can be seen. It shows the tree of the folder the pane reads.
+export function filesTab(on: boolean, visible: boolean) {
+  F.made = true;
   const key = treeKey();
   if (key !== F.key) showTree(key);
-  else renderViews();
-  return F.el;
+  if (!on) closeFilesMenu();
+  revalidateFiles(visible);
 }
+
+/// The menu a right-click opened, while it shows.
+export const filesMenuRef = createRef<HTMLDivElement>();
 
 /// Closes the menu a right-click opened; true when one was open.
 export function closeFilesMenu() {
-  const m = F.el?.querySelector(".agctx");
-  const focused = !!m && m.contains(document.activeElement);
-  if (menuView) { menuView = null; renderViews(); }
-  if (focused) F.el?.querySelector<HTMLElement>(".agtree")?.focus({ preventScroll: true });
-  return !!m;
+  const open = !!filesModel.getState().menu;
+  const focused = !!filesMenuRef.current?.contains(document.activeElement);
+  if (open) setModel({ menu: null });
+  if (focused) treeRef.current?.focus({ preventScroll: true });
+  return open;
 }
 
 /// Shows the tree of the worktree the pane shows now: as it was left when it
@@ -148,7 +154,7 @@ export function closeFilesMenu() {
 /// tabs are not touched.
 export function pointFilesAt() {
   const key = treeKey();
-  if (F.el && key !== F.key) showTree(key);
+  if (F.made && key !== F.key) showTree(key);
 }
 
 const treeKey = () => {
@@ -178,14 +184,9 @@ function showTree(key: string) {
     listings: entry?.listings ?? new Map(), roots: entry?.roots ?? new Set(), flat: entry?.flat ?? false, open: entry?.open ?? new Set(),
     filter: entry?.filter ?? "", picked: entry?.picked ?? null, anchor: entry?.anchor ?? null, selected: entry?.selected ?? new Set(),
   });
-  shell = { ...shell, label: "", active: null, status: "" };
+  setModel({ label: "", active: null, status: "" });
   filesOnScreen = false;
   trim();
-
-  // The filter's field keeps what was typed in it; it shows this tree's.
-  const find = F.el?.querySelector<HTMLInputElement>(".agffind");
-  if (find) find.value = F.filter;
-  renderViews();
   draw();
   if (!entry) return;
 
@@ -197,7 +198,7 @@ function showTree(key: string) {
   if (F.filter.trim()) readAll();
 
   const scroll = entry.scroll;
-  if (scroll) requestAnimationFrame(() => { if (F.kept === entry && treeHost) treeHost.scrollTop = scroll; });
+  if (scroll) requestAnimationFrame(() => { if (F.kept === entry && treeRef.current) treeRef.current.scrollTop = scroll; });
 }
 
 /// Puts what the tree shows back in what is kept of it.
@@ -206,7 +207,18 @@ function keep() {
   if (!entry) return;
   Object.assign(entry, { listings: F.listings, roots: F.roots, flat: F.flat, open: F.open, filter: F.filter, picked: F.picked, anchor: F.anchor, selected: F.selected });
   for (const dir of F.reading) entry.unread.add(dir);
-  if (treeHost?.isConnected) entry.scroll = treeHost.scrollTop;
+  keepScroll();
+}
+
+/// What the tree scrolled to is kept, as it leaves the page or the dock.
+export function keepScroll() {
+  if (F.kept && treeRef.current?.isConnected) F.kept.scroll = treeRef.current.scrollTop;
+}
+
+/// The tree came back into a dock: it scrolls to where it was.
+export function restoreScroll(tree: HTMLElement) {
+  const scroll = F.kept?.scroll;
+  if (scroll) tree.scrollTop = scroll;
 }
 
 /// Lets go of the least recent trees past `KEPT`.
@@ -227,7 +239,7 @@ const revalidate = ambient(() => F.kept?.dirty ? refresh() : undefined, AMBIENT_
 /// The tab drew; `visible` says whether the tree is on screen. A tree that
 /// comes on screen reads its folders again at once when the folder changed
 /// since, one already on screen at a slower pace while the agent works.
-export function revalidateFiles(visible: boolean) {
+function revalidateFiles(visible: boolean) {
   const now = visible && paneShown(), appeared = now && !filesOnScreen;
   filesOnScreen = now;
   if (now && F.kept?.dirty) revalidate(appeared);
@@ -244,11 +256,7 @@ export function revealPath(rel: string) {
   if (!parts.length) return;
   showFiles();
 
-  if (F.filter) {
-    F.filter = "";
-    const find = F.el?.querySelector<HTMLInputElement>(".agffind");
-    if (find) find.value = "";
-  }
+  F.filter = "";
 
   for (let i = 1; i < parts.length; i++) {
     const dir = parts.slice(0, i).join("/");
@@ -302,7 +310,7 @@ async function refresh() {
 
 /// Whether the tree can be seen: its tab is picked in a dock not folded
 /// (`offsetParent` is null under a hidden one), and the pane shows.
-const filesShown = () => !!F.el?.offsetParent && paneShown();
+const filesShown = () => !!filesRef.current?.offsetParent && paneShown();
 
 /// Reads the rest of the tree while a filter is typed, so it finds what no
 /// folder opened yet shows.
@@ -382,33 +390,32 @@ async function readFolder(dir: string, deep: boolean, fresh: boolean) {
 }
 
 function draw() {
-  const tree = F.el?.querySelector<HTMLElement>(".agtree");
-  if (!tree || !treeHost) return;
-  if (!paneSession()?.cwd) { treeView = null; renderViews(); showingRows = false; return; }
+  if (!paneSession()?.cwd) { showingRows = false; setModel({ tree: null }); return; }
   const top = F.listings.get("");
   const rows = treeRows(F.listings, F.open, F.filter);
   const visible = new Set(rows.map(row => row.path));
   F.selected = new Set([...F.selected].filter(path => visible.has(path)));
   if (F.picked && !visible.has(F.picked)) F.picked = null;
-  shell = { ...shell, busy: F.busy, active: F.picked ? `agfile-${encodeURIComponent(F.picked)}` : null,
-    label: F.busy ? shell.label : F.selected.size ? `${F.selected.size} selected` : "" };
+  const label = F.busy ? filesModel.getState().label : F.selected.size ? `${F.selected.size} selected` : "";
+  const shell = { root: paneRoot(), filter: F.filter, ignored: F.ignored, busy: F.busy, label, selected: F.selected, active: F.picked ? `agfile-${encodeURIComponent(F.picked)}` : null };
 
   let message: string | null = null, error = false, loading = false;
   if (top?.error && !top.entries) { message = top.error; error = true; }
-  else if (!top?.entries && F.reading.has("") && showingRows) return;
+  else if (!top?.entries && F.reading.has("") && showingRows) { setModel(shell); return; }
   else if (!top?.entries) { message = "Reading the folder…"; loading = true; }
   else if (!rows.length && F.walking && F.filter.trim()) { message = "Reading folders…"; loading = true; }
   else if (!rows.length && !F.capped) message = F.filter ? "No files match." : "This folder is empty.";
   const searching = !!F.filter.trim() && !!top?.entries && !top.error;
   showingRows = message === null;
-  treeView = createElement(FilesTree, {
-    rows, selected: F.selected, message, error, more: message === null ? top?.more ?? 0 : 0,
-    walking: message !== null ? loading : searching && F.walking && !!rows.length,
-    capped: message === null && searching && !F.walking && F.capped, limit: WALK_ENTRIES,
-  });
-  renderViews();
-  const shown = F.reveal ? treeHost?.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(F.reveal)}"]`) : null;
-  if (shown) { shown.scrollIntoView({ block: "center" }); F.reveal = null; }
+  const tree: TreeView = message !== null ? { kind: "message", text: message, error, loading }
+    : { kind: "rows", rows, more: top?.more ?? 0, walking: searching && F.walking && !!rows.length, capped: searching && !F.walking && F.capped };
+  setModel({ ...shell, tree, reveal: F.reveal });
+}
+
+/// The tree drew the row `F.reveal` asked for.
+export function revealed() {
+  F.reveal = null;
+  setModel({ reveal: null });
 }
 
 function toggle(path: string) {
@@ -422,53 +429,53 @@ function toggle(path: string) {
   draw();
 }
 
+/// The row under an event in the tree, if any.
+const rowAt = (target: EventTarget) => target instanceof Element ? target.closest<HTMLElement>("[data-fpath]") : null;
+
 /// The folder a drop on `row` goes into: the folder itself, or a file's.
 function dropFolder(row: HTMLElement | null) {
   if (!row?.dataset.fpath) return "";
   return row.dataset.ffolder ? row.dataset.fpath : parentPath(row.dataset.fpath);
 }
 
-// Listeners sit on the retained host and delegate, because React may remount
-// the shell inside it when the session frame is rebuilt.
-function wire(el: HTMLElement) {
-  const inTree = (e: Event) => (e.target as HTMLElement).closest<HTMLElement>(".agtree");
-  const onTree = <K extends keyof HTMLElementEventMap>(type: K, listener: (e: HTMLElementEventMap[K], tree: HTMLElement) => void) =>
-    el.addEventListener(type, e => { const tree = inTree(e); if (tree) listener(e, tree); });
+/// The filter's field changed.
+export function setFilter(value: string) {
+  F.filter = value;
+  draw();
+  if (F.filter.trim()) readAll();
+}
 
-  el.addEventListener("input", e => {
-    const find = e.target as HTMLElement;
-    if (!(find instanceof HTMLInputElement) || !find.matches(".agffind")) return;
-    F.filter = find.value; draw(); if (F.filter.trim()) readAll();
-  });
-  el.addEventListener("keydown", e => {
-    const find = e.target as HTMLElement;
-    if (!(find instanceof HTMLInputElement) || !find.matches(".agffind")) return;
-    if (e.key === "Escape" && find.value) { e.stopPropagation(); e.preventDefault(); find.value = ""; F.filter = ""; draw(); }
-  });
-  el.addEventListener("change", e => {
-    const box = e.target as HTMLElement;
-    if (!(box instanceof HTMLInputElement) || !box.matches(".agfign input")) return;
-    F.ignored = box.checked;
-    if (F.kept) F.kept.ignored = F.ignored;
-    void refresh().catch(e => console.warn("files:", e));
-  });
-  el.addEventListener("click", e => { if ((e.target as HTMLElement).closest("[data-frefresh]")) void refresh(); });
-  onTree("click", (e, tree) => {
+/// Show ignored was ticked or not.
+export function setIgnored(on: boolean) {
+  F.ignored = on;
+  if (F.kept) F.kept.ignored = F.ignored;
+  setModel({ ignored: on });
+  void refresh().catch(e => console.warn("files:", e));
+}
+
+export function refreshFiles() {
+  void refresh().catch(e => console.warn("files:", e));
+}
+
+/// What the tree does with the pointer, the keys and drags; a row's path is
+/// on its `data-fpath`.
+export const treeActions = {
+  click(e: MouseEvent<HTMLElement>) {
     closeFilesMenu();
-    tree.focus();
-    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
-    if (!row) { F.selected.clear(); F.picked = F.anchor = null; draw(); return; }
-    const path = row.dataset.fpath!;
+    e.currentTarget.focus();
+    const row = rowAt(e.target);
+    const path = row?.dataset.fpath;
+    if (!row || !path) { F.selected.clear(); F.picked = F.anchor = null; draw(); return; }
     Object.assign(F, selectFile(F, visiblePaths(), path, e.metaKey || e.ctrlKey, e.shiftKey));
     if (e.metaKey || e.ctrlKey || e.shiftKey) { draw(); return; }
 
     if (row.dataset.ffolder) toggle(path);
     else { draw(); openWorkFile(path); }
-  });
-  onTree("contextmenu", (e, tree) => {
+  },
+  contextMenu(e: MouseEvent<HTMLElement>) {
     e.preventDefault();
-    tree.focus();
-    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
+    e.currentTarget.focus();
+    const row = rowAt(e.target);
     const path = row?.dataset.fpath ?? "";
 
     if (path && !F.selected.has(path)) Object.assign(F, selectFile(F, visiblePaths(), path));
@@ -476,9 +483,9 @@ function wire(el: HTMLElement) {
 
     draw();
     menu(path, !!row?.dataset.ffolder, e.clientX, e.clientY);
-  });
-  onTree("keydown", (e, tree) => {
-    if (e.isComposing || (e.target as HTMLElement).closest("input,textarea,[contenteditable=true]")) return;
+  },
+  keyDown(e: KeyboardEvent<HTMLElement>, picked: HTMLElement | null) {
+    if (e.nativeEvent.isComposing || (e.target instanceof Element && e.target.closest("input,textarea,[contenteditable=true]"))) return;
     const cmd = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
     let handled = true;
 
@@ -497,55 +504,49 @@ function wire(el: HTMLElement) {
       const row = rowsNow().find(r => r.path === F.picked);
       if (row?.folder && row.open === (key === "arrowleft")) toggle(row.path);
     } else if (key === "contextmenu" || e.shiftKey && key === "f10") {
-      const row = tree.querySelector<HTMLElement>(".agtr.on"), box = row?.getBoundingClientRect() ?? tree.getBoundingClientRect();
-      menu(F.picked ?? "", !!row?.dataset.ffolder, box.left, box.bottom);
+      const box = (picked ?? e.currentTarget).getBoundingClientRect();
+      menu(F.picked ?? "", !!picked?.dataset.ffolder, box.left, box.bottom);
     } else handled = false;
 
     if (handled) { e.preventDefault(); e.stopPropagation(); }
-  });
-  onTree("dragstart", e => {
-    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]");
-    if (!row || !e.dataTransfer) return;
-    const named = mentioned(paneRoot(), paneSession()?.cwd ?? "", row.dataset.fpath!);
+  },
+  dragStart(e: DragEvent<HTMLElement>) {
+    const path = rowAt(e.target)?.dataset.fpath;
+    if (!path) return;
+    const named = mentioned(paneRoot(), paneSession()?.cwd ?? "", path);
     e.dataTransfer.setData(PATH_TYPE, named);
     e.dataTransfer.setData("text/plain", named);
     e.dataTransfer.effectAllowed = "copy";
-  });
+  },
   // Files from Finder dropped on a folder (or a file's folder, or the
   // tree's empty space for the top) upload there, once the user says so.
-  const over = (tree: HTMLElement, row: HTMLElement | null) => {
-    tree.querySelectorAll(".agtr.drop").forEach(r => r.classList.remove("drop"));
-    const dir = dropFolder(row);
-    if (dir) tree.querySelector<HTMLElement>(`[data-fpath="${CSS.escape(dir)}"]`)?.classList.add("drop");
-    tree.classList.toggle("dropping", !dir);
-  };
-  onTree("dragover", (e, tree) => {
-    if (!e.dataTransfer?.types.includes("Files")) return;
+  dragOver(e: DragEvent<HTMLElement>) {
+    if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
-    over(tree, (e.target as HTMLElement).closest<HTMLElement>("[data-fpath]"));
-  });
-  onTree("dragleave", (e, tree) => {
-    if (!tree.contains(e.relatedTarget as Node | null)) { over(tree, null); tree.classList.remove("dropping"); }
-  });
-  onTree("drop", (e, tree) => {
-    if (!e.dataTransfer?.files.length) return;
+    const dir = dropFolder(rowAt(e.target));
+    if (filesModel.getState().drop !== dir) setModel({ drop: dir });
+  },
+  dragLeave(e: DragEvent<HTMLElement>) {
+    if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) setModel({ drop: null });
+  },
+  drop(e: DragEvent<HTMLElement>) {
+    if (!e.dataTransfer.files.length) return;
     e.preventDefault();
     e.stopPropagation();
-    const dir = dropFolder((e.target as HTMLElement).closest<HTMLElement>("[data-fpath]"));
-    over(tree, null);
-    tree.classList.remove("dropping");
-    document.getElementById("ddrop")?.remove();
+    const dir = dropFolder(rowAt(e.target));
+    setModel({ drop: null });
+    hideDropOverlay();
     askUpload([...e.dataTransfer.files], dir, paneRoot());
-  });
-}
+  },
+};
 
 /// The right-click menu of `path`.
 function menu(path: string, folder: boolean, x: number, y: number) {
   closeFilesMenu();
   const s = paneSession();
-  if (!F.el || !s) return;
+  if (!s) return;
   const paths = selectedPaths(), n = paths.length;
   const dir = path && folder ? path : parentPath(path);
   const items: [string, string][] = [
@@ -574,15 +575,13 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     else if (act === "delete") deleteItems();
     else if (act === "save") void saveItems();
   } };
-  menuView = selected;
-  renderViews();
+  setModel({ menu: selected });
 
   // A file this Mac has can be opened here, in another app, or shown in Finder.
   if (n === 1 && F.selected.size === 1 && !folder) {
     void localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, { x, y }).then(more => {
-      if (!more.length || menuView !== selected || !F.el?.isConnected) return;
-      selected.local = more;
-      renderViews();
+      if (!more.length || filesModel.getState().menu !== selected) return;
+      setModel({ menu: { ...selected, local: more } });
     });
   }
 }
@@ -598,8 +597,7 @@ function target() {
   return { machineId: paneSession()?.machine_id ?? "", root: paneRoot(), key: F.key };
 }
 function note(text: string) {
-  shell = { ...shell, status: text };
-  renderViews();
+  setModel({ status: text });
 }
 function openPicked() {
   if (!F.picked || F.selected.size !== 1) return;

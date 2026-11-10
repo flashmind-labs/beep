@@ -264,7 +264,9 @@ test("a late file chunk cannot remount a closed loading view", async ({ page }) 
   await page.evaluate(() => window.dispatchEvent(new Event("release-closed-file")));
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "closedFileDelivered"))).toBe(true);
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
-  expect(await page.evaluate(() => (Reflect.get(window, "closedFileHost") as HTMLElement).childElementCount)).toBe(0);
+  expect(await page.evaluate(() => (Reflect.get(window, "closedFileHost") as HTMLElement).isConnected)).toBe(false);
+  await expect(page.locator(".agpview:not(.files)").filter({ hasText: "slow.png" })).toHaveCount(0);
+  await expect(page.locator('.agpstage.img img[alt="slow.png"]')).toHaveCount(0);
 });
 
 test("files keep working after leaving the session and opening it again", async ({ page }) => {

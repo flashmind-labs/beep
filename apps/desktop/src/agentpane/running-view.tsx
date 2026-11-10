@@ -1,10 +1,18 @@
 import type { MouseEvent } from "react";
+import { useStore } from "zustand";
 import { runningRow, type RunningProcess } from "./running-state.ts";
+import { runningModel } from "./running.ts";
 
-interface RunningModel { processes: readonly RunningProcess[]; local: boolean; stopping: ReadonlySet<number>; whole: ReadonlySet<number>; machine: string; error: string }
+export interface RunningModel { processes: readonly RunningProcess[]; local: boolean; stopping: ReadonlySet<number>; whole: ReadonlySet<number>; machine: string; error: string }
 export interface RunningActions { open(url: string): void; toggle(pid: number): void; stop(pids: number[]): void }
 
-export function RunningView({ model, actions }: { model: RunningModel; actions: RunningActions }) {
+/// The Running tab's view in its dock.
+export function RunningPane({ hidden }: { hidden: boolean }) {
+  const shown = useStore(runningModel);
+  return <div className="agpview running" hidden={hidden}>{shown && <RunningView model={shown.model} actions={shown.actions} />}</div>;
+}
+
+function RunningView({ model, actions }: { model: RunningModel; actions: RunningActions }) {
   const { processes, local, stopping, whole, machine, error } = model;
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();

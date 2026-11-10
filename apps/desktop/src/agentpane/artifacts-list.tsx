@@ -1,20 +1,30 @@
+import { useStore } from "zustand";
 import { Spinner } from "../ui/kit.tsx";
+import { artifactsModel } from "./artifacts.ts";
 import { clock } from "../agents/agentturns.ts";
 import { FRAME_SANDBOX, KIND_NAMES, relativeTo, type Artifact } from "./artifacts-state.ts";
 
 export type ArtifactAction = "fold" | "pdf" | "claude" | "file" | "copy";
 
-interface ArtifactsModel {
+export interface ArtifactsModel {
   artifacts: readonly Artifact[]; cwd: string; picked: string | null; gone: ReadonlySet<string>; when: (artifact: Artifact) => number | undefined;
   actions: { shown: boolean; folded: boolean; note: string; url: string | null; inside: boolean };
   preview: { key: number; value: ArtifactPreview } | null;
   /// Out of sight a page's frame is emptied so its scripts stop.
   live: boolean;
+  pick(path: string): void;
+  act(action: ArtifactAction): void;
+}
+
+/// The Artifacts tab's view in its dock.
+export function ArtifactsView({ hidden }: { hidden: boolean }) {
+  const { model, folded } = useStore(artifactsModel);
+  return <div className={`agpview arts${folded ? " folded" : ""}`} hidden={hidden}>{model && <ArtifactsPane model={model} />}</div>;
 }
 
 /// The Artifacts tab: the list, the picked one's preview and its actions.
-export function ArtifactsPane({ model, pick, act }: { model: ArtifactsModel; pick(path: string): void; act(action: ArtifactAction): void }) {
-  const { actions, preview } = model;
+function ArtifactsPane({ model }: { model: ArtifactsModel }) {
+  const { actions, preview, pick, act } = model;
   return <><div className="agartlist" role="listbox" aria-label="Artifacts"><ArtifactsList artifacts={model.artifacts} cwd={model.cwd} picked={model.picked} gone={model.gone} when={model.when} pick={pick} /></div>
     <div className="agartshow" hidden={actions.folded}>{preview && <ArtifactPreviewView key={preview.key} value={preview.value} live={model.live} act={act} />}</div>
     <div className="agpacts" hidden={!actions.shown}><ArtifactActions folded={actions.folded} note={actions.note} url={actions.url} inside={actions.inside} act={act} /></div></>;

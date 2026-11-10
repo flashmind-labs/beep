@@ -11,6 +11,8 @@ export function ImageView({ tab, machine }: { tab: MediaTab; machine: string | n
   const controls = useRef<ImageControls | null>(null);
   const [display, setDisplay] = useState({ zoom: "", fit: true, actual: false });
   const [meta, setMeta] = useState("");
+  // Zooming or dragging, the picture's transform changes each frame: the stage says so.
+  const [moving, setMoving] = useState({ zooming: false, drag: false });
 
   useLayoutEffect(() => {
     const box = stage.current, img = image.current;
@@ -23,7 +25,9 @@ export function ImageView({ tab, machine }: { tab: MediaTab; machine: string | n
         frame = 0;
         const current = tab.image;
         if (!current) return;
-        img.style.transform = `translate3d(${current.view.x}px, ${current.view.y}px, 0) scale(${current.view.scale})`;
+        img.style.setProperty("--x", `${current.view.x}px`);
+        img.style.setProperty("--y", `${current.view.y}px`);
+        img.style.setProperty("--scale", `${current.view.scale}`);
         const next = { zoom: `${Math.round(current.view.scale * 100)}%`, fit: current.view.fit, actual: !current.view.fit && current.view.scale === 1 };
         setDisplay(previous => previous.zoom === next.zoom && previous.fit === next.fit && previous.actual === next.actual ? previous : next);
       });
@@ -31,15 +35,17 @@ export function ImageView({ tab, machine }: { tab: MediaTab; machine: string | n
     const fit = () => { if (tab.image) { tab.image.view = fitView(tab.image.w, tab.image.h, box.clientWidth, box.clientHeight); apply(); } };
     const actual = () => { if (tab.image) { tab.image.view = actualView(tab.image.w, tab.image.h, box.clientWidth, box.clientHeight); apply(); } };
     const loaded = () => {
-      tab.image = { view: { scale: 1, x: 0, y: 0, fit: true }, w: img.naturalWidth, h: img.naturalHeight };
       setMeta(`${img.naturalWidth}×${img.naturalHeight}${tab.size ? ` · ${fileSize(tab.size)}` : ""}`);
+      // Moved to the other dock, the picture keeps its zoom.
+      if (tab.image && tab.image.w === img.naturalWidth && tab.image.h === img.naturalHeight) { if (tab.image.view.fit) fit(); else apply(); return; }
+      tab.image = { view: { scale: 1, x: 0, y: 0, fit: true }, w: img.naturalWidth, h: img.naturalHeight };
       fit();
     };
     const zoom = (factor: number, x: number, y: number) => {
       if (!tab.image) return;
-      box.classList.add("zooming");
+      setMoving(now => now.zooming ? now : { ...now, zooming: true });
       if (still !== null) clearTimeout(still);
-      still = setTimeout(() => { still = null; box.classList.remove("zooming"); }, 300);
+      still = setTimeout(() => { still = null; setMoving(now => ({ ...now, zooming: false })); }, 300);
       const rect = box.getBoundingClientRect();
       tab.image.view = zoomAt(tab.image.view, factor, x - rect.left, y - rect.top);
       apply();
@@ -66,10 +72,10 @@ export function ImageView({ tab, machine }: { tab: MediaTab; machine: string | n
       tab.image.view = { ...tab.image.view, x: tab.image.view.x + event.clientX - drag.x, y: tab.image.view.y + event.clientY - drag.y, fit: false };
       drag = { x: event.clientX, y: event.clientY, pointer: drag.pointer }; apply();
     };
-    const up = () => { drag = null; box.classList.remove("drag"); };
+    const up = () => { drag = null; setMoving(now => ({ ...now, drag: false })); };
     const down = (event: PointerEvent) => {
       if (event.button !== 0 || !tab.image) return;
-      box.setPointerCapture(event.pointerId); box.classList.add("drag");
+      box.setPointerCapture(event.pointerId); setMoving(now => ({ ...now, drag: true }));
       drag = { x: event.clientX, y: event.clientY, pointer: event.pointerId };
     };
     const double = () => { if (tab.image?.view.fit) actual(); else fit(); };
@@ -91,6 +97,6 @@ export function ImageView({ tab, machine }: { tab: MediaTab; machine: string | n
     };
   }, [tab]);
 
-  return <><div className="agpstage img" ref={stage}><img ref={image} alt={tab.name} draggable={false} src={tab.url ?? undefined} onLoad={() => controls.current?.loaded()} /></div>
-    <div className="agpacts"><button className={`dbtn${display.fit ? " on" : ""}`} data-fit="1" onClick={() => controls.current?.fit()}>Fit</button><button className={`dbtn${display.actual ? " on" : ""}`} data-fit="0" onClick={() => controls.current?.actual()}>Actual size</button><span className="zoom">{display.zoom}</span><span className="meta">{meta}</span><span className="sp" /><span className="hint">Pinch or Ctrl + scroll to zoom, swipe with two fingers or drag to pan</span>{tab.path ? <FileActions tab={tab} machine={machine} label="Open in Preview" note={setMeta} /> : <button className="dbtn" data-full="1" title="Full size, to save or copy" onClick={() => { if (tab.url) openViewer([{ url: tab.url, name: tab.name, caption: "", saves: tab.url.startsWith("data:") }], 0); }}>Open full size</button>}</div></>;
+  return <><div className={`agpstage img${moving.drag ? " drag" : ""}${moving.zooming ? " zooming" : ""}`} ref={stage}><img ref={image} alt={tab.name} draggable={false} src={tab.url ?? undefined} onLoad={() => controls.current?.loaded()} /></div>
+    <div className="agpacts"><button className={`dbtn${display.fit ? " on" : ""}`} data-fit="1" onClick={() => controls.current?.fit()}>Fit</button><button className={`dbtn${display.actual ? " on" : ""}`} data-fit="0" onClick={() => controls.current?.actual()}>Actual size</button><span className="zoom">{display.zoom}</span><span className="meta">{tab.note ?? meta}</span><span className="sp" /><span className="hint">Pinch or Ctrl + scroll to zoom, swipe with two fingers or drag to pan</span>{tab.path ? <FileActions tab={tab} machine={machine} label="Open in Preview" /> : <button className="dbtn" data-full="1" title="Full size, to save or copy" onClick={() => { if (tab.url) openViewer([{ url: tab.url, name: tab.name, caption: "", saves: tab.url.startsWith("data:") }], 0); }}>Open full size</button>}</div></>;
 }

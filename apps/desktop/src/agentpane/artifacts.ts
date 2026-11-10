@@ -1,14 +1,13 @@
-import { createElement } from "react";
-import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
-import { ArtifactsPane, type ArtifactAction, type ArtifactPreview } from "./artifacts-list.tsx";
 // The Artifacts tab of a coding agent session's pane: the pages and documents
 // the agent published or wrote, newest first, and the picked one rendered.
+// `ArtifactsView` in artifacts-list.tsx draws `artifactsModel`.
+import { createStore } from "zustand";
+import type { ArtifactAction, ArtifactPreview, ArtifactsModel } from "./artifacts-list.tsx";
 
 import { type Artifact, artifactVersion, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
 import { revealPath } from "./files.ts";
 import { fileSize } from "../chat/media.ts";
 import { openPath, paneSession } from "./media.ts";
-import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 
@@ -37,7 +36,8 @@ const A = {
   askedAt: 0,
   /// When each turn started, by its message's place, as the log knows.
   turnStart: (_turn: number): number | undefined => undefined,
-  el: null as HTMLElement | null,
+  /// The pane drew the tab for this session.
+  made: false,
   note: "",
 };
 
@@ -49,42 +49,39 @@ let previewRevision = 0;
 /// Whether the last render let the page frame run.
 let drawnLive = false;
 
+/// What the view draws: null until the tab is drawn for the session.
+export const artifactsModel = createStore<{ model: ArtifactsModel | null; folded: boolean }>(() => ({ model: null, folded: false }));
+
 /// Starts again when the pane shows another session than the one the
 /// tab is of.
 function syncSession() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${s.cwd}` : "";
   if (A.key === key) return;
-  if (A.el) removeSessionPortal(A.el);
   preview = null;
-  A.el?.remove();
-  Object.assign(A, { el: null, key, list: [], picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0, note: "" });
-}
-
-/// The Artifacts view of the pane's session, made once per session. Its
-/// host outlives a rebuilt session frame, so each call renders it again.
-export function artifactsView() {
-  syncSession();
-
-  if (A.el) {
-    render();
-    return A.el;
-  }
-
-  A.el = h('<div class="agpview arts"></div>');
-  render();
-  const a = picked();
-  if (a) load(a);
-  return A.el;
+  artifactsModel.setState({ model: null, folded: false });
+  Object.assign(A, { made: false, key, list: [], picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0, note: "" });
 }
 
 /// Whether the tab shows in its dock, as the pane last drew it.
 let tabShown = false;
 
-/// The pane drew the tab, shown or not.
-export function showFrames(shown: boolean) {
-  tabShown = shown;
+/// The pane drew the Artifacts tab: `on` when it is the dock's tab on
+/// screen, `visible` when it can be seen. Drawn the first time for a
+/// session, it reads the picked artifact.
+export function artifactsTab(on: boolean, visible: boolean) {
+  syncSession();
+
+  if (!A.made) {
+    A.made = true;
+    render();
+    const a = picked();
+    if (a) load(a);
+  }
+
+  tabShown = visible;
   liveFrames();
+  if (on) checkArtifacts();
 }
 
 /// A page runs its scripts only while it can be seen: out of sight its
@@ -112,7 +109,7 @@ export function setArtifacts(list: Artifact[], turnStart: (turn: number) => numb
   A.primed = true;
   A.list = list;
   if (!A.picked || !list.some(a => a.path === A.picked)) A.picked = list[0]?.path ?? null;
-  if (!A.el) return;
+  if (!A.made) return;
   render();
   const a = picked();
   if (a && artifactVersion(a) !== A.version) load(a);
@@ -125,7 +122,7 @@ const RECHECK_MS = 15_000;
 /// The tab is on screen: asks the machine, in one request, which of the
 /// listed files it still has. An offline machine says nothing, and nothing
 /// shows as removed.
-export function checkArtifacts() {
+function checkArtifacts() {
   const s = paneSession();
   if (!s || !A.list.length) return;
   const paths = A.list.map(a => a.path), asked = paths.join("\n"), key = A.key;
@@ -172,19 +169,18 @@ function when(a: Artifact) {
 }
 
 function render() {
-  const el = A.el, s = paneSession(), a = picked();
-  if (!el || !s || A.key !== `${s.machine_id}\n${s.cwd}`) return;
+  const s = paneSession(), a = picked();
+  if (!A.made || !s || A.key !== `${s.machine_id}\n${s.cwd}`) return;
   const fold = folded.has(A.key), inside = !!a && relativeTo(s.cwd, a.path) !== null && !A.gone.has(a.path);
   drawnLive = isLive();
-  el.classList.toggle("folded", fold);
-  setSessionPortal(el, createElement(ArtifactsPane, {
+  artifactsModel.setState({
+    folded: fold,
     model: {
       artifacts: A.list, cwd: s.cwd, picked: A.picked, gone: A.gone, when,
       actions: { shown: !!a, folded: fold, note: A.note, url: a?.url ?? null, inside },
-      preview, live: drawnLive,
+      preview, live: drawnLive, pick, act: action,
     },
-    pick, act: action,
-  }));
+  });
 }
 
 function note(text: string) {

@@ -9,13 +9,13 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, H
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
 const { createRoot } = await import("react-dom/client");
 const { flushSync } = await import("react-dom");
-Object.assign(globalThis, { previewPortal: (host: HTMLElement, view: React.ReactNode) => { const root = createRoot(host); flushSync(() => root.render(view)); } });
+const { createElement } = await import("react");
 const state = { session: { machine_id: "remote", cwd: "/srv/project" }, tabs: [] as any[] };
 const calls: unknown[] = [];
 let answer: () => Promise<unknown> = async () => ({ kind: "html", src: "beepview://localhost/test/" });
 Object.assign(globalThis, { previewState: state, previewInvoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answer(); } });
 const stubs = new Map(Object.entries({
-  "agents/session-frame.tsx": "export const setSessionPortal = globalThis.previewPortal; export const removeSessionPortal = () => {};",
+  "agentpane/media-draw.ts": "export const touchTab = t => globalThis.previewDraw(t); export const noteTab = () => {};",
   "agentpane/media.ts": "export const P = globalThis.previewState; export const closeTab = () => {}; export const saveWorkFile = () => {};",
   "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const drawTermStatus = () => {};",
   "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
@@ -28,14 +28,24 @@ const hook = registerHooks({ load(url, context, next) {
   const source = stubs.get(url);
   return source === undefined ? next(url, context) : { format: "module", source, shortCircuit: true };
 } });
-const { viewOf } = await import("../src/agentpane/views.ts");
+const { TextView } = await import("../src/agentpane/text-view.tsx");
 hook.deregister();
 const tick = () => new Promise(r => setImmediate(r));
+const roots = new Map<unknown, { root: ReturnType<typeof createRoot>; rev: number }>();
+function draw(t: any) {
+  const shown = roots.get(t);
+  if (!shown) return;
+  shown.rev++;
+  flushSync(() => shown.root.render(createElement(TextView, { tab: t, text: t.text, rev: shown.rev })));
+}
+Object.assign(globalThis, { previewDraw: draw });
 function tab(name = "report.HTML") {
   const t: any = { id: name, kind: "text", rel: name, root: "/srv/project/work", name, path: null, size: 30, text: { text: "<h1>Hello</h1>", size: 30, binary: false, cut: false } };
   state.tabs = [t];
-  t.el = viewOf(t);
+  t.el = document.createElement("div");
   document.body.replaceChildren(t.el);
+  roots.set(t, { root: createRoot(t.el), rev: 0 });
+  draw(t);
   return t;
 }
 
