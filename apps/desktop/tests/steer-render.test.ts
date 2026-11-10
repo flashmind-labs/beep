@@ -6,14 +6,13 @@ import { AG, type AgentPage } from "../src/agents/agents.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody } from "../src/agents/logview.ts";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
-import { answerAgentQuestion, answerFirst, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
+import { answerAgentQuestion, answerFirst, questionKey, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { askUpload, MN } from "../src/agents/workdrop.ts";
 import { drawTasks } from "../src/agents/tasks.ts";
 import { drawAgentAttached } from "../src/agents/images.ts";
 import { createElement } from "react";
 import { showAgentControl } from "../src/agents/composer-ui.tsx";
-import { questionKey } from "../src/agents/coderhtml.ts";
 import { AgentPlan } from "../src/agents/mode-view.tsx";
 
 function setup() {
