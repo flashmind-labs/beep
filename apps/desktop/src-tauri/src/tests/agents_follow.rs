@@ -2,6 +2,7 @@ use super::*;
 
 fn reader(id: Uuid, session: &str) -> (Reader, watch::Receiver<bool>) {
     let (stop, cancelled) = watch::channel(false);
+    let (shown, _) = watch::channel(false);
     let followed = Followed {
         machine_id: "build-box".into(),
         agent: "codex".into(),
@@ -11,6 +12,7 @@ fn reader(id: Uuid, session: &str) -> (Reader, watch::Receiver<bool>) {
         Reader {
             id,
             _stop: stop,
+            shown,
             followed,
         },
         cancelled,
@@ -38,17 +40,20 @@ fn only_the_reader_shown_counts_as_read() {
     let mut readers = Readers::default();
     let first = Uuid::new_v4();
     let second = Uuid::new_v4();
-    readers.register("window", reader(first, "one").0);
-    readers.register("window", reader(second, "two").0);
+    let (a, _) = reader(first, "one");
+    let (b, _) = reader(second, "two");
+    let (a_shown, b_shown) = (a.shown.subscribe(), b.shown.subscribe());
+    readers.register("window", a);
     let shown = readers.show("window", Some(second));
-    assert_eq!(shown.map(|followed| followed.session), Some("two".into()));
-    assert!(readers.shows("window", second));
-    assert!(!readers.shows("window", first));
+    assert!(shown.is_none(), "not registered yet");
+    readers.register("window", b);
+    assert!(*b_shown.borrow(), "shown before it registered");
+    let shown = readers.show("window", Some(first));
+    assert_eq!(shown.map(|followed| followed.session), Some("one".into()));
+    assert!(*a_shown.borrow());
+    assert!(!*b_shown.borrow());
     assert!(readers.show("window", None).is_none());
-    assert!(!readers.shows("window", second));
-    readers.show("window", Some(first));
-    readers.cancel("window", first);
-    assert!(!readers.shows("window", first));
+    assert!(!*a_shown.borrow());
 }
 
 #[test]
@@ -100,5 +105,5 @@ fn a_finished_reader_leaves_and_closing_the_window_cancels_the_rest() {
     follows.readers().show("b", Some(second));
     follows.clear("b");
     assert!(b_cancelled.has_changed().is_err());
-    assert!(!follows.shows("b", second));
+    assert!(follows.readers().shown.is_empty());
 }
