@@ -20,3 +20,23 @@ export function TerminalScreen({ element }: { element: HTMLElement }) {
   }, [element]);
   return <div ref={host} style={{ display: "contents" }} />;
 }
+
+/// A view-only terminal's last lines. The element stays mounted across reads,
+/// so focus, selection and an upward scroll survive; it follows new lines only
+/// while scrolled to the end.
+export function TerminalOutput({ command, earlier, lines }: { command: string; earlier: boolean; lines: readonly string[] }) {
+  const screen = useRef<HTMLPreElement>(null), follow = useRef(true);
+  const text = lines.join("\n");
+
+  useLayoutEffect(() => {
+    const element = screen.current;
+    if (element && follow.current) element.scrollTop = element.scrollHeight;
+  }, [text, earlier]);
+
+  const scrolled = () => {
+    const element = screen.current;
+    if (element) follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 4;
+  };
+
+  return <pre ref={screen} className="tm-screen" tabIndex={0} aria-label="Terminal output" onScroll={scrolled}><span className="tm-cmd">{command}</span>{"\n"}{earlier ? "…\n" : ""}{text}</pre>;
+}
