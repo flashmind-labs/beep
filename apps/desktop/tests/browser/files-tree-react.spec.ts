@@ -159,6 +159,10 @@ test("invalid 3D files show an error inside the retained model stage", async ({ 
   await page.getByRole("tab", { name: "Files", exact: true }).click();
   await page.locator('[data-fpath="model.glb"]').click();
   await expect(page.locator(".agpstage.model .agpmsg.derr")).toContainText("Could not draw model.glb:");
+  await expect(page.getByRole("button", { name: "Reset view" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Wireframe" })).toBeDisabled();
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file_open").length)).toBe(1);
 });
 
 test("video and PDF tabs retain their controls and native media", async ({ page }) => {

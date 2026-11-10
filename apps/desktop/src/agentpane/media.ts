@@ -322,6 +322,8 @@ function dropTab(t: MediaTab) {
   t.el?.querySelector("video")?.pause();
   if (t.el) removeSessionPortal(t.el);
   if (t.term) dropTerm(t.term);
+  const modelActions = t.el?.querySelector<HTMLElement>(".model-actions");
+  if (modelActions) removeSessionPortal(modelActions);
   const stage = t.el?.querySelector<HTMLElement>(".agpstage.model");
   if (stage) removeSessionPortal(stage);
   const controls = t.el?.querySelector<HTMLElement>(".anim");
