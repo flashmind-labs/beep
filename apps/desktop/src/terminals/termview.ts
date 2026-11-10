@@ -8,7 +8,7 @@
 import { Ghostty, loadGhostty, RenderState, Terminal, type CellSize } from "./ghostty.ts";
 import { GridRenderer, type FontSpec } from "./ghostty-render.ts";
 import { TerminalInput, type KeyInput, type MouseButton } from "./ghostty-input.ts";
-import { cellAt, fitGrid, routeKey, wheelAction, type Grid } from "./screen-state.ts";
+import { cellAt, fitGrid, routeKey, SYMBOLS_FONT, wheelAction, withSymbols, type Grid } from "./screen-state.ts";
 import { isTouchDevice, makeTouchBar } from "./touchbar.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
 import { APPLE } from "../ui/platform.ts";
@@ -37,15 +37,30 @@ const decoder = new TextDecoder();
 
 let engine: Promise<Ghostty> | null = null;
 
-/// Ghostty's engine, compiled once for every screen of the window.
-function ghostty(): Promise<Ghostty> {
+/// Ghostty's engine, compiled once for every screen of the window, once the
+/// screen's fonts have loaded: a glyph drawn before is kept as drawn.
+function ghostty(family: string): Promise<Ghostty> {
   engine ??= (async () => {
     const url = new URL("ghostty-vt.wasm", document.baseURI);
     const response = await fetch(url);
     if (!response.ok) throw new Error(`loading the terminal engine: ${response.status}`);
-    return loadGhostty(await WebAssembly.compile(await response.arrayBuffer()));
+    const module = await WebAssembly.compile(await response.arrayBuffer());
+    await loadFonts(family);
+    return loadGhostty(module);
   })();
   return engine;
+}
+
+/// Loads the screen's text font and its symbols; a font that fails to load
+/// leaves the browser's own fallback.
+async function loadFonts(family: string) {
+  const fonts = typeof document.fonts === "undefined" ? null : document.fonts;
+  if (fonts === null) return;
+
+  const loads = [fonts.load(`${FONT_SIZE}px ${family}`), fonts.load(`${FONT_SIZE}px ${SYMBOLS_FONT}`, "\u{f07b}")];
+  for (const result of await Promise.allSettled(loads)) {
+    if (result.status === "rejected") logError(`terminal font unavailable: ${result.reason}`);
+  }
 }
 
 /// The engine's parts for one screen, made once the engine has loaded.
@@ -71,7 +86,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   el.append(canvas, keys);
 
   const mono = getComputedStyle(document.documentElement).getPropertyValue("--mono").trim();
-  const font: FontSpec = { family: mono || "'IBM Plex Mono', ui-monospace, monospace", size: FONT_SIZE, lineHeight: LINE_HEIGHT };
+  const font: FontSpec = { family: withSymbols(mono || "'IBM Plex Mono', ui-monospace, monospace"), size: FONT_SIZE, lineHeight: LINE_HEIGHT };
 
   let parts: Engine | null = null;
   let renderer: GridRenderer | null = null;
@@ -116,7 +131,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     el.style.maxHeight = `${Math.max(120, Math.floor(room))}px`;
   };
 
-  void ghostty().then(g => {
+  void ghostty(font.family).then(g => {
     if (disposed) return;
     const term = new Terminal(g, grid.cols, grid.rows, {
       reply: bytes => { if (inputOn) onReply(decoder.decode(bytes)); },
