@@ -1,0 +1,44 @@
+// Which sessions the bar's default list shows, and in what order.
+import type { AgentSession } from "../agents/agents.ts";
+
+/// Why a session is on the list, in the order the groups show.
+export type WaitingKind = "asking" | "done" | "running" | "idle";
+
+export interface WaitingSession {
+  session: AgentSession;
+  kind: WaitingKind;
+}
+
+/// The most rows the list shows.
+export const WAITING_MAX = 10;
+
+const ORDER: Record<WaitingKind, number> = { asking: 0, done: 1, running: 2, idle: 3 };
+
+/// The key `unread` holds for a session with an unread finished turn.
+export const sessionKey = (s: { machine_id: string; id: string }) => `${s.machine_id}\n${s.id}`;
+
+export function waitingKind(s: AgentSession, unread: ReadonlySet<string>): WaitingKind | null {
+  if (s.status === "asking" || s.question) return "asking";
+  if (s.status === "ended" || s.status === "closing") return null;
+  if (s.status === "working" || s.status === "running" || s.status === "starting") return "running";
+  return unread.has(sessionKey(s)) ? "done" : "idle";
+}
+
+/// Sessions asking first, then those with an unread finished turn, then
+/// running ones, then other idle ones; newest first in each. A subagent
+/// shows only while it asks.
+/// `query` matches the title or what `project` names.
+export function waitingSessions(list: readonly AgentSession[], unread: ReadonlySet<string>, query: string, project: (s: AgentSession) => string, max = WAITING_MAX): WaitingSession[] {
+  const q = query.trim().toLowerCase();
+  const rows: WaitingSession[] = [];
+
+  for (const session of list) {
+    const kind = waitingKind(session, unread);
+    if (!kind || (session.parent && kind !== "asking")) continue;
+    if (q && !`${session.title ?? ""} ${project(session)}`.toLowerCase().includes(q)) continue;
+    rows.push({ session, kind });
+  }
+
+  rows.sort((a, b) => ORDER[a.kind] - ORDER[b.kind] || b.session.last_activity - a.session.last_activity);
+  return rows.slice(0, max);
+}

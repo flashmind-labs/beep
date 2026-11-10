@@ -28,6 +28,7 @@ import { createRoutine, drawGrants, GR, grantKeys, R, renderGrants, renderRoutin
 import { renderSettings } from "../settings/settings.ts";
 import { K, renderSkills, skillAction, skillKeys } from "../lists/skills.ts";
 import { answerWork, waitingQuestion } from "./work.ts";
+import { waitingBack, waitingKeys } from "./waiting.ts";
 import { windowTakes } from "../ui/windowkeys.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -42,6 +43,8 @@ const backToChat = () => S.session ? openSession(S.session) : renderChat();
 export function back() {
   if (closeAgentNewMenus()) return;
   if (S.view === "agent" || S.view === "agentnew" || S.view === "agents") return agentBack();
+
+  if (S.view === "waiting" && waitingBack()) return;
 
   if (S.view === "chats") {
     if (S.chats.mode !== "list") return chatMode("list");
@@ -178,7 +181,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && closeRerunMenu()) { e.preventDefault(); return; }
   if (e.key === "Escape") { e.preventDefault(); return back(); }
   if (S.view === "link" || S.view === "login" || S.view === "revoked") return;
-  if (agentKeys(e, cmd)) return;
+  if (agentKeys(e, cmd) || waitingKeys(e, cmd)) return;
   const key = e.key.toLowerCase();
 
   if (cmd && e.shiftKey && key === "a" && S.link !== "revoked") {
@@ -199,7 +202,7 @@ document.addEventListener("keydown", e => {
   if (cmd && e.key === "Enter" && S.view === "rnew") { e.preventDefault(); return createRoutine(); }
   if (cmd && key === "n" && S.view === "routines") { e.preventDefault(); return renderRoutineNew(); }
   // The window picks the agent's start: the project's while one of its sessions shows.
-  if (cmd && key === "n") { e.preventDefault(); return windowHooks ? windowHooks.newAgent() : renderAgentNew("", "chat"); }
+  if (cmd && key === "n") { e.preventDefault(); return windowHooks ? windowHooks.newAgent() : renderAgentNew("", S.view === "waiting" ? "waiting" : "chat"); }
   if (cmd && key === "e" && S.view === "routines" && R.list.length) { e.preventDefault(); return routineAction("edit"); }
   if (cmd && key === "g" && S.view === "routines") { e.preventDefault(); return renderGrants(); }
   if (cmd && key === "g") { e.preventDefault(); J.error = ""; J.name = ""; return renderGroupNew("new"); }

@@ -25,6 +25,7 @@ import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpa
 import { draftEsc } from "./draft-state.ts";
 import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
+import { renderWaiting } from "../bar/waiting.ts";
 import { openSession } from "../chat/history.ts";
 import { cap } from "../chat/tools.ts";
 import { openAgent, openEditorKey, closeOpenSession, submitAgentMessage } from "./session.ts";
@@ -573,6 +574,7 @@ export function agentBack(closed = false) {
   if (S.view === "agent" && windowHooks && !closed && leavePane()) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
+  if ((S.view === "agent" || S.view === "agentnew") && AG.back === "waiting") return renderWaiting();
 
   // A session without a return target goes to its project.
   if (S.view === "agent" && windowHooks) {

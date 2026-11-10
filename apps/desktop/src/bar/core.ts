@@ -15,7 +15,7 @@ export type View =
   | "chat" | "chats" | "group" | "ginfo" | "invite" | "gnew" | "joincode" | "joining"
   | "link" | "login" | "revoked" | "invite-phone" | "starting" | "settings" | "apps" | "appperms" | "mcp"
   | "machines" | "memories" | "routines" | "rnew" | "grants" | "skills" | "research" | "model"
-  | "agent" | "agentnew" | "agents";
+  | "agent" | "agentnew" | "agents" | "waiting";
 
 /// Whether this Mac is linked to an account.
 export type LinkState = "unlinked" | "linked" | "revoked";
@@ -187,7 +187,8 @@ export interface WindowHooks {
 
 /// A window view to go back to, as the window opened an agent view from it.
 export type BackTo = Location;
-export type AgentReturn = "chat" | "agents" | BackTo;
+/// Where Esc from an agent view goes: the chat, Every session, the bar's waiting list or a window view.
+export type AgentReturn = "chat" | "agents" | "waiting" | BackTo;
 
 /// Set by the window once it has loaded the pane.
 export let windowHooks: WindowHooks | null = null;
