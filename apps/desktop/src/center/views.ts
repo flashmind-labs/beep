@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
+import { shownChanged } from "../ui/active.ts";
 // The window's views: registering one, going to one, and the header it draws.
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
@@ -153,6 +154,7 @@ export function goTo(target: Location): boolean {
   for (const [n, v] of views) v.el.hidden = n !== name;
   const mounted = view.mount(view.el, arg);
   refreshTopicSubscriptions();
+  shownChanged();
   drawTop();
   drawSide();
   if (mounted) void mounted.then(() => afterMount(name === "pane" ? pageName(name, S.view) : undefined)).catch(e => console.warn("mounting page:", e));

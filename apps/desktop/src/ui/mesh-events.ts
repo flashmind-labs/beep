@@ -16,6 +16,8 @@ interface Subscriber {
   pendingBytes: number;
   running: boolean;
   failures: number;
+  /// Milliseconds a coalesced subscriber waits before reading again.
+  wait: number;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -38,15 +40,16 @@ export function subscribeTopics(topics: Topic | Topic[], receive: Receive, machi
 }
 
 /// Initial query answers return through the requesting read; coalesce subsequent snapshots.
-export function subscribeChanges(topics: Topic | Topic[], receive: Receive, machine: string | null = null, when: () => boolean = () => true): () => void {
-  return subscribe(topics, receive, machine, when, true);
+/// Live views keep the default wait; ambient ones pass `AMBIENT_MS` or `SLOW_MS`.
+export function subscribeChanges(topics: Topic | Topic[], receive: Receive, machine: string | null = null, when: () => boolean = () => true, wait = 100): () => void {
+  return subscribe(topics, receive, machine, when, true, wait);
 }
 
-function subscribe(topics: Topic | Topic[], receive: Receive, machine: string | null, when: () => boolean, coalesce: boolean): () => void {
+function subscribe(topics: Topic | Topic[], receive: Receive, machine: string | null, when: () => boolean, coalesce: boolean, wait = 100): () => void {
   if (typeof window === "undefined") return () => {};
   const subscriber: Subscriber = {
     interests: (Array.isArray(topics) ? topics : [topics]).map(topic => ({ machine, topic: normalizeTopic(topic) })),
-    receive, active: when, coalesce, pending: new Map(), pendingBytes: 0, running: false, failures: 0,
+    receive, active: when, coalesce, pending: new Map(), pendingBytes: 0, running: false, failures: 0, wait,
   };
   subscribers.add(subscriber);
   // Module-level subscribers can depend on state in a circular import.
@@ -177,7 +180,7 @@ function markDirty(subscriber: Subscriber, event: MeshEvent) {
   }
 }
 
-function schedule(subscriber: Subscriber, wait = 100) {
+function schedule(subscriber: Subscriber, wait = subscriber.wait) {
   if (subscriber.running || subscriber.timer || !active(subscriber) || !subscribers.has(subscriber)) return;
   subscriber.timer = setTimeout(() => {
     subscriber.timer = undefined;
@@ -205,7 +208,7 @@ async function read(subscriber: Subscriber) {
     subscriber.running = false;
   }
 
-  if (subscriber.pending.size) schedule(subscriber, subscriber.failures ? Math.min(1000 * 2 ** Math.min(subscriber.failures - 1, 5), 30000) : 100);
+  if (subscriber.pending.size) schedule(subscriber, subscriber.failures ? Math.min(1000 * 2 ** Math.min(subscriber.failures - 1, 5), 30000) : subscriber.wait);
 }
 
 function stop() {

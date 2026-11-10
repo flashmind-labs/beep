@@ -62,3 +62,35 @@ test("a shown window only resumes the session when its pane is mounted", () => {
   assert.equal(paneShown(), true);
   assert.deepEqual(changes, [false, true]);
 });
+
+test("ambient runs once per wait, runs at once when urgent, and waits while hidden", async t => {
+  const { ambient, shownChanged } = await import("../src/ui/active.ts");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  native.get("center-shown")!();
+  let showing = true, runs = 0;
+  const run = ambient(() => { runs++; }, 1000, () => showing);
+
+  run(); run(); run();
+  t.mock.timers.tick(999);
+  assert.equal(runs, 0);
+  t.mock.timers.tick(1);
+  assert.equal(runs, 1, "calls within one wait run once");
+
+  run(true);
+  assert.equal(runs, 2, "urgent calls run at once");
+
+  showing = false;
+  run(); run();
+  t.mock.timers.tick(5000);
+  assert.equal(runs, 2, "an off-screen view does not run");
+  showing = true;
+  shownChanged();
+  t.mock.timers.tick(0);
+  assert.equal(runs, 3, "it runs once when shown again");
+
+  native.get("center-hidden")!();
+  run();
+  native.get("center-shown")!();
+  t.mock.timers.tick(0);
+  assert.equal(runs, 4, "a hidden window catches up when it shows");
+});
