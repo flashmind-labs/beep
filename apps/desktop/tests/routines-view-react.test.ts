@@ -19,9 +19,9 @@ test("routine list and editor retain their interactive elements across updates",
   const host = dom.window.document.getElementById("root"); assert.ok(host);
   const root = createRoot(host);
   const routine: Cron = { id: "one", label: "Morning", prompt: "Summarise", schedule: "0 8 * * *", enabled: true, created_at: "", run_once: false, last_run_at: null, next_run_at: null };
-  const list = (rows: Cron[]) => createElement(RoutinesList, { list: rows, selected: 0, mode: "list", loaded: true, error: "", summary: "1 on", grants: 0, hints: { items: [], window: false, model: null, link: null } });
+  const list = (rows: Cron[]) => createElement(RoutinesList, { list: rows, selected: 0, mode: "list", loaded: true, error: "", summary: "1 on", grants: 0, hints: { items: [], window: false, model: null, link: null }, act() {}, pick() {}, menu() {} });
   const form: RoutineForm = { edit: null, label: "", prompt: "", repeat: "day", days: [1], time: "08:00", date: "", cron: "", error: "", busy: false };
-  const editor = () => createElement(RoutineEditor, { form, hints: { items: [], window: false, model: null, link: null }, input: (key, value) => { form[key] = value; } });
+  const editor = () => createElement(RoutineEditor, { form, hints: { items: [], window: false, model: null, link: null }, input: (key, value) => { form[key] = value; }, repeat() {}, day() {}, go() {}, cancel() {} });
   try {
     await act(() => root.render(list([routine])));
     const row = host.querySelector('[role="option"]'), toggle = host.querySelector<HTMLButtonElement>('[role="switch"]');

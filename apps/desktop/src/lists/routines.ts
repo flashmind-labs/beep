@@ -1,6 +1,6 @@
 import { flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
-import { $, $$, bar, S } from "../bar/core.ts";
+import { $$, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
 import { arrowKey, clampSel, confirmKey, dayMonth, type ListState, loadList } from "./memories.ts";
@@ -26,7 +26,7 @@ export interface Cron {
 }
 
 type RoutineMode = "list" | "actions" | "delete";
-type RoutineAction = RoutineMode | "new" | "grants" | "edit" | "toggle" | "delete-yes" | "run";
+export type RoutineAction = RoutineMode | "new" | "grants" | "edit" | "toggle" | "delete-yes" | "run";
 
 export const R: ListState<Cron> & { mode: RoutineMode } = { list: [], sel: 0, mode: "list", error: "", loaded: false };
 
@@ -124,18 +124,15 @@ export function drawRoutines() {
   const keys = R.loaded && !R.list.length ? [["⌘N", "new routine"], ["esc", "back"]] : R.mode === "actions"
     ? [["⌘E", "edit"], ["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]];
   const root = routinePage();
-  flushSync(() => root.show({ view: "routines", props: { list: R.list, selected: R.sel, mode: R.mode, loaded: R.loaded, error: R.error, summary: sum, grants: GR.list.length, hints: hintModel(keys) } }));
-  bar.onclick = routineClick;
-  bar.oncontextmenu = routineMenu;
+  flushSync(() => root.show({ view: "routines", props: { list: R.list, selected: R.sel, mode: R.mode, loaded: R.loaded, error: R.error, summary: sum, grants: GR.list.length, hints: hintModel(keys),
+    act: routineAct, pick: pickRoutine, menu: routineMenu } }));
 }
 
 /// A routine row's right-click menu: what its buttons do. Delete asks first.
-function routineMenu(e: MouseEvent) {
-  if (S.view !== "routines") return;
-  const row = (e.target as HTMLElement).closest<HTMLElement>(".drt[data-i]");
-  if (!row) return;
-  R.sel = Number(row.dataset.i);
+function routineMenu(e: MouseEvent, index: number) {
+  R.sel = index;
   const c = R.list[R.sel];
+  if (!c) return;
   openMenu(e, c.label, [
     { label: "Run now", on: () => void routineAction("run") },
     { label: "Edit", on: () => void routineAction("edit") },
@@ -153,19 +150,17 @@ function routineMenu(e: MouseEvent) {
   ]);
 }
 
-export function routineClick(e: MouseEvent) {
-  if (S.view !== "routines") return;
-  const target = e.target as HTMLElement;
-  const btn = target.closest<HTMLElement>("[data-r]");
-  const row = target.closest<HTMLElement>(".drt[data-i]");
-  if (btn?.dataset.i) R.sel = Number(btn.dataset.i);
-  if (btn) return routineAction(btn.dataset.r as RoutineAction);
+/// A button of the list: one on a row acts on that row.
+function routineAct(a: RoutineAction, index: number | null) {
+  if (index !== null) R.sel = index;
+  void routineAction(a);
+}
 
-  if (row) {
-    R.sel = Number(row.dataset.i);
-    R.mode = "actions";
-    drawRoutines();
-  }
+/// A click on a row shows its actions.
+function pickRoutine(index: number) {
+  R.sel = index;
+  R.mode = "actions";
+  drawRoutines();
 }
 
 export async function routineAction(a: RoutineAction) {
@@ -270,29 +265,11 @@ export function drawRoutineNew() {
   const root = routinePage();
   flushSync(() => root.show({ view: "routine-editor", props: {
     form: NR, hints: hintModel([["tab", "next field"], [`⌘${ICON.ret}`, go.toLowerCase()], ["esc", "cancel"]]),
-    input: (key: "label" | "prompt" | "time" | "date" | "cron", value: string) => { NR[key] = value; if (key === "cron") cronSays(); },
+    input: (key: "label" | "prompt" | "time" | "date" | "cron", value: string) => { NR[key] = value; if (key === "cron") drawRoutineNew(); },
+    repeat: (repeat: Repeat) => { NR.repeat = repeat; drawRoutineNew(); },
+    day: (d: number) => { NR.days = NR.days.includes(d) ? NR.days.filter(x => x !== d) : [...NR.days, d]; drawRoutineNew(); },
+    go: () => void createRoutine(), cancel: () => void renderRoutines(),
   } }));
-  cronSays();
-  bar.onclick = e => {
-    if (S.view !== "rnew") return;
-    const target = e.target as HTMLElement;
-    const rep = target.closest<HTMLElement>("[data-rep]"), day = target.closest<HTMLElement>("[data-day]");
-
-    if (rep) { NR.repeat = rep.dataset.rep as Repeat; drawRoutineNew(); }
-    else if (day) {
-      const d = Number(day.dataset.day);
-      NR.days = NR.days.includes(d) ? NR.days.filter(x => x !== d) : [...NR.days, d];
-      day.setAttribute("aria-pressed", String(NR.days.includes(d)));
-    } else if (target.closest("#nrgo")) createRoutine();
-    else if (target.closest("#nrno")) renderRoutines();
-  };
-}
-
-export function cronSays() {
-  const el = $("#nrcronsays");
-  if (!el) return;
-  const said = NR.cron.trim() && routineWhen(NR.cron.trim());
-  el.textContent = said && said !== NR.cron.trim() ? said : "";
 }
 
 /// Why the form's schedule is not complete.
@@ -391,21 +368,20 @@ export function drawGrants() {
   const keys = GR.loaded && !GR.list.length ? [["esc", "back"]] : GR.mode === "confirm"
     ? [[ICON.ret, "revoke"], ["esc", "cancel"]] : [["↑↓", "move"], ["⌘⌫", "revoke"], ["esc", "back"]];
   const root = routinePage();
-  flushSync(() => root.show({ view: "grants", props: { list: GR.list, selected: GR.sel, mode: GR.mode, loaded: GR.loaded, error: GR.error, hints: hintModel(keys) } }));
-  bar.onclick = grantClick;
+  flushSync(() => root.show({ view: "grants", props: { list: GR.list, selected: GR.sel, mode: GR.mode, loaded: GR.loaded, error: GR.error, hints: hintModel(keys),
+    pick: pickGrant, act: (a: GrantAction, index: number) => { pickGrant(index, false); void grantAction(a); } } }));
 }
 
-export function grantClick(e: MouseEvent) {
-  if (S.view !== "grants") return;
-  const target = e.target as HTMLElement;
-  const btn = target.closest<HTMLElement>("[data-g]"), row = target.closest<HTMLElement>(".drt[data-i]");
-  // While a confirm row shows, it stays the grant Enter revokes.
-  if (row && GR.mode === "list") GR.sel = Number(row.dataset.i);
-  if (btn) return grantAction(btn.dataset.g!);
-  if (row && GR.mode === "list") drawGrants();
+/// A click on grant `index`. While a confirm row shows, it stays the grant Enter revokes.
+export function pickGrant(index: number, draw = true) {
+  if (GR.mode !== "list") return;
+  GR.sel = index;
+  if (draw) drawGrants();
 }
 
-export async function grantAction(a: string) {
+export type GrantAction = "list" | "revoke" | "revoke-yes";
+
+export async function grantAction(a: GrantAction) {
   const g = GR.list[GR.sel];
   if (!g) return;
 

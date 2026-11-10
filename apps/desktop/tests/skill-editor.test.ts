@@ -30,7 +30,7 @@ test("skill validation retains the draft, caret and scroll", () => {
   assert.equal(document.activeElement, body);
   assert.equal(body.selectionStart, 2);
   assert.equal(scroll.scrollTop, 20);
-  host.querySelector<HTMLButtonElement>('[data-k="save"]')?.click();
+  [...host.querySelectorAll("button")].find(button => button.textContent?.startsWith("Save"))?.click();
   assert.equal(saves, 1);
   root.unmount();
 });
