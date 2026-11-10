@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import type { Attached } from "./agentqueue.ts";
 import { fileBase64 } from "../chat/attach.ts";
-import { $, S } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
 import { GONE } from "../chat/media.ts";
 import { MN } from "./workdrop.ts";
 import { AgentAttachments } from "./attachments-view.tsx";
@@ -66,10 +66,8 @@ export async function attachImages(list: Attached[], files: Iterable<File>, erro
 
 /// The chips of waiting images above the field, as in the mock.
 export function drawAgentAttached() {
-  const field = $("#agfield");
-  if (!field) return;
   const visible = !!(AG.att.length || AG.attError || MN.paths.length || MN.uploads.length || MN.ask);
-  showAgentAttachments(field, visible ? createElement(AgentAttachments) : null);
+  showAgentAttachments(visible ? createElement(AgentAttachments) : null);
   if (S.view === "agent") redrawAgentHints();
 }
 

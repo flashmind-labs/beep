@@ -2,7 +2,6 @@
 // above the field with each one's name and a Stop button.
 import { Spinner } from "../ui/kit.tsx";
 import { createElement, Fragment } from "react";
-import { $ } from "../bar/core.ts";
 import { showAgentTasks } from "./composer-ui.tsx";
 import { type AgentTask, type OpenAgent, AG, AGENT_READ_WAIT_MS, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
@@ -36,10 +35,8 @@ export const backgroundedEntry = (at: number) => AG.tasks.some(t => t.entry === 
 export function drawTasks() {
   const live = AG.tasks.filter(runs);
   for (const id of stopping) if (!live.some(t => t.id === id)) stopping.delete(id);
-  const field = $("#agfield"), host = $("#agtasks");
-  if (!field || !host) return;
   // No tasks draws nothing, and an unchanged nothing does not draw again.
-  showAgentTasks(field, host, live.length === 0 ? null : createElement(Fragment, null, live.map(t => {
+  showAgentTasks(live.length === 0 ? null : createElement(Fragment, null, live.map(t => {
     const going = stopping.has(t.id);
     const what = t.description || t.name;
     return createElement("div", { className: "ag-task", key: t.id },
