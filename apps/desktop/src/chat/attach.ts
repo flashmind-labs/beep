@@ -170,6 +170,9 @@ export async function agentDrop(files: Iterable<File>) {
 // Dropping images and files on the chat attaches them too; a path dragged
 // from a session's Files tab onto its conversation is mentioned.
 const dropOverlay = createDocumentScope<"drop">();
+
+/// A drop handled elsewhere, as on the Files tab's tree, ends the overlay.
+export const hideDropOverlay = () => dropOverlay.remove(["drop"]);
 bar.addEventListener("dragover", e => {
   const agent = agentField();
   const types = e.dataTransfer?.types ?? [];
