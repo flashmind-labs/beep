@@ -79,6 +79,13 @@ impl Latest {
         self.entries.values().map(|entry| &entry.update)
     }
 
+    /// Whether the last update under `key` carried `data`.
+    fn holds(&self, key: &SnapshotKey, data: &serde_json::Value) -> bool {
+        self.entries
+            .get(key)
+            .is_some_and(|entry| entry.update.data.as_ref() == Some(data))
+    }
+
     fn remove(&mut self, key: &SnapshotKey) {
         if let Some(entry) = self.entries.remove(key) {
             self.bytes = self.bytes.saturating_sub(entry.bytes);
@@ -376,6 +383,49 @@ impl Events {
         self.changed();
     }
 
+    /// Changes a window's topics and primes it with what is held for the new ones, as a window
+    /// that opens is, since an unchanged view is not sent again.
+    fn retopic(&self, window: &str, id: Uuid, topics: Vec<Interest>) -> Result<()> {
+        let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = registry
+            .windows
+            .get(window)
+            .filter(|held| held.id == id)
+            .map(|held| held.topics.clone());
+        registry.topics(window, id, topics)?;
+
+        if let Some(before) = before
+            && let Some(held) = registry.windows.get(window)
+        {
+            let controller = self.controller.get();
+            let primed: Vec<_> = registry
+                .latest
+                .values()
+                .filter(|update| {
+                    receives(&held.topics, update, controller)
+                        && !receives(&before, update, controller)
+                })
+                .cloned()
+                .collect();
+            let delivery = held.send.clone();
+            // Hold the delivery gate so a live update cannot overtake the primed ones.
+            let send = delivery.lock().unwrap_or_else(PoisonError::into_inner);
+            drop(registry);
+            let failed = primed.into_iter().any(|update| !send(update));
+            drop(send);
+
+            if failed {
+                self.remove(window, id);
+                return Ok(());
+            }
+        } else {
+            drop(registry);
+        }
+
+        self.changed();
+        Ok(())
+    }
+
     fn remove(&self, window: &str, id: Uuid) {
         self.registry
             .lock()
@@ -635,10 +685,25 @@ impl Events {
             .any(|interest| interest.machine.is_none() && interest.topic.matches(topic))
     }
 
+    /// Sends a rendered view to the windows that want it. One the same as the last sent is
+    /// dropped: the windows hold it, and a window that opens is primed with it.
     pub(crate) fn publish_views(&self, machine: EndpointId, topic: Topic, data: serde_json::Value) {
         if !self.controller_wanted(&topic) {
             return;
         }
+
+        let key = (machine.to_string(), topic, None);
+        if self
+            .registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .latest
+            .holds(&key, &data)
+        {
+            return;
+        }
+
+        let (_, topic, _) = key;
 
         let revision = {
             let mut revision = self.revision.lock().unwrap_or_else(PoisonError::into_inner);
@@ -719,12 +784,7 @@ pub fn mesh_topics(
 ) -> Result<()> {
     if let Some(topics) = topics {
         validate(&topics)?;
-        events
-            .registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .topics(window.label(), id, topics)?;
-        events.changed();
+        events.retopic(window.label(), id, topics)?;
     } else {
         events.remove(window.label(), id);
     }
