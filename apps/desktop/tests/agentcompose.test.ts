@@ -186,6 +186,45 @@ test("a transcript burst draws once per frame and ends with the full text", asyn
   assert.equal(frames.size, 0);
 });
 
+for (const [when, settled] of [["before", false], ["after", true]] as const) {
+  test(`a delta held for a frame joins before a later one when the view is left ${when} its listeners run`, async t => {
+    const page = openSession("working", true);
+    show({});
+    answers.agent_follow = new Promise<void>(() => {});
+    t.after(() => {
+      forgetAgentFollows();
+      visible(false);
+      frames.clear();
+      delete answers.agent_follow;
+    });
+    await pollAgent(true);
+    await settle();
+    const args = calls.find(c => c.cmd === "agent_follow")?.args as {
+      onEvent: { onmessage(update: TranscriptUpdate<AgentPage> & { modes: null; tasks: [] }): void };
+    };
+    assert.ok(args);
+    const send = (kind: "snapshot" | "delta", earlier: number, text: string, status: string) => args.onEvent.onmessage({
+      kind, cursor: { start: 0, next: earlier + 1, fingerprint: text }, resumed: false,
+      page: { ...page, session: { ...page.session, status }, earlier, entries: [{ kind: earlier ? "agent" : "user", text }] }, modes: null, tasks: [],
+    });
+    send("snapshot", 0, "hello", "working");
+    runFrames();
+
+    // The first delta waits for its frame; the view is left before it comes.
+    send("delta", 1, "first", "working");
+    S.view = "chat";
+    if (settled) await settle();
+    send("delta", 2, "second", "idle");
+    runFrames();
+    S.view = "agent";
+    await pollAgent(true);
+
+    assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello", "first", "second"]);
+    assert.equal(AG.page?.earlier, 0);
+    assert.equal(AG.page?.session.status, "idle");
+  });
+}
+
 test("a stalled first read logs the operation it is waiting for", async t => {
   const page = openSession("starting");
   show({});

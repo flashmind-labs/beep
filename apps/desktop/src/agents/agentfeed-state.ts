@@ -33,6 +33,8 @@ interface Transport<K, T> {
   later(ms: number, run: () => void): () => void;
   open(key: K, id: string, receive: (update: T) => void): Promise<void>;
   close(id: string): void;
+  /// `key` is no longer followed, for whatever reason it stopped.
+  unfollowed(key: K): void;
   /// The reader whose session is on screen, or none.
   show(id: string | null): void;
   receive(key: K, update: T): void;
@@ -120,6 +122,7 @@ export class AgentFeed<K, T> {
     reader.idle = null;
     if (reader.id === this.shownId) this.showReader(null);
     this.transport.close(reader.id);
+    this.transport.unfollowed(reader.key);
   }
 
   /// Stops following every session.
