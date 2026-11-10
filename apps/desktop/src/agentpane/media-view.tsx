@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { setSessionPortal } from "../agents/session-frame.tsx";
 import { fileSize } from "../chat/media.ts";
 import { invoke } from "../ui/tauri.ts";
 import { baseName } from "./media-state.ts";
@@ -45,4 +46,23 @@ export function ModelFooter({ tab, machine }: { tab: MediaTab; machine: string |
     const next = !wire;
     tab.wire = next; setWire(next); model?.wireframe(next);
   }}>Wireframe</button><span className="meta">{note ?? meta}</span><span className="sp" /><span className="hint">Drag to orbit, right-drag to pan, wheel to zoom</span><FileActions tab={tab} machine={machine} label="Open" note={setNote} /></>;
+}
+
+interface PendingState { message: string; error: boolean; progress: number | null }
+const pending = new WeakMap<HTMLElement, PendingState>();
+
+/// Loading progress updates only the pane that is reading the file.
+export function drawPending(host: HTMLElement, tab: MediaTab, machineName: string | null) {
+  const next: PendingState = tab.error ? { message: tab.error, error: true, progress: null }
+    : tab.kind === "text" ? { message: `Reading ${tab.name} from ${machineName ?? "the machine"}…`, error: false, progress: null }
+    : tab.kind === "term" ? { message: `Opening a terminal on ${(tab.at ?? tab.existing)?.machine_name ?? "the machine"}…`, error: false, progress: null }
+    : { message: `Opening ${tab.name}…`, error: false, progress: tab.size ? Math.min(1, Math.max(0, tab.done / tab.size)) : 0 };
+  const before = pending.get(host);
+  if (before && before.message === next.message && before.error === next.error && before.progress === next.progress) return;
+  pending.set(host, next);
+  setSessionPortal(host, <div className={`agpmsg${next.error ? " derr" : ""}`}>{!next.error && <span className="dspin" />}{next.message}{next.progress !== null && <span className="agpload"><i style={{ transform: `scaleX(${next.progress})` }} /></span>}</div>);
+}
+
+export function ModelShell() {
+  return <><div className="agpstage model" /><div className="agpacts anim" hidden /><div className="agpacts model-actions" /></>;
 }

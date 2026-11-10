@@ -3,21 +3,23 @@
 import { resolvePath } from "./media-state.ts";
 import { TextView } from "./text-view.tsx";
 import { ImageView } from "./image-view.tsx";
-import { ModelFooter, PdfView, VideoView } from "./media-view.tsx";
+import { drawPending, ModelFooter, ModelShell, PdfView, VideoView } from "./media-view.tsx";
 import { createElement } from "react";
 import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { ModelControls } from "./model-controls.tsx";
 import type { PaneTerm } from "./terminal.ts";
 import { type TreeText, type MediaTab, P } from "./media.ts";
 import { readFile, drawTermStatus } from "./read.ts";
-import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 
 export function viewOf(t: MediaTab): HTMLElement {
-  if (t.error) return h(`<div class="agpview"><div class="agpmsg derr">${esc(t.error)}</div></div>`);
-  if (t.kind === "text") return t.text ? textView(t, t.text) : h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Reading ${esc(t.name)} from ${esc(P.session?.machine_name ?? "the machine")}…</div></div>`);
-  if (t.kind === "term") return t.term ? termView(t, t.term) : h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Opening a terminal on ${esc((t.at ?? t.existing)?.machine_name ?? "the machine")}…</div></div>`);
-  if (!t.url) return h(`<div class="agpview"><div class="agpmsg"><span class="dspin"></span>Opening ${esc(t.name)}…<span class="agpload"><i></i></span></div></div>`);
+  if (t.error || (t.kind === "text" && !t.text) || (t.kind === "term" && !t.term) || (!t.url && t.kind !== "text" && t.kind !== "term")) {
+    const el = h('<div class="agpview"></div>');
+    drawPending(el, t, P.session?.machine_name ?? null);
+    return el;
+  }
+  if (t.kind === "text" && t.text) return textView(t, t.text);
+  if (t.kind === "term" && t.term) return termView(t, t.term);
   if (t.kind === "image") return imageView(t);
   if (t.kind === "video") return videoView(t);
   if (t.kind === "pdf") return pdfView(t);
@@ -60,9 +62,8 @@ function pdfView(t: MediaTab) {
 }
 
 function modelView(t: MediaTab) {
-  const el = h(`<div class="agpview"><div class="agpstage model"></div>
-    <div class="agpacts anim" hidden></div>
-    <div class="agpacts model-actions"></div></div>`);
+  const el = h('<div class="agpview"></div>');
+  setSessionPortal(el, createElement(ModelShell));
   const stage = el.querySelector<HTMLElement>(".agpstage")!;
   const actions = el.querySelector<HTMLElement>(".model-actions")!;
   const machine = P.session?.machine_id ?? null;

@@ -330,7 +330,6 @@ export function closePaneTabs() {
 
 function dropTab(t: MediaTab) {
   t.el?.querySelector("video")?.pause();
-  if (t.el) removeSessionPortal(t.el);
   if (t.term) dropTerm(t.term);
   const modelActions = t.el?.querySelector<HTMLElement>(".model-actions");
   if (modelActions) removeSessionPortal(modelActions);
@@ -338,6 +337,7 @@ function dropTab(t: MediaTab) {
   if (stage) removeSessionPortal(stage);
   const controls = t.el?.querySelector<HTMLElement>(".anim");
   if (controls) removeSessionPortal(controls);
+  if (t.el) removeSessionPortal(t.el);
   t.model?.dispose();
   if (t.url?.startsWith("blob:")) URL.revokeObjectURL(t.url);
   t.el?.remove();
