@@ -91,3 +91,46 @@ test("an older process read cannot replace a newer result in the same session", 
   await expect(page.getByText("new process")).toBeVisible();
   await expect(page.getByText("old process")).toHaveCount(0);
 });
+
+test("running pane keeps its scroll and handlers after leaving and reopening the session", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const view = await invoke<T>(command, args);
+      return command === "agent_processes" ? { ...view, local: true } as T : view;
+    };
+  });
+  const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
+  const rows = (last: string) => Array.from({ length: 30 }, (_, i) => ({ pid: 100 + i, command: i === 29 ? last : `process ${i}`, started_at: 1, ports: i === 0 ? [3000] : [], left_group: false }));
+  await page.evaluate(value => window.__navigation.open({ agent: value }), agent);
+  await page.evaluate(value => window.__navigation.processes(value), rows("last process"));
+  await page.getByRole("tab", { name: /Running/ }).click();
+  const list = page.locator(".agrunninglist");
+  await expect(page.getByText("last process")).toBeAttached();
+  await list.evaluate(element => { element.style.maxHeight = "120px"; element.style.overflow = "auto"; element.scrollTop = 200; });
+  const stop = page.locator(".agrunningrow").filter({ hasText: "process 12" }).getByRole("button", { name: "Stop", exact: true });
+  await stop.focus();
+  const scroll = await list.evaluate(element => element.scrollTop);
+  expect(scroll).toBeGreaterThan(0);
+  await page.evaluate(value => window.__navigation.processes(value), rows("newest process"));
+  await page.evaluate(() => window.dispatchEvent(new Event("agent-pane-shown")));
+  await expect(page.getByText("newest process")).toBeAttached();
+  await expect(stop).toBeFocused();
+  expect(await list.evaluate(element => element.scrollTop)).toBe(scroll);
+  await page.evaluate(() => window.__navigation.open("home"));
+  await page.evaluate(value => window.__navigation.open({ agent: value }), agent);
+  await page.getByRole("tab", { name: /Running/ }).click();
+  await expect(page.locator(".agpview.running")).toHaveCount(1);
+  const first = page.locator(".agrunningrow").filter({ hasText: "process 0" }).first();
+  await first.locator("[data-whole]").click();
+  await expect(first).toHaveClass(/whole/);
+  const url = page.url();
+  await first.getByRole("link", { name: ":3000" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "open_url").map(call => call.args))).toEqual([{ url: "http://localhost:3000/" }]);
+  expect(page.url()).toBe(url);
+  await expect(first).toHaveClass(/whole/);
+  await first.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(first).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_stop_process").length)).toBe(1);
+});

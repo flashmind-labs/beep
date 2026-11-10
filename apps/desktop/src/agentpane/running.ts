@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
-import { RunningView } from "./running-view.tsx";
+import { RunningView, type RunningActions } from "./running-view.tsx";
 // Commands the session left running, following changes while its pane shows.
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type { RunningProcess } from "./running-state.ts";
@@ -71,47 +71,29 @@ export async function readRunning() {
   if (list.length !== count) draw();
 }
 
+/// The Running view, made once per session. Its host outlives a rebuilt
+/// session frame, so each call renders it again.
 export function runningView() {
   syncSession();
   if (!list.length) { el?.remove(); return null; }
-
-  if (!el) {
-    el = h('<div class="agpview running"></div>');
-    el.addEventListener("click", e => {
-      const target = e.target as HTMLElement;
-      const link = target.closest<HTMLAnchorElement>("a[data-port]");
-
-      if (link) {
-        e.preventDefault();
-        e.stopPropagation();
-        invoke("open_url", { url: link.href }).catch(e => { error = readError(e); render(); });
-        return;
-      }
-
-      const cmd = target.closest<HTMLElement>("[data-whole]");
-
-      // A click shows the whole command; selecting text in it does not fold it.
-      if (cmd && !getSelection()?.toString()) {
-        const pid = +cmd.dataset.whole!;
-        if (!whole.delete(pid)) whole.add(pid);
-        return render();
-      }
-
-      const button = target.closest<HTMLButtonElement>("button[data-pid], button[data-stop-all]");
-      if (button && !button.disabled) void stop(button.hasAttribute("data-stop-all") ? list.map(p => p.pid) : [+button.dataset.pid!]);
-    });
-  }
-
+  el ??= h('<div class="agpview running"></div>');
   render();
   return el;
 }
 
+const actions: RunningActions = {
+  open: url => { invoke("open_url", { url }).catch(e => { error = readError(e); render(); }); },
+  toggle: pid => {
+    if (!whole.delete(pid)) whole.add(pid);
+    render();
+  },
+  stop: pids => void stop(pids),
+};
+
 function render() {
   const session = paneSession();
   if (!el || !session || key !== `${session.machine_id}\n${session.id}`) return;
-  setSessionPortal(el, createElement(RunningView, {
-    processes: list, local, stopping, whole, machine: paneSession()?.machine_name ?? "The machine", error,
-  }));
+  setSessionPortal(el, createElement(RunningView, { model: { processes: list, local, stopping, whole, machine: session.machine_name, error }, actions }));
 }
 
 async function stop(pids: number[]) {
