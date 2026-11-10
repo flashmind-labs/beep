@@ -9,7 +9,6 @@ import { chatProject, shortName, type ProjectAgent } from "../project/agent.ts";
 import { askBeep } from "./center.ts";
 import { type ViewHead, state } from "./state.ts";
 import { PROJECT_COLORS } from "../ui/icons.ts";
-import { startedWhen } from "./home.ts";
 import { currentLocation, go, drawTop, openResearch } from "./views.ts";
 import { paneOn, chatList, projectRows, openProjects } from "./sidebar.ts";
 import { loadThreadChats, threadHead, pinButton, threadChats } from "./threadcard.ts";
@@ -18,6 +17,7 @@ import { showNotices } from "./notices.ts";
 import { openReport } from "../report/report.ts";
 import { debugPrompt } from "../report/report-state.ts";
 import type { MacControl } from "../machines/machine-state.ts";
+import { formatAgo } from "../ui/format.ts";
 
 const ROUTINES_TITLE: [string, string] = ["Routines", "What Beep does on its own"];
 const APPS_TITLE: [string, string] = ["Apps", "What Beep can use for you"];
@@ -51,7 +51,7 @@ export function paneTitle(): ViewHead {
     const at = pane.startedAt();
     const thread = on.session ? threadChats?.get(on.session) : undefined;
     if (thread) return threadHead(thread, c);
-    return { title: c?.title ?? "New chat", sub: at ? `Started ${startedWhen(at)}` : "", reactTools: c ? pinButton(c) : null, reactScope: scopeTag(on.session) };
+    return { title: c?.title ?? "New chat", sub: at ? `Started ${formatAgo(at, "day").replace(/^Yesterday$/, "yesterday")}` : "", reactTools: c ? pinButton(c) : null, reactScope: scopeTag(on.session) };
   }
 
   if (on.group) {

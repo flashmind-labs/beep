@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useRef } from "react";
 import { shallow } from "zustand/shallow";
-import { ago, plural, since } from "../ui/format.ts";
+import { formatAgo, plural } from "../ui/format.ts";
 import { IC, PROJECT_COLORS } from "../ui/icons.ts";
 import { barSegments, countsLine, latestLine, workersLabel, type OverviewCard, type OverviewCardRow, type Project } from "./projects-state.ts";
 
@@ -12,8 +12,8 @@ export function overviewCardModel(c: OverviewCardRow<Project, OverviewCard>, syn
     workers: c.sum ? workersLabel(c.sum.workers) : c.agents ? plural(c.agents, "agent", "agents") : "idle",
     hasSummary: !!c.sum, open, rest: rest.map(text => ` · ${text}`).join(""),
     running: tasks?.running ?? 0, review: tasks?.review ?? 0, blocked: tasks?.blocked ?? 0, planned: tasks?.planned ?? 0, done: tasks?.done ?? 0,
-    latest: c.sum ? latestLine(c.sum.latest) : c.last ? `Last activity ${since(c.last)}` : "No recent activity",
-    latestAge: c.sum?.latest ? ago(c.sum.latest.updated_at) : "",
+    latest: c.sum ? latestLine(c.sum.latest) : c.last ? `Last activity ${formatAgo(c.last, "since")}` : "No recent activity",
+    latestAge: c.sum?.latest ? formatAgo(c.sum.latest.updated_at, "short") : "",
     hasMachines: !!c.machines.length, machines: c.machines.map(machine => machine.name).join(", "),
   };
 }

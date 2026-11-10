@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useRef } from "react";
-import { since } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { chipClass, phaseStep, PHASES, progressLine, researchState, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 
 interface Props {
@@ -47,6 +47,6 @@ function ResearchCells({ row, onOpen }: { row: ResearchRow; onOpen: (session: st
     <span className={`${off.trim()} r`.trim()} onClick={open}><span className={`chip${chip ? ` ${chip}` : ""}`}>{state === "running" && <span className="dspin"/>}{STATE_LABEL[state]}</span></span>
     <span className={`${off.trim()} r`.trim()} onClick={open}>{step > 0 && <span className="cc-rsteps">{PHASES.map((phase, i) => <i key={phase} className={i + 1 < step ? "done" : i + 1 === step ? "now" : ""}/>)}</span>}<span className="num">{progressLine(row)}</span></span>
     <span className={`num${off} r`} onClick={open}>{row.sources ? String(row.sources) : "–"}</span>
-    <span className={`num${off} r`} title={new Date(row.started_at).toLocaleString()} onClick={open}>{since(row.started_at)}</span>
+    <span className={`num${off} r`} title={new Date(row.started_at).toLocaleString()} onClick={open}>{formatAgo(row.started_at, "since")}</span>
   </Fragment>;
 }

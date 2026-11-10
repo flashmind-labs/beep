@@ -3,7 +3,7 @@ import { harnessInner, harnessMark } from "../ui/harnessicon.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { closingNote } from "../agents/closing.ts";
 import { runningWhen, type RunningAgent } from "../agents/running-state.ts";
-import { ago } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.ts";
 import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
@@ -97,7 +97,7 @@ export function ProjectOverview({ run, prs, issues, prNote, issueNote, machines,
     {!!run.length && <OverviewBox title="Running" count={run.length} open={() => openTile("running")}>{rows(run.slice(0, 5))}</OverviewBox>}
     <RecentSessionsSection session={session}/>
     {!!machines.rows.length && <OverviewBox title="Machines" count={machines.count} open={() => openTile("machines")}>{machines.rows.slice(0, 5).map((row, index) => <div key={row.id ?? index} className="cc-row cc-line" title={row.title || row.text || ""} onClick={() => openTile("machines")}><span className={`ddot${row.dot ? " off" : ""}`}/><button type="button" className="t" title={row.text || ""}><b>{row.text}</b><span>{row.note}</span></button><span className="r"/></div>)}</OverviewBox>}
-    {!!terminals.length && <OverviewBox title="Terminals" count={terminals.length} open={() => openTile("machines")}>{terminals.slice(0, 5).map(terminal => <div key={`${terminal.machine_id}:${terminal.id}`} className="cc-row cc-line" title={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onClick={() => openTerminal(terminal)}><span className={`ddot${terminal.state === "running" ? "" : " off"}`}/><button type="button" className="t" title={terminal.name}><b>{terminal.name}</b><span>{terminal.machine_name} · {terminalWhere(terminal)}</span></button><span className="r">{terminalNote(terminal, ago)}</span></div>)}</OverviewBox>}
+    {!!terminals.length && <OverviewBox title="Terminals" count={terminals.length} open={() => openTile("machines")}>{terminals.slice(0, 5).map(terminal => <div key={`${terminal.machine_id}:${terminal.id}`} className="cc-row cc-line" title={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onClick={() => openTerminal(terminal)}><span className={`ddot${terminal.state === "running" ? "" : " off"}`}/><button type="button" className="t" title={terminal.name}><b>{terminal.name}</b><span>{terminal.machine_name} · {terminalWhere(terminal)}</span></button><span className="r">{terminalNote(terminal, ms => formatAgo(ms, "short"))}</span></div>)}</OverviewBox>}
   </div><div>
     {prs.length ? <OverviewBox title="Pull requests" count={prs.length} open={() => openTile(prs[0].key)}>{rows(prs.slice(0, 5))}</OverviewBox> : empty("Pull requests", prNote)}
     {issues.length ? <div id=""><div className="cc-sec"><h4><button type="button" className="dbtn lk" onClick={() => openTile("issues")}>Issues</button><span className="n">{issues.length}</span></h4></div><div className="cc-panel pj-scroll pj-ov-issues">{rows(issues)}</div></div> : empty("Issues", issueNote)}

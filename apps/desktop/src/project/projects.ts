@@ -7,7 +7,7 @@ import { MV } from "../agents/move-store.ts";
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
-import { ago, plural } from "../ui/format.ts";
+import { formatAgo, plural } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { awaitsView, projectActivity, projectRunning, whereRows, whereCount, overviewGroups, syncedBy, type OverviewCard, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
@@ -184,7 +184,7 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
     } : null;
     const terminals = m.folder ? all?.filter(t => t.machine_id === m.id) ?? [] : [];
     items.push({ id: m.id, name: m.name, online, folder: m.folder ? plainPath(m.folder) : null, change, remove, missing, git, menu,
-      terminals: terminals.map(t => ({ id: t.id, name: t.name, title: `${t.machine_name}: ${t.command} in ${t.cwd}`, sub: `${t.machine_name} · ${terminalWhere(t)}`, note: terminalNote(t, ago), running: t.state === "running", open: () => { go("pane", { draft: { project: p.name, machine: t.machine_id, terminal: t } }); } })),
+      terminals: terminals.map(t => ({ id: t.id, name: t.name, title: `${t.machine_name}: ${t.command} in ${t.cwd}`, sub: `${t.machine_name} · ${terminalWhere(t)}`, note: terminalNote(t, ms => formatAgo(ms, "short")), running: t.state === "running", open: () => { go("pane", { draft: { project: p.name, machine: t.machine_id, terminal: t } }); } })),
       terminalSummary: all === undefined ? "Reading…" : all === null ? "Unavailable" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
   }
   if (!whereView || whereView.project !== p.name) {

@@ -293,14 +293,3 @@ function draw() {
   }
 }
 
-/// "12 min ago", "yesterday", "3 days ago".
-export function ago(ms: number, now = Date.now()) {
-  const s = Math.max(0, Math.round((now - ms) / 1000));
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  const d = Math.round(s / 86400);
-  if (d === 1) return "yesterday";
-  if (d < 7) return `${d} days ago`;
-  return d < 14 ? "last week" : `${Math.round(d / 7)} weeks ago`;
-}

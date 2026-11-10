@@ -1,6 +1,6 @@
 // A project page's sections (terminals, file sync, reviews, threads, runs)
 // and the acts its agent's cards call.
-import { ago } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { S } from "../bar/core.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
@@ -46,13 +46,13 @@ import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 /// project's list picked, null for the first.
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null, run: null as { project: string; id: number; host: string } | null };
 
-export const terms = makeTerminals({ invoke, Channel, makeScreen, ago, redraw: () => redrawProjects(), kept: keptSection("terminals") });
+export const terms = makeTerminals({ invoke, Channel, makeScreen, ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
 export const fsync = makeFileSync({ invoke, h, button, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
 
 /// The project's branches and their reviews: the Branches list and the
 /// review view.
 export const revs = makeReviews({
-  invoke, h, button, ago,
+  invoke, h, button, ago: ms => formatAgo(ms, "short"),
   redraw: () => redrawProjects(),
   openUrl,
   openTile: (key: string) => openTile(key),
@@ -85,7 +85,7 @@ listen<LiveRow>("project-live", e => liveMode.heard(e.payload));
 /// The project's open pull requests and issues, and the user's threads
 /// there, for the project page's list.
 export const thr = makeThreads({
-  invoke, ago,
+  invoke, ago: ms => formatAgo(ms, "short"),
   redraw: () => redrawProjects(),
   openUrl,
   openChat: (chat: string) => { ownChats.add(chat); go("pane", { chat: { session: chat } }); reloadChats(); if (!threadChats?.has(chat)) loadThreadChats(); },

@@ -1,5 +1,5 @@
 // The command center's Terminals page, and the terminals Home lists.
-import { ago } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { createElement } from "react";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { ALL, byMachine, makeTerminals, terminalsCount } from "./terminals.ts";
@@ -13,7 +13,7 @@ import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 
 /// Every terminal on every machine: the Terminals page, and Home's section.
 export const allTerms = makeTerminals({
-  invoke, Channel, makeScreen, ago, kept: keptSection("terminals"),
+  invoke, Channel, makeScreen, ago: ms => formatAgo(ms, "short"), kept: keptSection("terminals"),
   redraw: () => {
     if (currentLocation()?.view === "terminals") { drawTerminals(); drawTop(); }
     else if (currentLocation()?.view === "home") draw();

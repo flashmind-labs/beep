@@ -6,10 +6,11 @@ import { GrantsList, RoutineEditor, RoutinesList } from "./routines-view.tsx";
 import { $, $$, bar, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
-import { arrowKey, clampSel, confirmKey, dayDiff, dayMonth, type ListState, loadList } from "./memories.ts";
+import { arrowKey, clampSel, confirmKey, dayMonth, type ListState, loadList } from "./memories.ts";
 import { ICON } from "../ui/icons.ts";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu } from "../ui/menu.ts";
+import { dayDiff } from "../ui/format.ts";
 
 // ---------- Routines ----------
 

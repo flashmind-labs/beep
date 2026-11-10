@@ -1,7 +1,7 @@
 import { refreshTopicSubscriptions, subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { commandKey } from "../ui/platform.ts";
 // Settings as a sheet over the command center window.
-import { ago } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { dbtn as button, mountSheetFrame, sheetAbove } from "../ui/parts.ts";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
@@ -114,7 +114,7 @@ connectSettingsSheet({
   show: (sheet, content) => showWindowParts([{ part: "settings-sheet", host: sheet, content }]),
   remove: () => removeWindowPart("settings-sheet"),
 });
-registerInstructions({ registerView, invoke, h, button, ago, openSettings });
+registerInstructions({ registerView, invoke, h, button, ago: ms => formatAgo(ms, "short"), openSettings });
 registerProviders({ registerView, invoke, openSettings, redrawTop: () => {
   if (currentLocation()?.view === "providers") drawTop();
 }, follow: changed => { subscribeTopics([topic("machines"), topic("accounts")], changed); } });

@@ -4,7 +4,7 @@
 // alerts are `null` and the notes alone fill the pane.
 import type { PaneTarget } from "../bar/pane.ts";
 import type { ProjectsArg } from "./state.ts";
-import { bytes, since } from "../ui/format.ts";
+import { bytes, formatAgo } from "../ui/format.ts";
 
 /// What the assistant told the user, as `alerts_list` gives it.
 export interface Alert {
@@ -167,7 +167,7 @@ export function copies(i: Item): Copy[] {
 /// The small line under a copy: `Changed 3 h ago · 2.1 KB · newest`.
 export function copyLine(c: Copy, now = Date.now()): string {
   if (!c.held) return "";
-  const parts = [c.held.changed ? `Changed ${since(c.held.changed, now)}` : "", bytes(c.held.bytes), c.newest ? "newest" : ""];
+  const parts = [c.held.changed ? `Changed ${formatAgo(c.held.changed, "since", now)}` : "", bytes(c.held.bytes), c.newest ? "newest" : ""];
   return parts.filter(Boolean).join(" · ");
 }
 

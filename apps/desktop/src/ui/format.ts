@@ -18,19 +18,65 @@ export function linkified(s: string) {
   return html + esc(s.slice(last));
 }
 
-/// "12 min", "3 h", "2 d" or "now": how long ago `ms` was.
-export function ago(ms: number, now = Date.now()) {
+/// How each place says how long ago `ms` was:
+/// - `short`: "now", "12 min", "3 h", "2 d"
+/// - `since`: "just now", "12 min ago", "3 h ago", "2 d ago"
+/// - `long`: "just now", "12 min ago", "3 h ago", "yesterday", "3 days ago", "last week", "2 weeks ago"
+/// - `rough`: "under 2 min", "12 min", "3 h", "4 days"
+/// - `chat`: "now", "12 min ago", "3 h ago" the same day, "Yesterday", then the date
+/// - `day`: "09:41" today, "Yesterday", "Thu" this week, then the date
+export type AgoStyle = "short" | "since" | "long" | "rough" | "chat" | "day";
+
+export function formatAgo(ms: number, style: AgoStyle, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - ms) / 1000));
-  if (s < 60) return "now";
-  if (s < 3600) return `${Math.round(s / 60)} min`;
-  if (s < 86400) return `${Math.round(s / 3600)} h`;
-  return `${Math.round(s / 86400)} d`;
+
+  switch (style) {
+    case "short":
+      if (s < 60) return "now";
+      if (s < 3600) return `${Math.round(s / 60)} min`;
+      if (s < 86400) return `${Math.round(s / 3600)} h`;
+      return `${Math.round(s / 86400)} d`;
+    case "since": {
+      const short = formatAgo(ms, "short", now);
+      return short === "now" ? "just now" : `${short} ago`;
+    }
+    case "long": {
+      if (s < 60) return "just now";
+      if (s < 3600) return `${Math.round(s / 60)} min ago`;
+      if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+      const d = Math.round(s / 86400);
+      if (d === 1) return "yesterday";
+      if (d < 7) return `${d} days ago`;
+      return d < 14 ? "last week" : `${Math.round(d / 7)} weeks ago`;
+    }
+    case "rough":
+      if (s < 90) return "under 2 min";
+      if (s < 3600 * 1.5) return `${Math.round(s / 60)} min`;
+      if (s < 86400 * 1.5) return `${Math.round(s / 3600)} h`;
+      return `${Math.round(s / 86400)} days`;
+    case "chat": {
+      const at = new Date(ms), mins = Math.round((now - ms) / 60000);
+      if (mins < 1) return "now";
+      if (mins < 60) return `${mins} min ago`;
+      const days = dayDiff(at, new Date(now));
+      if (days === 0) return `${Math.round(mins / 60)} h ago`;
+      if (days === 1) return "Yesterday";
+      return at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    }
+    case "day": {
+      const at = new Date(ms), days = dayDiff(at, new Date(now));
+      if (days <= 0) return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+      if (days === 1) return "Yesterday";
+      if (days < 7) return at.toLocaleDateString([], { weekday: "short" });
+      return at.toLocaleDateString([], { day: "numeric", month: "short" });
+    }
+  }
 }
 
-/// "12 min ago", or "just now".
-export function since(ms: number, now = Date.now()) {
-  const a = ago(ms, now);
-  return a === "now" ? "just now" : `${a} ago`;
+/// How many days from `from` to `to`, by the calendar.
+export function dayDiff(from: Date, to: Date) {
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((day(to) - day(from)) / 86400000);
 }
 
 /// "1 file", "3 files".

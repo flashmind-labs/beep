@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type CopyRow, ago, copyKey, copyLists, discardLabel, lostLine, offlineLine } from "../src/agents/copy-state.ts";
+import { type CopyRow, copyKey, copyLists, discardLabel, lostLine, offlineLine } from "../src/agents/copy-state.ts";
 
 const copy = (over: Partial<CopyRow> = {}): CopyRow => ({ agent: "codex", id: "s1", from: "laptop-id", from_name: "laptop", online: false, project: "acme/app", path: "", last_activity: 100, fetched_at: 200, size: 10, lost: null, ...over });
 
@@ -23,13 +23,6 @@ test("a version that lost is kept in its own list, whatever the machines do", ()
 test("copies come newest first", () => {
   const { offline } = copyLists([copy({ id: "old", last_activity: 1 }), copy({ id: "new", last_activity: 9 })], new Set());
   assert.deepEqual(offline.map(c => c.id), ["new", "old"]);
-});
-
-test("ages read in the unit that fits", () => {
-  assert.equal(ago(30), "under 2 min");
-  assert.equal(ago(180), "3 min");
-  assert.equal(ago(7200), "2 h");
-  assert.equal(ago(86400 * 4), "4 days");
 });
 
 test("the rows say how old the copy is, and that another machine went on", () => {

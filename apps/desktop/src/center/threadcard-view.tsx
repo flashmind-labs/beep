@@ -1,10 +1,10 @@
-import { plural, since } from "../ui/format.ts";
+import { formatAgo, plural } from "../ui/format.ts";
 import type { ThreadCardView } from "./threadcard.ts";
 
 const TEXT_LIMIT = 600;
 function Post({ author, at, body, all }: { author: string; at: number | null; body: string; all: boolean }) {
   const text = all || body.length <= TEXT_LIMIT ? body : `${body.slice(0, TEXT_LIMIT).trimEnd()}...`;
-  return <div className="c"><b>{author}</b> <span className="who">{at ? since(at) : "opened it"}</span>{body.trim() && <div className="tx">{text}</div>}</div>;
+  return <div className="c"><b>{author}</b> <span className="who">{at ? formatAgo(at, "since") : "opened it"}</span>{body.trim() && <div className="tx">{text}</div>}</div>;
 }
 export function ThreadCardContent({ view, label, where, error, all, expand }: { view: ThreadCardView | null | undefined; label: string; where: string; error: string; all: boolean; expand(): void }) {
   if (view === undefined) return <span className="who">{error || <><span className="dspin" />{` Reading ${label}…`}</>}</span>;

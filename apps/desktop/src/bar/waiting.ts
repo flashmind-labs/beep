@@ -13,7 +13,7 @@ import { ensureSessions, sessions, sessionsRead } from "../agents/sessions.ts";
 import { onClosing, sessionVisible } from "../agents/closing.ts";
 import type { Note } from "../center/notices-state.ts";
 import { ambient, AMBIENT_MS } from "../ui/active.ts";
-import { ago } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
 import { subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -54,7 +54,7 @@ const pick = () => waitingSessions(sessions.filter(sessionVisible), unread, W.qu
 
 function row({ session: s, kind }: WaitingSession): WaitingRow {
   const title = s.title || folderName(s.cwd) || s.agent;
-  return { key: sessionKey(s), avatar: agentAvatar(s.agent), title, sub: [project(s), s.machine_name, ago(s.last_activity)].join(" · "), kind, doing: s.doing || "Working" };
+  return { key: sessionKey(s), avatar: agentAvatar(s.agent), title, sub: [project(s), s.machine_name, formatAgo(s.last_activity, "short")].join(" · "), kind, doing: s.doing || "Working" };
 }
 
 /// Draws the list; the list takes the focus with `focus`, or when it had it.

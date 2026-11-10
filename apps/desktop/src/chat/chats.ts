@@ -10,7 +10,6 @@ import { authorName, type GroupSummary, renderGroup, renderInvite } from "./grou
 import { hintModel } from "../bar/hints.ts";
 import { openSession } from "./history.ts";
 import { RESEARCHES } from "../research/researches.ts";
-import { dayDiff } from "../lists/memories.ts";
 import { withoutResearch } from "../research/research-list.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
@@ -40,17 +39,6 @@ interface SessionMatch {
 export type ChatAction =
   | "rename" | "delete" | "cancel" | "window" | "rename-save" | "delete-yes" | "pin"
   | "share" | "copy-share" | "unshare" | "invite" | "info" | "leave";
-
-export function when(ms: number) {
-  const d = new Date(ms), now = new Date();
-  const mins = Math.round((now.getTime() - d.getTime()) / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins} min ago`;
-  const days = dayDiff(d, now);
-  if (days === 0) return `${Math.round(mins / 60)} h ago`;
-  if (days === 1) return "Yesterday";
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-}
 
 // Chats and groups share the list: pinned first, then the latest.
 const byRecent = (a: ChatRow, b: ChatRow) => (Number(b.pinned) - Number(a.pinned)) || (b.updated_at - a.updated_at);

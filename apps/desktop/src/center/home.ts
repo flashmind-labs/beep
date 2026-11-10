@@ -70,23 +70,6 @@ export function scheduleText(s: string) {
 
 // ---------- Updates ----------
 
-/// When an update came: "09:41" today, then "Yesterday", "Thu" this week, "3 Oct".
-export function updateTime(ms: number) {
-  const at = new Date(ms);
-  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
-  if (days <= 0) return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  if (days === 1) return "Yesterday";
-  if (days < 7) return at.toLocaleDateString([], { weekday: "short" });
-  return at.toLocaleDateString([], { day: "numeric", month: "short" });
-}
-
-/// When a chat started, for its title line: "09:12" today, then as an
-/// update's time reads.
-export function startedWhen(ms: number) {
-  const t = updateTime(ms);
-  return t === "Yesterday" ? "yesterday" : t;
-}
-
 /// Updates dismissed here that a list may still carry, by id.
 export const dismissedUpdates = new Set<number>();
 
