@@ -55,11 +55,7 @@ function Body(p: ProviderProps) {
 }
 
 function Toolbar({ p }: { p: ProviderProps }) {
-  const machines = p.machines ?? [];
-  return <div className="hv-bar"><span className="hv-pick crowded">
-    <span className="hv-seg" role="group" aria-label="Machine">{machines.map(m => <button key={m.id} type="button" title={m.online ? m.name : `${m.name} (offline)`} aria-pressed={m.id === p.machine} disabled={!m.online} onClick={() => p.pickMachine(m.id)}>{m.name}</button>)}</span>
-    <select className="hv-sel" value={p.machine ?? ""} aria-label="Machine runtime settings" onChange={e => p.pickMachine(e.currentTarget.value)}>{machines.map(m => <option key={m.id} value={m.id} disabled={!m.online}>{m.online ? m.name : `${m.name} (offline)`}</option>)}</select>
-  </span><span className="sp" /><button type="button" className="dbtn quiet" title="Check the versions again" disabled={p.loading || !p.machine} onClick={p.refresh}>{p.loading ? "Checking…" : p.checked}</button><button type="button" className="dbtn" disabled={!!p.updateCount || !p.canUpdate} title={!p.canUpdate && !p.updateCount ? "Everything is up to date" : undefined} onClick={p.updateAll}>{p.updateCount ? `Updating ${p.updateCount}…` : "Update all"}</button></div>;
+  return <div className="hv-bar"><MachinePick p={p} crowded selectLabel="Machine runtime settings" /><span className="sp" /><button type="button" className="dbtn quiet" title="Check the versions again" disabled={p.loading || !p.machine} onClick={p.refresh}>{p.loading ? "Checking…" : p.checked}</button><button type="button" className="dbtn" disabled={!!p.updateCount || !p.canUpdate} title={!p.canUpdate && !p.updateCount ? "Everything is up to date" : undefined} onClick={p.updateAll}>{p.updateCount ? `Updating ${p.updateCount}…` : "Update all"}</button></div>;
 }
 
 function SharedSettings({ value, p }: { value: SharedProviderSettings; p: ProviderProps }) {
@@ -118,5 +114,15 @@ function TextInput({ value, label, placeholder, change, type = "text" }: { value
 export function ProviderHeader(p: Pick<ProviderProps, "machines" | "machine" | "loading" | "checked" | "updateCount" | "canUpdate" | "pickMachine" | "refresh" | "updateAll">) {
   const machines = p.machines ?? [];
   const crowded = machines.length > 4 || machines.reduce((sum, machine) => sum + machine.name.length, 0) > 48;
-  return <><span className={`hv-pick${crowded ? " crowded" : ""}`}><span className="hv-seg" role="group" aria-label="Machine">{machines.map(machine => <button type="button" key={machine.id} title={machine.online ? machine.name : `${machine.name} (offline)`} aria-pressed={machine.id === p.machine} disabled={!machine.online} onClick={() => p.pickMachine(machine.id)}>{machine.name}</button>)}</span><select className="hv-sel" value={p.machine ?? ""} aria-label="Machine" onChange={event => p.pickMachine(event.currentTarget.value)}>{machines.map(machine => <option key={machine.id} value={machine.id} disabled={!machine.online}>{machine.online ? machine.name : `${machine.name} (offline)`}</option>)}</select></span><button type="button" className="dbtn" disabled={!!p.updateCount || !p.canUpdate} title={!p.canUpdate && !p.updateCount ? "Everything is up to date" : undefined} onClick={p.updateAll}>{p.updateCount ? `Updating ${p.updateCount}…` : "Update all"}</button><button type="button" className="dbtn quiet" disabled={p.loading || !p.machine} title="Check the versions again" onClick={p.refresh}>{p.loading ? "Checking…" : p.checked}</button></>;
+  return <><MachinePick p={p} crowded={crowded} selectLabel="Machine" /><button type="button" className="dbtn" disabled={!!p.updateCount || !p.canUpdate} title={!p.canUpdate && !p.updateCount ? "Everything is up to date" : undefined} onClick={p.updateAll}>{p.updateCount ? `Updating ${p.updateCount}…` : "Update all"}</button><button type="button" className="dbtn quiet" disabled={p.loading || !p.machine} title="Check the versions again" onClick={p.refresh}>{p.loading ? "Checking…" : p.checked}</button></>;
+}
+
+/// The machine picker: a row of buttons, or a select where they do not fit.
+function MachinePick({ p, crowded, selectLabel }: { p: Pick<ProviderProps, "machines" | "machine" | "pickMachine">; crowded: boolean; selectLabel: string }) {
+  const machines = p.machines ?? [];
+  const label = (machine: { name: string; online: boolean }) => machine.online ? machine.name : `${machine.name} (offline)`;
+  return <span className={`hv-pick${crowded ? " crowded" : ""}`}>
+    <span className="hv-seg" role="group" aria-label="Machine">{machines.map(machine => <button type="button" key={machine.id} title={label(machine)} aria-pressed={machine.id === p.machine} disabled={!machine.online} onClick={() => p.pickMachine(machine.id)}>{machine.name}</button>)}</span>
+    <select className="hv-sel" value={p.machine ?? ""} aria-label={selectLabel} onChange={event => p.pickMachine(event.currentTarget.value)}>{machines.map(machine => <option key={machine.id} value={machine.id} disabled={!machine.online}>{label(machine)}</option>)}</select>
+  </span>;
 }
