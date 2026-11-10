@@ -707,6 +707,13 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         }
         Err(e) => log::warn!("metrics unavailable: {e:#}"),
     }
+    #[cfg(mobile)]
+    match platform::metrics::PhoneMetrics::start(&dir.join("metrics")) {
+        Ok(metrics) => {
+            app.manage(metrics);
+        }
+        Err(e) => log::warn!("metrics unavailable: {e:#}"),
+    }
     let (beep, notices) = Beep::start(
         endpoint.clone(),
         identity,

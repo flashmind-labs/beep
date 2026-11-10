@@ -6,6 +6,9 @@ Earlier releases predate this changelog.
 
 ### Added
 
+- iOS: how quickly screens open and respond to taps is kept in a
+  metrics file in the app's data folder, by screen only and never with
+  content.
 - iOS: slow taps and stalls are noted in the app's log, by screen only and
   never with content, so slow screens can be found afterwards.
 - iOS: Stop all, in a session's menu, ends its turn, subagents, background
@@ -34,6 +37,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: Stop all asks first when a session that is not open still has
+  subagents running.
 - iOS: Stop ends only the main agent's turn. Its subagents, background
   commands and the agents it started keep running, and the session shows
   as working until they finish.
