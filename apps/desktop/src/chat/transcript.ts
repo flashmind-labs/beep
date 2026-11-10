@@ -1,7 +1,7 @@
 // A chat's transcript: its turns as typed views in a store, drawn as one
 // React list inside the chat's body. A turn is a handle; what it shows is
 // its view here, and what it knows while it runs is its `turnState`.
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { flushSync } from "react-dom";
 import { createStore, type StoreApi } from "zustand";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
@@ -83,6 +83,8 @@ export interface TranscriptState {
   background: BackgroundQuestions | null;
   /// Counts the times the body was put back on screen.
   shown: number;
+  /// What the window shows atop the chat, such as the card of the issue it is about.
+  top: ReactElement | null;
 }
 
 interface Transcript { store: StoreApi<TranscriptState>; view: DocumentView; revision: number; disposed: boolean }
@@ -114,7 +116,7 @@ function transcript(body: ChatBody): Transcript {
   const known = transcripts.get(body);
   if (known) return known;
 
-  const store = createStore<TranscriptState>(() => ({ turns: [], background: null, shown: 0 }));
+  const store = createStore<TranscriptState>(() => ({ turns: [], background: null, shown: 0, top: null }));
   const made: Transcript = { store, view: createDocumentView(body), revision: 0, disposed: false };
   transcripts.set(body, made);
   flushSync(() => made.view.render(createElement(TranscriptView, { store })));
@@ -231,6 +233,7 @@ export const transcriptRevision = (body: ChatBody) => transcript(body).revision;
 export function invalidateTranscript(body: ChatBody) { transcript(body).revision++; }
 
 export function setBackground(body: ChatBody, background: BackgroundQuestions | null) { update(body, () => ({ background })); }
+export function setChatTop(body: ChatBody, top: ReactElement | null) { if (transcript(body).store.getState().top !== top) update(body, () => ({ top })); }
 
 /// The body is on screen again: parts that read while it was away read now.
 export function transcriptShown(body: ChatBody) { update(body, state => ({ shown: state.shown + 1 })); }

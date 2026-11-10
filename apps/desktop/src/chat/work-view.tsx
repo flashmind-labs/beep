@@ -24,8 +24,8 @@ import { cardKey } from "./agentcard.ts";
 // chat. A turn draws again only when its view changes.
 
 export function TranscriptView({ store }: { store: StoreApi<TranscriptState> }) {
-  const { turns, background, shown } = useStore(store);
-  return <>{turns.map(view => <TurnRow key={view.turn.key} view={view} shown={shown} />)}{background && <div className="dworkq dgrid8"><BackgroundView value={background} /></div>}</>;
+  const { turns, background, shown, top } = useStore(store);
+  return <>{top}{turns.map(view => <TurnRow key={view.turn.key} view={view} shown={shown} />)}{background && <div className="dworkq dgrid8"><BackgroundView value={background} /></div>}</>;
 }
 
 const TurnRow = memo(function TurnRow({ view, shown }: { view: TurnView; shown: number }) {

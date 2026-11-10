@@ -21,7 +21,7 @@ export function placeWindowParts(parts: Partial<Record<ShellPart, ReactNode>>) {
 }
 
 type Part = "mobile-keyboard" | "project-shell" | "project-sessions:all" | "project-overview" | `settings-page:${"instructions" | "providers"}`
-  | `git-history:${string}` | `thread-card:${string}`;
+  | `git-history:${string}`;
 const scope = createDocumentScope<Part>();
 
 /// Draws into elements the window's views own. Stable hosts keep their DOM through unrelated updates.
