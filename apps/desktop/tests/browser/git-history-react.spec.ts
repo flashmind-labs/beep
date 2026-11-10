@@ -379,7 +379,16 @@ test("diff tree preserves focused files and scroll when refreshed", async ({ pag
   // The list draws only the rows near its viewport.
   await tree.evaluate(element => { element.scrollTop = element.scrollHeight; });
   await expect(row).toBeVisible();
-  const before = await tree.evaluate(element => { element.scrollTop = element.scrollHeight; return element.scrollTop; });
+  // Rows are measured as they mount, which shrinks the list and clamps the
+  // bottom offset, so read it once two frames pass without a change.
+  const before = await tree.evaluate(async element => {
+    for (;;) {
+      element.scrollTop = element.scrollHeight;
+      const top = element.scrollTop;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (element.scrollTop === top && top === element.scrollHeight - element.clientHeight) return top;
+    }
+  });
   await row.focus();
   await row.evaluate(element => { element.dataset.testIdentity = "same"; });
   expect(before).toBeGreaterThan(0);
