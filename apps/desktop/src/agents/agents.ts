@@ -45,7 +45,7 @@ import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
 import { placeSub } from "./place-state.ts";
-import { agentMessage, draftMessage, sessionBody } from "./session-frame.tsx";
+import { agentMessage, draftMessage, sessionBody, shownMessage } from "./session-frame.tsx";
 
 /// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
@@ -494,7 +494,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (!e.shiftKey && k === "1") {
         e.preventDefault();
         leavePane();
-        const body = sessionBody(), chat = agentMessage.current ?? draftMessage.current ?? body;
+        const body = sessionBody(), chat = shownMessage() ?? body;
         if (chat && chat === body && !chat.hasAttribute("tabindex")) chat.setAttribute("tabindex", "-1");
         chat?.focus();
         return true;
