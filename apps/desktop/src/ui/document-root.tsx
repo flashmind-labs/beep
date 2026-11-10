@@ -6,6 +6,8 @@ interface Entry<Slot extends string> { slot: Slot; host: HTMLElement | null; con
 interface Scope { id: number; render(): ReactNode; subscribe(listener: () => void): () => void; snapshot(): number }
 const scopes = new Map<number, Scope>();
 let next = 0, root: Root | null = null;
+/// Set when a window's own tree renders the scopes in place of the shared root.
+let hosted: { revision: number; listeners: Set<() => void> } | null = null;
 
 const Scoped = memo(function Scoped({ scope }: { scope: Scope }) {
   useSyncExternalStore(scope.subscribe, scope.snapshot, scope.snapshot);
@@ -13,9 +15,31 @@ const Scoped = memo(function Scoped({ scope }: { scope: Scope }) {
 });
 
 function renderScopes() {
+  if (hosted) {
+    const host = hosted;
+    host.revision++;
+    flushSync(() => { for (const listener of host.listeners) listener(); });
+    return;
+  }
+
   root ??= createRoot(document.createElement("div"));
   const owner = root;
   flushSync(() => owner.render(<>{[...scopes.values()].map(scope => <Scoped key={scope.id} scope={scope} />)}</>));
+}
+
+/// The scopes as part of a window's own tree, so the window has one root. Call it
+/// before any scope mounts, once, from the window's root render.
+export function documentScopes(): ReactNode {
+  if (root) throw new Error("Document scopes already have their own root");
+  const host = hosted ??= { revision: 0, listeners: new Set() };
+  const subscribe = (listener: () => void) => { host.listeners.add(listener); return () => { host.listeners.delete(listener); }; };
+  const snapshot = () => host.revision;
+  function Scopes() {
+    useSyncExternalStore(subscribe, snapshot, snapshot);
+    return [...scopes.values()].map(scope => <Scoped key={scope.id} scope={scope} />);
+  }
+  // Content without a host stays out of the page, as it did in the shared root.
+  return createPortal(<Scopes />, document.createElement("div"));
 }
 
 /// A scope owns its portals; updates notify only this scope's subscribers.

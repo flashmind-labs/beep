@@ -1,5 +1,5 @@
-import { createElement } from "react";
-import { removeWindowPart, showWindowParts } from "./window-root.ts";
+import { createElement, createRef, type MouseEvent as ReactMouseEvent } from "react";
+import { placeWindowParts } from "./window-root.ts";
 import { PaletteView } from "./palette-view.tsx";
 import type { NavigationArgs } from "./state.ts";
 import { commandKey } from "../ui/platform.ts";
@@ -9,7 +9,6 @@ import { commandKey } from "../ui/platform.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import type { AgentRow } from "../agents/agents.ts";
-import { el } from "../ui/dom.ts";
 import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectFirst } from "../project/projectwindow.ts";
@@ -60,7 +59,9 @@ const ICON_OF: Partial<Record<HitKind | "research", keyof typeof ICONS | keyof t
 const ACTION_VIEWS: Record<string, PaneTarget> = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
 
 let deps: PaletteDeps | null = null;
-let root: HTMLDivElement | null = null, input: HTMLInputElement | null = null;
+/// Whether the palette is open, and its scrim once drawn.
+let open = false, input: HTMLInputElement | null = null;
+const scrim = createRef<HTMLDivElement>();
 let hits: Hit[] = [], sel = 0, drawnQuery = "";
 let searching: PaletteSearch<Entry<AgentRow>> | null = null, back: HTMLElement | null = null;
 /// What the palette finds, as of the app's last word. Empty until the first
@@ -80,19 +81,17 @@ export function initPalette(window_: PaletteDeps) {
   deps = window_;
   readIndex();
   // A window with the palette shut reads it the next time it opens.
-  listen("palette-changed", () => { if (root) readIndex(); else behind = true; });
+  listen("palette-changed", () => { if (open) readIndex(); else behind = true; });
   listen("palette-text-changed", () => searching?.requery());
 }
 
 export function openPalette() {
   if (!deps) return;
-  if (root) return input!.focus();
+  if (open) return input?.focus();
+  open = true;
   back = document.activeElement as HTMLElement | null;
   hits = [];
   sel = 0;
-  const scrim = root = el("div", "cc-scrim");
-  scrim.addEventListener("mousedown", e => { if (e.target === scrim) { e.preventDefault(); close(); } });
-  document.querySelector(".cwin")!.append(scrim);
   drawnQuery = "";
   searching = new PaletteSearch<Entry<AgentRow>>(
     [
@@ -115,12 +114,12 @@ export function openPalette() {
 }
 
 function close() {
-  if (!root) return;
+  if (!open) return;
   searching?.stop();
   searching = null;
-  removeWindowPart("palette");
-  root.remove();
-  root = input = null;
+  placeWindowParts({ palette: null });
+  open = false;
+  input = null;
   const to = back;
   back = null;
   // The sidebar is redrawn now and then, so its Search row may be a new element.
@@ -128,8 +127,9 @@ function close() {
 }
 
 function draw(q: string) {
-  if (!root) return;
-  showWindowParts([{ part: "palette", host: root, content: createElement(PaletteView, {
+  if (!open) return;
+  placeWindowParts({ palette: createElement("div", { className: "cc-scrim", ref: scrim,
+    onMouseDown: (e: ReactMouseEvent) => { if (e.target === e.currentTarget) { e.preventDefault(); close(); } } }, createElement(PaletteView, {
     hits, selected: sel, query: q, subscribed: state.subscribed, searchIcon: IC.find,
     group: (hit: Hit, query: string) => hit.top ? "Top hit" : hit.kind === "chat" && !query ? "Recent chats" : GROUPS[hit.kind],
     icon: (hit: Hit) => {
@@ -138,8 +138,8 @@ function draw(q: string) {
     },
     search: (value: string) => searching?.type(value), choose: pick,
     hover: (index: number) => { if (sel !== index) { sel = index; mark(); } }, ask: ask_,
-  }) }]);
-  input = root.querySelector<HTMLInputElement>("input");
+  })) });
+  input = scrim.current?.querySelector<HTMLInputElement>("input") ?? null;
 }
 
 /// Highlights the selected row and keeps it in view.
@@ -182,14 +182,14 @@ function pick(hit: Hit) {
 
 /// Keys while the palette is open. Runs before the window's other handlers.
 window.addEventListener("keydown", e => {
-  if (!root) return;
+  if (!open) return;
   const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
   if (e.key === "Escape") { stop(); return close(); }
   if (commandKey(e) && e.key.toLowerCase() === "k") { stop(); return close(); }
-  if (commandKey(e) && e.key === "Enter") { stop(); return state.subscribed ? ask_(input!.value) : undefined; }
+  if (commandKey(e) && e.key === "Enter") { stop(); return state.subscribed && input ? ask_(input.value) : undefined; }
   if (e.isComposing) return;
   if (e.key === "Enter") { stop(); if (hits[sel]) pick(hits[sel]); return; }
-  if (e.key === "Tab") { stop(); return input!.focus(); }
+  if (e.key === "Tab") { stop(); return input?.focus(); }
 
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     stop();

@@ -2,9 +2,7 @@
 // description and comments, read from the host through a machine with the
 // project, or the server. The app renders the text as Markdown and drops raw
 // HTML before it gets here, so the HTML it gives is safe to insert. Commenting stays on the host.
-import { createElement } from "react";
-import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import { el as h } from "../ui/dom.ts";
+import { createElement, useReducer, type ComponentProps } from "react";
 import { invoke } from "../ui/tauri.ts";
 import { ThreadDetailView, type ThreadActions } from "./threaddetail-view.tsx";
 
@@ -65,7 +63,6 @@ type Draft = { text: string; posting: boolean; error?: string };
 export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: string) => unknown; comment: () => boolean }) {
   const reads = new Map<string, Read>();
   const drafts = new Map<string, Draft>();
-  let current: { key: string; host: HTMLElement } | null = null;
 
   function read(projectId: string, number: number) {
     const key = `${projectId}#${number}`;
@@ -80,16 +77,11 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     return r;
   }
 
-  function pane(projectId: string, stub: ThreadStub, acts: ThreadActions): HTMLElement {
+  /// The pane of one thread. Its key is the thread, so typing a comment redraws only the pane.
+  function pane(projectId: string, stub: ThreadStub, acts: ThreadActions) {
     const key = `${projectId}#${stub.number}`, readState = read(projectId, stub.number), data = readState.data;
     const draft = drafts.get(key) ?? { text: "", posting: false };
     drafts.set(key, draft);
-    if (current?.key !== key) {
-      if (current) removeWindowPart("project-thread");
-      const host = h("div"); host.style.display = "contents";
-      current = { key, host };
-    }
-    const panel = current;
     const post = () => {
       const body = draft.text.trim();
       if (!data || !body || draft.posting) return;
@@ -99,13 +91,17 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
         .catch(e => { draft.error = String(e).replace(/^(bad request|error):\s*/i, ""); })
         .finally(() => { draft.posting = false; deps.redraw(); });
     };
-    const draw = () => showWindowParts([{ part: "project-thread", host: panel.host, content: createElement(ThreadDetailView, {
+    const view = (redraw: () => void): ComponentProps<typeof ThreadDetailView> => ({
       stub, data, error: readState.error, acts, comment: deps.comment(), text: draft.text, posting: draft.posting, draftError: draft.error,
-      edit: (value: string) => { draft.text = value; draw(); }, post, open: (url: string) => { void deps.openUrl(url); },
-    }) }]);
-    draw();
-    return panel.host;
+      edit: (value: string) => { draft.text = value; redraw(); }, post, open: (url: string) => { void deps.openUrl(url); },
+    });
+    return createElement("div", { style: { display: "contents" }, key }, createElement(ThreadPane, { view }));
   }
 
-  return { pane, dispose: () => { if (current) removeWindowPart("project-thread"); current = null; } };
+  return { pane };
+}
+
+function ThreadPane({ view }: { view: (redraw: () => void) => ComponentProps<typeof ThreadDetailView> }) {
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  return createElement(ThreadDetailView, view(redraw));
 }

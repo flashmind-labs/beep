@@ -1,16 +1,52 @@
 // The command center's sidebar width: dragged on its right edge, moved with
 // the arrow keys there, reset by a double-click, and kept between launches.
-
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { dragHandle } from "../ui/drag.ts";
 
-export const SIDE_MIN = 180;
-export const SIDE_MAX = 420;
-export const SIDE_DEFAULT = 184;
-export const SIDE_STEP = 16;
+const SIDE_MIN = 180;
+const SIDE_MAX = 420;
+const SIDE_DEFAULT = 184;
+const SIDE_STEP = 16;
 const KEY = "beep.sideWidth";
 
+/// The grip on the sidebar's right edge. It sets `--side-w` on the window it sits in.
+export function SideGrip() {
+  const grip = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(load);
+  const current = useRef(width);
+  current.current = width;
+
+  useLayoutEffect(() => { grip.current?.parentElement?.style.setProperty("--side-w", `${width}px`); }, [width]);
+
+  useEffect(() => {
+    const el = grip.current, win = el?.parentElement;
+    if (!el || !win) return;
+    dragHandle(el, e => {
+      const from = e.clientX, start = current.current;
+      win.classList.add("resizing");
+      return {
+        move: ev => setWidth(clampWidth(start + ev.clientX - from)),
+        end: () => { win.classList.remove("resizing"); save(current.current); },
+      };
+    });
+  }, []);
+
+  const set = (w: number) => { setWidth(w); save(w); };
+  return <div ref={grip} className="cc-grip" id="side-grip" role="separator" aria-orientation="vertical" aria-label="Resize the sidebar" tabIndex={0}
+    aria-valuenow={width} aria-valuemin={SIDE_MIN} aria-valuemax={SIDE_MAX}
+    onDoubleClick={() => set(SIDE_DEFAULT)}
+    onKeyDown={e => {
+      const step = e.key === "ArrowLeft" ? -SIDE_STEP : e.key === "ArrowRight" ? SIDE_STEP : 0;
+      if (!step) return;
+      // The page's own arrow keys are for its lists, not for this.
+      e.preventDefault();
+      e.stopPropagation();
+      set(clampWidth(width + step));
+    }} />;
+}
+
 /// `w` as a width the sidebar may take; anything unreadable is the default.
-export function clampWidth(w: number | string | null): number {
+function clampWidth(w: number | string | null): number {
   const n = Number(w);
   if (w === null || w === "" || !Number.isFinite(n)) return SIDE_DEFAULT;
   return Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, n)));
@@ -22,37 +58,4 @@ function load() {
 
 function save(w: number) {
   try { localStorage.setItem(KEY, String(w)); } catch { /* kept for this launch only */ }
-}
-
-/// Wires the handle `grip` to the window `win`, whose `--side-w` sets the
-/// sidebar's width.
-export function initSideResize(win: HTMLElement, grip: HTMLElement) {
-  let width = load();
-  const apply = (w: number) => {
-    width = w;
-    win.style.setProperty("--side-w", `${w}px`);
-    grip.setAttribute("aria-valuenow", String(w));
-  };
-  grip.setAttribute("aria-valuemin", String(SIDE_MIN));
-  grip.setAttribute("aria-valuemax", String(SIDE_MAX));
-  apply(width);
-
-  dragHandle(grip, e => {
-    const from = e.clientX, start = width;
-    win.classList.add("resizing");
-    return {
-      move: ev => apply(clampWidth(start + ev.clientX - from)),
-      end: () => { win.classList.remove("resizing"); save(width); },
-    };
-  });
-  grip.addEventListener("dblclick", () => { apply(SIDE_DEFAULT); save(width); });
-  grip.addEventListener("keydown", e => {
-    const step = e.key === "ArrowLeft" ? -SIDE_STEP : e.key === "ArrowRight" ? SIDE_STEP : 0;
-    if (!step) return;
-    // The page's own arrow keys are for its lists, not for this.
-    e.preventDefault();
-    e.stopPropagation();
-    apply(clampWidth(width + step));
-    save(width);
-  });
 }

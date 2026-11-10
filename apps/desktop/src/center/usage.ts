@@ -1,5 +1,6 @@
 import { createElement } from "react";
-import { showWindowParts } from "./window-root.ts";
+import { placeWindowParts } from "./window-root.ts";
+import { windowHost } from "./window-shell.tsx";
 import { UsageWidget } from "./usage-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
@@ -225,20 +226,18 @@ function keepInWindow(pop: HTMLElement) {
   pop.style.maxHeight = `${Math.max(160, window.innerHeight - r.top - gap)}px`;
 }
 
-/// Draws the pill into `host` and keeps it current.
-export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promise<UsageView | null>) {
+/// Draws the header's usage pill and keeps it current.
+export function mountUsage(read: (refresh: boolean) => Promise<UsageView | null>) {
   let view: UsageView | null = null;
   let loaded = false;
   let open = false;
   let period: PeriodKey = "today";
-  host.classList.add("us");
   const pick = (key: PeriodKey) => { period = key; draw(); };
   const draw = () => {
-    host.hidden = !hasUsage(view);
-    if (!hasUsage(view)) { showWindowParts([{ part: "usage", host, content: null }]); return; }
+    if (!hasUsage(view)) { placeWindowParts({ usage: null }); return; }
     const current = view;
-    showWindowParts([{ part: "usage", host, content: createElement(UsageWidget, { view: current, open, period, allProjects,
-      toggle: () => toggle(!open), pick, more: () => { allProjects = !allProjects; draw(); }, position: keepInWindow }) }]);
+    placeWindowParts({ usage: createElement(UsageWidget, { view: current, open, period, allProjects,
+      toggle: () => toggle(!open), pick, more: () => { allProjects = !allProjects; draw(); }, position: keepInWindow }) });
   };
 
   const load = async (refresh: boolean) => {
@@ -264,7 +263,7 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
     void load(true);
   };
 
-  document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
+  document.addEventListener("click", e => { if (open && !e.composedPath().includes(windowHost("usage"))) toggle(false); });
   document.addEventListener("keydown", e => { if (open && e.key === "Escape") toggle(false); });
   // Spending changes with every turn; the pill follows at most once a second.
   const reload = ambient(() => load(false), AMBIENT_MS);

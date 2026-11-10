@@ -1,3 +1,5 @@
+// The window renders first, so modules that load after it find its elements.
+import "./window-root.ts";
 import { drawHomeComposer, initHomeComposer } from "./home-composer.tsx";
 import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
@@ -13,7 +15,6 @@ import { isNewKey } from "../terminals/newkey-state.ts";
 import { allTerms } from "../terminals/view.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.ts";
-import { initSideResize } from "./sidewidth.ts";
 import { pane } from "../bar/pane.ts";
 import { type BackTo, S } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
@@ -27,7 +28,7 @@ import { pairing } from "./pairing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { windowCommand } from "../ui/windowkeys.ts";
 import { RESEARCHES } from "../research/researches.ts";
-import { $, state, pagesAccount, keepPagesFile } from "./state.ts";
+import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { dismissedUpdates, draw, homeTab, jump } from "./home.ts";
 import { currentLocation, windowProject, toMain, go, goHistory, setWindowProject, openResearch, goTo } from "./views.ts";
 import { reloadGroup, paneOn, reloadChats, openProjects, openProjectWindow, addProject } from "./sidebar.ts";
@@ -61,10 +62,9 @@ initConversationSwitcher({
 
 // ---------- Keys ----------
 
-initSideResize($(".cwin"), $("#side-grip"));
 initMobile();
-mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
-mountNotices($("#bell"));
+mountUsage(refresh => invoke<UsageView | null>("usage_get", { refresh }));
+mountNotices();
 
 initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
 

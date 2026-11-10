@@ -5,7 +5,7 @@ import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
 import { S } from "../bar/core.ts";
 import { homeForDisplay, type HomeView, type NeedsYou, type UpdateRow } from "./home-state.ts";
-import { type CenterView, type Outcome, $, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
+import { type CenterView, type Outcome, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, go } from "./views.ts";
@@ -19,7 +19,8 @@ import { onPlaces } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
 import { createElement } from "react";
-import { showWindowParts } from "./window-root.ts";
+import { placeWindowParts } from "./window-root.ts";
+import { windowHost } from "./window-shell.tsx";
 import { ConnectingView } from "./connecting-view.tsx";
 import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
@@ -121,7 +122,7 @@ function openHomeTab(tab: HomeTab) {
   homeTab = tab;
   homeTabChanged();
   draw();
-  $("#view").scrollTop = 0;
+  windowHost("view").scrollTop = 0;
 }
 
 /// Home: the machines strip, then one tab at a time. A tab with nothing in
@@ -165,20 +166,20 @@ function waitText() {
 
 /// What Home shows before the server first answers: pulsing dots, never a blank
 /// page.
-function drawConnecting(view: HTMLElement) {
+function drawConnecting() {
   const p = problem();
-  showWindowParts([{ part: "home", host: view, content: createElement(ConnectingView, { problem: p, stuck: stuck(), text: waitText(), loading,
-    open: () => { if (p?.view) go("pane", p.view); }, retry: () => { void refresh(); drawConnecting(view); },
-    log: () => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); } }) }]);
+  placeWindowParts({ home: createElement(ConnectingView, { problem: p, stuck: stuck(), text: waitText(), loading,
+    open: () => { if (p?.view) go("pane", p.view); }, retry: () => { void refresh(); drawConnecting(); },
+    log: () => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); } }) });
 }
 
 export function draw() {
   // A hidden Home draws when it is shown: its mount refreshes.
   if (currentLocation()?.view && currentLocation()?.view !== "home") return;
-  const home = homeForDisplay(state.home, S.server), view = $("#view");
-  if (!home || S.server && problem()) return drawConnecting(view);
+  const home = homeForDisplay(state.home, S.server), view = windowHost("view");
+  if (!home || S.server && problem()) return drawConnecting();
   const top = view.scrollTop;
-  showWindowParts([{ part: "home", host: view, content: createElement(HomeShell, page(home)) }]);
+  placeWindowParts({ home: createElement(HomeShell, page(home)) });
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
@@ -222,7 +223,7 @@ export function jump(id?: string) {
     if (state.home) draw();
   }
 
-  const view = $("#view");
+  const view = windowHost("view");
   if (!id) return view.scrollTo({ top: 0 });
   scrollTarget = id;
   // Home redraws when it mounts, so the target is also applied after that draw.
