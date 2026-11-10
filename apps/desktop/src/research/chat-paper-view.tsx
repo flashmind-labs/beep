@@ -1,4 +1,5 @@
-import { Fragment, useLayoutEffect, useMemo, useRef } from "react";
+import { Fragment, useContext, useLayoutEffect, useMemo, useRef } from "react";
+import { ResearchActions } from "./shell-view.tsx";
 import { patchHtml } from "../ui/patch.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { ICON } from "../ui/icons.tsx";
@@ -42,17 +43,20 @@ function Answer({ html }: { html: string }) {
   return <div ref={node} className="dcoderen agent md" />;
 }
 function ExportButton({ exporting }: { exporting: boolean }) {
-  return exporting ? <button className="dbtn" disabled><span className="dspin" />Exporting</button> : <button className="dbtn" data-act="export">Export PDF</button>;
+  const act = useContext(ResearchActions);
+  return exporting ? <button className="dbtn" disabled><span className="dspin" />Exporting</button> : <button className="dbtn" onClick={() => act({ kind: "export" })}>Export PDF</button>;
 }
 export function ResearchChat({ research: o }: { research: Open }) {
+  const act = useContext(ResearchActions);
   const status = o.research?.status, last = o.turns.findLastIndex(t => t.role === "assistant");
-  return <>{o.turns.map((turn, i) => turn.role === "user" ? <div className="dcoderen user" key={i}><b>You</b>{turn.text && <span>{turn.text}</span>}</div> : turn.role === "scheduled" ? <div className="dmuted" key={i}>{turn.label || "Research finished"}</div> : turn.role === "assistant" && turn.html ? <Fragment key={i}><Answer html={turn.html} />{i === last && status === "planning" && o.sending === null && <div className="racts"><button className="dbtn pri" data-act="go">Start<kbd>⌘<span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.ret }} /></kbd></button></div>}{i === last && status === "done" && o.sending === null && <div className="racts"><button className="dbtn" data-act="tab:draft">Open the paper</button><ExportButton exporting={o.exporting} /></div>}</Fragment> : null)}
+  return <>{o.turns.map((turn, i) => turn.role === "user" ? <div className="dcoderen user" key={i}><b>You</b>{turn.text && <span>{turn.text}</span>}</div> : turn.role === "scheduled" ? <div className="dmuted" key={i}>{turn.label || "Research finished"}</div> : turn.role === "assistant" && turn.html ? <Fragment key={i}><Answer html={turn.html} />{i === last && status === "planning" && o.sending === null && <div className="racts"><button className="dbtn pri" onClick={() => act({ kind: "go" })}>Start<kbd>⌘<span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.ret }} /></kbd></button></div>}{i === last && status === "done" && o.sending === null && <div className="racts"><button className="dbtn" onClick={() => act({ kind: "tab", tab: "draft" })}>Open the paper</button><ExportButton exporting={o.exporting} /></div>}</Fragment> : null)}
     {o.sending !== null && <div className="dcoderen agent md"><RichText html={o.sending} /><span className="caret" /></div>}{RUNNING.has(status) && <div className="rstatus"><span className="dspin" />{progress(o, Date.now())}</div>}{o.error && <div className="derr">{o.error}</div>}</>;
 }
 export function ResearchPaper({ research: o }: { research: Open }) {
+  const act = useContext(ResearchActions);
   const r = o.research, status = r?.status ?? "planning";
   const html = useMemo(() => r ? cite(r.sources, r.draft_html) : "", [r?.sources, r?.draft_html]);
   if (!r || (status === "planning" && !o.entries.some(e => e.kind === "note"))) return <div className="rpane"><div className="rbox rempty">The workspace fills in once the team starts.</div></div>;
   if (!r.draft) return <div className="rpane"><div className="rbox rempty">{RUNNING.has(status) ? "The writer starts after the critic's review." : "No paper was written."}</div></div>;
-  return <><div className="rpane"><div className="rdoc"><span className="by">Written by {agentOf(o, "writer").name}, reviewed by {agentOf(o, "critic").name}. {r.sources.length} sources.</span><RichText html={html} /></div></div><div className="agpacts"><span className="meta">Markdown, {count(r.sources.length, "source")}</span><span className="sp" /><button className="dbtn" data-act="copy">Copy</button><ExportButton exporting={o.exporting} /></div></>;
+  return <><div className="rpane"><div className="rdoc"><span className="by">Written by {agentOf(o, "writer").name}, reviewed by {agentOf(o, "critic").name}. {r.sources.length} sources.</span><RichText html={html} /></div></div><div className="agpacts"><span className="meta">Markdown, {count(r.sources.length, "source")}</span><span className="sp" /><button className="dbtn" onClick={() => act({ kind: "copy" })}>Copy</button><ExportButton exporting={o.exporting} /></div></>;
 }

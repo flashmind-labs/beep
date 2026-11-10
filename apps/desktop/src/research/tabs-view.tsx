@@ -1,6 +1,9 @@
+import { useContext } from "react";
 import { agentOf, shownTab, type Open } from "./research-state.ts";
+import { ResearchActions } from "./shell-view.tsx";
 
 export function ResearchTabs({ research }: { research: Open }) {
+  const act = useContext(ResearchActions);
   const selected = shownTab(research);
   const notes = research.entries.filter(entry => entry.kind === "note").length;
   const tabs = [
@@ -10,8 +13,8 @@ export function ResearchTabs({ research }: { research: Open }) {
     { id: "agents", label: "Agents", count: 0, close: false },
     ...research.tabs.map(id => ({ id, label: id === "room" ? "Room" : agentOf(research, id).name, count: 0, close: true })),
   ];
-  return <>{tabs.map(tab => <button key={tab.id} className={`agtab${selected === tab.id ? " on" : ""}`} role="tab" aria-selected={selected === tab.id} data-act={`tab:${tab.id}`} title={tab.label}>
+  return <>{tabs.map(tab => <button key={tab.id} className={`agtab${selected === tab.id ? " on" : ""}`} role="tab" aria-selected={selected === tab.id} title={tab.label} onClick={() => act({ kind: "tab", tab: tab.id })}>
     <span>{tab.label}</span>{tab.count > 0 && <small>{tab.count}</small>}
-    {tab.close && <em role="button" data-act={`close:${tab.id}`} aria-label={`Close ${tab.label}`} title="Close"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></em>}
+    {tab.close && <em role="button" onClick={event => { event.stopPropagation(); act({ kind: "close", tab: tab.id }); }} aria-label={`Close ${tab.label}`} title="Close"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg></em>}
   </button>)}</>;
 }
