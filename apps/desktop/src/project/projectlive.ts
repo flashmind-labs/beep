@@ -1,7 +1,6 @@
 // Whether the project page shown updates live (only an older server says so)
 // or by polling, and the reads it starts.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { MakeEl } from "../ui/dom.ts";
 import { installViews, type ViewSnapshot } from "../ui/snapshot-state.ts";
 
 /// What the server says of a followed project (LiveRow).
@@ -15,7 +14,7 @@ export interface LiveRow {
   views?: ViewSnapshot[];
 }
 
-/// How a project reads its host: undefined while unknown.
+/// How a project reads its host.
 export interface LiveMode {
   live: boolean;
   why: string | null;
@@ -23,25 +22,13 @@ export interface LiveMode {
 
 export interface LiveDeps {
   invoke: typeof Invoke;
-  h: MakeEl;
   redraw: () => void;
   /// Reads the project's lists or runs again.
   reload: (id: string, lists: boolean, runs: boolean) => void;
 }
 
-const LIVE_TIP = "Live: updates through a webhook";
-const POLLING_TIP = "Polling every few minutes. Live needs admin rights on the repository.";
-
-/// The chip next to a section's synced time; null while unknown.
-export function modeChip(h: MakeEl, mode: LiveMode | undefined) {
-  if (!mode) return null;
-  const chip = h("small", mode.live ? "sw-mode live" : "sw-mode", mode.live ? "live" : "polling");
-  chip.title = mode.live ? LIVE_TIP : mode.why ? `Polling: ${mode.why}` : POLLING_TIP;
-  return chip;
-}
-
 export function makeProjectLive(deps: LiveDeps) {
-  const { invoke, h, redraw, reload } = deps;
+  const { invoke, redraw, reload } = deps;
   const modes = new Map<string, LiveMode>();
   let current: string | null = null;
   let pending = Promise.resolve();
@@ -90,6 +77,6 @@ export function makeProjectLive(deps: LiveDeps) {
   return {
     follow,
     heard,
-    chip: (id: string) => modeChip(h, modes.get(id)),
+    mode: (id: string): LiveMode | null => modes.get(id) ?? null,
   };
 }

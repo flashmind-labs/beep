@@ -1,16 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeProjectLive } from "../src/project/projectlive.ts";
-import type { MakeEl } from "../src/ui/dom.ts";
-
-interface Fake { cls: string; text: string; title: string }
-const h = ((_tag: string, cls: string, ...kids: string[]) => ({ cls, text: kids.join(""), title: "" })) as unknown as MakeEl;
-
 function setup() {
   const calls: [string, unknown][] = [];
   const reads: [string, boolean, boolean][] = [];
   const invoke = (async (cmd: string, args?: unknown) => { calls.push([cmd, args]); }) as never;
-  const live = makeProjectLive({ invoke, h, redraw: () => {}, reload: (id, lists, runs) => reads.push([id, lists, runs]) });
+  const live = makeProjectLive({ invoke, redraw: () => {}, reload: (id, lists, runs) => reads.push([id, lists, runs]) });
   return { live, calls, reads };
 }
 
@@ -31,19 +26,17 @@ test("the window follows only the project it shows", async () => {
 test("an event reads again only what it changed, and the chip says live or polling", async () => {
   const { live, reads } = setup();
   await live.follow("p1");
-  assert.equal(live.chip("p1"), null, "unknown until the server says");
+  assert.equal(live.mode("p1"), null, "unknown until the server says");
   live.heard({ project_id: "p1", live: true, polling_why: null, lists: false, runs: false });
   assert.deepEqual(reads, []);
-  assert.equal((live.chip("p1") as unknown as Fake).text, "live");
+  assert.deepEqual(live.mode("p1"), { live: true, why: null });
   live.heard({ project_id: "p1", live: true, polling_why: null, lists: false, runs: true });
   assert.deepEqual(reads, [["p1", false, true]]);
   live.heard({ project_id: "p1", live: false, polling_why: "Live updates need admin rights.", lists: false, runs: false });
-  const chip = live.chip("p1") as unknown as Fake;
-  assert.equal(chip.text, "polling");
-  assert.match(chip.title, /admin rights/);
+  assert.deepEqual(live.mode("p1"), { live: false, why: "Live updates need admin rights." });
   // A server too old to say shows no chip.
   live.heard({ project_id: "p1", live: null, polling_why: null, lists: false, runs: false });
-  assert.equal(live.chip("p1"), null);
+  assert.equal(live.mode("p1"), null);
 });
 
 test("hidden and unrelated project snapshots do not read views", async () => {
@@ -78,7 +71,7 @@ function delayed() {
       registered.delete(args.projectId);
     }
   }) as never;
-  const live = makeProjectLive({ invoke, h, redraw() {}, reload() {} });
+  const live = makeProjectLive({ invoke, redraw() {}, reload() {} });
   return { live, first, calls, registered };
 }
 
@@ -130,7 +123,7 @@ test("failed registration and cleanup preserve later ownership changes", async t
       registered.delete(id);
     }
   }) as never;
-  const live = makeProjectLive({ invoke, h, redraw() {}, reload() {} });
+  const live = makeProjectLive({ invoke, redraw() {}, reload() {} });
   live.follow("p1");
   await settle();
   const switched = live.follow("p2");
@@ -153,7 +146,7 @@ test("repeated cleanup retries an unacknowledged source without starting it agai
     calls.push(command);
     if (command === "unfollow_project" && ++cleanups === 1) throw new Error("cleanup failed");
   }) as never;
-  const live = makeProjectLive({ invoke, h, redraw() {}, reload() {} });
+  const live = makeProjectLive({ invoke, redraw() {}, reload() {} });
   await live.follow("p1");
   await live.follow(null);
   await live.follow(null);

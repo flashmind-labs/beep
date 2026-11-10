@@ -73,7 +73,7 @@ export const gitHistory = makeGitHistory({
 /// Whether the project shown is live or polling; what its host changed is
 /// read again as the server says.
 export const liveMode = makeProjectLive({
-  invoke, h,
+  invoke,
   redraw: () => redrawProjects(),
   reload: (id: string, lists: boolean, ran: boolean) => {
     if (lists) thr.load(id);
@@ -103,7 +103,7 @@ export const runs = makeRuns({
   redraw: () => redrawProjects(),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
-  mode: liveMode.chip,
+  mode: liveMode.mode,
   kept: keptSection("runs"),
   hostsChanged: () => redrawProjectsPage(),
   slot: panelSlot,
