@@ -6,13 +6,15 @@ import { AG, type AgentPage } from "../src/agents/agents.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody } from "../src/agents/logview.ts";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
-import { disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
+import { answerAgentQuestion, answerFirst, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
 import { askUpload, MN } from "../src/agents/workdrop.ts";
 import { drawTasks } from "../src/agents/tasks.ts";
 import { drawAgentAttached } from "../src/agents/images.ts";
 import { createElement } from "react";
 import { showAgentControl } from "../src/agents/composer-ui.tsx";
+import { questionKey } from "../src/agents/coderhtml.ts";
+import { AgentPlan } from "../src/agents/mode-view.tsx";
 
 function setup() {
   const previous = bar.querySelector<HTMLElement>("#agbody");
@@ -31,7 +33,7 @@ function setup() {
     queue: [], att: [], note: "", child: null, held: 0, stopping: null,
   });
   Object.assign(MN, { paths: [], uploads: [] });
-  bar.innerHTML = '<div id="agbody"></div><div id="agfield"><textarea id="agmsg"></textarea></div>';
+  bar.innerHTML = '<div id="agconv"><div id="agbody"></div><div id="agplan"></div><div id="agfield"><textarea id="agmsg"></textarea></div></div>';
   Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
   const input = bar.querySelector("#agmsg")!;
   assert.ok(input instanceof HTMLTextAreaElement);
@@ -394,4 +396,61 @@ test("replacing a transcript with a starting state clears virtualized rows", t =
   assert.match(bar.querySelector(".dagmain")?.textContent ?? "", /Starting the agent/);
   page.entries = [{ kind: "user", text: "New" }]; drawAgentBody();
   assert.match(bar.querySelector(".dcoderlog")?.textContent ?? "", /New/);
+});
+
+
+test("stale displayed approvals cannot answer a replacement question or changed options", async t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  page.session.question = { id: 1, text: "Run this?", detail: null, options: [{ id: "yes", name: "Allow", allow: true }] };
+  drawAgentBody();
+  const old = bar.querySelector<HTMLButtonElement>("[data-agopt='0']"); assert.ok(old); old.focus();
+  page.session.question = { id: 2, text: "Delete this?", detail: null, options: [{ id: "delete", name: "Delete", allow: true }] };
+  drawAgentBody(undefined, true);
+  await answerAgentQuestion(0, old.dataset.agquestion ?? "");
+  assert.equal(calls.filter(call => call.cmd === "center_answer_agent").length, 0);
+  const current = bar.querySelector<HTMLButtonElement>("[data-agopt='0']"); assert.ok(current); current.focus();
+  page.session.question.options[0] = { id: "other", name: "Other", allow: true };
+  drawAgentBody(undefined, true);
+  assert.equal(answerFirst(true), true);
+  assert.equal(calls.filter(call => call.cmd === "center_answer_agent").length, 0);
+  const updated = bar.querySelector<HTMLButtonElement>("[data-agopt='0']"); assert.ok(updated);
+  await answerAgentQuestion(0, updated.dataset.agquestion ?? "");
+  const sent = calls.filter(call => call.cmd === "center_answer_agent");
+  assert.equal(sent.length, 1);
+  assert.equal((sent[0].args as { question: number; reply: string }).question, 2);
+  assert.equal((sent[0].args as { question: number; reply: string }).reply, "other");
+});
+
+
+test("plan approval shortcuts validate the displayed question", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  const first = { id: 4, text: "Approve plan?", detail: null, options: [{ id: "allow", name: "Allow", allow: true }] };
+  page.session.question = first;
+  const field = bar.querySelector<HTMLElement>("#agfield"); assert.ok(field);
+  const host = bar.querySelector<HTMLElement>("#agplan"); assert.ok(host);
+  showAgentControl(field, host, createElement(AgentPlan, { harness: "Agent", plan: "Plan", question: first, approvalKey: questionKey(first, AG.open!), answering: null }));
+  page.session.question = { ...first, id: 5 };
+  assert.equal(answerFirst(true), true);
+  assert.equal(calls.filter(call => call.cmd === "center_answer_agent").length, 0);
+});
+
+test("approval actions use the active session and ignore cached controls", async t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  const question = { id: 7, text: "Continue?", detail: null, options: [{ id: "yes", name: "Allow", allow: true }] };
+  page.session.question = question;
+  drawAgentBody();
+  const old = bar.querySelector<HTMLButtonElement>("[data-agopt='0']"); assert.ok(old);
+  const oldKey = old.dataset.agquestion ?? "";
+  const hidden = document.createElement("div"); hidden.hidden = true; hidden.append(old.cloneNode(true)); bar.prepend(hidden);
+  AG.open = { machine_id: "m2", agent: "claude", session: "other" };
+  page.session.machine_id = "m2"; page.session.id = "other";
+  await answerAgentQuestion(0, oldKey);
+  assert.equal(calls.filter(call => call.cmd === "center_answer_agent").length, 0);
+  assert.equal(answerFirst(true), true);
+  const sent = calls.filter(call => call.cmd === "center_answer_agent");
+  assert.equal(sent.length, 1);
+  assert.equal((sent[0].args as { machineId: string }).machineId, "m2");
 });

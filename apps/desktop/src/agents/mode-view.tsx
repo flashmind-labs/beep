@@ -14,6 +14,6 @@ export function AgentStatus({ status, stopping }: { status: string; stopping: bo
 export function AgentStopFace({ stopping }: { stopping: boolean }) {
   return <><span className={stopping ? "dspin" : "dstopico"} />{stopping ? "Stopping" : "Stop"}</>;
 }
-export function AgentPlan({ harness, plan, question, answering }: { harness: string; plan: string; question: AgentQuestion; answering: number | string | null }) {
-  return <div className="ag-plan"><div className="h"><b>Plan ready</b><small>{harness} waits for you</small></div>{plan && <div className="dcoderen agent md" dangerouslySetInnerHTML={{ __html: answerHtml(plan) }} />}<div className="acts">{question.options.map((option, index) => <button key={option.id} className={`dbtn${option.allow ? " pri" : ""}`} data-agopt={index} disabled={question.id === answering}>{option.name}</button>)}</div></div>;
+export function AgentPlan({ harness, plan, question, approvalKey, answering }: { harness: string; plan: string; question: AgentQuestion; approvalKey: string; answering: number | string | null }) {
+  return <div className="ag-plan"><div className="h"><b>Plan ready</b><small>{harness} waits for you</small></div>{plan && <div className="dcoderen agent md" dangerouslySetInnerHTML={{ __html: answerHtml(plan) }} />}<div className="acts">{question.options.map((option, index) => <button key={option.id} className={`dbtn${option.allow ? " pri" : ""}`} data-agopt={index} data-agquestion={approvalKey} data-agallow={String(option.allow)} disabled={question.id === answering}>{option.name}</button>)}</div></div>;
 }

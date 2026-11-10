@@ -653,7 +653,7 @@ function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
   const target = e.target as HTMLElement;
   const opt = target.closest<HTMLElement>("[data-agopt]");
-  if (opt) return answerAgentQuestion(Number(opt.dataset.agopt));
+  if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
   if (target.closest("#agmodelb")) return toggleModelPicker();
   if (target.closest("#agmodeb")) { cycleMode(); $("#agmsg")?.focus(); return; }
   const task = target.closest<HTMLElement>("[data-agtask]");

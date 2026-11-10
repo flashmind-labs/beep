@@ -1,8 +1,11 @@
 // The parts a coding agent's card shares between a chat and the session
 // page: its question, plan and changed files.
-import type { AgentQuestion } from "./agents.ts";
+import type { AgentQuestion, OpenAgent } from "./agents.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.ts";
+
+/// Binds an approval action to the question and options shown to the user.
+export const questionKey = (q: AgentQuestion, session: OpenAgent) => JSON.stringify([session.machine_id, session.agent, session.session, q.id, q.text, q.detail, q.options.map(o => [o.id, o.name, o.allow])]);
 
 const mark = (status: string, asking: boolean) => status === "completed" ? `<span class="dok">${ICON.check}</span>`
   : status === "in_progress" ? (asking ? '<span class="ddot hot"></span>' : '<span class="dspin"></span>')
