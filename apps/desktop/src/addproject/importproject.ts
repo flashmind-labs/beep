@@ -22,7 +22,7 @@ import type { MachineCard } from "../machines/machine-state.ts";
 export type Machine = Pick<MachineCard, "id" | "name" | "online" | "env" | "can_host">;
 
 /// What the window hands the sheet.
-export interface ImportProjectOptions {
+interface ImportProjectOptions {
   /// The machines Home lists.
   machines?: readonly Machine[];
   /// This Mac's machine id, when it is one.
@@ -145,7 +145,7 @@ function schedulePreview() {
   }, 700);
 }
 
-export function closeImportProject() {
+function closeImportProject() {
   close?.();
 }
 

@@ -5,9 +5,9 @@ import { barPlace, type BarHost } from "./projectbar.ts";
 import { harnessFor } from "../agents/agentpick.ts";
 
 /// When an item opened, as a filter.
-export type OpenedIn = "any" | "today" | "yesterday" | "week";
+type OpenedIn = "any" | "today" | "yesterday" | "week";
 
-export type Order = "newest" | "oldest";
+type Order = "newest" | "oldest";
 
 export const OPENED_IN: readonly { id: OpenedIn; label: string }[] = [
   { id: "any", label: "Any time" },

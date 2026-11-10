@@ -139,7 +139,7 @@ export function targetFolders(t: Pick<BarTarget, "branch">, cwd: string, known?:
 }
 
 /// The session fields `sessionIn` reads.
-export interface BarSession {
+interface BarSession {
   machine_id: string;
   cwd: string;
   external: boolean;

@@ -7,7 +7,7 @@ export interface MachineTraffic {
   counters: { key: string; bytes: number }[];
 }
 
-export interface TrafficRow {
+interface TrafficRow {
   label: string;
   sent: number;
   received: number;

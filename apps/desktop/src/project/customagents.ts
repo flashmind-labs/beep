@@ -16,7 +16,7 @@ interface Listed {
   loading: boolean;
 }
 
-export interface CustomAgentsDeps {
+interface CustomAgentsDeps {
   redraw: () => void;
   /// Start: a coding session with agent `a`, read on `place`.
   start: (a: CustomAgentRow, place: AgentsPlace) => void;

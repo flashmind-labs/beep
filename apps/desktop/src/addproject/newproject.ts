@@ -14,7 +14,7 @@ import type { Created, Forge, NewProjectForm } from "./newproject-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
 /// What the window hands the sheet.
-export interface NewProjectOptions {
+interface NewProjectOptions {
   /// The machines Home lists.
   machines?: readonly { id: string; name: string; online: boolean; can_host?: boolean }[];
   /// Runs with where it landed first, once the sheet closes on it.
@@ -64,7 +64,7 @@ export function openNewProject(options: NewProjectOptions = {}) {
 
 /// Closes the sheet; a project made by then opens. One still being made
 /// opens once it is in.
-export function closeNewProject() {
+function closeNewProject() {
   close?.();
 }
 

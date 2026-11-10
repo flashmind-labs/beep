@@ -167,7 +167,7 @@ export function openAddProject(options: AddProjectOptions = {}) {
     .finally(() => { if (live()) draw(); });
 }
 
-export function closeAddProject() {
+function closeAddProject() {
   close?.();
 }
 

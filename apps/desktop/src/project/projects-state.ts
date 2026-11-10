@@ -201,7 +201,7 @@ export function foundSessions(row: Pick<FoundRow, "agents"> | null | undefined) 
 }
 
 /// What `import_project` takes for one place.
-export type ImportArgs = {
+type ImportArgs = {
   repo: string;
   machineId: string;
   folder: string;
@@ -465,7 +465,7 @@ export interface GroupHeading {
 
 /// A project row in the sidebar: `repo` is what shows under its heading,
 /// the name after the org's slash, or the whole name under a group's.
-export type SideProject<T> = Placed<T> & { repo?: string; org?: undefined; group?: undefined; folded?: undefined };
+type SideProject<T> = Placed<T> & { repo?: string; org?: undefined; group?: undefined; folded?: undefined };
 
 /// A project row that groups can place: its name and where it is.
 export type Groupable = { name: string; i?: number; machines?: readonly { folder: string }[] | null };

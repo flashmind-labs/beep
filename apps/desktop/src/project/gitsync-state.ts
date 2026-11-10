@@ -20,7 +20,7 @@ export type GitMove = "pull" | "push";
 
 /// How a row reads: the words after the branch, which buttons work, and
 /// whether there are buttons at all. The counts are on the buttons.
-export interface GitLine {
+interface GitLine {
   branch: string | null;
   text: string;
   buttons: boolean;
@@ -61,7 +61,7 @@ export function gitSyncWarning(row: { status: string; error: string | null }): s
   return agentCanFix(error) || /Git commits differ between peers/i.test(error) ? "Git sync needs review" : null;
 }
 
-export interface SyncRepair {
+interface SyncRepair {
   project: string;
   machine: string;
   error: string;

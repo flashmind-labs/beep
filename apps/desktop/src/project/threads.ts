@@ -23,7 +23,7 @@ export interface IssueRow {
 }
 
 /// One of the user's open pull requests or issues in a project (ThreadRow).
-export interface ThreadRow {
+interface ThreadRow {
   /// `pr` or `issue`.
   kind: string;
   repo: string;
@@ -73,13 +73,13 @@ export interface PullRequestHead {
 }
 
 /// A task as the sections read it.
-export type TaskLink = Pick<TaskRow, "id" | "title" | "state" | "pr_url" | "issue_number" | "issue_url" | "branch">;
+type TaskLink = Pick<TaskRow, "id" | "title" | "state" | "pr_url" | "issue_number" | "issue_url" | "branch">;
 
 /// A branch review as the pull request rows read it.
-export type PrReview = Pick<ReviewView, "branch"> & Parameters<typeof reviewState>[0];
+type PrReview = Pick<ReviewView, "branch"> & Parameters<typeof reviewState>[0];
 
 /// "#52", "PR #41".
-export function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
+function threadCode(t: Pick<ThreadRow, "kind" | "number">) {
   return t.kind === "pr" ? `PR #${t.number}` : `#${t.number}`;
 }
 
@@ -92,7 +92,7 @@ export function issueMeta(i: Partial<Pick<IssueRow, "author" | "opened_at" | "co
 }
 
 /// The line under a thread: who wrote last, else that nothing waits.
-export function threadMeta(t: Pick<ThreadRow, "last_other" | "updated_at" | "needs_reply">, ago: Ago) {
+function threadMeta(t: Pick<ThreadRow, "last_other" | "updated_at" | "needs_reply">, ago: Ago) {
   const out = [];
   if (t.last_other) out.push(t.last_other);
   if (t.updated_at) out.push(ago(t.updated_at));
@@ -107,7 +107,7 @@ export function prNumber(url: string | null | undefined) {
 }
 
 /// One row of the Pull requests section.
-export interface PrLine {
+interface PrLine {
   pr: PullRequestRow;
   /// The project task that opened it.
   task: TaskLink | null;
@@ -177,7 +177,7 @@ export function prChip(l: PrLine): { cls: string; text: string } | null {
 
 /// One row of the Issues section: an open issue no task tracks, or a
 /// task's issue.
-export interface IssueLine {
+interface IssueLine {
   number: number;
   title: string;
   url: string;
@@ -228,7 +228,7 @@ export function issueBranch(number: number, title: string) {
 }
 
 /// The project's lists as the server keeps them (ListsRow).
-export interface ListsRow {
+interface ListsRow {
   prs: PullRequestRow[];
   prs_error: string | null;
   issues: IssueRow[];

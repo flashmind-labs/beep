@@ -18,7 +18,7 @@ import type { SyncDetail } from "./filesync.ts";
 import { plainPath, type MachineFolder } from "./projects-state.ts";
 
 /// What the page hands the sheet.
-export interface AddToMachine {
+interface AddToMachine {
   project: string;
   machine: { id: string; name: string };
   /// `linux`, `macos` or `windows`, once the machine has said.

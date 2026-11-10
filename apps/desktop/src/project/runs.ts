@@ -23,7 +23,7 @@ import {
 export { going, runKey };
 
 /// The current step of a running job (StepRow).
-export interface StepNow {
+interface StepNow {
   number: number;
   of: number;
   name: string;
@@ -32,7 +32,7 @@ export interface StepNow {
 }
 
 /// Where a running run is (ProgressRow).
-export interface RunProgress {
+interface RunProgress {
   job: string;
   job_started_at: number | null;
   jobs_done: number;
@@ -43,7 +43,7 @@ export interface RunProgress {
 
 /// `queued`, `waiting`, `running`, `passed`, `failed`, `cancelled`,
 /// `skipped` or `unknown`.
-export type RunState = string;
+type RunState = string;
 
 /// One workflow run (RunRow).
 export interface RunRow {
@@ -108,7 +108,7 @@ export function hostLabel(host: string | null | undefined, hosts: readonly Pick<
 
 /// The board's Actions tile: the newest runs, a chip on each, and the
 /// host beside a run when the runs come from more than one.
-export function runTile(d: Pick<RunsRow, "runs" | "hosts"> | null | undefined, error = ""): TileData {
+function runTile(d: Pick<RunsRow, "runs" | "hosts"> | null | undefined, error = ""): TileData {
   if (d === undefined) return { count: "", rows: [], empty: "Loading…" };
   if (d === null) return { count: "", rows: [], empty: "The server needs an update before it shows runs" };
   if (error && !d.runs.length) return { count: "", rows: [], empty: error };
@@ -137,7 +137,7 @@ export function hostCounts(d: Pick<RunsRow, "runs" | "hosts">) {
   });
 }
 
-export interface RunStepRow {
+interface RunStepRow {
   number: number;
   name: string;
   state: RunState;
@@ -155,7 +155,7 @@ export interface RunJobRow {
   url: string;
 }
 
-export interface RunLogRow {
+interface RunLogRow {
   job: string;
   step: string | null;
   text: string;
@@ -220,7 +220,7 @@ export function runsCount(runs: readonly Pick<RunRow, "state">[]) {
 }
 
 /// The failed job and step a run's jobs name, if any.
-export function failedAt(jobs: readonly RunJobRow[]) {
+function failedAt(jobs: readonly RunJobRow[]) {
   const job = jobs.find(j => j.state === "failed") || null;
   const step = job?.steps.find(s => s.state === "failed") || null;
   return { job, step };
@@ -260,7 +260,7 @@ export function runTarget(r: Pick<RunRow, "number" | "branch">, base: string | n
 
 /// What the page hands `makeRuns`. `fix(name, detail)` fills the start
 /// form for Fix this.
-export interface RunDeps {
+interface RunDeps {
   invoke: typeof Invoke;
   h: MakeEl;
   button: MakeButton;

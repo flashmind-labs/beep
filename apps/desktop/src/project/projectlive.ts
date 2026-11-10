@@ -20,7 +20,7 @@ export interface LiveMode {
   why: string | null;
 }
 
-export interface LiveDeps {
+interface LiveDeps {
   invoke: typeof Invoke;
   redraw: () => void;
   /// Reads the project's lists or runs again.

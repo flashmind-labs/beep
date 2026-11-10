@@ -6,7 +6,7 @@ import { openSheet } from "../ui/parts.ts";
 import { addGroupFolder, groupPath, type ProjectGroup } from "./projects-state.ts";
 import { reason } from "../ui/format.ts";
 
-export interface GroupSheetOptions {
+interface GroupSheetOptions {
   group?: ProjectGroup | null;
   matches: (paths: readonly string[]) => number;
   onSaved: (group: ProjectGroup) => void;
