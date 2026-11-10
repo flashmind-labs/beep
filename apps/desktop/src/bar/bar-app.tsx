@@ -66,7 +66,11 @@ export function openBarPage(release: () => void): BarPageSlot {
   flushSync(() => pages.setState({ id, page: { view: "none" } }));
 
   const isOpen = () => opened?.id === id;
-  const show = (page: BarPage) => { if (isOpen()) pages.setState({ page }); };
+  const show = (page: BarPage) => {
+    if (!isOpen()) return;
+    mount();
+    pages.setState({ page });
+  };
   return {
     host: box,
     isOpen,
@@ -75,8 +79,8 @@ export function openBarPage(release: () => void): BarPageSlot {
   };
 }
 
-/// The page box, mounted on first use. A box no longer in the page, as when
-/// a test replaced the document, is mounted again.
+/// The page box, mounted on first use. When something replaced the bar's
+/// contents, the next draw mounts a new box with the page on screen.
 function mount(): HTMLElement {
   if (app?.host.isConnected) return app.host;
 
