@@ -70,4 +70,6 @@ fn a_call_names_its_folder_by_workdir_or_the_file_it_edits() {
         Some(PathBuf::from("/srv/project/.worktrees/fix/src"))
     );
     assert_eq!(call_folder(base, Some(&json!({"cmd": "ls"})), None), None);
+    let remote = json!({"machine": "build-box", "cwd": "/srv/other"});
+    assert_eq!(call_folder(base, Some(&remote), None), None);
 }

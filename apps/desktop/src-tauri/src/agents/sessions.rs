@@ -535,8 +535,8 @@ impl From<AgentModel> for ModelView {
     }
 }
 
-/// The models `agent` can run on `machine_id`; `None` from a server too
-/// old to say, which the form takes as none to pick.
+/// The models `agent` can run on `machine_id`; failures retain their context
+/// for the picker and the local log.
 #[tauri::command]
 pub async fn agent_models(
     beep: Service<'_>,
@@ -546,7 +546,7 @@ pub async fn agent_models(
 ) -> Result<Option<ModelsView>> {
     let request = ListAgentModels {
         machine_id: machine_id.clone(),
-        agent,
+        agent: agent.clone(),
     };
     let asked = match fleet.member(&machine_id) {
         Some(machine) => direct::models(&fleet, machine, &request).await,
@@ -555,8 +555,10 @@ pub async fn agent_models(
 
     match asked {
         Ok(list) => Ok(Some(list.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
+        Err(e) => {
+            log::warn!("model lookup failed: machine={machine_id} harness={agent}: {e:#}");
+            Err(e)
+        }
     }
 }
 

@@ -5,7 +5,7 @@ use super::{
     fetch::{Ahead, Fetched, Wanted, copy_out, read_store},
     list::{Work, move_target, plan, turn},
     state::{GitCopy, Seen},
-    task::Task,
+    task::{Task, WAITING_FOR_GIT},
 };
 use crate::files::sync::{
     disk::{self},
@@ -169,16 +169,12 @@ impl Task {
 
         if let Err(e) = aligned.and(self.shared.check_git().await) {
             self.pending = 1;
-            self.fail("waiting for Git", &e);
+            self.fail(WAITING_FOR_GIT, &e);
             self.publish_status(None);
             return false;
         }
 
-        if self
-            .error
-            .as_deref()
-            .is_some_and(|error| error.starts_with("waiting for Git: "))
-        {
+        if self.waits_for_git() {
             self.error = None;
         }
 

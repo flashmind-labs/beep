@@ -133,24 +133,17 @@ pub async fn found_folders<S: Sessions + ?Sized>(
     }
 }
 
-/// The models `agent` can run on the node; `None` from a node too old to say.
-pub async fn models<S: Sessions + ?Sized>(
-    node: &S,
-    agent: &str,
-) -> Result<Option<ModelList>, MeshError> {
+/// The models `agent` can run on the node. Link failures remain errors so
+/// callers can retry rather than treating them as a fixed model.
+pub async fn models<S: Sessions + ?Sized>(node: &S, agent: &str) -> Result<ModelList, MeshError> {
     let request = SessionsRequest::Models {
         agent: agent.to_owned(),
     };
 
     match node.sessions(request, MODELS_TIMEOUT).await {
-        Ok(SessionsReply::Models { models }) => Ok(Some(models)),
+        Ok(SessionsReply::Models { models }) => Ok(models),
         Ok(SessionsReply::Error { message }) => Err(said(message)),
         Ok(other) => Err(unexpected(&other)),
-        // A node that cannot say, such as one from before models, closes the stream.
-        Err(MeshError::Link(e)) => {
-            tracing::debug!("node did not list models; agent={agent} error={e:#}");
-            Ok(None)
-        }
         Err(e) => Err(e),
     }
 }

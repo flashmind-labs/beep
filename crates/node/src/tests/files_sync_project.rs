@@ -980,3 +980,23 @@ async fn unreadable_git_does_not_enable_file_sync() {
     assert_eq!(project.deleted(), Vec::<String>::new());
     project.stop().await;
 }
+
+#[tokio::test]
+async fn scanning_does_not_clear_a_git_alignment_failure() {
+    let mut project = Project::new(&["a.txt"]).await;
+    project.task.shared.lock().saved.git_only = true;
+    // Seen once, so the scan below finds nothing new.
+    project.task.scan(Reason::Request).await;
+    let error = "waiting for Git: commits differ".to_owned();
+    project.task.error = Some(error.clone());
+    project.task.publish_status(None);
+    let mut status = project.task.shared.watch_status();
+    status.borrow_and_update();
+
+    project.task.scan(Reason::Request).await;
+
+    assert_eq!(project.task.error.as_ref(), Some(&error));
+    assert_eq!(project.task.shared.status().state, SyncState::Failed);
+    assert!(!status.has_changed().unwrap());
+    project.stop().await;
+}

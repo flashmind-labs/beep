@@ -206,23 +206,23 @@
   const CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
   const BRANCH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-6 4-11 8"/></svg>';
   // The same picker for the start form and a session's pill (agentpicker.ts).
-  const agcPicker = ({ agent, offered, machine, models = true, act = "" }) => {
+  const agcPicker = ({ agent, offered, machine, models = true, failed = false, act = "" }) => {
     const name = AGK[agent][1], levels = THINK[agent];
     const rail = ["claude", "codex", "gemini", "pi", "flsh", "hermes"].map(a => { const on = offered.includes(a);
       return `<button type="button" aria-pressed="${a === agent}" title="${AGK[a][1]}${on ? "" : ` (not on ${machine || "any machine"})`}"${on ? "" : " disabled"}>${av(a)}</button>`; }).join("");
     const think = levels
       ? [`<button type="button" class="on">Default${CHECK}</button>`, ...levels.map(t => `<button type="button">${t}</button>`)].join("")
       : `<p class="none">${name} has no thinking setting Beep can pass.</p>`;
-    const rows = !models ? `<button type="button" class="on">Default<small>its own</small></button><p class="none">Pick a machine to list its models.</p>`
+    const rows = !models ? `<button type="button" class="on">Default<small>its own</small></button>${failed ? "" : '<p class="none">Pick a machine to list its models.</p>'}`
       : MODELS[agent].map(([m, note], i) => `<button type="button" class="${i === 0 ? "on" : ""}${agent === "flsh" && i ? " mono" : ""}"${act ? ` data-dact="${act}"` : ""}>${m}${note ? `<small>${note}</small>` : ""}</button>`).join("");
     return `<div class="agc-pick" role="dialog" aria-label="Harness, model and thinking">
         <div class="agc-rail">${rail}</div>
-        <div class="agc-list"><div class="agc-find"><input class="agc-search" spellcheck="false" autocomplete="off" placeholder="Search ${name} models…"></div><div class="agc-models">${rows}</div></div>
+        <div class="agc-list"><div class="agc-find"><input class="agc-search" spellcheck="false" autocomplete="off" placeholder="Search ${name} models…"></div><div class="agc-models">${rows}${failed ? `<p class="none" role="status">Couldn't load models.</p><button type="button" data-dact="dset:agc:picker">Retry</button>` : ""}</div></div>
         <div class="agc-think"><h5><span>Thinking</span><span>${name}</span></h5>${think}</div>
       </div>`;
   };
   window.__agcPicker = agcPicker;
-  const AGV = ["ready", "nohost", "picker", "flsh", "hermes", "pickernomachine", "host", "project", "folder", "branch", "basemenu", "typing", "none", "looking", "noprompt", "noproj", "noprojfolder", "code"];
+  const AGV = ["ready", "nohost", "picker", "pickererror", "flsh", "hermes", "pickernomachine", "host", "project", "folder", "branch", "basemenu", "typing", "none", "looking", "noprompt", "noproj", "noprojfolder", "code"];
   D.dAgentNew = () => {
     const v = pick("agc", AGV, "nohost");
     const none = v === "none", looking = v === "looking", noprompt = v === "noprompt";
@@ -232,8 +232,8 @@
     const h = v === "hermes" ? "hermes" : v === "flsh" ? "flsh" : "claude";
     const chosenHost = ["nohost", "host", "pickernomachine", "project", "none", "looking"].includes(v) ? null : "build-box";
     const pillText = none ? "No agent" : `${av(h)}${chosenHost ? (MODELS[h]?.[0]?.[1] || "Default") : "Default"}`;
-    const open = v === "picker" || v === "flsh" || v === "hermes" || v === "pickernomachine";
-    const picker = open ? agcPicker({ agent: h, offered: ["claude", "codex", "pi", "flsh", "hermes"], machine: chosenHost, models: v !== "pickernomachine" }) : "";
+    const open = v === "pickererror" || v === "picker" || v === "flsh" || v === "hermes" || v === "pickernomachine";
+    const picker = open ? agcPicker({ agent: h, offered: ["claude", "codex", "pi", "flsh", "hermes"], machine: chosenHost, models: v !== "pickernomachine" && v !== "pickererror", failed: v === "pickererror" }) : "";
     // Every menu under the box opens upward over the page; the key hints hide while one is open.
     const hostMenu = v === "host" ? `<div class="agc-menu cols up" style="left:90px" role="menu">
         ${MACHINES.map(([n, has, on]) => `<button${on ? "" : " disabled"}><span class="dot${on ? "" : " off"}"></span><span>${n}</span><small>${on ? has : "offline"}</small></button>`).join("")}</div>` : "";
@@ -289,5 +289,5 @@
       <div class="cc-hints"><span><kbd>${DI.ret}</kbd>start</span><span><kbd>⌘M</kbd>model</span><span><kbd>esc</kbd>cancel</span></div>`);
   };
   const vr = (l, k) => [l, () => { S.d.agc = k; render(); }, () => pick("agc", AGV, "nohost") === k];
-  VARIANTS.dAgentNew = [vr("No machine picked yet", "nohost"), vr("Picker open (Claude Code)", "picker"), vr("Picker open (flsh)", "flsh"), vr("Picker open (Hermes)", "hermes"), vr("Picker, no machine", "pickernomachine"), vr("Machine menu", "host"), vr("Project menu", "project"), vr("Folder menu", "folder"), vr("New worktree from a ref", "branch"), vr("Base menu", "basemenu"), vr("Typing a folder", "typing"), vr("No agents", "none"), vr("Looking for machines", "looking"), vr("No prompt", "noprompt"), vr("No project", "noproj"), vr("No project: folder menu", "noprojfolder"), vr("Pasted text sent as code", "code")];
+  VARIANTS.dAgentNew = [vr("No machine picked yet", "nohost"), vr("Picker open (Claude Code)", "picker"), vr("Model lookup failed", "pickererror"), vr("Picker open (flsh)", "flsh"), vr("Picker open (Hermes)", "hermes"), vr("Picker, no machine", "pickernomachine"), vr("Machine menu", "host"), vr("Project menu", "project"), vr("Folder menu", "folder"), vr("New worktree from a ref", "branch"), vr("Base menu", "basemenu"), vr("Typing a folder", "typing"), vr("No agents", "none"), vr("Looking for machines", "looking"), vr("No prompt", "noprompt"), vr("No project", "noproj"), vr("No project: folder menu", "noprojfolder"), vr("Pasted text sent as code", "code")];
 })();
