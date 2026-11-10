@@ -29,7 +29,7 @@ test("import preserves existing Syncthing rules and ignores stale folder lookups
   await second;
   reads[0].reply({ available: true, enabled: true, label: "Projects" });
   await first;
-  assert.equal(choice.snapshot().checked, false);
+  assert.equal(choice.state.getState().checked, false);
   assert.equal(choice.value(), null, "reading the setting must not change it during import");
   assert.ok(reads.every(read => read.args.enabled === undefined));
   choice.change(true);

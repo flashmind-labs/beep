@@ -1,6 +1,7 @@
 import { chooseIgnoredFolders } from "./ignored-sync.tsx";
 import type { IgnoredSync } from "./ignored-sync-state.ts";
 // A project-wide Syncthing preference, applied by each machine.
+import { createStore } from "zustand/vanilla";
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { reason } from "../ui/format.ts";
@@ -15,15 +16,12 @@ interface SyncthingFiles {
 /// An untouched import preserves the folder's existing Syncthing setting.
 export function syncthingImportChoice() {
   let value: boolean | null = null;
-  let snapshot = { checked: true, disabled: false, indeterminate: true };
-  const listeners = new Set<() => void>();
+  const state = createStore(() => ({ checked: true, disabled: false, indeterminate: true }));
   let lookup = 0, lastTarget = "";
-  const publish = (next: typeof snapshot) => { snapshot = next; listeners.forEach(listener => listener()); };
   const choice = {
     value: () => value,
-    snapshot: () => snapshot,
-    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    change: (checked: boolean) => { value = checked; publish({ checked, disabled: false, indeterminate: false }); },
+    state,
+    change: (checked: boolean) => { value = checked; state.setState({ checked, disabled: false, indeterminate: false }); },
     dispose: () => { lookup++; },
     follow: async (machine: string | null, folder: string | null) => {
       const target = `${machine ?? ""}\0${folder ?? ""}`;
@@ -31,13 +29,13 @@ export function syncthingImportChoice() {
       lastTarget = target;
       const asked = ++lookup;
       if (value !== null) return;
-      publish({ checked: true, disabled: false, indeterminate: true });
+      state.setState({ checked: true, disabled: false, indeterminate: true });
       if (!machine || !folder) return;
 
       try {
         const files = await invoke<SyncthingFiles>("project_syncthing_files", { machineId: machine, folder });
         if (asked !== lookup || value !== null) return;
-        publish({ checked: files.enabled, disabled: !files.available, indeterminate: false });
+        state.setState({ checked: files.enabled, disabled: !files.available, indeterminate: false });
       } catch { /* Import keeps the current setting if the machine cannot answer. */ }
     },
   };
