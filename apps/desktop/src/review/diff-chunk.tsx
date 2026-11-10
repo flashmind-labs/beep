@@ -1,53 +1,59 @@
-import { Fragment, memo, useLayoutEffect, useRef } from "react";
+// A chunk's rows, unified or side by side, with the comments on each line
+// under it. A click on a line's number opens a new comment there.
+import { Fragment, type ReactNode } from "react";
 import { lineKey, type DiffRow, type ReviewComment, type SplitCell, type SplitRow } from "./diff-state.ts";
 
-type Row = DiffRow | SplitRow;
-interface ChunkProps {
-  rows: readonly Row[];
+type Side = ReviewComment["side"];
+/// Opens a comment on `line` of `side`.
+type Gutter = (side: Side, line: number) => void;
+
+interface RowsProps {
+  rows: readonly (DiffRow | SplitRow)[];
   comments: ReadonlyMap<string, readonly ReviewComment[]>;
-  mountComment: (host: HTMLElement, comment: ReviewComment) => void;
-  unmountComment: (host: HTMLElement) => void;
+  readOnly: boolean;
+  gutter: Gutter;
+  comment: (comment: ReviewComment) => ReactNode;
 }
 
-export const DiffChunk = memo(function DiffChunk({ rows, comments, mountComment, unmountComment }: ChunkProps) {
+export function DiffRows({ rows, comments, readOnly, gutter, comment }: RowsProps) {
+  const open = readOnly ? null : gutter;
+  const under = (keys: (string | null)[]) => keys.flatMap(key => key ? (comments.get(key) ?? []).map(comment) : []);
+
   return <>{rows.map((row, index) => {
     if (row.kind === "hunk") return <div key={index} className="dv-l hunk"><span className="dv-g"><span/><span/></span><span className="dv-c">{row.text}</span></div>;
     if (row.kind === "gap") return <div key={index} className="dv-l gap"><span className="dv-g"><span/><span/></span><span className="dv-c">{row.lines.toLocaleString("en-US")} unchanged {row.lines === 1 ? "line" : "lines"}</span></div>;
-    if (row.kind === "pair") {
-      const left = row.left?.k === "-" ? lineKey("old", row.left.num) : null;
-      const right = row.right ? lineKey("new", row.right.num) : null;
-      return <Fragment key={index}><div className="dv-pair"><Cell cell={row.left}/><Cell cell={row.right}/></div>
-        <SavedComments keys={[left, right]} comments={comments} mountComment={mountComment} unmountComment={unmountComment}/></Fragment>;
-    }
-    const key = row.k === "-" && row.old !== null ? lineKey("old", row.old) : row.new !== null ? lineKey("new", row.new) : null;
-    const cls = row.k === "+" ? " add" : row.k === "-" ? " del" : "";
-    return <Fragment key={index}><div className={`dv-l${cls}`}><span className="dv-g"><span>{row.old ?? ""}</span><span>{row.new ?? ""}</span></span><TextCell text={row.text} eol={row.eol}/></div>
-      <SavedComments keys={[key]} comments={comments} mountComment={mountComment} unmountComment={unmountComment}/></Fragment>;
-  })}</>;
-});
 
-function Cell({ cell }: { cell: SplitCell | null }) {
+    if (row.kind === "pair") {
+      const { left, right } = row;
+      // On an unchanged line the left cell takes its comment on the new side.
+      const leftAt: [Side, number] | null = left?.k === "-" ? ["old", left.num] : left && right ? ["new", right.num] : null;
+      return <Fragment key={index}>
+        <div className="dv-pair"><Cell cell={left} at={leftAt} open={open}/><Cell cell={right} at={right ? ["new", right.num] : null} open={open}/></div>
+        {under([left?.k === "-" ? lineKey("old", left.num) : null, right ? lineKey("new", right.num) : null])}
+      </Fragment>;
+    }
+
+    const at: [Side, number] | null = row.k === "-" ? (row.old === null ? null : ["old", row.old]) : row.new === null ? null : ["new", row.new];
+    const cls = row.k === "+" ? " add" : row.k === "-" ? " del" : "";
+    return <Fragment key={index}>
+      <div className={`dv-l${cls}`}>
+        <span className="dv-g" onClick={open && at ? () => open(...at) : undefined}><span>{row.old ?? ""}</span><span>{row.new ?? ""}</span></span>
+        <TextCell text={row.text} eol={row.eol}/>
+      </div>
+      {under([at ? lineKey(...at) : null])}
+    </Fragment>;
+  })}</>;
+}
+
+function Cell({ cell, at, open }: { cell: SplitCell | null; at: [Side, number] | null; open: Gutter | null }) {
   if (!cell) return <div className="dv-l none"><span className="dv-g"><span/></span><span className="dv-c"/></div>;
   const cls = cell.k === "+" ? " add" : cell.k === "-" ? " del" : "";
-  return <div className={`dv-l${cls}`}><span className="dv-g"><span>{cell.num}</span></span><TextCell text={cell.text} eol={cell.eol}/></div>;
+  return <div className={`dv-l${cls}`}>
+    <span className="dv-g" onClick={open && at ? () => open(...at) : undefined}><span>{cell.num}</span></span>
+    <TextCell text={cell.text} eol={cell.eol}/>
+  </div>;
 }
 
 function TextCell({ text, eol }: { text: string; eol: boolean }) {
   return <span className="dv-c">{text}{eol && <span className="dv-eol" title="No newline at end of file">no newline at end</span>}</span>;
-}
-
-function SavedComments({ keys, comments, mountComment, unmountComment }: { keys: (string | null)[]; comments: ChunkProps["comments"]; mountComment: ChunkProps["mountComment"]; unmountComment: ChunkProps["unmountComment"] }) {
-  return <>{keys.flatMap(key => key ? (comments.get(key) ?? []).map((comment, index) =>
-    <CommentSlot key={`${key}:${index}`} comment={comment} mountComment={mountComment} unmountComment={unmountComment}/>) : [])}</>;
-}
-
-function CommentSlot({ comment, mountComment, unmountComment }: { comment: ReviewComment; mountComment: ChunkProps["mountComment"]; unmountComment: ChunkProps["unmountComment"] }) {
-  const slot = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    const host = slot.current;
-    if (!host) return;
-    mountComment(host, comment);
-    return () => unmountComment(host);
-  }, [comment, mountComment, unmountComment]);
-  return <span ref={slot} className="dv-comment-slot" style={{ display: "contents" }}/>;
 }

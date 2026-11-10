@@ -1,3 +1,6 @@
+import { useSyncExternalStore, type ReactNode } from "react";
+import type { Feedback } from "./feedback.ts";
+
 export type FeedbackState =
   | { kind: "running"; agent: string }
   | { kind: "starting" }
@@ -8,9 +11,27 @@ interface FeedbackButtonProps {
   setButton: (button: HTMLButtonElement | null) => void;
   setSlot: (slot: HTMLDivElement | null) => void;
   onClick: () => void;
+  /// The harness and model picker, open under the button.
+  picker: ReactNode;
 }
 
-export function FeedbackControl({ state, setButton, setSlot, onClick }: FeedbackButtonProps) {
+/// Review with agent in the diff's header.
+export function FeedbackBox({ feedback }: { feedback: Feedback }) {
+  const { state, picker } = useSyncExternalStore(feedback.subscribe, feedback.snapshot);
+  return <span className="dv-fbw" ref={feedback.setBox}>
+    <FeedbackControl state={state} setButton={feedback.setButton} setSlot={feedback.setSlot} onClick={feedback.click} picker={picker} />
+  </span>;
+}
+
+/// Why the last review failed, under the header.
+export function FeedbackNoteBox({ feedback }: { feedback: Feedback }) {
+  const { note } = useSyncExternalStore(feedback.subscribe, feedback.snapshot);
+  return <div className="dv-fbnote" hidden={!note} role={note ? "status" : undefined}>
+    {note && <FeedbackNote text={note} onDismiss={feedback.dismiss} />}
+  </div>;
+}
+
+export function FeedbackControl({ state, setButton, setSlot, onClick, picker }: FeedbackButtonProps) {
   const disabled = state.kind === "starting" || (state.kind === "ready" && !!state.reason);
   const title = state.kind === "running" ? "Open the review. The reviewer only reads; its findings become comments here"
     : state.kind === "starting" ? "" : state.reason || "Ask an agent to review these changes. It only reads. Pick a model to start";
@@ -22,7 +43,7 @@ export function FeedbackControl({ state, setButton, setSlot, onClick }: Feedback
         : state.kind === "starting" ? <><span className="dspin"/>Starting</>
         : <>Review with agent<span style={{ display: "grid" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></>}
     </button>
-    <div ref={setSlot}/>
+    <div ref={setSlot}>{picker}</div>
   </>;
 }
 

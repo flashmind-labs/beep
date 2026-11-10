@@ -14,14 +14,13 @@ test("diff toolbar preserves review controls and sends the current draft", async
   }
   const host = dom.window.document.getElementById("root");
   assert.ok(host);
-  const feedback = dom.window.document.createElement("button");
   let sent = 0, opened = 0, toggled = 0;
-  feedback.addEventListener("click", () => opened++);
+  const feedback = createElement("button", { className: "dv-fb", onClick: () => { opened++; } });
   const props: Parameters<typeof DiffToolbar>[0] = {
     view: { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 0, deletions: 0, more: 0,
       files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 0, deletions: 0, left_out: null, hunks: [] }] },
     loading: false, filter: "", split: false, uncommitted: false, showUncommitted: true, allFolded: false,
-    flash: "", comments: 2, sending: false, readOnly: false, feedback,
+    flash: "", comments: 2, sending: false, readOnly: false, feedback, findRef: null,
     onFilter() {}, onSplit() {}, onUncommitted: () => { toggled++; }, onFold() {}, onRefresh() {}, onSend: () => { sent++; },
   };
   const root = createRoot(host);
@@ -32,14 +31,16 @@ test("diff toolbar preserves review controls and sends the current draft", async
     assert.ok(send && dirty);
     assert.equal(send.hidden, false);
     assert.equal(send.title, "Send 2 comments to the agent as one message");
-    await act(() => { feedback.click(); dirty.click(); send.click(); });
+    const review = host.querySelector<HTMLButtonElement>("button.dv-fb");
+    assert.ok(review);
+    await act(() => { review.click(); dirty.click(); send.click(); });
     assert.equal(opened, 1);
     assert.equal(toggled, 1);
     assert.equal(sent, 1);
     await act(() => { root.render(createElement(DiffToolbar, { ...props, sending: true, flash: "Sending" })); });
     assert.equal(host.querySelector("button.dbtn"), send);
     assert.equal(send.disabled, true);
-    assert.ok(host.contains(feedback));
+    assert.equal(host.querySelector("button.dv-fb"), review);
     assert.equal(host.querySelector('[role="status"]')?.textContent, "Sending");
     await act(() => { root.render(createElement(DiffToolbar, { ...props, readOnly: true })); });
     assert.equal(send.hidden, true);
