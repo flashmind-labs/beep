@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 
-/// The diff owns virtualized native sections; React keeps its host stable across detail updates.
+/// The diff is a view kept across detail updates, with its own root element; React keeps its host stable.
 export function HistoryDetail({ header, body, diff }: { header: ReactNode; body: ReactNode; diff: HTMLElement | null }) {
   const host = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
