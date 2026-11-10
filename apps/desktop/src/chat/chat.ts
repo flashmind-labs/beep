@@ -32,12 +32,11 @@ import { DESCRIBED, doneLabel, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { attachLive, endLive, trackLive } from "../agents/thoughtlive.ts";
 import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
 import { followEnd, unfollowEnd } from "../ui/followend.ts";
-import { answerHtml, tickTurns, toggleThought, turnHeadHtml } from "../agents/turnrows.ts";
+import { answerHtml, tickTurns, turnHeadHtml } from "../agents/turnrows.ts";
 import { linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { h } from "../ui/dom.ts";
 import type { ChatBody, Step, Turn } from "../ui/turn.ts";
 import { dragHandle } from "../ui/drag.ts";
 
@@ -280,15 +279,9 @@ export function drawWork(turn: Turn) {
   let box = turn.querySelector<HTMLElement>(":scope > .tools");
 
   if (!box) {
-    box = h('<div class="tools dcoderlog"></div>');
+    box = document.createElement("div");
+    box.className = "tools dcoderlog";
     box.dataset.key = String(++turnCount);
-    box.addEventListener("click", e => {
-      const btn = (e.target as Element).closest("[data-thought]");
-      if (btn && data.thought) { data.thought.touched = true; data.thought.open = toggleThought(btn); return; }
-      if (!(e.target as Element).closest("[data-turn]")) return;
-      data.folded = !data.folded;
-      drawWork(turn);
-    });
     const after = turn.querySelector(`${ANSWER}, :scope > .dcard, :scope > .derrcard`);
     after ? turn.insertBefore(box, after) : turn.append(box);
   }
@@ -318,6 +311,13 @@ export function drawWork(turn: Turn) {
     heading: html ? { kind: "heading", id: turnKey ?? "turn", html, state, start: data.begun ?? null, ms, stats, turn: turnKey, opened } : null,
     thought, steps: shown.map(stepRow),
     live: live ? { thinking, start: data.begun } : null,
+    toggleThought: open => {
+      if (!data.thought) return;
+      data.thought.touched = true;
+      data.thought.open = open;
+      drawWork(turn);
+    },
+    toggleSteps: () => { data.folded = !data.folded; drawWork(turn); },
   };
   const owner = turnBodies.get(turn) ?? body();
   if (!owner) return;
@@ -325,6 +325,9 @@ export function drawWork(turn: Turn) {
   renderChatWork(owner, turn, box, value, () => {
     attachLive(box, () => { if (data.thought) data.thought.touched = true; });
     tickTurns();
+
+    // The live wiring just folded the thought; draw it folded so React's view matches.
+    if (thought?.folding) drawWork(turn);
   });
 }
 
@@ -338,7 +341,8 @@ export function reply(turn: Turn) {
   let el = turn.querySelector<HTMLElement>(ANSWER);
 
   if (!el) {
-    el = h('<div class="dcoderen agent md"></div>');
+    el = document.createElement("div");
+    el.className = "dcoderen agent md";
     const files = turn.querySelector(".files");
     files ? turn.insertBefore(el, files) : turn.append(el);
   }

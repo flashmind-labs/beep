@@ -25,7 +25,7 @@ import type { ChatBody, Turn } from "../ui/turn.ts";
 export interface WorkStep { key: string; kind: ToolKind; verb: string; target: string; label: string; state: "run" | "ok" | "bad" | "stop" }
 export interface WorkThought { key: string; text: string; ms: number | null; live: boolean; open: boolean; folding: boolean }
 export interface WorkLive { thinking: boolean; start: number | null }
-export interface WorkView { heading: TurnHeading | null; thought: WorkThought | null; steps: WorkStep[]; live: WorkLive | null }
+export interface WorkView { heading: TurnHeading | null; thought: WorkThought | null; steps: WorkStep[]; live: WorkLive | null; toggleThought(open: boolean): void; toggleSteps(): void }
 type Source = WebSource & { site: string };
 interface RerunChoice { id: string; name: string; detail: string; used: boolean }
 interface RerunView { choices: RerunChoice[]; levels: { id: string; label: string }[]; run(model: string, thinking: string | null): void }
@@ -164,16 +164,18 @@ const Suggestions = memo(function Suggestions({ replies, send }: { replies: stri
 const WorkStepRow = memo(function WorkStepRow({ step }: { step: WorkStep }) {
   return <div className="dcoderen tool row"><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[step.kind] }} /><span className="vb">{step.verb}</span><code className="tt" title={step.label}>{step.target}</code><span className={`rm${step.state === "bad" ? " bad" : ""}`}>{step.state === "bad" ? "failed" : ""}</span><span className="mk">{step.state === "run" ? <span className="dspin" title="Running" /> : step.state === "stop" ? <span className="ddot off" title="Did not finish" /> : <span className={step.state === "ok" ? "dok" : "dbad"} title={step.state === "ok" ? "Done" : "Failed"} dangerouslySetInnerHTML={{ __html: step.state === "ok" ? ICON.check : ICON.x }} />}</span></div>;
 });
-function Thought({ value }: { value: WorkThought }) {
+function Thought({ value, onToggle }: { value: WorkThought; onToggle(open: boolean): void }) {
   const text = value.live || value.folding ? liveText(value.text) : value.text;
-  return <div className={`dthink${value.live ? " live" : ""}${value.open ? " open" : ""}`} data-folding={value.folding ? "" : undefined}><button data-thought={value.key} aria-expanded={value.open}><span className="lb">{thoughtLabel(value.ms)}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div>{value.live || value.folding ? <div className="tx"><div className={`kk${value.folding ? " ended" : ""}`} data-kk={value.live ? value.key : undefined}>{text}</div></div> : <div className="tx md">{text.split("\n").map((line, index) => <Fragment key={index}>{index > 0 && <br />}{line}</Fragment>)}</div>}</div></div></div>;
+  // A folding thought is drawn open, then closed by the live wiring after layout.
+  const shown = value.open && !value.folding;
+  return <div className={`dthink${value.live ? " live" : ""}${value.open ? " open" : ""}`} data-folding={value.folding ? "" : undefined}><button data-thought={value.key} aria-expanded={value.open} onClick={() => onToggle(!shown)}><span className="lb">{thoughtLabel(value.ms)}</span><span className="cv" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button><div className="bd"><div>{value.live || value.folding ? <div className="tx"><div className={`kk${value.folding ? " ended" : ""}`} data-kk={value.live ? value.key : undefined}>{text}</div></div> : <div className="tx md">{text.split("\n").map((line, index) => <Fragment key={index}>{index > 0 && <br />}{line}</Fragment>)}</div>}</div></div></div>;
 }
 function LiveLine({ value }: { value: WorkLive }) {
   const lead = value.thinking ? "Thinking" : "Working";
   return <div className="dthink dlive live"><span className="lb" title={lead}>{lead}</span>{value.start !== null && <span className="since" data-since={value.start}>{duration(Date.now() - value.start)}</span>}</div>;
 }
 const Work = memo(function Work({ value }: { value: WorkView }) {
-  return <>{value.heading && <AgentTurnHeading value={value.heading} />}{value.thought && <Thought value={value.thought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <LiveLine value={value.live} />}</>;
+  return <>{value.heading && <AgentTurnHeading value={value.heading} onToggle={value.toggleSteps} />}{value.thought && <Thought value={value.thought} onToggle={value.toggleThought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <LiveLine value={value.live} />}</>;
 });
 // Streaming updates notify only their row; portal membership remains synchronous.
 interface RowStore<T> { get(): T; subscribe(listener: () => void): () => void; set(value: T): void }
