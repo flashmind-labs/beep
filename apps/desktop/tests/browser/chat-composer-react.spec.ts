@@ -178,3 +178,18 @@ test("file drag overlay stays mounted until the pointer leaves", async ({ page }
   await page.evaluate(() => document.querySelector("#bar")?.dispatchEvent(new DragEvent("dragleave", { bubbles: true })));
   await expect(overlay).toHaveCount(0);
 });
+
+test("chat composer shows the Agent button once a machine offers agents", async ({ page }) => {
+  const hosts = [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/path/to/work", capabilities: [] }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [], agent_hosts: hosts });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const agent = page.locator(".dinput.dgrow #agentGo");
+  await expect(agent).toBeVisible();
+  await expect(agent).toHaveAccessibleName("Agent");
+  await page.locator("#ask").fill("Fix the build");
+  await page.evaluate(() => window.__navigation.emit("sessions-changed", "chat-example"));
+  await expect(page.locator("#agentGo")).toHaveCount(1);
+  await agent.click();
+  await expect(page.locator("#agentGo")).toHaveCount(0);
+  await expect(page.locator("#ask")).toHaveCount(0);
+});
