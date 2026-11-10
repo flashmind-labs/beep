@@ -17,7 +17,7 @@ const FROM_SESSION: &str = "from-session";
 const CHILD: &str = "beep-child";
 /// The most of a context a log entry keeps: the user's words come first.
 #[cfg(feature = "host")]
-const MAX_CONTEXT: usize = 2048;
+const MAX_CONTEXT: usize = 4096;
 
 /// How every bare brief Beep wrote began.
 #[cfg(feature = "host")]
