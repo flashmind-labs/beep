@@ -85,6 +85,30 @@ export function single(load: () => Promise<void>) {
   };
 }
 
+/// What `latest().run` gives a read that a newer one, or `cancel()`, replaced.
+export const STALE: unique symbol = Symbol("stale");
+
+/// Guards a read against stale responses: only the newest `run` gets its
+/// answer or its error; older ones, and any pending at `cancel()`, get `STALE`.
+export function latest() {
+  let current = 0;
+
+  return {
+    async run<T>(read: Promise<T>): Promise<T | typeof STALE> {
+      const mine = ++current;
+
+      try {
+        const value = await read;
+        return mine === current ? value : STALE;
+      } catch (error) {
+        if (mine !== current) return STALE;
+        throw error;
+      }
+    },
+    cancel() { current++; },
+  };
+}
+
 /// A route or tab changed: dirty ambient views that now show run once.
 export function shownChanged() { for (const resume of ambients) resume(); }
 

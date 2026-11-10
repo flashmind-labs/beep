@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { AMBIENT_MS } from "../ui/active.ts";
+import { AMBIENT_MS, latest, STALE } from "../ui/active.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
 import { makeStartComposer } from "../agents/start-composer.ts";
@@ -160,16 +160,14 @@ export function barOn(name: string) {
 
 // Initial and live reads share a generation so an older response cannot
 // overwrite host availability reported by a newer machine event.
-let hostsReadVersion = 0;
+const hostsRead = latest();
 async function readProjectHosts() {
-  const version = ++hostsReadVersion;
   try {
-    const list = await invoke<AgentHost[]>("agent_hosts");
-    if (version !== hostsReadVersion) return;
+    const list = await hostsRead.run(invoke<AgentHost[]>("agent_hosts"));
+    if (list === STALE) return;
     pc.hosts = list;
     preloadModels(list);
   } catch (error) {
-    if (version !== hostsReadVersion) return;
     console.warn("agent hosts:", error);
     if (pc.hosts !== null) return;
     pc.hosts = [];

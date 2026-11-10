@@ -6,7 +6,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type { RunningProcess } from "./running-state.ts";
 import { draw, paneOf, paneSession, shell } from "./media.ts";
 import { DOCKS } from "./media-state.ts";
-import { AMBIENT_MS, onShownChange, paneShown } from "../ui/active.ts";
+import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AGENT_READ_WAIT_MS } from "../agents/agents.ts";
@@ -19,7 +19,7 @@ let list: RunningProcess[] = [];
 let local = false;
 let el: HTMLElement | null = null;
 let error = "";
-let readVersion = 0;
+const reads = latest();
 const stopping = new Set<number>();
 /// Rows whose whole command shows, by pid.
 const whole = new Set<number>();
@@ -29,7 +29,7 @@ function syncSession() {
   const next = s ? `${s.machine_id}\n${s.id}` : "";
   if (key === next) return;
   key = next;
-  readVersion++;
+  reads.cancel();
   unfollow?.();
   unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), { deliver: "latest", receive: readRunning }, { machine: s.machine_id, when: visible, wait: AMBIENT_MS }) : undefined;
   list = [];
@@ -53,17 +53,16 @@ export async function readRunning() {
   syncSession();
   const s = paneSession(), asked = key, count = list.length;
   if (!s?.id || s.external || !visible()) return;
-  const version = ++readVersion;
 
   try {
-    const view = await invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id }, AGENT_READ_WAIT_MS);
+    const view = await reads.run(invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id }, AGENT_READ_WAIT_MS));
     syncSession();
-    if (key !== asked || version !== readVersion || !visible()) return;
+    if (view === STALE || key !== asked || !visible()) return;
     list = view.processes;
     local = view.local;
     error = "";
   } catch (e) {
-    if (key !== asked || version !== readVersion || !visible()) return;
+    if (key !== asked || !visible()) return;
     error = readError(e);
   }
 
@@ -99,7 +98,7 @@ function render() {
 async function stop(pids: number[]) {
   const s = paneSession(), asked = key;
   if (!s) return;
-  readVersion++;
+  reads.cancel();
   for (const pid of pids) stopping.add(pid);
   error = "";
   render();
@@ -118,7 +117,7 @@ async function stop(pids: number[]) {
   }
 
   if (key !== asked) return;
-  readVersion++;
+  reads.cancel();
   error = failed.join(" ");
   render();
   draw();
