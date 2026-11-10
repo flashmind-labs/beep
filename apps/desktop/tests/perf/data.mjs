@@ -155,6 +155,7 @@ export function makeData(sizes = SIZES) {
     projects_on_top: [],
     project_sync: [],
     found_projects: [],
+    found_machines: [],
     agent_hosts: [],
     // A search answers with the first matches, as the server's search does.
     search_sessions: sessions.slice(0, 200).map(session => ({ session, snippet: `fake snippet for ${session.title}`, from_user: true })),
