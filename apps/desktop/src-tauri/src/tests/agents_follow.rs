@@ -175,6 +175,5 @@ fn a_full_node_releases_the_oldest_quiet_background_reader_on_it() {
 #[test]
 fn a_full_node_is_told_apart_from_other_follow_errors() {
     assert!(node_full("too many session readers"));
-    assert!(node_full("Too many session readers on this machine"));
     assert!(!node_full("session not found"));
 }

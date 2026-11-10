@@ -4,19 +4,34 @@ use super::{Agents, MAX_TRANSCRIPT, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    agent::{Entry, FollowSession, SessionCursor, SessionSnapshot, SessionSource, SessionUpdate},
+    agent::{
+        Entry, FOLLOW_READERS_FULL, FollowSession, SessionCursor, SessionSnapshot, SessionSource, SessionUpdate},
 };
-use std::{future::pending, ops::Range, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    future::pending,
+    ops::Range,
+    path::PathBuf,
+    sync::{Arc, LazyLock, Mutex, PoisonError},
+    time::Duration,
+};
 use tokio::{
-    sync::{Semaphore, mpsc},
+    sync::{Semaphore, SemaphorePermit, mpsc},
     task::spawn_blocking,
     time::{Instant, MissedTickBehavior, interval_at, sleep, timeout},
 };
 
-static READERS: Semaphore = Semaphore::const_new(32);
+/// Every desktop window and phone shares these; a desktop window may hold
+/// several sessions. A refused reader hears `FOLLOW_READERS_FULL`.
+static READERS: Semaphore = Semaphore::const_new(128);
 const RETAINED_ENTRIES: usize = 5000;
 // Leave room for source metadata inside the transport's 8 MiB frame limit.
 const RETAINED_BYTES: usize = 4 * 1024 * 1024;
+/// The most all readers' cached windows take together. Past it the least
+/// recently updated windows drop their cache and re-encode on their next update.
+const CACHED_BYTES: usize = 64 * 1024 * 1024;
+
+static WINDOWS: LazyLock<Mutex<Windows>> = LazyLock::new(Mutex::default);
 
 const HEARTBEAT: Duration = Duration::from_secs(10);
 const WRITE_WAIT: Duration = Duration::from_secs(15);
@@ -69,16 +84,17 @@ pub async fn serve_follow(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
     let request: FollowSession = timeout(WRITE_WAIT, rx.recv())
         .await??
         .context("session subscription closed before its request")?;
-    let Ok(_reader) = READERS.try_acquire() else {
+    let Ok(permit) = READERS.try_acquire() else {
         tx.send(&SessionUpdate::Error {
-            reason: "too many session readers".into(),
+            reason: FOLLOW_READERS_FULL.into(),
         })
         .await?;
         return Ok(());
     };
+    let reader = Reader::new(permit);
     // Dropping the reader cancels reads and writes too, including a blocked write.
     tokio::select! {
-        result = follow(&mut tx, &agents, request) => result,
+        result = follow(&mut tx, &agents, request, &reader) => result,
         _ = rx.recv::<serde_json::Value>() => Ok(()),
     }
 }
@@ -89,7 +105,12 @@ async fn send(tx: &mut LinkTx, update: &SessionUpdate) -> Result<()> {
         .context("session reader stopped receiving")?
 }
 
-async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Result<()> {
+async fn follow(
+    tx: &mut LinkTx,
+    agents: &Agents,
+    request: FollowSession,
+    reader: &Reader,
+) -> Result<()> {
     let mut presence = agents.presence.subscribe();
     let mut live = agents
         .get(request.session.as_ref())
@@ -108,7 +129,6 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
     };
     let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let mut previous: Option<Window> = None;
     let mut observed_pid = None;
     let mut exit = None;
 
@@ -147,7 +167,7 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
             observed_pid = pid;
         }
 
-        let prior = previous.take();
+        let prior = reader.take();
         let requested = request.clone();
         let (window, update, changed) = spawn_blocking(move || {
             let held = prior
@@ -161,7 +181,11 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
         })
         .await
         .context("preparing transcript update")??;
-        previous = Some(window);
+        let deadline = match &window.source {
+            SessionSource::External(session) => recent_deadline(session),
+            SessionSource::Owned(_) => None,
+        };
+        reader.keep(window);
 
         if changed {
             send(tx, &update).await?;
@@ -188,14 +212,8 @@ async fn follow(tx: &mut LinkTx, agents: &Agents, request: FollowSession) -> Res
                     }
                 } => { exit = None; },
                 _ = async {
-                    match &previous {
-                        Some(window) => match &window.source {
-                            SessionSource::External(session) => match recent_deadline(session) {
-                                Some(deadline) => tokio::time::sleep_until(deadline).await,
-                                None => pending().await,
-                            },
-                            _ => pending().await,
-                        },
+                    match deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
                         None => pending().await,
                     }
                 } => {},
@@ -231,6 +249,84 @@ fn recent_deadline(session: &beep_proto::node::agent::ExternalSession) -> Option
     Instant::now().checked_add(Duration::from_secs(remaining.max(1)))
 }
 
+/// One session reader: its slot among `READERS` and its cached window.
+struct Reader {
+    id: u64,
+    _permit: SemaphorePermit<'static>,
+}
+
+impl Reader {
+    fn new(permit: SemaphorePermit<'static>) -> Self {
+        let mut windows = WINDOWS.lock().unwrap_or_else(PoisonError::into_inner);
+        windows.next_id += 1;
+        Self {
+            id: windows.next_id,
+            _permit: permit,
+        }
+    }
+
+    fn take(&self) -> Option<Window> {
+        WINDOWS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take(self.id)
+    }
+
+    fn keep(&self, window: Window) {
+        WINDOWS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .keep(self.id, window, CACHED_BYTES);
+    }
+}
+
+impl Drop for Reader {
+    fn drop(&mut self) {
+        self.take();
+    }
+}
+
+/// The readers' windows between updates, their caches bounded together.
+#[derive(Debug, Default)]
+struct Windows {
+    next_id: u64,
+    /// Counts updates, to find the least recently updated window.
+    tick: u64,
+    /// What the cached windows take together, by `Window::cost`.
+    bytes: usize,
+    held: HashMap<u64, (u64, Window)>,
+}
+
+impl Windows {
+    fn take(&mut self, id: u64) -> Option<Window> {
+        let (_, window) = self.held.remove(&id)?;
+        self.bytes = self.bytes.saturating_sub(window.cost());
+        Some(window)
+    }
+
+    /// Keeps reader `id`'s window, evicting the caches of the least recently
+    /// updated other windows while all take more than `limit`.
+    fn keep(&mut self, id: u64, window: Window, limit: usize) {
+        self.tick += 1;
+        self.bytes = self.bytes.saturating_add(window.cost());
+        self.held.insert(id, (self.tick, window));
+
+        while self.bytes > limit {
+            let oldest = self
+                .held
+                .iter_mut()
+                .filter(|(held, (_, window))| **held != id && window.cost() > 0)
+                .min_by_key(|(_, (tick, _))| *tick);
+            let Some((_, (_, window))) = oldest else {
+                break;
+            };
+
+            self.bytes = self.bytes.saturating_sub(window.cost());
+            window.evict();
+        }
+    }
+}
+
 /// A reader's retained transcript with its compact encoding, so an update encodes only
 /// new or changed entries. Dropped with the follow stream.
 #[derive(Debug)]
@@ -247,6 +343,27 @@ struct Window {
 }
 
 impl Window {
+    /// The memory its cache takes: decoded entries take about as much as
+    /// their encoding.
+    fn cost(&self) -> usize {
+        self.wire.len().saturating_mul(2)
+    }
+
+    /// Drops the cached entries, keeping what the reader holds: the next
+    /// update encodes the whole transcript and checks the held range by its
+    /// fingerprint.
+    fn evict(&mut self) {
+        self.entries = Vec::new();
+        self.wire = Vec::new();
+        self.starts = Vec::new();
+        self.earlier = self.cursor.next;
+    }
+
+    /// Whether it caches the entries the reader holds.
+    fn caches_held(&self) -> bool {
+        self.earlier <= self.cursor.start
+    }
+
     fn index(&self, position: u64) -> usize {
         (position - self.earlier) as usize
     }
@@ -464,22 +581,31 @@ fn next_update(
     previous: Option<Window>,
     request: &FollowSession,
 ) -> Result<(Window, SessionUpdate)> {
-    let held = previous.as_ref().map(|previous| previous.cursor.clone());
+    let held = previous
+        .as_ref()
+        .map(|previous| (previous.cursor.clone(), previous.caches_held()));
     let (mut window, unchanged) = retain(snapshot, previous)?;
     let initial_start = window
         .cursor
         .next
         .saturating_sub(u64::from(request.last.clamp(1, MAX_TRANSCRIPT)));
 
-    if let Some(held) = held {
+    if let Some((held, cached)) = held {
         // Retention loss, a source reset, or truncation before our window requires a fresh view.
         if window.earlier <= held.next && held.start < window.cursor.next {
             let start = held.start.max(window.earlier);
-            // Only the suffix that replaces entries the reader already holds.
-            let same = unchanged[window.index(start)..]
-                .iter()
-                .take_while(|same| **same)
-                .count();
+            // Only the suffix that replaces entries the reader already holds. An evicted
+            // window checks them all at once by fingerprint.
+            let same = if cached {
+                unchanged[window.index(start)..]
+                    .iter()
+                    .take_while(|same| **same)
+                    .count()
+            } else if start == held.start && validates(&window, &held)? {
+                usize::try_from(held.next - held.start)?
+            } else {
+                0
+            };
             let end = start + same as u64;
 
             if start == held.start && end == held.next && end == window.cursor.next {

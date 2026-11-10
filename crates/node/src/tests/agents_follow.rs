@@ -279,6 +279,54 @@ fn deltas_replace_same_count_edits_and_truncate_the_suffix() {
 }
 
 #[test]
+fn readers_over_the_cache_budget_evict_the_least_recently_updated_window() {
+    let mut windows = Windows::default();
+    let window = || held(&page(0, &["one", "two"]));
+    let cost = window().cost();
+    windows.keep(1, window(), 2 * cost);
+    windows.keep(2, window(), 2 * cost);
+    windows.keep(3, window(), 2 * cost);
+    assert_eq!(windows.bytes, 2 * cost);
+
+    let oldest = windows.take(1).unwrap();
+    assert!(oldest.entries.is_empty(), "the oldest window dropped its cache");
+    assert_eq!(oldest.cursor.next, 2, "it still knows what its reader holds");
+    assert!(!windows.take(3).unwrap().entries.is_empty());
+    assert_eq!(windows.bytes, cost, "only the second window still caches");
+}
+
+#[test]
+fn an_evicted_window_sends_only_new_entries_and_resends_after_an_edit() {
+    let before = page(3, &["one", "two"]);
+    let evicted = || {
+        let mut window = held(&before);
+        window.evict();
+        window
+    };
+
+    let (retained, update) = next_update(
+        page(3, &["one", "two", "three"]),
+        Some(evicted()),
+        &request(None),
+    )
+    .unwrap();
+    let SessionUpdate::Delta(update) = update else {
+        panic!("expected delta")
+    };
+    assert_eq!(update.earlier, 5);
+    assert_eq!(update.entries.len(), 1);
+    assert!(retained.caches_held(), "it caches again");
+
+    let (_, update) =
+        next_update(page(3, &["one", "edited"]), Some(evicted()), &request(None)).unwrap();
+    let SessionUpdate::Delta(update) = update else {
+        panic!("expected delta")
+    };
+    assert_eq!(update.earlier, 3);
+    assert_eq!(update.entries.len(), 2);
+}
+
+#[test]
 fn moving_retention_keeps_overlap_and_gaps_reset_the_snapshot() {
     let before = page(3, &["one", "two", "three"]);
     let (_, update) = next_update(
