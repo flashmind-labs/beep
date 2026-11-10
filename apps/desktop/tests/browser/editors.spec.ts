@@ -28,3 +28,23 @@ test("Open in Zed reports a launch failure in the Codex session", async ({ page 
     { command: "open_in_editor", args: { editor: "zed", path: "/srv/project" } },
   ]);
 });
+
+test("session editor controls keep focus and open another editor", async ({ page }) => {
+  await openDesktop(page, true, {
+    editors: [{ id: "zed", name: "Zed" }, { id: "code", name: "VS Code" }],
+    session_folder_here: "/srv/project",
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex",
+    title: "Example session", cwd: "/srv/project", status: "working", doing: null,
+    started_at: 1, last_activity: 1, external: false,
+  } }));
+  const more = page.getByRole("button", { name: "Other editors" });
+  await more.focus();
+  await expect(more).toBeFocused();
+  await more.click();
+  await page.getByRole("menuitem", { name: "VS Code" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "open_in_editor"))).toEqual([
+    { command: "open_in_editor", args: { editor: "code", path: "/srv/project" } },
+  ]);
+});

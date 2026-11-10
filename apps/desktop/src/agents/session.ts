@@ -1,6 +1,6 @@
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
-import { SessionField, SessionHead, showSessionFrame, updateSessionHints, updateSessionTitle } from "./session-frame.tsx";
+import { SessionField, SessionHead, removeSessionPortal, setSessionPortal, showSessionFrame, updateSessionHints, updateSessionTitle } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
 import { AgentFeed } from "./agentfeed-state.ts";
@@ -34,7 +34,8 @@ import { thinking, turnsOf, clickedRow, drawAgentBody, syncJump, jumpToLatest, c
 import { drawModelPill, toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode, hasModes, readModes } from "./modepill.ts";
 import { readTasks, stopTask } from "./tasks.ts";
-import { editorTools, openInEditor } from "../project/editors.ts";
+import { editorsFor, openInEditor } from "../project/editors.ts";
+import { ProjectEditors } from "../project/header-view.tsx";
 import { disposeQueue, editQueued, interruptAgent, answerAgentQuestion, sendAgentMessage, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
@@ -478,15 +479,18 @@ export function openEditorKey() {
 export async function drawEditors(machine: string, cwd: string, current: () => boolean) {
   const target = $("#agedit"), key = JSON.stringify([machine, cwd]);
   if (!target || (editorHead?.target === target && editorHead.key === key)) return;
+  if (editorHead && editorHead.target !== target) removeSessionPortal(editorHead.target);
   const head = editorHead = { target, key };
   editorFolder = null;
-  target.replaceChildren();
+  removeSessionPortal(target);
   const folder = await invoke<string | null>("session_folder_here", { machineId: machine, cwd })
     .catch(e => { console.warn("session folder not read", e); return null; });
   const draw = () => {
     if (!current() || editorHead !== head || $("#agedit") !== target) return;
     editorFolder = folder;
-    target.replaceChildren(...editorTools(folder, draw));
+    const editors = editorsFor(folder, draw);
+    if (folder && editors.length) setSessionPortal(target, createElement(ProjectEditors, { editors, folder }));
+    else removeSessionPortal(target);
   };
   draw();
 }
