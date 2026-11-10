@@ -4,9 +4,9 @@ import type { GitChange, TreeRow } from "./files-state.ts";
 const marks: Record<GitChange, [string, string]> = { untracked: ["U", "Untracked"], added: ["A", "Added"], modified: ["M", "Changed"], conflicted: ["C", "In conflict"] };
 const depth = (value: number): CSSProperties & { "--d": number } => ({ "--d": value });
 
-export function FilesShell({ root, ignored, label, busy, active, status }: { root: string; ignored: boolean; label: string; busy: boolean; active: string | null; status: string }) {
+export function FilesShell({ root, filter, ignored, label, busy, active, status }: { root: string; filter: string; ignored: boolean; label: string; busy: boolean; active: string | null; status: string }) {
   return <>
-    <div className="agfbar"><input className="agffind" placeholder="Filter files" aria-label="Filter files" spellCheck={false} /><label className="agfign"><input type="checkbox" defaultChecked={ignored} /> Show ignored</label><button className="agpbtn" data-frefresh="1" title="Read the folders again">↻</button></div>
+    <div className="agfbar"><input className="agffind" defaultValue={filter} placeholder="Filter files" aria-label="Filter files" spellCheck={false} /><label className="agfign"><input type="checkbox" defaultChecked={ignored} /> Show ignored</label><button className="agpbtn" data-frefresh="1" title="Read the folders again">↻</button></div>
     <div className="agtree" role="tree" aria-label="Working files" aria-multiselectable="true" aria-busy={busy} aria-activedescendant={active ?? undefined} tabIndex={0} />
     <div className="agpacts"><span className="meta mono" title={root}>{label}</span><span data-fstatus role="status">{status}</span><span className="sp" /><span className="hint">Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting.</span></div>
   </>;
