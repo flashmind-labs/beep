@@ -1,4 +1,5 @@
-import { createElement, createRef } from "react";
+import { createElement } from "react";
+import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectRunning } from "./running-view.tsx";
 import { ProjectsOverview } from "./overview-view.tsx";
 import { ProjectFallback } from "./split-view.tsx";
@@ -19,7 +20,7 @@ import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { addProject } from "../center/sidebar.ts";
 import { splitOn, projectSplit, disposeProjectShell } from "./split.ts";
-import { viewPart, type PagePart } from "./page-view.tsx";
+import { hostPart, viewPart, type PagePart } from "./page-view.tsx";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.ts";
@@ -30,15 +31,24 @@ import { single } from "../ui/active.ts";
 import { EmptyPanel, ErrorNote } from "../ui/kit.tsx";
 
 /// Every project as a card, grouped by org: its tasks per state, its
-/// workers, what changed last and where it lives.
-const overviewBox = createRef<HTMLDivElement>();
+/// workers, what changed last and where it lives. It stays in one host while the
+/// Projects page is mounted, so opening a project and coming back keeps its groups drawn.
+let overviewHost: HTMLElement | null = null;
+
+export function disposeOverview() {
+  if (!overviewHost) return;
+  removeWindowPart("project-overview");
+  overviewHost = null;
+}
 
 export function overviewSection(rows: Project[]): PagePart[] {
   visiting = null;
   const groups = overviewGroups(rows, state.overview, state.top, state.groups, overviewOrder(rows));
-  return [viewPart("projects-overview", createElement("div", { style: { display: "contents" }, ref: overviewBox }, createElement(ProjectsOverview, { groups, editing: state.renaming,
+  if (!overviewHost) { overviewHost = document.createElement("div"); overviewHost.style.display = "contents"; }
+  showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming,
     sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)), add: addProject,
-  })))];
+  }) }]);
+  return [hostPart(overviewHost)];
 }
 
 /// When the user last opened each project, kept between launches.
@@ -65,7 +75,7 @@ const RANK_MS = 60_000;
 
 function overviewOrder(rows: readonly Project[]) {
   const names = rows.map(p => p.name).join("\n");
-  const box = overviewBox.current;
+  const box = overviewHost;
   const busy = !!box && (box.matches(":hover") || box.contains(document.activeElement));
   if (ranked && ranked.names === names && (busy || Date.now() - ranked.at < RANK_MS)) return ranked.activity;
 
