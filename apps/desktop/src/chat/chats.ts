@@ -91,8 +91,29 @@ export function renderChats() {
   loadChats("");
 }
 
-export async function loadChats(query: string) {
+// Coalesce list invalidations while keeping user searches independent.
+let listRead: Promise<void> | null = null;
+let listAgain: number | null = null;
+export function loadChats(query: string): Promise<void> {
   const version = ++loadVersion;
+  if (query) return readChats(query, version);
+  if (listRead) { listAgain = version; return listRead; }
+
+  const read = (async () => {
+    let current = version;
+    do {
+      listAgain = null;
+      await readChats("", current);
+      if (listAgain === null) break;
+      current = listAgain;
+    } while (true);
+  })();
+  listRead = read;
+  void read.then(() => { if (listRead === read) listRead = null; }, () => { if (listRead === read) listRead = null; });
+  return read;
+}
+
+async function readChats(query: string, version: number) {
   try {
     const [sessions, groups] = await Promise.all([
       query ? invoke<SessionMatch[]>("search_sessions", { query }).then(ms => ms.map(m => ({ ...m.session, snippet: m.snippet }))) : invoke<SessionSummary[]>("list_sessions"),
