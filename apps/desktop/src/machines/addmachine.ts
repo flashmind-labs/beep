@@ -1,6 +1,6 @@
 // The "Add a machine" sheet.
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { onShownChange } from "../ui/active.ts";
+import { latest, onShownChange, STALE } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
@@ -27,7 +27,7 @@ const TICK_MS = 1000;
 let root: HTMLDivElement | null = null, sheet: HTMLDivElement | null = null, state = START;
 /// What the ticket is for: a node, a container, another Mac, or a phone.
 let kind: TicketKind = "node";
-let creation = 0;
+const creation = latest();
 let ticker: Timer, poller: (() => void) | undefined, close: (() => void) | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
 let mac: MacSeen | null = null, macAsked = false, macPoller: (() => void) | undefined;
@@ -67,7 +67,7 @@ export function closeAddMachine() {
 }
 
 function closed() {
-  creation++;
+  creation.cancel();
   opening++;
   reactRoot?.unmount();
   reactRoot = null;
@@ -85,19 +85,18 @@ function closed() {
 
 /// Asks for a token.
 async function start() {
-  const requested = ++creation;
   update({ type: "renew" });
   poller?.();
   poller = undefined;
 
   try {
-    const made = await invoke<NodeToken>("mesh_invite", inviteArgs(kind));
-    if (!root || requested !== creation) return;
+    const made = await creation.run(invoke<NodeToken>("mesh_invite", inviteArgs(kind)));
+    if (!root || made === STALE) return;
     update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at, qrSvg: made.qr_svg ?? undefined });
     poller = subscribeChanges([topic("machines"), topic("projects")], { deliver: "latest", receive: () => poll() });
     void poll();
   } catch (e) {
-    if (!root || requested !== creation) return;
+    if (!root) return;
     update({ type: "failed", message: String(e) });
   }
 }
