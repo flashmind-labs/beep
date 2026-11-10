@@ -675,6 +675,16 @@ export function scrolledLog(b: ChatBody) {
   if (fillLog(b, b.stuck !== false)) drawnRows(b);
 }
 
+/// Where a pointer is held down. Matching `:active` on every delta would force
+/// a style recalculation of the whole page.
+let pressed: Node | null = null;
+
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", e => { pressed = e.target instanceof Node ? e.target : null; }, true);
+  for (const type of ["pointerup", "pointercancel", "dragend"]) document.addEventListener(type, () => { pressed = null; }, true);
+  window.addEventListener("blur", () => { pressed = null; });
+}
+
 /// Puts the log's html in the page, replacing only the rows that changed.
 /// A poll leaves a row the reader is selecting in place until it is
 /// unselected: false then, with that row as it was.
@@ -682,7 +692,7 @@ function showLog(b: HTMLElement, shell: Parameters<typeof showLogShell>[1], unit
   const sel = getSelection(), held: Node[] = [];
   const focused = document.activeElement;
   if (polled && focused && b.contains(focused)) held.push(focused);
-  if (polled && sel && (!sel.isCollapsed || b.matches(":active"))) {
+  if (polled && sel && (!sel.isCollapsed || (pressed !== null && b.contains(pressed)))) {
     if (sel.anchorNode) held.push(sel.anchorNode);
     if (sel.focusNode) held.push(sel.focusNode);
   }
