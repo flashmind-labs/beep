@@ -481,6 +481,9 @@ test("a refused background close shows an error without reopening the session", 
   assert.deepEqual(steers(), ["close"]);
   assert.equal(S.view, "agents");
   assert.match(document.body.textContent ?? "", /Could not close session: Machine is offline/);
+  const alert = document.querySelector<HTMLElement>('[role="alert"]'); assert.ok(alert);
+  const dismiss = alert.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]'); assert.ok(dismiss); dismiss.click();
+  assert.equal(document.body.contains(alert), false);
 });
 
 for (const from of [{ view: "home", arg: null }, { view: "projects", arg: { project: "acme/widget", tile: "running" } }, { view: "pane", arg: "agents" }] satisfies BackTo[]) {

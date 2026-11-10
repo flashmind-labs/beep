@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { WINDOWS } from "../ui/platform.ts";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
 import { openBarPage } from "../bar/page-root.ts";
@@ -496,7 +497,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     // ⌘T a terminal in the pane, ⌘N one like the terminal on screen, ⌘1 focuses chat, ⌘2 ⌘3 ⌘4 the pane's Files,
     // Changes and Artifacts, ⌘O the folder in the editor. ⌘U opens or folds every thought, ⌘Y
     // every command, ⇧⌘Y the last one. They work from the field and from a terminal: none edits text.
-    if (cmd && !e.altKey && !e.ctrlKey && !e.isComposing) {
+    if (cmd && !e.altKey && (WINDOWS || !e.ctrlKey) && !e.isComposing) {
       const k = e.key.toLowerCase();
       if (k === "w" && e.shiftKey && !AG.draft && AG.open) { e.preventDefault(); if (!e.repeat) void closeOpenSession(); return true; }
       if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerminal(undefined, !!AG.draft); return true; }

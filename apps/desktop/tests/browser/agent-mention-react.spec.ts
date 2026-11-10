@@ -43,3 +43,19 @@ test("agent file picker preserves composer focus and attaches an image", async (
   await expect(page.locator("#agatt")).toContainText("example.png");
   await expect(input).toBeFocused();
 });
+
+test("a failed background session close shows a dismissible error", async ({ page }, info) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = <T>(command: string, args?: Record<string, unknown>) => command === "agent_steer" ? Promise.reject(new Error("Machine is offline\n\nMore details")) : invoke<T>(command, args);
+    window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "idle", doing: null, started_at: 1, last_activity: 1, external: false } });
+  });
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+Shift+W" : "Meta+Shift+W");
+  const alert = page.getByRole("alert").filter({ hasText: "Could not close session" });
+  await expect(alert).toBeVisible();
+  await alert.getByText("Details", { exact: true }).click();
+  await expect(alert.locator("pre")).toHaveText("More details");
+  await alert.getByRole("button", { name: "Dismiss" }).click();
+  await expect(alert).toHaveCount(0);
+});
