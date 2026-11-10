@@ -515,6 +515,7 @@ dependencies = [
  "rust_decimal",
  "secrecy",
  "security-framework",
+ "semver",
  "serde",
  "serde_bytes",
  "serde_json",

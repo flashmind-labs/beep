@@ -94,3 +94,13 @@ fn stop_all_comes_from_the_page_as_stop_all() {
     let steer: Steer = serde_json::from_value(serde_json::json!("stop_all")).unwrap();
     assert_eq!(AgentSteer::try_from(steer).unwrap(), AgentSteer::StopAll {});
 }
+
+#[test]
+fn stop_all_goes_only_to_nodes_after_0_5_0() {
+    assert!(!stops_all(None));
+    assert!(!stops_all(Some("")));
+    assert!(!stops_all(Some("0.4.7")));
+    assert!(!stops_all(Some("0.5.0")));
+    assert!(stops_all(Some("0.5.1")));
+    assert!(stops_all(Some("0.6.0")));
+}
