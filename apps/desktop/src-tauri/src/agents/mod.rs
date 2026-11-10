@@ -11,6 +11,7 @@ pub(crate) mod flsh_settings;
 pub(crate) mod follow;
 pub(crate) mod harnesses;
 pub(crate) mod instructions;
+pub(crate) mod kept_transcripts;
 pub(crate) mod local_file;
 pub(crate) mod media;
 pub(crate) mod moving;
