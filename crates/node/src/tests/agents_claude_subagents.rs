@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::{claude::transcript::entries, found::memo::Memo};
+use crate::agents::claude::transcript::{Transcripts, entries};
 use beep_proto::node::agent::EntryKind;
 use serde_json::json;
 
@@ -72,7 +72,7 @@ fn session(root: &Path) -> PathBuf {
 fn each_subagent_goes_on_the_call_that_started_it() {
     let root = tempfile::tempdir().expect("a temp folder");
     let path = session(root.path());
-    let read = entries(&path, 10, None, &Memo::new(2)).expect("the transcript");
+    let read = entries(&path, 10, None, &Transcripts::new(2)).expect("the transcript");
     let tools: Vec<&str> = read
         .entries
         .iter()
@@ -110,7 +110,7 @@ fn native_sidechain_messages_use_the_normal_transcript_reader() {
         .expect("child");
     assert_eq!(found.title.as_deref(), Some("Find the config loader"));
     let child = store.find(id).expect("native file");
-    let read = entries(&child, 50, None, &Memo::new(2)).expect("child transcript");
+    let read = entries(&child, 50, None, &Transcripts::new(2)).expect("child transcript");
     assert_eq!(read.entries[0].text, "Where is the config read?");
     assert_eq!(
         read.entries.last().expect("reply").text,
@@ -135,7 +135,12 @@ fn native_sidechain_messages_use_the_normal_transcript_reader() {
         EntryKind::Tool,
         "Explore [completed]\n[steps] 0".to_owned(),
     )];
-    attach_live(&path, &[(0, "call_explore".to_owned())], &mut live);
+    attach_live(
+        &path,
+        &[(0, "call_explore".to_owned())],
+        &mut live,
+        &Transcripts::new(2),
+    );
     assert!(
         live[0]
             .text
@@ -152,7 +157,7 @@ fn native_sidechain_messages_use_the_normal_transcript_reader() {
 fn a_subagent_before_the_entries_read_is_not_read() {
     let root = tempfile::tempdir().expect("a temp folder");
     let path = session(root.path());
-    let read = entries(&path, 1, None, &Memo::new(2)).expect("the transcript");
+    let read = entries(&path, 1, None, &Transcripts::new(2)).expect("the transcript");
     assert_eq!(read.entries.len(), 1);
     assert_eq!(read.entries[0].text, "Both checks are done.");
 }
@@ -200,6 +205,7 @@ fn a_live_background_spawn_uses_its_childs_status_and_steps() {
         &path,
         &[(0, "call_release".into()), (1, "call_explore".into())],
         &mut live,
+        &Transcripts::new(2),
     );
     assert!(
         live[0]
@@ -213,7 +219,12 @@ fn a_live_background_spawn_uses_its_childs_status_and_steps() {
     );
     let meta = path.with_extension("").join("subagents/agent-a2.meta.json");
     fs::write(meta, r#"{"toolUseId":"call_release","finished":true}"#).expect("finished meta");
-    attach_live(&path, &[(0, "call_release".into())], &mut live);
+    attach_live(
+        &path,
+        &[(0, "call_release".into())],
+        &mut live,
+        &Transcripts::new(2),
+    );
     assert!(
         live[0]
             .text

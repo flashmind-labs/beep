@@ -7,7 +7,7 @@ use crate::agents::tool_details;
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
     agents::tags::{self, Part},
-    agents::{Picture, block_picture, cut, found::memo::Memo, window::window},
+    agents::{Picture, block_picture, cut, window::window},
 };
 use beep_proto::{
     AgentToolCall,
@@ -18,8 +18,9 @@ use std::{
     collections::{HashMap, HashSet},
     fs::File,
     io::{self, Read, Seek, SeekFrom},
-    path::Path,
-    sync::Arc,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::{Instant, SystemTime},
 };
 
 /// The first window of a file's tail that is read...
@@ -753,27 +754,170 @@ pub(crate) struct Excerpt {
 
 /// The `last` entries before entry `before` (the end when `None`) of the
 /// transcript at `path`, with the pictures their image lines show. The
-/// file is read as far back as `MAX_WINDOW` once, kept in `kept` while it
-/// does not change, so every page counts entries from the same first one.
+/// file is read as far back as `MAX_WINDOW` once and kept in `kept`, which
+/// parses only the lines appended since, so every page counts entries from
+/// the same first one.
 pub(super) fn entries(
     path: &Path,
     last: usize,
     before: Option<u64>,
-    kept: &Memo<Arc<Digest>>,
+    kept: &Transcripts,
 ) -> io::Result<Excerpt> {
-    let digest = kept.read(path, || {
-        let tail = read_tail(path, MAX_WINDOW)?;
-        Ok::<_, io::Error>(Arc::new(Digest::for_file(path, &tail.text, true)))
-    })?;
-    let range = window(0, digest.entries.len(), last, before);
-    let skip = range.start;
-    let mut entries = digest.entries[range].to_vec();
-    subagents::attach(path, &digest.spawns, &mut entries, skip);
-    Ok(Excerpt {
-        entries,
-        earlier: skip as u64,
-        pictures: digest.pictures.clone().unwrap_or_default(),
+    kept.with(path, |digest| {
+        let range = window(0, digest.entries.len(), last, before);
+        let skip = range.start;
+        let mut entries = digest.entries[range].to_vec();
+        let started = Instant::now();
+        subagents::attach(path, &digest.spawns, &mut entries, skip);
+        crate::agents::transcript_stage("subagents", started);
+        Excerpt {
+            entries,
+            earlier: skip as u64,
+            pictures: digest.pictures.clone().unwrap_or_default(),
+        }
     })
+}
+
+/// How many bytes before a parsed transcript's end are compared on the next
+/// read, to tell an append from a file written again.
+const CHECKED: u64 = 256;
+
+/// Parsed transcripts by path, at most `cap`. Each is kept while its file
+/// only grows: an append parses just the new lines, carrying the tool,
+/// subagent and picture state of the lines before, so it reads as a whole
+/// parse of the same text would. A file that shrinks or changes before the
+/// parsed end, or grows past twice `MAX_WINDOW`, is parsed again from its
+/// last `MAX_WINDOW`.
+#[derive(Debug)]
+pub(crate) struct Transcripts {
+    cap: usize,
+    kept: Mutex<Slots>,
+}
+
+#[derive(Debug, Default)]
+struct Slots {
+    /// Counts lookups, to drop the slot used longest ago.
+    clock: u64,
+    slots: HashMap<PathBuf, (u64, Slot)>,
+}
+
+/// One file's parse, locked while it is brought up to date and read.
+type Slot = Arc<Mutex<Option<Parsed>>>;
+
+/// One transcript's parse and where in the file it stands.
+#[derive(Debug)]
+struct Parsed {
+    digest: Digest,
+    /// Where the parse started and ended: after the last whole line.
+    start: u64,
+    end: u64,
+    /// The file's length and time when last read, to skip an unchanged one.
+    len: u64,
+    modified: SystemTime,
+    /// The `CHECKED` bytes before `end`.
+    check: Vec<u8>,
+}
+
+impl Transcripts {
+    pub(crate) fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            kept: Mutex::new(Slots::default()),
+        }
+    }
+
+    /// `read` of the transcript at `path`, brought up to date first. Readers
+    /// of one file take turns; other files are read alongside.
+    pub(super) fn with<T>(&self, path: &Path, read: impl FnOnce(&Digest) -> T) -> io::Result<T> {
+        let slot = self.slot(path);
+        let mut parsed = crate::lock(&slot);
+        let result = refresh(path, &mut parsed);
+
+        if result.is_err() {
+            *parsed = None;
+        }
+
+        result?;
+        let digest = &parsed.as_ref().ok_or(io::ErrorKind::NotFound)?.digest;
+        Ok(read(digest))
+    }
+
+    fn slot(&self, path: &Path) -> Slot {
+        let mut kept = crate::lock(&self.kept);
+        kept.clock += 1;
+        let now = kept.clock;
+
+        if let Some((used, slot)) = kept.slots.get_mut(path) {
+            *used = now;
+            return slot.clone();
+        }
+
+        if kept.slots.len() >= self.cap
+            && let Some(oldest) = kept
+                .slots
+                .iter()
+                .min_by_key(|(_, (used, _))| *used)
+                .map(|(path, _)| path.clone())
+        {
+            kept.slots.remove(&oldest);
+        }
+
+        let slot = Arc::new(Mutex::new(None));
+        kept.slots.insert(path.to_owned(), (now, slot.clone()));
+        slot
+    }
+}
+
+/// Brings `parsed` up to the end of the file at `path`.
+fn refresh(path: &Path, parsed: &mut Option<Parsed>) -> io::Result<()> {
+    let started = Instant::now();
+    let mut file = File::open(path)?;
+    let meta = file.metadata()?;
+    let (len, modified) = (meta.len(), meta.modified()?);
+
+    if let Some(kept) = parsed.as_mut() {
+        if kept.len == len && kept.modified == modified {
+            return Ok(());
+        }
+
+        let grows = len >= kept.end && len - kept.start <= 2 * MAX_WINDOW;
+
+        if grows && bytes_before(&mut file, kept.end)? == kept.check {
+            let tail = read_from(&mut file, kept.end, len)?;
+            crate::agents::transcript_stage("read", started);
+            let parsing = Instant::now();
+            kept.digest.lines(&tail.text);
+            crate::agents::transcript_stage("parse", parsing);
+            kept.check = bytes_before(&mut file, tail.end)?;
+            (kept.end, kept.len, kept.modified) = (tail.end, len, modified);
+            return Ok(());
+        }
+    }
+
+    let start = len.saturating_sub(MAX_WINDOW);
+    let tail = read_from(&mut file, start, len)?;
+    crate::agents::transcript_stage("read", started);
+    let parsing = Instant::now();
+    let digest = Digest::for_file(path, &tail.text, true);
+    crate::agents::transcript_stage("parse", parsing);
+    *parsed = Some(Parsed {
+        digest,
+        start,
+        end: tail.end,
+        len,
+        modified,
+        check: bytes_before(&mut file, tail.end)?,
+    });
+    Ok(())
+}
+
+/// The up to `CHECKED` bytes before `end`.
+fn bytes_before(file: &mut File, end: u64) -> io::Result<Vec<u8>> {
+    let from = end.saturating_sub(CHECKED);
+    file.seek(SeekFrom::Start(from))?;
+    let mut bytes = Vec::new();
+    file.take(end - from).read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -834,7 +978,7 @@ pub(super) mod tests {
         let folder = tempfile::tempdir().expect("a temp folder");
         let path = folder.path().join("a3f9c1.jsonl");
         fs::write(&path, FIXTURE).expect("a transcript");
-        let kept = Memo::new(2);
+        let kept = Transcripts::new(2);
         let all = entries(&path, 100, None, &kept).expect("read");
         assert_eq!(all.earlier, 0);
         assert_eq!(all.entries.len(), 11);
@@ -1068,7 +1212,7 @@ pub(super) mod tests {
             .map(|line| line.to_string())
             .collect();
         fs::write(&path, lines.join("\n") + "\n").expect("a transcript");
-        let kept = Memo::new(2);
+        let kept = Transcripts::new(2);
 
         let newest = entries(&path, 200, None, &kept).expect("read");
         assert_eq!(newest.entries.len(), 200);
@@ -1092,4 +1236,45 @@ pub(super) mod tests {
         let first = entries(&path, 1, Some(1), &kept).expect("read");
         assert_eq!(first.entries[0].text, "prompt 0");
     }
+
+    #[test]
+    fn an_append_to_a_large_transcript_parses_only_the_new_lines() {
+        use std::io::{Seek, SeekFrom};
+        let folder = tempfile::tempdir().expect("a temp folder");
+        let path = folder.path().join("c4d8e1.jsonl");
+        let filler = "x".repeat(2000);
+        let line = |turn: usize| {
+            serde_json::json!({"type": "user", "message": {"role": "user",
+                "content": format!("prompt {turn:05} {filler}")}})
+            .to_string()
+        };
+        // About 8 MiB of fabricated turns.
+        let text: String = (0..4000).map(|turn| line(turn) + "\n").collect();
+        fs::write(&path, &text).expect("a transcript");
+        let kept = Transcripts::new(2);
+        let first = entries(&path, 200, None, &kept).expect("read");
+        assert_eq!((first.earlier, first.entries.len()), (3800, 200));
+
+        // Rewrite an early prompt in place: a parse of the whole tail
+        // would see it, a parse of the appended lines does not.
+        let mut file = fs::OpenOptions::new().write(true).open(&path).expect("open");
+        let at = text.find("prompt 03900").expect("an early prompt");
+        file.seek(SeekFrom::Start(at as u64)).expect("seek");
+        file.write_all(b"PROMPT").expect("rewrite");
+        drop(file);
+        let mut file = fs::OpenOptions::new().append(true).open(&path).expect("open");
+        writeln!(file, "{}", line(4000)).expect("append");
+        drop(file);
+
+        let next = entries(&path, 200, None, &kept).expect("read");
+        assert_eq!((next.earlier, next.entries.len()), (3801, 200));
+        assert!(next.entries[99].text.starts_with("prompt 03900"));
+        assert!(next.entries[199].text.starts_with("prompt 04000"));
+
+        // A file written again before the parsed end is parsed again.
+        fs::write(&path, text.replace("prompt 03999", "PROMPT 03999")).expect("rewrite");
+        let again = entries(&path, 1, None, &kept).expect("read");
+        assert!(again.entries[0].text.starts_with("PROMPT 03999"));
+    }
 }
+

@@ -52,3 +52,8 @@ Earlier releases predate this changelog.
 - Node: a mesh link rides out a network drop of up to 30 seconds instead of
   reconnecting after 10, and a machine that stays offline is dialed about once
   a minute instead of every 12 seconds. One that comes back is reached at once.
+- Node: conversations open faster. A newly opened session sends its newest
+  page first, a Claude Code transcript parses only the lines added since the
+  last read, its subagents' files are read again only when they change, and a
+  followed session looks up its file once and its processes only when they
+  may have changed.

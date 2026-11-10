@@ -134,6 +134,13 @@ pub use follow::serve_follow;
             .map_or(0, |since| since.as_secs())
     }
 
+    /// Records how long `stage` of a transcript read took since `started`:
+    /// finding the file, reading, parsing, subagents, encoding or sending.
+    fn transcript_stage(stage: &'static str, started: std::time::Instant) {
+        metrics::histogram!("beep_transcript_stage_seconds", "stage" => stage)
+            .record(started.elapsed().as_secs_f64());
+    }
+
     /// The agents this node offers and the sessions it runs. Sessions belong
     /// to the daemon, so they outlive the streams and the connection.
     #[derive(Default)]
