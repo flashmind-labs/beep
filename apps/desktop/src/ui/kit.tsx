@@ -51,3 +51,8 @@ export function ChipToggle({ label, selected, onToggle }: { label: string; selec
 export function Spinner({ dot = false, className, label, title }: { dot?: boolean; className?: string; label?: string; title?: string }) {
   return <span className={`${dot ? "drun" : "dspin"}${className ? ` ${className}` : ""}`} role={label ? "img" : undefined} aria-label={label} title={title} />;
 }
+
+/// A button inside a clickable row that does its own thing, not the row's.
+export function RowButton({ className = "small", onPress, children }: { className?: string; onPress(): void; children: ReactNode }) {
+  return <button type="button" className={`dbtn ${className}`} onClick={event => { event.stopPropagation(); onPress(); }}>{children}</button>;
+}
