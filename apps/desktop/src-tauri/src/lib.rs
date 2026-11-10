@@ -624,6 +624,8 @@ fn quit(app: &AppHandle) {
             Err(_) => log::warn!("quitting before the mesh stopped"),
         }
     });
+    // The views a window drew last are kept for the next start.
+    app.state::<Arc<center::view_cache::ViewCache>>().flush();
     // Background tasks the agent started here end with the app.
     #[cfg(desktop)]
     beep_node::kill_tasks();
