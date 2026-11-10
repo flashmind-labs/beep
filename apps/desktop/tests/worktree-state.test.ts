@@ -162,6 +162,14 @@ test("creation is a candidate until an edit or structured directory confirms usa
   assert.equal(used.last, fix.path);
 });
 
+test("a tool run on another machine leaves the worktree as it is", () => {
+  const remote = where([{ ...tool("remote_run [completed]"), tool: {
+    name: "remote_run", input: JSON.stringify({ machine: "build-box", cwd: fix.path }), input_truncated: false,
+    result: null, result_truncated: false,
+  } }]);
+  assert.equal(remote.last, main.path);
+});
+
 test("search matches branch names and full paths, ignoring case", () => {
   assert.equal(matchesTree(fix, " FIX "), true);
   assert.equal(matchesTree(fix, ".worktrees"), true);

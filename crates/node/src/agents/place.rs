@@ -106,12 +106,17 @@ fn existing(path: &Path) -> Option<PathBuf> {
 
 /// The folder a tool call works in: the one its input names (`workdir`,
 /// `cwd`), else the folder of the file an edit changes. A relative one is
-/// taken from `base`. `None` when it names none.
+/// taken from `base`. `None` when it names none, or names a `machine`: Beep's
+/// remote tools work in a folder on that machine.
 pub(crate) fn call_folder(
     base: &Path,
     input: Option<&serde_json::Value>,
     edited: Option<&Path>,
 ) -> Option<PathBuf> {
+    if input.is_some_and(|input| input["machine"].as_str().is_some_and(|m| !m.is_empty())) {
+        return None;
+    }
+
     let named = input.and_then(|input| {
         ["workdir", "cwd", "working_directory"]
             .iter()

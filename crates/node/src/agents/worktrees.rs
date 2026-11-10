@@ -89,6 +89,9 @@ pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
         Err(e) => return Err(e),
     };
     let mut trees = parse(&text);
+    // A synced `.git` lists the worktrees of other machines too.
+    trees.retain(|tree| Path::new(&tree.path).is_dir());
+
     // The innermost one holding the folder: a worktree may sit inside the
     // main checkout.
     let own = trees
