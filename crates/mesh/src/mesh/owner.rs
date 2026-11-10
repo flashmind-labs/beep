@@ -3,7 +3,7 @@
 use super::{Inner, PEER_ALPN};
 use crate::link;
 use iroh::endpoint::Connection;
-use iroh::{EndpointAddr, EndpointId};
+use iroh::{EndpointAddr, EndpointId, Watcher};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,9 +12,10 @@ use tokio::time::{Instant, sleep, timeout};
 use tracing::{debug, warn};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
-/// A member that stays away is tried about once a minute. One that comes
-/// back dials us itself, and its new address ends our wait early.
-const LAST_RETRY: Duration = Duration::from_secs(60);
+/// A member that stays away is tried about twice a minute. One that comes
+/// back dials us itself, its new address ends our wait early, and so does a
+/// change of our own addresses, as after a sleep or a Wi-Fi drop.
+const LAST_RETRY: Duration = Duration::from_secs(30);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// A connection that lasted this long counts as having worked.
 const STABLE: Duration = Duration::from_secs(5);
@@ -144,6 +145,9 @@ pub(super) async fn own(inner: Arc<Inner>) {
 async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
     let mut backoff = Backoff(FIRST_RETRY);
     let mut waited = false;
+    // Our own addresses: a change means the network came back or moved.
+    let mut ours = inner.endpoint.watch_addr();
+    let mut network = true;
 
     loop {
         let notified = inner.wake.notified();
@@ -207,7 +211,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             Ok(Err(e)) => debug!("dial failed: {e}"),
             Err(_) => debug!("dial timed out"),
         }
-        // Only a new address for this peer ends the wait early.
+        // A new address for this peer or for us ends the wait early.
         let pause = sleep(backoff.pause());
         tokio::pin!(pause);
 
@@ -224,6 +228,14 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             tokio::select! {
                 () = &mut pause => break,
                 () = &mut moved => {}
+                changed = ours.updated(), if network => {
+                    if changed.is_ok() {
+                        backoff.reset();
+                        break;
+                    }
+
+                    network = false;
+                }
             }
         }
     }
