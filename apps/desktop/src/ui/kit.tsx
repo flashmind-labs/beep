@@ -1,7 +1,7 @@
 // Shared command-center building blocks. Each one draws the exact markup the
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
 /// A section: its head (title, count, then `action`) over a panel of `children`.
 export function Section({ id, title, count = 0, action, children }: { id?: string; title: ReactNode; count?: number | string; action?: ReactNode; children: ReactNode }) {
@@ -55,4 +55,14 @@ export function Spinner({ dot = false, className, label, title }: { dot?: boolea
 /// A button inside a clickable row that does its own thing, not the row's.
 export function RowButton({ className = "small", onPress, children }: { className?: string; onPress(): void; children: ReactNode }) {
   return <button type="button" className={`dbtn ${className}`} onClick={event => { event.stopPropagation(); onPress(); }}>{children}</button>;
+}
+
+/// Enter or Space on a focusable row that is not itself a button runs `run`,
+/// as a click on it would. Keys from controls inside the row pass by.
+export function onRowKey(run: () => void) {
+  return (event: KeyboardEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    run();
+  };
 }
