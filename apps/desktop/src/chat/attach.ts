@@ -7,12 +7,8 @@ import type { ChatBody, Turn } from "../ui/turn.ts";
 import { drawQueue, focusAsk } from "./chat.ts";
 import { $, bar, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
-import { VOICE_ICON } from "../bar/live.ts";
-import { fileKind, fileSize, GONE } from "./media.ts";
-import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { ICON } from "../ui/icons.ts";
-import { invoke } from "../ui/tauri.ts";
 
 // ---------- Attached images and files ----------
 
@@ -39,44 +35,11 @@ export const PIC_SIDE = 1024;
 
 export const attachedCount = () => attached.pics.length + attached.files.length;
 
-/// An attached file's chip: its name and size, with a remove button while
-/// it waits in the prompt, as a button that opens it once it is kept.
-export function fileChip(f: AskFile, i?: number) {
-  const tag = f.id ? "button" : "span";
-
-  // A spoken message's recording, kept with it.
-  if (i === undefined && f.mime?.startsWith("audio/")) {
-    const about = ["Audio", fileSize(f.size)].filter(Boolean).join(", ");
-    return `<${tag} class="dachip" aria-label="Open your recording"><span class="ic">${VOICE_ICON.mic}</span><span class="dcol0"><span class="nm">Your recording</span><span class="sz">${esc(about)}</span></span></${tag}>`;
-  }
-
-  const about = [fileKind(f), fileSize(f.size)].filter(Boolean).join(", ");
-  const remove = i === undefined ? "" : `<button aria-label="Remove ${esc(f.name)}" data-i="${i}">${ICON.x}</button>`;
-  return `<${tag} class="dachip"><span class="ic">${ICON.doc}</span><span class="dcol0"><span class="nm">${esc(f.name)}</span><span class="sz">${esc(about)}</span></span>${remove}</${tag}>`;
-}
-
 /// The files a prompt carried, under it. A kept one opens like a file Beep sent.
-export function askFiles(files: AskFile[], body: ChatBody | null = null, turn: Turn | null = null) {
-  if (body && turn) {
-    const row = document.createElement("div");
-    row.className = "dachips";
-    renderChatFiles(body, turn, row, files);
-    return row;
-  }
-  const row = h(`<div class="dachips">${files.map(f => fileChip(f)).join("")}</div>`);
-  [...row.children].forEach((chip, i) => {
-    const file = files[i];
-    if (!file.id) return;
-    chip.addEventListener("click", async () => {
-      if (chip.classList.contains("gone")) return;
-
-      try { await invoke("open_file", { id: file.id, name: file.name }); }
-      catch (e) {
-        chip.querySelector(".sz")!.textContent = String(e);
-        if (String(e) === GONE) chip.classList.add("gone");
-      }
-    });
-  });
+export function askFiles(files: AskFile[], body: ChatBody, turn: Turn) {
+  const row = document.createElement("div");
+  row.className = "dachips";
+  renderChatFiles(body, turn, row, files);
   return row;
 }
 
