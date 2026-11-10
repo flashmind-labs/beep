@@ -6,7 +6,7 @@ import { signInOffer } from "./signin-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import type { Machine } from "./machines.ts";
 
-export interface MachineSearch { id: string; folder: string | null; draft: string | null; busy: boolean; error: string }
+interface MachineSearch { id: string; folder: string | null; draft: string | null; busy: boolean; error: string }
 export interface MachineLog { id: string; text: string | null; busy: boolean; error: string }
 interface ToolUpdate { machine_id: string; tool: string; latest: string }
 interface Asking { id: string; busy: boolean; error: string }

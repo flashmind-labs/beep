@@ -5,7 +5,7 @@ import { bytes } from "../ui/format.ts";
 import { conflictCount, machineMeta, rowDetail, stateChip, syncPct, type SyncDetail, type SyncRow } from "../project/filesync.ts";
 
 /// A tool found on a machine's `PATH` (MachineTool).
-export interface MachineTool {
+interface MachineTool {
   name: string;
   version: string | null;
 }
@@ -42,7 +42,7 @@ export interface MachineView {
   temporary?: boolean;
 }
 
-export interface MachineGpu {
+interface MachineGpu {
   vendor: string;
   model: string;
   vram_mb: number | null;
@@ -50,7 +50,7 @@ export interface MachineGpu {
 }
 
 /// A volume a machine measured (MachineDisk).
-export interface MachineDisk {
+interface MachineDisk {
   path: string;
   free_bytes: number;
   total_bytes: number;

@@ -6,7 +6,7 @@
 /// What `keyedReads` needs: `read` asks for one project, `got` and
 /// `failed` keep its answer or why it failed, `shown` is the project on
 /// screen now and `redraw` draws it again.
-export interface KeyedReadDeps<T> {
+interface KeyedReadDeps<T> {
   read: (key: string) => Promise<T>;
   got: (key: string, value: T) => void;
   failed: (key: string, error: unknown) => void;
@@ -53,9 +53,9 @@ export function keyedReads<T>(deps: KeyedReadDeps<T>) {
 }
 
 /// Projects remembered as opened last.
-export const RECENT_MAX = 8;
+const RECENT_MAX = 8;
 /// Of those, how many are read ahead while the window is idle.
-export const PREFETCH_RECENT = 3;
+const PREFETCH_RECENT = 3;
 
 /// `list` with `name` first, at most `max` long.
 export function touchRecent(list: readonly string[], name: string, max = RECENT_MAX): string[] {

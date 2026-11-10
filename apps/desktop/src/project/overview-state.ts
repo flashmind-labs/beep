@@ -5,7 +5,7 @@ import { plural } from "../ui/format.ts";
 import { groupOf, type Groupable, type LatestTask, type OverviewCard, type Placed, type Project, type ProjectGroup, type SessionRow, type TaskCounts } from "./projects-state.ts";
 
 /// The order a card's bar takes, work in hand first.
-export const BAR_STATES = ["running", "review", "blocked", "planned", "done"] as const;
+const BAR_STATES = ["running", "review", "blocked", "planned", "done"] as const;
 
 /// A card of the overview: the project row with `i` for its colour, its repo
 /// name (the whole name under a group), whether it is pinned, and `sum`, the

@@ -12,7 +12,7 @@ export const INSTALL_WINDOWS = "irm https://releases.flashmind.com/beep/node/ins
 export const HOME_SEARCH = "~/";
 
 /// The search folder as the node takes it: empty for home.
-export function searchFolder(typed: string) {
+function searchFolder(typed: string) {
   const dir = typed.trim();
   return dir === "~" || dir === HOME_SEARCH ? "" : dir;
 }
@@ -139,7 +139,7 @@ export type MacSeen = Pick<MacControl, "enabled" | "status" | "error"> & { name?
 
 /// The sheet's "Use this Mac" option: its line, and its button or how it
 /// stands.
-export interface MacOption {
+interface MacOption {
   text: string;
   button?: string;
   done?: boolean;

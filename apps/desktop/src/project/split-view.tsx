@@ -53,7 +53,7 @@ export function RunningStatus({ row }: { row: RunningAgent }) {
 }
 
 export interface RecentSessions { rows: SessionRow[] | null; empty: string | null; count: number; freshness: Freshness | null }
-export function RecentSessionsSection({ session }: { session: RecentSessions }) {
+function RecentSessionsSection({ session }: { session: RecentSessions }) {
   return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness && <FreshNote freshness={session.freshness} className=" ss-updating"/>}</h4></div>{session.rows ? <div style={{ display: "contents" }}><div className="cc-panel"><ProjectSessions rows={session.rows} all={false}/></div></div> : <EmptyPanel text={session.empty} />}</div>;
 }
 

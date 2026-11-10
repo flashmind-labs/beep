@@ -14,7 +14,7 @@ export function looksLikeRepo(text: string | null | undefined) {
 }
 
 /// A machine chip: its id, or null for Auto.
-export interface MachineChip {
+interface MachineChip {
   id: string | null;
   label: string;
 }

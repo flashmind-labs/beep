@@ -3,7 +3,7 @@ import type { PaneTarget } from "../bar/pane.ts";
 import type { Location } from "../center/state.ts";
 
 /// What a click needs to say, as a `MouseEvent` has it.
-export interface ClickLike {
+interface ClickLike {
   button: number;
   metaKey: boolean;
 }
@@ -49,7 +49,7 @@ interface AgentLike {
 
 /// Whether `agent` runs in one of the project's folders, a worktree under it
 /// included.
-export function agentInProject(agent: AgentLike, folders: ProjectScope["folders"]): boolean {
+function agentInProject(agent: AgentLike, folders: ProjectScope["folders"]): boolean {
   if (!folders.length) return true;
   const cwd = agent.cwd || "";
   if (!cwd) return false;
@@ -82,7 +82,7 @@ export type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills"
 
 /// A coding agent session for the main window, every field filled as
 /// `AgentTarget` in center.rs reads it.
-export interface AgentTarget {
+interface AgentTarget {
   kind: string;
   machine_id: string;
   machine_name: string;

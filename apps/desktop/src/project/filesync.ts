@@ -12,7 +12,7 @@ import { loadClocks } from "../machines/clock.ts";
 import { plainPath } from "./projects-state.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
-export interface SyncProgress {
+interface SyncProgress {
   files_done: number;
   files_total: number;
   bytes_done: number;
@@ -66,7 +66,7 @@ export interface Conflict {
 }
 
 /// What the window hands `makeFileSync`.
-export interface FileSyncDeps {
+interface FileSyncDeps {
   invoke: typeof Invoke;
   redraw: () => void;
   /// Fills the bar of `project` to have an agent settle a conflict.
@@ -262,7 +262,7 @@ export function makeFileSync(deps: FileSyncDeps) {
 const TILE_MAX_AGE_MS = 30_000;
 
 /// "2.1 MB/s", or "" before the rate is known.
-export function rateText(rate: number | null | undefined) {
+function rateText(rate: number | null | undefined) {
   return rate && rate > 0 ? `${bytes(rate)}/s` : "";
 }
 

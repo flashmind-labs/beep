@@ -3,11 +3,11 @@
 // menu's keys do. The sheet reads the folders with `list_machine_folder`.
 
 /// The most folders the menu offers.
-export const MAX_SUGGESTIONS = 12;
+const MAX_SUGGESTIONS = 12;
 
 /// Typed text split at its last `/`: the folder to list, as typed with its
 /// trailing `/` (`/`, `/srv/code/`, `~/`), and the start of a name in it.
-export interface TypedFolder {
+interface TypedFolder {
   dir: string;
   prefix: string;
 }

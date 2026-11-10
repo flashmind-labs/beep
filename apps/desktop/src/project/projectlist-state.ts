@@ -8,9 +8,9 @@ import type { RunRow } from "./runs.ts";
 import { going } from "./runs.ts";
 
 /// A machine chip's dot: in step, syncing, needs a look (amber) or offline.
-export type ChipState = "ok" | "syncing" | "conflict" | "off";
+type ChipState = "ok" | "syncing" | "conflict" | "off";
 
-export interface ListChip {
+interface ListChip {
   name: string;
   state: ChipState;
   /// "build-box: /srv/app · In step".
@@ -18,12 +18,12 @@ export interface ListChip {
 }
 
 /// The CI dot: the newest run passed, failed, is running, or there is none.
-export type CiState = "ok" | "bad" | "busy" | "none";
+type CiState = "ok" | "bad" | "busy" | "none";
 
 /// What the list knows of the user's machines and each project's sync, all
 /// of it read already: Home's machines, `project_sync`, and the sync details
 /// a project's page last read.
-export interface ChipInputs {
+interface ChipInputs {
   online: ReadonlyMap<string, boolean>;
   sync: readonly SyncRow[];
   detail: SyncDetail | null | undefined;

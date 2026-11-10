@@ -39,24 +39,15 @@ export async function useThisMac() {
 
 /// A machine the window can offer to remove: any but this Mac, which
 /// unlinks from Settings.
-export interface Removable {
+interface Removable {
   id: string;
   name: string;
   online?: boolean;
   can_host?: boolean;
 }
 
-/// Right-clicking `els` opens the menu for machine `m`: a terminal on it when it is
-/// online, and removing it, which this Mac cannot do to itself.
-export function machineMenu(m: Removable, ...els: Element[]) {
-  machineMenuWith(m, () => [], ...els);
-}
-
-/// `machineMenu` with the lines `first` gives on top, read when the menu opens.
-export function machineMenuWith(m: Removable, first: () => MenuItem[], ...els: Element[]) {
-  for (const el of els) el.addEventListener("contextmenu", e => showMachineMenu(m, first, e as MouseEvent));
-}
-
+/// The menu for machine `m`, with the lines `first` gives on top: a terminal
+/// on it when it is online, and removing it, which this Mac cannot do to itself.
 export function showMachineMenu(m: Removable, first: () => MenuItem[], e: MouseEvent) {
   if (!m.id) return;
   const items: MenuItem[] = [...first()];

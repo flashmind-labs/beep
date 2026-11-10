@@ -12,18 +12,18 @@ export interface ListedRun {
 }
 
 /// A run's details as far as this file looks at them.
-export interface DetailLike {
+interface DetailLike {
   run: ListedRun;
 }
 
 /// How often a running run opened, and the list while a run goes, read again.
 export const POLL_MS = 5_000;
 /// The newest runs whose details are read once the list loads.
-export const AHEAD = 3;
+const AHEAD = 3;
 /// Details read ahead at once.
-export const AHEAD_AT_ONCE = 2;
+const AHEAD_AT_ONCE = 2;
 /// Details kept, over every project.
-export const MAX_DETAILS = 40;
+const MAX_DETAILS = 40;
 /// How long the pointer rests on a run before its details are read ahead.
 export const HOVER_MS = 150;
 

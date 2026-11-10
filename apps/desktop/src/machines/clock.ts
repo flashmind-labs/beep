@@ -5,7 +5,7 @@ import { type ClockOff, clockLine, clockTitle } from "./clock-state.ts";
 export const CLOCK_MAX_AGE_MS = 30_000;
 /// The wait after a failed read, doubling with each failure up to the cap.
 export const CLOCK_RETRY_MS = 5_000;
-export const CLOCK_RETRY_MAX_MS = 5 * 60_000;
+const CLOCK_RETRY_MAX_MS = 5 * 60_000;
 
 /// The offset of each online machine whose clock is off, by machine id.
 const OFF = new Map<string, number>();

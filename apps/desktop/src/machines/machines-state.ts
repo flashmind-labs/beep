@@ -3,20 +3,20 @@ import { isNewer } from "../ui/format.ts";
 // tested without Tauri. machines.ts draws it.
 
 /// A tool a machine reported, with what its version command printed.
-export interface ReportedTool {
+interface ReportedTool {
   name: string;
   version: string | null;
 }
 
 /// The coding agents Beep can drive, in the order their columns show.
-export const CODERS = ["claude", "codex", "opencode", "gemini", "pi", "flsh", "cursor-agent", "amp", "aider"];
+const CODERS = ["claude", "codex", "opencode", "gemini", "pi", "flsh", "cursor-agent", "amp", "aider"];
 const IS_CODER = new Set(CODERS);
 export const isCoder = (name: string) => IS_CODER.has(name);
 
 /// The other tools worth seeing first; the rest follow in reported order.
 const USEFUL = ["gh", "teacli", "docker", "xcodebuild", "adb", "kubectl", "brew"];
 /// How many tool chips a row shows before "+N".
-export const TOOL_CHIPS = 7;
+const TOOL_CHIPS = 7;
 
 /// The bare version in what tool `name` printed: `0.162.1` for `codex-cli
 /// 0.162.1`, `2.2.5` for `opencode v2.2.5` or `opencode opencode v2.2.5`.

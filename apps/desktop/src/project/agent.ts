@@ -65,16 +65,16 @@ export interface ProjectView {
 }
 
 /// What happened to a card once answered: the word it shows, or why it failed.
-export interface CardOutcome {
+interface CardOutcome {
   said?: string;
   error?: string;
 }
 
 /// A task row's change: Drop or Reopen.
-export type TaskChange = "drop" | "reopen";
+type TaskChange = "drop" | "reopen";
 
 /// How a card is answered.
-export type CardDecision = "allow" | "session" | "deny";
+type CardDecision = "allow" | "session" | "deny";
 
 /// What the sections do, as the page hands it to them. `busy` and `error`
 /// are by task or worker id, `outcome` by a card's query id.
@@ -99,7 +99,7 @@ export interface ProjectActs {
 export type RowActs = Omit<ProjectActs, "answer">;
 
 /// What the window shows, for `newChatTarget`.
-export interface ChatAt {
+interface ChatAt {
   shown: ViewName | null;
   picked?: string | null;
   view?: string | null;
@@ -112,13 +112,13 @@ export interface ChatAt {
 }
 
 /// Where ⌘N starts: a project, on the machine its start form opens on.
-export interface NewChatTarget {
+interface NewChatTarget {
   project: string;
   machine: string | null;
 }
 
 /// A piece under a task's title.
-export interface TaskMeta {
+interface TaskMeta {
   text: string;
   url?: string;
   code?: boolean;
@@ -193,7 +193,7 @@ export function taskSummary(tasks: readonly { state: string }[] | null | undefin
 }
 
 /// "PR #41" from a pull request's address, "PR" when it has no number.
-export function prLabel(url: string | null | undefined) {
+function prLabel(url: string | null | undefined) {
   const n = String(url || "").match(/\/(?:pull|pulls)\/(\d+)/);
   return n ? `PR #${n[1]}` : "PR";
 }
