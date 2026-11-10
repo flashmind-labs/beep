@@ -56,8 +56,9 @@ fn same_alert_twice_is_delivered_once() {
 struct Dev {
     mesh: Mesh,
     id: EndpointId,
-    _router: Router,
-    _dir: TempDir,
+    key: SecretKey,
+    router: Router,
+    dir: TempDir,
 }
 
 async fn dev(from: Option<&Dev>, kind: DeviceKind, name: &str, serves: Serves) -> Dev {
@@ -72,12 +73,7 @@ async fn phone(from: &Dev, name: &str, asked: Arc<Notify>) -> Dev {
 async fn join(from: Option<&Dev>, kind: Option<DeviceKind>, name: &str, serves: Serves) -> Dev {
     let key = SecretKey::generate();
     let dir = TempDir::new().expect("a temp dir");
-    let endpoint = Endpoint::builder(presets::Minimal)
-        .secret_key(key.clone())
-        .transport_config(transport_config())
-        .bind()
-        .await
-        .expect("the endpoint binds");
+    let endpoint = bind(&key).await;
     let mesh = match from {
         None => Mesh::create(dir.path(), endpoint.clone(), name)
             .await
@@ -94,17 +90,83 @@ async fn join(from: Option<&Dev>, kind: Option<DeviceKind>, name: &str, serves: 
                 .expect("the device joins")
         }
     };
+    serve(key, dir, endpoint, mesh, serves)
+}
+
+fn serve(key: SecretKey, dir: TempDir, endpoint: Endpoint, mesh: Mesh, serves: Serves) -> Dev {
     let (peer, join) = mesh.protocols();
     Dev {
         id: key.public(),
-        _router: Router::builder(endpoint)
+        key,
+        router: Router::builder(endpoint)
             .accept(PEER_ALPN, peer)
             .accept(JOIN_ALPN, join)
             .accept(commands::ALPN, serves)
             .spawn(),
         mesh,
-        _dir: dir,
+        dir,
     }
+}
+
+async fn bind(key: &SecretKey) -> Endpoint {
+    Endpoint::builder(presets::Minimal)
+        .secret_key(key.clone())
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .expect("the endpoint binds")
+}
+
+/// Stops `dev`, keeping what it needs to start again.
+async fn stop(dev: Dev) -> (SecretKey, TempDir) {
+    let Dev {
+        mesh,
+        key,
+        router,
+        dir,
+        ..
+    } = dev;
+    router.shutdown().await.expect("the router stops");
+    drop(mesh);
+    (key, dir)
+}
+
+/// Starts a stopped device again from its folder, as a restart does.
+async fn reopen(key: SecretKey, dir: TempDir) -> Dev {
+    let endpoint = bind(&key).await;
+    let mesh = Mesh::open(dir.path(), endpoint.clone())
+        .await
+        .expect("the mesh opens")
+        .expect("the folder is in a mesh");
+    serve(
+        key,
+        dir,
+        endpoint,
+        mesh,
+        Serves::Asked(Arc::new(Notify::new())),
+    )
+}
+
+/// Waits until `mesh` sees `id` as `online`.
+async fn until_online(mesh: &Mesh, id: EndpointId, online: bool) {
+    let mut updates = mesh.updates();
+    timeout(LIMIT, async {
+        loop {
+            updates.borrow_and_update();
+
+            if mesh
+                .devices()
+                .iter()
+                .any(|d| d.device.id == id && d.online == online)
+            {
+                return;
+            }
+
+            updates.changed().await.expect("the mesh is alive");
+        }
+    })
+    .await
+    .expect("the machine's presence changed in time");
 }
 
 struct Test(Mesh);
@@ -315,4 +377,42 @@ async fn a_paired_phone_gets_no_stream() {
             .is_err(),
         "no stream is opened to the phone"
     );
+}
+
+#[tokio::test]
+async fn an_offline_machine_is_not_followed_until_it_is_back() {
+    let (desktop, node) = two(Arc::new(Notify::new())).await;
+    let (started, mut starts) = mpsc::unbounded_channel();
+    let mesh = desktop.mesh.clone();
+    let _watching = tokio::spawn(async move {
+        each_machine(&mesh, |id| {
+            started.send(id).ok();
+            tokio::spawn(std::future::pending())
+        })
+        .await;
+    });
+    let node_id = node.id;
+    timeout(LIMIT, async {
+        while starts.recv().await != Some(node_id) {}
+    })
+    .await
+    .expect("the online node is followed");
+
+    let (key, dir) = stop(node).await;
+    until_online(&desktop.mesh, node_id, false).await;
+    let mut again = Vec::new();
+
+    while let Ok(id) = starts.try_recv() {
+        again.push(id);
+    }
+
+    assert!(!again.contains(&node_id), "no task while it is offline");
+
+    let _node = reopen(key, dir).await;
+    until_online(&desktop.mesh, node_id, true).await;
+    timeout(LIMIT, async {
+        while starts.recv().await != Some(node_id) {}
+    })
+    .await
+    .expect("the node is followed again once back");
 }

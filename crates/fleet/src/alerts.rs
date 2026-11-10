@@ -1,6 +1,6 @@
 //! What coding agents on the machines of the mesh want the user for, sent by the machines
 //! themselves: one `FollowAlerts` and one `FollowRuns` stream per machine, kept open while the
-//! machine is a member and reachable. The alerts become the same notices the server pushes, and an
+//! machine is a member and online. The alerts become the same notices the server pushes, and an
 //! answer goes back to the machine. No server is involved.
 
 use crate::{
@@ -38,8 +38,10 @@ const HELD: Duration = Duration::from_secs(30);
 /// How long a machine gets to answer an answer.
 const ANSWERING: Duration = Duration::from_secs(10);
 const FIRST_RETRY: Duration = Duration::from_secs(1);
-/// The longest wait between tries, for an app the user is looking at.
-const LAST_RETRY: Duration = Duration::from_secs(2);
+/// The longest wait between tries to a machine that is online but does not
+/// keep a stream open. One that goes offline and comes back starts again at
+/// once.
+const LAST_RETRY: Duration = Duration::from_secs(60);
 
 /// What the streams tell the app.
 pub enum Heard {
@@ -145,8 +147,9 @@ impl Drop for Running {
     }
 }
 
-/// Runs one task per code host of `mesh`, started by `start`, as hosts come and go. Ends when the
-/// mesh closes; the tasks end with it.
+/// Runs one task per online code host of `mesh`, started by `start`, as hosts come and go. A host
+/// that goes offline has its task ended, and a new one started when it is back. Ends when the mesh
+/// closes; the tasks end with it.
 pub async fn each_machine(mesh: &Mesh, start: impl FnMut(EndpointId) -> JoinHandle<()>) {
     let mut start = start;
     let mut running = Running::default();
@@ -154,7 +157,12 @@ pub async fn each_machine(mesh: &Mesh, start: impl FnMut(EndpointId) -> JoinHand
 
     loop {
         updates.borrow_and_update();
-        let machines = mesh.code_hosts().into_iter().map(|d| d.device.id).collect();
+        let machines = mesh
+            .code_hosts()
+            .into_iter()
+            .filter(|status| status.online)
+            .map(|status| status.device.id)
+            .collect();
         running.keep(&machines, &mut start);
 
         if updates.changed().await.is_err() {
