@@ -1,7 +1,10 @@
 //! A window's read-only session subscriptions: the session on screen and
 //! those it keeps following off screen, each cancelled when the view drops it.
 
-use super::sessions::{ModesRow, SessionPage, TaskRow};
+use super::{
+    kept_transcripts::{KeptTranscripts, SessionKey},
+    sessions::{ModesRow, SessionPage, TaskRow},
+};
 use crate::{
     center::{
         AgentsShown,
@@ -34,7 +37,9 @@ use tokio::{
 };
 use uuid::Uuid;
 
+mod keep;
 mod pace;
+use keep::Keeper;
 use pace::{Pace, Pushed};
 
 /// The most readers one window keeps; past it the oldest is cancelled, so a
@@ -358,6 +363,14 @@ pub async fn agent_follow(
             .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
             .await?;
         let mut pace = Pace::default();
+        let mut keeper = Keeper::new(
+            app.state::<Arc<KeptTranscripts>>().inner().clone(),
+            SessionKey {
+                machine_id: machine_id.clone(),
+                agent: request.agent.as_ref().to_owned(),
+                session: session.clone(),
+            },
+        );
         let mut retried = false;
         // A hidden window hears nothing until it shows again.
         let mut window_shown = app.state::<OnScreen>().watch(window.label());
@@ -366,6 +379,7 @@ pub async fn agent_follow(
 
         loop {
             let due = pace.due();
+            let keep_due = keeper.due();
             // Heartbeats detect a half-open link even when the session is idle.
             let update = tokio::select! {
                 update = timeout(Duration::from_secs(35), rx.recv::<SessionUpdate>()) => update
@@ -376,6 +390,10 @@ pub async fn agent_follow(
                         on_event.send(pushed.into())?;
                     }
 
+                    continue;
+                }
+                () = sleep_until(keep_due.map_or_else(TokioInstant::now, TokioInstant::from_std)), if keep_due.is_some() => {
+                    keeper.write(Instant::now());
                     continue;
                 }
                 changed = on_screen.changed() => {
@@ -396,6 +414,10 @@ pub async fn agent_follow(
                     // The window is gone: the next update ends the follow.
                     let hidden = changed.is_ok() && hidden(&window_shown);
                     watching = changed.is_ok();
+
+                    if hidden {
+                        keeper.write(Instant::now());
+                    }
 
                     if let Some(pushed) = pace.window(hidden, Instant::now()) {
                         on_event.send(pushed.into())?;
@@ -508,6 +530,8 @@ pub async fn agent_follow(
                 modes,
                 tasks: tasks.into_iter().map(Into::into).collect(),
             };
+
+            keeper.take(&pushed, Instant::now()).await;
 
             for pushed in pace.push(pushed, shown, Instant::now()) {
                 on_event.send(pushed.into())?;

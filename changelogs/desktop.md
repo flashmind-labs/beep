@@ -77,6 +77,9 @@ Other apps have independent versions and changelogs:
 
 ### Performance
 
+- Desktop: sessions that stream in the background save their last messages
+  to disk at most once a minute and when a turn ends, instead of every few
+  seconds, with less work in the window.
 - Desktop: a conversation opened after a restart or in a new window shows
   its last messages at once from disk, then catches up.
 - Desktop: a session shows its messages as soon as they arrive, without

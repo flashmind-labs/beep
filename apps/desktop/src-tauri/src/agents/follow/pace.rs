@@ -28,17 +28,21 @@ struct Turn {
     question: Option<u32>,
 }
 
+/// Whether a session's run goes on.
+pub(super) fn running(view: &AgentSessionView) -> bool {
+    matches!(
+        view.session.status,
+        AgentStatus::Starting {}
+            | AgentStatus::Working {}
+            | AgentStatus::Asking {}
+            | AgentStatus::Running {}
+    )
+}
+
 impl From<&AgentSessionView> for Turn {
     fn from(view: &AgentSessionView) -> Self {
-        let active = matches!(
-            view.session.status,
-            AgentStatus::Starting {}
-                | AgentStatus::Working {}
-                | AgentStatus::Asking {}
-                | AgentStatus::Running {}
-        );
         Self {
-            active,
+            active: running(view),
             question: view.session.question.as_ref().map(|question| question.id),
         }
     }

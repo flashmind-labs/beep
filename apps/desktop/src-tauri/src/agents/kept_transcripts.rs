@@ -1,7 +1,9 @@
 //! Each session's newest transcript page and follow cursor, kept on disk so a
 //! session opened after a restart or in a new window draws at once, then
-//! follows from the cursor. One file per session in the app data folder,
-//! beside the kept views; the newest `MAX_SESSIONS` stay, within `MAX_BYTES`.
+//! follows from the cursor. The desktop's session follow writes them as it
+//! reads; the webview only reads them. One file per session in the app data
+//! folder, beside the kept views; the newest `MAX_SESSIONS` stay, within
+//! `MAX_BYTES`. One thread does all the disk work, in the order asked.
 
 use crate::error::{DesktopError, Result};
 use beep_proto::node::agent::SessionCursor;
@@ -9,13 +11,16 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::VecDeque,
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, mpsc},
+    thread,
     time::SystemTime,
 };
 use tauri::State;
+use tokio::sync::oneshot;
 
 /// The most sessions kept; writing another drops the oldest written.
 const MAX_SESSIONS: usize = 64;
@@ -23,40 +28,114 @@ const MAX_SESSIONS: usize = 64;
 const MAX_BYTES: u64 = 32 * 1024 * 1024;
 /// The most one session's page may take.
 const MAX_ONE: usize = 4 * 1024 * 1024;
+/// How many deleted sessions are remembered, so a follow ending after the
+/// delete does not write its page back.
+const FORGOTTEN: usize = 64;
 
-/// What a window kept of one session.
+/// What was kept of one session.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KeptTranscript {
-    /// The page as the window drew it, as `agent_follow` sends it.
-    page: Value,
+    /// The page as `agent_follow` sends it, with its updates joined.
+    pub(crate) page: Value,
     /// Where the page ends, for `agent_follow`'s `after`; `None` for a page not read by
     /// following.
-    cursor: Option<SessionCursor>,
+    pub(crate) cursor: Option<SessionCursor>,
 }
 
 /// One session, as the commands name it.
-struct Key<'a> {
-    machine_id: &'a str,
-    agent: &'a str,
-    session: &'a str,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SessionKey {
+    pub(crate) machine_id: String,
+    pub(crate) agent: String,
+    pub(crate) session: String,
 }
 
+type Job = Box<dyn FnOnce(&mut Store) + Send>;
+
+/// Hands the disk work to the kept transcripts' thread.
 pub struct KeptTranscripts {
-    dir: PathBuf,
-    /// Held while a page is written and the oldest dropped, so two writes never drop each
-    /// other's file.
-    writing: Mutex<()>,
+    jobs: mpsc::Sender<Job>,
 }
 
 impl KeptTranscripts {
     pub fn new(dir: PathBuf) -> Self {
-        Self {
-            dir,
-            writing: Mutex::new(()),
+        let (jobs, queue) = mpsc::channel::<Job>();
+        let mut store = Store::new(dir);
+        let spawned = thread::Builder::new()
+            .name("kept-transcripts".into())
+            .spawn(move || {
+                for job in queue {
+                    job(&mut store);
+                }
+            });
+
+        if let Err(e) = spawned {
+            log::warn!("starting the kept transcripts: {e}");
+        }
+
+        Self { jobs }
+    }
+
+    fn send(&self, job: impl FnOnce(&mut Store) + Send + 'static) {
+        if self.jobs.send(Box::new(job)).is_err() {
+            log::warn!("the kept transcripts stopped");
         }
     }
 
-    fn file(&self, key: &Key<'_>) -> PathBuf {
+    async fn ask<T: Send + 'static>(
+        &self,
+        job: impl FnOnce(&mut Store) -> T + Send + 'static,
+    ) -> Result<T> {
+        let (reply, answer) = oneshot::channel();
+        self.send(move |store| {
+            let _ = reply.send(job(store));
+        });
+        answer
+            .await
+            .map_err(|_| DesktopError::Other(anyhow::anyhow!("the kept transcripts stopped")))
+    }
+
+    /// The page and cursor kept for `key`, or `None`.
+    pub(crate) async fn read(&self, key: SessionKey) -> Result<Option<KeptTranscript>> {
+        self.ask(move |store| store.read(&key)).await
+    }
+
+    /// Keeps `kept` for `key` in the background, replacing what was kept.
+    pub(crate) fn keep(&self, key: SessionKey, kept: KeptTranscript) {
+        self.send(move |store| {
+            if let Err(e) = store.write(&key, &kept) {
+                log::warn!("keeping the transcript: {e}");
+            }
+        });
+    }
+
+    /// Drops every kept session, when this computer starts over; returns once they are gone.
+    pub fn clear(&self) {
+        let (reply, done) = mpsc::channel();
+        self.send(move |store| {
+            store.clear();
+            let _ = reply.send(());
+        });
+        let _ = done.recv();
+    }
+}
+
+/// The files, touched only by the kept transcripts' thread.
+struct Store {
+    dir: PathBuf,
+    /// Deleted sessions, newest last; their pages are not kept again.
+    forgotten: VecDeque<PathBuf>,
+}
+
+impl Store {
+    fn new(dir: PathBuf) -> Self {
+        Self {
+            dir,
+            forgotten: VecDeque::new(),
+        }
+    }
+
+    fn file(&self, key: &SessionKey) -> PathBuf {
         let name = format!("{}\n{}\n{}", key.machine_id, key.agent, key.session);
         self.dir.join(format!(
             "{}.json",
@@ -64,7 +143,7 @@ impl KeptTranscripts {
         ))
     }
 
-    fn read(&self, key: &Key<'_>) -> Option<KeptTranscript> {
+    fn read(&self, key: &SessionKey) -> Option<KeptTranscript> {
         let file = self.file(key);
         let bytes = match fs::read(&file) {
             Ok(bytes) => bytes,
@@ -85,7 +164,13 @@ impl KeptTranscripts {
         }
     }
 
-    fn write(&self, key: &Key<'_>, kept: &KeptTranscript) -> Result<()> {
+    fn write(&self, key: &SessionKey, kept: &KeptTranscript) -> Result<()> {
+        let file = self.file(key);
+
+        if self.forgotten.contains(&file) {
+            return Ok(());
+        }
+
         let bytes = serde_json::to_vec(kept).map_err(anyhow::Error::from)?;
 
         if bytes.len() > MAX_ONE {
@@ -95,8 +180,6 @@ impl KeptTranscripts {
             )));
         }
 
-        let _writing = self.writing.lock().unwrap_or_else(PoisonError::into_inner);
-        let file = self.file(key);
         let mut partial = file.as_os_str().to_owned();
         partial.push(".part");
         fs::create_dir_all(&self.dir)
@@ -107,15 +190,18 @@ impl KeptTranscripts {
         Ok(())
     }
 
-    fn forget(&self, key: &Key<'_>) {
-        let _writing = self.writing.lock().unwrap_or_else(PoisonError::into_inner);
-        remove(&self.file(key));
+    fn forget(&mut self, key: &SessionKey) {
+        let file = self.file(key);
+        remove(&file);
+
+        if self.forgotten.len() == FORGOTTEN {
+            self.forgotten.pop_front();
+        }
+
+        self.forgotten.push_back(file);
     }
 
-    /// Drops every kept session, when this computer starts over.
-    pub fn clear(&self) {
-        let _writing = self.writing.lock().unwrap_or_else(PoisonError::into_inner);
-
+    fn clear(&self) {
         match fs::remove_dir_all(&self.dir) {
             Ok(()) => {}
             Err(e) if e.kind() == ErrorKind::NotFound => {}
@@ -158,13 +244,6 @@ fn remove(file: &Path) {
     }
 }
 
-/// Runs `work` on a blocking thread, so disk work stays off the async workers.
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|e| DesktopError::Other(anyhow::anyhow!("the kept transcripts stopped: {e}")))
-}
-
 /// The page and cursor kept for a session, or `None`.
 #[tauri::command]
 pub async fn transcript_kept(
@@ -173,39 +252,12 @@ pub async fn transcript_kept(
     agent: String,
     session: String,
 ) -> Result<Option<KeptTranscript>> {
-    let kept = kept.inner().clone();
-    blocking(move || {
-        kept.read(&Key {
-            machine_id: &machine_id,
-            agent: &agent,
-            session: &session,
-        })
+    kept.read(SessionKey {
+        machine_id,
+        agent,
+        session,
     })
     .await
-}
-
-/// Keeps a session's newest page and its cursor, replacing what was kept.
-#[tauri::command]
-pub async fn transcript_keep(
-    kept: State<'_, Arc<KeptTranscripts>>,
-    machine_id: String,
-    agent: String,
-    session: String,
-    page: Value,
-    cursor: Option<SessionCursor>,
-) -> Result<()> {
-    let kept = kept.inner().clone();
-    blocking(move || {
-        kept.write(
-            &Key {
-                machine_id: &machine_id,
-                agent: &agent,
-                session: &session,
-            },
-            &KeptTranscript { page, cursor },
-        )
-    })
-    .await?
 }
 
 /// Drops what was kept of a session, when it is deleted.
@@ -216,15 +268,12 @@ pub async fn transcript_forget(
     agent: String,
     session: String,
 ) -> Result<()> {
-    let kept = kept.inner().clone();
-    blocking(move || {
-        kept.forget(&Key {
-            machine_id: &machine_id,
-            agent: &agent,
-            session: &session,
-        })
-    })
-    .await
+    let key = SessionKey {
+        machine_id,
+        agent,
+        session,
+    };
+    kept.ask(move |store| store.forget(&key)).await
 }
 
 #[cfg(test)]
