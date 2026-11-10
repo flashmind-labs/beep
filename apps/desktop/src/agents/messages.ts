@@ -4,7 +4,7 @@ import { type Attached, dropDelivered, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.ts";
 import { sessionPicks } from "./session.ts";
 import { composeMessage } from "../chat/compose.ts";
-import { $, S } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
@@ -16,6 +16,7 @@ import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } fr
 import { drawAgentBody } from "./logview.ts";
 import { invoke } from "../ui/tauri.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
+import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
 
 export function disposeQueue() { disposeComposerUi(); closeMove(); }
@@ -165,11 +166,14 @@ export async function answerAgentQuestion(i: number, shown: string) {
 }
 /// The first option of the open question that allows, or that does not.
 export function answerFirst(allow: boolean) {
-  const option = `[data-agopt][data-agallow="${allow}"]`;
-  const button = sessionBody()?.querySelector<HTMLButtonElement>(option) ?? $<HTMLButtonElement>(`#agplan ${option}`);
-  if (!button) return false;
-  if (!button.disabled) void answerAgentQuestion(Number(button.dataset.agopt), button.dataset.agquestion ?? "");
-  return true;
+  for (const shown of shownQuestionsIn(sessionBody())) {
+    const index = shown.allows.indexOf(allow);
+    if (index < 0) continue;
+    if (!shown.disabled) void answerAgentQuestion(index, shown.key);
+    return true;
+  }
+
+  return false;
 }
 
 /// Sends `steer` to the open session; true when the node took it. A message
