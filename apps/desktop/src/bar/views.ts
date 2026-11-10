@@ -1,4 +1,4 @@
-import { loadAgentHosts } from "../agents/agents.ts";
+import { AG, hostChanges, loadAgentHosts } from "../agents/agents.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
 import { loadApps, renderApps } from "../settings/apps.ts";
 import { focusAsk, newChat, renderChat } from "../chat/chat.ts";
@@ -54,7 +54,11 @@ export async function show(view: string | null) {
   const st = await refreshStatus();
   loadResearches();
   loadLiveChats();
-  if (S.link === "linked") { loadModels(); loadAgentHosts(); }
+  // Hosts stand until machines or accounts change.
+  if (S.link === "linked") {
+    loadModels();
+    if (!AG.hosts || hostChanges.dirty("")) loadAgentHosts();
+  }
   if (S.link === "revoked") return renderRevoked();
   if (view === "settings") return renderSettings();
   // Without a subscription the bar starts agents on the mesh's machines; the chat needs one.
