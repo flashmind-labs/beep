@@ -40,7 +40,7 @@ fn dropped_events_wake_every_project() {
     }
 
     let event = Event::new(EventKind::Other).set_flag(Flag::Rescan);
-    route(&routes, &event);
+    route(&routes, &Announcer::default(), &event);
 
     for rx in &mut woken {
         assert_eq!(rx.try_recv(), Ok(()));
@@ -65,6 +65,7 @@ fn event_paths_survive_a_full_wake_channel_and_directory_changes_coalesce() {
     for path in ["one.txt", "sub/two.txt", "sub"] {
         route(
             &routes,
+            &Announcer::default(),
             &Event::new(EventKind::Any).add_path(dir.path().join(path)),
         );
     }
@@ -178,4 +179,41 @@ async fn counting_watches_leaves_the_async_worker_free() {
     // The recount saw the task's message, so it counted 0 others.
     let inner = lock(&watcher.inner);
     assert_eq!(inner.budget.as_ref().unwrap().others, 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_burst_of_changes_signals_a_root_at_once_and_once_after_the_gap() {
+    let root = PathBuf::from(format!("/srv/burst-{}", std::process::id()));
+    let topic = Topic::keyed("files", root.to_string_lossy());
+    let mut changes = crate::events::system().subscribe();
+    let (announcer, _task) = Announcer::start();
+    let mut signals = Vec::new();
+    let collect = |changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>,
+                   signals: &mut Vec<ChangeKind>| {
+        while let Ok(change) = changes.try_recv() {
+            if change.topic == topic {
+                signals.push(change.kind);
+            }
+        }
+    };
+
+    announcer.changed(&root, ChangeKind::WorkTree);
+    // Let the announcer take the first change before the burst follows it.
+    tokio::time::sleep(ANNOUNCE_GAP / 10).await;
+
+    for _ in 0..100 {
+        announcer.changed(&root, ChangeKind::WorkTree);
+    }
+    announcer.changed(&root, ChangeKind::Any);
+    collect(&mut changes, &mut signals);
+    assert_eq!(signals, [ChangeKind::WorkTree]);
+
+    tokio::time::sleep(ANNOUNCE_GAP).await;
+    collect(&mut changes, &mut signals);
+    // The trailing signal carries the strongest kind of the burst.
+    assert_eq!(signals, [ChangeKind::WorkTree, ChangeKind::Any]);
+
+    tokio::time::sleep(ANNOUNCE_GAP * 4).await;
+    collect(&mut changes, &mut signals);
+    assert_eq!(signals.len(), 2);
 }
