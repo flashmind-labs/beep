@@ -247,7 +247,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
       key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
       right: chip && createElement(Chip, { cls: chip.cls, text: chip.text, spin: chip.cls === "running" }),
       menu: e => thr.prMenu(e, agent, acts, l),
-      detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, [thr.prButtons(agent, acts, l)]),
+      detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, l)),
     };
   });
   const prKey = `${p.name}:prs`;
@@ -260,7 +260,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     right: l.task && createElement(Chip, { cls: l.task.state, text: l.task.state, spin: l.task.state === "running" }),
     menu: l.issue ? (e => thr.issueMenu(e, agent, acts, l.issue!)) : undefined,
     detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
-      [l.issue ? thr.issueButtons(agent, acts, l.issue) : button("Tasks", "", () => openTile("tasks"))]),
+      l.issue ? thr.issueButtons(agent, acts, l.issue) : { buttons: [{ key: "tasks", label: "Tasks", primary: false, disabled: false, title: "", run: () => openTile("tasks") }], error: null }),
   }));
   const issueKey = `${p.name}:issues`;
   const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, redrawProjects);

@@ -9,6 +9,7 @@ import { emptyPanel, freshNote, stateChip, secHead } from "../ui/parts.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { PageCache, REFRESH_MS, freshness, type SectionStore } from "../ui/pagecache.ts";
 import type { ChecksRow } from "./runs.ts";
+import type { ThreadActions } from "./threaddetail-view.tsx";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -451,9 +452,8 @@ export function makeThreads(deps: ThreadDeps) {
     }));
 
   /// A row's actions and why its last one failed.
-  function actsEl(s: ProjectThreads, keys: string[], buttons: HTMLButtonElement[]) {
-    const err = keys.map(k => s.failed.get(k)).find(Boolean);
-    return h("span", "acts", ...buttons, err ? h("span", "cc-err", err) : null);
+  function actsEl(s: ProjectThreads, keys: string[], buttons: ThreadActions["buttons"]): ThreadActions {
+    return { buttons, error: keys.map(k => s.failed.get(k)).find(Boolean) ?? null };
   }
 
   /// A pull request's buttons on the project page: Let the agent reply when
@@ -462,17 +462,12 @@ export function makeThreads(deps: ThreadDeps) {
   function prButtons(agent: Agent, ctx: RepoActs, l: PrLine) {
     const s = of(agent.project_id);
     const n = l.pr.number;
-    const buttons: HTMLButtonElement[] = [];
-    if (l.needs_reply) buttons.push(replyButton(agent, l.repo || agent.name, n));
-    const cont = button(s.busy.has(`c${n}`) ? "Reading…" : "Continue", l.needs_reply ? "" : "pri", () => act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)));
-    cont.disabled = s.busy.has(`c${n}`);
-    cont.title = "Start a coding agent on this pull request's branch";
-    buttons.push(cont);
-    if (l.branch && ctx.review) buttons.push(button("Review", "", () => ctx.review!(l.branch!)));
-    const agentReview = button(s.busy.has(`a${n}`) ? "Reading…" : "Agent review", "", () => act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)));
-    agentReview.disabled = s.busy.has(`a${n}`);
-    agentReview.title = "Starts an agent that reviews this PR and posts its comments on it";
-    buttons.push(agentReview);
+    const buttons: ThreadActions["buttons"] = [];
+    if (l.needs_reply) buttons.push({ key: "reply", label: s.busy.has(`r${n}`) ? "Asking…" : "Let the agent reply", primary: true, disabled: false, title: "", run: () => { void act(agent.project_id, `r${n}`, async () => { openChat(await invoke<string>("center_reply_thread", { projectId: agent.project_id, repo: l.repo || agent.name, number: n })); }); } });
+    buttons.push({ key: "continue", label: s.busy.has(`c${n}`) ? "Reading…" : "Continue", primary: !l.needs_reply, disabled: s.busy.has(`c${n}`), title: "Start a coding agent on this pull request's branch", run: () => { void act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)); } });
+    const branch = l.branch;
+    if (branch && ctx.review) buttons.push({ key: "review", label: "Review", primary: false, disabled: false, title: "", run: () => ctx.review?.(branch) });
+    buttons.push({ key: "agent-review", label: s.busy.has(`a${n}`) ? "Reading…" : "Agent review", primary: false, disabled: s.busy.has(`a${n}`), title: "Starts an agent that reviews this PR and posts its comments on it", run: () => { void act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)); } });
     return actsEl(s, [`r${n}`, `c${n}`, `a${n}`], buttons);
   }
 
@@ -480,15 +475,14 @@ export function makeThreads(deps: ThreadDeps) {
   function issueButtons(agent: Agent, ctx: RepoActs, i: IssueRow) {
     const s = of(agent.project_id);
     const n = i.number;
-    const buttons = [button("Work on it", "pri", () => ctx.workOn(i))];
+    const disabled = s.busy.has(`i${n}`);
+    const buttons: ThreadActions["buttons"] = [{ key: "work", label: "Work on it", primary: true, disabled, title: "Start a coding agent on a new branch for this issue", run: () => ctx.workOn(i) }];
 
     if (server()) {
-      buttons.push(button("Plan", "", () => track(agent, n)),
-        button(s.busy.has(`d${n}`) ? "Opening…" : "Discuss", "", () => discuss(agent, n)));
+      buttons.push({ key: "plan", label: "Plan", primary: false, disabled, title: "", run: () => { void track(agent, n); } },
+        { key: "discuss", label: s.busy.has(`d${n}`) ? "Opening…" : "Discuss", primary: false, disabled, title: "", run: () => { void discuss(agent, n); } });
     }
 
-    for (const b of buttons) b.disabled = s.busy.has(`i${n}`);
-    buttons[0].title = "Start a coding agent on a new branch for this issue";
     return actsEl(s, [`i${n}`, `d${n}`], buttons);
   }
 
