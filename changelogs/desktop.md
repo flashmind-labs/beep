@@ -17,6 +17,7 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: a session's Files and Changes no longer switch to a folder on another machine after the agent runs a command there.
 - Desktop: failed model lookups show Retry, preserve loaded models, and retry sooner.
 
 ## [0.7.0] - 2026-11-09
