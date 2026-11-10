@@ -79,3 +79,35 @@ test("a files event reads the shown diff once and the tree once it shows", async
   await changes.click();
   expect(await reads(page, "work_diff")).toBe(diffs + 1);
 });
+
+test("a failed read after a files event reads again when the view shows again", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: listing(["a.txt"]) });
+  await open(page, "notice-one");
+  const files = page.getByRole("tab", { name: "Files", exact: true }), changes = page.getByRole("tab", { name: "Changes", exact: true });
+  await expect(page.locator('[data-fpath="a.txt"]')).toBeVisible();
+  await changes.click();
+  await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
+  const diffs = await reads(page, "work_diff");
+
+  // The diff read the change brings fails; showing the diff again reads it again.
+  await page.evaluate(() => window.__navigation.rejectOnce("work_diff"));
+  await page.evaluate(topic => window.__navigation.publish(topic, 200), FOLDER);
+  await expect.poll(() => reads(page, "work_diff"), { timeout: 5000 }).toBe(diffs + 1);
+  await files.click();
+  await expect(page.locator('[data-fpath="a.txt"]')).toBeVisible();
+  const trees = await reads(page, "agent_tree");
+  await changes.click();
+  await expect.poll(() => reads(page, "work_diff"), { timeout: 5000 }).toBe(diffs + 2);
+
+  // The tree read the next change brings fails; showing the tree again reads it again.
+  await files.click();
+  await expect.poll(() => reads(page, "agent_tree"), { timeout: 5000 }).toBe(trees);
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_tree"));
+  await page.evaluate(topic => window.__navigation.publish(topic, 300), FOLDER);
+  await expect.poll(() => reads(page, "agent_tree"), { timeout: 5000 }).toBe(trees + 1);
+  await changes.click();
+  await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
+  await files.click();
+  await expect.poll(() => reads(page, "agent_tree"), { timeout: 5000 }).toBe(trees + 2);
+  await expect(page.locator('[data-fpath="a.txt"]')).toBeVisible();
+});
