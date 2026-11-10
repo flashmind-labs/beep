@@ -14,6 +14,7 @@ use beep_proto::{
 };
 use futures::{StreamExt, stream};
 use std::{
+    collections::HashMap,
     path::Path,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
@@ -29,7 +30,10 @@ use tokio::{
 const PAGE: u32 = 200;
 const IN_FLIGHT: usize = 4;
 const SESSION_WAIT: Duration = Duration::from_secs(60);
-const RETRY_GAP: Duration = Duration::from_secs(30);
+/// Sessions that could not be read are tried again after this, then less
+/// often up to `RETRY_MOST`.
+const RETRY_FIRST: Duration = Duration::from_secs(30);
+const RETRY_MOST: Duration = Duration::from_secs(600);
 
 pub(crate) struct PromptIndex {
     store: Mutex<Store>,
@@ -37,6 +41,18 @@ pub(crate) struct PromptIndex {
     reader: Option<Mutex<Store>>,
     changed: Notify,
     project_changes: AsyncMutex<()>,
+    /// The stamp each session was last found current at, so an unchanged
+    /// session is skipped without asking the store.
+    known: Mutex<HashMap<String, String>>,
+}
+
+/// What one pass did with a session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pass {
+    Current,
+    Indexed,
+    /// Offline or failed: tried again later.
+    Pending,
 }
 
 impl PromptIndex {
@@ -55,7 +71,17 @@ impl PromptIndex {
             reader: reader.map(Mutex::new),
             changed: Notify::new(),
             project_changes: AsyncMutex::new(()),
+            known: Mutex::default(),
         })
+    }
+
+    fn known(&self) -> MutexGuard<'_, HashMap<String, String>> {
+        self.known.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether session `id` was found current at `stamp` in this run.
+    fn is_known(&self, id: &str, stamp: &str) -> bool {
+        self.known().get(id).is_some_and(|known| known == stamp)
     }
 
     fn store(&self) -> MutexGuard<'_, Store> {
@@ -79,7 +105,13 @@ impl PromptIndex {
         projects: Vec<ImportedProject>,
     ) -> anyhow::Result<Vec<Place>> {
         let index = self.clone();
-        spawn_blocking(move || index.store().sync_projects(&projects)).await?
+        let removed = spawn_blocking(move || index.store().sync_projects(&projects)).await??;
+
+        if !removed.is_empty() {
+            self.known().clear();
+        }
+
+        Ok(removed)
     }
 
     pub(crate) async fn forget_project(
@@ -91,6 +123,7 @@ impl PromptIndex {
         let index = self.clone();
         let name = project.to_owned();
         let removed = spawn_blocking(move || index.store().remove_project(&name, &known)).await??;
+        self.known().clear();
         app.state::<PaletteCache>()
             .forget_project(app, project, removed);
         let _ = app.emit("palette-text-changed", ());
@@ -102,6 +135,7 @@ impl PromptIndex {
     }
 
     pub(crate) async fn remove(self: &Arc<Self>, id: String) {
+        self.known().remove(&id);
         let index = self.clone();
         let removed = async {
             spawn_blocking(move || index.store().remove(&id)).await??;
@@ -170,6 +204,8 @@ pub(super) async fn follow(app: &AppHandle) {
     let index = app.state::<Arc<PromptIndex>>().inner().clone();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
 
+    let mut retry = RETRY_FIRST;
+
     loop {
         let sessions = app.state::<PaletteCache>().sessions();
         let mut work = stream::iter(sessions)
@@ -178,24 +214,38 @@ pub(super) async fn follow(app: &AppHandle) {
                 let fleet = fleet.clone();
                 async move {
                     match timeout(SESSION_WAIT, refresh(&index, &fleet, session)).await {
-                        Ok(Ok(changed)) => changed,
+                        Ok(Ok(pass)) => pass,
                         Ok(Err(e)) => {
                             log::debug!("indexing session prompts: {e:#}");
-                            false
+                            Pass::Pending
                         }
-                        Err(_) => false,
+                        Err(_) => Pass::Pending,
                     }
                 }
             })
             .buffer_unordered(IN_FLIGHT);
-        while let Some(changed) = work.next().await {
-            if changed && let Err(e) = app.emit("palette-text-changed", ()) {
+        let mut pending = false;
+
+        while let Some(pass) = work.next().await {
+            pending |= pass == Pass::Pending;
+
+            if pass == Pass::Indexed
+                && let Err(e) = app.emit("palette-text-changed", ())
+            {
                 log::warn!("telling the windows prompts changed: {e}");
             }
         }
-        // Failed or offline reads keep their old index and are retried.
+
+        // Failed or offline reads keep their old index and are retried,
+        // less often while they keep failing.
+        if !pending {
+            retry = RETRY_FIRST;
+            index.changed.notified().await;
+            continue;
+        }
+
         tokio::select! {
-            () = sleep(RETRY_GAP) => {}
+            () = sleep(retry) => retry = (retry * 2).min(RETRY_MOST),
             () = index.changed.notified() => {}
         }
     }
@@ -205,25 +255,33 @@ async fn refresh(
     index: &Arc<PromptIndex>,
     fleet: &Fleet,
     session: MachineSession,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Pass> {
+    let (id, stamp) = (identity(&session), stamp(&session)?);
+
+    if index.is_known(&id, &stamp) {
+        return Ok(Pass::Current);
+    }
+
     let machine = session.machine_id.parse()?;
 
     if !fleet.online().contains(&machine) {
-        return Ok(false);
+        return Ok(Pass::Pending);
     }
 
-    let (id, stamp) = (identity(&session), stamp(&session)?);
     let saved = index.clone();
+    let (asked, at) = (id.clone(), stamp.clone());
 
-    if spawn_blocking(move || saved.store().current(&id, &stamp)).await?? {
-        return Ok(false);
+    if spawn_blocking(move || saved.store().current(&asked, &at)).await?? {
+        index.known().insert(id, stamp);
+        return Ok(Pass::Current);
     }
 
     let client = fleet.client(machine).await?;
     let read = read_prompts(&client, &session.id).await?;
     let saved = index.clone();
     spawn_blocking(move || saved.store().replace(&session, &read.texts, read.complete)).await??;
-    Ok(true)
+    index.known().insert(id, stamp);
+    Ok(Pass::Indexed)
 }
 
 struct ReadPrompts {
