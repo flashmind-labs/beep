@@ -3,7 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
-import type { CenterView } from "../src/center/state.ts";
 import { EMPTY } from "../src/settings/flsh-state.ts";
 
 // Exercise Router-backed views as client code in jsdom.
@@ -26,11 +25,10 @@ test("flsh input survives provider machine updates without remounting", async ()
   }, Channel: class {} }, event: { listen: async () => () => {} } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
-  const { registerProviders } = await import("../src/settings/providers.ts");
-  const views: CenterView<"providers">[] = [];
-  registerProviders({ registerView: (_name, view) => { views.push(view); }, invoke, openSettings() {}, redrawTop() {}, follow() {} });
-  const host = dom.window.document.getElementById("host"), view = views[0];
-  assert.ok(host); assert.ok(view);
+  const { providersPage } = await import("../src/settings/providers.ts");
+  const view = providersPage({ invoke, openSettings() {}, redrawTop() {}, follow() {} });
+  const host = dom.window.document.getElementById("host");
+  assert.ok(host);
   try {
     await act(async () => { await view.mount(host, { agent: "flsh", settings: true }); });
     await waitFor(() => assert.ok(screen.getByLabelText("Auto-compact threshold")));

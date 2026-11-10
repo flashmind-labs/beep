@@ -37,7 +37,7 @@ export interface ViewArgs {
 export interface ProvidersArg { agent: string | null; settings: boolean }
 export type InstructionsTab = "editor" | "history";
 export interface InstructionsArg { tab: InstructionsTab | null }
-/// The names of the views the window can show, one per `registerView`.
+/// The names of the views the window can show.
 export type ViewName = keyof ViewArgs;
 export type ViewArg = ViewArgs[ViewName];
 export type Location = { [K in ViewName]: { view: K; arg: ViewArgs[K] } }[ViewName];
@@ -54,7 +54,6 @@ export interface ResearchArg { session: string }
 export interface ViewHead { title: string; sub?: string; reactTools?: ReactNode; reactScope?: ReactNode }
 
 export interface CenterView<K extends ViewName = ViewName> {
-  el?: HTMLElement;
   title?: string | (() => ViewHead);
   mount(el: HTMLElement, arg: ViewArgs[K]): void | Promise<void>;
   /// The current location, including selections made since mounting.
@@ -179,9 +178,6 @@ export function warm(name: string) {
 export function pageFresh(section: PageSection, id: string, loading: boolean) {
   return freshness(pages.at(section, id), loading, Date.now());
 }
-
-/// The views the window can show, by name.
-export const views = new Map<ViewName, CenterView & { el: HTMLElement }>();
 
 /// A sidebar group.
 export interface SidebarGroup<T> {

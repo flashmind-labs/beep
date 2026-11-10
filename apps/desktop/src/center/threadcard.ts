@@ -9,9 +9,9 @@ import type { PaneNow } from "../bar/core.ts";
 import { el as h } from "../ui/dom.ts";
 import type { ThreadChatRow } from "../project/threads.ts";
 import { openLabel, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
-import { type ViewHead, type ChatItem, $, state } from "./state.ts";
+import { type CenterView, type ViewHead, type ChatItem, $, state } from "./state.ts";
 import { openUrl } from "./openitems.ts";
-import { currentLocation, registerView, drawTop } from "./views.ts";
+import { currentLocation, drawTop } from "./views.ts";
 import { reloadGroup, paneOn, drawSide, reloadChats, setPinned } from "./sidebar.ts";
 import { paneTitle, scopeTag } from "./pane.ts";
 
@@ -128,8 +128,7 @@ export function pinButton(c: ChatItem) {
   return createElement("button", { type: "button", className: "dbtn", key: "pin", onClick: () => { void setPinned(c, !c.pinned); } }, c.pinned ? "Unpin" : "Pin");
 }
 
-registerView("pane", {
-  el: $("#pane-box"),
+export const paneView: CenterView<"pane"> = {
   title: paneTitle,
   mount(_el, arg) {
     pane.mounted(true);
@@ -139,7 +138,7 @@ registerView("pane", {
     pane.mounted(false);
     pane.leave();
   },
-});
+};
 
 /// The window stops showing a chat or group when the pane moves off it, so
 /// a focused window no longer keeps their notices quiet.

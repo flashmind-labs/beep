@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { go, goTo, registerView } from "../src/center/views.ts";
+import type { go, goTo } from "../src/center/views.ts";
+import type { CenterView } from "../src/center/state.ts";
 import { mainTarget } from "../src/project/projectwindow.ts";
 import type { BackTo } from "../src/bar/core.ts";
 
 // The compiler checks these contracts without loading the window's DOM modules.
-export function navigationContracts(navigate: typeof go, open: typeof goTo, register: typeof registerView) {
+export function navigationContracts(navigate: typeof go, open: typeof goTo) {
   navigate("home");
   navigate("projects", { project: "acme/widget" });
   navigate("researchopen", { session: "research" });
@@ -21,14 +22,15 @@ export function navigationContracts(navigate: typeof go, open: typeof goTo, regi
   // @ts-expect-error Return destinations require the page's own argument type.
   const invalidReturn: BackTo = { view: "projects", arg: { session: "research" } };
   void invalidReturn;
-  register("researchopen", {
+  const research: CenterView<"researchopen"> = {
     mount(_root, arg) {
       const session: string = arg.session;
       void session;
       // @ts-expect-error Research arguments cannot contain a project selection.
       void arg.project;
     },
-  });
+  };
+  void research;
 }
 
 test("typed locations preserve the native window targets", () => {

@@ -8,9 +8,8 @@ import type { VersionRow } from "./instructions-state.ts";
 import type { CenterView, InstructionsTab } from "../center/state.ts";
 import { InstructionsView, type InstructionsState } from "./instructions-view.tsx";
 
-/// What the window hands `registerInstructions`.
+/// What the window hands `instructionsPage`.
 interface InstructionsDeps {
-  registerView: (name: "instructions", view: CenterView<"instructions">) => void;
   invoke: typeof Invoke;
   h: MakeEl;
   button: MakeButton;
@@ -18,8 +17,8 @@ interface InstructionsDeps {
   openSettings: () => void;
 }
 
-export function registerInstructions(deps: InstructionsDeps) {
-  const { registerView, invoke, ago } = deps;
+export function instructionsPage(deps: InstructionsDeps): CenterView<"instructions"> {
+  const { invoke, ago } = deps;
   const st: InstructionsState = { tab: "editor", newest: undefined, draft: null, note: "", saving: false, error: "", versions: undefined, shown: null };
   let host: HTMLElement | null = null;
 
@@ -89,7 +88,7 @@ export function registerInstructions(deps: InstructionsDeps) {
 
   function unmount() { removeWindowPart("settings-page:instructions"); host = null; }
 
-  registerView("instructions", {
+  return {
     title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", reactTools: createElement("button", { type: "button", className: "dbtn quiet small", onClick: () => deps.openSettings() }, "Settings") }),
     mount(container, arg) {
       unmount();
@@ -102,5 +101,5 @@ export function registerInstructions(deps: InstructionsDeps) {
       if (st.tab !== "editor") setTab(st.tab);
     },
     unmount,
-  });
+  };
 }

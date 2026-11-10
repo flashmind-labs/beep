@@ -2,7 +2,6 @@ import { routerWindowGlobals } from "./start-react-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import type { CenterView } from "../src/center/state.ts";
 
 // Exercise Router-backed views as client code in jsdom.
 process.env.NODE_ENV = "test";
@@ -31,11 +30,10 @@ test("provider save retains edits made while the command is in flight", async ()
   }, Channel: class {} }, event: { listen: async () => () => {} } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
-  const { registerProviders } = await import("../src/settings/providers.ts");
-  const views: CenterView<"providers">[] = [];
-  registerProviders({ registerView: (_name, view) => { views.push(view); }, invoke, openSettings() {}, redrawTop() {}, follow() {} });
-  const host = dom.window.document.getElementById("host"), view = views[0];
-  assert.ok(host); assert.ok(view);
+  const { providersPage } = await import("../src/settings/providers.ts");
+  const view = providersPage({ invoke, openSettings() {}, redrawTop() {}, follow() {} });
+  const host = dom.window.document.getElementById("host");
+  assert.ok(host);
   try {
     await act(async () => { await view.mount(host, { agent: "codex", settings: true }); });
     await waitFor(() => assert.ok(screen.getByLabelText("Binary path")));

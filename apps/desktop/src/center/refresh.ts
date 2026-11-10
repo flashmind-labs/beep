@@ -15,7 +15,7 @@ import { refreshGit } from "./openitems.ts";
 import { currentLocation, drawTop } from "./views.ts";
 import { reloadGroup, reloadChats, drawSide } from "./sidebar.ts";
 import { loadOverview } from "../project/projects.ts";
-import { liveMode, projectsEl, runs } from "../project/sections.ts";
+import { liveMode, runs } from "../project/sections.ts";
 import { drawProjects } from "../project/page.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
@@ -91,7 +91,7 @@ async function readHome(): Promise<void> {
 /// Home, the projects page while it shows, and the sidebar unless it draws later.
 function drawHome(side = true) {
   draw();
-  if (currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
+  if (currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
   if (side) drawSide();
 }
 
@@ -132,7 +132,7 @@ const refreshProjects = single(async () => {
 
   if (onScreen()) {
     drawSide();
-    if (currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
+    if (currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
   }
 });
 
@@ -178,7 +178,7 @@ export const onScreen = pageShown;
 onShownChange(visible => {
   if (!visible) { clearTimeout(retryTimer); runs.stop(); liveMode.follow(null); return; }
 
-  if (state.home && currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
+  if (state.home && currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.

@@ -2,32 +2,47 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { JSDOM } from "jsdom";
-import type { CenterView, ViewArg } from "../src/center/state.ts";
+import type { CenterView, ViewArg, ViewName } from "../src/center/state.ts";
 
 // Load the real navigation with the window's DOM and services replaced.
-const dom = new JSDOM("<!doctype html><body><div id='title'></div><div id='scope'></div><div id='date'></div><div id='tools'></div></body>");
-const element = () => dom.window.document.createElement("div");
+const dom = new JSDOM("<!doctype html><body><div id='main'><div class='cc-top'><div id='title'></div><div id='scope'></div><div id='date'></div><div id='tools'></div></div><div id='home-box'></div><div id='pane-box' hidden></div></div></body>");
 const state = { picked: null as string | null, subscribed: false, agents: [] };
-const views = new Map<string, CenterView & { el: HTMLElement }>();
+const views = new Map<ViewName, CenterView>();
+/// The view each page module exports, calling what a test registered for it.
+const view = (name: ViewName): CenterView => ({
+  mount: (el, arg) => views.get(name)?.mount(el, arg),
+  unmount: () => views.get(name)?.unmount?.(),
+  currentArg: () => views.get(name)?.currentArg?.() ?? null,
+});
+const register = <K extends ViewName>(name: K, page: CenterView<K>) => { views.set(name, page); };
 Object.assign(globalThis, {
-  navigationTest: { state, views, element },
+  navigationTest: { state, view },
   window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, Node: dom.window.Node,
   requestAnimationFrame: () => 0,
 });
+const page = (exports: string) => `const v = globalThis.navigationTest.view; ${exports}`;
 const stubs = new Map(Object.entries({
-  "center/state.ts": "export const { state, views } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
+  "center/state.ts": "export const { state } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
   "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {};",
   "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
   "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {};",
-  "ui/dom.ts": "export const el = () => globalThis.navigationTest.element();",
   "center/sidebar.ts": "export const drawSide = () => {}; export const openProjects = () => {}; export const projectRows = () => [];",
   "project/agent.ts": "export const chatProject = () => null; export const shortName = name => name;",
-  "settings/sheet.ts": "export const openSettings = () => {};",
-  "center/threadcard.ts": "export const threadChats = null;",
+  "settings/sheet.ts": page("export const openSettings = () => {}; export const instructionsView = v('instructions'); export const providersView = v('providers');"),
+  "center/threadcard.ts": page("export const threadChats = null; export const paneView = v('pane');"),
+  "center/home.ts": page("export const homeView = v('home');"),
+  "project/page.ts": page("export const projectsView = v('projects');"),
+  "project/syncpage.ts": page("export const syncView = v('sync');"),
+  "research/page.ts": page("export const researchView = v('research');"),
+  "research/open.ts": page("export const researchOpenView = v('researchopen');"),
+  "terminals/view.ts": page("export const terminalsView = v('terminals');"),
   "settings/subscription.ts": "export const viewHidden = () => false;",
   "bar/core.ts": "export const S = { server: false, view: null, session: null }; export const G = { id: null };",
   "center/mobile.ts": "export const syncMobile = () => {};",
-  "center/window-root.ts": "export const showWindowParts = () => {};",
+  // The window's parts without the router: the pages render into their host.
+  "center/window-root.ts": `import { createPortal, flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
+    const root = createRoot(document.createElement("div"));
+    export const showWindowParts = updates => { for (const u of updates) if (u.part === "pages") flushSync(() => root.render(createPortal(u.content, u.host))); };`,
 }).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
 const hooks = registerHooks({
   load(url, context, next) {
@@ -35,15 +50,14 @@ const hooks = registerHooks({
     return source === undefined ? next(url, context) : { format: "module", source, shortCircuit: true };
   },
 });
-const { registerView, go, goHistory } = await import("../src/center/views.ts");
+const { go, goHistory } = await import("../src/center/views.ts");
 hooks.deregister();
 
 test("Back and Forward restore the project section a resumed session came from", () => {
   let tile: string | null = null;
   const mounted: { arg: ViewArg } = { arg: null };
-  registerView("home", { el: element(), mount() {} });
-  registerView("projects", {
-    el: element(),
+  register("home", { mount() {} });
+  register("projects", {
     currentArg: () => ({ project: state.picked, tile }),
     mount(_el, arg) {
       state.picked = arg?.project ?? null;
@@ -51,7 +65,7 @@ test("Back and Forward restore the project section a resumed session came from",
     },
     unmount() { tile = null; },
   });
-  registerView("pane", { el: element(), mount(_el, arg) { mounted.arg = arg; } });
+  register("pane", { mount(_el, arg) { mounted.arg = arg; } });
 
   go("home");
   go("projects", { project: "acme/widget" });
@@ -70,7 +84,7 @@ test("Back and Forward restore the project section a resumed session came from",
   goHistory(false);
   assert.equal(tile, "running");
   goHistory(false);
-  assert.equal(views.get("home")!.el.hidden, false, "the section adds no extra history step");
+  assert.equal(dom.window.document.getElementById("home-box")?.hidden, false, "the section adds no extra history step");
   goHistory(true);
   assert.equal(tile, "running");
 
@@ -83,7 +97,7 @@ test("Back and Forward restore the project section a resumed session came from",
 
 test("notifications keep the project return target across conversations", () => {
   const mounted: { arg: ViewArg } = { arg: null };
-  registerView("pane", { el: element(), mount(_el, arg) { mounted.arg = arg; } });
+  register("pane", { mount(_el, arg) { mounted.arg = arg; } });
   const agent = { machine_id: "build-box", machine_name: "build-box", id: "notice", cwd: "/srv/project", agent: "codex", status: "idle", external: false };
   const project = { project: "acme/widget", tile: "running" };
   go("projects", project);
@@ -94,7 +108,7 @@ test("notifications keep the project return target across conversations", () => 
 
 test("a notification from the project composer returns to the project", () => {
   const mounted: { arg: ViewArg } = { arg: null };
-  registerView("pane", { el: element(), mount(_el, arg) { mounted.arg = arg; } });
+  register("pane", { mount(_el, arg) { mounted.arg = arg; } });
   go("pane", { draft: { project: "acme/widget", machine: "build-box" } });
   go("pane", { agent: { machine_id: "build-box", machine_name: "build-box", id: "notice", cwd: "/srv/project", agent: "codex", status: "idle", external: false } });
   assert.deepEqual(returnTarget(mounted.arg), { view: "projects", arg: { project: "acme/widget" } });
@@ -102,7 +116,7 @@ test("a notification from the project composer returns to the project", () => {
 
 test("explicit return targets take priority when opening a conversation", () => {
   const mounted: { arg: ViewArg } = { arg: null };
-  registerView("pane", { el: element(), mount(_el, arg) { mounted.arg = arg; } });
+  register("pane", { mount(_el, arg) { mounted.arg = arg; } });
   go("pane", { draft: { project: "acme/widget", machine: null } });
   const from = { view: "home" as const, arg: null };
   go("pane", { agentnew: { prompt: "" }, from });

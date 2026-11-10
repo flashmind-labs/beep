@@ -7,12 +7,12 @@ import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
 import { pane } from "../bar/pane.ts";
 import { el as h } from "../ui/dom.ts";
-import { registerInstructions } from "./instructions.ts";
-import { registerProviders } from "./providers.ts";
+import { instructionsPage } from "./instructions.ts";
+import { providersPage } from "./providers.ts";
 import { connectSettingsSheet, settingsClosed, showSettingsPage } from "./settings.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import { type ViewArg, type ViewName, views } from "../center/state.ts";
-import { currentLocation, registerView, windowProject, toMain, drawTop } from "../center/views.ts";
+import type { CenterView, ViewArg, ViewName } from "../center/state.ts";
+import { boxOf, currentLocation, windowProject, toMain, drawTop } from "../center/views.ts";
 
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.
@@ -57,7 +57,7 @@ let embedded: { name: ViewName } | null = null;
 /// Mounts view `name` into `root` in the sheet. What it returns mounts the
 /// view back into its own element when the window shows it.
 export function embedView(name: ViewName, root: HTMLElement, arg: ViewArg) {
-  const view = views.get(name);
+  const view = embeddable(name);
   if (!view) return () => {};
   const mine = { name };
   unembed();
@@ -69,17 +69,26 @@ export function embedView(name: ViewName, root: HTMLElement, arg: ViewArg) {
   };
 }
 
+/// The pages Settings shows inside its sheet.
+function embeddable(name: ViewName): CenterView | null {
+  switch (name) {
+    case "providers": return providersView;
+    case "instructions": return instructionsView;
+    default: return null;
+  }
+}
+
 function unembed() {
   const was = embedded;
   embedded = null;
   const page = currentLocation();
 
   if (!was) return;
-  const view = views.get(was.name);
+  const view = embeddable(was.name), box = boxOf(was.name);
   if (!view) return;
 
-  if (page && page.view === was.name) {
-    view.mount(view.el, page.arg);
+  if (page && page.view === was.name && box) {
+    view.mount(box, page.arg);
     drawTop();
   } else {
     view.unmount?.();
@@ -114,7 +123,7 @@ connectSettingsSheet({
   show: (sheet, content) => showWindowParts([{ part: "settings-sheet", host: sheet, content }]),
   remove: () => removeWindowPart("settings-sheet"),
 });
-registerInstructions({ registerView, invoke, h, button, ago: ms => formatAgo(ms, "short"), openSettings });
-registerProviders({ registerView, invoke, openSettings, redrawTop: () => {
+export const instructionsView = instructionsPage({ invoke, h, button, ago: ms => formatAgo(ms, "short"), openSettings });
+export const providersView = providersPage({ invoke, openSettings, redrawTop: () => {
   if (currentLocation()?.view === "providers") drawTop();
 }, follow: changed => { subscribeEach([topic("machines"), topic("accounts")], changed); } });

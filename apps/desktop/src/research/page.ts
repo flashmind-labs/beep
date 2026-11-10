@@ -2,12 +2,12 @@
 import { invoke } from "../ui/tauri.ts";
 import { newestFirst, researchState, researchSummary, STATE_LABEL, type ResearchRow } from "./research-list.ts";
 import { RESEARCHES } from "./researches.ts";
-import { state, views } from "../center/state.ts";
+import { type CenterView, state } from "../center/state.ts";
 import { groupShown } from "../settings/subscription.ts";
 import { createElement } from "react";
 import { showWindowParts } from "../center/window-root.ts";
 import { ResearchPage } from "./page-view.tsx";
-import { currentLocation, registerView, go, drawTop, openResearch } from "../center/views.ts";
+import { boxOf, currentLocation, go, drawTop, openResearch } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, reloadChats } from "../center/sidebar.ts";
 import { IC } from "../ui/icons.tsx";
 import { failure } from "../ui/format.ts";
@@ -62,7 +62,7 @@ async function startResearch() {
 
 /// Updates the page without replacing the scroll container or input.
 function drawResearch(focus = false) {
-  const el = views.get("research")?.el;
+  const el = boxOf("research");
   if (!el) return;
   showWindowParts([{ part: "research-list", host: el, content: createElement(ResearchPage, {
     list: research.list,
@@ -76,13 +76,13 @@ function drawResearch(focus = false) {
   if (focus) el.querySelector<HTMLInputElement>(".cc-rnew input")?.focus();
 }
 
-registerView("research", {
+export const researchView: CenterView<"research"> = {
   title: () => ({ title: "Research", sub: research.list ? researchSummary(research.list) : "" }),
   mount() {
     drawResearch(true);
     reloadGroup("research");
   },
-});
+};
 
 // Under Projects: the newest researches, a spinner on those running. The
 // title opens the Research page, + its field.
