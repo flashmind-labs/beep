@@ -1,8 +1,8 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Fragment, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { mark } from "../chat/chats.ts";
-import { MEM_ICON, MEM_SOURCE, scopeTag, shortDate, type Memory, type MemoryScope } from "./memories.ts";
-import { ICON } from "../ui/icons.tsx";
+import { MEM_SOURCE, scopeTag, shortDate, type Memory, type MemoryScope } from "./memories.ts";
+import { ICON, Icon } from "../ui/icons.tsx";
 
 interface Filter { key: string; label: string; about?: string; ids?: Set<string>; read?: boolean }
 export function MemoriesShell({ filters, picked, count, hints, search, filter, click, menu, memories, selected, mode, scopes, query, today, loaded, total, error }: {
@@ -19,7 +19,7 @@ export function MemoriesShell({ filters, picked, count, hints, search, filter, c
     <div className="dlist top" id="mlist" role="listbox" aria-label="Memories" onClick={(event: MouseEvent) => click(event.nativeEvent)} onContextMenu={(event: MouseEvent) => menu(event.nativeEvent)}>
       {error && <div className="derr dpad">{error}</div>}
       {mode === "clear" ? <div className="dcard dm8"><div className="dask"><b className="dtitle">Forget everything?</b><div className="dmuted dblock">Beep will forget all {total} memories. This cannot be undone.</div><div className="dline"><button className="dbtn warn" data-m="clear-yes">Forget all</button><button className="dbtn quiet" data-m="list">Cancel</button></div></div></div>
-        : loaded && !total ? <div className="dempty"><span className="dicon" dangerouslySetInnerHTML={{ __html: MEM_ICON }} /><b className="dbig">Nothing remembered yet.</b><span className="dmuted dblock">Beep learns as you chat, or tell it "remember that…"</span></div>
+        : loaded && !total ? <div className="dempty"><span className="dicon"><Icon name="memory" /></span><b className="dbig">Nothing remembered yet.</b><span className="dmuted dblock">Beep learns as you chat, or tell it "remember that…"</span></div>
         : <><MemoryRows {...{ memories, selected, mode, scopes, query, today, picked }} />{total > 0 && !query && picked === "all" && <div className="dpad"><button className="dbtn warn" data-m="clear">Forget all…</button></div>}</>}
     </div>
     <div id="mhints"><HintView value={hints} /></div>

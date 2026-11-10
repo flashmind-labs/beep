@@ -1,11 +1,10 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Fragment, useLayoutEffect, useRef } from "react";
-import { ICON } from "../ui/icons.tsx";
+import { ICON, Icon, type IconName } from "../ui/icons.tsx";
 import { AppLogo } from "../chat/applogo-view.tsx";
-import { CLOCK_ICON, PLAY_ICON, PLUS_ICON } from "./memories.ts";
-import { describeDay, routineWhen, SHIELD_ICON, span, type Cron, type Grant } from "./routines.ts";
+import { describeDay, routineWhen, span, type Cron, type Grant } from "./routines.ts";
 
-function Markup({ html }: { html: string }) { return <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: html }} />; }
+function Glyph({ name, size }: { name: IconName; size?: number }) { return <span style={{ display: "contents" }}><Icon name={name} size={size} /></span>; }
 function useSelected(index: number) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { ref.current?.scrollIntoView({ block: "nearest" }); }, [index]);
@@ -13,13 +12,13 @@ function useSelected(index: number) {
 }
 export function RoutinesList(p: { list: Cron[]; selected: number; mode: "list" | "actions" | "delete"; loaded: boolean; error: string; summary: string; grants: number; hints: HintViewModel }) {
   const selected = useSelected(p.selected);
-  return <><div className="dhead"><span className="tt"><b>Routines</b><small>{p.summary}</small></span><button className="dbtn" data-r="grants">Grants{p.grants > 0 && <> <span className="dmut">{p.grants}</span></>}<kbd>⌘G</kbd></button><button className="dbtn" data-r="new"><Markup html={PLUS_ICON} />New<kbd>⌘N</kbd></button></div>
+  return <><div className="dhead"><span className="tt"><b>Routines</b><small>{p.summary}</small></span><button className="dbtn" data-r="grants">Grants{p.grants > 0 && <> <span className="dmut">{p.grants}</span></>}<kbd>⌘G</kbd></button><button className="dbtn" data-r="new"><Glyph name="add" />New<kbd>⌘N</kbd></button></div>
     {p.error && <div className="derr dpadx">{p.error}</div>}
-    {p.loaded && !p.list.length ? <div className="dempty"><span className="dicon"><Markup html={CLOCK_ICON} /></span><b className="dbig">No routines yet.</b><span className="dmuted dblock">Schedule tasks for Beep to run on a timer.</span><button className="dbtn pri" data-r="new">New routine</button></div> : <div className="dlist top" id="rlist" role="listbox" aria-label="Routines">{p.list.map((routine, index) => {
+    {p.loaded && !p.list.length ? <div className="dempty"><span className="dicon"><Glyph name="rout" size={16} /></span><b className="dbig">No routines yet.</b><span className="dmuted dblock">Schedule tasks for Beep to run on a timer.</span><button className="dbtn pri" data-r="new">New routine</button></div> : <div className="dlist top" id="rlist" role="listbox" aria-label="Routines">{p.list.map((routine, index) => {
       const on = index === p.selected, label = routine.label || "Reminder";
       if (on && p.mode === "delete") return <div key={routine.id} ref={selected} className="drt" aria-selected="true" data-i={index}><span className="tt"><b>Delete <b>{label}</b>?</b></span><span className="acts"><button className="dbtn warn" data-r="delete-yes">Delete</button><button className="dbtn quiet" data-r="list">Cancel</button></span></div>;
       const next = routine.enabled ? routine.next_run_at && !routine.run_once ? `Next: ${describeDay(new Date(routine.next_run_at))}` : "" : "Paused";
-      return <div key={routine.id} ref={on ? selected : null} className={`drt${routine.enabled ? "" : " off"}`} role="option" aria-selected={on} data-i={index}><span className="ic"><Markup html={CLOCK_ICON} /></span><span className="tt"><b>{label}</b><span>{routine.prompt}</span><small>{[routineWhen(routine.schedule), next].filter(Boolean).join(" · ")}</small></span>{on && p.mode === "actions" ? <span className="acts"><button className="dbtn" data-r="run"><Markup html={PLAY_ICON} />Run now</button><button className="dbtn" data-r="edit">Edit<kbd>⌘E</kbd></button><button className="dbtn warn" data-r="delete">Delete<kbd>⌘⌫</kbd></button></span> : <button className="dswitch" role="switch" aria-checked={routine.enabled} aria-label={`${label} on`} data-r="toggle" data-i={index} />}</div>;
+      return <div key={routine.id} ref={on ? selected : null} className={`drt${routine.enabled ? "" : " off"}`} role="option" aria-selected={on} data-i={index}><span className="ic"><Glyph name="rout" size={16} /></span><span className="tt"><b>{label}</b><span>{routine.prompt}</span><small>{[routineWhen(routine.schedule), next].filter(Boolean).join(" · ")}</small></span>{on && p.mode === "actions" ? <span className="acts"><button className="dbtn" data-r="run"><Glyph name="playSmall" />Run now</button><button className="dbtn" data-r="edit">Edit<kbd>⌘E</kbd></button><button className="dbtn warn" data-r="delete">Delete<kbd>⌘⌫</kbd></button></span> : <button className="dswitch" role="switch" aria-checked={routine.enabled} aria-label={`${label} on`} data-r="toggle" data-i={index} />}</div>;
     })}</div>}
     <HintView value={p.hints} /></>;
 }
@@ -27,7 +26,7 @@ export function GrantsList(p: { list: Grant[]; selected: number; mode: "list" | 
   const selected = useSelected(p.selected), now = Date.now();
   return <><div className="dhead"><span className="tt"><b>Routine grants</b><small>{p.loaded && !p.list.length ? "Nothing granted" : "What routines may do without asking"}</small></span></div>
     {p.error && <div className="derr dpadx">{p.error}</div>}
-    {p.loaded && !p.list.length ? <div className="dempty"><span className="dicon"><Markup html={SHIELD_ICON} /></span><b className="dbig">No routine grants.</b><span className="dmuted dblock">Beep asks in a chat when a routine needs one.</span></div> : <div className="dlist top" id="glist" role="listbox" aria-label="Routine grants">{p.list.map((grant, index) => {
+    {p.loaded && !p.list.length ? <div className="dempty"><span className="dicon"><Glyph name="shield" /></span><b className="dbig">No routine grants.</b><span className="dmuted dblock">Beep asks in a chat when a routine needs one.</span></div> : <div className="dlist top" id="glist" role="listbox" aria-label="Routine grants">{p.list.map((grant, index) => {
       const on = index === p.selected, action = grant.action.replace(/ for a routine$/, "");
       if (on && p.mode === "confirm") return <div key={grant.id} ref={selected} className="drt" aria-selected="true" data-i={index}><span className="tt"><b>Revoke? <b>{grant.routine}</b> will ask before each {action} again.</b></span><span className="acts"><button className="dbtn warn" data-g="revoke-yes">Revoke</button><button className="dbtn quiet" data-g="list">Cancel</button></span></div>;
       const per = grant.per_run === 1 ? "1 each run" : `up to ${grant.per_run} each run`, ends = grant.expires_at > now ? `Ends in ${span(grant.expires_at - now)}` : "Ended", used = grant.last_used_at ? `Last used ${span(now - grant.last_used_at)} ago` : "Not used yet";
