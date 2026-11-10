@@ -66,7 +66,7 @@ impl Pushed {
             tasks,
         } = next;
 
-        if let Err(view) = join_view(&mut self.view, view, cursor.start) {
+        if let Some(view) = join_view(&mut self.view, view, cursor.start) {
             return Some(Pushed {
                 kind,
                 cursor,
@@ -92,17 +92,17 @@ pub(super) fn join_view(
     held: &mut AgentSessionView,
     next: AgentSessionView,
     start: u64,
-) -> Result<(), AgentSessionView> {
+) -> Option<AgentSessionView> {
     let from = u64::from(held.earlier);
     let at = u64::from(next.earlier);
     let end = from + held.entries.len() as u64;
 
     if at < from || at > end {
-        return Err(next);
+        return Some(next);
     }
 
     let Ok(keep) = usize::try_from(at - from) else {
-        return Err(next);
+        return Some(next);
     };
 
     let mut entries = std::mem::take(&mut held.entries);
@@ -120,7 +120,7 @@ pub(super) fn join_view(
         earlier,
         ..next
     };
-    Ok(())
+    None
 }
 
 #[derive(Default)]

@@ -82,12 +82,12 @@ impl Keeper {
         self.fresh = match self.fresh.take() {
             Some(mut fresh) if append => {
                 match join_view(&mut fresh.view, pushed.view.clone(), pushed.cursor.start) {
-                    Ok(()) => {
+                    None => {
                         fresh.cursor = pushed.cursor.clone();
                         Some(fresh)
                     }
                     // A gap: nothing is kept until the next snapshot.
-                    Err(_) => {
+                    Some(_) => {
                         self.held = None;
                         None
                     }
