@@ -74,6 +74,17 @@ Other apps have independent versions and changelogs:
 
 ### Performance
 
+- Desktop: a conversation opened after a restart or in a new window shows
+  its last messages at once from disk, then catches up.
+- Desktop: a session shows its messages as soon as they arrive, without
+  waiting for its modes, tasks and processes, and is read again only when
+  following it fails.
+- Desktop: Home starts loading as the window opens, and on first launch
+  the welcome screen no longer holds Home back for up to 3 seconds.
+- Desktop: windows load less than half the code at start; the terminal
+  view loads when a terminal first shows.
+- Desktop: scrolling back in a conversation no longer lists every session
+  on its machine for each page.
 - Desktop: Home draws from what the last run kept at about the moment the
   window opens, instead of showing "Connecting" until every machine answers.
   Machines, projects and accounts no longer wait for each other, the main

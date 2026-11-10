@@ -54,6 +54,16 @@ Earlier releases predate this changelog.
 
 ### Performance
 
+- iOS: a conversation opened after a restart or in a new window shows
+  its last messages at once from disk, then catches up.
+- iOS: a session shows its messages as soon as they arrive, without
+  waiting for its modes, tasks and processes, and is read again only when
+  following it fails.
+- iOS: Home starts loading as the window opens.
+- iOS: the app loads less than half the code at start; the terminal
+  view loads when a terminal first shows.
+- iOS: scrolling back in a conversation no longer lists every session
+  on its machine for each page.
 - iOS: the app watches only the page's main area for new tooltips, and
   spinners stop turning while it is in the background.
 - iOS: update changed conversation rows independently during streaming.
