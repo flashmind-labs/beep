@@ -43,9 +43,11 @@ test("artifact list updates retain focus and the selected preview frame", async 
   await fold.click();
   await expect(page.getByRole("button", { name: "Show", exact: true })).toHaveAttribute("aria-expanded", "false");
   await expect(frame).toBeHidden();
+  await expect(frame).toHaveAttribute("src", "about:blank");
   await page.getByRole("button", { name: "Show", exact: true }).click();
   await expect(frame).toBeVisible();
   await expect(frame).toHaveAttribute("data-identity", "kept");
+  await expect(frame).toHaveAttribute("src", /data:text\/html/);
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { Reflect.set(window, "artifactCopied", value); } } }));
   const copy = page.getByRole("button", { name: "Copy path", exact: true });
   await copy.evaluate(element => { element.dataset.identity = "kept"; });
@@ -67,4 +69,5 @@ test("artifact list updates retain focus and the selected preview frame", async 
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await page.getByRole("tab", { name: /Artifacts/ }).click();
   await expect(page.getByRole("listbox", { name: "Artifacts" }).getByRole("option", { name: /first.html/ })).toBeVisible();
+  await expect(page.locator(".agartframe")).toBeVisible();
 });

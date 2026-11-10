@@ -1,14 +1,13 @@
 import { createElement } from "react";
-import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
-import { ArtifactActions, ArtifactsList } from "./artifacts-list.tsx";
+import { hasSessionPortal, removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
+import { ArtifactActions, ArtifactPreviewView, ArtifactsList, type ArtifactPreview } from "./artifacts-list.tsx";
 // The Artifacts tab of a coding agent session's pane: the pages and documents
 // the agent published or wrote, newest first, and the picked one rendered.
 
-import { type Artifact, artifactVersion, frameHtml, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
+import { type Artifact, artifactVersion, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
 import { revealPath } from "./files.ts";
 import { fileSize } from "../chat/media.ts";
 import { openPath, paneSession } from "./media.ts";
-import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
@@ -47,6 +46,9 @@ const A = {
 const folded = new Set<string>();
 let listHost: HTMLElement | null = null;
 let actionsHost: HTMLElement | null = null;
+let previewHost: HTMLElement | null = null;
+let previewRevision = 0;
+let preview: ArtifactPreview | null = null;
 
 /// Starts again when the pane shows another session than the one the
 /// tab is of.
@@ -56,7 +58,8 @@ function syncSession() {
   if (A.key === key) return;
   if (listHost) removeSessionPortal(listHost);
   if (actionsHost) removeSessionPortal(actionsHost);
-  listHost = null; actionsHost = null;
+  if (previewHost) removeSessionPortal(previewHost);
+  listHost = null; actionsHost = null; previewHost = null; preview = null;
   A.el?.remove();
   Object.assign(A, { el: null, key, list: [], picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0, note: "" });
 }
@@ -64,12 +67,17 @@ function syncSession() {
 /// The Artifacts view of the pane's session, made once per session.
 export function artifactsView() {
   syncSession();
-  if (A.el) { drawList(); return A.el; }
+  if (A.el) {
+    if (previewHost && !hasSessionPortal(previewHost) && preview) { renderPreview(); liveFrames(); }
+    drawList();
+    return A.el;
+  }
   const el = h(`<div class="agpview arts"><div class="agartlist" role="listbox" aria-label="Artifacts"></div><div class="agartshow"></div>`
     + `<div class="agpacts"></div></div>`);
   A.el = el;
   listHost = el.querySelector<HTMLElement>(".agartlist");
   actionsHost = el.querySelector<HTMLElement>(".agpacts");
+  previewHost = el.querySelector<HTMLElement>(".agartshow");
   el.querySelector(".agartlist")!.addEventListener("click", e => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-apath]");
     if (row) pick(row.dataset.apath!);
@@ -242,7 +250,7 @@ async function load(a: Artifact) {
 
   if (A.gone.has(a.path)) {
     A.version = `gone:${version}`;
-    drawShown(`<div class="agpmsg">${esc(goneMessage(a.name, s.machine_name))}</div>`);
+    drawShown({ kind: "message", text: goneMessage(a.name, s.machine_name), error: false });
     note(about(a, null));
     return;
   }
@@ -250,36 +258,35 @@ async function load(a: Artifact) {
   A.version = version;
 
   if (a.kind === "pdf") {
-    drawShown(`<div class="agpmsg">PDFs open in a tab of their own. <button class="dbtn" data-aact="pdf">Open ${esc(a.name)}</button></div>`);
+    drawShown({ kind: "pdf", name: a.name });
     note(about(a, null));
     return;
   }
 
   const keep = A.el?.querySelector(".agartshow > :not(.agpmsg)");
-  if (!keep) drawShown(`<div class="agpmsg"><span class="dspin"></span>Reading ${esc(a.name)} from ${esc(s.machine_name)}…</div>`);
+  if (!keep) drawShown({ kind: "loading", name: a.name, machine: s.machine_name });
   note(about(a, null));
   const place = readPlace(s.cwd, a.path);
 
   try {
     const got = await invoke<Shown>("agent_artifact", { machineId: s.machine_id, root: place.root, path: place.path });
     if (A.key !== key || A.picked !== a.path || A.version !== version) return;
-    drawShown(shownHtml(a, got));
+    drawShown(got.kind === "html" ? { kind: "html", name: a.name, src: got.src } : got.kind === "md" ? { kind: "md", html: got.html } : { kind: "image", name: a.name, mime: got.mime, data: got.data });
     note(about(a, got.size));
   } catch (e) {
     if (A.key !== key || A.picked !== a.path || A.version !== version) return;
-    drawShown(`<div class="agpmsg derr">${esc(readError(e))}</div>`);
+    drawShown({ kind: "message", text: readError(e), error: true });
   }
 }
 
-function shownHtml(a: Artifact, got: Shown) {
-  if (got.kind === "html") return `<div class="agartframe-box">${frameHtml(got.src, a.name)}</div>`;
-  if (got.kind === "md") return `<div class="agartmd">${got.html}</div>`;
-  return `<div class="agartimg"><img alt="${esc(a.name)}" src="data:${esc(got.mime)};base64,${got.data}"></div>`;
+function renderPreview() {
+  if (previewHost) setSessionPortal(previewHost, preview ? createElement(ArtifactPreviewView, { key: previewRevision, value: preview }) : null);
 }
 
-function drawShown(html: string | null) {
-  const box = A.el?.querySelector<HTMLElement>(".agartshow");
-  if (box) box.innerHTML = html ?? "";
+function drawShown(value: ArtifactPreview | null) {
+  preview = value;
+  previewRevision++;
+  renderPreview();
   liveFrames();
 }
 
