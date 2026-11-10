@@ -1,5 +1,7 @@
 // One persistent sandbox renders diagrams while streamed replies replace their HTML.
 // Previews receive only the cached SVG, so they do not load Mermaid again.
+import { createElement, type SyntheticEvent } from "react";
+import { createDocumentScope } from "../ui/document-root.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { notice, saveUrl } from "./media.ts";
 
@@ -17,25 +19,29 @@ const cache = new Map<string, Rendered>();
 const waiting = new Map<string, Set<HTMLElement>>();
 let worker: Diagram | null = null;
 let working = false;
+const dialogScope = createDocumentScope<"dialog">();
 let dialog: HTMLDialogElement | null = null;
 let returnFocus: HTMLElement | null = null;
 
 function close() {
   if (!dialog) return;
-  dialog.close(); dialog.remove(); dialog = null;
+  dialog.close(); dialogScope.remove(["dialog"]); dialog = null;
   returnFocus?.focus(); returnFocus = null;
 }
 function expand(source: string) {
   if (dialog) close();
   returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  dialog = document.createElement("dialog");
-  dialog.setAttribute("aria-label", "Diagram");
-  Object.assign(dialog.style, { width: "100vw", height: "100vh", maxWidth: "100vw", maxHeight: "100vh", margin: "0", padding: "0", border: "0", background: "var(--d-bg, #181818)" });
-  dialog.addEventListener("cancel", event => { event.preventDefault(); close(); });
+  dialogScope.set([{ slot: "dialog", host: document.body, content: createElement("dialog", {
+    "aria-label": "Diagram",
+    ref: (element: HTMLDialogElement | null) => { dialog = element; },
+    onCancel: (event: SyntheticEvent<HTMLDialogElement>) => { event.preventDefault(); close(); },
+    style: { width: "100vw", height: "100vh", maxWidth: "100vw", maxHeight: "100vh", margin: 0, padding: 0, border: 0, background: "var(--d-bg, #181818)" },
+  }) }]);
+  if (!dialog) return;
   const frame = makeFrame(source, true);
   frame.style.height = "100%";
   dialog.append(frame);
-  document.body.append(dialog); dialog.showModal(); frame.focus();
+  dialog.showModal(); frame.focus();
 }
 function render(diagram: Diagram) {
   diagram.frame.contentWindow?.postMessage({ kind: "beep-diagram", action: "render", source: diagram.source,
