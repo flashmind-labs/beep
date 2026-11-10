@@ -760,3 +760,63 @@ async fn sessions_are_listed_while_the_open_note_waits_on_the_children() {
     assert_eq!(noted[0].kids, vec![kid]);
     parent.close().await;
 }
+
+/// A parent's Stop all on another machine reaches its child as Stop all; a
+/// parent's node from 0.5.0 and before, which asks without `stop_all`, still
+/// stops the child's turn (#565).
+#[tokio::test]
+async fn a_far_parent_s_stop_all_stops_its_child_here() {
+    use beep_proto::node::tools::{Reply, Request as ToolRequest, Tool};
+
+    let rig = Rig::new();
+    let far = SecretKeyFor::id();
+    let link = ParentLink {
+        machine: Some(far),
+        session: "p1".into(),
+        key: "p1".into(),
+        root_machine: Some(far),
+        root: "p0".into(),
+        depth: 1,
+        others: 0,
+        agent: "kid".into(),
+        mode: None,
+    };
+    let stop = |id: String, args: serde_json::Value| {
+        let mut args = args;
+        args["id"] = id.into();
+        ToolRequest {
+            session: "p1".into(),
+            tool: Tool::StopAgent,
+            args: args.to_string(),
+            approved: Default::default(),
+        }
+    };
+
+    for args in [
+        serde_json::json!({ "turn_only": true }),
+        serde_json::json!({ "turn_only": true, "stop_all": true }),
+    ] {
+        let child = rig
+            .agents
+            .start_child(link.clone(), start("kid", "hang on", rig.dir.path()))
+            .await
+            .expect("the child starts");
+        until(&child, |live| live.status() == Status::Working).await;
+
+        let reply = crate::agents::mcp::children::answer_peer(
+            &rig.agents,
+            far,
+            stop(Agents::name_of(&child), args),
+        )
+        .await;
+        assert!(
+            matches!(&reply, Reply::Done { failed: false, .. }),
+            "{reply:?}"
+        );
+        until(&child, |live| live.status() == Status::Idle).await;
+        assert!(!child.live.borrow().stopped_by_user);
+        child.close().await;
+    }
+
+    rig.agents.shutdown().await;
+}

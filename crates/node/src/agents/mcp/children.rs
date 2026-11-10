@@ -185,6 +185,11 @@ pub(crate) struct PeerCall {
     /// Stop only the running turn, not the session.
     #[serde(default)]
     pub(crate) turn_only: bool,
+    /// With `turn_only`: stop its background commands and subagents too, as
+    /// a parent's Stop all does. A node from 0.5.0 and before ignores it and
+    /// stops the turn.
+    #[serde(default)]
+    pub(crate) stop_all: bool,
 }
 
 fn json_of<T: Serialize>(value: &T) -> Reply {
@@ -572,7 +577,8 @@ impl Reach<'_> {
                 let args = json!(PeerCall {
                     id: kid.id.clone(),
                     text: Some(text),
-                    turn_only: false
+                    turn_only: false,
+                    stop_all: false,
                 });
 
                 match self.peer(mesh, &machine, Tool::SendToAgent, &args).await {
@@ -872,8 +878,14 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
                     None => fail("Give the `text` to send."),
                 },
                 _ if call.turn_only => {
-                    // Refused when no turn runs.
-                    let _ = child.order(Command::Cancel { by_user: false }).await;
+                    // Refused when no turn runs. A parent's node from 0.5.0
+                    // and before asks without `stop_all`.
+                    let command = if call.stop_all {
+                        Command::StopAll { by_user: false }
+                    } else {
+                        Command::Cancel { by_user: false }
+                    };
+                    let _ = child.order(command).await;
                     agents.cancel_family(&child).await;
                     ok("Its turn is stopped.")
                 }
