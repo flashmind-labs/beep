@@ -3,7 +3,7 @@ import { createDocumentScope } from "../ui/document-root.tsx";
 import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
 
-type Part = "mobile-tabs" | "mobile-back" | "mobile-keyboard" | "home" | "home-composer" | "sidebar" | "header-project-back" | "header-title" | "header-date" | "header-scope" | "header-tools" | "notices" | "usage" | "palette" | "terminal-page" | "project-shell" | "project-where" | "project-running" | "project-custom-agents" | "project-runs" | "project-thread" | "sync-page" | "research-list" | "research-open" | "review-detail" | `settings-page:${"instructions" | "providers"}` | `project-overview:${string}` | `project-sessions:${"all" | "recent"}` | `git-history:${string}` | `thread-card:${string}` | `diff:${string}`;
+type Part = "mobile-tabs" | "mobile-back" | "mobile-keyboard" | "home" | "home-composer" | "sidebar" | "header-project-back" | "header-title" | "header-date" | "header-scope" | "header-tools" | "notices" | "usage" | "palette" | "terminal-page" | "project-shell" | "project-found" | "project-where" | "project-running" | "project-custom-agents" | "project-runs" | "project-thread" | "sync-page" | "research-list" | "research-open" | "review-detail" | `settings-page:${"instructions" | "providers"}` | `project-overview:${string}` | `project-sessions:${"all" | "recent"}` | `git-history:${string}` | `thread-card:${string}` | `diff:${string}`;
 const scope = createDocumentScope<Part>(children => createElement(RouterContextProvider, { router: windowHistory.router,
   children: createElement(Fragment, null, createElement(RouterProvider, { router: windowHistory.router }), children) }));
 

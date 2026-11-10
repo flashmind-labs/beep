@@ -1,6 +1,27 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
+test("found project actions retain focus across overview refresh", async ({ page }) => {
+  const found = [{ name: 'example/found', remote: 'https://example.test/found', places: [{ machine_id: 'build-box', machine_name: 'Build box', folder: '/srv/found' }], agents: [{ agent: 'codex', sessions: 2 }], last_activity: 0 }];
+  await openDesktop(page, false, { found_projects: found });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  const section = page.locator('#sec-found'), action = section.locator('.ap-row .acts button');
+  await expect(section).toContainText('example/found');
+  await action.focus();
+  await action.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length);
+  await page.evaluate(() => window.__navigation.notify('projects'));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length)).toBeGreaterThan(reads);
+  await expect(action).toHaveAttribute('data-identity', 'kept');
+  await expect(action).toBeFocused();
+  await page.evaluate(() => window.__navigation.hold('import_project'));
+  await action.click();
+  await expect(action).toHaveText('Importing…');
+  await expect(action).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === 'import_project'))).toBe(true);
+  await page.evaluate(() => window.__navigation.release('import_project'));
+});
+
 test("overview card keeps focus through pin updates and opens by keyboard", async ({ page }) => {
   await openDesktop(page);
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
