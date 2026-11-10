@@ -170,8 +170,21 @@ test("chart controls keep selection and focus during history refresh", async ({ 
   const history = [{ role: "user", text: "Show a chart", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "show_chart", label: "Show chart", success: true, route: null, file: null, images: [], products: null, cards: null, chart }], replies: [], model: "" }];
   await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
   await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const plot = page.locator(".dchart .plot");
+  const path = plot.locator("svg > path").first();
+  await expect(path).toBeVisible();
+  await path.evaluate(el => Reflect.set(window, "chartPath", el));
+  await plot.hover({ position: { x: 20, y: 30 } });
+  await expect(plot.locator(".tipc")).toBeVisible();
+  await expect(plot.locator(".hov circle")).toHaveCount(2);
+  await plot.hover({ position: { x: 80, y: 30 } });
+  expect(await path.evaluate(el => el === Reflect.get(window, "chartPath"))).toBe(true);
   const button = page.locator(".dchart [data-series='0']");
   await expect(button).toHaveAttribute("aria-pressed", "true");
+  await button.evaluate(el => Reflect.set(window, "chartResizeLegend", el));
+  await plot.evaluate(el => { if (el instanceof HTMLElement) el.style.width = "220px"; });
+  await expect(plot.locator("svg")).toHaveAttribute("width", "220");
+  expect(await button.evaluate(el => el === Reflect.get(window, "chartResizeLegend"))).toBe(true);
   await button.click();
   await expect(button).toHaveAttribute("aria-pressed", "false");
   await button.evaluate(el => Reflect.set(window, "chartLegend", el));
@@ -314,4 +327,40 @@ test("route selection and stop expansion survive history updates", async ({ page
   expect(await stops.evaluate(el => el === Reflect.get(window, "routeStops") && document.activeElement === el)).toBe(true);
   await expect(stops).toHaveAttribute("aria-expanded", "true");
   await expect(card.getByRole("button", { name: "15 min" })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("bar chart hover tracks values and legend changes without replacing the plot", async ({ page }) => {
+  const chart = { title: "Example bars", kind: "bar", x: "category", categories: ["One", "Two"], unit: "%", series: [{ name: "First", points: [{ x: 0, y: -1 }, { x: 1, y: 2 }] }, { name: "Second", points: [{ x: 0, y: 2 }, { x: 1, y: 3 }] }], stock: null, source: "" };
+  const history = [{ role: "user", text: "Show bars", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [{ name: "show_chart", label: "Show chart", success: true, route: null, file: null, images: [], products: null, cards: null, chart }], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const plot = page.locator(".dchart .plot");
+  await expect(plot.locator("rect")).toHaveCount(4);
+  await plot.hover({ position: { x: 20, y: 30 } });
+  await expect(plot.locator(".tipc")).toContainText("First");
+  await expect(plot.locator(".tipc")).toContainText("Second");
+  await expect(plot.locator(".hov circle")).toHaveCount(0);
+  await page.locator(".dchart [data-series='0']").click();
+  await expect(plot.locator("rect")).toHaveCount(2);
+  await expect(plot.locator(".tipc")).toBeHidden();
+});
+
+test("area charts keep separate gradients and resize without replacing plot controls", async ({ page }) => {
+  const makeChart = (title: string) => ({ title, kind: "area", x: "category", categories: ["One", "Two"], unit: "%", series: [{ name: "First", points: [{ x: 0, y: 1 }, { x: 1, y: 2 }] }], stock: null, source: "" });
+  const tool = (chart: ReturnType<typeof makeChart>) => ({ name: "show_chart", label: "Show chart", success: true, route: null, file: null, images: [], products: null, cards: null, chart });
+  const history = [{ role: "user", text: "Show charts", at: 1, images: [], model: "", thinking: "" }, { role: "assistant", html: "<p>Here.</p>", tools: [tool(makeChart("One")), tool(makeChart("Two"))], replies: [], model: "" }];
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: history, session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "chat-example" } }));
+  const plots = page.locator(".dchart .plot");
+  await expect(plots).toHaveCount(2);
+  const ids = await plots.locator("linearGradient").evaluateAll(elements => elements.map(element => element.id));
+  expect(ids).toHaveLength(2);
+  expect(ids[0]).not.toBe(ids[1]);
+  for (let i = 0; i < 2; i++) await expect(plots.nth(i).locator("path").first()).toHaveAttribute("fill", `url(#${ids[i]})`);
+  const first = plots.first(), svg = first.locator("svg"), oldWidth = await svg.getAttribute("width");
+  await svg.evaluate(el => Reflect.set(window, "chartSvg", el));
+  await first.evaluate(el => { if (el instanceof HTMLElement) el.style.width = "220px"; });
+  await expect(svg).toHaveAttribute("width", "220");
+  expect(oldWidth).not.toBe("220");
+  expect(await svg.evaluate(el => el === Reflect.get(window, "chartSvg"))).toBe(true);
 });

@@ -1,7 +1,6 @@
 import { sentBox } from "./media.ts";
 import { owningChatBody } from "./chat.ts";
 import { renderChatChart } from "./work-view.tsx";
-import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
 import type { Turn } from "../ui/turn.ts";
 
@@ -43,24 +42,10 @@ export interface ChartCard extends HTMLDivElement {
   off: Set<number>;
 }
 
-/// A card's plot, which knows its chart and the width it was drawn at.
-export interface Plot extends HTMLDivElement {
-  chart: Chart;
-  card: ChartCard;
-  drawnWidth?: number;
-}
-
-/// show_chart and show_stock_chart results. The plot is drawn at the card's
-/// own width, so text never stretches, and again when the bar resizes.
+/// Chart dimensions and colors shared with the React plot.
 export const CHART_COLORS = ["#3B9B7A", "#F07A6A", "#8FB3E8", "#E8C46A"];
 export const CHART_RANGES = [["1d", "1D"], ["5d", "5D"], ["1mo", "1M"], ["6mo", "6M"], ["ytd", "YTD"], ["1y", "1Y"], ["5y", "5Y"], ["max", "Max"]];
 export const CHART_H = 150, CHART_PAD = { top: 8, right: 52, bottom: 20 };
-export const chartSizer = new ResizeObserver(entries => {
-  for (const { target } of entries) {
-    const plot = target as Plot;
-    if (plot.chart && plot.clientWidth !== plot.drawnWidth) drawPlot(plot);
-  }
-});
 
 export const chartSources = new WeakMap<Element, Chart>();
 export function chartRow(turn: Turn, chart: Chart) {
@@ -107,13 +92,12 @@ export function chartTime(ms: number, span: number, full = false) {
   return d.toLocaleDateString(undefined, { month: "short", year: "numeric", ...(full ? { day: "numeric" } : {}) });
 }
 
-/// The series the legend leaves on, with their index for the colour.
-const shownSeries = (plot: Plot) => plot.chart.series.map((s, i) => ({ s, i })).filter(({ i }) => !plot.card.off.has(i));
+export const shownSeries = (chart: Chart, off: ReadonlySet<number>) => chart.series.map((s, i) => ({ s, i })).filter(({ i }) => !off.has(i));
 
 /// The plot's geometry: what each axis spans and where a value lands.
-export function plotScale(plot: Plot) {
-  const c = plot.chart, W = plot.clientWidth || 600;
-  const shown = shownSeries(plot);
+export function plotScale(c: Chart, off: ReadonlySet<number>, width: number) {
+  const W = width || 600;
+  const shown = shownSeries(c, off);
   const xs = c.series.flatMap(s => s.points.map(p => p.x)), ys = shown.flatMap(({ s }) => s.points.map(p => p.y));
   const bar = c.kind === "bar";
   let lo = Math.min(...ys), hi = Math.max(...ys);
@@ -131,71 +115,9 @@ export function plotScale(plot: Plot) {
   };
 }
 
-export function drawPlot(plot: Plot) {
-  const c = plot.chart, g = plotScale(plot);
-  plot.drawnWidth = plot.clientWidth;
-  const { ticks, digits } = niceTicks(g.lo, g.hi, 3);
-  const grid = ticks.map(v => `<line x1="0" x2="${g.plotW}" y1="${g.Y(v)}" y2="${g.Y(v)}" class="gl"/><text x="${g.plotW + 6}" y="${g.Y(v) + 4}" class="ax">${esc(chartValue(c, v, false, digits))}</text>`).join("");
-  let xticks;
-
-  if (c.x === "category") {
-    const every = Math.ceil(c.categories.length / Math.max(1, Math.floor(g.plotW / 70)));
-    xticks = c.categories.map((l, i) => i % every ? "" : `<text x="${g.X(i)}" y="${CHART_H - 4}" class="ax" text-anchor="middle">${esc(l)}</text>`).join("");
-  } else {
-    const n = Math.max(2, Math.min(5, Math.floor(g.plotW / 110)));
-    xticks = Array.from({ length: n }, (_, i) => {
-      const x = g.x0 + g.span * i / (n - 1);
-      return `<text x="${g.X(x)}" y="${CHART_H - 4}" class="ax" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${esc(chartTime(x, g.span))}</text>`;
-    }).join("");
-  }
-
-  let marks;
-  const shown = shownSeries(plot);
-
-  if (c.kind === "bar") {
-    const slot = g.plotW / c.categories.length, bw = slot * .7 / Math.max(1, shown.length);
-    marks = shown.map(({ s, i }, k) => s.points.map(p => {
-      const x = g.X(p.x) - slot * .35 + k * bw, y = g.Y(Math.max(p.y, 0)), y0 = g.Y(Math.min(p.y, 0));
-      return `<rect x="${x}" y="${y}" width="${Math.max(1, bw - 2)}" height="${Math.max(1, y0 - y)}" rx="2.5" fill="${CHART_COLORS[i]}"/>`;
-    }).join("")).join("");
-  } else {
-    marks = shown.map(({ s, i }) => {
-      const d = s.points.map((p, j) => `${j ? "L" : "M"}${g.X(p.x).toFixed(1)},${g.Y(p.y).toFixed(1)}`).join("");
-      const area = c.kind === "area" && shown.length === 1
-        ? `<defs><linearGradient id="cg${i}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${CHART_COLORS[i]}" stop-opacity=".35"/><stop offset="1" stop-color="${CHART_COLORS[i]}" stop-opacity="0"/></linearGradient></defs><path d="${d}L${g.X(s.points.at(-1)!.x)},${g.plotH}L${g.X(s.points[0].x)},${g.plotH}Z" fill="url(#cg${i})"/>`
-        : "";
-      return `${area}<path d="${d}" fill="none" stroke="${CHART_COLORS[i]}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`;
-    }).join("");
-  }
-
-  const baseAt = c.stock && c.series.length === 1 && c.kind !== "bar" ? c.stock.previous : c.unit === "%" ? 0 : null;
-  const base = baseAt == null ? "" : `<line x1="0" x2="${g.plotW}" y1="${g.Y(baseAt)}" y2="${g.Y(baseAt)}" class="base"/>`;
-  plot.innerHTML = `<svg width="${g.W}" height="${CHART_H}" viewBox="0 0 ${g.W} ${CHART_H}">${grid}${base}${marks}${xticks}<g class="hov"></g></svg><div class="tipc" hidden></div>`;
-  plot.onmousemove = e => hoverPlot(plot, e);
-  plot.onmouseleave = () => { plot.querySelector(".hov")!.innerHTML = ""; plot.querySelector<HTMLElement>(".tipc")!.hidden = true; };
-}
-
 /// The point of `points` nearest to `x`, by binary search on sorted x.
 export function nearest(points: ChartPoint[], x: number) {
   let a = 0, b = points.length - 1;
   while (b - a > 1) { const m = (a + b) >> 1; points[m].x < x ? a = m : b = m; }
   return Math.abs(points[a].x - x) <= Math.abs(points[b].x - x) ? points[a] : points[b];
-}
-export function hoverPlot(plot: Plot, e: MouseEvent) {
-  const c = plot.chart, g = plotScale(plot);
-  const px = e.clientX - plot.getBoundingClientRect().left;
-  if (px > g.plotW + 4) return plot.onmouseleave!(e);
-  const x = c.kind === "bar" ? Math.round(g.x0 + px / g.plotW * g.span) : g.x0 + Math.max(0, Math.min(1, px / g.plotW)) * g.span;
-  const hits = shownSeries(plot).filter(({ s }) => s.points.length).map(({ s, i }) => ({ s, i, p: nearest(s.points, x) }));
-  if (!hits.length) return;
-  const at = hits[0].p.x, hx = g.X(at);
-  plot.querySelector(".hov")!.innerHTML = c.kind === "bar" ? ""
-    : `<line x1="${hx}" x2="${hx}" y1="0" y2="${g.plotH}" class="cross"/>` + hits.map(({ i, p }) => `<circle cx="${g.X(p.x)}" cy="${g.Y(p.y)}" r="3.5" fill="${CHART_COLORS[i]}" stroke="#121916" stroke-width="2"/>`).join("");
-  const tip = plot.querySelector<HTMLElement>(".tipc")!;
-  const values = hits.map(({ s, p }) => hits.length > 1 ? `${esc(s.name)} ${esc(chartValue(c, p.y, c.unit === "%"))}` : esc(chartValue(c, p.y))).join(" <span>·</span> ");
-  const label = c.x === "time" ? chartTime(at, g.span, true) : c.categories[Math.round(at)] ?? "";
-  tip.innerHTML = `${esc(label)} <span>·</span> ${values}`;
-  tip.hidden = false;
-  const half = tip.offsetWidth / 2;
-  tip.style.left = Math.max(half, Math.min(g.plotW - half, hx)) + "px";
 }
