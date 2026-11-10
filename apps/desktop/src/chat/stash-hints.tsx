@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useStore } from "zustand";
-import { ensureStash, stash, stashAction, toggleStash } from "./stash.ts";
+import { ensureStash, stash, stashAction, stashAnchor, toggleStash } from "./stash.ts";
 
 export function StashIndicator({ project }: { project: string | null }) {
   const count = useStore(stash, state => project ? state.entries.get(project)?.length ?? 0 : 0);
@@ -8,7 +8,7 @@ export function StashIndicator({ project }: { project: string | null }) {
   useEffect(() => { if (project) ensureStash(project); }, [project]);
   if (!project) return null;
 
-  return <span className="prompt-stash-slot" data-stash-project={project}>{count > 0 && <button className="prompt-stash-count" data-stash-open={project} aria-haspopup="dialog" aria-expanded={open} onClick={e => { e.preventDefault(); toggleStash(project); }}>Stash {count}</button>}</span>;
+  return <span className="prompt-stash-slot" data-stash-project={project}>{count > 0 && <button ref={stashAnchor(project)} className="prompt-stash-count" data-stash-open={project} aria-haspopup="dialog" aria-expanded={open} onClick={e => { e.preventDefault(); toggleStash(project); }}>Stash {count}</button>}</span>;
 }
 
 export function StashActions() {

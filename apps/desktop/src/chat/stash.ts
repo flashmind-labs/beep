@@ -1,4 +1,4 @@
-import { createElement, createRef } from "react";
+import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createStore } from "zustand";
 import { createDocumentScope } from "../ui/document-root.tsx";
@@ -20,22 +20,41 @@ export interface StashBinding {
 export const stash = createStore(() => ({ entries: new Map<string, StashEntry[]>(), open: null as string | null }));
 
 const bindings = new WeakMap<HTMLTextAreaElement, StashBinding>();
+/// The bound fields, held weakly: a composer that is gone drops out.
+const fields = new Set<WeakRef<HTMLTextAreaElement>>();
+/// The Stash buttons the indicators draw, with their projects.
+const anchors = new Map<HTMLElement, string>();
 const reads = new Map<string, number>();
 let busy = false;
 const panelScope = createDocumentScope<"panel">();
-const panelRef = createRef<HTMLDivElement>();
 let panelOpened = 0;
 
+/// The shown field bound to `project`, or to any project.
 function active(project?: string) {
-  return [...document.querySelectorAll<HTMLTextAreaElement>("textarea[data-prompt-stash]")].find(field => {
+  for (const ref of fields) {
+    const field = ref.deref();
+    if (!field) { fields.delete(ref); continue; }
+
     const binding = bindings.get(field);
-    return binding && (!project || binding.project() === project) && field.getClientRects().length;
-  });
+    if (binding && (!project || binding.project() === project) && field.getClientRects().length) return field;
+  }
+
+  return undefined;
+}
+
+/// Keeps a Stash button `el` for project `project` while it is drawn; a ref callback.
+export function stashAnchor(project: string) {
+  return (el: HTMLElement | null) => {
+    if (!el) return;
+    anchors.set(el, project);
+    return () => { anchors.delete(el); };
+  };
 }
 
 export function bindPromptStash(field: HTMLTextAreaElement, binding: StashBinding) {
   field.dataset.promptStash = "";
   bindings.set(field, binding);
+  fields.add(new WeakRef(field));
   field.addEventListener("keydown", e => {
     if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing || !["s", "p"].includes(e.key.toLowerCase())) return;
     e.preventDefault(); e.stopPropagation();
@@ -79,7 +98,8 @@ function note(field: HTMLTextAreaElement, text: string) {
 }
 
 function anchorOf(project: string) {
-  return [...document.querySelectorAll<HTMLElement>("[data-stash-open]")].find(el => el.dataset.stashOpen === project) ?? null;
+  const drawn = [...anchors].filter(([el, of]) => of === project && el.isConnected).map(([el]) => el);
+  return drawn.find(el => el.getClientRects().length) ?? drawn[0] ?? null;
 }
 
 function close() {
@@ -91,25 +111,12 @@ function drawPanel() {
   const project = opened();
   if (!project) return;
   const list = listOf(project) ?? [];
-  if (!anchorOf(project) || !list.length) { close(); return; }
+  const anchor = anchorOf(project);
+  if (!anchor || !list.length) { close(); return; }
   const field = active(project), binding = field && bindings.get(field);
   const swap = !!field?.value.trim() || !!binding?.hasAttachments();
-  const content = createElement(StashPanel, { project, entries: list, busy, canPop: !!field, swap, panelRef, onClose: close, onRemove: id => remove(project, id), onPop: id => pop(id), onOutside: outside });
+  const content = createElement(StashPanel, { project, entries: list, busy, canPop: !!field, swap, anchor, onClose: close, onRemove: id => remove(project, id), onPop: id => pop(id), onOutside: outside });
   panelScope.set([{ slot: "panel", host: document.body, content, identity: String(panelOpened) }]);
-
-  positionPanel();
-}
-
-function positionPanel() {
-  const panel = panelRef.current, project = opened();
-  if (!panel || !project) return;
-  const anchor = anchorOf(project);
-  if (!anchor) { close(); return; }
-  const rect = anchor.getBoundingClientRect();
-  panel.style.width = `${Math.min(400, innerWidth - 32)}px`;
-  panel.style.left = `${Math.max(16, Math.min(rect.right - panel.offsetWidth, innerWidth - panel.offsetWidth - 16))}px`;
-  panel.style.bottom = `${Math.max(16, innerHeight - rect.top + 8)}px`;
-  panel.style.maxHeight = `${Math.max(100, rect.top - 24)}px`;
 }
 
 function show(project: string) {
@@ -196,6 +203,4 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
 }
 
 document.addEventListener("keydown", e => { if (e.key === "Escape" && opened()) { e.preventDefault(); e.stopImmediatePropagation(); close(); active()?.focus(); } }, true);
-addEventListener("resize", positionPanel);
-document.addEventListener("scroll", e => { if (opened() && !panelRef.current?.contains(e.target as Node)) positionPanel(); }, true);
 void listen<string>("prompt-stash-changed", e => { void reload(e.payload); });
