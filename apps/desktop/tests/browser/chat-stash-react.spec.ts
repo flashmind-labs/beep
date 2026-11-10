@@ -95,3 +95,31 @@ test("stash notice stays mounted through a composer redraw", async ({ page }) =>
   await expect(note).toHaveText("Message stashed");
   expect(await note.evaluate(el => el === Reflect.get(window, "stashNotice"))).toBe(true);
 });
+
+test("stash panel closes on an outside click and its indicator toggles it", async ({ page }) => {
+  const entries = [{ id: "entry", text: "Saved message", images: [], files: [] }];
+  await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }], prompt_stash_list: entries });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const open = page.getByRole("button", { name: "Stash 1" });
+  const panel = page.getByRole("dialog", { name: "Project stash" });
+  await open.click();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Close stash" })).toBeFocused();
+  await expect(open).toHaveAttribute("aria-expanded", "true");
+
+  await panel.locator("p").click();
+  await expect(panel).toBeVisible();
+
+  await page.mouse.click(4, 4);
+  await expect(panel).toHaveCount(0);
+  await expect(open).toHaveAttribute("aria-expanded", "false");
+
+  await open.click();
+  await expect(panel).toBeVisible();
+  await open.click();
+  await expect(panel).toHaveCount(0);
+
+  await open.click();
+  await panel.getByRole("button", { name: "Close stash" }).click();
+  await expect(panel).toHaveCount(0);
+});
