@@ -40,3 +40,21 @@ test("workflow filters retain host labels and show read errors", async ({ page }
   await section.getByRole('button', { name: 'failed 1' }).click();
   await expect(section.locator('.rr-head')).toHaveCount(2);
 });
+
+test("showing the window again restarts the project's Actions", async ({ page }) => {
+  const run = { id: 7, number: 7, workflow: 'Build', title: 'Example run', branch: 'main', event: 'push', actor: 'Example', state: 'passed', url: 'https://example.test/run/7', started_at: 1, finished_at: 2, progress: null, pull_requests: [], host: 'github.com' };
+  await openDesktop(page, false, { center_project_runs: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null } });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator('.pj-list .pj-li[title="Actions"]').click();
+  await expect(page.locator('#sec-actions')).toContainText('Build #7');
+  const following = () => page.evaluate(() => {
+    const sent = window.__navigation.calls().filter(call => call.command === 'mesh_watch' || call.command === 'mesh_topics').at(-1)?.args.topics;
+    return Array.isArray(sent) && sent.some(interest => typeof interest?.topic === 'string' && interest.topic.startsWith('forge.') && interest.topic !== 'forge.*');
+  });
+  await expect.poll(following).toBe(true);
+  await page.evaluate(() => window.__navigation.emit('center-hidden', null));
+  await expect.poll(following).toBe(false);
+  await page.evaluate(() => window.__navigation.emit('center-shown', null));
+  await expect.poll(following).toBe(true);
+  await expect(page.locator('#sec-actions')).toContainText('Build #7');
+});
