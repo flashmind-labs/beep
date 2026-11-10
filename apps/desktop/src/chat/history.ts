@@ -8,12 +8,11 @@ import { answerHtml } from "../agents/turnrows.ts";
 import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
 import { chartSources } from "./charts.ts";
 import { routeSources } from "./routes.ts";
-import { productMarkup, type ImageRef, type SentFile, type SentImage } from "./media.ts";
+import { productSources, type ImageRef, type SentFile, type SentImage } from "./media.ts";
 import { replyActs } from "./rerun.ts";
 import { QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { HISTORY_CHUNK, windowStart } from "./history-state.ts";
 import { keepWaitingQuestions, loadQuestions } from "../bar/work.ts";
-import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { ChatBody, Step, Turn } from "../ui/turn.ts";
 
@@ -296,8 +295,8 @@ function sameSentContent(a: Element, b: Element) {
   const normalized = (element: Element) => {
     const copy = element.cloneNode(true) as Element;
     for (let i = 0; i < element.children.length; i++) {
-      const markup = productMarkup.get(element.children[i]);
-      if (markup !== undefined) copy.children[i].innerHTML = markup;
+      const product = productSources.get(element.children[i]);
+      if (product !== undefined) copy.children[i].textContent = product;
       const chart = chartSources.get(element.children[i]);
       if (chart) copy.children[i].textContent = JSON.stringify(chart);
       const route = routeSources.get(element.children[i]);
@@ -463,7 +462,9 @@ export function sourceRow(turn: Turn, sources: WebSource[] | null | undefined) {
   let row = turn.querySelector<HTMLElement>(".dsources");
   if (!list.length) { discardChatSources(turn); row?.remove(); return; }
   if (!row) {
-    row = h('<div class="dsources" aria-label="Sources"></div>');
+    row = document.createElement("div");
+    row.className = "dsources";
+    row.setAttribute("aria-label", "Sources");
     const anchor = turn.querySelector(".files") ?? turn.querySelector(ANSWER);
     anchor ? anchor.after(row) : turn.append(row);
   }

@@ -364,3 +364,50 @@ test("area charts keep separate gradients and resize without replacing plot cont
   expect(oldWidth).not.toBe("220");
   expect(await svg.evaluate(el => el === Reflect.get(window, "chartSvg"))).toBe(true);
 });
+
+test("thought and steps toggle through React handlers and keep their rows", async ({ page }) => {
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "send_prompt" && args?.onEvent && typeof args.onEvent === "object" && "onmessage" in args.onEvent) {
+        const channel = args.onEvent;
+        Reflect.set(window, "workEvent", (event: unknown) => { if (typeof channel.onmessage === "function") channel.onmessage(event); });
+        return new Promise<T>(() => {});
+      }
+      return invoke<T>(command, args);
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ chat: { session: "live-chat" } }));
+  await page.locator("#ask").fill("Think and search");
+  await page.locator("#ask").press("Enter");
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "workEvent"))).toBe("function");
+  await page.evaluate(() => {
+    const send = Reflect.get(window, "workEvent");
+    send({ kind: "reasoning", delta: "First thought" });
+    send({ kind: "tool_started", call_id: "call-1", name: "web_search", description: "Search example" });
+    send({ kind: "tool_started", call_id: "call-2", name: "web_search", description: "Search more" });
+  });
+
+  const thought = page.locator(".tools .dthink:not(.dlive) > button");
+  const box = page.locator(".tools .dthink:not(.dlive)");
+  await expect(thought).toHaveAttribute("aria-expanded", "false");
+  await thought.evaluate(el => Reflect.set(window, "thoughtButton", el));
+  await thought.click();
+  await expect(thought).toHaveAttribute("aria-expanded", "true");
+  await expect(box).toHaveClass(/open/);
+  await thought.click();
+  await expect(thought).toHaveAttribute("aria-expanded", "false");
+  await expect(box).not.toHaveClass(/open/);
+  expect(await thought.evaluate(el => el === Reflect.get(window, "thoughtButton"))).toBe(true);
+
+  const steps = page.locator(".tools .hd[data-turn]");
+  const rows = page.locator(".tools .tool.row");
+  await expect(rows).toHaveCount(1);
+  await steps.click();
+  await expect(steps).toHaveAttribute("aria-expanded", "true");
+  await expect(rows).toHaveCount(2);
+  await steps.click();
+  await expect(steps).toHaveAttribute("aria-expanded", "false");
+  await expect(rows).toHaveCount(1);
+});

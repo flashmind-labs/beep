@@ -6,7 +6,6 @@ import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk, owningChatBody } from "./chat.ts";
 import { renderChatProduct, renderChatReplyPictures, renderChatSentFile } from "./work-view.tsx";
 import { $, bar } from "../bar/core.ts";
-import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { Turn } from "../ui/turn.ts";
 
@@ -61,7 +60,8 @@ export function sentBox(turn: Turn) {
   let box = turn.querySelector<HTMLElement>(".files");
 
   if (!box) {
-    box = h('<div class="files dgrid6"></div>');
+    box = document.createElement("div");
+    box.className = "files dgrid6";
     const after = turn.querySelector(".dreplies");
     after ? turn.insertBefore(box, after) : turn.append(box);
   }
@@ -69,17 +69,18 @@ export function sentBox(turn: Turn) {
   return box;
 }
 
-/// A `show_products` row, built from escaped fields on the Rust side. The
-/// bar's click handler opens and copies its links.
-export const productMarkup = new WeakMap<Element, string>();
+/// A `show_products` or `show_cards` row. Rust escapes its fields into the
+/// same sanitized markup a reply's product blocks use, so it stays a markup
+/// boundary; the bar's click handler opens and copies its links.
+export const productSources = new WeakMap<Element, string>();
 export function productRow(turn: Turn, html: string) {
   const owner = owningChatBody(turn);
   if (!owner) return;
-  const row = h(html), contents = row.innerHTML;
-  productMarkup.set(row, contents);
-  row.replaceChildren();
-  renderChatProduct(owner, turn, row, contents);
-  sentBox(turn).append(row);
+  const host = document.createElement("span");
+  host.style.display = "contents";
+  productSources.set(host, html);
+  sentBox(turn).append(host);
+  renderChatProduct(owner, turn, host, html);
 }
 
 /// A file Beep sent: a picture when it is an image, a card otherwise.
@@ -146,8 +147,7 @@ export function picsRow(turn: Turn) {
   let row = box.querySelector<PicsRow>(".drpics");
 
   if (!row) {
-    row = h<PicsRow>('<div class="drpics"></div>');
-    row.pics = [];
+    row = Object.assign(document.createElement("div"), { className: "drpics", pics: [] });
     box.prepend(row);
   }
 
