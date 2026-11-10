@@ -1,6 +1,6 @@
 import { createElement } from "react";
-import { hasSessionPortal, removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
-import { ArtifactActions, ArtifactPreviewView, ArtifactsList, type ArtifactPreview } from "./artifacts-list.tsx";
+import { removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
+import { ArtifactsPane, type ArtifactAction, type ArtifactPreview } from "./artifacts-list.tsx";
 // The Artifacts tab of a coding agent session's pane: the pages and documents
 // the agent published or wrote, newest first, and the picked one rendered.
 
@@ -44,11 +44,10 @@ const A = {
 /// The sessions whose preview the user folded, by `A.key`, kept while the
 /// window is open so going back to a session finds it as it was left.
 const folded = new Set<string>();
-let listHost: HTMLElement | null = null;
-let actionsHost: HTMLElement | null = null;
-let previewHost: HTMLElement | null = null;
+let preview: { key: number; value: ArtifactPreview } | null = null;
 let previewRevision = 0;
-let preview: ArtifactPreview | null = null;
+/// Whether the last render let the page frame run.
+let drawnLive = false;
 
 /// Starts again when the pane shows another session than the one the
 /// tab is of.
@@ -56,53 +55,27 @@ function syncSession() {
   const s = paneSession();
   const key = s ? `${s.machine_id}\n${s.cwd}` : "";
   if (A.key === key) return;
-  if (listHost) removeSessionPortal(listHost);
-  if (actionsHost) removeSessionPortal(actionsHost);
-  if (previewHost) removeSessionPortal(previewHost);
-  listHost = null; actionsHost = null; previewHost = null; preview = null;
+  if (A.el) removeSessionPortal(A.el);
+  preview = null;
   A.el?.remove();
   Object.assign(A, { el: null, key, list: [], picked: null, version: "", seen: new Map(), primed: false, gone: new Set(), asked: "", askedAt: 0, note: "" });
 }
 
-/// The Artifacts view of the pane's session, made once per session.
+/// The Artifacts view of the pane's session, made once per session. Its
+/// host outlives a rebuilt session frame, so each call renders it again.
 export function artifactsView() {
   syncSession();
+
   if (A.el) {
-    if (previewHost && !hasSessionPortal(previewHost) && preview) { renderPreview(); liveFrames(); }
-    drawList();
+    render();
     return A.el;
   }
-  const el = h(`<div class="agpview arts"><div class="agartlist" role="listbox" aria-label="Artifacts"></div><div class="agartshow"></div>`
-    + `<div class="agpacts"></div></div>`);
-  A.el = el;
-  listHost = el.querySelector<HTMLElement>(".agartlist");
-  actionsHost = el.querySelector<HTMLElement>(".agpacts");
-  previewHost = el.querySelector<HTMLElement>(".agartshow");
-  el.querySelector(".agartlist")!.addEventListener("click", e => {
-    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-apath]");
-    if (row) pick(row.dataset.apath!);
-  });
-  // The actions, and the button a PDF's message shows.
-  el.addEventListener("click", e => {
-    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-aact]")?.dataset.aact;
-    if (act) action(act);
-  });
-  drawFold();
-  drawList();
+
+  A.el = h('<div class="agpview arts"></div>');
+  render();
   const a = picked();
   if (a) load(a);
-  return el;
-}
-
-/// Shows the preview, or folds it away so the list has the room.
-function drawFold() {
-  const el = A.el;
-  if (!el) return;
-  const fold = folded.has(A.key);
-  el.classList.toggle("folded", fold);
-  el.querySelector<HTMLElement>(".agartshow")!.hidden = fold;
-  drawActions();
-  liveFrames();
+  return A.el;
 }
 
 /// Whether the tab shows in its dock, as the pane last drew it.
@@ -115,21 +88,11 @@ export function showFrames(shown: boolean) {
 }
 
 /// A page runs its scripts only while it can be seen: out of sight its
-/// frame is emptied, its address kept to load it again.
+/// frame is emptied, and loaded again when it shows.
+const isLive = () => tabShown && paneShown() && !folded.has(A.key);
+
 function liveFrames() {
-  const live = tabShown && paneShown() && !folded.has(A.key);
-
-  for (const frame of A.el?.querySelectorAll<HTMLIFrameElement>(".agartframe") ?? []) {
-    const kept = frame.dataset.src;
-
-    if (live && kept != null) {
-      frame.src = kept;
-      delete frame.dataset.src;
-    } else if (!live && kept == null) {
-      frame.dataset.src = frame.src;
-      frame.src = "about:blank";
-    }
-  }
+  if (isLive() !== drawnLive) render();
 }
 
 onShownChange(liveFrames, true);
@@ -150,7 +113,7 @@ export function setArtifacts(list: Artifact[], turnStart: (turn: number) => numb
   A.list = list;
   if (!A.picked || !list.some(a => a.path === A.picked)) A.picked = list[0]?.path ?? null;
   if (!A.el) return;
-  drawList();
+  render();
   const a = picked();
   if (a && artifactVersion(a) !== A.version) load(a);
   else if (!a) drawShown(null);
@@ -173,7 +136,7 @@ export function checkArtifacts() {
     if (A.key !== key || A.asked !== asked) return;
     const was = A.gone;
     A.gone = goneArtifacts(paths, present);
-    drawList();
+    render();
     const a = picked();
     if (a && was.has(a.path) !== A.gone.has(a.path)) load(a);
   }, () => {});
@@ -197,7 +160,7 @@ function picked() {
 
 function pick(path: string) {
   A.picked = path;
-  drawList();
+  render();
   const a = picked();
   if (a) load(a);
 }
@@ -208,24 +171,25 @@ function when(a: Artifact) {
   return A.seen.get(`${a.path}\n${artifactVersion(a)}`) ?? A.turnStart(a.turn);
 }
 
-function drawList() {
-  const s = paneSession();
-  if (!listHost || !s || !A.el || A.key !== `${s.machine_id}\n${s.cwd}`) return;
-  setSessionPortal(listHost, createElement(ArtifactsList, { artifacts: A.list, cwd: s.cwd, picked: A.picked, gone: A.gone, when }));
-  drawActions();
+function render() {
+  const el = A.el, s = paneSession(), a = picked();
+  if (!el || !s || A.key !== `${s.machine_id}\n${s.cwd}`) return;
+  const fold = folded.has(A.key), inside = !!a && relativeTo(s.cwd, a.path) !== null && !A.gone.has(a.path);
+  drawnLive = isLive();
+  el.classList.toggle("folded", fold);
+  setSessionPortal(el, createElement(ArtifactsPane, {
+    model: {
+      artifacts: A.list, cwd: s.cwd, picked: A.picked, gone: A.gone, when,
+      actions: { shown: !!a, folded: fold, note: A.note, url: a?.url ?? null, inside },
+      preview, live: drawnLive,
+    },
+    pick, act: action,
+  }));
 }
 
 function note(text: string) {
   A.note = text;
-  drawActions();
-}
-
-function drawActions() {
-  const acts = actionsHost, s = paneSession(), a = picked();
-  if (!acts || !s || A.key !== `${s.machine_id}\n${s.cwd}`) return;
-  acts.hidden = !a;
-  const inside = !!a && !!s && relativeTo(s.cwd, a.path) !== null && !A.gone.has(a.path);
-  setSessionPortal(acts, createElement(ArtifactActions, { folded: folded.has(A.key), note: A.note, url: a?.url ?? null, inside }));
+  render();
 }
 
 function about(a: Artifact, size: number | null) {
@@ -263,7 +227,8 @@ async function load(a: Artifact) {
     return;
   }
 
-  const keep = A.el?.querySelector(".agartshow > :not(.agpmsg)");
+  // A page, document or picture on show stays until the new version is read.
+  const keep = preview?.value.kind === "html" || preview?.value.kind === "md" || preview?.value.kind === "image";
   if (!keep) drawShown({ kind: "loading", name: a.name, machine: s.machine_name });
   note(about(a, null));
   const place = readPlace(s.cwd, a.path);
@@ -279,21 +244,15 @@ async function load(a: Artifact) {
   }
 }
 
-function renderPreview() {
-  if (previewHost) setSessionPortal(previewHost, preview ? createElement(ArtifactPreviewView, { key: previewRevision, value: preview }) : null);
-}
-
 function drawShown(value: ArtifactPreview | null) {
-  preview = value;
-  previewRevision++;
-  renderPreview();
-  liveFrames();
+  preview = value && { key: ++previewRevision, value };
+  render();
 }
 
-function action(act: string) {
+function action(act: ArtifactAction) {
   if (act === "fold") {
     if (!folded.delete(A.key)) folded.add(A.key);
-    drawFold();
+    render();
     return;
   }
 

@@ -68,6 +68,16 @@ test("artifact list updates retain focus and the selected preview frame", async 
   await page.evaluate(() => window.__navigation.open("home"));
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await page.getByRole("tab", { name: /Artifacts/ }).click();
-  await expect(page.getByRole("listbox", { name: "Artifacts" }).getByRole("option", { name: /first.html/ })).toBeVisible();
+  const reopened = page.getByRole("listbox", { name: "Artifacts" });
+  await expect(reopened.getByRole("option", { name: /first.html/ })).toBeVisible();
   await expect(page.locator(".agartframe")).toBeVisible();
+  await expect(page.locator(".agpview.arts")).toHaveCount(1);
+  await expect(page.locator(".agartlist")).toHaveCount(1);
+  await reopened.getByRole("option", { name: /first.html/ }).click();
+  await expect(reopened.getByRole("option", { name: /first.html/ })).toHaveAttribute("aria-selected", "true");
+  await expect(status).toContainText("first.html");
+  await page.getByRole("button", { name: "Fold", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Show", exact: true })).toBeFocused();
+  await expect(page.locator(".agartframe")).toBeHidden();
+  await expect(page.locator(".agpview.arts")).toHaveClass(/folded/);
 });
