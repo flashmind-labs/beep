@@ -1,5 +1,6 @@
 import { createElement, Fragment, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Virtualizer, defaultRangeExtractor, elementScroll, observeElementOffset, observeElementRect, type Range, type VirtualizerOptions } from "@tanstack/react-virtual";
 import { DiffToolbar } from "./diff-toolbar.tsx";
 import { DiffTree } from "./diff-tree.tsx";
 import { DiffFileHeader } from "./diff-file-header.tsx";
@@ -11,9 +12,10 @@ import { readView, writeView } from "../agentpane/view-memory.ts";
 // The diff viewer: a one-line header with the counts, a filter, icon toggles
 // and the review buttons; a list of the files at wide widths; each file folding under
 // its sticky header, its lines in a unified view that scrolls sideways on its
-// own.
+// own. Only the files near the viewport have sections, laid out by a
+// TanStack virtualizer; within a section, only nearby chunks of rows are drawn.
 import {
-  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitRow, allFolded, currentFile, contextFile, diffRows, isFolded, leftOutNote, sameDiffFile,
+  type DiffFile, type DiffRow, type DiffView, type ReviewComment, type SplitRow, allFolded, currentFile, contextFile, diffRows, estimateHeight, isFolded, leftOutNote, sameDiffFile,
   filesInTreeOrder, inView, lineLabel, matchesFilter, numberWidth, placeComments, reviewText, splitHeight, splitRows, stepFile, withLoaded,
 } from "./diff-state.ts";
 import { initTreeResize } from "./treewidth.ts";
@@ -66,6 +68,8 @@ const NARROW = 640;
 const CHUNK = 25;
 const MARGIN = 500;
 const CH = 7.2;
+/// The space between two files, counted in each file's laid out size.
+const GAP = 10;
 
 /// A run of rows, drawn only while it is near the viewport.
 interface Chunk {
@@ -129,11 +133,19 @@ export function diffView(src: DiffSource): DiffViewHandle {
     out.lost.push(...orphaned.keys());
     return placedCache = out;
   };
-  /// Each file's section, by path, as last drawn.
-  let sections = new Map<string, HTMLElement>();
-  let renderedFiles = new Map<string, DiffFile>();
+  /// The sections drawn now, by path: the files near the viewport and any
+  /// holding focus, a selection or an open comment.
+  const sections = new Map<string, HTMLElement>();
+  /// What each drawn section shows, which a deferred one keeps until it is free.
+  const renderedFiles = new Map<string, DiffFile>();
   let hasRenderedView = false;
-  /// The chunks of rows of every open file.
+  /// Every file the list lays out, in order: the view's files and any the view
+  /// dropped whose section is kept for a selection. Files the filter hides
+  /// stay in it with no height, so a hidden open editor keeps its place.
+  let list: DiffFile[] = [];
+  let indexOf = new Map<string, number>();
+  let laidOutFilter = "";
+  /// The chunks of rows of every drawn file.
   const chunks = new Map<Element, Chunk>();
   const liveChunks = new Set<Chunk>();
   const noComments = new Map<string, readonly ReviewComment[]>();
@@ -182,7 +194,6 @@ export function diffView(src: DiffSource): DiffViewHandle {
   const errorHost = el("div"), messageHost = el("div"), moreHost = el("div");
   errorHost.style.display = messageHost.style.display = moreHost.style.display = "contents";
   const bodyModes = new Map<string, boolean>();
-  const visibleFiles = new Set<string>();
   const matchNote = el("div", "dv-more");
   const head = el("div", "dv-head");
   let flashText = "";
@@ -209,9 +220,11 @@ export function diffView(src: DiffSource): DiffViewHandle {
   }, view => render("feedback", view));
   const tree = el("nav", "dv-tree");
   tree.setAttribute("aria-label", "Changed files");
-  let revealTree = false;
+  let revealTree = 0;
   const filteredClosedFolders = new Set<string>();
   const files = el("div", "dv-files");
+  /// The box the drawn sections are placed in, as tall as the whole list.
+  const win = el("div", "dv-win");
   const memoryKey = `${src.review.key}:diff`;
   let memory = readView(memoryKey);
   let restoredScroll = 0;
@@ -222,31 +235,192 @@ export function diffView(src: DiffSource): DiffViewHandle {
       if (Array.isArray(pair) && typeof pair[0] === "string" && typeof pair[1] === "boolean") st.folded.set(pair[0], pair[1]);
     }
   }
-  const remember = () => writeView(memoryKey, { scroll: files.scrollTop, filter: st.filter, folded: [...st.folded], context: [...context].map(([path, value]) => [path, value.above, value.below]) });
-  files.addEventListener("scroll", remember);
+  const remember = () => {
+    clearTimeout(rememberTimer);
+    rememberTimer = 0;
+    writeView(memoryKey, { scroll: files.scrollTop, filter: st.filter, folded: [...st.folded], context: [...context].map(([path, value]) => [path, value.above, value.below]) });
+  };
+  // Scrolling writes the position at most a few times a second.
+  let rememberTimer = 0;
+  files.addEventListener("scroll", () => { if (!rememberTimer) rememberTimer = window.setTimeout(remember, 250); }, { passive: true });
 
   files.style.position = "relative";
-  const fileObserver = new IntersectionObserver(entries => {
-    const near: string[] = [];
+  const virtual = new Virtualizer<HTMLElement, HTMLElement>(layoutOptions());
+  // Only a file wholly above the viewport moves the scroll as it is measured;
+  // the chunk observer keeps the file at the top steady itself.
+  virtual.shouldAdjustScrollPositionOnItemSizeChange = item => item.end <= files.scrollTop;
+  const stopVirtual = virtual._didMount();
+  let placing = false, placeAgain = false;
 
-    for (const entry of entries) {
-      const path = (entry.target as HTMLElement).dataset.path!;
+  function layoutOptions(): VirtualizerOptions<HTMLElement, HTMLElement> {
+    const laidOut = list;
+    return {
+      count: laidOut.length,
+      getScrollElement: () => files,
+      estimateSize: index => sizeOf(laidOut[index]),
+      getItemKey: index => laidOut[index]?.path ?? index,
+      measureElement: (node, entry) => node.hidden ? 0 : Math.round(entry?.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight) + GAP,
+      rangeExtractor: keepHeld,
+      overscan: 2,
+      paddingStart: GAP,
+      scrollPaddingStart: GAP,
+      scrollMargin: win.offsetTop,
+      useAnimationFrameWithResizeObserver: true,
+      observeElementRect, observeElementOffset, scrollToFn: elementScroll,
+      onChange: () => placeFiles(),
+    };
+  }
 
-      if (entry.isIntersecting) {
-        visibleFiles.add(path);
-        near.push(path);
-      } else visibleFiles.delete(path);
+  /// A file's height before it is measured, with the gap after it.
+  function sizeOf(f: DiffFile | undefined) {
+    return f && matchesFilter(f, st.filter) ? estimateHeight(f, isFolded(f, st.folded)) + GAP : 0;
+  }
+
+  /// The files near the viewport, and the drawn ones that must stay: the
+  /// focus, a selection or an open comment would be lost with them.
+  function keepHeld(range: Range) {
+    const out = defaultRangeExtractor(range);
+    const extra: number[] = [];
+    for (const [path, section] of sections) {
+      const index = indexOf.get(path);
+      if (index === undefined || (index >= out[0] && index <= out[out.length - 1])) continue;
+      if (deferredFiles.has(path) || section.contains(document.activeElement) || section.querySelector(".dv-cmt.open") || selected(section)) extra.push(index);
+    }
+    return extra.length ? [...new Set([...out, ...extra])].sort((a, b) => a - b) : out;
+  }
+
+  /// Sets what the list lays out, keeping measured sizes by path.
+  function relist(next: DiffFile[]) {
+    list = next;
+    indexOf = new Map(next.map((f, i) => [f.path, i]));
+    virtual.setOptions(layoutOptions());
+  }
+
+  /// Positions the drawn sections and adds or drops sections as files come
+  /// near the viewport or leave it.
+  function placeFiles() {
+    if (placing) { placeAgain = true; return; }
+    placing = true;
+    try {
+      for (let pass = 0; pass < 4; pass++) {
+        placeAgain = false;
+        placeOnce();
+        virtual._willUpdate();
+        if (!placeAgain) break;
+      }
+    } finally { placing = false; }
+  }
+
+  function placeOnce() {
+    if (win.isConnected && virtual.options.scrollMargin !== win.offsetTop) virtual.setOptions(layoutOptions());
+    const items = virtual.getVirtualItems();
+    const height = `${virtual.getTotalSize()}px`;
+    if (win.style.height !== height) win.style.height = height;
+    const wanted = new Set(items.map(item => list[item.index].path));
+    let changed = false;
+
+    for (const [path, section] of sections) {
+      if (wanted.has(path)) continue;
+      dropSection(path, section);
+      changed = true;
     }
 
-    updateBodyModes(near);
-  }, { root: files, rootMargin: `${MARGIN}px 0px` });
+    const added: HTMLElement[] = [];
+    const ordered: HTMLElement[] = [];
+
+    for (const item of items) {
+      const f = list[item.index];
+      let section = sections.get(f.path);
+
+      if (!section) {
+        section = fileSection(f);
+        sections.set(f.path, section);
+        renderedFiles.set(f.path, f);
+        added.push(section);
+      }
+
+      section.dataset.index = String(item.index);
+      const top = `${item.start - virtual.options.scrollMargin}px`;
+      if (section.style.top !== top) section.style.top = top;
+      ordered.push(section);
+    }
+
+    orderSections(ordered);
+
+    if (added.length || changed) {
+      pruneChunks();
+      drawHeaders();
+      drawComments();
+      markedPath = null;
+      markCurrent(false);
+    }
+
+    for (const section of added) virtual.measureElement(section);
+  }
+
+  /// Puts the sections in list order, so a selection reads in order, without
+  /// moving the one holding the focus or a selection.
+  function orderSections(ordered: HTMLElement[]) {
+    const selection = document.getSelection();
+    const anchor = ordered.findIndex(section => section.parentElement === win
+      && (section.contains(document.activeElement) || (!!selection && !selection.isCollapsed && selection.containsNode(section, true))));
+
+    if (anchor >= 0) {
+      let before: Node = ordered[anchor];
+      for (let i = anchor - 1; i >= 0; i--) {
+        if (ordered[i].nextSibling !== before) win.insertBefore(ordered[i], before);
+        before = ordered[i];
+      }
+    }
+
+    let cursor = anchor >= 0 ? ordered[anchor].nextSibling : win.firstChild;
+    for (const section of ordered.slice(anchor + 1)) {
+      if (section === cursor) cursor = cursor.nextSibling;
+      else win.insertBefore(section, cursor);
+    }
+  }
+
+  function dropSection(path: string, section: HTMLElement) {
+    forgetCommentsIn(section);
+    headers.delete(path);
+    section.remove();
+    sections.delete(path);
+    renderedFiles.delete(path);
+    bodyModes.delete(path);
+  }
+
+  /// Lays out every file again from estimates, measuring the drawn ones now.
+  function remeasure() {
+    virtual.measure();
+    for (const section of sections.values()) virtual.measureElement(section);
+    placeFiles();
+  }
+
+  /// The laid out box of the file at `index`.
+  function itemAt(index: number | undefined) {
+    if (index === undefined) return null;
+    virtual.getVirtualItems();
+    return virtual.measurementsCache[index] ?? null;
+  }
+
+  /// Keeps the current file where it is on screen through `run`.
+  function keepCurrent(run: () => void) {
+    const before = itemAt(st.cur ? indexOf.get(st.cur) : undefined);
+    const offset = before ? files.scrollTop - before.start : 0;
+    run();
+    const after = itemAt(st.cur ? indexOf.get(st.cur) : undefined);
+    if (before && after && after.start !== before.start) files.scrollTop = after.start + offset;
+  }
+
   const chunkObserver = new IntersectionObserver(entries => {
     const top = files.getBoundingClientRect().top;
     const changes = entries.flatMap(entry => {
       const c = chunks.get(entry.target);
       if (!c || !c.box.isConnected || c.live === entry.isIntersecting) return [];
       if (!entry.isIntersecting && (c.box.querySelector(".dv-cmt.open") || selected(c.box))) return [];
-      return [{ c, want: entry.isIntersecting, rect: c.box.getBoundingClientRect() }];
+      // A file wholly above the viewport is kept steady by the virtualizer.
+      const spans = (c.box.closest(".dv-file")?.getBoundingClientRect().bottom ?? 0) > top;
+      return [{ c, want: entry.isIntersecting, rect: c.box.getBoundingClientRect(), spans }];
     });
 
     // Read all old heights before changing the DOM, then measure the new ones
@@ -263,8 +437,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
     for (const { c, want } of changes) if (!want) c.box.replaceChildren();
     let shift = 0;
 
-    for (const { c, want, rect } of changes) {
-      if (want && rect.bottom <= top) shift += c.box.getBoundingClientRect().height - rect.height;
+    for (const { c, want, rect, spans } of changes) {
+      if (want && spans && rect.bottom <= top) shift += c.box.getBoundingClientRect().height - rect.height;
     }
 
     // Even assigning the same scrollTop stops WebKit's trackpad momentum.
@@ -336,9 +510,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
       orphaned.set(comment, { text: input.value, focused, start: input.selectionStart, end: input.selectionEnd, isNew: entry.isNew });
     }
     hasRenderedView = !!v;
-    renderedFiles = new Map((v?.files ?? []).map(file => [file.path, file]));
     chunkObserver.disconnect();
-    fileObserver.disconnect();
+    for (const [path, section] of [...sections]) dropSection(path, section);
     comments.clear();
     lostComments.clear();
     drawComments();
@@ -346,60 +519,52 @@ export function diffView(src: DiffSource): DiffViewHandle {
     chunks.clear();
     liveChunks.clear();
     drawChunks();
-    bodyModes.clear();
-    visibleFiles.clear();
     markedPath = null;
-    headers.clear();
     bodyControls.clear();
     bodyControlsDirty = false;
     render("body-controls", null);
     drawHeaders();
-    drawTree();
     files.replaceChildren();
-    sections = new Map();
     placedCache = null;
     files.append(errorHost, lostBox, messageHost);
     drawStatus();
+    relist([]);
+    laidOutFilter = st.filter;
 
-    if (!v) {
+    if (!v || !v.files.length) {
+      drawTree();
+      if (v) drawReview();
       return;
     }
 
-    if (!v.files.length) {
-      drawReview();
-      return;
-    }
-
-    files.append(matchNote);
-
-    for (const f of v.files) {
-      const section = fileSection(f);
-      sections.set(f.path, section);
-      files.append(section);
-      fileObserver.observe(section);
-    }
-
-    files.append(moreHost);
+    files.append(matchNote, win, moreHost);
+    relist(v.files);
+    remeasure();
     applyFilter();
     drawReview();
   }
 
   function reconcileFiles(force = new Set<string>()): boolean {
     const view = st.view;
-    if (!view || !sections.size) {
-      if (view && !view.files.length && !sections.size && hasRenderedView) { drawStatus(); return false; }
+    if (!view || !hasRenderedView || !list.length) {
+      if (view && !view.files.length && !list.length && hasRenderedView) { drawStatus(); return false; }
       drawFiles();
       return true;
     }
     const incoming = new Map(view.files.map(file => [file.path, file]));
-    const changed = view.files.some(file => {
-      const old = renderedFiles.get(file.path);
+    const laidOut = new Map(list.map(file => [file.path, file]));
+    const before = (path: string) => sections.has(path) ? renderedFiles.get(path) : laidOut.get(path);
+    const differs = (file: DiffFile) => {
+      const old = before(file.path);
       return force.has(file.path) || !old || !sameDiffFile(old, file);
-    }) || [...sections.keys()].some(path => !incoming.has(path)) || [...sections.keys()].some((path, index) => view.files[index]?.path !== path);
+    };
+    const kept = list.filter(file => incoming.has(file.path));
+    const changed = view.files.some(differs) || kept.length !== list.length
+      || kept.length !== view.files.length || kept.some((file, index) => view.files[index].path !== file.path);
     if (!changed) { drawStatus(); return false; }
-
     placedCache = null;
-    for (const [path, section] of sections) {
+
+    for (const [path, section] of [...sections]) {
       const next = incoming.get(path), previous = renderedFiles.get(path);
       if (next && previous && !force.has(path) && sameDiffFile(previous, next)) continue;
       if (selected(section)) {
@@ -423,55 +588,22 @@ export function diffView(src: DiffSource): DiffViewHandle {
         if (document.activeElement === input) revealOrphan = true;
         orphaned.set(entry.comment, { text: input.value, focused: document.activeElement === input, start: input.selectionStart, end: input.selectionEnd, isNew: entry.isNew });
       }
-      fileObserver.unobserve(section);
-      visibleFiles.delete(path);
-      forgetCommentsIn(section);
-      headers.delete(path);
-      if (next) {
-        const replacement = fileSection(next);
-        section.replaceWith(replacement);
-        sections.set(path, replacement);
-        fileObserver.observe(replacement);
-      } else {
-        section.remove();
-        sections.delete(path);
-        bodyModes.delete(path);
-      }
+      dropSection(path, section);
     }
-    for (const file of view.files) {
-      let section = sections.get(file.path);
-      if (!section) {
-        section = fileSection(file);
-        sections.set(file.path, section);
-        fileObserver.observe(section);
-      }
-    }
-    if (!view.files.length && !sections.size) { matchNote.remove(); moreHost.remove(); }
-    const selection = document.getSelection();
-    const anchor = view.files.findIndex(file => {
-      const section = sections.get(file.path);
-      return !!section && (section.contains(document.activeElement) || !!selection && !selection.isCollapsed && selection.containsNode(section, true));
+
+    // A file the view dropped keeps its place while its section is held.
+    const next = view.files.slice();
+    list.forEach((file, index) => {
+      if (!incoming.has(file.path) && sections.has(file.path) && deferredFiles.has(file.path)) next.splice(Math.min(index, next.length), 0, file);
     });
-    if (anchor >= 0) {
-      let before: Node = sections.get(view.files[anchor].path)!;
-      for (let i = anchor - 1; i >= 0; i--) {
-        const section = sections.get(view.files[i].path)!;
-        if (section.nextSibling !== before) files.insertBefore(section, before);
-        before = section;
-      }
-    }
-    let cursor = anchor >= 0 ? sections.get(view.files[anchor].path)!.nextSibling : matchNote.nextSibling;
-    for (const file of view.files.slice(anchor + 1)) {
-      const section = sections.get(file.path)!;
-      if (section === cursor) cursor = cursor.nextSibling;
-      else files.insertBefore(section, cursor);
-    }
-    const pendingRemoved = [...sections].filter(([path]) => !incoming.has(path) && deferredFiles.has(path));
-    sections = new Map([...view.files.map(file => [file.path, sections.get(file.path)!] as const), ...pendingRemoved]);
-    renderedFiles = new Map([...view.files.map(file => [file.path, deferredFiles.has(file.path) ? renderedFiles.get(file.path) ?? file : file] as const), ...pendingRemoved.flatMap(([path]) => { const file = renderedFiles.get(path); return file ? [[path, file] as const] : []; })]);
-    pruneChunks();
+    const stale = view.files.filter(file => !sections.has(file.path) && differs(file));
+    const top = files.scrollTop;
+    relist(next);
+    for (const file of stale) virtual.resizeItem(indexOf.get(file.path) ?? -1, sizeOf(file));
+    if (!next.length) { matchNote.remove(); win.remove(); moreHost.remove(); }
+    placeFiles();
+    if (files.scrollTop !== top) files.scrollTop = top;
     markedPath = null;
-    drawTree();
     applyFilter();
     drawReview();
     drawStatus();
@@ -481,21 +613,13 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function drawTree(_synchronous = false) {
     const view = createElement(DiffTree, {
       files: st.view?.files ?? [], filter: st.filter, current: st.cur, closedFolders: st.closedFolders, filteredClosedFolders,
+      scroller: tree, reveal: revealTree,
       onFolder: (path, open) => {
         const closed = st.filter.trim() ? filteredClosedFolders : st.closedFolders;
         if (open) closed.add(path); else closed.delete(path);
         drawTree(true);
       },
       onFile: jump, onMenu: (event, file) => fileMenu(event.nativeEvent, file),
-      onCommit: () => {
-        if (!revealTree) return;
-        revealTree = false;
-        const row = [...tree.querySelectorAll<HTMLElement>(".dv-tr[data-path]")].find(item => item.dataset.path === st.cur);
-        if (!row || !tree.clientHeight) return;
-        const bounds = tree.getBoundingClientRect(), item = row.getBoundingClientRect();
-        if (item.top < bounds.top) tree.scrollTop += item.top - bounds.top;
-        else if (item.bottom > bounds.bottom) tree.scrollTop += item.bottom - bounds.bottom;
-      },
     });
     render("tree", createPortal(view, tree, "tree"));
   }
@@ -504,8 +628,16 @@ export function diffView(src: DiffSource): DiffViewHandle {
   function applyFilter() {
     const v = st.view;
     if (!v) return;
-    filteredClosedFolders.clear();
-    v.files.forEach(f => { sections.get(f.path)!.hidden = !matchesFilter(f, st.filter); });
+    for (const [path, section] of sections) {
+      const f = list[indexOf.get(path) ?? -1];
+      section.hidden = !!f && !matchesFilter(f, st.filter);
+    }
+
+    if (laidOutFilter !== st.filter) {
+      laidOutFilter = st.filter;
+      filteredClosedFolders.clear();
+      remeasure();
+    }
 
     matchNote.hidden = !st.filter.trim();
     matchNote.textContent = `${shown().length} of ${v.files.length} files match`;
@@ -530,8 +662,9 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   function fileSection(f: DiffFile) {
     const folded = isFolded(f, st.folded);
-    const section = el("section", `dv-file${folded ? " closed" : ""}`);
+    const section = el("section", `dv-file${folded ? " closed" : ""}${st.cur === f.path ? " cur" : ""}`);
     section.dataset.path = f.path;
+    section.hidden = !matchesFilter(f, st.filter);
     // Comments on the file itself sit outside the fold, so a folded, deleted or binary file shows them.
     const fcs = el("div", "dv-fcs");
     const mine = placed().files.get(f.path);
@@ -700,6 +833,8 @@ export function diffView(src: DiffSource): DiffViewHandle {
       const input = lostComments.get(comment)?.querySelector<HTMLTextAreaElement>("textarea");
       if (input && document.activeElement === input) { input.scrollIntoView({ block: "nearest" }); restored.focused = false; }
     }
+    // The lost comments sit above the list, which then starts lower.
+    if (win.isConnected) placeFiles();
   }
 
   /// The draft changed: keep it and show it.
@@ -820,37 +955,35 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   function updateBodyMode(path: string) {
     if (bodyModes.get(path) === (st.split && !st.narrow)) return;
-    const section = sections.get(path), f = st.view?.files.find(x => x.path === path);
+    const section = sections.get(path), f = renderedFiles.get(path);
     const inner = section?.querySelector(".dv-fold > div");
     if (!f || !inner || isFolded(f, st.folded)) return;
     inner.replaceChildren(fileBody(f));
   }
 
-  function updateBodyModes(paths: Iterable<string>) {
-    const stale = [...paths].filter(path => bodyModes.has(path) && bodyModes.get(path) !== (st.split && !st.narrow));
-    if (!stale.length) return;
-    const top = files.scrollTop;
-    const anchor = sections.get(shown()[currentFile(tops(), top)]?.path ?? "");
-    const before = anchor?.offsetTop ?? 0;
-    for (const path of stale) updateBodyMode(path);
-    const next = top + (anchor?.offsetTop ?? 0) - before;
-    if (files.scrollTop !== next) files.scrollTop = next;
-    pruneChunks();
-    drawBodyControls();
-  }
-
-  /// Only the files near the viewport change modes now. Others update
-  /// when they scroll into view or open, so resizing stays cheap.
+  /// The drawn files change modes now; the others are laid out again from
+  /// estimates and draw in the new mode as they come into view.
   function redrawBodies() {
-    updateBodyModes(visibleFiles);
+    keepCurrent(() => {
+      for (const path of sections.keys()) updateBodyMode(path);
+      pruneChunks();
+      drawBodyControls();
+      remeasure();
+    });
   }
 
   function setFolded(path: string, folded: boolean, redraw = true) {
     st.folded.set(path, folded);
     if (redraw) remember();
     const section = sections.get(path);
-    const f = st.view?.files.find(x => x.path === path);
-    if (!section || !f) return;
+    const f = renderedFiles.get(path) ?? list[indexOf.get(path) ?? -1];
+    if (!f) return;
+
+    if (!section) {
+      if (redraw) virtual.resizeItem(indexOf.get(path) ?? -1, sizeOf(f));
+      return;
+    }
+
     const inner = section.querySelector(".dv-fold > div");
     if (!folded && inner && !inner.childNodes.length) inner.append(fileBody(f));
     if (!folded) updateBodyMode(path);
@@ -863,21 +996,26 @@ export function diffView(src: DiffSource): DiffViewHandle {
     if (!f) return;
     const folding = !isFolded(f, st.folded);
     // Folding a file scrolled past its header keeps its header in view.
-    const section = sections.get(path);
-    if (folding && section && section.offsetTop < files.scrollTop) files.scrollTop = section.offsetTop - 10;
+    const item = itemAt(indexOf.get(path));
+    if (folding && item && item.start < files.scrollTop) files.scrollTop = item.start - GAP;
     setFolded(path, folding);
   }
 
   function foldAll(folded: boolean) {
-    for (const f of shown()) setFolded(f.path, folded, false);
+    keepCurrent(() => {
+      for (const f of shown()) setFolded(f.path, folded, false);
+      remeasure();
+    });
     remember();
     drawHeaders();
     drawToolbar();
     if (folded) files.scrollTop = 0;
   }
 
-  function tops() {
-    return shown().map(f => (sections.get(f.path)?.offsetTop ?? 0) - 10);
+  /// Where each shown file's header sits, less the gap above it.
+  function tops(list: readonly DiffFile[]) {
+    virtual.getVirtualItems();
+    return list.map(f => (virtual.measurementsCache[indexOf.get(f.path) ?? -1]?.start ?? 0) - GAP);
   }
 
   let markedPath: string | null = null;
@@ -890,29 +1028,32 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   function markCurrent(reveal = true) {
     const list = shown();
-    const held = st.cur ? sections.get(st.cur) : null;
-    if (!held || !inView(held.offsetTop, held.offsetTop + held.offsetHeight, files.scrollTop, files.clientHeight)) {
-      st.cur = list[currentFile(tops(), files.scrollTop)]?.path ?? null;
+    const held = itemAt(st.cur ? indexOf.get(st.cur) : undefined);
+    if (!held || !held.size || !inView(held.start, held.end - GAP, files.scrollTop, files.clientHeight)) {
+      st.cur = list[currentFile(tops(list), files.scrollTop)]?.path ?? null;
     }
     if (markedPath === st.cur) return;
     markedPath = st.cur;
     for (const [p, s] of sections) s.classList.toggle("cur", p === st.cur);
     if (!reveal) return;
     revealFolders(st.cur);
-    revealTree = true;
+    revealTree++;
     drawTree();
   }
 
   function jump(path: string) {
-    const section = sections.get(path);
-    if (!section) return;
+    const index = indexOf.get(path), item = itemAt(index);
+    if (index === undefined || !item) return;
 
     revealFolders(path);
     st.cur = path;
     markCurrent();
-    revealTree = true;
+    revealTree++;
     drawTree();
-    files.scrollTo({ top: section.offsetTop - 10, behavior: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    // A long way is not worth animating; it would draw every file between.
+    const near = Math.abs(item.start - files.scrollTop) < files.clientHeight * 3;
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    virtual.scrollToIndex(index, { align: "start", behavior: near && !reduced ? "smooth" : "auto" });
   }
 
   function onKey(e: KeyboardEvent) {
@@ -935,7 +1076,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
       e.preventDefault();
       if (i != null) jump(list[i].path);
     } else if (e.key === "x") {
-      const f = list[at] ?? list[currentFile(tops(), files.scrollTop)];
+      const f = list[at] ?? list[currentFile(tops(list), files.scrollTop)];
       e.preventDefault();
       if (f) toggle(f.path);
     } else if (e.key === "/") {
@@ -975,15 +1116,26 @@ export function diffView(src: DiffSource): DiffViewHandle {
     reconcileFiles(new Set([f.path]));
   }
 
-  /// Draws one file's section again, in place.
+  /// Draws one file's section again, in place, or lays it out again when it
+  /// is not drawn.
   function redrawFile(path: string) {
-    const f = st.view?.files.find(x => x.path === path), old = sections.get(path);
-    if (!f || !old) return;
+    const f = st.view?.files.find(x => x.path === path), old = sections.get(path), index = indexOf.get(path);
+    if (!f || index === undefined) return;
+    list[index] = f;
+
+    if (!old) {
+      virtual.resizeItem(index, sizeOf(f));
+      return;
+    }
+
     const next = fileSection(f);
     forgetCommentsIn(old);
+    next.dataset.index = old.dataset.index;
+    next.style.top = old.style.top;
     old.replaceWith(next);
     sections.set(path, next);
     renderedFiles.set(path, f);
+    virtual.measureElement(next);
     drawHeaders();
     drawComments();
     pruneChunks();
@@ -1044,10 +1196,11 @@ export function diffView(src: DiffSource): DiffViewHandle {
     focus: () => root.focus({ preventScroll: true }),
     dispose: () => {
       if (disposed) return;
+      if (rememberTimer) remember();
       disposed = true; st.seq++;
       clearTimeout(flashTimer);
       if (scrollFrame) cancelAnimationFrame(scrollFrame);
-      fileObserver.disconnect(); chunkObserver.disconnect(); rootResize.disconnect(); filesResize.disconnect(); stopTreeResize();
+      chunkObserver.disconnect(); rootResize.disconnect(); filesResize.disconnect(); stopTreeResize(); stopVirtual();
       if (watchingSelection) document.removeEventListener("selectionchange", selectionChanged);
       bodyControls.clear();
       feedback.dispose(); src.owner.dispose();
