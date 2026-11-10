@@ -120,7 +120,7 @@ export function projectDetail(p: Project): PagePart[] {
 
   // Without a project agent there are no tasks, runs or code host lists.
   return [viewPart("fallback", createElement("div", { key: p.name, className: "pj-cols pj-half" }, createElement(ProjectFallback, {
-    session: sessionsList(p, running, false),
+    session: sessionsList(p, running),
     machines: whereSection(p, rows, !!machines), running: agentsSection(running), agents: customAgentsSection(rows),
   })))];
 }

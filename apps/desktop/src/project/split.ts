@@ -27,7 +27,7 @@ import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, disposeOverview, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
-import { sessionsList, sessionsDue, loadSessions } from "./loads.ts";
+import { sessionsHost, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
@@ -293,13 +293,13 @@ let sessionTab: "sessions" | "agents" = "sessions";
 
 /// Past sessions and custom agents in two tabs, so each gets the whole height.
 function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): PagePart[] {
-  const list = sessionsList(p, running, true);
+  const list = sessionsList(p, running);
   const tabs = viewPart("session-tabs", createElement("div", { className: "cc-tabs pj-tabs", role: "tablist" }, createElement(SessionTabs, {
     selected: sessionTab, sessions: list.count, agents: customAgentsCount(rows), select: tab => { sessionTab = tab; redrawProjects(); } })));
   if (sessionTab === "agents") return [tabs, viewPart("custom-agents", customAgentsSection(rows))];
 
   const note = list.freshness && (list.freshness.spin || list.freshness.text) ? [viewPart("session-note", createElement(FreshNote, { freshness: list.freshness, className: " ss-updating" }))] : [];
-  return [tabs, list.list ? viewPart("sessions", list.list) : viewPart("session-empty", createElement(EmptyPanel, { text: list.empty ?? "" })), ...note];
+  return [tabs, list.rows ? hostPart(sessionsHost(p.name, list.rows)) : viewPart("session-empty", createElement(EmptyPanel, { text: list.empty ?? "" })), ...note];
 }
 
 /// The agent view with terminal `t`, one of project `name`, in a pane tab with the keys.
@@ -312,6 +312,6 @@ function openTerminal(name: string, t: TerminalRow) {
 function projectOverview(p: Project, running: RunningAgent[], open: { run: SplitItem[]; prs: SplitItem[]; issues: SplitItem[]; prNote: string | undefined; issueNote: string | undefined }, where: ReturnType<typeof machineTile>) {
   const current = projectShell(p.name);
   current.overviewView = createElement(ProjectOverview, { ...open, machines: where, terminals: terms.list(p.name) || [],
-    session: sessionsList(p, running, false), openTile, openTerminal: terminal => openTerminal(p.name, terminal) });
+    session: sessionsList(p, running), openTile, openTerminal: terminal => openTerminal(p.name, terminal) });
   return current.overview;
 }

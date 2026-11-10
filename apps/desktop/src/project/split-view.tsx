@@ -9,6 +9,8 @@ import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.ts";
 import { EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
 import { FreshNote } from "./page-view.tsx";
+import { ProjectSessions } from "./sessions-view.tsx";
+import type { SessionRow } from "./projects-state.ts";
 
 export function ProjectNavigation({ groups, picked, openTile }: { groups: readonly SplitGroup[]; picked: string; openTile: (key: string) => void }) {
   return <>{groups.map((group, index) => <Fragment key={`${index}:${group.title}`}>
@@ -50,9 +52,9 @@ export function RunningStatus({ row }: { row: RunningAgent }) {
   return runningWhen(row);
 }
 
-export interface RecentSessions { list: ReactElement | null; empty: string | null; count: number; freshness: Freshness | null }
+export interface RecentSessions { rows: SessionRow[] | null; empty: string | null; count: number; freshness: Freshness | null }
 export function RecentSessionsSection({ session }: { session: RecentSessions }) {
-  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness && <FreshNote freshness={session.freshness} className=" ss-updating"/>}</h4></div>{session.list ? <div style={{ display: "contents" }}>{session.list}</div> : <EmptyPanel text={session.empty} />}</div>;
+  return <div id="sec-sessions"><div className="cc-sec"><h4>Past sessions{!!session.count && <span className="n">{session.count}</span>}{session.freshness && <FreshNote freshness={session.freshness} className=" ss-updating"/>}</h4></div>{session.rows ? <div style={{ display: "contents" }}><div className="cc-panel"><ProjectSessions rows={session.rows} all={false}/></div></div> : <EmptyPanel text={session.empty} />}</div>;
 }
 
 export function ProjectFallback({ session, machines, running, agents }: { session: RecentSessions; machines: ReactElement; running: ReactElement; agents: ReactElement }) {

@@ -17,7 +17,7 @@ test("project without a project agent retains its session and machine sections",
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length)).toBeGreaterThan(reads);
   await expect(row).toHaveAttribute('data-identity', 'kept');
   await expect(row).toBeFocused();
-  await expect(layout.locator('#sec-custom-agents').locator('..')).toHaveCSS('margin-top', '14px');
+  await expect(layout.locator('#sec-custom-agents')).toHaveCSS('margin-top', '14px');
   await page.evaluate(() => { window.__navigation.emit('link-state', 'unlinked'); window.__navigation.notify('projects'); });
   await expect(page.locator('.pj-split')).toBeVisible();
   await expect(page.locator('.pj-split #sec-sessions .pv-row')).toContainText('Past session');
