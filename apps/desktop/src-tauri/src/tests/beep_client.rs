@@ -122,6 +122,30 @@ async fn a_server_is_a_link_only_once_the_app_is_linked() {
     assert!(!beep.linked());
 }
 
+#[tokio::test]
+async fn what_waits_for_a_link_wakes_on_the_sign_in_alone() {
+    let dir = TempDir::new().expect("a temp dir");
+    let none = without_server(&dir).await;
+    none.set_link_state(LinkState::Linked);
+    let waited = tokio::time::timeout(Duration::from_millis(50), none.until_linked()).await;
+    assert!(waited.is_err(), "with no server it never links");
+
+    let dir = TempDir::new().expect("a temp dir");
+    let beep = app(&dir, true).await;
+    let waiting = tokio::spawn({
+        let beep = beep.clone();
+        async move { beep.until_linked().await }
+    });
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished());
+
+    beep.set_link_state(LinkState::Linked);
+    tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .expect("it wakes on the link")
+        .expect("it ends");
+}
+
 // The clock is paused, so tokio moves it straight to the next timer
 // instead of the test sleeping.
 #[tokio::test(start_paused = true)]
