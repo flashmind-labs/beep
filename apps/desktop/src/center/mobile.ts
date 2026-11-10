@@ -144,12 +144,17 @@ function keyboard() {
     }
   };
   // The keyboard slides in over a few frames, and WebKit does not always report where it
-  // stopped, so the window follows it until it settles.
+  // stopped, so the window follows it until it settles. Focus moving between fields with the
+  // keyboard up leaves the window as it was, but iOS still scrolls toward the new field.
   let settle = 0;
   const follow = () => {
     const until = performance.now() + 800;
     cancelAnimationFrame(settle);
-    const step = () => { check(); if (performance.now() < until) settle = requestAnimationFrame(step); };
+    const step = () => {
+      check();
+      if (document.body.classList.contains("mb-kbd")) unscroll();
+      if (performance.now() < until) settle = requestAnimationFrame(step);
+    };
     step();
   };
   vv.addEventListener("resize", check);
