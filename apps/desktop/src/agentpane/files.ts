@@ -10,7 +10,7 @@ import { isHtmlFile } from "./html-preview-state.ts";
 // folders are kept: showing one again draws it as it was left and reads its
 // folders again only when the folder's `files` topic said something changed.
 
-import { type Listing, type Tree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
+import { type Listing, isTree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
 import { paneRoot, watchRoot, worktreesReady } from "./worktree.ts";
@@ -353,8 +353,9 @@ async function readFolder(dir: string, deep: boolean, fresh: boolean) {
   let changed = true;
 
   try {
-    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep, fresh: fresh || F.fresh });
+    const got = await invoke<unknown>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep, fresh: fresh || F.fresh });
     if (F.key !== key || F.generation !== generation) return;
+    if (!isTree(got)) throw new Error("The machine sent no file listing.");
     changed = mergeTree(F.listings, got);
     if (!deep) F.roots.add(dir);
     const top = got.folders[0];

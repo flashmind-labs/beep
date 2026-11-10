@@ -15,10 +15,11 @@ const rows = [
   session("gone", "Ended session", "ended", 10_000),
 ];
 const target = (s: (typeof rows)[number]) => ({ agent: { ...s, kind: "agent" } });
+const tree = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1, ignored: false, change: null }], more: 0, git: true }], truncated: false };
 const notes = [{ id: "n1", kind: "finished", title: "Codex finished", text: "Done", source: "build-box", at: now, read: false, done: false, target: target(rows[1]) }];
 
 async function openBar(page: Page, sessions: unknown[]) {
-  await openDesktop(page, false, { agent_sessions: sessions, notes_list: notes, session_moves: [], session_copies: [] });
+  await openDesktop(page, false, { agent_sessions: sessions, notes_list: notes, session_moves: [], session_copies: [], agent_tree: tree });
   await page.goto("https://app.test/index.html");
   await expect(page.locator("#bar")).toBeAttached();
 }
