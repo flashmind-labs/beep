@@ -11,7 +11,7 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // file holds their shared types and state, and the Every session list.
 import { nest } from "./nesting-state.ts";
 import { parentSession, ensureSessions, reviewers, sessions } from "./sessions.ts";
-import { copies, copiesClick, copiesHtml, keepCopiesFresh } from "./copies.ts";
+import { copies, copiesView, keepCopiesFresh } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
 import type { CheckoutPick } from "./agentpick.ts";
@@ -20,7 +20,7 @@ import { drawQueue, renderChat } from "../chat/chat.ts";
 import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
 import { draftEsc } from "./draft-state.ts";
-import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
+import { type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { renderWaiting } from "../bar/waiting.ts";
 import { openSession } from "../chat/history.ts";
@@ -45,7 +45,7 @@ import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
 import { placeSub } from "./place-state.ts";
-import { agentMessage, sessionBody } from "./session-frame.tsx";
+import { agentMessage, draftMessage, sessionBody } from "./session-frame.tsx";
 
 /// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
@@ -447,7 +447,7 @@ export function drawAgents(loading: boolean) {
   drawn = shown.map(n => n.row);
   AG.sel = Math.min(AG.sel, Math.max(0, drawn.length - 1));
   const machines = new Set(list.map(s => s.machine_id)).size;
-  const copyRows = copiesHtml(new Set(list.map(s => s.id)));
+  const copyRows = copiesView(new Set(list.map(s => s.id)));
   const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
   const page = listPage?.host.parentElement === bar ? listPage : listPage = openBarPage(() => { listPage = null; });
   flushSync(() => page.show({ view: "agents", props: {
@@ -457,7 +457,6 @@ export function drawAgents(loading: boolean) {
   bar.onclick = e => {
     if (S.view !== "agents") return;
     const target = e.target as HTMLElement;
-    if (copiesClick(target)) return;
     const r = target.closest<HTMLElement>("[data-agi]");
     if (r) return openAgent(drawn[Number(r.dataset.agi)], { back: "agents" });
     if (target.closest("#agNew")) renderAgentNew("", "agents");
@@ -495,7 +494,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (!e.shiftKey && k === "1") {
         e.preventDefault();
         leavePane();
-        const body = sessionBody(), chat = agentMessage.current ?? $("#agdraft textarea") ?? body;
+        const body = sessionBody(), chat = agentMessage.current ?? draftMessage.current ?? body;
         if (chat && chat === body && !chat.hasAttribute("tabindex")) chat.setAttribute("tabindex", "-1");
         chat?.focus();
         return true;
@@ -557,7 +556,7 @@ export function agentBack(closed = false) {
   // project, unless the input holds a prompt.
   if (S.view === "agent" && AG.draft) {
     if (leavePane()) return;
-    const typed = document.querySelector<HTMLTextAreaElement>("#agdraft textarea")?.value ?? "";
+    const typed = draftMessage.current?.value ?? "";
     if (draftEsc(typed) === "project") windowHooks?.goBack({ view: "projects", arg: { project: AG.draft } });
     return;
   }

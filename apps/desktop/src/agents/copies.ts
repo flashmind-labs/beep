@@ -6,12 +6,12 @@ import { createStore } from "zustand/vanilla";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { type CopyRow, copyKey, copyLists, discardLabel, lostLine, offlineLine } from "./copy-state.ts";
 import { loadSessions } from "./sessions.ts";
-import { esc } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pageShown } from "../ui/active.ts";
 
-/// The copies read, the last failure, and the copy whose discard asks to be confirmed.
-export const copies = createStore(() => ({ rows: [] as CopyRow[], error: "", armed: "" }));
+/// The copies read, the last failure, the copy whose discard asks to be
+/// confirmed, and the copies with a request out.
+export const copies = createStore(() => ({ rows: [] as CopyRow[], error: "", armed: "", busy: [] as string[] }));
 
 let showing: () => boolean = () => false;
 let unfollow: (() => void) | undefined;
@@ -32,45 +32,52 @@ async function readCopies(): Promise<CopyRow[]> {
   catch (e) { console.warn("copies not read", e); return []; }
 }
 
-/// The rows to draw under the sessions, as HTML; `live` are the ids of the
-/// sessions the machines list.
-export function copiesHtml(live: ReadonlySet<string>) {
-  const { rows, error, armed } = copies.getState();
+export type CopyAct = "continue" | "discard";
+export interface CopyLine {
+  key: string;
+  /// The project, and the folder in it when there is one.
+  title: string;
+  /// The harness and what happened to the copy.
+  sub: string;
+  buttons: { act: CopyAct; label: string; pri: boolean; busy: boolean }[];
+}
+export interface CopiesModel { error: string; rows: CopyLine[] }
+
+/// The rows to draw under the sessions; `live` are the ids of the sessions
+/// the machines list. Null when there is nothing to show.
+export function copiesView(live: ReadonlySet<string>): CopiesModel | null {
+  const { rows, error, armed, busy } = copies.getState();
   const { offline, lost } = copyLists(rows, live);
-  if (!offline.length && !lost.length && !error) return "";
+  if (!offline.length && !lost.length && !error) return null;
   const now = Date.now() / 1000;
-  const row = (c: CopyRow, line: string, actions: string) =>
-    `<div class="dchat copy" data-cpk="${esc(copyKey(c))}"><span class="t"><span>${esc(c.project)}${c.path ? ` / ${esc(c.path)}` : ""}</span><small>${esc(c.agent)} · ${esc(line)}</small></span>${actions}</div>`;
-  const go = (label: string, act: string, pri: boolean) => `<button class="dbtn ${pri ? "pri " : "quiet "}small" data-cpact="${act}">${label}</button>`;
-  return `<div class="dlist dcopies">${error ? `<div class="derr dpadx">${esc(error)}</div>` : ""}`
-    + offline.map(c => row(c, offlineLine(c, now), go("Continue on this computer", "continue", true))).join("")
-    + lost.map(c => row(c, lostLine(), go("Restore", "continue", false) + go(discardLabel(armed === copyKey(c)), "discard", false))).join("")
-    + `</div>`;
+  const line = (c: CopyRow, sub: string, buttons: { act: CopyAct; label: string; pri: boolean }[]): CopyLine => {
+    const key = copyKey(c);
+    return { key, title: c.path ? `${c.project} / ${c.path}` : c.project, sub: `${c.agent} · ${sub}`, buttons: buttons.map(b => ({ ...b, busy: busy.includes(key) })) };
+  };
+  return { error, rows: [
+    ...offline.map(c => line(c, offlineLine(c, now), [{ act: "continue", label: "Continue on this computer", pri: true }])),
+    ...lost.map(c => line(c, lostLine(), [{ act: "continue", label: "Restore", pri: false }, { act: "discard", label: discardLabel(armed === copyKey(c)), pri: false }])),
+  ] };
 }
 
-/// Handles a click on one of the rows; true when it was one.
-export function copiesClick(target: HTMLElement): boolean {
-  const button = target.closest<HTMLElement>("[data-cpact]");
-  const key = button?.closest<HTMLElement>("[data-cpk]")?.dataset.cpk;
-  const c = copies.getState().rows.find(r => copyKey(r) === key);
-  if (!button || !c) return false;
-  const command = button.dataset.cpact === "discard" ? "session_discard_copy" : "session_continue_copy";
-  if (button.hasAttribute("disabled")) return true;
+/// A copy's button was clicked.
+export function actOnCopy(key: string, act: CopyAct) {
+  const { rows, armed, busy } = copies.getState(), c = rows.find(r => copyKey(r) === key);
+  if (!c || busy.includes(key)) return;
 
   // Discarding a version is for good: the first click asks, in the row.
-  if (button.dataset.cpact === "discard" && copies.getState().armed !== key) {
-    copies.setState({ armed: key ?? "" });
-    return true;
+  if (act === "discard" && armed !== key) {
+    copies.setState({ armed: key });
+    return;
   }
 
   // One click is one request: a second would run the same copy again. The
   // row keeps how it looks until the copies are read again.
-  button.setAttribute("disabled", "");
-  invoke(command, { agent: c.agent, session: c.id, lost: c.lost })
+  copies.setState({ busy: [...busy, key] });
+  invoke(act === "discard" ? "session_discard_copy" : "session_continue_copy", { agent: c.agent, session: c.id, lost: c.lost })
     .then(() => "", e => String(e))
     .then(async error => {
       void loadSessions().catch(() => []);
-      copies.setState({ rows: await readCopies(), error, armed: "" });
+      copies.setState({ rows: await readCopies(), error, armed: "", busy: [] });
     });
-  return true;
 }

@@ -47,7 +47,7 @@ export function disposeLogShell(body: HTMLElement) {
 export function showLogShell(body: HTMLElement, value: LogShell, units: readonly Unit[] | null, held: readonly Node[]) {
   let owner = owners.get(body);
   if (!owner) {
-    owner = { view: createDocumentView(body), value: null, log: createLog() };
+    owner = { view: createDocumentView(body), value: null, log: createLog(body) };
     owners.set(body, owner);
   }
   const log = owner.log;

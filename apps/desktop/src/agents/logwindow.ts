@@ -45,6 +45,8 @@ export interface LogWindow {
   top: number | null;
   bottom: number | null;
   el: HTMLElement | null;
+  /// The session body the log scrolls in.
+  body: ChatBody;
   watch: ResizeObserver;
   view: LogView;
   listeners: Set<() => void>;
@@ -62,23 +64,23 @@ const bodies = new WeakMap<ChatBody, LogWindow>();
 /// How tall a turn is taken to be before any was measured.
 const FALLBACK = 120;
 
-/// A log window for one session body; `attach` is the ref of its `.dcoderlog`.
-export function createLog(): LogWindow {
+/// A log window for session body `body`; `attach` is the ref of its `.dcoderlog`.
+export function createLog(body: ChatBody): LogWindow {
   const w: LogWindow = {
-    units: [], drawn: new Map(), elements: new Map(), sizes: new Map(), width: 0, gap: 0, top: null, bottom: null, el: null,
+    units: [], drawn: new Map(), elements: new Map(), sizes: new Map(), width: 0, gap: 0, top: null, bottom: null, el: null, body,
     watch: frameResize(() => resized(w)), view: { turns: [], top: null, bottom: null }, listeners: new Set(), search: null, searchChanged: null,
     attach: el => {
-      if (w.el) forget(w);
+      if (w.el) windows.delete(w.el);
       w.el = el;
       if (!el) return;
       windows.set(el, w);
       w.gap = parseFloat(getComputedStyle(el).rowGap) || 0;
-      const body = el.closest<ChatBody>(".dbody");
-      if (body) { bodies.set(body, w); w.watch.observe(body); }
+      w.watch.observe(body);
     },
     subscribe: listener => { w.listeners.add(listener); return () => { w.listeners.delete(listener); }; },
     snapshot: () => w.view,
   };
+  bodies.set(body, w);
   return w;
 }
 
@@ -97,14 +99,8 @@ export function disposeLog(w: LogWindow) {
   w.watch.disconnect();
   dropSearch(w);
   w.listeners.clear();
-  if (w.el) forget(w);
-}
-
-function forget(w: LogWindow) {
-  if (!w.el) return;
-  windows.delete(w.el);
-  const body = w.el.closest<ChatBody>(".dbody");
-  if (body && bodies.get(body) === w) bodies.delete(body);
+  if (w.el) windows.delete(w.el);
+  if (bodies.get(w.body) === w) bodies.delete(w.body);
 }
 
 export function watchLogSearch(log: HTMLElement, changed: () => void) {
