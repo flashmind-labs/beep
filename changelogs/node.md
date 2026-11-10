@@ -10,5 +10,6 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Node: a project waiting on Git keeps its warning instead of flickering between scanning, synced and failed on every scan.
 - Node: the worktree menu leaves out worktrees of other machines listed in a synced `.git` folder, and sessions keep their folder when an agent runs a command on another machine.
 

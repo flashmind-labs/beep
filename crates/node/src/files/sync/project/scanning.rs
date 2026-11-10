@@ -21,12 +21,14 @@ use std::{
     collections::{BTreeSet, HashSet},
     mem,
     path::{Path, PathBuf},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tokio::task::spawn_blocking;
 
 /// How many files a scan hashes at once.
 const MAX_IMPORTS: usize = 16;
+/// How long a scan runs before the status says so.
+const SHOW_SCANNING: Duration = Duration::from_millis(500);
 
 impl Task {
     /// Looks for edits on disk and records them in the list.
@@ -49,8 +51,23 @@ impl Task {
     async fn scan_inner(&mut self, paths: Option<BTreeSet<PathBuf>>) {
         let started = Instant::now();
         let scope = if paths.is_some() { "changed" } else { "full" };
-        self.shared.publish(|s| s.state = SyncState::Scanning);
-        let result = self.try_scan(paths).await;
+        // A quick scan keeps the status as it is, and a failing one keeps its
+        // failure shown until it recovers.
+        let shared = self.shared.clone();
+        let failed = self.error.is_some() || self.scan_failed;
+        let result = {
+            let scan = self.try_scan(paths);
+            tokio::pin!(scan);
+
+            tokio::select! {
+                biased;
+                result = &mut scan => result,
+                () = tokio::time::sleep(SHOW_SCANNING), if !failed => {
+                    shared.publish(|s| s.state = SyncState::Scanning);
+                    scan.await
+                }
+            }
+        };
         self.scan_failed = result.is_err();
         let outcome = if self.scan_failed { "error" } else { "ok" };
         metrics::counter!("beep_sync_scans_total", "scope" => scope, "outcome" => outcome)
@@ -64,6 +81,8 @@ impl Task {
         }
 
         match result {
+            // Only a Git check clears a Git warning: a scan reads the disk alone.
+            Ok(()) if self.waits_for_git() => {}
             Ok(()) => self.error = None,
             Err(e) => self.fail("scanning failed", &e),
         }
