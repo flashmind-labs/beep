@@ -93,3 +93,30 @@ test("the field and its buttons stay above the phone keyboard", async ({ page })
   await expect.poll(() => page.locator("#agbody").evaluate(log => log.scrollHeight - log.scrollTop - log.clientHeight < 40)).toBe(true);
   await page.screenshot({ path: "../../.artifacts/phone-composer-keyboard.png" });
 });
+
+test("moving between fields with the keyboard up undoes the scroll iOS gives a clipped box", async ({ page }) => {
+  await openBusy(page);
+  await page.evaluate(() => {
+    const box = document.createElement("div");
+    box.id = "clipped";
+    box.style.cssText = "position:fixed;top:0;left:0;width:200px;height:100px;overflow:hidden";
+    box.innerHTML = '<input id="one" type="text"><div style="height:400px"></div><input id="two" type="text">';
+    document.body.append(box);
+  });
+  await page.locator("#one").focus();
+  await page.evaluate(() => {
+    const vv = window.visualViewport!;
+    Object.defineProperty(vv, "height", { configurable: true, get: () => 480 });
+    Object.defineProperty(vv, "offsetTop", { configurable: true, get: () => 0 });
+    vv.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.locator("body")).toHaveClass(/mb-kbd/);
+
+  // The window stays the same size, as on iOS when focus moves with the keyboard up.
+  await page.evaluate(() => {
+    const box = document.getElementById("clipped")!;
+    box.scrollTop = 300;
+    document.getElementById("two")!.focus({ preventScroll: true });
+  });
+  await expect.poll(() => page.locator("#clipped").evaluate(box => box.scrollTop)).toBe(0);
+});
