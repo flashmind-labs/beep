@@ -40,6 +40,16 @@ test("stash Escape returns focus and Remove sends the selected id", async ({ pag
   const open = page.getByRole('button', { name: 'Stash 1' });
   await open.click();
   const panel = page.getByRole('dialog', { name: 'Project stash' });
+  // The panel sits above its button, their right edges together, and follows it.
+  const sits = async () => {
+    const button = (await open.boundingBox())!, box = (await panel.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(button.y - 7);
+    expect(Math.abs(box.x + box.width - (button.x + button.width))).toBeLessThanOrEqual(1);
+  };
+  await sits();
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await expect.poll(async () => (await panel.boundingBox())!.y + (await panel.boundingBox())!.height <= (await open.boundingBox())!.y - 7).toBe(true);
+  await sits();
   await panel.getByRole('button', { name: 'Remove' }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === 'prompt_stash_remove' && call.args.id === 'entry'))).toBe(true);
   await page.keyboard.press('Escape');
