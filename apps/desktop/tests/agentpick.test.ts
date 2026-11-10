@@ -105,3 +105,8 @@ test("model titles resolve to IDs while labels stay readable", async () => {
   list.models.push({ id: "another-sol", name: "Sol", description: null });
   assert.equal(modelId(list, "Sol"), "Sol");
 });
+
+test("lookup failures differ from a harness with a fixed model", () => {
+  assert.equal(modelRows(null, "").note, "Couldn't load models.");
+  assert.equal(modelRows({ pick: "fixed", current: null, models: [] }, "").note, "It runs its own model here.");
+});
