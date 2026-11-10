@@ -7,7 +7,7 @@ use agent_client_protocol::{
         v1::{
             AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities,
             CompactionCapabilities, ContentBlock, Implementation, InitializeRequest,
-            InitializeResponse, LoadSessionRequest, McpServer, NewSessionRequest,
+            InitializeResponse, LoadSessionRequest, McpServer, Meta, NewSessionRequest,
             NewSessionResponse, ResumeSessionRequest, SessionConfigId, SessionConfigKind,
             SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
             SessionConfigSelectOptions, SessionId, SessionModeState, SetSessionConfigOptionRequest,
@@ -144,6 +144,20 @@ fn system_prompt(text: &str) -> SystemPrompt {
     SystemPrompt::new(vec![ContentBlock::Text(TextContent::new(text))])
 }
 
+/// What every session asks of its agent in `_meta`. Claude Code's adapter
+/// passes `claudeCode.options` on to Claude Code: `perTaskStopAffordance`
+/// says the client stops background tasks one by one (`stop_task`), so
+/// `session/cancel` ends the main turn and spares background subagents and
+/// workflows, which otherwise end with it. Other agents ignore it.
+fn session_meta() -> Meta {
+    let mut meta = Meta::new();
+    meta.insert(
+        "claudeCode".to_owned(),
+        json!({"options": {"perTaskStopAffordance": true}}),
+    );
+    meta
+}
+
 /// `session/new` in `cwd`, with `brief` appended to the agent's system
 /// prompt, sent untyped so the answer keeps `models`, which the crate's
 /// typed answer drops.
@@ -156,7 +170,8 @@ pub(in crate::agents) fn new_session(
         AGENT_METHOD_NAMES.session_new,
         NewSessionRequest::new(cwd)
             .mcp_servers(mcp_servers)
-            .system_prompt(brief.map(system_prompt)),
+            .system_prompt(brief.map(system_prompt))
+            .meta(session_meta()),
     )
 }
 
@@ -177,13 +192,15 @@ pub(in crate::agents) fn resume_session(
             AGENT_METHOD_NAMES.session_load,
             LoadSessionRequest::new(session, cwd)
                 .mcp_servers(mcp_servers)
-                .system_prompt(brief),
+                .system_prompt(brief)
+                .meta(session_meta()),
         ),
         ResumeMethod::Resume => UntypedMessage::new(
             AGENT_METHOD_NAMES.session_resume,
             ResumeSessionRequest::new(session, cwd)
                 .mcp_servers(mcp_servers)
-                .system_prompt(brief),
+                .system_prompt(brief)
+                .meta(session_meta()),
         ),
     }
 }

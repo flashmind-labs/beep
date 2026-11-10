@@ -1234,3 +1234,58 @@ fn a_cancelled_turn_closes_the_subagent_calls_it_interrupted() {
         "its entry no longer reads as running"
     );
 }
+
+#[test]
+fn a_claude_subagent_launched_in_the_background_counts_until_its_turn_ends() {
+    let mut live = live();
+    live.prompted("research this in the background");
+    let launched = |live: &mut Live, id: &str| {
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call", "toolCallId": id, "title": "Task",
+            "kind": "think", "status": "pending",
+            "rawInput": {"subagent_type": "Explore", "prompt": "Look around",
+                "run_in_background": true}
+        })));
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update", "toolCallId": id,
+            "_meta": {"claudeCode": {"toolResponse": {"status": "async_launched", "isAsync": true}}}
+        })));
+        live.apply(&update(json!({
+            "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed"
+        })));
+    };
+    launched(&mut live, "agent1");
+    assert_eq!(live.info.state.subagents, 1, "its call returned, it runs on");
+
+    // A stop spares it.
+    live.close_interrupted_subagents();
+    assert_eq!(live.info.state.subagents, 1);
+
+    // Claude Code's own turn after its report ends it.
+    use crate::agents::acp::AsyncTask;
+    assert!(!live.apply_task(AsyncTask::Spawned {
+        async_task_id: "turn1".into(),
+        name: "Claude is working".into(),
+        task_type: "turn".into(),
+        description: String::new(),
+        can_stop: true,
+        output_file_path: None,
+        tool_call_id: None,
+    }));
+    assert_eq!(live.info.state.subagents, 1);
+    assert!(live.apply_task(AsyncTask::StateUpdate {
+        async_task_id: "turn1".into(),
+        state: "completed".into(),
+        summary: None,
+        output_file_path: None,
+        tool_call_id: None,
+    }));
+    assert_eq!(live.info.state.subagents, 0);
+
+    // A turn that ends by itself ends them too: Claude Code held it for them.
+    live.prompted("again");
+    launched(&mut live, "agent2");
+    assert_eq!(live.info.state.subagents, 1);
+    live.end_background_subagents();
+    assert_eq!(live.info.state.subagents, 0);
+}

@@ -102,27 +102,12 @@ impl Actor {
                 Ok(Ok(()))
             }
             Command::Cancel { by_user } => {
-                self.queued.clear();
-
-                if !by_user {
-                    self.steers.clear();
-                }
-
-                self.by_user |= by_user && self.turn.is_some();
-                self.show_queued();
-
-                while let Some(asked) = self.asked.pop_front() {
-                    asked.waiting.cancel()?;
-                }
-
-                if let Some(session) = &self.acp_session
-                    && self.live.borrow().status() != Status::Idle
-                {
-                    cx.send_notification(CancelNotification::new(session.clone()))?;
-                }
-
-                self.show_question();
-                self.stop_due();
+                self.cancel(cx, by_user)?;
+                Ok(Ok(()))
+            }
+            Command::StopAll { by_user } => {
+                self.cancel(cx, by_user)?;
+                self.stop_tasks(cx);
                 Ok(Ok(()))
             }
             Command::Close { .. } => Ok(Ok(())),
@@ -131,22 +116,7 @@ impl Actor {
 
                 if stop {
                     // As a stop does: what waited behind the turn goes.
-                    self.queued.clear();
-                    self.steers.clear();
-                    self.show_queued();
-
-                    while let Some(asked) = self.asked.pop_front() {
-                        asked.waiting.cancel()?;
-                    }
-
-                    if let Some(session) = &self.acp_session
-                        && self.live.borrow().status() != Status::Idle
-                    {
-                        cx.send_notification(CancelNotification::new(session.clone()))?;
-                    }
-
-                    self.show_question();
-                    self.stop_due();
+                    self.cancel(cx, false)?;
                 }
 
                 Ok(Ok(()))
@@ -191,6 +161,58 @@ impl Actor {
             Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
             Command::SetMode(mode) => Ok(self.set_mode(cx, mode)),
             Command::StopTask(task) => Ok(self.stop_task(cx, task)),
+        }
+    }
+
+    /// Stops the main agent's turn (`session/cancel`) and drops the prompts
+    /// queued behind it and the open questions. Steers stay for the next
+    /// prompt when the user stopped it (see `Command::Cancel`). What the
+    /// agent runs apart from its turn, its subagents and background
+    /// commands, is left to the agent: Claude Code spares them, as the
+    /// session declares a stop for each task (`acp::new_session`).
+    fn cancel(&mut self, cx: &ConnectionTo<Agent>, by_user: bool) -> Result<()> {
+        self.queued.clear();
+
+        if !by_user {
+            self.steers.clear();
+        }
+
+        self.by_user |= by_user && self.turn.is_some();
+        self.show_queued();
+
+        while let Some(asked) = self.asked.pop_front() {
+            asked.waiting.cancel()?;
+        }
+
+        if let Some(session) = &self.acp_session
+            && self.live.borrow().status() != Status::Idle
+        {
+            cx.send_notification(CancelNotification::new(session.clone()))?;
+        }
+
+        self.show_question();
+        self.stop_due();
+        Ok(())
+    }
+
+    /// Asks the agent to stop each of its background tasks that still runs
+    /// and can be stopped, for Stop all.
+    fn stop_tasks(&mut self, cx: &ConnectionTo<Agent>) {
+        let running: Vec<String> = self
+            .live
+            .borrow()
+            .info
+            .state
+            .tasks
+            .iter()
+            .filter(|task| task.can_stop && !task.state.ended())
+            .map(|task| task.id.clone())
+            .collect();
+
+        for task in running {
+            if let Err(e) = self.stop_task(cx, task) {
+                log::debug!("a background task was not stopped: {e}");
+            }
         }
     }
 

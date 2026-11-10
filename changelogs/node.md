@@ -17,6 +17,11 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Node: Stop ends only the main agent's turn. Its subagents, background
+  commands and the agents it started keep running, and the session shows
+  as working until they finish.
+- Node: a steering message reaches the agent at its next step while
+  background commands and subagents run, instead of waiting for them.
 - Node: a Claude Code skill that runs in its own subagent shows as
   "Skill: <name> (subagent)" in the session log, so its steps no longer
   look like a plain skill load. Loading an ordinary skill stays a normal step.

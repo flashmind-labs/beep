@@ -258,6 +258,8 @@ ffi_enum! {
     /// `StopTask` stops one of the commands `GetAgentSessionTasks` lists
     /// without ending the turn; a server older than `Feature::AGENT_TASKS`
     /// refuses it.
+    /// `Cancel` stops only the main agent's turn; `StopAll` also ends the
+    /// session's subagents, background commands and the agents it started.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum AgentSteer {
         0 Prompt { text: String }
@@ -269,6 +271,7 @@ ffi_enum! {
         6 DropSteers {}
         7 SetMode { mode: String }
         8 StopTask { task: String }
+        9 StopAll {}
     }
 }
 

@@ -85,11 +85,18 @@ pub(super) enum Command {
         question: u32,
         reply: String,
     },
-    /// Stops the running turn and drops the prompts queued behind it. When
+    /// Stops the main agent's running turn and drops the prompts queued
+    /// behind it; its subagents and background commands keep running. When
     /// the user stopped it, the steers not yet sent go as the next prompt
     /// once the turn stops: the app that steered sends them nowhere else
     /// (#378). Otherwise its parent or the node stopped it.
     Cancel {
+        by_user: bool,
+    },
+    /// `Cancel`, and stops the agent's background commands too. While its
+    /// subagents run, which the agent stops only with itself, the agent is
+    /// stopped and the session ends; the next message resumes it.
+    StopAll {
         by_user: bool,
     },
     /// Ends the session; `by_user` as for `Cancel`.

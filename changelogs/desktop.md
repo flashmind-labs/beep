@@ -41,6 +41,9 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: Stop ends only the main agent's turn. Its subagents, background
+  commands and the agents it started keep running, and the session shows
+  as working until they finish.
 - Desktop: the model search in a project's new-agent composer keeps what
   you type, its caret, focus and highlighted model while the project or the
   model list is still loading.

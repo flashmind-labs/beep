@@ -91,3 +91,25 @@ fn an_agent_without_models_offers_none() {
     assert_eq!(offered_models(&broken), Offered::default());
     assert!(session_created(broken).is_ok());
 }
+
+/// Stop ends only the main turn: every way a session starts tells Claude
+/// Code's adapter that the client stops background tasks one by one, so
+/// its interrupt spares background subagents (#565).
+#[test]
+fn every_session_start_lets_a_stop_spare_background_subagents() {
+    let cwd = std::path::Path::new("/srv/project");
+    let requests = [
+        new_session(cwd, Vec::new(), None).unwrap(),
+        resume_session(ResumeMethod::Load, SessionId::new("s1"), cwd, Vec::new(), None).unwrap(),
+        resume_session(ResumeMethod::Resume, SessionId::new("s1"), cwd, Vec::new(), None).unwrap(),
+    ];
+
+    for request in requests {
+        assert_eq!(
+            request.params()["_meta"]["claudeCode"]["options"]["perTaskStopAffordance"],
+            true,
+            "{}",
+            request.method()
+        );
+    }
+}

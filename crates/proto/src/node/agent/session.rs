@@ -53,9 +53,10 @@ pub enum Request {
     /// number or name; anything else declines and goes to the agent as the
     /// next prompt.
     Answer { question: u32, reply: String },
-    /// Stops the running turn and drops waiting prompts. `Steer`s not yet
-    /// sent go as the next prompt once the turn stops; `DropSteers` first
-    /// takes them back.
+    /// Stops the main agent's running turn and drops waiting prompts.
+    /// `Steer`s not yet sent go as the next prompt once the turn stops;
+    /// `DropSteers` first takes them back. Subagents, background commands
+    /// and the agents the session started keep running; `StopAll` ends them.
     Cancel {},
     /// Ends the session and stops the agent.
     Close {},
@@ -76,6 +77,11 @@ pub enum Request {
     /// Stops the background task `task` (one of `State::tasks`) without
     /// ending the turn. Refused when it is not running or cannot be stopped.
     StopTask { task: String },
+    /// `Cancel`, and also ends the session's background commands, its
+    /// subagents and the agents it started. When the agent cannot stop its
+    /// subagents one by one, the node stops the agent: the session ends and
+    /// the next message resumes it. A node older than this refuses it.
+    StopAll {},
 }
 
 /// What the node sends on an agent stream.
