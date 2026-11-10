@@ -28,7 +28,7 @@ import { drawTermFooter } from "./term-footer.tsx";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { viewOf } from "./views.ts";
 import { frameResize, h } from "../ui/dom.ts";
-import { ICON } from "../ui/icons.tsx";
+import { Icon, type IconName } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { runningCount, runningView } from "./running.ts";
 import { onShownChange } from "../ui/active.ts";
@@ -147,20 +147,9 @@ export function saveLayout() {
 
 type Fixed = "subagents" | "files" | "changes" | "artifacts" | "running";
 
-const ICONS: Record<TabKind | Fixed, string> = {
-  // files.ts imports this module, so its folder icon is repeated here
-  // rather than read before that module has run.
-  files: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
-  changes: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v8M8 8h8M8 18h8"/></svg>',
-  text: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>',
-  term: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>',
-  image: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-8 8"/></svg>',
-  model: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 22V12M3 7l9 5 9-5"/></svg>',
-  video: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>',
-  pdf: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg>',
-  artifacts: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
-  running: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg>',
-  subagents: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V13a5 5 0 0 0 5 5h4.5"/></svg>',
+const TAB_ICONS: Record<TabKind | Fixed, IconName> = {
+  files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", image: "paneImage", model: "paneModel",
+  video: "paneVideo", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents",
 };
 export const DOCK_RIGHT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>';
 export const DOCK_BOTTOM = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18"/></svg>';
@@ -558,13 +547,13 @@ function drawDock(d: Dock, ids: string[]) {
   if (!ids.includes(P.on[d])) P.on[d] = ids.at(-1) ?? FILES;
   const on = P.on[d];
   const items: PaneTabItem[] = ids.map(id => {
-    if (id === FILES) return { id, name: "Files", icon: ICONS.files, count: null, closeIcon: null };
-    if (id === CHANGES) return { id, name: "Changes", icon: ICONS.changes, count: null, closeIcon: null };
-    if (id === SUBS) return { id, name: "Subagents", icon: ICONS.subagents, count: P.subCount, closeIcon: null };
-    if (id === RUNNING) return { id, name: "Running", icon: ICONS.running, count: runningCount(), closeIcon: null };
-    if (id === ARTS) return { id, name: "Artifacts", icon: ICONS.artifacts, count: artifactCount(), closeIcon: null };
+    if (id === FILES) return { id, name: "Files", icon: TAB_ICONS.files, count: null, closeIcon: null };
+    if (id === CHANGES) return { id, name: "Changes", icon: TAB_ICONS.changes, count: null, closeIcon: null };
+    if (id === SUBS) return { id, name: "Subagents", icon: TAB_ICONS.subagents, count: P.subCount, closeIcon: null };
+    if (id === RUNNING) return { id, name: "Running", icon: TAB_ICONS.running, count: runningCount(), closeIcon: null };
+    if (id === ARTS) return { id, name: "Artifacts", icon: TAB_ICONS.artifacts, count: artifactCount(), closeIcon: null };
     const item = P.tabs.find(tab => tab.id === id)!;
-    return { id, name: item.name, icon: ICONS[item.kind], count: null, closeIcon: ICON.x };
+    return { id, name: item.name, icon: TAB_ICONS[item.kind], count: null, closeIcon: "x" };
   });
   setSessionPortal(tabs, createElement(PaneTabs, { tabs: items, selected: on }));
   const bottom = d === "bottom";
@@ -579,7 +568,7 @@ function drawDock(d: Dock, ids: string[]) {
   setSessionChild(`dock-controls:${d}`, createElement(Fragment, null,
     createPortal(icon(bottom ? DOCK_RIGHT : DOCK_BOTTOM), dock, "dock"),
     createPortal(icon(bottom ? FOLD_DOWN : FOLD_RIGHT), fold, "fold"),
-    createPortal(createElement(Fragment, null, icon(ICONS[shown?.kind ?? fixed]), createElement("span", null, label), createElement("small", null, ids.length)), strip, "strip")));
+    createPortal(createElement(Fragment, null, createElement("span", { style: { display: "contents" } }, createElement(Icon, { name: TAB_ICONS[shown?.kind ?? fixed] })), createElement("span", null, label), createElement("small", null, ids.length)), strip, "strip")));
   // The Files view is made once per session, wherever it sits.
   const made = filesView();
   let filesEl = document.querySelector<HTMLElement>(".agpviews > .agpview.files");
