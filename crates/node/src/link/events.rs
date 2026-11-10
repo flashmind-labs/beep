@@ -151,9 +151,9 @@ pub(crate) async fn serve(
                     Reply::SnapshotError { topic, query, .. } => (topic.name().to_owned(), *query, false),
                     _ => unreachable!("snapshot queue only returns snapshots"),
                 };
-                tracing::info!(%stream, %topic, query, success, "subscription snapshot sending");
+                tracing::debug!(%stream, %topic, query, success, "subscription snapshot sending");
                 send(&mut tx, snapshot).await?;
-                tracing::info!(%stream, %topic, query, success, elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot sent");
+                tracing::debug!(%stream, %topic, query, success, elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot sent");
             },
             Some((_, event)) = subscriptions.next(), if !subscriptions.is_empty() => {
                 // Overlapping keys can receive the same broad invalidation.

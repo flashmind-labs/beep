@@ -178,3 +178,73 @@ async fn recovery_after_a_read_error_resends_identical_state() {
     assert_eq!(snapshot.query, Some(7));
     assert_eq!(snapshot.revision, 1);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_burst_of_changes_reads_once_more_and_delivers_the_last_state() {
+    let offers = Offers::default();
+    let caller = iroh::SecretKey::generate().public();
+    let topic = Topic::keyed("plugin", "burst");
+    let mut snapshots = Snapshots::new();
+    offers
+        .agents
+        .events
+        .publish(topic.clone(), vec![0])
+        .unwrap();
+    snapshots.replace(&offers, std::slice::from_ref(&topic), &[], &BTreeMap::new());
+    snapshots.start(&offers, caller);
+    assert!(matches!(
+        stepped_snapshot(&mut snapshots).await,
+        Some(Reply::Snapshot(value)) if value.value == Value::Plugin(vec![0])
+    ));
+    let mut reads = 0;
+
+    // A hundred changes inside one gap start no read until the gap ends.
+    for step in 1..=100u8 {
+        offers
+            .agents
+            .events
+            .publish(topic.clone(), vec![step])
+            .unwrap();
+        snapshots.changed(&topic);
+        snapshots.start(&offers, caller);
+        reads += snapshots.reads.len();
+        tokio::time::advance(READ_GAP / 200).await;
+    }
+
+    assert_eq!(reads, 0);
+    tokio::time::advance(READ_GAP).await;
+    snapshots.start(&offers, caller);
+    assert_eq!(snapshots.reads.len(), 1);
+    assert!(matches!(
+        stepped_snapshot(&mut snapshots).await,
+        Some(Reply::Snapshot(value)) if value.value == Value::Plugin(vec![100])
+    ));
+    assert!(snapshots.due().is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn one_session_topic_reads_that_session_on_a_shorter_gap() {
+    let offers = Offers::default();
+    let caller = iroh::SecretKey::generate().public();
+    let topic = Topic::keyed("agent", "example-session");
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(&offers, std::slice::from_ref(&topic), &[], &BTreeMap::new());
+    let key = (topic.clone(), None);
+    assert_eq!(
+        snapshots.entries.get(&key).map(|entry| &entry.source),
+        Some(&Source::Agent("example-session".into()))
+    );
+    let started = Instant::now();
+    snapshots.start(&offers, caller);
+    let Some(Reply::Snapshot(initial)) = stepped_snapshot(&mut snapshots).await else {
+        panic!("expected the session's snapshot");
+    };
+    assert_eq!(
+        initial.value,
+        Value::Sessions(Box::new(SessionsReply::Sessions { sessions: vec![] }))
+    );
+
+    snapshots.changed(&topic);
+    assert!(AGENT_GAP < READ_GAP);
+    assert_eq!(snapshots.due(), Some(started + AGENT_GAP));
+}
