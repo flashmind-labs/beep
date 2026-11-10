@@ -6,7 +6,7 @@ import { stashFile } from "../chat/stash-state.ts";
 import type { Attached } from "./agentqueue.ts";
 import { attachImages } from "./images.ts";
 import { StartAttachmentChips } from "./start-attachments-view.tsx";
-import { filePicker } from "./file-picker.ts";
+import { FilePicker } from "./file-picker.tsx";
 import type { makeStartComposer } from "./start-composer.ts";
 import { StartFiles } from "./start-files.ts";
 
@@ -34,8 +34,8 @@ export function startAttachments(c: ReturnType<typeof makeStartComposer>, error:
     }).catch(e => error(String(e))).finally(() => { reading--; changed(); });
     return serial;
   };
-  const picker = filePicker(add);
-  c.send.before(picker.button, picker.input);
+  const drawPicker = () => c.setUploadPicker(createElement(FilePicker, { attach: add, disabled: locked }));
+  drawPicker();
   c.att.addEventListener("click", e => {
     if (locked) return;
     const button = (e.target as HTMLElement).closest<HTMLElement>("[data-startimage], [data-startfile]");
@@ -71,7 +71,7 @@ export function startAttachments(c: ReturnType<typeof makeStartComposer>, error:
     add, images, files,
     get reading() { return reading > 0; },
     get count() { return images.length + files.pending.length; },
-    setBusy(value: boolean) { locked = value; picker.button.disabled = value; },
+    setBusy(value: boolean) { locked = value; drawPicker(); },
     clear() { images.length = 0; files.pending.length = 0; draw(); },
     bindStash(project: () => string | null) {
       let sendDisabled = false;
@@ -80,7 +80,7 @@ export function startAttachments(c: ReturnType<typeof makeStartComposer>, error:
         hasAttachments: () => !!images.length || !!files.pending.length,
         lock: value => {
           if (value) sendDisabled = c.send.disabled;
-          locked = value; picker.button.disabled = value;
+          locked = value; drawPicker();
           c.send.disabled = value || sendDisabled;
         },
         capture: async () => {
