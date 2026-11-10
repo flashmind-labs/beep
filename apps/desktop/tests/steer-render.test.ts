@@ -33,7 +33,7 @@ function setup() {
     queue: [], att: [], note: "", child: null, held: 0, stopping: null,
   });
   Object.assign(MN, { paths: [], uploads: [] });
-  bar.innerHTML = '<div id="agconv"><div id="agbody"></div><div id="agplan"></div><div id="agfield"><textarea id="agmsg"></textarea></div></div>';
+  bar.innerHTML = '<div id="agconv"><div id="agbody"></div><div id="agplan"></div><div data-agent-queue-slot style="display:contents"></div><div data-agent-attachment-slot style="display:contents"></div><div id="agfield"><textarea id="agmsg"></textarea><div data-agent-menu-slot style="display:contents"></div></div></div>';
   Object.defineProperty(bar.querySelector("#agbody")!, "clientHeight", { configurable: true, value: 800 });
   const input = bar.querySelector("#agmsg")!;
   assert.ok(input instanceof HTMLTextAreaElement);
@@ -453,4 +453,24 @@ test("approval actions use the active session and ignore cached controls", async
   const sent = calls.filter(call => call.cmd === "center_answer_agent");
   assert.equal(sent.length, 1);
   assert.equal((sent[0].args as { machineId: string }).machineId, "m2");
+});
+
+test("composer slots keep queue and attachments ordered and survive disposal", t => {
+  setup();
+  t.after(() => { disposeQueue(); MN.paths = []; });
+  AG.queue = [{ how: "steer", typed: "Queued", text: "Queued", paths: [], images: [], state: "sent", after: 0 }];
+  MN.paths = ["src/file.ts"];
+  drawQueue(); drawAgentAttached();
+  const queue = bar.querySelector("#agqueue"), attachments = bar.querySelector("#agatt"), field = bar.querySelector("#agfield");
+  assert.ok(queue && attachments && field);
+  assert.ok(queue.compareDocumentPosition(attachments) & Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.ok(attachments.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING);
+  disposeQueue();
+  assert.equal(bar.querySelector("#agqueue"), null);
+  assert.equal(bar.querySelector("#agatt"), null);
+  assert.ok(bar.querySelector("[data-agent-queue-slot]"));
+  assert.ok(bar.querySelector("[data-agent-attachment-slot]"));
+  drawQueue(); drawAgentAttached();
+  assert.ok(bar.querySelector("#agqueue"));
+  assert.ok(bar.querySelector("#agatt"));
 });
