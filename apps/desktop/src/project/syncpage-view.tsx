@@ -4,9 +4,11 @@ import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { gitSyncWarning } from "./gitsync-state.ts";
 import { conflictList, conflictSub, gitConflict, machineMeta, stateChip, stateNote, syncedBySyncthing, syncPct, syncSummary, waitingList, type Conflict, type MachineDetail, type makeFileSync } from "./filesync.ts";
 import { plainPath } from "./projects-state.ts";
+import { Chip, EmptyPanel, SectionHead } from "../ui/kit.tsx";
 
 type Sync = ReturnType<typeof makeFileSync>;
-function Legacy({ node }: { node: HTMLElement }) {
+/// The diff view of a compared conflict, a DOM tree its owner keeps.
+function DiffHost({ node }: { node: HTMLElement }) {
   const host = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { const el = host.current; if (!el) return; el.append(node); return () => { node.remove(); }; }, [node]);
   return <div ref={host} style={{ display: "contents" }} />;
@@ -14,7 +16,7 @@ function Legacy({ node }: { node: HTMLElement }) {
 export function SyncMachine({ sync, project, machine, compact = false, extra = null }: { sync: Sync; project: string; machine: MachineDetail; compact?: boolean; extra?: ReactNode }) {
   const chip = stateChip(machine), pct = machine.paused ? null : syncPct(machine), clock = clockWarning(machine.machine_id, null), note = stateNote(machine), folder = plainPath(machine.folder);
   return <div className={compact ? "fs-row pm-sync" : "fs-row"} onContextMenu={event => { if (!compact && sync.changeFolder && machine.status !== "offline" && machine.folder) openMenu(event.nativeEvent, machine.machine_name, [{ label: "Change folder…", on: () => sync.changeFolder?.(project, machine) }]); }}>
-    <div className="fs-h">{!compact && <span className={`ddot${machine.status === "offline" ? " off" : ""}`} />}<b>{compact ? machine.git_only ? "Git sync" : "File sync" : machine.machine_name}</b><span className={`chip${chip.wait ? " wait" : ""}`} title={machine.error || ""}>{chip.text}</span>{compact && sync.fixGit && !machine.paused && gitSyncWarning(machine) && <button type="button" className="dbtn small" title="Opens a draft with both checkouts and recent session references" onClick={() => sync.fixGit?.(project, machine)}>Fix with an agent</button>}{extra}</div>
+    <div className="fs-h">{!compact && <span className={`ddot${machine.status === "offline" ? " off" : ""}`} />}<b>{compact ? machine.git_only ? "Git sync" : "File sync" : machine.machine_name}</b><Chip kind={chip.wait ? "wait" : ""} text={chip.text} title={machine.error || ""} />{compact && sync.fixGit && !machine.paused && gitSyncWarning(machine) && <button type="button" className="dbtn small" title="Opens a draft with both checkouts and recent session references" onClick={() => sync.fixGit?.(project, machine)}>Fix with an agent</button>}{extra}</div>
     {pct !== null && <div className="fs-bar"><i style={{ width: `${pct}%` }} /></div>}{(!compact || !machine.git_only) && <div className="fs-m">{(compact ? machineMeta(machine) : machine.git_only ? ["Git sync"] : machineMeta(machine)).map((part, i) => <span key={i}>{part}</span>)}{!compact && folder && <code>{folder}</code>}</div>}
     {clock && <div className="fs-m"><span className="clockoff" title={clock.title}>{clock.text}</span></div>}{note && <div className={machine.status === "syncthing" ? "fs-m" : "cc-err"} title={machine.error || ""}>{note}</div>}
     {!compact && sync.fixGit && !machine.paused && gitSyncWarning(machine) && <div className="fs-m"><button type="button" className="dbtn small" title="Opens a draft with both checkouts and recent session references" onClick={() => sync.fixGit?.(project, machine)}>Fix with an agent</button></div>}{machine.hint && <div className="fs-m">Rescanned instead of watched. To watch it, run {machine.hint}</div>}
@@ -37,18 +39,25 @@ function ConflictRow({ sync, project, conflict, machines, busy, paused }: { sync
     {!gitConflict(conflict.path) && <button type="button" className="dbtn small" title={`Shows what differs between ${conflict.original} and this copy`} onClick={() => void sync.compare(project, conflict, machines)}>{comparing ? "Hide" : "Compare"}</button>}
     {sync.fix && conflict.holder && <button type="button" className="dbtn small pri" title="Fills the bar to merge the two; you send it" onClick={() => sync.fix?.(project, conflict)}>Fix with an agent</button>}
     {conflict.resolver ? <><button type="button" className="dbtn small" disabled={disabled} title={`Puts this copy in place of ${conflict.original} on every machine`} onClick={() => void sync.resolve(project, conflict, true)}>{busy === conflict.path ? "Keeping…" : "Keep this copy"}</button><button type="button" className="dbtn small" disabled={disabled} title={`Keeps ${conflict.original} and deletes this copy on every machine`} onClick={() => void sync.resolve(project, conflict, false)}>Keep the original</button></> : <span className="dmuted">Update beep-node on a machine that has it to settle it here</span>}</span>
-    {comparing && <div className="fs-cmp"><div className="fs-cmph"><span>Kept <b>{conflict.original}</b></span><span>Copy <b>{conflict.path}</b></span><small>{where ? `on ${where}` : ""}</small></div>{shown === null ? <div className="dmuted fs-cmpn">Reading…</div> : typeof shown === "string" ? <div className="dmuted fs-cmpn">{shown}</div> : shown && <Legacy node={shown} />}</div>}
+    {comparing && <div className="fs-cmp"><div className="fs-cmph"><span>Kept <b>{conflict.original}</b></span><span>Copy <b>{conflict.path}</b></span><small>{where ? `on ${where}` : ""}</small></div>{shown === null ? <div className="dmuted fs-cmpn">Reading…</div> : typeof shown === "string" ? <div className="dmuted fs-cmpn">{shown}</div> : shown && <DiffHost node={shown} />}</div>}
   </div>;
 }
 export function SyncProject({ sync, project, model, machines = null, heading = project }: { sync: Sync; project: string; model: ReturnType<Sync["page"]>; machines?: ReactNode; heading?: string }) {
   const { detail, error, busy } = model;
-  if (!detail) return <>{error && <div className="cc-err">{error}</div>}{machines}<div className="cc-panel cc-empty">{detail === null ? <b>The server needs an update before it shows file sync in detail.</b> : <span>Loading…</span>}</div></>;
+  if (!detail) return <>{error && <div className="cc-err">{error}</div>}{machines}{detail === null ? <EmptyPanel title="The server needs an update before it shows file sync in detail." /> : <EmptyPanel text="Loading…" />}</>;
   const conflicts = conflictList(detail), waiting = waitingList(detail);
-  return <>{error && <div className="cc-err">{error}</div>}<div className="cc-sec"><h4>{heading}</h4><span className="fs-tools"><small>{syncSummary(detail)}</small><button type="button" className={`dbtn${detail.paused ? " pri" : ""}`} disabled={!!busy || detail.pinned || !detail.machines.length} hidden={!detail.paused && detail.machines.every(syncedBySyncthing)} title={detail.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are"} onClick={() => void sync.pause(project, !detail.paused)}>{busy === "pause" ? (detail.paused ? "Resuming…" : "Pausing…") : detail.paused ? "Resume" : "Pause"}</button></span></div>
+  return <>{error && <div className="cc-err">{error}</div>}<SectionHead title={heading}><span className="fs-tools"><small>{syncSummary(detail)}</small><button type="button" className={`dbtn${detail.paused ? " pri" : ""}`} disabled={!!busy || detail.pinned || !detail.machines.length} hidden={!detail.paused && detail.machines.every(syncedBySyncthing)} title={detail.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are"} onClick={() => void sync.pause(project, !detail.paused)}>{busy === "pause" ? (detail.paused ? "Resuming…" : "Pausing…") : detail.paused ? "Resume" : "Pause"}</button></span></SectionHead>
     {machines ?? <div className="cc-panel fs-list">{detail.machines.length ? detail.machines.map(machine => <SyncMachine key={machine.machine_id} sync={sync} project={project} machine={machine} />) : <div className="cc-empty"><span>{detail.pinned ? "Pinned: never syncs." : "No machine syncs this project."}</span></div>}</div>}
     {!!detail.ignored_folders?.length && <div className="fs-m">File sync for ignored folders: {detail.ignored_folders.join(", ")}</div>}
-    {!!conflicts.length && <><div className="cc-sec"><h4>Conflicts</h4><small>edited on two machines at once</small></div><div className="cc-panel fs-list">{conflicts.map(conflict => <ConflictRow key={conflict.path} sync={sync} project={project} conflict={conflict} machines={detail.machines} busy={busy} paused={detail.paused} />)}</div></>}
-    {!!waiting.length && <><div className="cc-sec"><h4>Waiting</h4></div><div className="cc-panel fs-list">{waiting.map(item => <div className="fs-wait" key={item.path}><code>{item.path}</code><span className="dmuted">{item.machines.join(", ")}</span></div>)}</div></>}
+    {!!conflicts.length && <><SectionHead title="Conflicts"><small>edited on two machines at once</small></SectionHead><div className="cc-panel fs-list">{conflicts.map(conflict => <ConflictRow key={conflict.path} sync={sync} project={project} conflict={conflict} machines={detail.machines} busy={busy} paused={detail.paused} />)}</div></>}
+    {!!waiting.length && <><SectionHead title="Waiting" /><div className="cc-panel fs-list">{waiting.map(item => <div className="fs-wait" key={item.path}><code>{item.path}</code><span className="dmuted">{item.machines.join(", ")}</span></div>)}</div></>}
     <div className="dmuted fs-note">{detail.machines.some(machine => machine.git_only) ? detail.ignored_folders?.length ? "Git syncs commits. Selected ignored folders use file sync. Other uncommitted edits stay local." : "Git checkouts sync commits. Uncommitted edits stay on their machine; use Bring work here under Machines for an explicit handoff." : "Builds, ignored files and links stay on each machine."}</div>
   </>;
+}
+
+/// The Sync page: every project some machine syncs, those with conflicts first.
+export function SyncPage({ sync, models }: { sync: Sync; models: readonly { project: string; model: ReturnType<Sync["page"]> }[] }) {
+  return <div className="cc-view">{models.length
+    ? models.map(({ project, model }) => <SyncProject key={project} sync={sync} project={project} model={model} />)
+    : <EmptyPanel title="No project syncs yet" />}</div>;
 }
