@@ -28,6 +28,8 @@ beep-live = { path = "../../../crates/live" }
 beep-mesh = { path = "../../../crates/mesh" }
 beep-node = { path = "../../../crates/node", default-features = false }
 metrics = "0.24"
+# Renders the metrics a phone keeps itself; a desktop's embedded node uses it too.
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 beep-projects = { path = "../../../crates/projects" }
 beep-proto = { path = "../../../crates/proto", features = ["client"] }
 beep-report = { path = "../../../crates/report" }
@@ -58,8 +60,6 @@ uuid = { version = "1", features = ["v4"] }
 pulldown-latex = "0.8"
 
 [dev-dependencies]
-# The exporter the embedded node renders metrics with, to check what a UI batch adds.
-metrics-exporter-prometheus = { version = "0.18", default-features = false }
 rmp-serde = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }

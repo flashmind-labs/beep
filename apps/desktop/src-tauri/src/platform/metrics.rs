@@ -1,14 +1,19 @@
 //! Bounded timings from the webviews, without page arguments or user data.
 
 use std::{
+    io::{self, Write},
+    path::Path,
     sync::{
-        OnceLock,
+        Arc, Mutex, OnceLock, PoisonError,
         atomic::{AtomicU64, Ordering},
     },
-    time::Instant,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use serde::Deserialize;
+use tauri::{AppHandle, Manager};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 #[derive(Deserialize)]
 pub(crate) struct Timing {
@@ -300,7 +305,7 @@ fn slow_ms(kind: UiKind) -> Option<f64> {
 
 /// Merges a webview's UI batch into the app's metrics, the ones `beep_metrics` reads.
 #[tauri::command]
-pub(crate) fn desktop_ui_metrics(batch: UiBatch) {
+pub(crate) fn desktop_ui_metrics(app: AppHandle, batch: UiBatch) {
     let started = Instant::now();
     record_ui(&batch);
 
@@ -313,6 +318,77 @@ pub(crate) fn desktop_ui_metrics(batch: UiBatch) {
     }
 
     metrics::histogram!("beep_desktop_ui_merge_seconds").record(started.elapsed().as_secs_f64());
+
+    // A desktop's node writes the metrics; a phone writes its own.
+    if let Some(phone) = app.try_state::<PhoneMetrics>() {
+        phone.snapshot();
+    }
+}
+
+/// How many days of a phone's metrics are kept.
+const PHONE_DAYS: usize = 7;
+
+/// A phone's metrics (#571). A phone embeds no node, so it keeps them itself: each UI batch,
+/// about once a minute while the app shows and once as it hides, writes them to `metrics.*.log`
+/// in its folder, in the node's `metrics.log` snapshot format. No timer runs, so a phone in the
+/// background does no work for them.
+pub(crate) struct PhoneMetrics {
+    handle: PrometheusHandle,
+    file: Arc<Mutex<RollingFileAppender>>,
+}
+
+impl PhoneMetrics {
+    /// Installs the app's metrics recorder and writes its snapshots to `dir`.
+    #[cfg_attr(
+        desktop,
+        allow(dead_code, reason = "only a phone keeps its own metrics")
+    )]
+    pub(crate) fn start(dir: &Path) -> anyhow::Result<Self> {
+        Self::new(PrometheusBuilder::new().install_recorder()?, dir)
+    }
+
+    #[cfg_attr(
+        desktop,
+        allow(dead_code, reason = "only a phone keeps its own metrics")
+    )]
+    fn new(handle: PrometheusHandle, dir: &Path) -> anyhow::Result<Self> {
+        let file = RollingFileAppender::builder()
+            .rotation(Rotation::DAILY)
+            .filename_prefix("metrics")
+            .filename_suffix("log")
+            .max_log_files(PHONE_DAYS)
+            .build(dir)?;
+        Ok(Self {
+            handle,
+            file: Arc::new(Mutex::new(file)),
+        })
+    }
+
+    /// Writes one snapshot off the main thread.
+    fn snapshot(&self) {
+        let handle = self.handle.clone();
+        let file = self.file.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(e) = write_snapshot(&handle, &file) {
+                log::warn!("writing metrics: {e}");
+            }
+        });
+    }
+}
+
+fn write_snapshot(handle: &PrometheusHandle, file: &Mutex<RollingFileAppender>) -> io::Result<()> {
+    handle.run_upkeep();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let snapshot = format!(
+        "# snapshot unix_seconds={timestamp}\n{}\n# end snapshot\n",
+        handle.render()
+    );
+    let mut file = file.lock().unwrap_or_else(PoisonError::into_inner);
+    file.write_all(snapshot.as_bytes())?;
+    file.flush()
 }
 
 fn record_ui(batch: &UiBatch) {

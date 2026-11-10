@@ -6,6 +6,9 @@ Earlier releases predate this changelog.
 
 ### Added
 
+- Android: how quickly screens open and respond to taps is kept in a
+  metrics file in the app's data folder, by screen only and never with
+  content.
 - Android: slow taps and stalls are noted in the app's log, by screen only
   and never with content, so slow screens can be found afterwards.
 - Android: Stop all, in a session's menu, ends its turn, subagents, background
@@ -34,6 +37,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Android: Stop all asks first when a session that is not open still has
+  subagents running.
 - Android: Stop ends only the main agent's turn. Its subagents, background
   commands and the agents it started keep running, and the session shows
   as working until they finish.

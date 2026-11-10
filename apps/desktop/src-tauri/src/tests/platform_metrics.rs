@@ -106,3 +106,30 @@ fn rejects_ui_labels_outside_the_fixed_sets() {
     histogram.counts.push(1);
     assert!(!histogram.valid());
 }
+
+#[test]
+fn a_phone_writes_its_merged_ui_metrics_as_snapshots() {
+    let dir = tempfile::tempdir().unwrap();
+    let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+    let phone = PhoneMetrics::new(recorder.handle(), dir.path()).unwrap();
+    let batch = ui_batch(serde_json::json!({
+        "window": "phone",
+        "histograms": [{ "kind": "interaction", "view": "home", "input": "pointer",
+            "counts": [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "sum_ms": 8.0, "max_ms": 8.0 }],
+        "shown_ms": [], "hidden_ms": 0.0, "slow": [], "supported": [], "overhead_ms": 0.0,
+    }));
+
+    metrics::with_local_recorder(&recorder, || record_ui(&batch));
+    write_snapshot(&phone.handle, &phone.file).unwrap();
+
+    let file = std::fs::read_dir(dir.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(file).unwrap();
+    assert!(text.starts_with("# snapshot unix_seconds="));
+    assert!(text.contains(r#"beep_desktop_ui_seconds_count{window="phone",kind="interaction",view="home",input="pointer"} 1"#));
+    assert!(text.ends_with("# end snapshot\n"));
+}
