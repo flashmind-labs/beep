@@ -319,6 +319,7 @@ export function closePaneTabs() {
 }
 
 function dropTab(t: MediaTab) {
+  t.el?.querySelector("video")?.pause();
   if (t.el) removeSessionPortal(t.el);
   if (t.term) dropTerm(t.term);
   const stage = t.el?.querySelector<HTMLElement>(".agpstage.model");
@@ -326,7 +327,6 @@ function dropTab(t: MediaTab) {
   const controls = t.el?.querySelector<HTMLElement>(".anim");
   if (controls) removeSessionPortal(controls);
   t.model?.dispose();
-  t.el?.querySelector("video")?.pause();
   if (t.url?.startsWith("blob:")) URL.revokeObjectURL(t.url);
   t.el?.remove();
 }

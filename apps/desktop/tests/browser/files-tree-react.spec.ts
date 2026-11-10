@@ -160,3 +160,18 @@ test("invalid 3D files show an error inside the retained model stage", async ({ 
   await page.locator('[data-fpath="model.glb"]').click();
   await expect(page.locator(".agpstage.model .agpmsg.derr")).toContainText("Could not draw model.glb:");
 });
+
+test("video and PDF tabs retain their controls and native media", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: listing(["clip.mp4", "report.pdf"]), agent_file: { size: 1, mime: "application/octet-stream", data: "AA==" } });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="clip.mp4"]').click();
+  const video = page.locator(".agpview:visible").filter({ has: page.getByRole("button", { name: "Open in QuickTime" }) });
+  await expect(video.getByText("This video does not play here. Open it in QuickTime instead.")).toBeVisible();
+  await video.getByRole("button", { name: "Open in QuickTime" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file_open").length)).toBe(1);
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="report.pdf"]').click();
+  await expect(page.locator('iframe[title="report.pdf"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open in Preview" })).toBeVisible();
+});
