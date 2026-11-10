@@ -1,18 +1,18 @@
 import { Spinner } from "../ui/kit.tsx";
-import { createElement, Fragment } from "react";
+import { createElement, createRef, Fragment, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { startAttachments } from "./start-attachments.ts";
-import { makeStartComposer } from "./start-composer.ts";
+import { makeStartComposer, type StartComposer } from "./start-composer.ts";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
-import { ChoiceMenuView, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
+import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
 import { AG, AGENT_ORDER, agentKind, byPreference, hostChanges, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.ts";
-import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, placeMenuAt, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
-import { $, type AgentReturn, bar, PANE, S } from "../bar/core.ts";
+import { type BaseBranches, baseFor, baseRows, type CheckoutPick, DEFAULT_CHECKOUT, folderPill, folderRows, type FormProject, formProjects, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, projectAt, projectFolders, startPlace, tildePath } from "./agentpick.ts";
+import { type AgentReturn, bar, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder, type ProjectRow } from "../project/projects-state.ts";
 import { addHosts, barCheckout, barPlace } from "../project/projectbar.ts";
@@ -69,7 +69,7 @@ export function keepMachine(project: string | null | undefined, machine: string)
 /// Every machine of the user's, online or not, for the Machine menu; null
 /// until read.
 let KNOWN: Machine[] | null = null;
-let composer: ReturnType<typeof makeStartComposer> | null = null;
+let composer: StartComposer | null = null;
 let shellPage: BarPageSlot | null = null;
 let attachments: ReturnType<typeof startAttachments>;
 let fixedProject = false;
@@ -148,35 +148,38 @@ export function drawAgentNew() {
   else drawFrame();
 }
 
-/// The form's frame: heading, prompt and the slots `drawParts` fills. The
+/// The form's frame: heading, prompt and the parts `drawParts` fills. The
 /// prompt is drawn once, so redrawing the rest keeps what is typed.
 function drawFrame() {
   const f = AG.form;
-  const c = composer = makeStartComposer({ projectPicker: !fixedProject });
-  attachments = startAttachments(c, text => { AG.error = text; c.err.textContent = text; }, () => drawParts());
-  c.box.id = "agbox";
-  c.input.id = "agprompt";
-  c.input.value = f.prompt;
-  c.choices.id = "agchoices";
-  c.project.id = "agprojb";
-  c.machine.id = "aghostb";
-  c.folder.id = "agfoldb";
-  c.harness.id = "agpillb";
-  c.send.id = "aggo";
-  c.pick.id = "agpick";
-  c.err.id = "agerr";
-  const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); c.dispose(); });
-  flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null } }));
-  c.form.addEventListener("submit", e => { e.preventDefault(); void startAgent(); });
-  c.input.addEventListener("input", () => {
-    f.prompt = c.input.value;
-    if (AG.error === "prompt") { AG.error = ""; drawParts(); }
+  const c = composer = makeStartComposer({
+    projectPicker: !fixedProject, ids: true,
+    actions: {
+      submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, files: files => attachments.take(files),
+      input: value => { AG.form.prompt = value; if (AG.error === "prompt") { AG.error = ""; drawParts(); } },
+    },
   });
+  attachments = startAttachments(c, text => { AG.error = text; c.update({ error: text }); }, () => drawParts());
+  c.setText(f.prompt);
+  const page = shellPage = openBarPage(() => { shellPage = null; bar.classList.remove("agc-menuopen"); closedPicker(c.pick); c.dispose(); stopOutside(); });
+  flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, openList: renderAgents } }));
   composeField(c.input, { images: files => attachments.add(files) });
   attachments.bindStash(() => AG.form.project ?? null);
-  bar.onclick = onClick;
+  stopOutside();
+  document.addEventListener("click", closeOutside);
   drawParts();
 }
+
+/// A click outside the open menu or picker closes it.
+function closeOutside(e: MouseEvent) {
+  const f = AG.form;
+  if (S.view !== "agentnew" || AG.busy || !f.open || !(e.target instanceof Element)) return;
+  if (e.target.closest(".agc-pick, .agc-menu, .pill")) return;
+  f.open = null;
+  drawParts();
+}
+
+function stopOutside() { document.removeEventListener("click", closeOutside); }
 
 /// Brings the form's choices in line with the machine picked, then draws
 /// everything but the prompt.
@@ -185,7 +188,7 @@ function drawParts() {
   if (S.view !== "agentnew" || !c?.box.isConnected) return;
   const f = AG.form, hosts = AG.hosts ?? [];
   const page = shellPage;
-  if (page) flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null } }));
+  if (page) flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, openList: renderAgents } }));
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
@@ -199,43 +202,36 @@ function drawParts() {
   syncModel();
   const none = !!AG.hosts && !hosts.length;
   const missing = AG.error === "prompt";
-  c.box.classList.toggle("err", missing);
-  c.input.placeholder = taskHint(missing);
-  // Keep focus when the picker or typed folder is drawn again.
-  const active = document.activeElement;
-  const focused = active?.closest("#agpick") ? "#agpick .agc-search" : active?.id ? `#${active.id}` : "";
-  const go = c.send;
-  go.disabled = AG.busy || attachments.reading || !hosts.length || !f.machine || !f.project;
-  go.title = !f.project ? "Pick a project first" : !f.machine ? "Pick a machine first" : "Start (⌘↩)";
-  // The key hints give way to an open menu.
-  bar.classList.toggle("agc-menuopen", !!f.open);
-  c.setBusy(AG.busy);
+  const host = formHost();
+  c.update({
+    invalid: missing, placeholder: taskHint(missing), error: missing ? "Say what the agent should do." : AG.error,
+    sendDisabled: AG.busy || attachments.reading || !hosts.length || !f.machine || !f.project,
+    sendTitle: !f.project ? "Pick a project first" : !f.machine ? "Pick a machine first" : "Start (⌘↩)",
+    busy: AG.busy, open: f.open ?? null,
+    projectTitle: f.project ? "The project this agent works on" : "Pick a project to start",
+    folderHidden: !!f.typing, folderTitle: f.cwd.trim() || host?.workspace || "The machine's workspace",
+  });
   attachments.setBusy(AG.busy);
+  // The key hints under the bar give way to an open menu.
+  bar.classList.toggle("agc-menuopen", !!f.open);
+  // Text set from code (a stash restore, a start) fits once drawn.
   requestAnimationFrame(c.grow);
   drawPill(c, none);
   drawPicker(c);
   drawUnder(c);
-  c.setNotes(createElement(NewAgentNotes, { waiting: !AG.hosts, none, noMachine: !f.machine && !!AG.hosts?.length }));
-  c.err.textContent = missing ? "Say what the agent should do." : AG.error;
-  if ((focused === "#agpick .agc-search" || focused === "#agcwd" || focused === "#agbase") && document.activeElement !== $(focused)) focusEnd(focused);
+  c.setNotes(createElement(NewAgentNotes, { waiting: !AG.hosts, none, noMachine: !f.machine && !!AG.hosts?.length, openMachines }));
 }
 
-/// Focuses the field at `sel` with the caret at its end.
-function focusEnd(sel: string) {
-  const field = $<HTMLInputElement>(sel);
-  field?.focus();
-  field?.setSelectionRange(field.value.length, field.value.length);
-}
+function openMachines() { void import("../machines/machines.ts").then(m => m.renderMachines()); }
 
-function drawPill(c: NonNullable<typeof composer>, none: boolean) {
-  const f = AG.form, button = c.harness;
-  button.disabled = none || !f.agent;
-  button.setAttribute("aria-expanded", String(f.open === "pick"));
+function drawPill(c: StartComposer, none: boolean) {
+  const f = AG.form;
+  c.update({ harnessDisabled: none || !f.agent });
   c.setHarness(none || !f.agent ? "No agent" : pillContent(f.agent, f.model ?? "", f.effort ?? null, f.modelFor ? f.machine || null : null));
 }
 
 /// The picker by the pill: harnesses, their models, their thinking.
-function drawPicker(c: NonNullable<typeof composer>) {
+function drawPicker(c: StartComposer) {
   const f = AG.form, el = c.pick;
   if (f.open !== "pick" || !f.agent) { closedPicker(el); return; }
   const host = formHost(), machine = f.modelFor ? f.machine || null : null;
@@ -260,53 +256,38 @@ function drawPicker(c: NonNullable<typeof composer>) {
   });
 }
 
-addEventListener("resize", () => { if (S.view === "agentnew") placeMenu(); });
-// The menu floats over the page, so it follows its pill when the form scrolls.
-addEventListener("scroll", () => { if (S.view === "agentnew") placeMenu(); }, { capture: true, passive: true });
-
 /// Project, machine and checkout controls, with whichever menu is open.
-function drawUnder(c: NonNullable<typeof composer>) {
+function drawUnder(c: StartComposer) {
   const f = AG.form, host = formHost();
   const checkout = checkoutHere();
   const shown = folderPill(f.cwd, host?.workspace, host?.home);
   const co = barCheckout(f.checkout ?? DEFAULT_CHECKOUT, baseFor(f.base, formBranches()));
-  c.folder.hidden = !!f.typing;
-  c.folder.title = f.cwd.trim() || host?.workspace || "The machine's workspace";
-  c.folder.setAttribute("aria-expanded", String(f.open === "folder"));
   drawExtras(c);
-  c.project.title = f.project ? "The project this agent works on" : "Pick a project to start";
-  c.project.setAttribute("aria-expanded", String(f.open === "project"));
-  c.machine.setAttribute("aria-expanded", String(f.open === "host"));
   c.setChoiceContents({ project: createElement(ProjectChoice, { name: f.project || "No project" }), machine: host ? host.machine_name : "Pick a machine", folder: createElement(FolderChoice, { checkout, label: checkout ? co.label : shown.label, detail: checkout ? co.sub : shown.path }) });
-  c.setUnder(createElement(ChoiceMenuView, { menu: projectMenu() ?? hostMenu() ?? folderMenu(checkout) ?? baseMenu() }));
-  placeMenu();
+  c.setUnder(createElement(ChoiceMenuView, { menu: projectMenu() ?? hostMenu() ?? folderMenu(checkout) ?? baseMenu(), anchor: menuAnchor, bounds: menuBounds, pick: pickChoice }));
 }
 
-function drawExtras(c: NonNullable<typeof composer>) {
+const baseButton = createRef<HTMLButtonElement>();
+
+function drawExtras(c: StartComposer) {
   const f = AG.form, base = baseFor(f.base, formBranches()) || "HEAD";
-  const folder = f.typing ? createElement(FolderInput, { value: f.cwd, menu, bind: bindFolderField, pick: pickFolder }) : null;
+  const folder = f.typing ? createElement(FolderInput, { value: f.cwd, menu, change: typeFolder, keyDown: folderKey, leave: () => { if (AG.form.typing) doneTyping(); }, pick: pickFolder }) : null;
   const branch = checkoutHere() && makesBranch(f.checkout ?? DEFAULT_CHECKOUT)
-    ? f.baseTyping ? createElement(BaseInput, { value: f.base ?? "", placeholder: base, bind: bindBaseField }) : createElement(BaseChoice, { base, open: f.open === "base" }) : null;
+    ? f.baseTyping
+      ? createElement(BaseInput, { value: f.base ?? "", placeholder: base, change: value => { f.base = value.trim() || null; drawExtras(c); }, keyDown: baseKey, leave: () => { if (AG.form.baseTyping) { AG.form.baseTyping = false; drawParts(); } } })
+      : createElement(BaseChoice, { base, open: f.open === "base", button: baseButton, toggle: toggleBase })
+    : null;
   c.setExtras(createElement(Fragment, null, folder, branch));
 }
 
-/// Places the open menu by its pill, over the page so nothing clips it: below
-/// when it fits, else above, scrolling inside.
-function placeMenu() {
-  const f = AG.form;
-  const c = composer, pill = f.open === "project" ? c?.project : f.open === "host" ? c?.machine : f.open === "folder" ? c?.folder : f.open === "base" ? $("#agbaseb") : null;
-  const menu = $<HTMLElement>("#agunder > .agc-menu"), anchor = pill?.isConnected ? pill : null;
-  if (!menu || !anchor) return;
-  menu.classList.add("float");
-  menu.style.maxHeight = "";
-  const a = anchor.getBoundingClientRect(), view = bar.getBoundingClientRect();
-  const at = placeMenuAt(a, { width: menu.offsetWidth, height: menu.scrollHeight },
-    { top: Math.max(0, view.top), bottom: Math.min(innerHeight, view.bottom), width: innerWidth });
-  menu.style.top = `${at.top}px`;
-  menu.style.left = `${at.left}px`;
-  menu.style.maxHeight = `${at.maxHeight}px`;
-  menu.classList.toggle("up", at.up);
+/// The pill the open menu hangs from, and the area it stays in.
+function menuAnchor() {
+  const open = AG.form.open, c = composer;
+  if (open === "base") return baseButton.current;
+  return c && (open === "project" || open === "host" || open === "folder") ? c.choice(open) : null;
 }
+
+function menuBounds() { return bar; }
 
 /// The Project menu: the user's projects, then none.
 function projectMenu(): ChoiceMenu | null {
@@ -373,15 +354,9 @@ function baseMenu(): ChoiceMenu | null {
   return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit…", detail: "" }] };
 }
 
-/// The base field: Enter or a click elsewhere keeps what is typed; empty
-/// goes back to the default.
-function bindBaseField(input: HTMLInputElement) {
-  const f = AG.form;
-  input.addEventListener("input", () => { f.base = input.value.trim() || null; });
-  input.addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.metaKey) { e.preventDefault(); f.baseTyping = false; drawParts(); }
-  });
-  input.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== input && AG.form.baseTyping) { AG.form.baseTyping = false; drawParts(); } }, 150));
+/// The base field: Enter keeps what is typed; empty goes back to the default.
+function baseKey(e: ReactKeyboardEvent<HTMLInputElement>) {
+  if (e.key === "Enter" && !e.metaKey) { e.preventDefault(); AG.form.baseTyping = false; drawParts(); }
 }
 
 function hostMenu(): ChoiceMenu | null {
@@ -436,56 +411,52 @@ function folderMenu(checkout: boolean): ChoiceMenu | null {
   return { style: "folder", rows };
 }
 
-function onClick(e: MouseEvent) {
+/// Opens or closes the project, machine or folder menu.
+function toggleChoice(which: "project" | "host" | "folder") {
+  const f = AG.form;
   if (S.view !== "agentnew" || AG.busy) return;
-  const f = AG.form, target = e.target as HTMLElement;
-  const at = (sel: string) => target.closest<HTMLElement>(sel);
-  if (at("#agList")) return renderAgents();
-  if (at("#agmachines")) return import("../machines/machines.ts").then(m => m.renderMachines());
-  if (at("#agpillb")) return togglePicker();
-  if (at("#agprojb")) { f.open = f.open === "project" ? null : "project"; return drawParts(); }
-  const project = at("[data-agp]");
-  if (project) { setProject(project.dataset.agp || null); f.open = null; return drawParts(); }
-  if (at("#aghostb")) { f.open = f.open === "host" ? null : "host"; return drawParts(); }
-  if (at("#agfoldb")) { f.open = f.open === "folder" ? null : "folder"; return drawParts(); }
-
-  if (at("#agbaseb")) {
-    // Without the project's branches, the ref is typed.
-    if (formBranches() === null) return typeBase();
-    f.open = f.open === "base" ? null : "base";
-    return drawParts();
-  }
-
-  const base = at("[data-agb]");
-  if (base) { f.base = base.dataset.agb!; f.open = null; return drawParts(); }
-  if (at("[data-agbtype]")) return typeBase();
-  const machine = at("[data-agm]");
-
-  if (machine) {
-    f.machine = machine.dataset.agm!;
-    keepMachine(f.project, f.machine);
-    f.cwd = folderOn(f.cwd, f.machine, f.places);
-    f.open = null;
-    return drawParts();
-  }
-
-  const folder = at("[data-agf]");
-  if (folder) { f.cwd = folder.dataset.agf!; f.checkout = DEFAULT_CHECKOUT; f.open = null; projectForFolder(); return drawParts(); }
-  const checkout = at("[data-agk]");
-  if (checkout) { f.checkout = checkout.dataset.agk as CheckoutPick; f.open = null; return drawParts(); }
-  const tree = at("[data-agw]");
-  if (tree) { f.checkout = { worktree: tree.dataset.agw! }; f.open = null; return drawParts(); }
-
-  if (at("[data-agtype]")) {
-    f.typing = true;
-    f.open = null;
-    drawParts();
-    return focusEnd("#agcwd");
-  }
-
-  // A click anywhere else closes what is open.
-  if (f.open && !at(".agc-pick, .agc-menu")) { f.open = null; drawParts(); }
+  f.open = f.open === which ? null : which;
+  drawParts();
 }
+
+function toggleBase() {
+  const f = AG.form;
+  if (S.view !== "agentnew" || AG.busy) return;
+  // Without the project's branches, the ref is typed.
+  if (formBranches() === null) return typeBase();
+  f.open = f.open === "base" ? null : "base";
+  drawParts();
+}
+
+/// A row picked in the open menu.
+function pickChoice(action: ChoiceAction, value: string) {
+  const f = AG.form;
+  if (S.view !== "agentnew" || AG.busy) return;
+
+  switch (action) {
+    case "agp": setProject(value || null); break;
+    case "agb": f.base = value; break;
+    case "agbtype": return typeBase();
+    case "agm":
+      f.machine = value;
+      keepMachine(f.project, f.machine);
+      f.cwd = folderOn(f.cwd, f.machine, f.places);
+      break;
+    case "agf": f.cwd = value; f.checkout = DEFAULT_CHECKOUT; projectForFolder(); break;
+    case "agk": if (isCheckoutKind(value)) f.checkout = value; break;
+    case "agw": f.checkout = { worktree: value }; break;
+    case "agtype":
+      f.typing = true;
+      f.open = null;
+      drawParts();
+      return lookFolders();
+  }
+
+  f.open = null;
+  drawParts();
+}
+
+const isCheckoutKind = (value: string): value is "current" | "branch" | "new" => value === "current" || value === "branch" || value === "new";
 
 /// Turns the Base button into a field to type a ref in.
 function typeBase() {
@@ -493,7 +464,6 @@ function typeBase() {
   f.baseTyping = true;
   f.open = null;
   drawParts();
-  focusEnd("#agbase");
 }
 
 /// Opens or closes the picker; open, the search takes the keys.
@@ -522,34 +492,34 @@ export function closeAgentNewMenus() {
 // ----- Typing a folder -----
 
 let menu: FolderMenu = NO_MENU;
-let folderField: HTMLInputElement | null = null;
 let lookup = 0;
 let lookupTimer: ReturnType<typeof setTimeout> | undefined;
 const listed = new Map<string, string[]>();
 
 /// The folder field: typing sets the folder, the menu offers the machine's
 /// folders under what is typed, Enter or a click elsewhere keeps it.
-function bindFolderField(input: HTMLInputElement) {
+function typeFolder(value: string) {
   const f = AG.form;
-  folderField = input;
-  input.addEventListener("input", () => { f.cwd = input.value; f.checkout = DEFAULT_CHECKOUT; lookFolders(input); });
-  input.addEventListener("keydown", e => {
-    const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
+  f.cwd = value;
+  f.checkout = DEFAULT_CHECKOUT;
+  if (composer) drawExtras(composer);
+  lookFolders();
+}
 
-    if (act.type === "none") {
-      if (e.key === "Enter" && !e.metaKey) { e.preventDefault(); doneTyping(); }
-      return;
-    }
+function folderKey(e: ReactKeyboardEvent<HTMLInputElement>) {
+  const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
 
-    e.preventDefault();
-    e.stopPropagation();
+  if (act.type === "none") {
+    if (e.key === "Enter" && !e.metaKey) { e.preventDefault(); doneTyping(); }
+    return;
+  }
 
-    if (act.type === "move") showMenu(input, { ...menu, index: act.index });
-    else if (act.type === "close") showMenu(input, NO_MENU);
-    else { f.cwd = input.value = act.text; lookFolders(input); }
-  });
-  input.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== input && AG.form.typing) doneTyping(); }, 150));
-  lookFolders(input);
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (act.type === "move") showMenu({ ...menu, index: act.index });
+  else if (act.type === "close") showMenu(NO_MENU);
+  else typeFolder(act.text);
 }
 
 function doneTyping() {
@@ -564,12 +534,12 @@ function doneTyping() {
 
 /// Offers the folders under what is typed, on the machine picked; nothing
 /// before one is.
-function lookFolders(input: HTMLInputElement) {
+function lookFolders() {
   clearTimeout(lookupTimer);
-  const ask = ++lookup, machine = AG.form.machine || null, typed = splitTyped(input.value);
-  if (!machine || !typed) return showMenu(input, NO_MENU);
+  const ask = ++lookup, machine = AG.form.machine || null, typed = splitTyped(AG.form.cwd);
+  if (!machine || !typed) return showMenu(NO_MENU);
   const key = `${machine}\n${typed.dir}`;
-  const offer = (folders: readonly string[]) => { if (ask === lookup) showMenu(input, menuOf(typed.dir, suggest(folders, typed.prefix))); };
+  const offer = (folders: readonly string[]) => { if (ask === lookup) showMenu(menuOf(typed.dir, suggest(folders, typed.prefix))); };
   const known = listed.get(key);
   if (known) return offer(known);
   lookupTimer = setTimeout(async () => {
@@ -578,21 +548,19 @@ function lookFolders(input: HTMLInputElement) {
       listed.set(key, listing.folders);
       offer(listing.folders);
     } catch {
-      if (ask === lookup) showMenu(input, NO_MENU);
+      if (ask === lookup) showMenu(NO_MENU);
     }
   }, 150);
 }
 
-function showMenu(input: HTMLInputElement, next: FolderMenu) {
-  menu = document.activeElement === input ? next : NO_MENU;
-  if (composer && input.isConnected) drawExtras(composer);
+function showMenu(next: FolderMenu) {
+  menu = AG.form.typing ? next : NO_MENU;
+  if (composer && S.view === "agentnew") drawExtras(composer);
 }
 
 function pickFolder(index: number) {
-  const input = folderField;
-  if (!input?.isConnected || !isOpen(menu)) return;
-  AG.form.cwd = input.value = completed(menu.dir, menu.items[index]);
-  lookFolders(input);
+  if (!AG.form.typing || !isOpen(menu)) return;
+  typeFolder(completed(menu.dir, menu.items[index]));
 }
 
 // ----- Models -----
@@ -600,11 +568,11 @@ function pickFolder(index: number) {
 /// Keeps the model with the machine and harness it was picked for, and
 /// asks for their models when not known lately.
 function syncModel() {
-  const f = AG.form, machine = f.machine || null;
-  const key = machine && f.agent ? `${machine}/${f.agent}` : "";
+  const f = AG.form, machine = f.machine || null, agent = f.agent;
+  const key = machine && agent ? `${machine}/${agent}` : "";
   if (f.modelFor !== key) { f.model = ""; f.modelFor = key; }
-  if (!key) return;
-  modelsOn(machine!, f.agent!, () => { if (S.view === "agentnew" && AG.form.modelFor === key && composer) drawPill(composer, false); });
+  if (!machine || !agent) return;
+  modelsOn(machine, agent, () => { if (S.view === "agentnew" && AG.form.modelFor === key && composer) drawPill(composer, false); });
 }
 
 // ----- Start -----
@@ -631,7 +599,7 @@ export async function startAgent() {
     const { cwd, checkout } = checkoutHere()
       ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
       : { cwd: f.cwd.trim(), checkout: null };
-    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim(), text => { if (composer) composer.err.textContent = text; });
+    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim(), error => composer?.update({ error }));
     const images = attachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const started = await invoke<Started>("agent_start", {
       machineId: f.machine,

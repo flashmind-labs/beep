@@ -5,17 +5,20 @@ import { createElement } from "react";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "../src/agents/start-composer-view.tsx";
 import { startDom } from "./start-react-env.ts";
 
+const actions = { submit() {}, harness() {} };
+const openMachines = () => {};
+
 test("machine availability notes update without replacing the composer", async () => {
   const env = startDom();
   try {
     const { makeStartComposer } = await import("../src/agents/start-composer.ts");
-    const c = makeStartComposer(); env.dom.window.document.body.append(c.form);
+    const c = makeStartComposer({ actions }); env.dom.window.document.body.append(c.form);
     c.input.value = "Keep this draft"; c.input.focus();
-    c.setNotes(createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false }));
+    c.setNotes(createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false, openMachines }));
     assert.match(c.form.textContent ?? "", /Looking for machines/);
-    c.setNotes(createElement(NewAgentNotes, { waiting: false, none: true, noMachine: false }));
+    c.setNotes(createElement(NewAgentNotes, { waiting: false, none: true, noMachine: false, openMachines }));
     assert.ok(c.form.querySelector("#agmachines"));
-    c.setNotes(createElement(NewAgentNotes, { waiting: false, none: false, noMachine: true }));
+    c.setNotes(createElement(NewAgentNotes, { waiting: false, none: false, noMachine: true, openMachines }));
     assert.equal(c.form.querySelector("#agwhy")?.textContent, "Pick a machine to start.");
     assert.equal(c.input.value, "Keep this draft");
     assert.equal(document.activeElement, c.input);
@@ -27,12 +30,13 @@ test("new agent choices retain controls across updates", async () => {
   const env = startDom();
   try {
     const { makeStartComposer } = await import("../src/agents/start-composer.ts");
-    const c = makeStartComposer({ projectPicker: true }); env.dom.window.document.body.append(c.form);
+    const c = makeStartComposer({ projectPicker: true, actions }); env.dom.window.document.body.append(c.form);
     const choices = (machine: string) => ({ project: createElement(ProjectChoice, { name: "Project" }), machine, folder: createElement(FolderChoice, { checkout: false, label: "Home", detail: "~/work" }) });
-    c.setChoiceContents(choices("First")); c.machine.focus();
-    const folder = c.folder, project = c.project, machine = c.machine;
+    c.setChoiceContents(choices("First"));
+    const folder = c.choice("folder"), project = c.choice("project"), machine = c.choice("host");
+    assert.ok(folder && project && machine); machine.focus();
     c.setChoiceContents(choices("Second")); c.setBusy(true); c.setBusy(false);
-    assert.equal(c.folder, folder); assert.equal(c.project, project); assert.equal(c.machine, machine);
+    assert.equal(c.choice("folder"), folder); assert.equal(c.choice("project"), project); assert.equal(c.choice("host"), machine);
     assert.equal(document.activeElement, machine); assert.equal(machine.textContent, "Second");
     assert.equal(folder.textContent, "Home ~/work"); assert.equal(project.textContent, "Project");
     c.dispose(); c.form.remove();
@@ -42,7 +46,7 @@ test("new agent choices retain controls across updates", async () => {
 test("start composers consume Enter once and preserve Shift+Enter and composition", async () => {
   const env = startDom();
   const { makeStartComposer } = await import("../src/agents/start-composer.ts");
-  const composer = makeStartComposer();
+  const composer = makeStartComposer({ actions });
   env.dom.window.document.body.append(composer.form);
   let submitted = 0;
   composer.form.requestSubmit = () => { submitted++; };
@@ -76,7 +80,7 @@ test("start composers consume Enter once and preserve Shift+Enter and compositio
 test("project choices keep one owner across busy and layout changes", async () => {
   const env = startDom();
   const { makeStartComposer } = await import("../src/agents/start-composer.ts");
-  const composer = makeStartComposer({ presentation: "compact", externalChoices: true });
+  const composer = makeStartComposer({ presentation: "compact", externalChoices: true, actions });
   env.dom.window.document.body.append(composer.form);
   try {
     composer.setChoices(createElement("button", { "data-test-choice": "machine" }, "Machine"));
