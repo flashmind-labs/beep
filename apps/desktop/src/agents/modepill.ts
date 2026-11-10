@@ -5,8 +5,7 @@ import { showAgentControl } from "./composer-ui.tsx";
 import { AgentMode, AgentPlan } from "./mode-view.tsx";
 import { $ } from "../bar/core.ts";
 import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, where } from "./agents.ts";
-import { questionKey } from "./coderhtml.ts";
-import { steerAgent } from "./messages.ts";
+import { questionKey, steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The server did not know the request, so it is not asked again.

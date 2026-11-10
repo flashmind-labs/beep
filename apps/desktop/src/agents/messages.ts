@@ -1,4 +1,3 @@
-import { questionKey } from "./coderhtml.ts";
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
 import { type Attached, dropDelivered, type Waiting } from "./agentqueue.ts";
@@ -9,7 +8,7 @@ import { $, S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
-import { type AgentPage, type OpenAgent, type Started, type Steer, AG, AGENT_LAST, AGENT_READ_WAIT_MS, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
+import { type AgentPage, type AgentQuestion, type OpenAgent, type Started, type Steer, AG, AGENT_LAST, AGENT_READ_WAIT_MS, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
 import { HOLD_MS, type SendError, sendError, tookIt, viewError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns, redrawAgentHints } from "./session.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
@@ -128,6 +127,12 @@ export function interruptAgent() {
   steerAgent({ cancel: null });
   $("#agmsg")?.focus();
   return true;
+}
+
+/// Binds an approval action to the question and options shown to the user,
+/// so an answer reaches only the question it was shown for.
+export function questionKey(q: AgentQuestion, session: OpenAgent) {
+  return JSON.stringify([session.machine_id, session.agent, session.session, q.id, q.text, q.detail, q.options.map(o => [o.id, o.name, o.allow])]);
 }
 
 /// Answers the open question once: its buttons stay disabled, and a poll
