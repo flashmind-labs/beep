@@ -1,5 +1,4 @@
 import { createElement } from "react";
-import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/window-root.ts";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { refreshMoves, MV } from "../agents/move-store.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
@@ -17,7 +16,6 @@ import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
 import type { RecentSessions } from "./split-view.tsx";
 import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
@@ -387,41 +385,22 @@ async function readWhere(name: string) {
   if (state.picked === name) redrawProjectsPage();
 }
 
-/// Ended sessions in the project's folders, newest first; each opens.
-const sessionLists = new Map<boolean, { project: string; host: HTMLElement }>();
-const sessionPart = (all: boolean) => `project-sessions:${all ? "all" : "recent"}` as const;
-
-export function disposeSessionPanel() { removeWindowParts([...sessionLists.keys()].map(sessionPart)); sessionLists.clear(); }
-
-function sessionListHost(project: string, rows: SessionRow[], all: boolean) {
-  let current = sessionLists.get(all);
-  if (current && current.project !== project) { removeWindowPart(sessionPart(all)); sessionLists.delete(all); current = undefined; }
-  if (!current) {
-    const host = h("div", "cc-panel");
-    current = { project, host };
-    sessionLists.set(all, current);
-  }
-  const list = current;
-  showWindowParts([{ part: sessionPart(all), host: list.host, identity: project, content: createElement(ProjectSessions, {
-    rows, all, open: openAgentRow,
-    menu: (event: MouseEvent, row: SessionRow) => void sessionMenu(event, row, selected => go("pane", { agent: selected })),
-  }) }]);
-  return list.host;
-}
-
 /// The project's past sessions, newest first: five rows tall unless `all`,
 /// with the note that they are being read again.
 export function sessionsList(p: Project, running: RunningAgent[], all: boolean): RecentSessions {
   const sessions = state.sessions.get(p.name);
   const past = projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible);
-  if ((!p.imported || sessions === undefined || !past.length)) disposeSessionPanel();
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   const freshness = sessions !== undefined ? pageFresh("sessions", p.name, readingSessions.has(p.name)) : null;
 
-  if (!p.imported) return { host: null, empty: "Import this project to see its sessions.", count: past.length, freshness };
-  if (sessions === undefined) return { host: null, empty: "Reading sessions…", count: past.length, freshness };
-  if (!past.length) return { host: null, empty: "No past sessions yet.", count: past.length, freshness };
-  return { host: sessionListHost(p.name, past, all), empty: null, count: past.length, freshness };
+  if (!p.imported) return { list: null, empty: "Import this project to see its sessions.", count: past.length, freshness };
+  if (sessions === undefined) return { list: null, empty: "Reading sessions…", count: past.length, freshness };
+  if (!past.length) return { list: null, empty: "No past sessions yet.", count: past.length, freshness };
+  const list = createElement("div", { key: p.name, className: "cc-panel" }, createElement(ProjectSessions, {
+    rows: past, all, open: openAgentRow,
+    menu: (event: MouseEvent, row: SessionRow) => void sessionMenu(event, row, selected => go("pane", { agent: selected })),
+  }));
+  return { list, empty: null, count: past.length, freshness };
 }
 
 /// The agent view for a session row.
@@ -464,40 +443,25 @@ async function readSessions(name: string) {
 
 /// The checkouts the machines found that are not projects yet: the first
 /// three, each with Import; the sheet lists them all.
-let foundHost: HTMLElement | null = null;
-export function disposeFoundSection() {
-  if (!foundHost) return;
-  removeWindowPart("project-found");
-  foundHost = null;
-}
 export function foundSection(enabled: boolean) {
-  if (!enabled || !state.found?.length) { disposeFoundSection(); return null; }
-  if (!foundHost) { foundHost = h("div"); foundHost.id = "sec-found"; }
-  showWindowParts([{ part: "project-found", host: foundHost, content: createElement(FoundSection, {
+  if (!enabled || !state.found?.length) return null;
+  return createElement("div", { id: "sec-found" }, createElement(FoundSection, {
     rows: state.found, importing: state.importing, error: state.foundError, importOne: importFromPage, add: addProject,
-  }) }]);
-  return foundHost;
+  }));
 }
 
 let askedGit = false;
-let elsewhereHost: HTMLElement | null = null;
-export function disposeElsewhereSection() {
-  if (!elsewhereHost) return;
-  removeWindowPart("project-elsewhere");
-  elsewhereHost = null;
-}
 /// The open PRs and issues in repos without a project, each repo with
 /// Import project, under the Projects overview.
 export function elsewhereSection(rows: Project[], enabled: boolean) {
-  if (!enabled) { disposeElsewhereSection(); return null; }
+  if (!enabled) return null;
   if (!state.git) {
     if (!askedGit) { askedGit = true; refreshGit().then(redrawProjects); }
-    disposeElsewhereSection();
     return null;
   }
 
   const repos = outsideThreads(state.git, rows).slice(0, 8);
-  if (!repos.length) { disposeElsewhereSection(); return null; }
+  if (!repos.length) return null;
   const body = repos.map((r, i) => {
     // A checkout the machines found imports as it is; otherwise the sheet clones.
     const here = foundFor(state.found, r.repo);
@@ -507,12 +471,10 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
       importing: !!here && state.importing === here.name, disabled: !!here && state.importing != null, primary: i === 0,
       items: r.items.slice(0, ITEMS_SHOWN), import: () => { if (here) void importFromPage(here); else importSheet(r.repo); } };
   });
-  if (!elsewhereHost) { elsewhereHost = h("div"); elsewhereHost.id = "sec-elsewhere"; }
-  showWindowParts([{ part: "project-elsewhere", host: elsewhereHost, content: createElement(ElsewhereSection, { repos: body, open: openUrl,
+  return createElement("div", { id: "sec-elsewhere" }, createElement(ElsewhereSection, { repos: body, open: openUrl,
     review: item => go("pane", { agentnew: reviewStart(item, null, state.home?.machines?.filter(m => m.can_host !== false)) }),
     reply: item => { void replyItem(item); },
-  }) }]);
-  return elsewhereHost;
+  }));
 }
 
 // Reopened sessions and moves change independently of project membership.

@@ -25,7 +25,7 @@ import { projectBranch } from "./projectlist-state.ts";
 import type { GitRow } from "./gitsync-state.ts";
 import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, disposeOverview, disposeProjectFallback, disposeRunningAgents, whereSection } from "./projects.ts";
+import { agentsSection, customAgentsCount, customAgentsSection, disposeOverview, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
 import { sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
@@ -93,10 +93,7 @@ export function openTile(key: string | null, draw = true) {
     if (element) current.overviewScroll.set(selector, element.scrollTop);
   }
   if (!draw && key === null) {
-    disposeCustomAgents();
     disposeOverview();
-    disposeProjectFallback();
-    disposeRunningAgents();
     details.dispose();
     disposeProjectShell();
   }
@@ -195,7 +192,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const project: SplitItem[] = [
     { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [hostPart(runs.section(agent))] },
     // A machine's terminals sit below it, as on Home.
-    { key: "machines", title: "Machines", sub: [syncCount || machineTile(rows, sync).count, terminalTile(terms.list(p.name), ms => formatAgo(ms, "short")).count].filter(Boolean).join(" · "), detail: () => [hostPart(whereSection(p, rows, known))] },
+    { key: "machines", title: "Machines", sub: [syncCount || machineTile(rows, sync).count, terminalTile(terms.list(p.name), ms => formatAgo(ms, "short")).count].filter(Boolean).join(" · "), detail: () => [viewPart("where", whereSection(p, rows, known))] },
   ];
   const threads = thr.threads(pid);
 
@@ -209,7 +206,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     right: createElement(RunningStatus, { row: r }), open: () => go("pane", { agent: r }),
     menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));
-  if (runItems.length) top.push({ key: "running", title: "Running", sub: String(runItems.length), detail: () => [hostPart(agentsSection(running))] });
+  if (runItems.length) top.push({ key: "running", title: "Running", sub: String(runItems.length), detail: () => [viewPart("running", agentsSection(running))] });
   groups.push({ title: "", items: project });
   const past = sessions ? projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible) : [];
   groups.push({ title: "", items: [
@@ -299,10 +296,10 @@ function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): Pag
   const list = sessionsList(p, running, true);
   const tabs = viewPart("session-tabs", createElement("div", { className: "cc-tabs pj-tabs", role: "tablist" }, createElement(SessionTabs, {
     selected: sessionTab, sessions: list.count, agents: customAgentsCount(rows), select: tab => { sessionTab = tab; redrawProjects(); } })));
-  if (sessionTab === "agents") return [tabs, hostPart(customAgentsSection(rows))];
+  if (sessionTab === "agents") return [tabs, viewPart("custom-agents", customAgentsSection(rows))];
 
   const note = list.freshness && (list.freshness.spin || list.freshness.text) ? [viewPart("session-note", createElement(FreshNote, { freshness: list.freshness, className: " ss-updating" }))] : [];
-  return [tabs, list.host ? hostPart(list.host) : viewPart("session-empty", createElement(EmptyPanel, { text: list.empty ?? "" })), ...note];
+  return [tabs, list.list ? viewPart("sessions", list.list) : viewPart("session-empty", createElement(EmptyPanel, { text: list.empty ?? "" })), ...note];
 }
 
 /// The agent view with terminal `t`, one of project `name`, in a pane tab with the keys.
