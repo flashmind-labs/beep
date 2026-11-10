@@ -89,6 +89,9 @@ pub(super) struct Spawn {
 /// The tools that start a subagent.
 const SPAWN_TOOLS: [&str; 2] = ["Agent", "Task"];
 
+/// Claude Code's tool that loads a skill.
+const SKILL_TOOL: &str = "Skill";
+
 /// Claude Code's tool that publishes a page or document as an artifact.
 const ARTIFACT_TOOL: &str = "Artifact";
 
@@ -217,6 +220,8 @@ impl Digest {
                     {
                         spawn.agent_id = Some(agent_id.to_owned());
                     }
+
+                    self.forked_skill(id, &value["toolUseResult"]);
 
                     if let Some(entry) = self
                         .tools
@@ -436,6 +441,28 @@ impl Digest {
             ),
             MAX_ENTRY,
         );
+    }
+
+    /// Retitles the `Skill` call `id` whose result says its skill forked:
+    /// it ran as a subagent, not as a step of the turn.
+    fn forked_skill(&mut self, id: &str, result: &Value) {
+        if result["status"].as_str() != Some("forked") {
+            return;
+        }
+
+        let Some(skill) = result["commandName"].as_str().filter(|name| !name.is_empty()) else {
+            return;
+        };
+        let Some(entry) = self.tools.get(id).and_then(|&at| self.entries.get_mut(at)) else {
+            return;
+        };
+
+        if let Some(rest) = entry.text.strip_prefix(SKILL_TOOL) {
+            entry.text = cut(
+                &format!("{SKILL_TOOL}: {} (subagent){rest}", cut(skill, MAX_SHORT)),
+                MAX_ENTRY,
+            );
+        }
     }
 
     fn tool_failed(&mut self, id: &str) {
@@ -753,6 +780,32 @@ pub(super) fn entries(
 pub(super) mod tests {
     use super::*;
     use std::{fs, io::Write};
+
+    #[test]
+    fn a_forked_skill_reads_as_a_subagent() {
+        let mut digest = Digest::default();
+        for (id, skill, result) in [
+            ("inline", "demo", serde_json::json!({"success": true, "commandName": "demo"})),
+            (
+                "fork",
+                "review",
+                serde_json::json!({"success": true, "commandName": "review", "status": "forked", "agentId": "a1"}),
+            ),
+        ] {
+            for line in [
+                serde_json::json!({"type": "assistant", "message": {"content": [
+                    {"type": "tool_use", "id": id, "name": "Skill", "input": {"skill": skill}}
+                ]}}),
+                serde_json::json!({"type": "user", "toolUseResult": result, "message": {"content": [
+                    {"type": "tool_result", "tool_use_id": id, "content": "ok"}
+                ]}}),
+            ] {
+                digest.line(&line.to_string());
+            }
+        }
+        let titles: Vec<&str> = digest.entries.iter().map(|e| e.text.as_str()).collect();
+        assert_eq!(titles, ["Skill", "Skill: review (subagent)"]);
+    }
 
     #[test]
     fn historical_calls_keep_arguments_and_results() {

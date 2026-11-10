@@ -11,6 +11,9 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Node: a Claude Code skill that runs in its own subagent shows as
+  "Skill: <name> (subagent)" in the session log, so its steps no longer
+  look like a plain skill load. Loading an ordinary skill stays a normal step.
 - A session whose turn ended while its subagents still run reports them, so
   apps show it as working; node restarts and session moves wait for them.
 - The "turn finished" notification waits until the session's subagents end

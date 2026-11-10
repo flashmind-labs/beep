@@ -594,7 +594,8 @@ fn a_subagents_calls_go_on_the_call_that_started_it() {
 }
 
 /// Claude Code stamps no parent on the calls after an inline skill, only on
-/// those of a skill that forks (`context: fork`), which runs as a subagent.
+/// those of a skill that forks (`context: fork`), which runs as a subagent
+/// and is titled as one.
 #[test]
 fn only_a_forked_skill_takes_the_calls_after_it() {
     let skill = |id: &str| {
@@ -634,7 +635,22 @@ fn only_a_forked_skill_takes_the_calls_after_it() {
     assert_eq!(entries.len(), 2, "the fork's call is its step");
     assert_eq!(
         entries[1].text,
-        "Load skill: demo [in_progress]\n[steps] 1\n[step in_progress] echo step"
+        "Skill: demo (subagent) [in_progress]\n[steps] 1\n[step in_progress] echo step"
+    );
+
+    let mut background = live();
+    background.prompted("run the demo");
+    background.apply(&skill("bg"));
+    background.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "bg", "status": "completed",
+        "content": [{"type": "content", "content": {"type": "text",
+            "text": "Skill \"demo\" launched (forked execution, running in the background)"}}]
+    })));
+    let (entries, _) = background.transcript(10);
+    assert!(
+        entries[1].text.starts_with("Skill: demo (subagent) [completed]"),
+        "{}",
+        entries[1].text
     );
 }
 

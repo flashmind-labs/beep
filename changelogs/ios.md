@@ -23,6 +23,9 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: a Claude Code skill that runs in its own subagent shows as
+  "Skill: <name> (subagent)" in the session log, so its steps no longer
+  look like a plain skill load. Loading an ordinary skill stays a normal step.
 - iOS: a session whose turn ended while its subagents still run shows
   as working until they finish, not idle.
 - iOS: the message field and its Send and Stop buttons stay fully above
