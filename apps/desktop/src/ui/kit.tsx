@@ -1,7 +1,8 @@
 // Shared command-center building blocks. Each one draws the exact markup the
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
-import type { KeyboardEvent, ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { copy } from "./parts.ts";
 
 /// A section: its head (title, count, then `action`) over a panel of `children`.
 export function Section({ id, title, count = 0, action, children }: { id?: string; title: ReactNode; count?: number | string; action?: ReactNode; children: ReactNode }) {
@@ -60,4 +61,16 @@ export function onRowKey(run: () => void) {
     event.preventDefault();
     run();
   };
+}
+
+/// A button that copies `text` and reads "Copied" for a moment, then `label` again.
+export function CopyButton({ text, label = "Copy", className = "dbtn", id }: { text: string; label?: ReactNode; className?: string; id?: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  return <button type="button" className={className} id={id} onClick={() => { void copy(text).then(() => setCopied(true), error => console.warn("copying:", error)); }}>{copied ? "Copied" : label}</button>;
 }

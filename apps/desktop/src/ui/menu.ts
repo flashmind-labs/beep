@@ -1,10 +1,10 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
 import { focusBack, openSheet } from "./parts.ts";
-import { createElement, createRef, type ReactNode } from "react";
+import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentScope } from "./document-root.tsx";
-import { ConfirmView, RenameView } from "./menu-views.tsx";
+import { ConfirmView, MenuBox, RenameView } from "./menu-views.tsx";
 
 /// One line of a menu; `warn` reads it in red.
 export interface MenuItem {
@@ -23,7 +23,7 @@ export function arrowFocus(box: HTMLElement, key: string) {
   return true;
 }
 
-let open: { box: HTMLElement; close: () => void } | null = null;
+let open: { close: () => void } | null = null;
 
 /// Opens a menu titled `title` where `e` was clicked, in place of the system's. The
 /// returned function swaps in a fuller list while the menu is still open.
@@ -32,58 +32,32 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   e.stopPropagation();
   closeMenu();
   const back = document.activeElement;
-  const owner = createDocumentScope<"menu">(), boxRef = createRef<HTMLDivElement>();
-  const draw = (content: ReactNode) => owner.set([{ slot: "menu", host: document.body, content: createElement("div", { className: "cc-menu", ref: boxRef }, content) }]);
-  draw(null);
-  const box = boxRef.current;
-  if (!box) { owner.dispose(); throw new Error("Menu did not mount"); }
+  const owner = createDocumentScope<"menu">();
+  const at = { x: e.clientX, y: e.clientY };
   let current = items;
   let MenuView: typeof import("./context-menu-view.tsx").ContextMenu | null = null;
-  const close = () => {
-    owner.dispose();
-    window.removeEventListener("mousedown", away, true);
-    window.removeEventListener("keydown", keys, true);
-    window.removeEventListener("blur", close);
-    window.removeEventListener("scroll", close, true);
-    if (open?.box === box) open = null;
+  const mine = { close: () => { owner.dispose(); if (open === mine) open = null; } };
+  const choose = (index: number) => {
+    const item = current[index];
+    if (item) { mine.close(); item.on(); }
   };
-  const fill = (list: readonly MenuItem[]) => {
-    current = list;
+  const escape = () => { mine.close(); focusBack(back); };
+  const draw = () => {
     const View = MenuView;
-    if (View) draw(createElement(View, { title, items: list, choose: (index: number) => { const item = current[index]; if (item) { close(); item.on(); } } }));
+    owner.set([{ slot: "menu", host: document.body, content: createElement(MenuBox, { at, close: mine.close, escape }, View ? createElement(View, { title, items: current, choose }) : null) }]);
   };
-  const away = (ev: MouseEvent) => { if (!box.contains(ev.target as Node)) close(); };
-  const keys = (ev: KeyboardEvent) => {
-    if (ev.key !== "Escape") return;
-    close(); focusBack(back);
-    ev.preventDefault();
-    ev.stopImmediatePropagation();
-  };
-  // Kept inside the window.
-  const r = box.getBoundingClientRect();
-  box.style.left = `${Math.max(4, Math.min(e.clientX, innerWidth - r.width - 4))}px`;
-  box.style.top = `${Math.max(4, Math.min(e.clientY, innerHeight - r.height - 4))}px`;
-  window.addEventListener("mousedown", away, true);
-  window.addEventListener("keydown", keys, true);
-  window.addEventListener("blur", close);
-  window.addEventListener("scroll", close, true);
-  open = { box, close };
+
+  draw();
+  open = mine;
   void import("./context-menu-view.tsx").then(({ ContextMenu }) => {
-    if (open?.box !== box) return;
+    if (open !== mine) return;
     MenuView = ContextMenu;
-    fill(current);
-    const bounds = box.getBoundingClientRect();
-    box.style.left = `${Math.max(4, Math.min(e.clientX, innerWidth - bounds.width - 4))}px`;
-    box.style.top = `${Math.max(4, Math.min(e.clientY, innerHeight - bounds.height - 4))}px`;
-    box.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    draw();
   });
   return (list: readonly MenuItem[]) => {
-    if (open?.box !== box) return;
-    const at = [...box.querySelectorAll('[role="menuitem"]')].indexOf(document.activeElement as HTMLElement);
-    fill(list);
-    box.querySelectorAll<HTMLElement>('[role="menuitem"]')[Math.max(at, 0)]?.focus();
-    const r = box.getBoundingClientRect();
-    box.style.top = `${Math.max(4, Math.min(e.clientY, innerHeight - r.height - 4))}px`;
+    if (open !== mine) return;
+    current = list;
+    draw();
   };
 }
 

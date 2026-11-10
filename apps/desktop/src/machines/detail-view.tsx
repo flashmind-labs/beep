@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useLayoutEffect, useRef } from "react";
 import { bytes } from "../ui/format.ts";
-import { copy } from "../ui/parts.ts";
+import { CopyButton } from "../ui/kit.tsx";
 import { machineTag, nodeBehind, coders, isCoder, shownVersion, updatedNotes, updateOffered, type NodeUpdate } from "./machines-state.ts";
 import { signInOffer } from "./signin-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
@@ -73,6 +73,6 @@ function LogSection({ log, read, save }: { log: MachineLog | null; read: () => v
   if (log?.busy && log.text === null) body = <div className="dmuted">Reading…</div>;
   else if (log?.error) body = <><div className="derr dpadx">{log.error}</div>{readButton("Try again")}</>;
   else if (log?.text === "") body = <><div className="dmuted">Nothing logged lately.</div>{readButton("Refresh")}</>;
-  else if (log?.text) body = <><pre ref={attach} className="dlog dmono" onScroll={e => { const el = e.currentTarget; bottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4; }}>{log.text}</pre><div className="dlog-acts">{readButton("Refresh")}<button type="button" className="dbtn" onClick={e => void copy(log.text ?? "", e.currentTarget)}>Copy</button><button type="button" className="dbtn" onClick={save}>Save</button></div></>;
+  else if (log?.text) body = <><pre ref={attach} className="dlog dmono" onScroll={e => { const el = e.currentTarget; bottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4; }}>{log.text}</pre><div className="dlog-acts">{readButton("Refresh")}<CopyButton text={log.text} /><button type="button" className="dbtn" onClick={save}>Save</button></div></>;
   return <Fragment><div className="dset-h">Log</div>{body}</Fragment>;
 }

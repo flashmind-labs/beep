@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { copy } from "../ui/parts.ts";
+import { CopyButton } from "../ui/kit.tsx";
 import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, KINDS, describeMachine, macOption, timeLeft, withSearch, type AddState, type MacSeen, type TicketKind } from "./addmachine-state.ts";
 
 interface AddMachineBodyProps {
@@ -38,5 +38,5 @@ function Body(p: AddMachineBodyProps & { search: string; setSearch: (text: strin
 }
 
 function CodeLine({ text, command = false }: { text: string; command?: boolean }) {
-  return <div className={`am-line${command ? " am-cmd" : ""}`}><div className="am-code">{text}</div><button type="button" className="dbtn" onClick={e => void copy(text, e.currentTarget)}>Copy</button></div>;
+  return <div className={`am-line${command ? " am-cmd" : ""}`}><div className="am-code">{text}</div><CopyButton text={text} /></div>;
 }
