@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/kit.tsx";
 import { copy } from "../ui/parts.ts";
 import { PERIODS, answerLabel, canSend, issueHint, sizeLabel, type ReportEvent, type ReportState } from "./report-state.ts";
 
@@ -38,7 +39,7 @@ function Body(p: ReportBodyProps) {
         <textarea className="rp-ta" placeholder="What happened?" aria-label="What happened?" value={state.text} disabled={collecting} onChange={e => p.update({ type: "text", text: e.currentTarget.value })} />
         <div className="dchips rp-periods" role="radiogroup" aria-label="Period">{PERIODS.map(({ period, label }) =>
           <button key={period} type="button" className="dchip" role="radio" aria-checked={state.period === period} aria-pressed={state.period === period} disabled={collecting} onClick={() => p.update({ type: "period", period })}>{label}</button>)}</div>
-        {collecting && <div className="am-wait rp-wait"><span className="dspin" />Collecting from your machines</div>}
+        {collecting && <div className="am-wait rp-wait"><Spinner />Collecting from your machines</div>}
         <div className="rp-foot"><button type="button" className="dbtn quiet" disabled={collecting} onClick={p.cancel}>Cancel</button>
           {p.debug && <button type="button" className="dbtn" title="Starts a coding agent that looks into Beep and sends a report" disabled={collecting} onClick={p.startDebug}>Debug with an agent</button>}
           <button type="button" className="dbtn pri" disabled={collecting} onClick={p.collect}>Collect</button></div>
@@ -59,14 +60,14 @@ function Body(p: ReportBodyProps) {
         {shown && <><div className="rp-pane-head"><b><code>{shown.path}</code></b><small>Read only, secrets removed</small></div><pre className="rp-pane" aria-label={shown.path}>{shown.text.split(/(\[redacted\])/).map((part, i) => i % 2 ? <span className="r" key={i}>{part}</span> : part)}</pre></>}
         <div className="rp-total"><span>Total</span><span>{sizeLabel(total)}</span></div>
         {!draft.files.length && <div className="am-msg rp-none">No machine sent anything to report.</div>}
-        {state.step === "sending" && <div className="am-wait rp-wait"><span className="dspin" />Sending</div>}
+        {state.step === "sending" && <div className="am-wait rp-wait"><Spinner />Sending</div>}
         <div className="rp-foot"><button type="button" className="dbtn quiet" disabled={state.step === "sending"} onClick={p.cancel}>Cancel</button><button type="button" className="dbtn pri" disabled={!canSend(state)} onClick={p.send}>Send</button></div>
       </>;
     }
     case "sent":
       return <><Reference reference={state.reference ?? ""} />{state.gh ? <>
         <div className="am-label">Report it on GitHub too?</div>
-        {p.issueText === null ? <div className="am-wait rp-wait"><span className="dspin" />Writing the issue</div> : <pre className="rp-issue" aria-label="Issue text">{p.issueText}</pre>}
+        {p.issueText === null ? <div className="am-wait rp-wait"><Spinner />Writing the issue</div> : <pre className="rp-issue" aria-label="Issue text">{p.issueText}</pre>}
         <div className="rp-foot"><button type="button" className="dbtn quiet" onClick={p.done}>No</button><button type="button" className="dbtn pri" disabled={p.issueText === null} onClick={e => p.openIssue(e.currentTarget)}>Yes</button></div>
       </> : <div className="rp-foot"><button type="button" className="dbtn pri" onClick={p.done}>Done</button></div>}</>;
     case "issue":

@@ -1,3 +1,4 @@
+import { Spinner } from "../ui/kit.tsx";
 import type { McpServer, McpTools } from "./apps.ts";
 
 interface Props {
@@ -8,7 +9,7 @@ const label = (name: string) => name.replace(/[_-]/g, " ").trim().replace(/^./, 
 export function McpView(p: Props) {
   const tools = p.tools, count = tools?.tools.filter(tool => tool.enabled).length ?? 0;
   return <><div className="dhead"><span className="dalogo">{p.server.name.slice(0, 1).toUpperCase()}</span><span className="tt"><b>{p.server.name}</b><small className="dmono">{p.server.url}</small></span></div><div className="dlist dapps" id="tlist">
-    {p.error ? <div className="derr dpad">{p.error}</div> : !tools && <div className="dmuted dpad"><span className="dspin" /></div>}
+    {p.error ? <div className="derr dpad">{p.error}</div> : !tools && <div className="dmuted dpad"><Spinner /></div>}
     {tools && <><div className="dsec dsplit"><span>Tools</span><span className={count > tools.limit ? "over" : undefined}>{count} of {tools.limit} on</span></div>{tools.tools.map(tool => {
       const name = label(tool.name);
       if (p.asking === tool.name) return <div className="daction" key={tool.name}><span>{name}<small>More than {tools.limit} tools makes replies slower and tool picks worse</small></span><button className="dbtn quiet" onClick={p.cancelTool}>Cancel</button><button className="dbtn pri" disabled={p.busy} onClick={p.confirmTool}>Turn on</button></div>;
