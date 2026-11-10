@@ -1,7 +1,6 @@
 // Small pieces Home, the sidebar and the Projects page draw with.
-import { dbtn as button, svgEl as icon } from "./parts.ts";
+import { dbtn as button } from "./parts.ts";
 import { el as h, type Kid } from "./dom.ts";
-import { IC } from "./icons.ts";
 
 /// Why a call failed, cut short; a conflict means another answer won.
 export function failure(e: unknown) {
@@ -11,13 +10,6 @@ export function failure(e: unknown) {
 export function conflict(e: unknown) { return /^conflict/i.test(String(e)); }
 
 // ---------- Pieces ----------
-
-/// A button with a + before `label`.
-export function plusLabel(label: string, cls: string, on: () => void) {
-  const b = button("", cls, on);
-  b.append(icon(IC.plus)!, ` ${label}`);
-  return b;
-}
 
 /// A button inside a row that does its own thing, not the row's.
 export function rowButton(label: string | Node, cls: string, on: () => void) {
