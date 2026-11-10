@@ -21,17 +21,15 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
+use std::sync::Arc;
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
 };
-use std::{sync::Arc, time::Duration};
 use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-/// How often an attached terminal looks for its window still being there.
-const WINDOW_CHECK: Duration = Duration::from_secs(2);
 /// Keys and sizes waiting to go up one attached terminal's stream.
 const INPUT_QUEUE: usize = 64;
 
@@ -329,6 +327,8 @@ struct Viewer {
 struct Follow {
     /// Which attach this is, so an older one ending leaves a newer alone.
     serial: u64,
+    /// The window the view is in; closing it ends the follow.
+    window: String,
     input: mpsc::Sender<TerminalInput>,
 }
 
@@ -337,12 +337,25 @@ impl Attached {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn follow(&self, viewer: Viewer, input: mpsc::Sender<TerminalInput>) -> u64 {
+    fn follow(&self, viewer: Viewer, window: &str, input: mpsc::Sender<TerminalInput>) -> u64 {
         let mut following = self.lock();
         following.next += 1;
         let serial = following.next;
-        following.by_view.insert(viewer, Follow { serial, input });
+        let follow = Follow {
+            serial,
+            window: window.to_owned(),
+            input,
+        };
+        following.by_view.insert(viewer, follow);
         serial
+    }
+
+    /// Window `label` closed: its views stop following, which finishes
+    /// their streams.
+    pub(crate) fn clear(&self, label: &str) {
+        self.lock()
+            .by_view
+            .retain(|_, follow| follow.window != label);
     }
 
     fn unfollow(&self, viewer: Viewer, serial: u64) {
@@ -411,25 +424,27 @@ pub async fn terminal_attach(
         };
         let (input_tx, mut input) = mpsc::channel(INPUT_QUEUE);
         let viewer = Viewer { terminal: id, view };
-        let serial = attached.follow(viewer, input_tx);
+        let serial = attached.follow(viewer, window.label(), input_tx);
         let _unfollow = Unfollow {
             attached: &attached,
             viewer,
             serial,
         };
+
+        // A window closed before the follow was recorded is not cleared.
+        if window
+            .app_handle()
+            .get_webview_window(window.label())
+            .is_none()
+        {
+            return Ok(());
+        }
+
         on_event.send(TermEvent::Attached)?;
         let ended = |state| TermEvent::from(TerminalEvent::Ended { state });
-        let (label, handle) = (window.label().to_owned(), window.app_handle().clone());
-        let mut watch = tokio::time::interval(WINDOW_CHECK);
 
         loop {
             tokio::select! {
-                // The window closed: nobody reads the output, so stop following.
-                _ = watch.tick() => {
-                    if handle.get_webview_window(&label).is_none() {
-                        return Ok(());
-                    }
-                }
                 heard_from_node = rx.recv::<PtyReply>() => match heard_from_node {
                     Ok(Some(reply)) => match heard(reply) {
                         Heard::Show(event) => on_event.send(event.into())?,
@@ -474,7 +489,7 @@ pub async fn terminal_attach(
         .map_err(outdated)?;
     let (input_tx, mut input) = mpsc::channel(INPUT_QUEUE);
     let viewer = Viewer { terminal: id, view };
-    let serial = attached.follow(viewer, input_tx);
+    let serial = attached.follow(viewer, window.label(), input_tx);
     let _unfollow = Unfollow {
         attached: &attached,
         viewer,

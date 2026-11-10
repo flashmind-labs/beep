@@ -160,6 +160,10 @@ pub fn run() {
                     .app_handle()
                     .state::<projects::live::Followed>()
                     .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<machines::terminals::Attached>()
+                    .clear(window.label());
                 center::window::forget(window.app_handle(), window.label());
                 center::closed(window.app_handle(), window.label());
             }
