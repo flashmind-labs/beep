@@ -48,3 +48,6 @@ Earlier releases predate this changelog.
 - Android: mesh links ping every 5 seconds instead of 3, so the radio
   sleeps more, and ride out a network drop of up to 30 seconds instead of
   reconnecting.
+- Android: agent sessions followed in the background send nothing while
+  the app is in the background and catch up once when it returns, and the
+  palette and notifications check the mesh only when it changes.
