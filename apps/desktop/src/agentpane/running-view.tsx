@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import { memo, type MouseEvent } from "react";
 import { useStore } from "zustand";
 import { runningRow, type RunningProcess } from "./running-state.ts";
 import { backgroundTasks, paneTasks, runningModel, type BackgroundTasks } from "./running.ts";
@@ -7,12 +7,12 @@ export interface RunningModel { processes: readonly RunningProcess[]; local: boo
 export interface RunningActions { open(url: string): void; toggle(pid: number): void; stop(pids: number[]): void }
 
 /// The Running tab's view in its dock.
-export function RunningPane({ hidden }: { hidden: boolean }) {
+export const RunningPane = memo(function RunningPane({ hidden }: { hidden: boolean }) {
   const shown = useStore(runningModel);
   const background = useStore(backgroundTasks);
   const tasks = paneTasks(background);
   return <div className="agpview running" hidden={hidden}>{(shown || tasks.length > 0) && <RunningView model={shown?.model ?? null} actions={shown?.actions ?? null} tasks={tasks} background={background} />}</div>;
-}
+});
 
 interface RunningViewProps { model: RunningModel | null; actions: RunningActions | null; tasks: BackgroundTasks["tasks"]; background: BackgroundTasks }
 

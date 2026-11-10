@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useStore } from "zustand";
 import { Spinner } from "../ui/kit.tsx";
 import { artifactsModel } from "./artifacts.ts";
@@ -17,10 +18,10 @@ export interface ArtifactsModel {
 }
 
 /// The Artifacts tab's view in its dock.
-export function ArtifactsView({ hidden }: { hidden: boolean }) {
+export const ArtifactsView = memo(function ArtifactsView({ hidden }: { hidden: boolean }) {
   const { model, folded } = useStore(artifactsModel);
   return <div className={`agpview arts${folded ? " folded" : ""}`} hidden={hidden}>{model && <ArtifactsPane model={model} />}</div>;
-}
+});
 
 /// The Artifacts tab: the list, the picked one's preview and its actions.
 function ArtifactsPane({ model }: { model: ArtifactsModel }) {

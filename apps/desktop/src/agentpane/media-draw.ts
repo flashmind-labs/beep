@@ -17,6 +17,7 @@ import type { IconName } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { runningCount } from "./running.ts";
 import { onShownChange } from "../ui/active.ts";
+import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
@@ -53,6 +54,19 @@ export function draw() {
   const split = docked();
   for (const d of DOCKS) syncDock(d, split[d]);
   publish(split);
+}
+
+/// Shows the tab now in `P.on[d]` when nothing else changed: dock `d`'s views flip and
+/// it draws again alone, without laying the docks out. False when the docks need `draw`.
+export function flipTab(d: Dock) {
+  const { docks, phone } = paneModel.getState();
+  if (drag?.ghost || phone || !docks?.[d].shown || DOCKS.some(x => docks[x].zoomed !== (P.zoom === x))) return false;
+  const ids = docked()[d];
+  if (ids.length !== docks[d].tabs.length || ids.some((id, i) => docks[d].tabs[i].id !== id)) return false;
+  syncDock(d, ids);
+  setPaneModel({ docks: { ...docks, [d]: dockModel(d, ids) } });
+  refreshTopicSubscriptions();
+  return true;
 }
 
 /// Draws tab `t` again after its own state changed: its load, terminal or note.
