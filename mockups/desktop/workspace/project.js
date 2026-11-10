@@ -28,7 +28,7 @@
   const rmb = (name, off) => off
     ? `<button class="dbtn quiet small rmx" disabled title="${off}" aria-label="Remove from ${name}">${RM_X}</button>`
     : `<button class="dbtn quiet small rmx" title="Remove from ${name}" aria-label="Remove from ${name}" data-dact="dset:pwr:confirm" data-dgo="${S.screen === "dWinProjectWindow" ? "dWinProjectWindow" : "dWinProject"}">${RM_X}</button>`;
-  const chip = (cls, t, spin) => `<span class="pj-st${cls ? " " + cls : ""}">${spin ? '<span class="dspin"></span>' : ""}${t}</span>`;
+  const chip = (cls, t, spin) => `<span class="pj-st${cls ? " " + cls : ""}">${spin ? '<span class="drun"></span>' : ""}${t}</span>`;
   const pnum = n => `<span class="num">#${n}</span>`;
   const pick = id => `data-dact="dset:psel:${id}" data-dgo="${S.screen === "dWinProjectWindow" ? "dWinProjectWindow" : "dWinProject"}"`;
   const PJ_ISSUES = [
@@ -54,7 +54,7 @@
       { id: "pr38", lead: pnum(38), t: "Bump the sync crate", sub: "you · 9 d · ready · CI passing", tags: ["deps"], r: chip("done", "ready") }] },
   ];
   const RUNNING = [
-    { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: '<span class="cc-running"><span class="dspin" role="img" aria-label="Working"></span>now</span>' },
+    { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: '<span class="cc-running"><span class="drun" role="img" aria-label="Working"></span>now</span>' },
     { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "3m ago" },
   ];
   const ITEMS = LIST.flatMap(g => g.items);

@@ -39,6 +39,9 @@ Other apps have independent versions and changelogs:
   meanwhile when shown again.
 - Desktop: a minimized window, or on macOS one that is fully covered or on
   another Space, pauses its background updates like a closed one.
+- Desktop: running agents, chats and research show a still dot instead of a
+  spinner, and "Thinking" pulses a few times and then holds, so long runs
+  no longer redraw the window every frame. Pages also watch fewer changes.
 
 ## [0.7.0] - 2026-11-09
 

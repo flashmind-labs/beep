@@ -98,14 +98,15 @@
 .mac .dcoderlog .st.beep code { min-width: 0; font: 12px var(--mono); color: var(--d-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .dcoderlog .st.beep .bs { font-size: 11px; color: var(--d-dim); white-space: nowrap } .mac .dcoderlog .st.beep.bad .bs { color: var(--d-coral) }
 .mac .dcoderlog .thought { margin-top: -8px; padding-left: 24px; font-size: 12.5px; font-style: italic; color: var(--d-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-/* A thought: one line, "Thinking" with a sweep while it streams, "Thought for 12s" once done; a click opens the text. */
+/* A thought: one line, "Thinking" pulsing a few times while it streams, "Thought for 12s" once done; a click opens the text. */
 .mac .dcoderlog .dthink { display: grid; gap: 0 } .mac .dcoderlog .dcoderen.tool.rows .think { padding: 0 6px }
 .mac .dcoderlog .dthink > button { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 0; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--d-muted); cursor: pointer; text-align: left }
 .mac .dcoderlog .dthink > button:hover { color: var(--d-fg) }
 .mac .dcoderlog .dthink .lb { flex: none }
-/* "Thinking" while it thinks: its letters light one after another, a calm loop (1.5s), each fading back behind the next. */
-.mac .dcoderlog .dthink.live .lb i { font-style: normal; color: var(--d-dim); animation: thinkletter 1.5s infinite; animation-delay: calc(var(--i) * 125ms) }
-@keyframes thinkletter { 0%, 30%, 100% { color: var(--d-dim) } 8% { color: var(--d-fg) } }
+/* "Thinking" while it thinks: three soft pulses, then still, so a long think draws nothing. */
+.mac .dcoderlog .dthink.live .lb { color: var(--d-fg); will-change: opacity; animation: thinkpulse 2s ease-in-out 3 }
+.mac .dcoderlog .dthink.live .lb i { font-style: normal }
+@keyframes thinkpulse { 50% { opacity: .45 } }
 .mac .dcoderlog .dthink .ln { min-width: 0; color: var(--d-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .mac .dcoderlog .dthink .cv { display: grid; flex: none; transition: transform .2s ease }
 .mac .dcoderlog .dthink.open .cv { transform: rotate(90deg) }
@@ -119,6 +120,6 @@
 .mac .dcoderlog .dthink .kk::-webkit-scrollbar { display: none }
 .mac .dcoderlog .dthink .kk.ov { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 2.4em); mask-image: linear-gradient(to bottom, transparent 0, #000 2.4em) }
 /* A turn's heading carries its folded work: "Working for 2m 27s · Ran 24 commands (5 failed), read 2 files", one line, one expander. */
-@media (prefers-reduced-motion: reduce) { .mac .dcoderlog .dthink.live .lb i { animation: none; color: var(--d-muted) } .mac .dcoderlog .dthink .bd, .mac .dcoderlog .dthink .cv { transition: none } }
+@media (prefers-reduced-motion: reduce) { .mac .dcoderlog .dthink.live .lb { animation: none } .mac .dcoderlog .dthink .bd, .mac .dcoderlog .dthink .cv { transition: none } }
 /* The transcript as rows: kind icon, verb, target, detail, status; opened, the body under it. */
 .mac .dcoderlog .dcoderen.tool.rows { display: grid; gap: 1px; margin: -4px -6px }

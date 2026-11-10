@@ -66,7 +66,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .rv-find > .chip { justify-self: start }
 /* Small spinners inside chips and one-line facts. */
 .rv-pill .dspin, .rv-fact .dspin, .rv-ver .dspin, .th-card .who .dspin { width: 9px; height: 9px }
-.dspin.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none; vertical-align: middle }
+.sw-spin { vertical-align: middle }
 .cc-when { width: 58px; text-align: center; font-size: 10.5px; font-weight: 600; color: var(--muted); line-height: 13px; font-variant-numeric: tabular-nums }
 .cc-when b { display: block; font-size: 12.5px; color: var(--fg) }
 .cc-note { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--elev); font-size: 12.5px; line-height: 18px; color: color-mix(in srgb, var(--fg) 90%, transparent) }
@@ -251,7 +251,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-line .t:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
 .cc-line .r { grid-auto-flow: column; align-items: center }
 .cc-running { display: inline-flex; align-items: center; gap: 8px }
-.cc-running .dspin { width: 10px; height: 10px; flex: none }
 .cc-line .t > .cc-sub { display: flex; align-items: center; gap: 6px }
 .cc-sub .chip { font-style: normal }
 .cc-line .ok { font-size: 12px; color: var(--accent) }
@@ -686,7 +685,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-task.ask { background: color-mix(in srgb, var(--warn) 5%, transparent) }
 .pj-task .t a { color: var(--link); text-decoration: none; font-weight: 600 }
 /* A chat still answering: a spinner where the pin button was. */
-.cc-chat > .cc-run { flex: none; width: 10px; height: 10px; margin: 0 10px 0 8px }
+.cc-chat > .cc-run { margin: 0 11px 0 10px }
 /* Chats about one pull request or issue, under their project. */
 .cc-pjthreads { display: contents }
 .cc-si.cc-chat.cc-thread .open { padding-left: 30px }
@@ -881,7 +880,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .rr-st.done { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent) }
 .rr-st.blocked { color: var(--err); background: color-mix(in srgb, var(--err) 13%, transparent) }
 .rr-st.running { color: var(--ok) }
-.rr-st .dspin { width: 11px; height: 11px }
 .rr-body { min-width: 0; display: grid; gap: 4px }
 .rr-t { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 13.5px }
 .rr-t b { flex: none; font-weight: 600; color: var(--link) }
@@ -924,7 +922,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .cc-mt.cc-rt > .r { cursor: pointer }
 .cc-mt.cc-rt .nm b button { padding: 0; border: 0; background: none;font: inherit; color: inherit; cursor: pointer; max-width: 100%; text-align: left; min-width: 0; overflow: hidden; display: flex }
 .cc-mt.cc-rt .nm b button:hover { color: var(--accent) }
-.cc-grp.research .cc-si > .dspin { flex: none; width: 10px; height: 10px; margin-left: auto }
+.cc-grp.research .cc-si > .dspin { margin-left: auto }
 
 /* A list as tall as its first rows, the rest scrolls (fitRows). The script sets the exact
    height once the rows are drawn; this is the fallback. */

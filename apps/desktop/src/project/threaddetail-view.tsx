@@ -5,7 +5,7 @@ import { forgeLabel, type ThreadDetailRow, type ThreadStub } from "./threaddetai
 
 const CHECKS: Record<string, [string, string]> = { failed: ["blocked", "checks failing"], passed: ["done", "checks passing"], running: ["running", "checks running"], queued: ["running", "checks queued"], waiting: ["running", "checks waiting"] };
 function Chip({ kind, text, spin = false }: { kind: string; text: string; spin?: boolean }) {
-  return <span className={kind ? `chip ${kind}` : "chip"}>{spin && <span className="dspin" />}{text}</span>;
+  return <span className={kind ? `chip ${kind}` : "chip"}>{spin && <span className="drun" />}{text}</span>;
 }
 function Markdown({ html, open }: { html: string; open(url: string): void }) {
   const node = useRef<HTMLDivElement>(null);
