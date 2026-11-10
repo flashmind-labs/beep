@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { formatAgo, plural } from "../ui/format.ts";
-import { IC } from "../ui/icons.tsx";
+import { Icon } from "../ui/icons.tsx";
 import { ALL, byMachine, terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.ts";
 import { allTerms, openTerminals, termMachines } from "../terminals/view.ts";
 import { openAddMachine, openProjects } from "../center/sidebar.ts";
@@ -18,7 +18,7 @@ function Dot({ machine }: { machine: MachineCard }) {
   const title = !machine.online ? "Offline" : machine.agents ? `Online · ${plural(machine.agents, "agent", "agents")} running` : "Online";
   return <span className={`ddot${status}`} title={title} />;
 }
-function AddMachine({ className }: { className: string }) { return <button type="button" className={`dbtn ${className}`} onClick={openAddMachine} dangerouslySetInnerHTML={{ __html: `${IC.plus} Add a machine` }} />; }
+function AddMachine({ className }: { className: string }) { return <button type="button" className={`dbtn ${className}`} onClick={openAddMachine}><Icon name="plus" /> Add a machine</button>; }
 function Terminal({ terminal, online }: { terminal: TerminalRow; online: boolean }) {
   return <button type="button" className="cc-row tl-row" title={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onClick={() => openTerminals({ id: terminal.id })}><span className={`ddot${terminal.state === "running" && online ? "" : " off"}`} /><span className="t"><b>{terminal.name}</b><span>{terminalWhere(terminal)}</span></span><span className="r">{terminalNote(terminal, ms => formatAgo(ms, "short"))}</span></button>;
 }

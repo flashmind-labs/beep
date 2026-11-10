@@ -1,4 +1,4 @@
-import { BEEP_MARK, HarnessIcon } from "../ui/icons.tsx";
+import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { taskAction, taskMenu, taskMeta, taskSummary, workerFolder, workerLine, workerMenu, type ProjectView, type RowActs } from "./agent.ts";
 
 export function ProjectTasks({ view, act }: { view: ProjectView; act: RowActs }) {
@@ -18,7 +18,7 @@ export function ProjectTasks({ view, act }: { view: ProjectView; act: RowActs })
           <button type="button" className="dbtn quiet small" disabled={busy} onClick={() => act.change(t, action.change)}>{busy ? "…" : action.label}</button>{error && <span className="cc-err">{error}</span>}</span></div>;
       })}</div> : <div className="cc-panel cc-empty"><span>No tasks yet. Ask the project agent below and it plans them.</span></div>}
     </div>
-    <div id="sec-workers"><div className="cc-sec"><h4>Workers</h4><small>{live ? `${live} running` : "none running"}</small></div><div className="cc-panel pj-tree"><div className="pj-node"><span className="cc-ag beep" dangerouslySetInnerHTML={{ __html: BEEP_MARK }} /><span className="t"><b>Project agent</b><span>Plans tasks, files issues, places workers</span></span></div>{view.workers.map(w => {
+    <div id="sec-workers"><div className="cc-sec"><h4>Workers</h4><small>{live ? `${live} running` : "none running"}</small></div><div className="cc-panel pj-tree"><div className="pj-node"><span className="cc-ag beep"><Icon name="beep" /></span><span className="t"><b>Project agent</b><span>Plans tasks, files issues, places workers</span></span></div>{view.workers.map(w => {
       const title = titles.get(w.task_id) ?? null, name = title || workerFolder(w.folder), canOpen = !!w.session && !!act.openWorker, busy = act.busy(w.id), error = act.error(w.id);
       return <div key={w.id} className={`pj-node child${canOpen ? " link" : ""}${w.live ? "" : " over"}`} title={canOpen ? "Open its session" : undefined} onClick={canOpen ? () => act.openWorker?.(w, title) : undefined} onContextMenu={e => workerMenu(e.nativeEvent, w, name, title, act)}><HarnessIcon agent={w.agent} /><span className="t"><b>{name}</b><span title={w.folder}>{workerLine(w, Date.now())}</span></span>{w.live && <span className="acts"><button type="button" className="dbtn quiet small" disabled={busy} onClick={e => { e.stopPropagation(); act.stop(w); }}>{busy ? "Stopping…" : "Stop"}</button>{error && <span className="cc-err">{error}</span>}</span>}{w.last_output && <span className="out" title={w.last_output}>{w.last_output}</span>}</div>;
     })}</div></div>
