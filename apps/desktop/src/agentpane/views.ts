@@ -6,9 +6,8 @@ import { createElement } from "react";
 import { setSessionPortal } from "../agents/session-frame.tsx";
 import { ModelControls } from "./model-controls.tsx";
 import { fileSize, openViewer } from "../chat/media.ts";
-import { attach, detachTerm, killTerm, type PaneTerm } from "./terminal.ts";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
-import { type TreeText, type MediaTab, P, closeTab } from "./media.ts";
+import type { PaneTerm } from "./terminal.ts";
+import { type TreeText, type MediaTab, P } from "./media.ts";
 import { readFile, readError, drawTermStatus } from "./read.ts";
 import { esc } from "../ui/format.ts";
 import { h } from "../ui/dom.ts";
@@ -35,32 +34,8 @@ function textView(t: MediaTab, text: TreeText) {
 
 /// A terminal tab: its live screen, and a footer to attach again or stop it.
 function termView(t: MediaTab, term: PaneTerm) {
-  const el = h(`<div class="agpview term"><div class="agpacts"><span class="meta mono"></span><span class="sp"></span><button class="dbtn" data-tattach="1" hidden>Attach</button><button class="dbtn warn" data-tkill="1">Close</button></div></div>`);
+  const el = h('<div class="agpview term"></div>');
   el.prepend(term.screen.el);
-  const reattach = () => { term.tries = 0; attach(term); };
-  const kill = () => killTerm(term).then(() => { t.term = undefined; closeTab(t.id); });
-  const close = () => {
-    if (term.row.state !== "running" || term.link === "ended") {
-      kill().catch(e => { el.querySelector(".meta")!.textContent = readError(e); });
-      return;
-    }
-
-    confirmSheet({
-      title: `Stop ${t.name}?`,
-      text: `It stops running on ${term.row.machine_name}.`,
-      action: "Stop",
-      run: kill,
-    });
-  };
-  el.querySelector("[data-tattach]")!.addEventListener("click", reattach);
-  el.querySelector("[data-tkill]")!.addEventListener("click", close);
-  el.querySelector(".agpacts")!.addEventListener("contextmenu", e => {
-    const items: MenuItem[] = [];
-    if (term.link === "detached") items.push({ label: "Attach", on: reattach });
-    if (term.link === "attached" || term.link === "attaching") items.push({ label: "Detach", on: () => detachTerm(term) });
-    items.push({ label: term.row.state === "running" && term.link !== "ended" ? "Kill…" : "Close", warn: true, on: close });
-    openMenu(e as MouseEvent, t.name, items);
-  });
   queueMicrotask(() => drawTermStatus(t));
   return el;
 }

@@ -1,10 +1,11 @@
+import { drawTermFooter } from "./term-footer.tsx";
 import { removeSessionPortal } from "../agents/session-frame.tsx";
 import { takeQueuedPreview } from "./html-preview-state.ts";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { viewKey } from "./view-memory.ts";
 import { fileSize } from "../chat/media.ts";
-import { dropTerm, followTerm, forgetTerm, killTerm, openTerm, termStatus } from "./terminal.ts";
+import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, draw, closeTab, leavePane, rememberTerminal } from "./media.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -119,10 +120,7 @@ export async function startTerminal(t: MediaTab) {
 }
 
 export function drawTermStatus(t: MediaTab) {
-  const meta = t.el?.querySelector(".agpacts .meta");
-  if (meta && t.term) meta.textContent = termStatus(t.term, t.term.row.machine_name);
-  const again = t.el?.querySelector<HTMLElement>("[data-tattach]");
-  if (again && t.term) again.hidden = t.term.link !== "detached";
+  drawTermFooter(t);
 }
 
 export async function load(t: MediaTab) {
