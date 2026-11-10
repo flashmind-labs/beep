@@ -4,10 +4,13 @@ use crate::AsyncMutex;
 use beep_proto::node::agent::RunningProcess;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
     time::Duration,
 };
-use tokio::time::{Instant, interval};
+use tokio::{
+    sync::watch,
+    time::{Instant, interval, sleep},
+};
 use tokio_util::task::AbortOnDropHandle;
 
 mod snapshot;
@@ -24,6 +27,49 @@ use linux as os;
 use macos as os;
 #[cfg(windows)]
 use windows as os;
+
+
+/// How often sessions read the process table while a client follows `processes`.
+const WATCHED: Duration = Duration::from_secs(1);
+/// How often they read it otherwise, only to keep track of children that
+/// leave the session's group, so closing the session can stop them.
+const UNWATCHED: Duration = Duration::from_secs(15);
+
+/// How many topic sources follow `processes` right now.
+static DEMAND: LazyLock<watch::Sender<usize>> = LazyLock::new(|| watch::channel(0).0);
+
+/// Held while a client follows `processes`: sessions read their processes
+/// every second then, and seldom otherwise.
+pub(crate) struct Demand(());
+
+impl Demand {
+    pub(crate) fn new() -> Self {
+        DEMAND.send_modify(|count| *count += 1);
+        Self(())
+    }
+}
+
+impl Drop for Demand {
+    fn drop(&mut self) {
+        DEMAND.send_modify(|count| *count = count.saturating_sub(1));
+    }
+}
+
+/// Waits until the next read of the process table: a second while someone
+/// follows `processes`, longer otherwise, and at once when a follower comes.
+/// `false` once the demand can no longer change.
+async fn pace(demand: &mut watch::Receiver<usize>) -> bool {
+    let wait = if *demand.borrow_and_update() > 0 {
+        WATCHED
+    } else {
+        UNWATCHED
+    };
+
+    tokio::select! {
+        () = sleep(wait) => true,
+        changed = demand.changed() => changed.is_ok(),
+    }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 struct Process {
@@ -128,17 +174,18 @@ impl Processes {
 
     /// Observe ancestry even while the desktop is closed. Remembering a child's
     /// birth time keeps it ours after its parent exits, without claiming a reused pid.
+    /// The table is read every second only while a client follows `processes`.
     pub(super) fn watch(self: &Arc<Self>) -> AbortOnDropHandle<()> {
         let processes = self.clone();
+        let mut demand = DEMAND.subscribe();
         AbortOnDropHandle::new(tokio::spawn(async move {
-            let mut ticks = interval(Duration::from_secs(1));
-            ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
             loop {
-                ticks.tick().await;
-
                 if let Err(e) = processes.refresh(false).await {
                     log::debug!("could not read session processes: {e:#}");
+                }
+
+                if !pace(&mut demand).await {
+                    return;
                 }
             }
         }))

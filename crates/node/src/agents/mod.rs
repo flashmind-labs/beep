@@ -90,6 +90,7 @@ pub use follow::serve_follow;
 
     use acp::Prompt;
     pub(crate) use alerts::AlertHub;
+    pub(crate) use processes::Demand as ProcessDemand;
     use compaction::Route;
     use images::Images;
     use kinds::{Adapter, KNOWN, known, route};
