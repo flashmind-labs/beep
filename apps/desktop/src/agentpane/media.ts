@@ -321,6 +321,8 @@ export function closePaneTabs() {
 function dropTab(t: MediaTab) {
   if (t.el) removeSessionPortal(t.el);
   if (t.term) dropTerm(t.term);
+  const stage = t.el?.querySelector<HTMLElement>(".agpstage.model");
+  if (stage) removeSessionPortal(stage);
   const controls = t.el?.querySelector<HTMLElement>(".anim");
   if (controls) removeSessionPortal(controls);
   t.model?.dispose();

@@ -152,3 +152,11 @@ test("file preview keeps its controls while the HTML loads", async ({ page }) =>
   await expect(page.locator(".agcode")).toContainText("Hello world");
   await expect(preview).toBeFocused();
 });
+
+test("invalid 3D files show an error inside the retained model stage", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: listing(["model.glb"]), agent_file: { size: 1, mime: "model/gltf-binary", data: "AA==" } });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="model.glb"]').click();
+  await expect(page.locator(".agpstage.model .agpmsg.derr")).toContainText("Could not draw model.glb:");
+});

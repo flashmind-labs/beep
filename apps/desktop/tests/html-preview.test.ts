@@ -15,7 +15,7 @@ const calls: unknown[] = [];
 let answer: () => Promise<unknown> = async () => ({ kind: "html", src: "beepview://localhost/test/" });
 Object.assign(globalThis, { previewState: state, previewInvoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answer(); } });
 const stubs = new Map(Object.entries({
-  "agents/session-frame.tsx": "export const setSessionPortal = globalThis.previewPortal;",
+  "agents/session-frame.tsx": "export const setSessionPortal = globalThis.previewPortal; export const removeSessionPortal = () => {};",
   "agentpane/media.ts": "export const P = globalThis.previewState; export const closeTab = () => {}; export const saveWorkFile = () => {};",
   "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const drawTermStatus = () => {};",
   "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
