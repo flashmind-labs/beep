@@ -16,6 +16,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# Sparkle updates, for the signed builds of the release workflow.
+sparkle = ["dep:tauri-plugin-sparkle-updater"]
+
 [dependencies]
 anyhow = "1"
 open = "5"
@@ -90,7 +94,9 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-tauri-plugin-sparkle-updater = "0.3"
+# The native updater, only in release builds (`sparkle`): it links Sparkle.framework,
+# which a local build signed ad hoc cannot load under the hardened runtime.
+tauri-plugin-sparkle-updater = { version = "0.3", optional = true }
 block2 = "0.6"
 # Notifications with Allow and Deny, and what a click on one opens. The
 # notification plugin shows them through the same crate but drops actions.

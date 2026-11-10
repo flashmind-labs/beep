@@ -63,7 +63,7 @@ pub fn run() {
             log::warn!("opening the existing window: {e}");
         }
     }));
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "sparkle"))]
     let builder = if cfg!(debug_assertions) {
         builder
     } else {
