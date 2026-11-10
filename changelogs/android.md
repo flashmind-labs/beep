@@ -23,6 +23,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Android: a session whose turn ended while its subagents still run shows
+  as working until they finish, not idle.
 - Android: the message field and its Send and Stop buttons stay fully above
   the keyboard, and a log read to the end stays at the end.
 - Android: the usage popover shows percentages, project and harness tokens,

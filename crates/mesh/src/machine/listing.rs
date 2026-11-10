@@ -10,7 +10,7 @@ use beep_proto::{
         Capability,
         agent::{
             self, AnswerOption, ExternalSession, ModelList, OptionKind, ParentLink, PlanStatus,
-            Presence, Question, SessionInfo, Status,
+            Presence, Question, SessionInfo, State, Status,
         },
     },
 };
@@ -233,7 +233,7 @@ pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
         agent: info.agent,
         title: info.title,
         cwd: info.cwd,
-        status: agent_status(info.state.status),
+        status: agent_status(&info.state),
         doing: Some(info.state.summary).filter(|summary| !summary.is_empty()),
         started_at,
         last_activity: unix(info.last_activity.max(info.started_at)),
@@ -331,12 +331,13 @@ pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
     }
 }
 
-/// A status from a newer node reads as working.
-fn agent_status(status: Status) -> AgentStatus {
-    match status {
+/// A status from a newer node reads as working, and so does an idle
+/// session whose subagents still run.
+fn agent_status(state: &State) -> AgentStatus {
+    match state.status {
         Status::Starting => AgentStatus::Starting {},
         Status::Asking => AgentStatus::Asking {},
-        Status::Idle => AgentStatus::Idle {},
+        Status::Idle if state.subagents == 0 => AgentStatus::Idle {},
         Status::Ended => AgentStatus::Ended {},
         _ => AgentStatus::Working {},
     }

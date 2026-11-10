@@ -121,6 +121,7 @@ impl Live {
                     steps: Vec::new(),
                     subagent: Some(Subagent {
                         threads: vec![thread.to_owned()],
+                        ended: !run.working,
                         codex: true,
                         ..Default::default()
                     }),
@@ -132,7 +133,30 @@ impl Live {
             self.codex_threads.insert(thread.to_owned(), id);
             changed = true;
         }
+
+        if changed {
+            self.count_subagents();
+        }
+
         changed
+    }
+
+    /// Counts the subagents its calls started that still run, as their
+    /// entries show them.
+    pub(super) fn count_subagents(&mut self) {
+        let running = self
+            .tools
+            .values()
+            .filter(|tool| {
+                tool.parent.is_none()
+                    && tool.subagent.is_some()
+                    && matches!(
+                        tool.shown_status(None),
+                        ToolCallStatus::Pending | ToolCallStatus::InProgress
+                    )
+            })
+            .count();
+        self.info.state.subagents = u32::try_from(running).unwrap_or(u32::MAX);
     }
 
     pub(super) fn tool_call(&mut self, call: &AcpToolCall) {

@@ -83,7 +83,7 @@ impl ChildView {
         let state = match info.state.status {
             Status::Ended => "ended",
             Status::Asking => "waiting_on_user",
-            Status::Idle => "idle",
+            Status::Idle if info.state.subagents == 0 => "idle",
             _ => "working",
         };
         Self {

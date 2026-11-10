@@ -92,7 +92,7 @@ async fn end(
     let mut live = session.live.clone();
     live.wait_for(|live| match live.status() {
         Status::Ended => true,
-        Status::Idle => live.info.state.queued == 0,
+        Status::Idle => live.info.state.queued == 0 && live.info.state.subagents == 0,
         _ => false,
     })
     .await

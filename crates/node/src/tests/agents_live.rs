@@ -654,6 +654,34 @@ fn a_codex_subagent_shows_on_its_spawn_and_takes_its_rollouts_steps() {
 }
 
 #[test]
+fn an_idle_session_runs_until_its_subagents_end() {
+    let mut live = live();
+    live.prompted("spawn a subagent that sleeps");
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "spawn", "title": "spawnAgent",
+        "kind": "other", "status": "completed",
+        "rawInput": {"prompt": "Sleep for 60 seconds", "senderThreadId": "root",
+            "receiverThreadIds": ["t1"], "agentsStates": {"t1": {"status": "running"}}}
+    })));
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "read", "title": "Read README.md",
+        "kind": "read", "status": "completed"
+    })));
+    live.info.state.status = Status::Idle;
+    assert_eq!(live.info.state.subagents, 1);
+    assert!(live.info.state.runs(), "its subagent still runs");
+
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "act1", "title": "Complete subagent sleep_test",
+        "kind": "other", "status": "completed",
+        "rawInput": {"agentThreadId": "t1", "agentPath": "/root/sleep_test",
+            "activityKind": "completed"}
+    })));
+    assert_eq!(live.info.state.subagents, 0);
+    assert!(!live.info.state.runs());
+}
+
+#[test]
 fn a_session_looks_up_its_place_when_a_call_changes_the_folder() {
     let mut live = live();
     assert_eq!(

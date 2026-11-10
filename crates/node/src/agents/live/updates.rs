@@ -82,8 +82,14 @@ impl Live {
                 }
             }
             SessionUpdate::AgentThoughtChunk(chunk) => self.thought_chunk(&chunk.content, now),
-            SessionUpdate::ToolCall(call) => self.tool_call(call),
-            SessionUpdate::ToolCallUpdate(update) => self.tool_call_update(update),
+            SessionUpdate::ToolCall(call) => {
+                self.tool_call(call);
+                self.count_subagents();
+            }
+            SessionUpdate::ToolCallUpdate(update) => {
+                self.tool_call_update(update);
+                self.count_subagents();
+            }
             SessionUpdate::Plan(plan) => {
                 self.info.state.plan = plan
                     .entries
