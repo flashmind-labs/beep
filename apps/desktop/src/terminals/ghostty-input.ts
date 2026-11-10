@@ -161,7 +161,11 @@ export class TerminalInput {
     x.ghostty_key_event_set_mods(event, mods(input, input.code));
     x.ghostty_key_event_set_unshifted_codepoint(event, unshifted(input.code));
 
-    const text = new TextEncoder().encode(typed(input));
+    const chars = typed(input);
+    // Shift made the text (":" from ";"), so the kitty keyboard protocol
+    // sends the text rather than Shift with the key, as Ghostty does.
+    x.ghostty_key_event_set_consumed_mods(event, chars !== "" && input.shift ? Mods.SHIFT : 0);
+    const text = new TextEncoder().encode(chars);
     const data = text.length > 0 ? x.ghostty_wasm_alloc(text.length) : 0;
     const str = x.ghostty_wasm_alloc(GhosttyString.size);
 

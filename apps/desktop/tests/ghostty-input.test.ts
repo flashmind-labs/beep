@@ -70,6 +70,12 @@ test("keys follow the program's keyboard modes", async () => {
   // The Kitty keyboard protocol tells Escape apart.
   write("\x1b[>1u");
   assert.equal(text(input.key(key("Escape", "Escape"))), "\x1b[27u");
+  // Text made with Shift stays text, as neovim's ":" needs; with every key
+  // reported, Shift goes along with the key and its text.
+  assert.equal(text(input.key(key("Semicolon", ":", { shift: true }))), ":");
+  assert.equal(text(input.key(key("KeyA", "A", { shift: true }))), "A");
+  write("\x1b[>31u");
+  assert.equal(text(input.key(key("Semicolon", ":", { shift: true }))), "\x1b[59:58;2;58u");
   done();
 });
 

@@ -220,6 +220,7 @@ export interface Exports {
   ghostty_key_event_set_action(event: number, action: number): number;
   ghostty_key_event_set_key(event: number, key: number): number;
   ghostty_key_event_set_mods(event: number, mods: number): number;
+  ghostty_key_event_set_consumed_mods(event: number, mods: number): number;
   ghostty_key_event_set_utf8(event: number, str: number): number;
   ghostty_key_event_set_unshifted_codepoint(event: number, codepoint: number): number;
   ghostty_mouse_encoder_new(allocator: number, out: number): number;
