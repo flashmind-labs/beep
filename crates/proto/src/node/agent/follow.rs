@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 
 pub const SESSION_FOLLOW_PROTOCOL: &str = "agent-view/1";
 
+/// The `SessionUpdate::Error` reason a node gives when it has as many session
+/// readers as it allows. Released apps match this text; keep it unchanged.
+pub const FOLLOW_READERS_FULL: &str = "too many session readers";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FollowSession {
     pub agent: AgentSlug,

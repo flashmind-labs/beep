@@ -11,7 +11,8 @@ use beep_mesh::machine;
 use beep_proto::{
     AgentMode, AgentSessionModes, AgentSessionView, AgentSlug, AgentStatus, SessionId,
     node::agent::{
-        FollowSession, SESSION_FOLLOW_PROTOCOL, SessionCursor, SessionSource, SessionUpdate,
+        FOLLOW_READERS_FULL, FollowSession, SESSION_FOLLOW_PROTOCOL, SessionCursor, SessionSource,
+        SessionUpdate,
     },
 };
 use serde::Serialize;
@@ -44,8 +45,7 @@ const RELEASE_WAIT: Duration = Duration::from_millis(500);
 /// Whether the node turned a follow away because it has as many session
 /// readers as it allows.
 fn node_full(reason: &str) -> bool {
-    let reason = reason.to_lowercase();
-    reason.contains("too many") && reason.contains("reader")
+    reason == FOLLOW_READERS_FULL
 }
 
 /// The session a reader follows, marked read while it shows.
