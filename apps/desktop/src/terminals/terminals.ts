@@ -547,6 +547,37 @@ export interface TerminalPlace {
 }
 
 /// A terminal emulator on the page (termview.ts draws one with xterm.js).
+/// A screen whose terminal comes from `load` when first made, so xterm stays out of the
+/// window's first load. What it is given before then waits; its size is xterm's first one.
+export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Screen {
+  const el = document.createElement("div");
+  el.className = "tm-xterm";
+  let real: Screen | null = null;
+  let gone = false;
+  const early: ((screen: Screen) => void)[] = [];
+  const use = (fn: (screen: Screen) => void) => { if (real) fn(real); else early.push(fn); };
+  void load().then(make => {
+    if (gone) return;
+    const screen = real = make(el);
+    for (const fn of early.splice(0)) fn(screen);
+  }, e => console.warn("terminal screen:", e));
+
+  return {
+    el,
+    write: data => use(screen => screen.write(data)),
+    note: text => use(screen => screen.note(text)),
+    size: () => real?.size() ?? { cols: 80, rows: 24 },
+    fit: () => use(screen => screen.fit()),
+    focus: () => use(screen => screen.focus()),
+    focused: () => el.contains(document.activeElement),
+    onData: cb => use(screen => screen.onData(cb)),
+    onResize: cb => use(screen => screen.onResize(cb)),
+    onEscape: cb => use(screen => screen.onEscape(cb)),
+    setInput: on => use(screen => screen.setInput(on)),
+    dispose: () => { gone = true; early.length = 0; real?.dispose(); },
+  };
+}
+
 export interface Screen {
   el: HTMLElement;
   write(data: Uint8Array): void;

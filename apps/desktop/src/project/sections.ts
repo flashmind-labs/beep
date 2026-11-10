@@ -13,8 +13,7 @@ import type { BarTarget } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.ts";
 import type { AgentHost} from "../agents/agents.ts";
-import { makeTerminals } from "../terminals/terminals.ts";
-import { makeScreen } from "../terminals/termview.ts";
+import { lazyScreen, makeTerminals } from "../terminals/terminals.ts";
 import type { BranchSessionRow } from "../review/history-state.ts";
 import { makeGitHistory } from "../review/history.ts";
 import { branchSession } from "../review/branchsession-state.ts";
@@ -43,7 +42,7 @@ import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 /// project's list picked, null for the first.
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null, run: null as { project: string; id: number; host: string } | null };
 
-export const terms = makeTerminals({ invoke, Channel, makeScreen, ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
+export const terms = makeTerminals({ invoke, Channel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
 export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
 
 /// The project's branches and their reviews: the Branches list and the
