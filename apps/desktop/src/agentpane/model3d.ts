@@ -167,7 +167,6 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
   const renderer = new WebGLRenderer({ antialias: devicePixelRatio < 2, alpha: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   renderer.outputColorSpace = SRGBColorSpace;
-  box.append(renderer.domElement);
 
   const scene = new Scene();
   // Nothing moves but the camera and an animation, which update the
@@ -300,6 +299,8 @@ export async function mountModel(box: HTMLElement, bytes: ArrayBuffer, ext: stri
   // Shaders compile in parallel where the GPU allows, before the first
   // frame needs them.
   await renderer.compileAsync(scene, camera);
+  // Added only once drawn, so a failed draw leaves nothing in `box`.
+  box.append(renderer.domElement);
   controls.addEventListener("change", request);
   const watch = new ResizeObserver(resize);
   watch.observe(box);
