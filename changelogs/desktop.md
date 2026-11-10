@@ -28,6 +28,10 @@ Other apps have independent versions and changelogs:
 - Desktop: update changed chat rows independently and virtualize long project
   session lists.
 - Desktop: share concurrent machine and chat list reads.
+- Desktop: Home, File sync and the saved window views do less work while agents
+  run and files sync: one session's change no longer lists every machine,
+  unchanged views are not sent again, and transfer progress redraws at most
+  once a second.
 
 ## [0.7.0] - 2026-11-09
 
