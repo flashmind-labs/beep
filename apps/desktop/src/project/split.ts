@@ -169,14 +169,6 @@ export function labelFilter<T>(key: string, items: T[], tags: (i: T) => string[]
   return { items: on ? items.filter(i => tags(i)?.includes(on)) : items, labels };
 }
 
-/// A label chip: a click filters its list to it, a second click clears it.
-export function labelChip(label: string, f: LabelFilter, tag: "button" | "i") {
-  const c = h(tag, `pj-tag lab${label === f.on ? " on" : ""}`, label);
-  if (c instanceof HTMLButtonElement) c.type = "button";
-  c.addEventListener("click", e => { e.stopPropagation(); f.pick(label); });
-  return c;
-}
-
 /// The note of a code host list: why it could not be read, or that it reads.
 function hostNote(list: unknown[] | null | undefined, error: string, none: string) {
   if (error) return error;

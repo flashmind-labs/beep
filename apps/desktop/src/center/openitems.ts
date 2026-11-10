@@ -5,25 +5,21 @@ import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
 import { folderUnder } from "../addproject/importproject-state.ts";
-import { el as h, type Kid } from "../ui/dom.ts";
+import { el as h } from "../ui/dom.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.ts";
-import { itemChips, projectsWithOpen, reviewStart, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { itemChips, projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
 import { state } from "./state.ts";
-import { projectDot, tag, rowButton, line } from "../ui/pieces.ts";
+import { line } from "../ui/pieces.ts";
 import { draw } from "./home.ts";
 import { currentLocation, go } from "./views.ts";
 import { reloadChats, loadFound } from "./sidebar.ts";
-import { type LabelFilter, labelChip } from "../project/split.ts";
 import { refresh } from "./refresh.ts";
 import { IC } from "../ui/icons.ts";
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
 }
-
-/// What Review needs of a project: where it is checked out.
-type ReviewProject = Parameters<typeof reviewStart>[1];
 
 /// Reply opens a new chat with Beep that asks for help with the item; Beep
 /// reads it with its GitHub tools, and posting asks first.
@@ -37,32 +33,6 @@ export async function replyItem(item: GitItemRow) {
   }
 
   reloadChats();
-}
-
-export function openItemRow(item: GitItemRow, project: ReviewProject, f?: LabelFilter, extra?: { pick?: HTMLElement | null; action?: Kid }) {
-  const kindIcon = icon(item.kind === "pull_request" ? IC.pr : IC.issue);
-  const tags = (item.labels || []).map(l => f ? labelChip(l, f, "i") : h("i", "pj-tag", l));
-  const title = h("button", "t", h("span", "num", `#${item.number}`), h("b", "", item.title), extra ? h("span", "pj-proj", item.repo) : null, ...tags);
-  title.type = "button";
-  title.title = item.url;
-  const right = [
-    ...itemChips(item).map(c => tag(c.cls, c.text)),
-    h("span", "age", ago(item.updated_at)),
-    // Review prefills Start a coding agent: in the project's folder on an
-    // online machine when it is imported, else on Auto.
-    item.kind === "pull_request" ? rowButton("Review", "small", () => go("pane", { agentnew: reviewStart(item, project, state.home?.machines?.filter(m => m.can_host !== false)) })) : null,
-    rowButton("Reply", "small", () => replyItem(item)),
-  ];
-  const row = h("div", "cc-row cc-line cc-gr it", extra?.pick, h("span", "ic", kindIcon), title, h("span", "r", ...right, extra?.action));
-  row.addEventListener("click", () => openUrl(item.url));
-  return row;
-}
-
-/// A repository's head row among open items.
-export function repoLine(i: number | undefined, repo: string, sub: string, right: Kid[], open: () => void) {
-  const head = line(projectDot(i), repo, sub, right, open);
-  head.classList.add("cc-gr");
-  return head;
 }
 
 export type OpenRepo = ReturnType<typeof projectsWithOpen>[number];

@@ -1,6 +1,26 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
+test("outside project rows retain focus and keep import clicks separate", async ({ page }) => {
+  const item = { host: 'example.test', repo: 'other/project', number: 7, kind: 'pull_request', title: 'Outside change', url: 'https://example.test/other/project/pull/7', updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: 'none', checks_failing: false, comments: 0, labels: ['review'] };
+  await openDesktop(page, false, { git_items: { items: [item], hosts: [] } });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  const section = page.locator('#sec-elsewhere'), title = section.locator('.it .t');
+  await expect(title).toContainText('Outside change');
+  await title.focus();
+  await title.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
+  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length);
+  await page.evaluate(() => window.__navigation.notify('projects'));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length)).toBeGreaterThan(reads);
+  await expect(title).toHaveAttribute('data-identity', 'kept');
+  await expect(title).toBeFocused();
+  await title.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').map(call => call.args.url))).toContain(item.url);
+  await section.getByRole('button', { name: 'Import project' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length)).toBe(1);
+});
+
 test("found project actions retain focus across overview refresh", async ({ page }) => {
   const found = [{ name: 'example/found', remote: 'https://example.test/found', places: [{ machine_id: 'build-box', machine_name: 'Build box', folder: '/srv/found' }], agents: [{ agent: 'codex', sessions: 2 }], last_activity: 0 }];
   await openDesktop(page, false, { found_projects: found });
