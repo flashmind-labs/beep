@@ -64,6 +64,8 @@ pub struct Beep {
     /// The newest update id the events stream named, None while none is
     /// followed.
     updates: watch::Sender<Option<i64>>,
+    /// The link as `link_state` gives it, for what waits for a sign-in.
+    link: watch::Sender<LinkState>,
     saved: Mutex<Saved>,
     file: StateFile,
     /// The group the bar shows, so its messages do not also notify.
@@ -93,6 +95,11 @@ impl Beep {
                 }
             });
         let saved = file.load();
+        let link = if server.is_some() {
+            saved.effective_link()
+        } else {
+            LinkState::Unlinked
+        };
         (
             Arc::new(Self {
                 endpoint,
@@ -101,6 +108,7 @@ impl Beep {
                 follow: Mutex::new(None),
                 notices: tx,
                 updates: watch::Sender::new(None),
+                link: watch::Sender::new(link),
                 saved: Mutex::new(saved),
                 file,
                 group: Mutex::new(None),
@@ -193,6 +201,28 @@ impl Beep {
         let mut saved = self.saved();
         f(&mut saved);
         self.file.save(&saved);
+
+        if self.server.is_some() {
+            self.link.send_if_modified(|link| {
+                let was = *link;
+                *link = saved.effective_link();
+                was != *link
+            });
+        }
+    }
+
+    /// Waits until this app is linked to the server. Never returns with no
+    /// server to link to.
+    pub(crate) async fn until_linked(&self) {
+        let mut link = self.link.subscribe();
+
+        if link
+            .wait_for(|link| *link == LinkState::Linked)
+            .await
+            .is_err()
+        {
+            std::future::pending::<()>().await;
+        }
     }
 
     /// Where the link stands. A Mac signed out reads as unlinked, and so does one with no server

@@ -25,13 +25,10 @@ use std::{
     fs, mem,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
-/// How often to look again while the app is not linked.
-const UNLINKED_POLL: Duration = Duration::from_secs(5);
 /// Sessions a search returns, as many as the server's.
 const SEARCH_RESULTS: usize = 30;
 
@@ -613,7 +610,7 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
 
     loop {
         if beep.link_state() != LinkState::Linked {
-            tokio::time::sleep(UNLINKED_POLL).await;
+            beep.until_linked().await;
             continue;
         }
 
