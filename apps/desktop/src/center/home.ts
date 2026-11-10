@@ -1,26 +1,22 @@
 import { drawHomeComposer } from "./home-composer.tsx";
 // Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
-import { sessionMenu } from "../agents/sessionmenu.ts";
-import { harnessEl } from "../ui/harnessicon.ts";
-import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
 import { S } from "../bar/core.ts";
 import { homeForDisplay, type HomeView, type NeedsYou, type UpdateRow } from "./home-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { type Outcome, $, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
-import { failure, conflict, section, tag, line } from "../ui/pieces.ts";
+import { failure, conflict } from "../ui/pieces.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
-import { currentLocation, registerView, go, openResearch } from "./views.ts";
+import { currentLocation, registerView, go } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
 import { loading, refresh, fresh } from "./refresh.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
-import { type RunningAgent, runningKey, runningLine, type RunningRow, runningWhen } from "../agents/running-state.ts";
-import { onPlaces, runningLineAt } from "../agents/place.ts";
-import { moveLabel, onMoves } from "../agents/move-store.ts";
-import { closingNote, onClosing } from "../agents/closing.ts";
+import { type RunningAgent } from "../agents/running-state.ts";
+import { onPlaces } from "../agents/place.ts";
+import { onMoves } from "../agents/move-store.ts";
+import { onClosing } from "../agents/closing.ts";
 import { createElement } from "react";
 import { showWindowParts } from "./window-root.ts";
 import { ConnectingView } from "./connecting-view.tsx";
@@ -28,36 +24,6 @@ import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
 import { HomeGit } from "./openitems-view.tsx";
 import { HomeMachines } from "../machines/home-machines-view.tsx";
-
-export function runningStatus(r: RunningRow) {
-  const moving = r.kind === "agent" ? moveLabel(r) : null;
-  const closing = r.kind === "agent" ? closingNote(r) : null;
-  const working = r.kind === "agent" && ["working", "running", "starting"].includes(r.status);
-  const spin = working && !moving && !closing ? h("span", "dspin") : null;
-
-  if (spin) {
-    spin.setAttribute("role", "img");
-    spin.setAttribute("aria-label", r.status === "starting" ? "Starting" : "Working");
-  }
-
-  const when = spin ? h("span", "cc-running", spin, runningWhen(r)) : runningWhen(r);
-  return moving ? tag(moving.chip === "Moving" ? "run" : "bad", moving.chip) : closing || (r.status === "asking" ? tag("wait", "needs you") : when);
-}
-
-export function runningRow(r: RunningRow) {
-  const projects = state.home?.projects || [];
-  const { title, sub } = r.kind === "agent" ? runningLineAt(r, projects) : runningLine(r, projects);
-  const moving = r.kind === "agent" ? moveLabel(r) : null;
-  const right = [runningStatus(r)];
-  const row = r.kind === "research"
-    ? line(null, title, sub, right, () => openResearch(r.session))
-    // The pane's agent view follows and answers it.
-    : line(harnessEl(r.agent), title, sub, right, () => go("pane", { agent: r }));
-  if (r.kind === "agent") row.addEventListener("contextmenu", e => void sessionMenu(e, r, s => go("pane", { agent: s })));
-  row.dataset.key = runningKey(r);
-  if (moving?.why) row.title = moving.why;
-  return row;
-}
 
 // ---------- Needs you ----------
 
@@ -160,8 +126,6 @@ export const TAB_OF: Record<string, HomeTab> = {
   "sec-needs": "overview", "sec-running": "overview", "sec-updates": "overview", "sec-coming": "overview",
   "sec-git": "git", "sec-machines": "machines",
 };
-/// Rows an Overview box shows; its title opens the rest.
-const BOX_ROWS = 5;
 
 /// The phone's tab bar lights Machines for Home's Machines tab. An event, since the bar's
 /// module imports this one.
@@ -194,11 +158,6 @@ function page(home: HomeView) {
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
     addMachine: openAddMachine, useMac: () => { void useThisMac(); }, error: state.error, unavailable: !machines && !running, offline, content: tab.key === "overview" ? createElement(HomeOverview, { home }) : tab.key === "git" ? createElement(HomeGit, { view: git || { items: [], hosts: [] } }) : machines ? createElement(HomeMachines, { machines }) : null,
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
-}
-
-/// An Overview box: its title opens the full list, then its first rows.
-export function homeBox(id: string, title: string, count: number | string, open: () => void, rows: Node[], max = BOX_ROWS) {
-  return section(id, button(title, "lk", open), count, null, h("div", "cc-panel", ...rows.slice(0, max)));
 }
 
 // ---------- Connecting ----------
