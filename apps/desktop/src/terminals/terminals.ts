@@ -10,7 +10,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange } from "../ui/active.ts";
 import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
-import type { Ago } from "../ui/dom.ts";
+import type { Ago } from "../ui/format.ts";
 import type { TileData } from "../project/board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { reason } from "../ui/format.ts";
