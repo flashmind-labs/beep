@@ -189,7 +189,7 @@ function tips(root: ParentNode) {
 let keyboardHost: Element | null = null;
 let terminalsQueued = false;
 
-/// Connected only in the phone layout, and only on the page's main area: strips shortcuts from
+/// Connected only in the phone layout, and only on the page's main area and the overlays: strips shortcuts from
 /// new tooltips there and follows the Terminals page, which opens and closes a terminal without
 /// a page change. The rest of the window, and the desktop layout, cost it nothing.
 const page = new MutationObserver(list => {
@@ -200,10 +200,23 @@ const page = new MutationObserver(list => {
   requestAnimationFrame(() => { terminalsQueued = false; syncMobile(); });
 });
 
-function watchPage(on: boolean) {
-  if (!on) { page.disconnect(); dropKeyboard(); return; }
+/// Sheets, menus and the palette open outside the main area, as children of the body or
+/// of the window: each that opens loses its shortcuts, and so does what it draws later.
+const overlays = new MutationObserver(list => {
+  for (const m of list) for (const n of m.addedNodes) {
+    if (!(n instanceof Element)) continue;
+    tips(n);
+    page.observe(n, { childList: true, subtree: true });
+  }
+});
 
-  page.observe(windowHost("main"), { childList: true, subtree: true });
+function watchPage(on: boolean) {
+  if (!on) { page.disconnect(); overlays.disconnect(); dropKeyboard(); return; }
+
+  const main = windowHost("main");
+  page.observe(main, { childList: true, subtree: true });
+  overlays.observe(document.body, { childList: true });
+  if (main.parentElement && main.parentElement !== document.body) overlays.observe(main.parentElement, { childList: true });
 }
 
 function dropKeyboard() {
