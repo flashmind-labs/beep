@@ -486,3 +486,26 @@ test("pending snapshot payloads respect the byte budget", async t => {
   for (let index = 0; index < 12; index++) { t.mock.timers.tick(100); await settle(); }
   assert.deepEqual(heard.map(event => event.query), [999, 3, 4, 5, 6, 7, 8, 9]);
 });
+
+test("a slow view drains every pending key after one wait", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  nativeEvent("center-shown");
+  let rereads = 0;
+  const heard: string[] = [];
+  const stopState = subscribeTopics("files.*", () => { rereads++; }, null, () => true, 2000);
+  const stopEvents = subscribeTopics("files.*", event => { heard.push(event.machine_id); }, null, () => true, 2000);
+  t.after(() => { stopState(); stopEvents(); });
+  await settle();
+  const reader = latestReader();
+  for (const [revision, machine] of ["machine-a", "machine-b", "machine-c"].entries()) {
+    reader.onEvent.onmessage({ machine_id: machine, topic: "files.*", revision: revision + 1, data: {} });
+  }
+  t.mock.timers.tick(2000);
+  await settle();
+  assert.equal(rereads, 1, "a reread that ignores the update runs once for all keys");
+  assert.deepEqual(heard, ["machine-a", "machine-b", "machine-c"], "receivers of the update get each in order");
+  t.mock.timers.tick(86_400_000);
+  await settle();
+  assert.equal(rereads, 1);
+  assert.equal(heard.length, 3);
+});
