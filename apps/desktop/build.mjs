@@ -30,6 +30,8 @@ const options = {
   // three.js, for the media pane's 3D viewer, loads in its own chunk when first used.
   splitting: true,
   logLevel: "warning",
+  // React's development build validates and times every render; ship the production one.
+  define: { "process.env.NODE_ENV": process.argv.includes("--watch") ? '"development"' : '"production"' },
 };
 
 if (process.argv.includes("--watch")) {
