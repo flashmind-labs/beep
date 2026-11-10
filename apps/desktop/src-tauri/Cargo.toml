@@ -67,6 +67,8 @@ tokio = { version = "1", features = ["test-util"] }
 beep-node = { path = "../../../crates/node", default-features = false, features = ["host"] }
 arboard = "3.7"
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
+# The app data folder before Tauri starts, as Tauri finds it.
+dirs = "6"
 battery = "0.7"
 # Brotli for the bundled pages. A phone skips it: the IPA is zipped anyway.
 # macos-private-api is repeated here because the Tauri CLI checks this entry.

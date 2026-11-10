@@ -20,3 +20,21 @@ fn a_login_shell_gives_its_path() {
     let path = login_path("/bin/sh").expect("sh prints its PATH");
     assert!(!path.is_empty());
 }
+
+#[test]
+fn a_kept_path_comes_back_and_an_empty_one_does_not_count() {
+    let file = std::env::temp_dir()
+        .join(format!("beep-login-path-{}", uuid::Uuid::new_v4()))
+        .join(SAVED);
+    assert_eq!(read_saved(&file), None);
+
+    save(&file, "/opt/homebrew/bin:/usr/bin");
+    assert_eq!(
+        read_saved(&file).as_deref(),
+        Some("/opt/homebrew/bin:/usr/bin")
+    );
+
+    save(&file, " ");
+    assert_eq!(read_saved(&file), None);
+    let _ = fs::remove_dir_all(file.parent().expect("the file is in a folder"));
+}
