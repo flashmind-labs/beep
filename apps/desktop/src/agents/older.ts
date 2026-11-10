@@ -4,9 +4,9 @@
 
 import { S } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
-import { type AgentPage, AG, where } from "./agents.ts";
+import { AG, where } from "./agents.ts";
 import { drawAgentBody, jumpToLatest, rowInView, syncJump } from "./logview.ts";
-import { OLDER_MAX, OLDER_PAGE, PROMPT_READS, type Reading, drawsEachPage, lacksPrompt, olderBefore, takeOlder } from "./older-state.ts";
+import { OLDER_MAX, OLDER_PAGE, PROMPT_READS, type Reading, type Run, drawsEachPage, lacksPrompt, olderBefore, takeOlder } from "./older-state.ts";
 import { sessionBody } from "./session-frame.tsx";
 
 /// How far from the top of the log, in pixels, the reader asks for older entries.
@@ -49,7 +49,7 @@ async function readOlder(mode: Reading) {
     while (goesOn(mode, reads, sessionBody())) {
       const held = AG.page!;
       const before = held.earlier;
-      const got = await invoke<AgentPage>("agent_view", { ...where(o), last: OLDER_PAGE, before });
+      const got = await invoke<Run>("agent_older", { ...where(o), last: OLDER_PAGE, before });
       reads++;
       // Another session opened, or a read of the newest left a gap and
       // started the held entries over.

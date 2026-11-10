@@ -25,7 +25,7 @@ test("find waits for a prompt read and then reads the remaining history", async 
   let resolve!: (page: AgentPage) => void;
   const pending = new Promise<AgentPage>(done => { resolve = done; });
   let reads = 0;
-  Object.defineProperty(answers, "agent_view", { configurable: true, get: () => ++reads === 1 ? pending : page(0, 200) });
+  Object.defineProperty(answers, "agent_older", { configurable: true, get: () => ++reads === 1 ? pending : page(0, 200) });
 
   try {
     const prompt = loadOlder("prompt");
@@ -35,16 +35,16 @@ test("find waits for a prompt read and then reads the remaining history", async 
     await Promise.all([prompt, all]);
     assert.equal(AG.page?.earlier, 0);
     assert.equal(AG.page?.entries.length, 401);
-    assert.deepEqual(calls.filter(c => c.cmd === "agent_view").map(c => (c.args as { before: number }).before), [400, 200]);
+    assert.deepEqual(calls.filter(c => c.cmd === "agent_older").map(c => (c.args as { before: number }).before), [400, 200]);
     assert.equal(AG.older.loading, false);
-  } finally { delete answers.agent_view; }
+  } finally { delete answers.agent_older; }
 });
 
 test("a waiting find does not start reading a different conversation", async () => {
   start();
   let resolve!: (page: AgentPage) => void;
   const pending = new Promise<AgentPage>(done => { resolve = done; });
-  answers.agent_view = pending;
+  answers.agent_older = pending;
 
   try {
     const prompt = loadOlder("prompt");
@@ -52,7 +52,7 @@ test("a waiting find does not start reading a different conversation", async () 
     AG.open = { machine_id: "m1", agent: "codex", session: "s2" };
     resolve(page(200, 200));
     await Promise.all([prompt, all]);
-    assert.equal(calls.filter(c => c.cmd === "agent_view").length, 1);
+    assert.equal(calls.filter(c => c.cmd === "agent_older").length, 1);
     assert.equal(AG.page?.earlier, 400);
-  } finally { delete answers.agent_view; }
+  } finally { delete answers.agent_older; }
 });
