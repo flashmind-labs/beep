@@ -178,7 +178,8 @@ export function scrolledLog(b: ChatBody) {
 /// Shows "Jump to latest" while the log is scrolled up from the bottom.
 export function syncJump(b: ChatBody) {
   const jump = b.querySelector<HTMLElement>("#agjump");
-  if (jump) jump.hidden = b.stuck !== false || atBottom(b);
+  const hidden = b.stuck !== false || atBottom(b);
+  if (jump && jump.hidden !== hidden) jump.hidden = hidden;
 }
 
 /// Where a pointer is held down. Matching `:active` on every delta would force

@@ -25,9 +25,8 @@ export interface Unit {
   rows: () => readonly TranscriptRow[];
 }
 
-/// A row as drawn: its key in the turn and what it showed, to tell whether
-/// it changed.
-export interface KeyedRow { key: string; sig: string; row: TranscriptRow }
+/// A row as drawn and its key in the turn.
+export interface KeyedRow { key: string; row: TranscriptRow }
 /// A drawn turn. The same object stays while none of its rows changes.
 export interface DrawnTurn { key: string; rows: readonly KeyedRow[] }
 interface LogView { turns: readonly DrawnTurn[]; top: number | null; bottom: number | null }
@@ -274,7 +273,7 @@ function drawnTurn(u: Unit, prior: DrawnTurn | null): DrawnTurn {
   const rows = keyedRows(u.rows());
   if (!prior) return { key: u.key, rows };
   const old = new Map(prior.rows.map(row => [row.key, row]));
-  const merged = rows.map(row => { const was = old.get(row.key); return was && was.sig === row.sig ? was : row; });
+  const merged = rows.map(row => { const was = old.get(row.key); return was && sameData(was.row, row.row) ? was : row; });
   if (merged.length === prior.rows.length && merged.every((row, i) => row === prior.rows[i])) return prior;
   return { key: u.key, rows: merged };
 }
@@ -285,8 +284,18 @@ function keyedRows(rows: readonly TranscriptRow[]): KeyedRow[] {
     const base = row.kind === "reply" || row.kind === "prompt" ? `${row.kind}:${row.row}` : `${row.kind}:${row.id}`;
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
-    return { key: n ? `${base}#${n}` : base, sig: JSON.stringify(row), row };
+    return { key: n ? `${base}#${n}` : base, row };
   });
+}
+
+/// Whether two rows hold the same data. Rows are plain data; their
+/// callbacks are made again each draw and do not count.
+function sameData(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b) || (typeof a === "function" && typeof b === "function")) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null || Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((value, i) => sameData(value, b[i]));
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && sameData(Reflect.get(a, key), Reflect.get(b, key)));
 }
 
 /// A turn grew or shrank by itself: a picture loaded, a fold opened. One
