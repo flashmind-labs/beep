@@ -94,6 +94,8 @@ pub struct SessionRow {
     parent: Option<SessionParent>,
     /// A temporary reviewer of its parent's changes.
     reviewer: bool,
+    /// Its subagents that still run.
+    subagents: u32,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -113,6 +115,7 @@ impl From<MachineSession> for SessionRow {
             question: session.question,
             parent: None,
             reviewer: false,
+            subagents: session.subagents,
         }
     }
 }

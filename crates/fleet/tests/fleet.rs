@@ -3097,6 +3097,7 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
         last_activity: UNIX_EPOCH,
         external: false,
         question: None,
+        subagents: 0,
     };
     let mut refreshed = generated.clone();
     session_titles::apply(&other.mesh, &mut refreshed);

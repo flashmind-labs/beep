@@ -16,6 +16,7 @@ fn session(id: &str, machine: &str, activity: u64) -> MachineSession {
         last_activity: UNIX_EPOCH + Duration::from_secs(activity),
         external: false,
         question: None,
+        subagents: 0,
     }
 }
 

@@ -376,6 +376,10 @@ ffi_structs! {
         pub external: bool,
         /// What it waits on an answer to; never set for an external session.
         pub question: Option<AgentQuestion>,
+        /// Its subagents that still run; 0 for an external session and from
+        /// an older node.
+        #[serde(default)]
+        pub subagents: u32,
     }
 }
 

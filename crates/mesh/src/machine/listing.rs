@@ -234,6 +234,7 @@ pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
         title: info.title,
         cwd: info.cwd,
         status: agent_status(&info.state),
+        subagents: info.state.subagents,
         doing: Some(info.state.summary).filter(|summary| !summary.is_empty()),
         started_at,
         last_activity: unix(info.last_activity.max(info.started_at)),
@@ -256,6 +257,7 @@ pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession
         last_activity: unix(session.last_activity),
         external: true,
         question: None,
+        subagents: 0,
     }
 }
 
@@ -328,6 +330,7 @@ pub fn past_session(host: &Host, session: ExternalSession) -> MachineSession {
         last_activity: unix(session.last_activity),
         external,
         question: None,
+        subagents: 0,
     }
 }
 

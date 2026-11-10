@@ -206,6 +206,8 @@ enum RunningRow {
         started_at: u64,
         last_activity: u64,
         external: bool,
+        /// Its subagents that still run.
+        subagents: u32,
     },
     Research {
         session: Uuid,
@@ -577,6 +579,7 @@ impl From<&MachineSession> for RunningRow {
             started_at: epoch_ms(session.started_at),
             last_activity: epoch_ms(session.last_activity),
             external: session.external,
+            subagents: session.subagents,
         }
     }
 }

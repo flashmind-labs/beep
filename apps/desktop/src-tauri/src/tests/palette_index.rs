@@ -46,6 +46,7 @@ fn agent_session(
         last_activity: SystemTime::UNIX_EPOCH + Duration::from_secs(at),
         external: false,
         question: None,
+        subagents: 0,
     }
 }
 
