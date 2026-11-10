@@ -144,7 +144,7 @@ async fn linked_worktree_metadata_pushes_an_empty_commit_without_checkout_writes
     )
     .await;
     let paths = watch_paths(&checkout).await.unwrap();
-    assert_eq!(paths.len(), 5);
+    assert_eq!(paths.len(), 8);
     assert!(paths.iter().all(|path| !path.starts_with(&checkout)));
     let (_tx, mut rx, _task) = subscribe(&checkout).await;
     projection(&mut rx, 7).await;

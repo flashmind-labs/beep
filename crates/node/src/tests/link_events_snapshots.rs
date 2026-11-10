@@ -39,7 +39,7 @@ async fn session_process_topics_read_children_and_follow_process_changes() {
         Value::Sessions(Box::new(SessionsReply::Processes { processes: vec![] }))
     );
 
-    snapshots.changed(&Topic::new("processes"));
+    snapshots.changed(&Topic::new("processes"), ChangeKind::Any);
     assert!(snapshots.entries.get(&key).unwrap().dirty);
     // Completing the session read with a new child must produce another
     // snapshot even though the separate managed-command table did not change.
@@ -96,14 +96,14 @@ async fn plugin_bursts_coalesce_without_idle_timers_or_losing_inflight_changes()
         .events
         .publish(topic.clone(), vec![2])
         .unwrap();
-    snapshots.changed(&topic);
+    snapshots.changed(&topic, ChangeKind::Any);
     snapshots.start(&offers, caller);
     offers
         .agents
         .events
         .publish(topic.clone(), vec![3])
         .unwrap();
-    snapshots.changed(&topic);
+    snapshots.changed(&topic, ChangeKind::Any);
     assert!(snapshots.reads.is_empty());
     assert_eq!(snapshots.due(), Some(started + READ_GAP));
     tokio::time::advance(READ_GAP - Duration::from_millis(1)).await;
@@ -112,7 +112,7 @@ async fn plugin_bursts_coalesce_without_idle_timers_or_losing_inflight_changes()
     tokio::time::advance(Duration::from_millis(1)).await;
     snapshots.start(&offers, caller);
     // A notification arriving during a read must retain another dirty pass.
-    snapshots.changed(&topic);
+    snapshots.changed(&topic, ChangeKind::Any);
     assert!(
         matches!(stepped_snapshot(&mut snapshots).await, Some(Reply::Snapshot(value)) if value.value == Value::Plugin(vec![3]))
     );
@@ -205,7 +205,7 @@ async fn a_burst_of_changes_reads_once_more_and_delivers_the_last_state() {
             .events
             .publish(topic.clone(), vec![step])
             .unwrap();
-        snapshots.changed(&topic);
+        snapshots.changed(&topic, ChangeKind::Any);
         snapshots.start(&offers, caller);
         reads += snapshots.reads.len();
         tokio::time::advance(READ_GAP / 200).await;
@@ -244,7 +244,45 @@ async fn one_session_topic_reads_that_session_on_a_shorter_gap() {
         Value::Sessions(Box::new(SessionsReply::Sessions { sessions: vec![] }))
     );
 
-    snapshots.changed(&topic);
+    snapshots.changed(&topic, ChangeKind::Any);
     assert!(AGENT_GAP < READ_GAP);
     assert_eq!(snapshots.due(), Some(started + AGENT_GAP));
+}
+
+#[test]
+fn work_tree_changes_skip_git_projections_but_refresh_folders() {
+    let offers = Offers::default();
+    let root = "/srv/project";
+    let topic = Topic::keyed("files", root);
+    let git = Query {
+        id: 1,
+        topic: topic.clone(),
+        read: Read::Git {
+            root: root.into(),
+            query: beep_proto::node::events::GitRead::State,
+        },
+    };
+    let folder = Query {
+        id: 2,
+        topic: topic.clone(),
+        read: Read::Sessions(Box::new(SessionsRequest::Folder {
+            root: root.into(),
+            path: String::new(),
+            ignored: false,
+            depth: 1,
+        })),
+    };
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(&offers, &[], &[git, folder], &BTreeMap::new());
+    let dirty = |snapshots: &Snapshots, id| snapshots.entries[&(topic.clone(), Some(id))].dirty;
+
+    for entry in snapshots.entries.values_mut() {
+        entry.dirty = false;
+    }
+    snapshots.changed(&topic, ChangeKind::WorkTree);
+    assert!(!dirty(&snapshots, 1));
+    assert!(dirty(&snapshots, 2));
+
+    snapshots.changed(&topic, ChangeKind::Any);
+    assert!(dirty(&snapshots, 1));
 }

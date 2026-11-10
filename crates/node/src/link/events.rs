@@ -9,7 +9,7 @@ use beep_proto::node::{
 };
 use futures::{FutureExt, StreamExt, stream};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
@@ -167,24 +167,27 @@ pub(crate) async fn serve(
                     batch.push(event);
                 }
 
-                let mut changed = HashSet::new();
+                let mut changed = HashMap::new();
                 let mut lagged = false;
 
                 for event in batch {
                     match event {
-                        Ok(event) => { changed.insert(event.topic); }
+                        Ok(event) => {
+                            let kind = changed.entry(event.topic).or_insert(event.kind);
+                            *kind = (*kind).max(event.kind);
+                        }
                         Err(BroadcastStreamRecvError::Lagged(_)) => lagged = true,
                     }
                 }
 
                 let reconcile = lagged || broad_files(&sources(&topics, &queries))
-                    && changed.iter().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
+                    && changed.keys().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
                 if reconcile {
                     sources::reconcile(&offers, &subscriptions).await?;
                     roots = sources::roots(&subscriptions);
                 }
                 // Publication can add a previously unknown exact plugin topic.
-                if reconcile || changed.iter().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
+                if reconcile || changed.keys().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
                     snapshots.replace(&offers, &topics, &queries, &roots);
                 }
 
@@ -192,8 +195,8 @@ pub(crate) async fn serve(
                     snapshots.reset();
                 }
 
-                for topic in changed {
-                    snapshots.changed(&topic);
+                for (topic, kind) in changed {
+                    snapshots.changed(&topic, kind);
                 }
             },
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
@@ -333,15 +336,32 @@ async fn watch(
     if wanted.is_empty() {
         *watcher = None;
     } else {
+        // A root kept from the last pass keeps its Git paths without asking Git again.
+        let held = watcher
+            .as_ref()
+            .map(|watcher| crate::lock(&watcher.bindings).clone())
+            .unwrap_or_default();
         let bindings = stream::iter(wanted.clone())
-            .map(|(topic, root)| async move {
-                let mut dependencies = vec![root.clone()];
+            .map(|(topic, root)| {
+                let kept = held
+                    .get(&topic)
+                    .filter(|dependencies| dependencies.first() == Some(&root))
+                    .cloned();
+                async move {
+                    if let Some(dependencies) = kept {
+                        return (topic, dependencies);
+                    }
 
-                match git::watch_paths(&root).await {
-                    Ok(paths) => dependencies.extend(paths),
-                    Err(error) => log::debug!("Git metadata notifications unavailable: {error:#}"),
+                    let mut dependencies = vec![root.clone()];
+
+                    match git::watch_paths(&root).await {
+                        Ok(paths) => dependencies.extend(paths),
+                        Err(error) => {
+                            log::debug!("Git metadata notifications unavailable: {error:#}")
+                        }
+                    }
+                    (topic, dependencies)
                 }
-                (topic, dependencies)
             })
             .buffer_unordered(8)
             .collect::<FileBindings>()
@@ -354,11 +374,15 @@ async fn watch(
                 let held = crate::lock(&changed_roots);
 
                 for (topic, dependencies) in held.iter() {
-                    if dependencies
-                        .iter()
-                        .any(|root| paths.iter().any(|path| path == root))
-                    {
+                    // The root comes first; the rest are its Git metadata.
+                    let Some((root, git)) = dependencies.split_first() else {
+                        continue;
+                    };
+
+                    if git.iter().any(|dependency| paths.contains(dependency)) {
                         hub.changed(topic.clone());
+                    } else if paths.contains(root) {
+                        hub.changed_work_tree(topic.clone());
                     }
                 }
             })?;

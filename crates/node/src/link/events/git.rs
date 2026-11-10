@@ -65,12 +65,17 @@ pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
     let common = paths.next().context("Git did not name its common folder")?;
     let git = tokio::fs::canonicalize(root.join(git)).await?;
     let common = tokio::fs::canonicalize(root.join(common)).await?;
+    // Everything the Git projections and diffs read besides the working tree:
+    // the branch, index, refs, upstream settings, worktrees and exclusions.
     Ok(vec![
         git.join("HEAD"),
         git.join("index"),
         git.join("commondir"),
         common.join("refs"),
         common.join("packed-refs"),
+        common.join("config"),
+        common.join("worktrees"),
+        common.join("info").join("exclude"),
     ])
 }
 

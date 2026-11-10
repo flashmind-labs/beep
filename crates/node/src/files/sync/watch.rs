@@ -277,10 +277,13 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
             route.changes.insert(relative.to_owned());
             // Full means a scan is due already.
             let _ = route.wake.try_send(());
-            crate::events::system().changed(beep_proto::node::events::Topic::keyed(
-                "files",
-                route.root.to_string_lossy(),
-            ));
+            let topic = beep_proto::node::events::Topic::keyed("files", route.root.to_string_lossy());
+
+            if gitdir::is_metadata(relative) {
+                crate::events::system().changed(topic);
+            } else {
+                crate::events::system().changed_work_tree(topic);
+            }
         }
     }
 }
