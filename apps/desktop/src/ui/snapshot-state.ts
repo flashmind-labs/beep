@@ -22,6 +22,9 @@ export type CachedView =
 interface Snapshot { command: string; args: Record<string, unknown>; result: CachedView }
 const views = new Map<string, CachedView & { command: string; bytes: number }>();
 let bytes = 0;
+/// The newest projections received and not read yet. A view can change many times a second, so
+/// measuring and copying one waits until it is read, once for all the updates before.
+const pending = new Map<string, Snapshot>();
 
 /// Install every projection before notifying any subscriber of the source update.
 export function installViews(data: unknown): void {
@@ -30,8 +33,18 @@ export function installViews(data: unknown): void {
   for (const value of data.views) {
     const snapshot = readSnapshot(value);
     if (!snapshot) continue;
-    const { result } = snapshot;
     const id = key(snapshot.command, snapshot.args);
+    pending.delete(id);
+    pending.set(id, snapshot);
+  }
+
+  if (pending.size > MAX_VIEWS) settle();
+}
+
+/// Moves the pending projections into the bounded cache.
+function settle(): void {
+  for (const [id, snapshot] of pending) {
+    const { result } = snapshot;
     const size = JSON.stringify(result.kind === "error" ? result.error : result.value)?.length ?? MAX_BYTES + 1;
     const previous = views.get(id);
     if (previous) { bytes -= previous.bytes; views.delete(id); }
@@ -46,11 +59,14 @@ export function installViews(data: unknown): void {
       views.delete(oldest[0]);
     }
   }
+
+  pending.clear();
 }
 
 /// Explicit refreshes read the source. Callers own their copy of each rendered view.
 export function snapshotView(command: string, args?: Record<string, unknown>): CachedView | null {
   if (!COMMANDS.has(command) || args?.refresh === true) return null;
+  settle();
   const held = views.get(key(command, args));
   return held ? clone(held) : null;
 }
@@ -69,6 +85,7 @@ export function takeSnapshotView(command: string, args?: Record<string, unknown>
 
 export function clearViews(): void {
   views.clear();
+  pending.clear();
   bytes = 0;
 }
 
@@ -127,6 +144,7 @@ export function dropViews(scope: WriteScope): void {
     case "all": clearViews(); return;
     case "views": {
       const dropped = new Set<string>(scope.commands);
+      for (const [id, snapshot] of pending) if (dropped.has(snapshot.command)) pending.delete(id);
 
       for (const [id, held] of views) {
         if (!dropped.has(held.command)) continue;
