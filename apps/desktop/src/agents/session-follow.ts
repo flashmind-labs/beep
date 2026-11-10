@@ -7,7 +7,6 @@ import { type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_ACTIVE, where 
 import { drawAgentBody } from "./logview.ts";
 import { disposeQueue } from "./messages.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { ambient, onShownChange } from "../ui/active.ts";
 import { joinRuns } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
 import { agentOnScreen, applyAgentPage, isOpen, pollAgent } from "./session.ts";
@@ -61,8 +60,6 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     }
 
     feed.activity(o, activityOf(page.session));
-    unkept.set(key, o);
-    keepSoon();
     offScreen.set(key, { modes: update.modes, tasks: update.tasks });
     const fresh = update.kind === "delta" ? update.page : page;
     if (!open) return;
@@ -94,26 +91,6 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
   failed: o => { if (isOpen(o) && agentOnScreen()) void pollAgent(); },
 });
 
-/// How often, at most, a session that streams has its newest page kept on disk.
-const KEEP_MS = 5000;
-/// Sessions whose newest page changed since it was last kept on disk.
-const unkept = new Map<string, OpenAgent>();
-
-/// Keeps each changed session's newest page and its cursor on disk, so it draws at once after
-/// a restart or in another window, then follows on from the cursor.
-export function keepTranscripts() {
-  for (const [key, o] of unkept) {
-    const held = transcripts.peek(key);
-    if (held) void invoke("transcript_keep", { ...where(o), page: held.page, cursor: held.cursor }).catch(e => console.warn("keeping the transcript:", e));
-  }
-
-  unkept.clear();
-}
-
-const keepSoon = ambient(keepTranscripts, KEEP_MS);
-// Kept as the session view leaves the screen: the window hides or the pane goes.
-onShownChange(shown => { if (!shown) keepTranscripts(); }, true);
-
 /// What the app kept of a session, as `transcript_kept` gives it.
 interface KeptTranscript {
   page: AgentPage;
@@ -144,7 +121,6 @@ export function takeHeldSteers(o: OpenAgent): string[] {
 export function forgetTranscript(o: OpenAgent) {
   const key = transcriptKey(o);
   transcripts.delete(key);
-  unkept.delete(key);
   void invoke("transcript_forget", where(o)).catch(e => console.warn("forgetting the transcript:", e));
 }
 
@@ -198,5 +174,5 @@ export function forgetAgentFollows() {
 
 changeListeners.push(() => {
   // What was held joins the model now: a later update must not come before it.
-  if (S.view !== "agent") { flushDraw(true); stopAgentFollow(); disposeQueue(); keepTranscripts(); }
+  if (S.view !== "agent") { flushDraw(true); stopAgentFollow(); disposeQueue(); }
 });

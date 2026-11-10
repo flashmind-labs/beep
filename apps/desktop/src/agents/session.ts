@@ -43,7 +43,7 @@ import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
-import { feed, flushDraw, keepTranscripts, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
+import { feed, flushDraw, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
 import { drawAgentHeading, headText, readUsage, redrawAgentHints, agentHints, shownUsage } from "./session-head.ts";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 
@@ -89,7 +89,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
 
   if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
-  if (AG.open) { steerQueues.set(transcriptKey(AG.open), AG.queue); keepTranscripts(); }
+  if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
   S.view = "agent";
   AG.draft = null;
