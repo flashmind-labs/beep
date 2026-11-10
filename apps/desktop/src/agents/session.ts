@@ -3,7 +3,7 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
-import { SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
+import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
@@ -151,7 +151,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const place = { ...s, project: project?.name };
   if (inPlace) rebindPane(place); else startPane(place);
   void refreshMoves().then(drawMove);
-  const msg = $<HTMLTextAreaElement>("#agmsg");
+  const msg = agentMessage.current;
 
   if (msg) {
     composeField(msg, { images: agentAttach, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
@@ -197,7 +197,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
 
   b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, openLinked);
   drawAgentBody();
-  $("#agmsg")?.focus();
+  agentMessage.current?.focus();
   bar.onclick = agentClick;
 }
 

@@ -1,3 +1,4 @@
+import { agentMessage } from "../agents/session-frame.tsx";
 import { AGENT_IMAGE_TYPES } from "../agents/agents.ts";
 import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
@@ -121,7 +122,7 @@ export async function shrinkPic(file: Blob) {
 
 /// Whether the agent view's message field is on screen, to take what is
 /// pasted or dropped.
-const agentField = () => S.view === "agent" && !!$("#agmsg");
+const agentField = () => S.view === "agent" && !!agentMessage.current;
 
 document.addEventListener("paste", e => {
   const agent = agentField();
@@ -202,7 +203,7 @@ bar.addEventListener("drop", e => {
 
   if (agentField() && e.dataTransfer?.files.length) {
     e.preventDefault();
-    agentDrop(e.dataTransfer.files).then(() => $("#agmsg")?.focus());
+    agentDrop(e.dataTransfer.files).then(() => agentMessage.current?.focus());
     return;
   }
 

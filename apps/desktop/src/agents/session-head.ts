@@ -1,7 +1,7 @@
 // The open session's head and key hints: its title, folder, usage and the
 // editors that open its folder.
 import { createElement } from "react";
-import { removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
+import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
 import { $, windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, agentKind, folderName, where } from "./agents.ts";
@@ -41,7 +41,7 @@ export function agentHints() {
 
 /// Puts the session's key hints in place of those on screen.
 export function redrawAgentHints() {
-  const input = $<HTMLTextAreaElement>("#agmsg"), s = AG.page?.session;
+  const input = agentMessage.current, s = AG.page?.session;
   const placeholder = !s ? null : AG.att.length ? "Add a message (optional)" : s.status === "ended" ? `Message ${agentKind(s.agent).name} to continue` : `Message ${agentKind(s.agent).name}`;
   // Each delta redraws the hints; an unchanged write would still invalidate style.
   if (input && placeholder !== null && input.placeholder !== placeholder) input.placeholder = placeholder;

@@ -16,6 +16,7 @@ import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
+import { agentMessage } from "../src/agents/session-frame.tsx";
 import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
 
 /// Polls follow the session only while the page shows.
@@ -35,9 +36,10 @@ function runFrames() {
   for (const callback of due) callback(performance.now());
 }
 
-/// The bar shows only `els`, by selector.
-function show(els: Record<string, unknown>) {
+/// The bar shows only `els`, by selector, and the session's message field when given.
+function show(els: Record<string, unknown>, message: ReturnType<typeof field> | null = null) {
   Object.assign(bar, { querySelector: (sel: string) => els[sel] ?? null });
+  agentMessage.current = message as HTMLTextAreaElement | null;
 }
 
 const field = (value = "") => ({ value, placeholder: "", disabled: false, focus() {} });
@@ -64,7 +66,7 @@ const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo="
 
 /// Enter in the session's field, with Option when `alt`.
 function enter(input: unknown, alt = false) {
-  const e = { key: "Enter", altKey: alt, shiftKey: false, isComposing: false, target: Object.assign(input as object, { id: "agmsg" }), preventDefault() {} };
+  const e = { key: "Enter", altKey: alt, shiftKey: false, isComposing: false, target: input, preventDefault() {} };
   return agentKeys(e as unknown as KeyboardEvent, false);
 }
 
@@ -249,7 +251,7 @@ test("a stalled first read logs the operation it is waiting for", async t => {
 test("a text message that fails to send goes back in the field under the error", async () => {
   const page = openSession("idle");
   const input = field("fix the build");
-  show({ "#agmsg": input });
+  show({}, input);
   refuse("agent_steer", "bad request: the machine is offline");
   await sendAgentMessage();
   assert.equal(input.value, "fix the build");
@@ -262,7 +264,7 @@ for (const status of ["idle", "working", "ended"]) {
     openSession(status);
     const input = field("check the attachment"), path = ".beep/uploads/sample.bin";
     const file = { name: "sample.bin", mime: "application/octet-stream", size: 4, data: "AAH+/w==" };
-    show({ "#agmsg": input });
+    show({}, input);
     MN.paths = [path];
     MN.files.set(path, file);
     AG.att = [png];
@@ -391,7 +393,7 @@ test("Option-Enter steers immediately with its files and images", async () => {
   openSession("working");
   answers.agent_steer = [];
   const input = field("look at this log");
-  show({ "#agmsg": input });
+  show({}, input);
   MN.paths = [".beep/uploads/whatever.log"];
   AG.att = [png];
   assert.equal(enter(input, true), true);
@@ -406,7 +408,7 @@ test("Option-Enter steers immediately with its files and images", async () => {
 test("Enter while the turn runs steers it, with what is attached", async () => {
   const page = openSession("working");
   const input = field("use the fixture instead");
-  show({ "#agmsg": input });
+  show({}, input);
   MN.paths = ["tests/data/login.json"];
   AG.att = [png];
   // The key the node names the image by.
@@ -430,7 +432,7 @@ test("Enter while the turn runs steers it, with what is attached", async () => {
 test("an image attached after a steer goes with the next message, not the steer", async () => {
   openSession("working");
   const input = field("first");
-  show({ "#agmsg": input });
+  show({}, input);
   answers.agent_steer = [];
   enter(input);
   AG.att.push(png);
@@ -441,7 +443,7 @@ test("an image attached after a steer goes with the next message, not the steer"
 
 test("Stopping leaves pending steers with the node (#378)", async () => {
   const page = openSession("working");
-  show({ "#agmsg": field() });
+  show({}, field());
   AG.queue = [{ ...words("steer me"), how: "steer", state: "sent", after: 0 }];
   assert.equal(interruptAgent(), true);
   assert.deepEqual(AG.stopping, { id: "s1", turns: 0 });
@@ -663,7 +665,7 @@ test("closing removes list rows and counts before the reply, survives stale read
 test("an image can be sent with no prompt", async () => {
   const page = openSession("idle");
   const input = field("  ");
-  show({ "#agmsg": input });
+  show({}, input);
   AG.att = [png];
   answers.agent_steer = ["picture-key"];
   await sendAgentMessage();

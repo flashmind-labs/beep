@@ -4,7 +4,7 @@
 // PDFs the agent made or looked at, its files, artifacts, terminals and
 // subagents, each a tab. Drawing the tabs is in media-draw.ts, the docks'
 // layout and dividers in media-layout.ts.
-import { removeSessionPortal } from "../agents/session-frame.tsx";
+import { agentMessage, removeSessionPortal } from "../agents/session-frame.tsx";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { queuePreview } from "./html-preview-state.ts";
@@ -478,7 +478,7 @@ export function leavePane() {
   P.zoom = null;
   place();
   rememberPane();
-  const input = document.querySelector<HTMLElement>("#agmsg, #agdraft textarea");
+  const input = agentMessage.current ?? document.querySelector<HTMLElement>("#agdraft textarea");
   if (input) input.focus(); else (focus as HTMLElement).blur();
   return true;
 }

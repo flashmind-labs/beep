@@ -45,7 +45,7 @@ import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
 import { placeSub } from "./place-state.ts";
-import { sessionBody } from "./session-frame.tsx";
+import { agentMessage, sessionBody } from "./session-frame.tsx";
 
 /// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
@@ -495,7 +495,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (!e.shiftKey && k === "1") {
         e.preventDefault();
         leavePane();
-        const body = sessionBody(), chat = $("#agmsg, #agdraft textarea") ?? body;
+        const body = sessionBody(), chat = agentMessage.current ?? $("#agdraft textarea") ?? body;
         if (chat && chat === body && !chat.hasAttribute("tabindex")) chat.setAttribute("tabindex", "-1");
         chat?.focus();
         return true;
@@ -505,9 +505,9 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (k === "o" && !e.shiftKey) { e.preventDefault(); openEditorKey(); return true; }
     }
 
-    const target = e.target as HTMLElement | null;
+    const target = e.target, field = agentMessage.current, inField = !!field && target === field;
     const body = sessionBody();
-    const page = pageDirection(e, !!body && ((target?.id === "agmsg" && !(target as HTMLTextAreaElement).value) || target === body || target === document.body));
+    const page = pageDirection(e, !!body && ((inField && !field.value) || target === body || target === document.body));
 
     if (page && body) {
       e.preventDefault();
@@ -521,12 +521,12 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     // unless the field has text to move through.
     const jump = logJumpKey(e, cmd);
     if (jump) { e.preventDefault(); void (jump === "start" ? jumpToStart() : jumpToEnd()); return true; }
-    if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && (e.target as HTMLElement).id === "agmsg" && cycleMode()) { e.preventDefault(); return true; }
+    if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && inField && cycleMode()) { e.preventDefault(); return true; }
 
     // On a phone Return starts a new line; the Send button sends.
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (e.target as HTMLElement).id === "agmsg" && !document.body?.classList.contains("mobile")) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && inField && !document.body?.classList.contains("mobile")) {
       e.preventDefault();
-      submitAgentMessage(e.target as HTMLTextAreaElement);
+      submitAgentMessage(field);
       return true;
     }
 
