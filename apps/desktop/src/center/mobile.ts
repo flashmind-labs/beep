@@ -154,14 +154,11 @@ function keyboard() {
 /// Tooltips that name a shortcut lose it; the key handlers stay for a connected keyboard.
 const SHORTCUT_TIP = /\s*\((?:[⌘⌃⌥⇧]|Ctrl|esc\b|⏎)[^)]*\)/;
 
-function tip(e: Element) {
-  if (!(e instanceof HTMLElement) || !e.title) return;
-  const t = e.title.replace(SHORTCUT_TIP, "");
-  if (t !== e.title) e.title = t;
-}
-
 function tips(root: ParentNode) {
-  for (const e of root.querySelectorAll("[title*='(']")) tip(e);
+  for (const e of root.querySelectorAll<HTMLElement>("[title*='(']")) {
+    const t = e.title.replace(SHORTCUT_TIP, "");
+    if (t !== e.title) e.title = t;
+  }
 }
 
 /// The composer showing the button that puts the keyboard away.
@@ -178,7 +175,7 @@ const page = new MutationObserver(list => {
   let terminals = false;
   for (const m of list) {
     terminals ||= main.contains(m.target);
-    for (const n of m.addedNodes) if (n instanceof Element) { tip(n); tips(n); }
+    for (const n of m.addedNodes) if (n instanceof Element) tips(n);
   }
 
   if (!terminals || terminalsQueued || currentLocation()?.view !== "terminals") return;
@@ -189,7 +186,6 @@ const page = new MutationObserver(list => {
 function watchPage(on: boolean) {
   if (!on) { page.disconnect(); dropKeyboard(); return; }
 
-  tips(document);
   page.observe(document.body, { childList: true, subtree: true });
 }
 
@@ -207,4 +203,5 @@ export function initMobile() {
   document.addEventListener(HOME_TAB_EVENT, syncMobile);
   longPress();
   keyboard();
+  tips(document);
 }
