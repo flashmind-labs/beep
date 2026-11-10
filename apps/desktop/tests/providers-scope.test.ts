@@ -3,7 +3,6 @@ import { answers, calls } from "./dom-env.ts";
 import { JSDOM } from "jsdom";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { el } from "../src/ui/dom.ts";
 import { invoke } from "../src/ui/tauri.ts";
 import type { HarnessView } from "../src/settings/providers-state.ts";
 
@@ -30,7 +29,7 @@ test("machine selection preserves shared drafts and each save writes only its sc
   answers.harness_model_compacts = [];
   answers.harness_default_model = null;
   answers.agent_models = null;
-  const root = el("div");
+  const root = document.createElement("div");
   document.body.append(root);
   const { providersPage } = await import("../src/settings/providers.ts");
   const { fireEvent } = await import("@testing-library/react");
@@ -79,7 +78,7 @@ test("machine selection preserves shared drafts and each save writes only its sc
 
 test("shared compaction stays editable when no machine is online", async () => {
   answers.list_machines = [];
-  const root = el("div");
+  const root = document.createElement("div");
   document.body.replaceChildren(root);
   const { providersPage } = await import("../src/settings/providers.ts");
   void providersPage({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {} }).mount(root, { settings: true, agent: "claude" });
