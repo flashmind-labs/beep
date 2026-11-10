@@ -274,22 +274,30 @@ export function reloadFolder(dir: string) {
 async function refresh() {
   const key = F.key, generation = F.generation;
   const same = () => F.key === key && F.generation === generation;
-  if (F.kept) F.kept.dirty = false;
+  const entry = F.kept;
+  if (entry) entry.dirty = false;
   F.fresh = true;
   const roots = [...new Set([...F.roots, ...F.reading])];
+  let read = false;
 
   try {
     for (let offset = 0; offset < roots.length; offset += WALK_AT_ONCE) {
       if (!same()) return;
       await Promise.all(roots.slice(offset, offset + WALK_AT_ONCE).map(dir => load(dir)));
     }
+    read = same();
   } finally {
     if (same()) F.fresh = false;
+    // A read that stopped short leaves the tree as stale as before, so the next show reads again.
+    if (!read && entry) entry.dirty = true;
   }
 
   if (!same()) return;
   const error = [...F.listings.values()].find(listing => listing.error)?.error;
-  if (error) throw new Error(error);
+  if (error) {
+    if (entry) entry.dirty = true;
+    throw new Error(error);
+  }
 }
 
 /// Whether the tree can be seen: its tab is picked in a dock not folded

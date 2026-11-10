@@ -108,7 +108,15 @@ function make(key: string) {
         if (shown === entry) refreshWorktrees();
       }
 
-      const view = await invoke<DiffView>("work_diff", { machineId: entry.machine, root: entry.root, only, lockfiles, uncommitted, context });
+      let view: DiffView;
+      try {
+        view = await invoke<DiffView>("work_diff", { machineId: entry.machine, root: entry.root, only, lockfiles, uncommitted, context });
+      } catch (e) {
+        // A failed read leaves the view as stale as before, so the next show reads again.
+        if (full) entry.dirty = true;
+        throw e;
+      }
+
       if (full) { entry.lines = linesOf(view); trim(); }
       return view;
     },
