@@ -3,7 +3,7 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
-import { SessionField, SessionHead, showSessionFrame } from "./session-frame.tsx";
+import { SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
@@ -69,7 +69,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     // Its log may come back from a hidden page, which WebKit shows scrolled
     // to the top: it goes back to its end, or where the reader left it,
     // before its scroll handler takes that for the reader's move.
-    const shown = $<ChatBody>("#agbody");
+    const shown = sessionBody();
 
     if (S.view === "agent" && shown) {
       restorePane();
@@ -295,7 +295,7 @@ const READ_WATCH_MS = 30_000;
 let reading: { open: OpenAgent; at: number; pending: Set<string> } | null = null;
 
 function traceSession(stage: string, o: OpenAgent, details: Record<string, unknown> = {}) {
-  logInfo(`session view: ${JSON.stringify({ stage, session: o.session, machine: o.machine_id, view: S.view, body: !!$("#agbody"), ...visibilitySnapshot(), ...details })}`);
+  logInfo(`session view: ${JSON.stringify({ stage, session: o.session, machine: o.machine_id, view: S.view, body: !!sessionBody(), ...visibilitySnapshot(), ...details })}`);
 }
 
 /// Logs it when the session `o` opened still shows nothing read after
@@ -303,7 +303,7 @@ function traceSession(stage: string, o: OpenAgent, details: Record<string, unkno
 function watchRead(o: OpenAgent) {
   setTimeout(() => {
     if (AG.open !== o || !isOpen(o) || AG.sig || AG.readError) return;
-    logError(`session view: nothing read for session ${o.session} after ${READ_WATCH_MS / 1000} s ${JSON.stringify({ reading: AG.inflight === o, pending: reading?.open === o ? [...reading.pending] : [], view: S.view, body: !!$("#agbody"), ...visibilitySnapshot() })}`);
+    logError(`session view: nothing read for session ${o.session} after ${READ_WATCH_MS / 1000} s ${JSON.stringify({ reading: AG.inflight === o, pending: reading?.open === o ? [...reading.pending] : [], view: S.view, body: !!sessionBody(), ...visibilitySnapshot() })}`);
   }, READ_WATCH_MS);
 }
 
@@ -344,8 +344,8 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   drawModelPill();
   drawAgentHeading();
   // The frame around the log is drawn again; the log itself stays.
-  if (placed) drawAgentFrame(false, $<ChatBody>("#agbody"));
-  else if (field && $("#agconv")) drawAgentFrame(true, $<ChatBody>("#agbody"));
+  if (placed) drawAgentFrame(false, sessionBody());
+  else if (field && $("#agconv")) drawAgentFrame(true, sessionBody());
   // Back after a lost link, or something new came: earlier errors no longer hold.
   AG.note = noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news });
   AG.readError = "";
@@ -398,7 +398,7 @@ export function resumeAgent() {
 // Put a shown log back before a read or a scroll event can mistake a
 // hidden view's reset for the reader scrolling up.
 function restoreAgentScroll() {
-  const b = $<ChatBody>("#agbody");
+  const b = sessionBody();
   if (!b) return;
   b.scrollTop = returnScroll(b, b.top ?? 0);
   scrolledLog(b);

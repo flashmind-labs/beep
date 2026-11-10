@@ -34,7 +34,6 @@ import { TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, jumpToEnd, loadOlder, logJumpKey, nearTop } from "./older.ts";
 import { pageDirection } from "./logkeys-state.ts";
-import type { ChatBody } from "../ui/turn.ts";
 import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
 import { interruptAgent, answerFirst } from "./messages.ts";
@@ -48,6 +47,7 @@ import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
 import { placeSub } from "./place-state.ts";
+import { sessionBody } from "./session-frame.tsx";
 
 /// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
@@ -498,8 +498,8 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (!e.shiftKey && k === "1") {
         e.preventDefault();
         leavePane();
-        const chat = $("#agmsg, #agdraft textarea") ?? $("#agbody");
-        if (chat && !chat.hasAttribute("tabindex") && chat.id === "agbody") chat.setAttribute("tabindex", "-1");
+        const body = sessionBody(), chat = $("#agmsg, #agdraft textarea") ?? body;
+        if (chat && chat === body && !chat.hasAttribute("tabindex")) chat.setAttribute("tabindex", "-1");
         chat?.focus();
         return true;
       }
@@ -509,7 +509,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     }
 
     const target = e.target as HTMLElement | null;
-    const body = $<ChatBody>("#agbody");
+    const body = sessionBody();
     const page = pageDirection(e, !!body && ((target?.id === "agmsg" && !(target as HTMLTextAreaElement).value) || target === body || target === document.body));
 
     if (page && body) {

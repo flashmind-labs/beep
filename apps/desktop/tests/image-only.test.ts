@@ -8,6 +8,7 @@ import { pollAgent } from "../src/agents/session.ts";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { MN } from "../src/agents/workdrop.ts";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
+import { showSessionBody } from "./session-frame-env.ts";
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=" };
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
@@ -24,7 +25,7 @@ function openSession(status: string): AgentPage {
   answers.agent_tasks = [];
   calls.length = 0;
   delete answers.agent_steer;
-  bar.innerHTML = '<div id="agbody"></div><textarea id="agmsg"></textarea>';
+  showSessionBody(true);
   return page;
 }
 const field = () => bar.querySelector<HTMLTextAreaElement>("#agmsg")!;

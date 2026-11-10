@@ -13,15 +13,18 @@ import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./lo
 import { toggleModelPicker, closeModelPicker } from "./modelpill.ts";
 import { cycleMode } from "./modepill.ts";
 import { answerAgentQuestion } from "./messages.ts";
-import type { ChatBody } from "../ui/turn.ts";
 import { invoke } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
 import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent } from "./session.ts";
+import { sessionBody } from "./session-frame.tsx";
 
 export function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
-  const target = e.target as HTMLElement;
+  const target = e.target as HTMLElement, body = sessionBody();
+  /// The element `selector` finds from the click when it is in the log, or also in the pane.
+  const inLog = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && body?.contains(el) ? el : null; };
+  const inLogOrPane = <T extends HTMLElement = HTMLElement>(selector: string) => { const el = target.closest<T>(selector); return el && (body?.contains(el) || el.closest(".agpane")) ? el : null; };
   const opt = target.closest<HTMLElement>("[data-agopt]");
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
   if (target.closest("#agmodelb")) return toggleModelPicker();
@@ -29,9 +32,9 @@ export function agentClick(e: MouseEvent) {
   if (AG.modelOpen && !target.closest(".agc-pick, [data-agtask]")) closeModelPicker();
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
   if (closing) return closeSub(Number(closing.dataset.subclose));
-  const stopping = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kidstop]");
+  const stopping = inLogOrPane<HTMLElement>("[data-kidstop]");
   if (stopping) return void stopKid(stopping);
-  const prompt = target.closest<HTMLElement>("#agbody [data-prompt]");
+  const prompt = inLog<HTMLElement>("[data-prompt]");
 
   if (prompt) {
     const at = Number(prompt.dataset.prompt);
@@ -41,7 +44,7 @@ export function agentClick(e: MouseEvent) {
 
   const summary = target.closest<HTMLElement>("[data-subsummary]");
   if (summary) { const at = Number(summary.dataset.subsummary); AG.steps.set(at, !AG.steps.get(at)); drawAgentBody(); return; }
-  const sub = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-native]");
+  const sub = inLogOrPane<HTMLElement>("[data-native]");
 
   if (sub && AG.page && AG.log) {
     const entry = AG.page.entries[Number(sub.dataset.native) - AG.page.earlier];
@@ -54,11 +57,11 @@ export function agentClick(e: MouseEvent) {
   }
 
   // An agent another agent started opens as its own session.
-  const kid = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kid]");
+  const kid = inLogOrPane<HTMLElement>("[data-kid]");
   if (kid) { void openKid(kid.dataset.kid!, kid.dataset.key); return; }
   if (target.closest("#agup, #agup2")) return openParent();
   // "Show all N lines" opens the whole output in a box that scrolls.
-  const all = target.closest<HTMLElement>("#agbody [data-all]");
+  const all = inLog<HTMLElement>("[data-all]");
 
   if (all) {
     const at = Number(all.dataset.all);
@@ -66,43 +69,43 @@ export function agentClick(e: MouseEvent) {
     return drawAgentBody(clickedRow(all));
   }
 
-  if (target.closest("#agbody pre.out.all")) return;
+  if (inLog("pre.out.all")) return;
   // A run of calls opens and folds where it is, like a thought.
-  const runBtn = target.closest<HTMLElement>("#agbody [data-run]");
+  const runBtn = inLog<HTMLElement>("[data-run]");
   if (runBtn && AG.open) return toggleRow(turnsOf(AG.open.session).runs, Number(runBtn.dataset.run));
   // The files a turn made fold and open, like a run of calls.
-  const madeHead = target.closest<HTMLElement>("#agbody [data-madeat]");
+  const madeHead = inLog<HTMLElement>("[data-madeat]");
   if (madeHead && AG.open) return toggleRow(turnsOf(AG.open.session).made, Number(madeHead.dataset.madeat));
 
   // A file a turn made opens in the Artifacts tab, or else in its own tab.
-  const madeFile = target.closest<HTMLElement>("#agbody [data-made]");
+  const madeFile = inLog<HTMLElement>("[data-made]");
 
   if (madeFile) {
     if (!showArtifact(madeFile.dataset.made!)) openLinked(madeFile.dataset.made!);
     return;
   }
 
-  const copy = target.closest<HTMLElement>("#agbody [data-copy]");
+  const copy = inLog<HTMLElement>("[data-copy]");
   if (copy) return copyCode(copy);
   if (target.closest("#agjump")) { jumpToLatest(); return; }
   // A thought opens and folds where it is; only its row draws again.
-  const thought = target.closest<HTMLElement>("#agbody [data-thought]");
+  const thought = inLog<HTMLElement>("[data-thought]");
   if (thought && AG.open) return toggleRow(turnsOf(AG.open.session).thoughts, Number(thought.dataset.thought));
 
   // The heading toggles the steps; the bottom chevron returns to it.
-  const turn = target.closest<HTMLElement>("#agbody [data-turn]");
+  const turn = inLog<HTMLElement>("[data-turn]");
 
   if (turn && AG.open) {
     const opened = turnsOf(AG.open.session).opened, key = Number(turn.dataset.turn);
     const collapse = turn.hasAttribute("data-collapse");
-    const heading = `#agbody .hd[data-turn="${key}"]`;
+    const heading = () => body?.querySelector<HTMLButtonElement>(`.hd[data-turn="${key}"]`);
     // Bring the heading into view before the shorter turn is virtualized.
-    if (collapse) $(heading)?.scrollIntoView({ block: "nearest" });
+    if (collapse) heading()?.scrollIntoView({ block: "nearest" });
     if (!opened.delete(key) && !collapse) opened.add(key);
     drawAgentBody(clickedRow(turn));
 
     if (collapse) {
-      const head = $<HTMLButtonElement>(heading);
+      const head = heading();
       head?.focus({ preventScroll: true });
       head?.scrollIntoView({ block: "nearest" });
     }
@@ -111,21 +114,21 @@ export function agentClick(e: MouseEvent) {
   }
 
   // A file a step names opens in the media pane.
-  const step = target.closest<HTMLElement>("#agbody [data-media]");
+  const step = inLog<HTMLElement>("[data-media]");
   if (step) { openPath(step.dataset.media!); return; }
   // A markdown link to a file opens it in the pane; bar/events.ts sends web links out.
-  const fileLink = target.closest<HTMLAnchorElement>("#agbody a[href]");
+  const fileLink = inLog<HTMLAnchorElement>("a[href]");
   const linkedFile = fileLink && linkedPath(fileLink.getAttribute("href")!);
   if (linkedFile) { openLinked(linkedFile); return; }
   // A file the reply names opens its picture, as its thumbnail does, or
   // else the file itself from the machine, in the media pane.
-  const link = target.closest<HTMLElement>("#agbody a.imgl");
+  const link = inLog<HTMLElement>("a.imgl");
   const linked = link?.dataset.img != null ? link.closest(".dcoderen")?.querySelectorAll<HTMLImageElement>(":scope > .pics img.pic, :scope > [data-tool-content] > .pics img.pic")[Number(link.dataset.img)] : null;
   if (link && !linked?.getAttribute("src")) { if (link.dataset.path) openPath(link.dataset.path); return; }
   // The agent's pictures open in the media pane, the user's own full size.
   // One still loading opens once it is here. The tile may be a thumbnail, so
   // what opens is read whole.
-  const pic = linked ?? target.closest<HTMLImageElement>("#agbody img.pic");
+  const pic = linked ?? inLog<HTMLImageElement>("img.pic");
 
   if (pic) {
     const o = AG.open;
@@ -151,9 +154,9 @@ export function agentClick(e: MouseEvent) {
   }
 
   // An Artifact call opens what it published in the Artifacts tab.
-  const art = target.closest<HTMLElement>("#agbody [data-artifact]");
+  const art = inLog<HTMLElement>("[data-artifact]");
   if (art && !getSelection()!.toString() && showArtifact(art.dataset.artifact!)) return;
-  const tool = target.closest<HTMLElement>("#agbody .dcoderen.tool[data-at]");
+  const tool = inLog<HTMLElement>(".dcoderen.tool[data-at]");
 
   if (tool && !getSelection()!.toString() && !target.closest(".out, .ddiff, .cmd, .call-details")) {
     const at = Number(tool.dataset.at);
@@ -162,13 +165,13 @@ export function agentClick(e: MouseEvent) {
   }
 
   // A pasted block opens by itself; remember it so a redraw keeps it open.
-  const paste = target.closest<HTMLElement>("#agbody .dcoderen.user[data-at] details.paste > summary");
+  const paste = inLog<HTMLElement>(".dcoderen.user[data-at] details.paste > summary");
 
   if (paste) {
     const key = `${paste.closest<HTMLElement>("[data-at]")!.dataset.at}:${paste.parentElement!.dataset.paste}`;
     if (!AG.opened.delete(key)) AG.opened.add(key);
     // Once it opened, the next redraw follows the bottom only if it is still in view.
-    requestAnimationFrame(() => { const b = $<ChatBody>("#agbody"); if (b) b.stuck = atBottom(b); });
+    requestAnimationFrame(() => { const b = sessionBody(); if (b) b.stuck = atBottom(b); });
     return;
   }
 
@@ -217,7 +220,7 @@ export function openParent() {
 /// Tool rows also open from the keyboard; details stay selectable.
 export function toolKey(event: KeyboardEvent) {
   const target = event.target;
-  if (!(target instanceof HTMLElement) || !target.matches('#agbody .dcoderen.tool[data-at][role="button"]') || !["Enter", " "].includes(event.key)) return;
+  if (!(target instanceof HTMLElement) || !target.matches('.dcoderen.tool[data-at][role="button"]') || !sessionBody()?.contains(target) || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
   target.click();
 }

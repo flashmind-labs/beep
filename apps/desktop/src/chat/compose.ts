@@ -3,6 +3,7 @@ import { createDocumentScope } from "../ui/document-root.tsx";
 import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpan, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
 import { invoke } from "../ui/tauri.ts";
+import { sessionBody } from "../agents/session-frame.tsx";
 
 // A composer's field as flsh's prompt: a long paste is one pill, removed
 // whole and previewed on a click; the part that will go out as code has a
@@ -136,7 +137,7 @@ function draw(field: HTMLTextAreaElement) {
   if (f.opts.grow) {
     // Collapsing the field to measure it makes the log above taller for a
     // moment, which moves a log scrolled to its end.
-    const log = document.querySelector("#agbody"), top = log?.scrollTop;
+    const log = sessionBody(), top = log?.scrollTop;
     field.style.height = "auto";
     field.style.height = `${Math.min(field.scrollHeight, f.opts.grow)}px`;
     if (log && log.scrollTop !== top) log.scrollTop = top!;
