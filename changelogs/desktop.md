@@ -36,6 +36,9 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: the model search in a project's new-agent composer keeps what
+  you type, its caret, focus and highlighted model while the project or the
+  model list is still loading.
 - Desktop: a Claude Code skill that runs in its own subagent shows as
   "Skill: <name> (subagent)" in the session log, so its steps no longer
   look like a plain skill load. Loading an ordinary skill stays a normal step.
