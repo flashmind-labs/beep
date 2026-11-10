@@ -4,11 +4,8 @@ import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { Viewer, ViewerNotice } from "./viewer-view.tsx";
 import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk } from "./chat.ts";
-import { owningChatBody } from "./turns.ts";
-import { renderChatProduct, renderChatReplyPictures, renderChatSentFile } from "./work-view.tsx";
 import { $, bar } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
-import type { Turn } from "../ui/turn.ts";
 
 // ---------- Files ----------
 
@@ -55,21 +52,6 @@ export function fileSize(n: number) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/// What Beep sent with its reply: files and product cards, under the text
-/// and above the suggested replies.
-export function sentBox(turn: Turn) {
-  let box = turn.querySelector<HTMLElement>(".files");
-
-  if (!box) {
-    box = document.createElement("div");
-    box.className = "files dgrid6";
-    const after = turn.querySelector(".dreplies");
-    after ? turn.insertBefore(box, after) : turn.append(box);
-  }
-
-  return box;
-}
-
 /// A `show_products` card (`ProductCard`), its fields checked by Rust.
 export interface ProductCard {
   title: string;
@@ -88,39 +70,11 @@ export interface ProductCard {
 /// handler opens and copies their links.
 export type SentCards = { kind: "products"; cards: ProductCard[] } | { kind: "html"; html: string };
 
-/// Each row's source, so a refresh keeps a row whose cards did not change.
-export const productSources = new WeakMap<Element, string>();
-export function productRow(turn: Turn, cards: SentCards) {
-  const owner = owningChatBody(turn);
-  if (!owner) return;
-  const host = document.createElement("span");
-  host.style.display = "contents";
-  productSources.set(host, JSON.stringify(cards));
-  sentBox(turn).append(host);
-  renderChatProduct(owner, turn, host, cards);
-}
-
-/// A file Beep sent: a picture when it is an image, a card otherwise.
-export function sentFile(turn: Turn, file: SentFile) {
-  const mime = picMime(file);
-  mime ? replyPic(turn, { file: { ...file, mime }, caption: "" }) : fileCard(turn, file);
-}
-
 /// The picture type of `file`, by its MIME type or else its name, or null.
 export function picMime(file: SentFile) {
   if (Object.values(IMAGE_TYPES).includes(file.mime)) return file.mime;
   const ext = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
   return file.mime === "application/octet-stream" || !file.mime ? IMAGE_TYPES[ext] ?? null : null;
-}
-
-/// A file Beep sent. Opening it downloads it once, then hands it to its app.
-export function fileCard(turn: Turn, file: SentFile) {
-  const owner = owningChatBody(turn);
-  if (!owner) return;
-  const host = document.createElement("span");
-  host.style.display = "contents";
-  sentBox(turn).append(host);
-  renderChatSentFile(owner, turn, host, file);
 }
 
 // ---------- Pictures ----------
@@ -150,35 +104,6 @@ export function loadPic(id: string, mime: string) {
   }
 
   return Promise.resolve(got);
-}
-
-// ---------- Pictures Beep sends ----------
-
-/// The row of thumbnails under a reply, which lists its pictures for the viewer.
-interface PicsRow extends HTMLElement {
-  pics: SentImage[];
-}
-
-export function picsRow(turn: Turn) {
-  const box = sentBox(turn);
-  let row = box.querySelector<PicsRow>(".drpics");
-
-  if (!row) {
-    row = Object.assign(document.createElement("div"), { className: "drpics", pics: [] });
-    box.prepend(row);
-  }
-
-  return row;
-}
-
-/// One picture from `send_image` or an image file: `{ url }` from the web or
-/// `{ file }` kept with the chat. Hover shows Save, a click opens the viewer.
-export function replyPic(turn: Turn, pic: SentImage) {
-  const owner = owningChatBody(turn);
-  if (!owner) return;
-  const row = picsRow(turn);
-  row.pics.push(pic);
-  renderChatReplyPictures(owner, turn, row, row.pics);
 }
 
 /// The pictures the viewer goes through, and the one it shows.

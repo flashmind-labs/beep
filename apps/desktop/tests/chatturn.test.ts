@@ -2,7 +2,8 @@ import { answers, bar, removed, runFrames } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { turnState } from "../src/chat/turn-state.ts";
-import { askText, chatReplyHtml, newTurn, setChatReply } from "../src/chat/turns.ts";
+import { askText, newTurn } from "../src/chat/turns.ts";
+import { turnElement, turnsOf, type Turn } from "../src/chat/transcript.ts";
 import { body } from "../src/chat/chat.ts";
 import { follow, startRun } from "../src/chat/runs.ts";
 import type { BarEvent } from "../src/chat/runs.ts";
@@ -10,6 +11,9 @@ import { S } from "../src/bar/core.ts";
 import { heard } from "../src/bar/live.ts";
 import { refreshSession } from "../src/chat/history.ts";
 import type { HistoryTurn } from "../src/chat/history.ts";
+
+/// The element a turn on screen draws into.
+const el = (turn: Turn) => { const element = turnElement(turn); assert.ok(element, "the turn is not on screen"); return element; };
 
 const SESSION = "00000000-0000-4000-8000-000000000001";
 const PROMPT = "Will it rain tomorrow?";
@@ -36,13 +40,13 @@ test("a reply stays the same element from its stream through the chat's redraws"
   const send = (ev: BarEvent) => events.onmessage(ev);
   send({ kind: "started", run_id: "run-1", session_id: SESSION });
   // Until words come it thinks, as a coding agent's turn does.
-  assert.ok(turn.querySelector(".tools .dthink.live"), "no Thinking row while it waits");
+  assert.ok(el(turn).querySelector(".tools .dthink.live"), "no Thinking row while it waits");
   send({ kind: "text", html: "<p>No rain</p>" });
   runFrames();
-  assert.equal(turn.querySelector(".tools .dthink.live"), null, "Thinking stayed once the answer came");
+  assert.equal(el(turn).querySelector(".tools .dthink.live"), null, "Thinking stayed once the answer came");
   send({ kind: "text", html: "<p>No rain tomorrow.</p>" });
   runFrames();
-  const reply = turn.querySelector(".dcoderen.agent")!;
+  const reply = el(turn).querySelector(".dcoderen.agent")!;
   send({ kind: "finished", status: "completed" });
   assert.equal(reply.querySelector("p")?.outerHTML, "<p>No rain tomorrow.</p>");
 
@@ -57,13 +61,13 @@ test("a reply stays the same element from its stream through the chat's redraws"
   await refreshSession(SESSION);
   const turns = body()!.querySelectorAll(".turn");
   assert.equal(turns.length, 1);
-  assert.equal(turns[0], turn, "the turn was drawn again");
-  assert.equal(turn.querySelector(".dcoderen.agent"), reply, "the reply was drawn again");
+  assert.equal(turns[0], el(turn), "the turn was drawn again");
+  assert.equal(el(turn).querySelector(".dcoderen.agent"), reply, "the reply was drawn again");
   assert.equal(reply.querySelector("p")?.outerHTML, "<p>No rain tomorrow, 21 degrees.</p>");
-  assert.deepEqual([...turn.querySelectorAll(".dreplies button")].map(b => b.textContent), ["And the weekend?", "What about Paris?"]);
-  assert.ok(turn.querySelector(".dprod"), "the cards were not added");
-  assert.ok(!removed.has(turn) && !removed.has(reply), "the reply was taken out of the page");
-  assert.ok(!turn.querySelector(".dcoderen.user") || !removed.has(turn.querySelector(".dcoderen.user")!), "the prompt was taken out of the page");
+  assert.deepEqual([...el(turn).querySelectorAll(".dreplies button")].map(b => b.textContent), ["And the weekend?", "What about Paris?"]);
+  assert.ok(el(turn).querySelector(".dprod"), "the cards were not added");
+  assert.ok(!removed.has(el(turn)) && !removed.has(reply), "the reply was taken out of the page");
+  assert.ok(!el(turn).querySelector(".dcoderen.user") || !removed.has(el(turn).querySelector(".dcoderen.user")!), "the prompt was taken out of the page");
 });
 
 test("a chat drawn from the server keeps its elements when it is drawn again", async () => {
@@ -95,44 +99,30 @@ test("a stream's text is drawn once a frame, and all of it when the run ends", (
   const events = follow(SESSION, turn);
   events.onmessage({ kind: "text", html: "<p>No</p>" });
   events.onmessage({ kind: "text", html: "<p>No rain</p>" });
-  assert.equal(turn.querySelector(".dcoderen.agent"), null, "drawn before the frame");
+  assert.equal(el(turn).querySelector(".dcoderen.agent"), null, "drawn before the frame");
   runFrames();
-  assert.equal(turn.querySelector(".dcoderen.agent p")?.outerHTML, "<p>No rain</p>");
+  assert.equal(el(turn).querySelector(".dcoderen.agent p")?.outerHTML, "<p>No rain</p>");
   // The run ends between frames: nothing waits for the next one.
   events.onmessage({ kind: "text", html: "<p>No rain tomorrow.</p>" });
   events.onmessage({ kind: "finished", status: "completed" });
-  assert.equal(turn.querySelector(".dcoderen.agent p")?.outerHTML, "<p>No rain tomorrow.</p>");
+  assert.equal(el(turn).querySelector(".dcoderen.agent p")?.outerHTML, "<p>No rain tomorrow.</p>");
 });
 
 
-test("turn text remains available independently of its rendered nodes", () => {
-  S.view = "chat";
-  bar.innerHTML = '<div class="dbody" id="body"></div>';
-  const turn = newTurn("An example");
-  setChatReply(turn, "<p>Answer</p>");
-  turn.querySelector(".dcoderen.user")?.remove();
-  turn.querySelector(".dcoderen.agent")?.remove();
-  assert.equal(askText(turn), "An example");
-  assert.equal(chatReplyHtml(turn), "<p>Answer</p>");
-});
-
-test("an unchanged history snapshot does not rebuild turn markup", async t => {
+test("an unchanged history snapshot does not set the reply's markup again", async () => {
   for (const cmd of ["session_agents", "session_files", "session_sources", "list_questions"]) answers[cmd] = [];
   S.view = "chat";
   S.session = SESSION;
   bar.innerHTML = '<div class="dbody" id="body"></div><div class="dhints"></div>';
   answers.open_session = [prompt, answered];
   await refreshSession(SESSION);
-  const original = document.createElement.bind(document);
-  let templates = 0;
-  t.mock.method(document, "createElement", ((name: string) => { if (name === "template") templates++; return original(name); }) as typeof document.createElement);
+  const kept = body()!.querySelector(".dcoderen.agent p");
   await refreshSession(SESSION);
-  assert.equal(templates, 0);
+  assert.equal(body()!.querySelector(".dcoderen.agent p"), kept, "the reply's markup was set again");
   answers.open_session = [prompt, { ...answered, html: "<p>Changed.</p>" }];
   await refreshSession(SESSION);
-  assert.ok(templates > 0);
   assert.equal(body()!.querySelector(".dcoderen.agent p")?.textContent, "Changed.");
-  const turn = body()!.querySelector<import("../src/ui/turn.ts").Turn>(".turn")!;
+  const turn = turnsOf(body()!)[0];
   startRun(SESSION, turn, null);
   const events = follow(SESSION, turn);
   events.onmessage({ kind: "text", html: "<p>Local change</p>" });
@@ -150,9 +140,9 @@ test("a live transcription creates its prompt before existing work", () => {
   startRun(SESSION, turn, null);
   heard(turn, "Spoken prompt");
   assert.equal(askText(turn), "Spoken prompt");
-  const prompt = turn.querySelector(".dcoderen.user");
+  const prompt = el(turn).querySelector(".dcoderen.user");
   assert.equal(prompt?.textContent, "YouSpoken prompt");
-  assert.ok(prompt && turn.querySelector(".tools") && !!(prompt.compareDocumentPosition(turn.querySelector(".tools")!) & Node.DOCUMENT_POSITION_FOLLOWING));
+  assert.ok(prompt && el(turn).querySelector(".tools") && !!(prompt.compareDocumentPosition(el(turn).querySelector(".tools")!) & Node.DOCUMENT_POSITION_FOLLOWING));
 });
 
 // A live turn left in the page would keep its clock ticking.

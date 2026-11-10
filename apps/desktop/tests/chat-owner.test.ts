@@ -1,22 +1,21 @@
 import { bar } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chatBodyHost, createChatBody, createChatTurn, disposeChatBody } from "../src/chat/work-view.tsx";
+import { appendTurn, createChatBody, createTurn, disposeChatBody, turnElement } from "../src/chat/transcript.ts";
 
-test("retained chat scopes keep independent bodies and turns", () => {
+test("retained chat bodies keep independent transcripts", () => {
   const first = createChatBody(), second = createChatBody();
-  bar.append(chatBodyHost(first), chatBodyHost(second));
-  const firstTurn = createChatTurn(first, { prompt: true, pictures: false });
-  const secondTurn = createChatTurn(second, { prompt: true, pictures: false });
-  const firstHost = firstTurn.parentElement, secondHost = secondTurn.parentElement;
-  assert.ok(firstHost && secondHost);
-  first.append(firstHost);
-  second.append(secondHost);
-  chatBodyHost(second).remove();
+  bar.append(first, second);
+  const firstTurn = createTurn(first, { prompt: "First" }), secondTurn = createTurn(second, { prompt: "Second" });
+  appendTurn(firstTurn);
+  appendTurn(secondTurn);
+  const firstElement = turnElement(firstTurn), secondElement = turnElement(secondTurn);
+  assert.equal(first.querySelector(".turn"), firstElement);
+  second.remove();
   disposeChatBody(first);
-  assert.equal(firstTurn.isConnected, false);
-  bar.append(chatBodyHost(second));
-  assert.equal(secondTurn.isConnected, true);
-  assert.equal(second.querySelector(".turn"), secondTurn);
+  assert.equal(first.querySelector(".turn"), null);
+  bar.append(second);
+  assert.equal(second.querySelector(".turn"), secondElement);
+  assert.equal(secondElement?.textContent, "YouSecond");
   disposeChatBody(second);
 });

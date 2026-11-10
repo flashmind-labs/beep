@@ -1,15 +1,14 @@
 import { ChartPlot } from "./chart-plot.tsx";
-import { useEffect, useLayoutEffect, useState } from "react";
-import { chartValue, CHART_COLORS, CHART_RANGES, type Chart, type ChartCard } from "./charts.ts";
+import { useEffect, useState } from "react";
+import { chartValue, CHART_COLORS, CHART_RANGES, type Chart } from "./charts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { latest, STALE } from "../ui/active.ts";
 
-export function ChartView({ card, initial }: { card: ChartCard; initial: Chart }) {
+export function ChartView({ initial }: { initial: Chart }) {
   const [chart, setChart] = useState(initial), [off, setOff] = useState<Set<number>>(() => new Set());
   const [error, setError] = useState(""), [pending, setPending] = useState<string | null>(null);
   const [reads] = useState(latest);
   useEffect(() => () => reads.cancel(), [reads]);
-  useLayoutEffect(() => { card.chart = chart; card.off = off; }, [card, chart, off]);
   const stock = chart.stock, many = chart.series.length > 1;
   const toggle = (index: number) => setOff(previous => {
     const next = new Set(previous);

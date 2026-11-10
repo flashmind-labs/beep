@@ -1,6 +1,6 @@
 import { turnState } from "../chat/turn-state.ts";
-import { ensureChatPrompt, renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
-import { ASK, askText, owningChatBody, newTurn, removeChatSuggestions } from "../chat/turns.ts";
+import { turnsOf } from "../chat/transcript.ts";
+import { askText, newTurn, removeChatSuggestions, setPrompt } from "../chat/turns.ts";
 import { approvalNotice, type Decision, forRoutine, settle } from "../chat/approval-cards.ts";
 import { body, focusAsk, forgetChat, renderChat, setChatDock, scrollDown } from "../chat/chat.ts";
 import { followAnswered, startRun } from "../chat/runs.ts";
@@ -14,7 +14,7 @@ import { type HeldQuestion, waitingQuestion } from "./work.ts";
 import { esc } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
-import type { Turn } from "../ui/turn.ts";
+import type { Turn } from "../chat/transcript.ts";
 
 // ---------- Live voice ----------
 
@@ -189,14 +189,14 @@ export function liveTurn(id: string, text: string, runId: string) {
 
   // A new message leaves an earlier question unanswered on the server.
   if (e.approval) {
-    approvalNotice(e.approval.turn, e.approval.card, "Not answered");
+    approvalNotice(e.approval.turn, "Not answered");
     e.approval = null;
   }
 
   const b = body()!;
   removeChatSuggestions(b);
   // The server's copy may have drawn the message already.
-  const last = [...b.querySelectorAll<Turn>(".turn")].at(-1);
+  const last = turnsOf(b).at(-1);
   const turn = last && turnState(last).user && !turnState(last).done && askText(last) === text ? last : newTurn(text);
   turnState(turn).user = true;
   startRun(id, turn, runId);
@@ -246,11 +246,8 @@ export function takeDraft(ask: HTMLTextAreaElement | null) {
 }
 /// Shows what the user said in place of the waiting prompt.
 export function heard(turn: Turn, text: string) {
-  turnState(turn).question = text;
-  const owner = owningChatBody(turn), ask = turn.querySelector<HTMLElement>(ASK) ?? ensureChatPrompt(turn);
-  if (!owner || !ask) return;
-  if (!updateChatPrompt(turn, esc(text))) renderChatPrompt(owner, turn, ask, esc(text));
-  touch(S.session!, text);
+  setPrompt(turn, text, esc(text));
+  if (S.session) touch(S.session, text);
 }
 // Live mode stays in the bar and the orb.
 if (!PANE) listen<LiveEvent>("live", e => {

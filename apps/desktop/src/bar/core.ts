@@ -2,7 +2,8 @@
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import type { PanePage } from "./pane.ts";
 import type { GroupState } from "../chat/groups.ts";
-import type { ChatBody, Turn } from "../ui/turn.ts";
+import type { ChatBody } from "../ui/turn.ts";
+import type { Turn } from "../chat/transcript.ts";
 import type { ViewName, ViewArg, Location } from "../center/state.ts";
 
 export const bar = document.getElementById("bar")!;
@@ -121,7 +122,6 @@ export interface LiveRun {
 export interface PendingApproval {
   queryId: string;
   turn: Turn;
-  card: HTMLElement;
   grant?: boolean;
 }
 export interface LiveEntry {

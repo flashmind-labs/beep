@@ -146,7 +146,7 @@ test("changed follow-ups replace old actions and send the new choice", async ({ 
   await button.evaluate(el => Reflect.set(window, "retiredSuggestions", el.closest(".dreplies")));
   await button.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "send_prompt" && call.args.message === "New suggestion"))).toBe(true);
-  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "retiredSuggestions"); return node instanceof HTMLElement ? node.childElementCount : -1; })).toBe(0);
+  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "retiredSuggestions"); return node instanceof HTMLElement && !node.isConnected; })).toBe(true);
 });
 
 test("approval cards remain stable during refresh and clean up on answer", async ({ page }) => {
@@ -166,7 +166,7 @@ test("approval cards remain stable during refresh and clean up on answer", async
   await current.evaluate(el => Reflect.set(window, "answeredApproval", el));
   await current.getByRole("button", { name: /^Allow for this session/ }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "answer_approval").map(call => [call.args.queryId, call.args.decision]))).toEqual([["query-1", "session"]]);
-  await expect.poll(() => page.evaluate(() => { const old = Reflect.get(window, "answeredApproval"); return old instanceof HTMLElement && !old.isConnected && old.childElementCount === 0; })).toBe(true);
+  await expect.poll(() => page.evaluate(() => { const old = Reflect.get(window, "answeredApproval"); return old instanceof HTMLElement && !old.isConnected; })).toBe(true);
 });
 
 test("an approval answered elsewhere releases its card", async ({ page }) => {
@@ -179,7 +179,7 @@ test("an approval answered elsewhere releases its card", async ({ page }) => {
   await card.evaluate(el => Reflect.set(window, "remoteApproval", el));
   await page.evaluate(() => window.__navigation.emit("approval-answered", { session: "chat-example", query_id: "query-2" }));
   await expect(page.locator("#body")).toContainText("Answered");
-  await expect.poll(() => page.evaluate(() => { const old = Reflect.get(window, "remoteApproval"); return old instanceof HTMLElement && !old.isConnected && old.childElementCount === 0; })).toBe(true);
+  await expect.poll(() => page.evaluate(() => { const old = Reflect.get(window, "remoteApproval"); return old instanceof HTMLElement && !old.isConnected; })).toBe(true);
 });
 
 test("reply actions retain focus during history refresh", async ({ page }) => {
@@ -210,8 +210,8 @@ test("rerunning a turn releases its detached React content", async ({ page }) =>
   await actions.evaluate(el => Reflect.set(window, "oldReplyActions", el));
   await actions.locator('[data-act="rerunMenu"]').click();
   await page.getByRole("menuitem", { name: /One/ }).click();
-  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "oldReplyActions"); return node instanceof HTMLElement && !node.isConnected && node.childElementCount === 0; })).toBe(true);
-  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "oldSources"); return node instanceof HTMLElement && !node.isConnected && node.childElementCount === 0; })).toBe(true);
+  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "oldReplyActions"); return node instanceof HTMLElement && !node.isConnected; })).toBe(true);
+  await expect.poll(() => page.evaluate(() => { const node = Reflect.get(window, "oldSources"); return node instanceof HTMLElement && !node.isConnected; })).toBe(true);
 });
 
 test("source chips keep expansion and focus as source lists update", async ({ page }) => {

@@ -1,13 +1,11 @@
 // Approval cards in a chat's turns, and answering them.
 import { turnState } from "./turn-state.ts";
-import { discardChatApproval, renderChatApproval, renderChatNotice } from "./work-view.tsx";
+import { setView, type Turn } from "./transcript.ts";
 import { entry, live, S, stopping } from "../bar/core.ts";
 import { AnsweredIds } from "./approvals.ts";
 import type { LiveEntry, PendingApproval } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { invoke } from "../ui/tauri.ts";
-import type { Turn } from "../ui/turn.ts";
-import { owningChatBody } from "./turns.ts";
 import { follow, runTurn } from "./runs.ts";
 
 /// One line of an approval card.
@@ -37,29 +35,17 @@ export const answeredTurns = new AnsweredIds();
 export function approvalCard(id: string | null, turn: Turn, { query_id, app, action, fields }: Asking) {
   if (answeredTurns.has(query_id)) return;
   const grant = forRoutine(action);
-  const card = document.createElement("div");
-  card.className = "dcard";
-  const owner = owningChatBody(turn);
-  if (!owner) return;
-  renderChatApproval(owner, turn, card, { app, action, fields, grant, answer: decision => void answer(decision) });
-  turn.append(card);
+  setView(turn, { approval: { app, action, fields, grant, answer: decision => void answer(decision) }, answered: null });
   const e = entry(id);
-  e.approval = { queryId: query_id, turn, card, grant };
-  e.body ??= owningChatBody(turn);
+  e.approval = { queryId: query_id, turn, grant };
+  e.body ??= turn.body;
   if (id === S.session) refreshHints();
 }
 
 /// Takes chat `id`'s approval card away, saying how it was answered, and
 /// readies its turn for the run the answer resumes.
-/// Replace a settled approval with a notice owned by its retained chat body.
-export function approvalNotice(turn: Turn, card: HTMLElement, message: string) {
-  discardChatApproval(turn);
-  const owner = owningChatBody(turn);
-  if (!owner) { card.remove(); return; }
-  const box = document.createElement("div");
-  box.className = "dmuted";
-  renderChatNotice(owner, turn, box, { kind: "label", message });
-  card.replaceWith(box);
+export function approvalNotice(turn: Turn, message: string) {
+  setView(turn, { approval: null, answered: message });
 }
 
 export function settle(id: string | null, e: LiveEntry, pending: PendingApproval, decision: Decision) {
@@ -69,7 +55,7 @@ export function settle(id: string | null, e: LiveEntry, pending: PendingApproval
     ? { allow: "Allowed for this routine", deny: "Denied" }[decision as "allow" | "deny"]
     : { allow: "Allowed once", session: "Allowed for the rest of this chat", always: "Allowed, and always allowed from now on", deny: "Denied" }[decision];
   const turn = pending.turn;
-  approvalNotice(turn, pending.card, String(said));
+  approvalNotice(turn, String(said));
   turnState(turn).done = false;
   turnState(turn).ended = null;
   e.run = { id: null, turn };

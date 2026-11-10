@@ -1,8 +1,3 @@
-import { sentBox } from "./media.ts";
-import { owningChatBody } from "./turns.ts";
-import { renderChatChart } from "./work-view.tsx";
-import { h } from "../ui/dom.ts";
-import type { Turn } from "../ui/turn.ts";
 
 // ---------- Charts ----------
 
@@ -36,28 +31,10 @@ export interface Chart {
   source: string;
 }
 
-/// A chart card: the chart and the series switched off in its legend.
-export interface ChartCard extends HTMLDivElement {
-  chart: Chart;
-  off: Set<number>;
-}
-
 /// Chart dimensions and colors shared with the React plot.
 export const CHART_COLORS = ["#3B9B7A", "#F07A6A", "#8FB3E8", "#E8C46A"];
 export const CHART_RANGES = [["1d", "1D"], ["5d", "5D"], ["1mo", "1M"], ["6mo", "6M"], ["ytd", "YTD"], ["1y", "1Y"], ["5y", "5Y"], ["max", "Max"]];
 export const CHART_H = 150, CHART_PAD = { top: 8, right: 52, bottom: 20 };
-
-export const chartSources = new WeakMap<Element, Chart>();
-export function chartRow(turn: Turn, chart: Chart) {
-  const owner = owningChatBody(turn);
-  if (!owner) return;
-  const card = h<ChartCard>('<div class="dchart"></div>');
-  chartSources.set(card, chart);
-  card.chart = chart;
-  card.off = new Set();
-  sentBox(turn).append(card);
-  renderChatChart(owner, turn, card, chart);
-}
 
 /// A value in the chart's unit: a currency code as money, % with its sign,
 /// anything else after the number.
