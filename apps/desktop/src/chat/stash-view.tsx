@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { useInteractOutside } from "react-aria";
+import { useInteractOutside } from "react-aria/useInteractOutside";
 import type { StashEntry } from "./stash-state.ts";
 
 export interface StashPanelProps {
