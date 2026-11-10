@@ -1,4 +1,5 @@
-import type { Step, Turn, TurnThought } from "../ui/turn.ts";
+import type { Step, TurnThought } from "../ui/turn.ts";
+import type { Turn } from "./transcript.ts";
 
 // Runtime state follows the conversation turn rather than the mounted view.
 export interface TurnState {

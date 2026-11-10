@@ -1,7 +1,7 @@
 // A chat's runs: sending a prompt, following what it streams, finishing,
 // watching another device's run and stopping.
 import { turnState } from "./turn-state.ts";
-import { conversation } from "./conversation.ts";
+import { invalidateTranscript, shownTurn, turnsOf, viewOf, type Turn } from "./transcript.ts";
 import { attached, attachError, drawAttached } from "./attach.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
 import { $$, changed, entry, here, live, newId, queued, S, stopping } from "../bar/core.ts";
@@ -14,10 +14,9 @@ import { replyActs, stoppedRow } from "./rerun.ts";
 import { DESCRIBED, QUIET_TOOLS, toolLabel } from "./tools.ts";
 import { answerHtml } from "../agents/turnrows.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import type { Turn } from "../ui/turn.ts";
 import { body, drawQueue, forgetChat, keepDown, retireFinished, scrollDown } from "./chat.ts";
 import { grow } from "./ask-height.ts";
-import { ANSWER, drawWork, endThought, failed, newTurn, owningChatBody, ranOn, removeChatSuggestions, setChatReply, suggestions, toolOutput, type ToolOutput } from "./turns.ts";
+import { drawWork, endThought, failed, newTurn, ranOn, removeChatSuggestions, setChatReply, suggestions, toolOutput, type ToolOutput } from "./turns.ts";
 import { approvalCard, type Asking } from "./approval-cards.ts";
 import { enqueue, sendQueued } from "./queue.ts";
 
@@ -62,7 +61,7 @@ export function finish(id: string | null, turn: Turn) {
     e.run = null;
     if (!e.approval) forgetChat(id);
   }
-  retireFinished(owningChatBody(turn));
+  retireFinished(turn.body);
 
   // The window's sidebar stops its spinner.
   changed();
@@ -80,6 +79,9 @@ export function finish(id: string | null, turn: Turn) {
   }
 }
 
+/// Whether `turn` is on screen, so its chat follows it down.
+const followed = (turn: Turn) => turn.body.isConnected && turn.body === body() && shownTurn(turn);
+
 /// A channel that draws one run's events into `turn`, which stays in its
 /// chat's body while the bar shows another chat.
 export function follow(id: string | null, turn: Turn) {
@@ -92,7 +94,7 @@ export function follow(id: string | null, turn: Turn) {
     frame = 0;
     if (html != null) { setChatReply(turn, answerHtml(html)); html = null; }
     if (work) { work = false; drawWork(turn); }
-    if (turn.isConnected) keepDown();
+    if (followed(turn)) keepDown();
   };
   const later = () => { frame ||= requestAnimationFrame(flush); };
   channel.onmessage = ev => {
@@ -106,7 +108,7 @@ export function follow(id: string | null, turn: Turn) {
         if (id === S.session) refreshHints();
         break;
       case "text": {
-        if (html == null && !turn.querySelector(ANSWER)) work = true;
+        if (html == null && viewOf(turn).reply === null) work = true;
         endThought(turn);
         html = ev.html;
         later();
@@ -152,15 +154,14 @@ export function follow(id: string | null, turn: Turn) {
         break;
     }
 
-    if (turn.isConnected) keepDown();
+    if (followed(turn)) keepDown();
   };
   return channel;
 }
 
 /// Makes `turn` chat `id`'s running reply, thinking until something comes.
 export function startRun(id: string | null, turn: Turn, runId: string | null) {
-  const current = owningChatBody(turn);
-  if (current) conversation(current).invalidate();
+  invalidateTranscript(turn.body);
   turnState(turn).begun = Date.now();
   turnState(turn).done = false;
   drawWork(turn);
@@ -229,8 +230,8 @@ export async function watchRun(id: string | null) {
     const runId = await invoke<string | null>("active_run", { session: id }).catch(() => null);
     if (!runId || live.has(id) || S.session !== id || S.view !== "chat") return;
     // The prompt or a turn's line is already drawn from the server's copy, waiting for its reply.
-    const last = conversation(body()!).turns.at(-1);
-    const turn = last && !turnState(last).done && (turnState(last).user || last.querySelector(":scope > .dsystem")) ? last : newTurn("");
+    const last = turnsOf(body()!).at(-1);
+    const turn = last && !turnState(last).done && (turnState(last).user || viewOf(last).system !== null) ? last : newTurn("");
     startRun(id, turn, runId);
     refreshHints();
     scrollDown();

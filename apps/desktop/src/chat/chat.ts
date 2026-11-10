@@ -5,10 +5,9 @@ import { flushSync } from "react-dom";
 import { openBarPage } from "../bar/bar-app.tsx";
 import { ChatShell } from "./chat-shell.tsx";
 import { updateChatNavigation } from "./navigation-view.tsx";
-import { createChatBody, disposeChatBody } from "./work-view.tsx";
+import { createChatBody, disposeChatBody, transcriptShown } from "./transcript.ts";
 import { AG } from "../agents/agents.ts";
 import { attach, attached, drawAttached, unattach } from "./attach.ts";
-import { disposeCoderCards, resumeCoderCards } from "./codercard.ts";
 import { composeField } from "./compose.ts";
 import { $, $$, bar, here, live, PANE, queued, S } from "../bar/core.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
@@ -25,7 +24,6 @@ const retiringBodies = new WeakSet<ChatBody>();
 
 function evictBody(body: ChatBody) {
   retiringBodies.delete(body);
-  disposeCoderCards(body);
   unfollowEnd(body);
   disposeChatBody(body);
 }
@@ -68,7 +66,7 @@ export function renderChat() {
   drawQueue();
   const b = body()!;
   // A chat put back goes where the reader left it if they had scrolled up, else to its end.
-  if (kept) { b.scrollTop = returnScroll(b, b.top ?? 0); resumeCoderCards(b); }
+  if (kept) { b.scrollTop = returnScroll(b, b.top ?? 0); transcriptShown(b); }
   let top = b.scrollTop;
   b.onscroll = () => { b.stuck = followsAfterScroll(b.stuck !== false, top, b); top = b.top = b.scrollTop; drawLatest(); };
   followEnd(b);

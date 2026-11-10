@@ -22,9 +22,6 @@ export interface TurnThought {
   ended?: boolean;
 }
 
-/// A mounted chat turn, used as a handle to its view.
-export interface Turn extends HTMLDivElement {}
-
 /// A chat's scrolling body, which knows whether it follows the newest turn.
 export interface ChatBody extends HTMLElement {
   stuck?: boolean;

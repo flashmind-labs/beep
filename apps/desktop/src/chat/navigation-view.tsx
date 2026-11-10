@@ -1,29 +1,29 @@
 import { useLayoutEffect, useState } from "react";
-import { conversation } from "./conversation.ts";
-import { ASK, askText } from "./turns.ts";
+import { turnElement, turnsOf, viewOf, type Turn } from "./transcript.ts";
+import { askText } from "./turns.ts";
 import { focusAsk, scrollDown } from "./chat.ts";
 import { drawThrough, earlierPrompts } from "./history.ts";
 import { ICON } from "../ui/icons.tsx";
-import type { ChatBody, Turn } from "../ui/turn.ts";
+import type { ChatBody } from "../ui/turn.ts";
 
 const NAVIGATION_CHANGED = "chat-navigation-changed";
 export function updateChatNavigation(body: ChatBody) { body.dispatchEvent(new window.Event(NAVIGATION_CHANGED)); }
-const ids = new WeakMap<Turn, number>();
-let nextId = 0;
-function turnId(turn: Turn) { let id = ids.get(turn); if (id === undefined) { id = ++nextId; ids.set(turn, id); } return id; }
-interface Tick { key: string; title: string; top: number; active: boolean; turn: Turn | null; earlier: number | null }
+interface Tick { key: string; title: string; top: number; active: boolean; turn: HTMLElement | null; earlier: number | null }
 interface Navigation { latest: boolean; top: number; height: number; many: boolean; ticks: Tick[] }
 
+/// The turns of `body` with a prompt.
+const prompted = (body: ChatBody): Turn[] => turnsOf(body).filter(turn => viewOf(turn).prompt !== null);
+
 function readNavigation(body: ChatBody): Navigation {
-  const turns = conversation(body).turns.filter(turn => turn.querySelector(ASK));
+  const turns = prompted(body).flatMap(turn => { const element = turnElement(turn); return element ? [{ turn, element }] : []; });
   const earlier = earlierPrompts(body), total = earlier.length + turns.length;
   let current = earlier.length;
-  turns.forEach((turn, index) => { if (turn.offsetTop - body.offsetTop <= body.scrollTop + body.clientHeight / 3) current = earlier.length + index; });
+  turns.forEach(({ element }, index) => { if (element.offsetTop - body.offsetTop <= body.scrollTop + body.clientHeight / 3) current = earlier.length + index; });
   const place = (position: number) => Math.min(97, Math.max(3, position / total * 100));
   const visible = turns.length >= 2 && body.scrollHeight > body.clientHeight + 4;
   const ticks: Tick[] = visible ? [
     ...earlier.map((title, index) => ({ key: `earlier:${index}`, title, top: place(index), active: index === current, turn: null, earlier: index })),
-    ...turns.map((turn, index) => ({ key: `turn:${turnId(turn)}`, title: askText(turn), top: place(earlier.length + (turn.offsetTop - body.offsetTop) / body.scrollHeight * turns.length), active: earlier.length + index === current, turn, earlier: null })),
+    ...turns.map(({ turn, element }, index) => ({ key: `turn:${turn.key}`, title: askText(turn), top: place(earlier.length + (element.offsetTop - body.offsetTop) / body.scrollHeight * turns.length), active: earlier.length + index === current, turn: element, earlier: null })),
   ] : [];
   const latest = body.stuck === false, top = body.offsetTop, height = body.clientHeight, many = total > 12;
   return { latest, top, height, many, ticks };
@@ -49,8 +49,8 @@ export function ChatNavigation({ body }: { body: ChatBody }) {
   const jump = (tick: Tick) => {
     if (tick.earlier !== null) {
       drawThrough(body, tick.earlier);
-      const turn = conversation(body).turns.filter(item => item.querySelector(ASK))[tick.earlier];
-      if (turn) body.scrollTop = turn.offsetTop - body.offsetTop - 6;
+      const turn = prompted(body)[tick.earlier], element = turn ? turnElement(turn) : null;
+      if (element) body.scrollTop = element.offsetTop - body.offsetTop - 6;
     } else if (tick.turn) body.scrollTo({ top: tick.turn.offsetTop - body.offsetTop - 6, behavior: "smooth" });
     focusAsk();
   };

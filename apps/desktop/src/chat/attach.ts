@@ -2,8 +2,6 @@ import { AGENT_IMAGE_TYPES } from "../agents/agents.ts";
 import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
-import { renderChatFiles } from "./work-view.tsx";
-import type { ChatBody, Turn } from "../ui/turn.ts";
 import { drawQueue, focusAsk } from "./chat.ts";
 import { $, bar, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
@@ -35,14 +33,6 @@ export const MAX_UPLOAD = 5 * 1024 * 1024;
 export const PIC_SIDE = 1024;
 
 export const attachedCount = () => attached.pics.length + attached.files.length;
-
-/// The files a prompt carried, under it. A kept one opens like a file Beep sent.
-export function askFiles(files: AskFile[], body: ChatBody, turn: Turn) {
-  const row = document.createElement("div");
-  row.className = "dachips";
-  renderChatFiles(body, turn, row, files);
-  return row;
-}
 
 /// The strip of attached pictures and files above the prompt, or the error
 /// from the last paste, with the placeholder and hints to match.

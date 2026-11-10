@@ -4,7 +4,7 @@ import { here, S } from "./core.ts";
 import { refreshHints } from "./hints.ts";
 import { notice } from "../chat/media.ts";
 import { AnsweredIds } from "../chat/approvals.ts";
-import { discardChatBackground, renderChatBackground } from "../chat/work-view.tsx";
+import { setBackground } from "../chat/transcript.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 
 /// Questions answered in this window. A list fetched before the answer
@@ -40,28 +40,22 @@ export const waitingQuestion = (id: string | null) => WORK.get(id)?.questions.fi
 /// Redraws the open chat's questions and the hints, when `id` is open.
 const redrawIfOpen = (id: string | null) => { if (id === S.session && S.view === "chat") { drawWorkQuestions(); refreshHints(); } };
 
-const backgrounds = new WeakMap<HTMLElement, HTMLElement>();
+/// What each chat body's background questions showed last.
+const shownQuestions = new WeakMap<HTMLElement, string>();
 
-/// Keeps a chat's background questions mounted as their state changes.
+/// Draws the open chat's background questions at the end of its body, and
+/// follows them down when they change.
 export function drawWorkQuestions() {
   const b = body();
   if (S.view !== "chat" || !b) return;
   const questions = WORK.get(S.session)?.questions ?? [];
-  let box = backgrounds.get(b);
-  if (!questions.length) {
-    if (box) { discardChatBackground(b, box); box.remove(); backgrounds.delete(b); }
-    return;
-  }
-  if (!box) {
-    box = document.createElement("div");
-    box.className = "dworkq dgrid8";
-    backgrounds.set(b, box);
-    b.append(box);
-  }
-  const moved = b.lastElementChild !== box;
-  if (moved) b.append(box);
-  const changed = renderChatBackground(b, box, { session: S.session, questions, first: waitingQuestion(S.session)?.query_id ?? null, chatApproval: !!here()?.approval });
-  if (changed || moved) keepDown();
+  const value = questions.length ? { session: S.session, questions, first: waitingQuestion(S.session)?.query_id ?? null, chatApproval: !!here()?.approval } : null;
+  const signature = JSON.stringify(value);
+  if (shownQuestions.get(b) === signature) return;
+  shownQuestions.set(b, signature);
+  // A new array each draw, so the view draws the answer just given.
+  setBackground(b, value && { ...value, questions: questions.slice() });
+  if (value) keepDown();
 }
 
 export function answerWorkById(id: string | null, queryId: string, decision: Decision) {

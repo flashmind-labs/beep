@@ -1,9 +1,4 @@
-import { owningChatBody } from "./turns.ts";
-import { renderChatRoute } from "./work-view.tsx";
-import { sentBox } from "./media.ts";
 import { esc } from "../ui/format.ts";
-import { h } from "../ui/dom.ts";
-import type { Turn } from "../ui/turn.ts";
 
 // ---------- Transit routes ----------
 
@@ -67,16 +62,6 @@ export interface RouteCard {
 export const ROUTE_WALK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M15 21l-2-5-3-2 1-5 3 3h3M9 9l-3 3v4"/></svg>';
 
 export const ROUTE_CHEV = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
-
-export const routeSources = new WeakMap<Element, string>();
-export function routeRow(turn: Turn, callId: string) {
-  const owner = owningChatBody(turn);
-  if (!owner) return;
-  const card = h<HTMLDivElement>('<div class="dchart droute"></div>');
-  routeSources.set(card, callId);
-  sentBox(turn).append(card);
-  renderChatRoute(owner, turn, card, callId);
-}
 
 export function routeChanges(r: RouteOption, sep: string) {
   return r.transfers ? `${sep}${r.transfers} change${r.transfers > 1 ? "s" : ""}` : "";

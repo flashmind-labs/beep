@@ -14,14 +14,13 @@ import { drawLink, loginFailed, renderLink, renderRevoked } from "./link.ts";
 import { openViewer } from "../chat/media.ts";
 import { loadModels, renderModel } from "../settings/model.ts";
 import { renderSettings } from "../settings/settings.ts";
-import { closeRerunMenu, rerun, rerunMenu } from "../chat/rerun.ts";
+import { closeRerunMenu } from "../chat/rerun.ts";
 import { forgetHeight } from "./size.ts";
 import { show } from "./views.ts";
 import { copyCode } from "../agents/turnrows.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ambient, paneShown } from "../ui/active.ts";
-import type { Turn } from "../ui/turn.ts";
 
 /// A button that says what it did for a moment, then goes back.
 interface UndoButton extends HTMLElement {
@@ -82,20 +81,19 @@ bar.addEventListener("click", e => {
   if (t.closest(".dhints .st")) return S.link === "revoked" ? renderRevoked() : S.signedOut ? renderSettings() : renderLink();
   if (t.closest('[data-act="model"]')) return renderModel();
   if (t.closest('[data-act="openWindow"]')) return openInWindow(S.session);
-  const retry = t.closest<HTMLElement>('[data-act="retry"]');
-  if (retry) return void rerun(retry.closest<Turn>(".turn")!, null, null);
-  const menuButton = t.closest<HTMLElement>('[data-act="rerunMenu"]');
-  if (menuButton) return rerunMenu(menuButton);
   if (!t.closest(".dmenu")) closeRerunMenu();
+  // The sanitized markup of replies and cards brings its own copy buttons: a
+  // product card's copies its link, a code block's or a quote's its text.
+  const link = t.closest<UndoButton>(".dprod-copy[data-copy]");
+
+  if (link) {
+    e.preventDefault();
+    copy(link.dataset.copy ?? "");
+    return flash(link, ICON.check, COPY_ICON);
+  }
+
   const code = t.closest<HTMLElement>(".dcoderen.agent [data-copy]");
   if (code) return copyCode(code);
-  const c = t.closest<UndoButton>("[data-copy]");
-
-  if (c) {
-    e.preventDefault();
-    copy(c.dataset.copy!);
-    return flash(c, ICON.check, COPY_ICON);
-  }
 
   const img = t.closest<HTMLImageElement>(".dcoderen.agent img");
 
@@ -112,8 +110,8 @@ bar.addEventListener("click", e => {
 });
 
 // Product pictures show over their placeholder once loaded; a broken one
-// leaves the placeholder.
-const isProductPic = (t: EventTarget | null): t is Element => t instanceof Element && t.matches(".dprod-img img, .drec img");
+// leaves the placeholder. The product cards React draws handle their own.
+const isProductPic = (t: EventTarget | null): t is Element => t instanceof Element && t.matches(".dprod-img img, .drec img") && !t.closest(".files > .dprods");
 bar.addEventListener("load", e => { if (isProductPic(e.target)) e.target.classList.add("on"); }, true);
 bar.addEventListener("error", e => { if (isProductPic(e.target)) e.target.remove(); }, true);
 
@@ -126,7 +124,7 @@ listen<{ session: string; query_id: string } | null>("approval-answered", e => {
   const en = live.get(session!), pending = en?.approval;
   if (!en || !pending || pending.queryId !== query_id) return;
   en.approval = null;
-  approvalNotice(pending.turn, pending.card, "Answered");
+  approvalNotice(pending.turn, "Answered");
   turnState(pending.turn).done = false;
   if (!en.run) live.delete(session!);
   if (session !== S.session || S.view !== "chat") return;

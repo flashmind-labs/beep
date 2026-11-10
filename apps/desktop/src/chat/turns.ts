@@ -1,23 +1,19 @@
 // A chat's turns: the prompt, the work before the answer, the answer and
 // what tools sent under it.
 import { turnState } from "./turn-state.ts";
-import { conversation } from "./conversation.ts";
-import { createChatTurn, discardChatNotice, discardChatSuggestions, renderChatPrompt, renderChatNotice, renderChatPictures, renderChatReply, renderChatSuggestions, renderChatWork, transferChatReply, type WorkStep, type WorkThought, type WorkView } from "./work-view.tsx";
-import { askFiles } from "./attach.ts";
+import { appendTurn, createTurn, setView, turnsOf, viewOf, type Sent, type SentItem, type Turn, type WorkStep, type WorkThought, type WorkView } from "./transcript.ts";
 import type { AskFile } from "./attach.ts";
-import { type Chart, chartRow } from "./charts.ts";
-import { coderCard } from "./codercard.ts";
-import { productRow, replyPic, sentFile } from "./media.ts";
-import type { PicRef, ProductCard, SentFile, SentImage } from "./media.ts";
+import { type Chart } from "./charts.ts";
+import { cardKey, parseAgentReport } from "./agentcard.ts";
+import { picMime, type PicRef, type ProductCard, type SentFile, type SentImage } from "./media.ts";
 import { canPickModel, modelName } from "../settings/model.ts";
-import { routeRow } from "./routes.ts";
 import { doneLabel } from "./tools.ts";
-import { attachLive, endLive, trackLive } from "../agents/thoughtlive.ts";
-import { tickClocks, turnHeading } from "../agents/turn-heading-view.tsx";
+import { endLive, trackLive } from "../agents/thoughtlive.ts";
+import { turnHeading } from "../agents/turn-heading-view.tsx";
 import { linkified, plural } from "../ui/format.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
 import { refreshStatus } from "../bar/views.ts";
-import type { ChatBody, Step, Turn } from "../ui/turn.ts";
+import type { ChatBody, Step } from "../ui/turn.ts";
 import { body } from "./chat.ts";
 import { send } from "./runs.ts";
 
@@ -35,24 +31,30 @@ export interface ToolOutput {
   code_agent?: string | null;
 }
 
+/// A turn for `question` at the end of the open chat.
 export function newTurn(question: string, images?: PicRef[], files?: AskFile[]) {
-  const turn = makeTurn(question, images, files);
-  conversation(body()!).append(turn);
-  return turn;
-}
-/// A turn for `question`, not yet in any chat.
-export function makeTurn(question: string, images?: PicRef[], files?: AskFile[], prepared: Turn | null = null) {
   const owner = body();
   if (!owner) throw new Error("Cannot create a chat turn without a body");
-  const turn = prepared ?? createChatTurn(owner, { prompt: !!question, pictures: !!images?.length });
-  turnState(turn).question = question;
-  const prompt = turn.querySelector<HTMLElement>(".dcoderen.user");
-  if (prompt) renderChatPrompt(owner, turn, prompt, linkified(question));
-  const pictures = turn.querySelector<HTMLElement>(".dpics");
-  if (pictures && images) renderChatPictures(owner, turn, pictures, images);
-  if (files?.length) turn.append(askFiles(files, owner, turn));
-  turnBodies.set(turn, owner);
+  const turn = makeTurn(owner, question, images, files);
+  appendTurn(turn);
   return turn;
+}
+
+/// A turn of `owner` for `question`, not yet in its chat.
+export function makeTurn(owner: ChatBody, question: string, images?: PicRef[], files?: AskFile[]) {
+  const turn = createTurn(owner, {
+    prompt: question ? linkified(question) : null,
+    pictures: images?.length ? images : null,
+    files: files?.length ? files : null,
+  });
+  turnState(turn).question = question;
+  return turn;
+}
+
+/// Shows `text` as what the user said in `turn`.
+export function setPrompt(turn: Turn, text: string, html: string) {
+  turnState(turn).question = text;
+  setView(turn, { prompt: html });
 }
 
 /// The model and thinking a prompt ran on, under it.
@@ -61,23 +63,12 @@ export function ranOn(turn: Turn, model: string, thinking: string) {
   const line = canPickModel()
     ? (thinking ? `${modelName(model)} · ${thinking}` : modelName(model))
     : thinking;
-  if (!line) return;
-  const old = turn.querySelector<HTMLElement>(".dranon");
-  if (old) { discardChatNotice(turn, old); old.remove(); }
-  const prompt = turn.querySelector(ASK), owner = owningChatBody(turn);
-  if (!prompt) return;
-  if (owner) {
-    const box = document.createElement("div");
-    box.className = "drerunof dranon";
-    renderChatNotice(owner, turn, box, { kind: "label", message: line });
-    prompt.after(box);
-  }
+  if (!line || viewOf(turn).prompt === null) return;
+  setView(turn, { ranOn: line });
 }
 
-/// The user's prompt in a turn, and the answer.
-export const ASK = ":scope > .dcoderen.user", ANSWER = ":scope > .dcoderen.agent";
 /// What the prompt of `turn` says.
-export const askText = (turn: Turn) => turnState(turn).question ?? turn.querySelector(`${ASK} > span`)?.textContent ?? "";
+export const askText = (turn: Turn) => turnState(turn).question ?? "";
 
 /// The log's kind of call for a Beep tool, for its row's icon.
 function stepKind(name: string): ToolKind {
@@ -96,25 +87,14 @@ function stepRow(step: Step, index: number): WorkStep {
 
 /// Turns drawn so far, so each thought has its own key.
 let turnCount = 0;
-const turnBodies = new WeakMap<Turn, ChatBody>();
-export const owningChatBody = (turn: Turn) => turnBodies.get(turn) ?? null;
 
 /// Draws what the turn did before its answer, as a coding agent's turn shows
 /// it: the heading with how long it worked, the thought, and the steps. A
 /// running turn shows its newest step; a finished one folds them into the
 /// heading until it is opened.
 export function drawWork(turn: Turn) {
-  const data = turnState(turn);
-  let box = turn.querySelector<HTMLElement>(":scope > .tools");
-
-  if (!box) {
-    box = document.createElement("div");
-    box.className = "tools dcoderlog";
-    box.dataset.key = String(++turnCount);
-    const after = turn.querySelector(`${ANSWER}, :scope > .dcard, :scope > .derrcard`);
-    after ? turn.insertBefore(box, after) : turn.append(box);
-  }
-
+  const data = turnState(turn), view = viewOf(turn);
+  const key = view.work?.key ?? String(++turnCount);
   const running = !data.done, steps = data.steps, th = data.thought, opened = !data.folded;
   const shown = opened ? steps : running ? steps.slice(-1) : [];
   let thought: WorkThought | null = null;
@@ -122,20 +102,19 @@ export function drawWork(turn: Turn) {
   if (th && (running || opened || !steps.length)) {
     const live = running && th.ms == null, folding = !live && !th.touched && !th.ended;
     if (!live) th.ended = true;
-    const key = `chat:${box.dataset.key}`;
-    if (live) trackLive(key); else if (folding) endLive(key);
-    thought = { key, text: th.text, ms: th.ms ?? null, live, folding, open: live ? !th.touched || !!th.open : !!th.open || folding };
+    const thoughtKey = `chat:${key}`;
+    if (live) trackLive(thoughtKey); else if (folding) endLive(thoughtKey);
+    thought = { key: thoughtKey, text: th.text, ms: th.ms ?? null, live, folding, open: live ? !th.touched || !!th.open : !!th.open || folding };
   }
 
   // Once the answer streams it says the turn is alive.
-  const live = running && !turn.querySelector(ANSWER);
+  const live = running && view.reply === null;
   const thinking = (th != null && th.ms == null) || !steps.some(t => t.state === "run");
   const ms = data.begun == null ? null : (data.ended ?? Date.now()) - data.begun;
-  const turnKey = steps.length ? box.dataset.key ?? null : null;
-  const state = running ? "working" : "done";
   const stats = steps.length ? plural(steps.length, "tool call", "tool calls") : "";
-  const value: WorkView = {
-    heading: turnHeading({ state, start: data.begun, ms, stats, turn: turnKey, opened }),
+  const work: WorkView = {
+    key,
+    heading: turnHeading({ state: running ? "working" : "done", start: data.begun, ms, stats, turn: steps.length ? key : null, opened }),
     thought, steps: shown.map(stepRow),
     live: live ? { thinking, start: data.begun } : null,
     toggleThought: open => {
@@ -145,14 +124,9 @@ export function drawWork(turn: Turn) {
       drawWork(turn);
     },
     toggleSteps: () => { data.folded = !data.folded; drawWork(turn); },
+    touched: () => { if (data.thought) data.thought.touched = true; },
   };
-  const owner = turnBodies.get(turn) ?? body();
-  if (!owner) return;
-  turnBodies.set(turn, owner);
-  renderChatWork(owner, turn, box, value, () => {
-    attachLive(box, () => { if (data.thought) data.thought.touched = true; });
-    tickClocks();
-  });
+  setView(turn, { work });
 }
 
 /// The thought streaming into `turn` ended: something else came.
@@ -161,69 +135,55 @@ export function endThought(turn: Turn) {
   if (data.thought && data.thought.ms == null) data.thought.ms = Date.now() - data.thought.start;
 }
 
-export function reply(turn: Turn) {
-  let el = turn.querySelector<HTMLElement>(ANSWER);
-
-  if (!el) {
-    el = document.createElement("div");
-    el.className = "dcoderen agent md";
-    const files = turn.querySelector(".files");
-    files ? turn.insertBefore(el, files) : turn.append(el);
-  }
-
-  return el;
-}
-
-/// Sets reply HTML while keeping selected text stable.
+/// Sets the reply's HTML; a reply the user is selecting in waits.
 export function setChatReply(turn: Turn, html: string) {
-  const box = reply(turn), owner = owningChatBody(turn);
   turnState(turn).reply = html;
-  if (owner) renderChatReply(owner, turn, box, html);
+  setView(turn, { reply: html });
 }
 export function appendChatReply(turn: Turn, html: string) { setChatReply(turn, turnState(turn).reply + html); }
 export function chatReplyHtml(turn: Turn) { return turnState(turn).reply; }
-export function moveChatReply(from: Turn, to: Turn) {
-  turnState(to).reply = chatReplyHtml(from); turnState(from).reply = "";
-  transferChatReply(from, to);
-}
 
 /// What a tool sent, under the reply. `route` is a `get_route` call's id,
 /// whose transit card is fetched.
 export function toolOutput(turn: Turn, x: ToolOutput, route: string | null) {
-  if (x.file) sentFile(turn, x.file);
-  for (const p of x.images ?? []) replyPic(turn, p);
-  if (x.products) productRow(turn, { kind: "products", cards: x.products });
-  if (x.cards) productRow(turn, { kind: "html", html: x.cards });
-  if (x.chart) chartRow(turn, x.chart);
-  if (route) routeRow(turn, route);
+  const before = viewOf(turn).sent, pictures = [...before?.pictures ?? []], items: SentItem[] = [...before?.items ?? []];
+
+  if (x.file) {
+    const mime = picMime(x.file);
+    if (mime) pictures.push({ file: { ...x.file, mime }, caption: "" });
+    else items.push({ kind: "file", file: x.file });
+  }
+
+  pictures.push(...x.images ?? []);
+  if (x.products) items.push({ kind: "products", cards: { kind: "products", cards: x.products } });
+  if (x.cards) items.push({ kind: "products", cards: { kind: "html", html: x.cards } });
+  if (x.chart) items.push({ kind: "chart", chart: x.chart });
+  if (route) items.push({ kind: "route", callId: route });
+  const sent: Sent = { pictures, items };
+  if (pictures.length || items.length) setView(turn, { sent });
   if (x.code_agent) coderCard(turn, x.code_agent);
+}
+
+/// Draws or updates the card for the session a `code_agent` result
+/// describes, under the steps of `turn`.
+function coderCard(turn: Turn, text: string) {
+  const report = parseAgentReport(text);
+  if (!report) return;
+  const key = cardKey(report), coders = viewOf(turn).coders;
+  setView(turn, { coders: coders.some(card => cardKey(card) === key) ? coders.map(card => cardKey(card) === key ? report : card) : [...coders, report] });
 }
 
 /// Follow-ups under the reply; picking one sends it.
 export function suggestions(turn: Turn, replies: string[]) {
-  const owner = owningChatBody(turn);
-  if (!owner) return;
-  let row = turn.querySelector<HTMLElement>(".dreplies");
-  if (!row) { row = document.createElement("div"); row.className = "dreplies"; turn.append(row); }
-  renderChatSuggestions(owner, turn, row, replies, reply => void send(reply));
+  setView(turn, { replies: { list: replies, send: reply => void send(reply) } });
 }
 
 export function removeChatSuggestions(owner: ChatBody) {
-  owner.querySelectorAll<HTMLElement>(".dreplies").forEach(row => {
-    const turn = row.closest<Turn>(".turn");
-    if (turn) discardChatSuggestions(turn);
-    row.remove();
-  });
+  for (const turn of turnsOf(owner)) if (viewOf(turn).replies) setView(turn, { replies: null });
 }
 
 export function failed(turn: Turn, message: string) {
   turnState(turn).failed = true;
-  const owner = owningChatBody(turn);
-  if (owner) {
-    const box = document.createElement("div");
-    box.className = "derrcard";
-    renderChatNotice(owner, turn, box, { kind: "error", message });
-    turn.append(box);
-  }
+  setView(turn, { error: message });
   if (/removed|not linked/i.test(message)) refreshStatus();
 }
