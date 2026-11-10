@@ -1,6 +1,6 @@
 // A project page's sections (terminals, file sync, reviews, threads, runs)
 // and the acts its agent's cards call.
-import { formatAgo } from "../ui/format.ts";
+import { failure, formatAgo } from "../ui/format.ts";
 import { S } from "../bar/core.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
@@ -29,7 +29,6 @@ import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "
 import { makeThreadDetail } from "./threaddetail.ts";
 import { makeRuns, type RunDetail } from "./runs.ts";
 import { type Outcome, state, keptSection, views } from "../center/state.ts";
-import { failure } from "../ui/pieces.ts";
 import { openUrl } from "../center/openitems.ts";
 import { currentLocation, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
