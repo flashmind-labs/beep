@@ -19,6 +19,7 @@ let list: RunningProcess[] = [];
 let local = false;
 let el: HTMLElement | null = null;
 let error = "";
+let readVersion = 0;
 const stopping = new Set<number>();
 /// Rows whose whole command shows, by pid.
 const whole = new Set<number>();
@@ -28,6 +29,7 @@ function syncSession() {
   const next = s ? `${s.machine_id}\n${s.id}` : "";
   if (key === next) return;
   key = next;
+  readVersion++;
   unfollow?.();
   unfollow = s?.id && !s.external ? subscribeChanges(topic("processes", s.id), readRunning, s.machine_id, visible) : undefined;
   list = [];
@@ -51,16 +53,17 @@ export async function readRunning() {
   syncSession();
   const s = paneSession(), asked = key, count = list.length;
   if (!s?.id || s.external || !visible()) return;
+  const version = ++readVersion;
 
   try {
     const view = await invoke<ProcessesView>("agent_processes", { machineId: s.machine_id, session: s.id }, AGENT_READ_WAIT_MS);
     syncSession();
-    if (key !== asked || !visible()) return;
+    if (key !== asked || version !== readVersion || !visible()) return;
     list = view.processes;
     local = view.local;
     error = "";
   } catch (e) {
-    if (key !== asked) return;
+    if (key !== asked || version !== readVersion || !visible()) return;
     error = readError(e);
   }
 
@@ -114,6 +117,7 @@ function render() {
 async function stop(pids: number[]) {
   const s = paneSession(), asked = key;
   if (!s) return;
+  readVersion++;
   for (const pid of pids) stopping.add(pid);
   error = "";
   render();
@@ -132,6 +136,7 @@ async function stop(pids: number[]) {
   }
 
   if (key !== asked) return;
+  readVersion++;
   error = failed.join(" ");
   render();
   draw();
