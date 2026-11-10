@@ -1,21 +1,17 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
-import { ago, reason } from "../ui/format.ts";
-import { svgEl as icon } from "../ui/parts.ts";
+import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
 import { folderUnder } from "../addproject/importproject-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.ts";
-import { itemChips, projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
 import { state } from "./state.ts";
-import { line } from "../ui/pieces.ts";
 import { draw } from "./home.ts";
 import { currentLocation, go } from "./views.ts";
 import { reloadChats, loadFound } from "./sidebar.ts";
 import { refresh } from "./refresh.ts";
-import { IC } from "../ui/icons.ts";
 
 export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
@@ -100,17 +96,6 @@ function importWithSettings(p: OpenRepo) {
     folder,
     onDone: () => refresh(),
   });
-}
-
-/// An open PR or issue in an Overview box: number and title, with its first
-/// state chip and repo below, opening it on its host.
-export function itemLine(item: GitItemRow) {
-  const chip = itemChips(item)[0];
-  const sub = chip ? h("span", "cc-sub", h("i", `chip ${chip.cls}`, chip.text), item.repo) : item.repo;
-  const row = line(icon(item.kind === "pull_request" ? IC.pr : IC.issue), `#${item.number} ${item.title}`, sub,
-    [ago(item.updated_at)], () => openUrl(item.url));
-  row.title = item.url;
-  return row;
 }
 
 /// Calls during a read share its promise and request one fresh read after it.

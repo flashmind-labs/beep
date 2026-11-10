@@ -11,7 +11,6 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import type { Ago, MakeButton, MakeEl } from "../ui/dom.ts";
 import type { Place } from "./branchwork.ts";
-import type { TileData, TileRow } from "../project/board.ts";
 import { plural, reason } from "../ui/format.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 
@@ -240,37 +239,6 @@ export function readySummary(r: Pick<ReviewView, "shards" | "findings" | "change
   else if (dropped.length) parts.push(`The verifier dropped ${dropped.length} findings that were not real.`);
   if (dismissed) parts.push(`${plural(dismissed, "finding was", "findings were")} dismissed.`);
   return parts.join(" ");
-}
-
-/// The Branches tile: branches with work first (the default branch last),
-/// each with its PR, worker or how far ahead it is.
-export function branchTile(
-  data: { default_branch: string; branches: readonly Pick<BranchRow, "name" | "ahead" | "behind" | "worktree" | "pushed" | "committed_at" | "subject">[] } | null | undefined,
-  reviews: readonly (Pick<ReviewView, "branch"> & Parameters<typeof reviewState>[0])[] | null | undefined,
-  ago: Ago,
-): TileData {
-  if (data === undefined) return { count: "", rows: [], empty: "Loading…" };
-  if (data === null) return { count: "", rows: [], empty: "The server lists no branches" };
-  const byBranch = new Map((reviews || []).map(r => [r.branch, r]));
-  const rows: (TileRow & { work: boolean })[] = data.branches.map(b => {
-    const r = byBranch.get(b.name), state = r && reviewState(r);
-    const isDefault = b.name === data.default_branch;
-    let note;
-    if (isDefault) note = b.behind ? `default · ${b.behind} behind` : "default";
-    else if (state) note = STATE_LABEL[state].toLowerCase();
-    else if (b.ahead) note = `+${b.ahead}${b.worktree ? " · worktree" : ""}${b.pushed ? "" : " · not pushed"}`;
-    else note = `merged · ${ago(b.committed_at)}`;
-    return {
-      code: b.name,
-      note,
-      chip: state && state !== "ready" && !isDefault ? { cls: state === "running" ? "run" : state === "blocked" ? "bad" : "wait", text: STATE_LABEL[state].toLowerCase() } : null,
-      title: `${b.name}: ${b.subject}`,
-      work: !isDefault && b.ahead > 0,
-    };
-  });
-  const work = rows.filter(r => r.work).length;
-  rows.sort((a, b) => Number(b.work) - Number(a.work));
-  return { count: work ? `${work} with work` : data.branches.length ? String(data.branches.length) : "", rows, empty: "No branches" };
 }
 
 /// What the window hands `makeReviews`. `machines()` gives Home's machines,

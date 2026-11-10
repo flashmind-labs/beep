@@ -40,30 +40,6 @@ export function secBlock(title: Kid, sub: string, ...body: Kid[]) {
   return el("div", "", secHead(title, sub ? el("small", "", sub) : null), ...body);
 }
 
-/// A grid table with the column heads `cols`; `cls` adds to `cc-mt`.
-export function headedTable(cls: string, ...cols: string[]) {
-  return el("div", cls ? `cc-mt ${cls}` : "cc-mt", ...cols.map(t => el("span", "th", t)));
-}
-
-/// `rows` in a box as tall as its first `shown` rows; the rest scroll.
-export function fitRows(rows: HTMLElement[], shown: number) {
-  const list = el("div", "pj-scroll", ...rows);
-
-  if (rows.length > shown && typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(() => {
-      const tall = rows.slice(0, shown).reduce((sum, row) => sum + row.offsetHeight, 0);
-      if (tall > 0) list.style.maxHeight = `${tall}px`;
-    });
-  }
-
-  return list;
-}
-
-/// A note above a list after a dot: `dot` is "", "off", "warn" or "bad".
-export function note(dot: string, ...kids: Kid[]) {
-  return el("div", "cc-note", el("span", dot ? `ddot ${dot}` : "ddot"), el("span", "", ...kids));
-}
-
 /// A note in red above a list: what failed.
 export function errorNote(text: string) {
   return el("div", "cc-note", el("span", "ddot bad"), el("span", "cc-err", text));
@@ -85,15 +61,6 @@ export function freshNote(f: Freshness) {
 /// `spin` puts a spinner before the text.
 export function stateChip(cls: string, text: string, spin = false) {
   return el("span", cls ? `chip ${cls}` : "chip", spin ? el("span", "dspin") : null, text);
-}
-
-/// A segmented control: one button per option, the `current` one pressed.
-export function segmented<T>(options: readonly { label: string; value: T }[], current: T, choose: (value: T) => void) {
-  return el("span", "pb-seg", ...options.map(o => {
-    const b = button(o.label, "", () => choose(o.value));
-    b.setAttribute("aria-pressed", String(o.value === current));
-    return b;
-  }));
 }
 
 /// `text` on the clipboard. The webview may refuse the async way; the old way
@@ -123,12 +90,6 @@ export async function copy(text: string, on?: HTMLElement | null) {
   const was = on.innerHTML;
   on.textContent = "Copied";
   setTimeout(() => { if (on.isConnected) on.innerHTML = was; }, 1200);
-}
-
-/// A button with `cls` that copies `text`.
-export function copyButton(text: string, label = "Copy", cls = "dbtn") {
-  const b: HTMLButtonElement = button(label, cls, () => copy(text, b));
-  return b;
 }
 
 /// Gives focus back to what had it before a sheet opened.

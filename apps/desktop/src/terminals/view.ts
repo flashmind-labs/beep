@@ -4,10 +4,9 @@ import { createElement } from "react";
 import { dbtn as button } from "../ui/parts.ts";
 import { invoke, Channel } from "../ui/tauri.ts";
 import { el as h } from "../ui/dom.ts";
-import { ALL, byMachine, makeTerminals, terminalNote, terminalWhere, terminalsCount, type TerminalRow } from "./terminals.ts";
+import { ALL, byMachine, makeTerminals, terminalsCount } from "./terminals.ts";
 import { makeScreen } from "./termview.ts";
 import { state, views } from "../center/state.ts";
-import { line } from "../ui/pieces.ts";
 import { draw } from "../center/home.ts";
 import { currentLocation, registerView, go, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
@@ -34,23 +33,6 @@ export function openTerminals(to: { id: string } | { newOn: string | null } | nu
   go("terminals");
   if (to && "id" in to) allTerms.show(to.id);
   else if (to) allTerms.newOn(to.newOn);
-}
-
-/// A terminal indented under its machine's row; clicking opens it.
-export function terminalRow(t: TerminalRow, online: boolean) {
-  const row = h("button", "cc-row tl-row", h("span", `ddot${t.state === "running" && online ? "" : " off"}`),
-    h("span", "t", h("b", "", t.name), h("span", "", terminalWhere(t))), h("span", "r", terminalNote(t, ago)));
-  row.type = "button";
-  row.title = `${t.machine_name}: ${t.command} in ${t.cwd}`;
-  row.addEventListener("click", () => openTerminals({ id: t.id }));
-  return row;
-}
-
-/// A terminal in an Overview box: its name, machine and folder, how it stands.
-export function terminalLine(t: TerminalRow, open: () => void) {
-  const row = line(h("span", `ddot${t.state === "running" ? "" : " off"}`), t.name, `${t.machine_name} · ${terminalWhere(t)}`, [terminalNote(t, ago)], open);
-  row.title = `${t.machine_name}: ${t.command} in ${t.cwd}`;
-  return row;
 }
 
 /// The Terminals page into its view, keeping the list's scroll.

@@ -98,9 +98,6 @@ export function toolRowHtml(r: { kind: ToolKind; verb: string; target: string; t
     + `<span class="mk">${r.mark}</span>${r.after ?? ""}</div>`;
 }
 
-/// The user's message: "You" over its text (HTML), then what it carried.
-export const userRowHtml = (html: string, attrs = "", after = "", md = false) => `<div class="dcoderen user${md ? " md" : ""}"${attrs}><b>You</b>${html ? md ? `<div class="said">${html}</div>` : `<span>${html}</span>` : ""}${after}</div>`;
-
 /// An answer with copy controls for code blocks and quotes.
 export const answerHtml = (html: string) => html.replace(/<pre(\s[^>]*)?>/g, (_m, attrs = "") => `<pre class="dcode"${attrs}><button class="dcopy" data-copy title="Copy">Copy</button>`)
   .replace(/<\/blockquote>/g, () => `</blockquote><button type="button" class="dcopy dquote-copy" data-copy aria-label="Copy quote" title="Copy quote">${COPY_ICON}</button>`);
@@ -128,16 +125,3 @@ export function copyCode(btn: HTMLElement) {
     btn.textContent = "Copy failed";
   });
 }
-
-export const errorCardHtml = (message: string) => `<div class="derrcard"><b>The turn did not finish</b><span>${esc(message)}</span></div>`;
-
-/// A message waiting while the turn runs: what it is, its words, what goes
-/// with it, when it goes and its buttons.
-export function queueRowHtml(q: { label: string; cls: string; text: string; tip: string; chips: string[]; when: string; buttons: string }) {
-  return `<div class="it${q.cls}"><span class="lbl">${q.label}</span><span class="t" title="${esc(q.tip)}">${esc(q.text)}</span>`
-    + `${q.chips.map(t => `<span class="qatt" title="${esc(t)}">${esc(t)}</span>`).join("")}<span class="w">${q.when}</span>${q.buttons}</div>`;
-}
-
-/// The Stop button's face, and while the stop lands.
-export const stopFace = (stopping = false) => stopping ? '<span class="dspin"></span>Stopping'
-  : '<span class="dstopico"></span>Stop';
