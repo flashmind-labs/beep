@@ -68,8 +68,8 @@ fn read_finish_and_dismiss_say_when_they_changed_something() {
     assert!(notes.get("b").is_some_and(|n| !n.read));
     assert!(notes.finish(|n| n.id == "b"));
     assert!(!notes.finish(|n| n.id == "b"));
-    assert!(notes.dismiss(&["a".into()]));
-    assert!(!notes.dismiss(&["a".into()]));
+    assert!(!notes.dismiss(&["a".into()]).is_empty());
+    assert!(notes.dismiss(&["a".into()]).is_empty());
     assert_eq!(ids(&notes), ["b"]);
 }
 
@@ -218,16 +218,20 @@ fn a_watched_turn_leaves_no_ready_note_and_settles_its_question() {
     let dir = TempDir::new().expect("a temp dir");
     let notes = store(&dir);
     let ready = ready_key();
-    assert!(!notes.agent_notice(&ready, &notice(&ready), true));
+    assert!(!notes.agent_notice(&ready, &notice(&ready), true).changed);
     assert!(notes.list().is_empty());
 
     let question = AgentNoticeKey {
         question: Some(7),
         ..ready.clone()
     };
-    assert!(notes.agent_notice(&question, &notice(&question), false));
-    assert!(notes.agent_notice(&ready, &notice(&ready), false));
-    assert!(notes.agent_notice(&ready, &notice(&ready), true));
+    assert!(
+        notes
+            .agent_notice(&question, &notice(&question), false)
+            .changed
+    );
+    assert!(notes.agent_notice(&ready, &notice(&ready), false).changed);
+    assert!(notes.agent_notice(&ready, &notice(&ready), true).changed);
     assert_eq!(ids(&notes), [question.to_string()]);
     assert!(notes.get(&question.to_string()).is_some_and(|n| n.done));
 
@@ -236,7 +240,7 @@ fn a_watched_turn_leaves_no_ready_note_and_settles_its_question() {
         question: Some(8),
         ..ready
     };
-    assert!(notes.agent_notice(&next, &notice(&next), true));
+    assert!(notes.agent_notice(&next, &notice(&next), true).changed);
     assert!(
         notes
             .get(&next.to_string())
@@ -287,8 +291,8 @@ fn opening_a_session_removes_only_its_ready_notes_and_saves_the_removal() {
     notes.put(renamed, now_ms());
     notes.put(note("unrelated", now_ms()), now_ms());
 
-    assert!(notes.viewed_agent("m1", "codex", "s1"));
-    assert!(!notes.viewed_agent("m1", "codex", "s1"));
+    assert!(!notes.viewed_agent("m1", "codex", "s1").is_empty());
+    assert!(notes.viewed_agent("m1", "codex", "s1").is_empty());
     assert!(notes.get(&ready.to_string()).is_none());
     assert_eq!(notes.list().len(), 5);
 
@@ -298,4 +302,56 @@ fn opening_a_session_removes_only_its_ready_notes_and_saves_the_removal() {
 
     notes.save().expect("the notes are written");
     assert_eq!(store(&dir).list(), notes.list());
+}
+
+/// Issue 555: a turn read on one app, by opening its session, must not show again on a phone
+/// whose machine stream replays it when the phone opens.
+#[test]
+fn a_turn_read_on_one_app_does_not_notify_on_another() {
+    let desktop_dir = TempDir::new().expect("a temp dir");
+    let phone_dir = TempDir::new().expect("a temp dir");
+    let desktop = store(&desktop_dir);
+    let phone = store(&phone_dir);
+    let ready = ready_key();
+
+    let told = desktop.agent_notice(&ready, &notice(&ready), false);
+    assert!(
+        told.unread.is_some(),
+        "unread on the desktop, so it notifies"
+    );
+    let removed = desktop.viewed_agent("m1", "codex", "s1");
+    let shared: HashSet<Read> = unread_of(removed).collect();
+    assert_eq!(shared.len(), 1, "opening the session reads it for the mesh");
+
+    phone.shared_reads(shared);
+    let replayed = phone.agent_notice(&ready, &notice(&ready), false);
+    assert_eq!(replayed.unread, None, "the phone does not notify");
+    assert!(phone.get(&ready.to_string()).is_some_and(|n| n.read));
+
+    // The next turn of the session is news again.
+    let mut next = notice(&ready);
+    next.body = "Another turn ended".into();
+    assert!(phone.agent_notice(&ready, &next, false).unread.is_some());
+}
+
+#[test]
+fn a_turn_on_screen_and_a_dismissed_note_are_read_for_the_other_apps() {
+    let dir = TempDir::new().expect("a temp dir");
+    let notes = store(&dir);
+    let ready = ready_key();
+    let seen = notes.agent_notice(&ready, &notice(&ready), true);
+    assert_eq!(seen.unread, None);
+    assert_eq!(
+        seen.read.len(),
+        1,
+        "a turn read on screen is read everywhere"
+    );
+
+    let question = AgentNoticeKey {
+        question: Some(7),
+        ..ready
+    };
+    notes.agent_notice(&question, &notice(&question), false);
+    let dismissed = notes.dismiss(&[question.to_string()]);
+    assert_eq!(unread_of(dismissed).count(), 1);
 }

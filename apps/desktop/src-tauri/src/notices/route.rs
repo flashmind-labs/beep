@@ -16,11 +16,20 @@ use crate::{
     tray::{self, waiting::WaitingList},
     voice::Voice,
 };
+use beep_fleet::Read;
 use beep_proto::{AgentNoticeKey, Notice};
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::mpsc, time::sleep_until};
 use uuid::Uuid;
+
+/// How long after a machine's stream opens its news waits for the reads of the other apps. What
+/// a machine sends first may be news it held while this app was away, such as a phone in the
+/// background, and another app may have read it meanwhile.
+const SETTLE: Duration = Duration::from_secs(5);
 
 /// Routes what the server pushes and what machines in the mesh send
 /// directly. The server pushes notices to every key on the account; the
@@ -34,6 +43,7 @@ pub(crate) async fn serve(
     mut direct: mpsc::Receiver<Direct>,
 ) {
     let mut heard = Heard::default();
+    let mut settle = Instant::now();
 
     loop {
         let (notice, via) = select! {
@@ -52,9 +62,14 @@ pub(crate) async fn serve(
                 // it shows it.
                 Direct::Run(news) => {
                     if let Some(note) = history::run_ended(&app, &news)
-                        && let Some(target) = note.target
+                        && !note.read
+                        && let Some(target) = note.target.clone()
                     {
-                        notify::opening(&app, &note.title, &format!("{}: {}", note.source, note.text), target);
+                        let read = (note.id.clone(), note.digest());
+                        show_unread(&app, read, settle, move |app| {
+                            let body = format!("{}: {}", note.source, note.text);
+                            notify::opening(app, &note.title, &body, target);
+                        });
                     }
                     continue;
                 }
@@ -62,6 +77,7 @@ pub(crate) async fn serve(
                 // such as questions from background work, may have changed
                 // meanwhile, and so may what waits on the user.
                 Direct::Connected => {
+                    settle = Instant::now() + SETTLE;
                     let _ = app.emit("reconnected", ());
                     app.state::<WaitingList>().poke();
                     continue;
@@ -85,12 +101,13 @@ pub(crate) async fn serve(
             continue;
         }
 
-        route(&app, &beep, &voice, notice);
+        route(&app, &beep, &voice, notice, settle);
     }
 }
 
-/// What `notice` does to the tray, the windows and live mode.
-fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice) {
+/// What `notice` does to the tray, the windows and live mode. A notification
+/// for a note waits until `settle` for the other apps' reads.
+fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice, settle: Instant) {
     // What waits on the user may have changed; the tray looks again.
     if notice.approval.is_some() || (notice.changed && !notice.group) {
         app.state::<WaitingList>().poke();
@@ -124,7 +141,7 @@ fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice) 
     }
 
     if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
-        agent_notice(app, beep, &key, &notice);
+        agent_notice(app, beep, &key, notice, settle);
         return;
     }
     // Background work asks only through a notice, so its chat keeps a
@@ -223,8 +240,14 @@ fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
 
 /// A coding agent asked something or finished a turn. The tray looks at
 /// what waits again, the bell keeps it, and the notice shows unless agent
-/// notices are off or the session is on screen.
-fn agent_notice(app: &AppHandle, beep: &Beep, key: &AgentNoticeKey, notice: &Notice) {
+/// notices are off, the session is on screen or any app read it.
+fn agent_notice(
+    app: &AppHandle,
+    beep: &Beep,
+    key: &AgentNoticeKey,
+    notice: Notice,
+    settle: Instant,
+) {
     app.state::<WaitingList>().poke();
     let focused = focused_center_label(app);
     let mut on_screen: Vec<&str> = focused.iter().map(String::as_str).collect();
@@ -235,13 +258,37 @@ fn agent_notice(app: &AppHandle, beep: &Beep, key: &AgentNoticeKey, notice: &Not
     let shown = app
         .state::<center::AgentsShown>()
         .shows(&on_screen, key, Instant::now());
-    history::agent_notice(app, key, notice, shown);
+    let unread = history::agent_notice(app, key, &notice, shown);
 
     if !beep.agent_notices() || shown {
         return;
     }
 
-    notify::notice(app, notice);
+    if let Some(read) = unread {
+        show_unread(app, read, settle, move |app| notify::notice(app, &notice));
+    }
+}
+
+/// Runs `show` for the note `read` names now, or at `settle` if no app read it by then.
+fn show_unread(
+    app: &AppHandle,
+    read: Read,
+    settle: Instant,
+    show: impl FnOnce(&AppHandle) + Send + 'static,
+) {
+    if Instant::now() >= settle {
+        show(app);
+        return;
+    }
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        sleep_until(settle.into()).await;
+
+        if history::still_unread(&app, &read) {
+            show(&app);
+        }
+    });
 }
 
 /// The label of the command center window with focus, the main one or a

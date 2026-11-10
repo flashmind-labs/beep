@@ -119,6 +119,23 @@ fn read_since(marks: &HashSet<Read>, note: &Note) -> bool {
     marks.contains(&(note.id.clone(), note.digest()))
 }
 
+/// The reads among `notes`, those not read yet.
+fn unread_of(notes: Vec<Note>) -> impl Iterator<Item = Read> {
+    notes
+        .into_iter()
+        .filter(|note| !note.read)
+        .map(|note| (note.id.clone(), note.digest()))
+}
+
+/// What a coding agent's notice did to the notes.
+struct Noted {
+    changed: bool,
+    /// What it marked read, for the other apps.
+    read: Vec<Read>,
+    /// The note it left unread, by id and digest, which may show as a notification.
+    unread: Option<Read>,
+}
+
 /// The notes and the file they are kept in.
 pub struct Notes {
     path: PathBuf,
@@ -222,45 +239,43 @@ impl Notes {
         })
     }
 
-    /// The ids of the notes kept.
-    fn listed(&self) -> HashSet<String> {
-        self.lock().iter().map(|note| note.id.clone()).collect()
+    /// Whether the note `id` is kept and unread in the version `digest` names.
+    fn unread(&self, id: &str, digest: u64) -> bool {
+        self.lock()
+            .iter()
+            .any(|note| note.id == id && !note.read && note.digest() == digest)
     }
 
-    fn dismiss(&self, ids: &[String]) -> bool {
-        let mut list = self.lock();
-        let before = list.len();
-        list.retain(|note| !ids.contains(&note.id));
-        list.len() != before
+    /// Removes the notes in `ids`; returns them.
+    fn dismiss(&self, ids: &[String]) -> Vec<Note> {
+        self.remove(|note| ids.contains(&note.id))
     }
 
-    /// Opening a session removes its finished-turn notes, including read ones.
-    fn viewed_agent(&self, machine: &str, agent: &str, session: &str) -> bool {
-        let mut list = self.lock();
-        let before = list.len();
-        list.retain(|note| {
-            note.kind != NoteKind::Finished
-                || !note.id.parse::<AgentNoticeKey>().is_ok_and(|key| {
+    /// Opening a session removes its finished-turn notes, including read ones; returns them.
+    fn viewed_agent(&self, machine: &str, agent: &str, session: &str) -> Vec<Note> {
+        self.remove(|note| {
+            note.kind == NoteKind::Finished
+                && note.id.parse::<AgentNoticeKey>().is_ok_and(|key| {
                     key.question.is_none() && key.is_session(machine, agent, session)
                 })
-        });
-        list.len() != before
+        })
+    }
+
+    fn remove(&self, which: impl Fn(&Note) -> bool) -> Vec<Note> {
+        let mut list = self.lock();
+        let (gone, kept) = list.drain(..).partition(|note| which(note));
+        *list = kept;
+        gone
     }
 
     /// Keeps questions, but a finished turn on screen needs no note.
-    fn agent_notice(&self, key: &AgentNoticeKey, notice: &Notice, seen: bool) -> bool {
+    fn agent_notice(&self, key: &AgentNoticeKey, notice: &Notice, seen: bool) -> Noted {
         let finished = self.finish(|note| {
             asked(note).is_some_and(|asked| {
                 asked.is_session(&key.machine_id, &key.agent, &key.session)
                     && asked.question != key.question
             })
         });
-
-        if seen && key.question.is_none() {
-            let removed = self.viewed_agent(&key.machine_id, &key.agent, &key.session);
-            return finished || removed;
-        }
-
         let kind = if key.question.is_some() {
             NoteKind::Asks
         } else {
@@ -277,8 +292,28 @@ impl Notes {
                 key.machine_name.clone(),
             )
         };
+        let this = (note.id.clone(), note.digest());
+        // Read on screen here, so it is read on every app.
+        let mut read = if seen { vec![this.clone()] } else { Vec::new() };
+
+        if seen && key.question.is_none() {
+            let removed = self.viewed_agent(&key.machine_id, &key.agent, &key.session);
+            let changed = finished || !removed.is_empty();
+            read.extend(unread_of(removed));
+            return Noted {
+                changed,
+                read,
+                unread: None,
+            };
+        }
+
         self.put(note, now_ms());
-        true
+        let unread = self.unread(&this.0, this.1).then_some(this);
+        Noted {
+            changed: true,
+            read,
+            unread,
+        }
     }
 
     /// Writes the newest list, through a partial file so a reader never sees
@@ -355,22 +390,77 @@ fn asked(note: &Note) -> Option<AgentNoticeKey> {
 }
 
 /// A coding agent's notice: a question, or a turn that ended off screen.
-/// Anything the session asked before no longer waits.
-pub(crate) fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: &Notice, seen: bool) {
+/// Anything the session asked before no longer waits. Returns the note it
+/// left unread, by id and digest: read on no app of the mesh yet.
+pub(crate) fn agent_notice(
+    app: &AppHandle,
+    key: &AgentNoticeKey,
+    notice: &Notice,
+    seen: bool,
+) -> Option<Read> {
     let notes = notes(app);
+    take_reads(app, &notes);
+    let noted = notes.agent_notice(key, notice, seen);
 
-    if notes.agent_notice(key, notice, seen) {
+    if noted.changed {
         changed(app, notes);
+    }
+
+    share(app, noted.read);
+    noted.unread
+}
+
+/// The user opened this session; its finished-turn notifications no longer
+/// wait, here or on any other app.
+pub(crate) fn agent_viewed(app: &AppHandle, machine: &str, agent: &str, session: &str) {
+    let notes = notes(app);
+    let removed = notes.viewed_agent(machine, agent, session);
+
+    if removed.is_empty() {
+        return;
+    }
+
+    changed(app, notes);
+    share(app, unread_of(removed).collect());
+}
+
+/// Whether note `read` names is still unread, after taking the reads the mesh holds now.
+pub(crate) fn still_unread(app: &AppHandle, (id, digest): &Read) -> bool {
+    let notes = notes(app);
+    take_reads(app, &notes);
+    notes.unread(id, *digest)
+}
+
+/// Takes the reads the mesh holds now, so a notice that comes before `follow_reads` looked does
+/// not show a note another app read.
+fn take_reads(app: &AppHandle, notes: &Arc<Notes>) {
+    let Some(mesh) = app.state::<Arc<Fleet>>().mesh() else {
+        return;
+    };
+
+    if notes.shared_reads(beep_fleet::read_marks(&mesh)) {
+        changed(app, notes.clone());
     }
 }
 
-/// The user opened this session; its finished-turn notifications no longer wait.
-pub(crate) fn agent_viewed(app: &AppHandle, machine: &str, agent: &str, session: &str) {
-    let notes = notes(app);
-
-    if notes.viewed_agent(machine, agent, session) {
-        changed(app, notes);
+/// Writes `read` to this app's marks in the mesh, for every other app.
+fn share(app: &AppHandle, read: Vec<Read>) {
+    if read.is_empty() {
+        return;
     }
+
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let marked: Result<()> = async {
+            let mesh = fleet.ready().await?;
+            Ok(beep_fleet::mark_read(&mesh, &read, now_ms()).await?)
+        }
+        .await;
+
+        if let Err(e) = marked {
+            log::warn!("sharing notifications read here: {e}");
+        }
+    });
 }
 
 /// The note for a run a machine told of: "Build failed on main" from its
@@ -411,7 +501,8 @@ fn run_note(news: &RunNews) -> Option<Note> {
 }
 
 /// A run a machine told of: the note it makes, `None` when there is none to
-/// make or one was made already (another machine told it too).
+/// make or one was made already (another machine told it too). The note is
+/// read when another app read it.
 pub(crate) fn run_ended(app: &AppHandle, news: &RunNews) -> Option<Note> {
     let note = run_note(news)?;
     let notes = notes(app);
@@ -420,9 +511,10 @@ pub(crate) fn run_ended(app: &AppHandle, news: &RunNews) -> Option<Note> {
         return None;
     }
 
+    take_reads(app, &notes);
     notes.put(note.clone(), now_ms());
-    changed(app, notes);
-    Some(note)
+    changed(app, notes.clone());
+    notes.get(&note.id)
 }
 
 /// The question `key` names was answered.
@@ -477,7 +569,7 @@ pub async fn notes_read(
 
     changed(&app, notes.inner().clone());
     let mesh = fleet.ready().await?;
-    beep_fleet::mark_read(&mesh, &read, &notes.listed(), now_ms()).await?;
+    beep_fleet::mark_read(&mesh, &read, now_ms()).await?;
     Ok(())
 }
 
@@ -510,11 +602,17 @@ pub(crate) async fn follow_reads(app: AppHandle, fleet: Arc<Fleet>) {
     }
 }
 
+/// Removes notes here; on every other app they are read.
 #[tauri::command]
 pub fn notes_dismiss(app: AppHandle, notes: State<'_, Arc<Notes>>, ids: Vec<String>) {
-    if notes.dismiss(&ids) {
-        changed(&app, notes.inner().clone());
+    let removed = notes.dismiss(&ids);
+
+    if removed.is_empty() {
+        return;
     }
+
+    changed(&app, notes.inner().clone());
+    share(&app, unread_of(removed).collect());
 }
 
 /// Shows skill `name` of a skills `folder` on this Mac, such as

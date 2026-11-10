@@ -16,6 +16,8 @@ use std::collections::HashSet;
 
 /// The most marks one app keeps.
 const KEEP: usize = 200;
+/// How long a mark is kept: as long as an app keeps a note.
+const MAX_AGE_MS: u64 = 30 * 24 * 3600 * 1000;
 
 /// A stable 64-bit digest of the `parts` that make one version of a notification.
 pub fn digest(parts: &[&str]) -> u64 {
@@ -76,22 +78,18 @@ pub fn read_marks(mesh: &Mesh) -> HashSet<Read> {
     reads
 }
 
-/// Marks `reads` read at `now_ms` in this app's key. Marks of notifications not in `listed` are
-/// dropped, and at most `KEEP` of the newest stay.
-pub async fn mark_read(
-    mesh: &Mesh,
-    reads: &[Read],
-    listed: &HashSet<String>,
-    now_ms: u64,
-) -> Result<()> {
+/// Marks `reads` read at `now_ms` in this app's key. Marks older than `MAX_AGE_MS` are dropped,
+/// and at most `KEEP` of the newest stay. A mark outlives the note on this app, since the app
+/// that removed a note (opened its session or dismissed it) may be the only one that read it.
+pub async fn mark_read(mesh: &Mesh, reads: &[Read], now_ms: u64) -> Result<()> {
     let _one = WRITES.lock().await;
     let key = Key::NoticeRead(mesh.me().to_string());
     let held = read::<Marks>(mesh, &key).unwrap_or_default();
-    let marks = merge(held.marks, reads, listed, now_ms);
+    let marks = merge(held.marks, reads, now_ms);
     write(mesh, key, Some(&Marks { marks })).await
 }
 
-fn merge(held: Vec<Mark>, reads: &[Read], listed: &HashSet<String>, now_ms: u64) -> Vec<Mark> {
+fn merge(held: Vec<Mark>, reads: &[Read], now_ms: u64) -> Vec<Mark> {
     let mut marks: Vec<Mark> = held
         .into_iter()
         .filter(|mark| !reads.iter().any(|(id, _)| *id == mark.id))
@@ -100,7 +98,7 @@ fn merge(held: Vec<Mark>, reads: &[Read], listed: &HashSet<String>, now_ms: u64)
             at_ms: now_ms,
             digest: *digest,
         }))
-        .filter(|mark| listed.contains(&mark.id))
+        .filter(|mark| now_ms.saturating_sub(mark.at_ms) <= MAX_AGE_MS)
         .collect();
     marks.sort_by_key(|mark| std::cmp::Reverse(mark.at_ms));
     marks.truncate(KEEP);

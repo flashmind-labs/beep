@@ -12,34 +12,30 @@ fn read_of(id: &str) -> Read {
     (id.into(), 7)
 }
 
-fn listed(ids: &[&str]) -> HashSet<String> {
-    ids.iter().map(|id| (*id).to_owned()).collect()
-}
-
 #[test]
 fn a_new_read_replaces_the_old_mark_of_its_id() {
     let held = vec![mark("a", 1), mark("b", 2)];
-    let marks = merge(held, &[read_of("a")], &listed(&["a", "b"]), 9);
+    let marks = merge(held, &[read_of("a")], 9);
     assert_eq!(marks, [mark("a", 9), mark("b", 2)]);
 }
 
 #[test]
-fn marks_of_notifications_no_longer_listed_are_dropped() {
-    let held = vec![mark("gone", 5), mark("b", 2)];
-    let marks = merge(held, &[read_of("a")], &listed(&["a", "b"]), 9);
-    assert_eq!(marks, [mark("a", 9), mark("b", 2)]);
+fn marks_past_the_age_are_dropped() {
+    let now = MAX_AGE_MS + 10;
+    let held = vec![mark("old", 9), mark("b", 10)];
+    let marks = merge(held, &[read_of("a")], now);
+    assert_eq!(marks, [mark("a", now), mark("b", 10)]);
 }
 
 #[test]
 fn only_the_newest_marks_are_kept() {
     let ids: Vec<String> = (0..KEEP + 20).map(|i| format!("n{i}")).collect();
-    let all: HashSet<String> = ids.iter().cloned().collect();
     let held: Vec<Mark> = ids
         .iter()
         .zip(1u64..)
         .map(|(id, at)| mark(id, at))
         .collect();
-    let marks = merge(held, &[], &all, 0);
+    let marks = merge(held, &[], KEEP as u64 + 20);
     assert_eq!(marks.len(), KEEP);
     assert_eq!(marks[0].id, format!("n{}", KEEP + 19));
 }
