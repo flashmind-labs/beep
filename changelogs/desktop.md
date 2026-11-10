@@ -76,6 +76,12 @@ Other apps have independent versions and changelogs:
 - Desktop: typing in the worktree search no longer loses the caret or scrambles the text when the list refreshes.
 - Desktop: a session's Files and Changes no longer switch to a folder on another machine after the agent runs a command there.
 - Desktop: failed model lookups show Retry, preserve loaded models, and retry sooner.
+- Desktop: Stop all on a session of a node from 0.5.0 or earlier stops its
+  turn, instead of breaking every live view of that machine.
+- Desktop: an agent's question reaches the desktop at once after its node
+  restarts, instead of up to a minute later.
+- Desktop: after a sleep or a Wi-Fi drop, machines reconnect at once, and one
+  still away is tried every 30 seconds instead of every minute.
 
 ### Performance
 
@@ -152,6 +158,9 @@ Other apps have independent versions and changelogs:
   catch up once when it shows. The command palette, the bell and machine
   follows react to mesh changes instead of checking every few seconds, and
   closed terminal views stop at once.
+- Desktop: a session followed in a hidden window keeps only the entries it
+  shows instead of its whole run, and saving a followed session's page takes
+  less work on each update.
 
 ## [0.7.0] - 2026-11-09
 
