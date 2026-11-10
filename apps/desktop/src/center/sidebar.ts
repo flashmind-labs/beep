@@ -25,7 +25,7 @@ import { ALL } from "../terminals/terminals.ts";
 import { runningChats, sideThreads } from "./sidechats.ts";
 import { withoutResearch } from "../research/research-list.ts";
 import { RESEARCHES } from "../research/researches.ts";
-import { type ChatItem, type ProjectPin, type SideChat, $, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
+import { type ChatItem, type ProjectPin, type SideChat, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
 import { stuck, problem, draw, jump } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { currentLocation, go, drawTop, openResearch } from "./views.ts";
@@ -44,7 +44,8 @@ import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { createElement, type ReactNode } from "react";
-import { showWindowParts } from "./window-root.ts";
+import { placeWindowParts } from "./window-root.ts";
+import { windowHost } from "./window-shell.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarChatRow, SidebarProjectRow } from "./sidebar-rows.tsx";
 import { single } from "../ui/active.ts";
@@ -104,8 +105,8 @@ export function drawSide() {
     if (g.items != null) side.push(createElement(SidebarGroupView, { key: name, name, group: g }));
   }
 
-  const host = $("#side");
-  showWindowParts([{ part: "sidebar", host, content: createElement(SidebarShell, { host, phone: onPhone(), links, groups: side, footer: footer(home?.machines), signIn: () => openSettings("devices"), addMachine: openAddMachine }) }]);
+  const host = windowHost("side");
+  placeWindowParts({ sidebar: createElement(SidebarShell, { host, phone: onPhone(), links, groups: side, footer: footer(home?.machines), signIn: () => openSettings("devices"), addMachine: openAddMachine }) });
   if (currentLocation()?.view === "pane") drawTop();
 }
 

@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 import type { CenterView, ViewArg, ViewName } from "../src/center/state.ts";
 
 // Load the real navigation with the window's DOM and services replaced.
-const dom = new JSDOM("<!doctype html><body><div id='main'><div class='cc-top'><div id='title'></div><div id='scope'></div><div id='date'></div><div id='tools'></div></div><div id='home-box'></div><div id='pane-box' hidden></div></div></body>");
+const dom = new JSDOM("<!doctype html><body><div class='cwin'></div></body>");
 const state = { picked: null as string | null, subscribed: false, agents: [] };
 const views = new Map<ViewName, CenterView>();
 /// The view each page module exports, calling what a test registered for it.
@@ -39,10 +39,12 @@ const stubs = new Map(Object.entries({
   "settings/subscription.ts": "export const viewHidden = () => false;",
   "bar/core.ts": "export const S = { server: false, view: null, session: null }; export const G = { id: null };",
   "center/mobile.ts": "export const syncMobile = () => {};",
-  // The window's parts without the router: the pages render into their host.
-  "center/window-root.ts": `import { createPortal, flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
-    const root = createRoot(document.createElement("div"));
-    export const showWindowParts = updates => { for (const u of updates) if (u.part === "pages") flushSync(() => root.render(createPortal(u.content, u.host))); };`,
+  // The window's tree without the router.
+  "center/window-root.ts": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
+    import { CenterWindow, shell } from "./window-shell.tsx";
+    const root = createRoot(document.querySelector(".cwin"));
+    flushSync(() => root.render(createElement(CenterWindow)));
+    export const placeWindowParts = parts => flushSync(() => shell.setState(s => ({ parts: { ...s.parts, ...parts } })));`,
 }).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
 const hooks = registerHooks({
   load(url, context, next) {

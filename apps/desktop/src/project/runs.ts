@@ -1,5 +1,4 @@
 import { createElement } from "react";
-import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import type { LiveMode } from "./projectlive.ts";
 import { RunsView } from "./runs-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -9,7 +8,6 @@ import { snapshotView } from "../ui/snapshot-state.ts";
 // current job and step; a run opened shows its jobs and steps and, when it
 // failed, the end of its failing step's log with Fix this.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { MakeButton, MakeEl } from "../ui/dom.ts";
 import type { ProjectAgent } from "./agent.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { reason } from "../ui/format.ts";
@@ -262,8 +260,6 @@ export function runTarget(r: Pick<RunRow, "number" | "branch">, base: string | n
 /// form for Fix this.
 interface RunDeps {
   invoke: typeof Invoke;
-  h: MakeEl;
-  button: MakeButton;
   redraw: () => void;
   openUrl: (url: string) => unknown;
   fix: (detail: RunDetail) => void;
@@ -297,7 +293,7 @@ function limitOf(d: RunsRow | null | undefined) {
 }
 
 export function makeRuns(deps: RunDeps) {
-  const { invoke, h, redraw, openUrl, fix } = deps;
+  const { invoke, redraw, openUrl, fix } = deps;
   const kept = deps.kept ?? new PageCache(null).section<RunsRow | null>("runs");
   const all = new Map<string, ProjectRuns>();
   /// When each project's runs were last asked for, so a draw asks again
@@ -475,22 +471,12 @@ export function makeRuns(deps: RunDeps) {
     return s.openRun ? details.get(detailKey(id, s.openRun))?.data ?? null : null;
   }
 
-  let view: { id: string; host: HTMLElement } | null = null;
-  function disposeView() { if (view) removeWindowPart("project-runs"); view = null; }
-
-  /// The Actions section keeps its rows while live updates arrive.
+  /// The Actions section. Its key is the project, so its rows stay while live updates arrive.
   function section(agent: Agent) {
     const id = agent.project_id, s = of(id);
     ensure(id);
     schedule(id);
-    if (!view || view.id !== id) {
-      disposeView();
-      const host = h("div", "pj-actions");
-      host.id = "sec-actions";
-      view = { id, host };
-    }
-    const current = view;
-    showWindowParts([{ part: "project-runs", host: current.host, content: createElement(RunsView, {
+    return createElement("div", { className: "pj-actions", id: "sec-actions", key: id }, createElement(RunsView, {
       data: s.data, error: s.error, only: s.only ?? null, open: s.open, mode: deps.mode?.(id) ?? null,
       refresh: () => { void load(id, true); },
       filter: (state: string | null) => { s.only = state; redraw(); },
@@ -507,14 +493,12 @@ export function makeRuns(deps: RunDeps) {
       },
       detail: (run: RunRow) => ({ data: details.get(detailKey(id, run))?.data ?? null, error: detailErrors.get(detailKey(id, run)) ?? "" }),
       fix: (detail: RunDetail) => fix(openDetail(id) ?? detail), openUrl,
-    }) }]);
-    return current.host;
+    }));
   }
 
   return {
     load,
     stop: () => {
-      disposeView();
       if (hover) { clearTimeout(hover); hover = null; }
       if (watching) watchDetail(watching, null);
       unfollow?.(); unfollow = undefined; watching = null;

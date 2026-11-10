@@ -2,7 +2,6 @@ import "./git-history-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeRuns } from "../src/project/runs.ts";
-import { button, el } from "../src/ui/dom.ts";
 
 const settle = () => new Promise<void>(done => setImmediate(done));
 
@@ -14,7 +13,7 @@ test("reopening Actions restores the selected workflow detail subscription", asy
       ? { runs: [], checks: [], synced_at: null, error: null, rate_limited_until: null }
       : null;
   }) as never;
-  const runs = makeRuns({ invoke, h: el, button, redraw() {}, openUrl() {}, fix() {} });
+  const runs = makeRuns({ invoke, redraw() {}, openUrl() {}, fix() {} });
 
   try {
     runs.section({ project_id: "example", name: "example" });

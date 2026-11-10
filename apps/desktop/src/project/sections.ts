@@ -98,7 +98,7 @@ export const details = makeThreadDetail({ redraw: () => redrawProjects(), openUr
 
 /// The project's workflow runs: the Actions section and each PR's checks.
 export const runs = makeRuns({
-  invoke, h, button,
+  invoke,
   redraw: () => redrawProjects(),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },

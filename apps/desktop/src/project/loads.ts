@@ -1,5 +1,4 @@
 import { createElement } from "react";
-import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { refreshMoves, moveStore } from "../agents/move-store.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
@@ -17,7 +16,6 @@ import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
 import type { RecentSessions } from "./split-view.tsx";
 import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
@@ -386,16 +384,10 @@ async function readWhere(name: string) {
   if (state.picked === name) redrawProjectsPage();
 }
 
-/// The Sessions tab's list. It stays one host while the tabs switch, so its
-/// virtual rows keep their scroll anchor and focus.
-let sessionsTab: { project: string; host: HTMLElement } | null = null;
-
-export function disposeSessionPanel() { if (sessionsTab) removeWindowPart("project-sessions:all"); sessionsTab = null; }
-
-export function sessionsHost(project: string, rows: SessionRow[]) {
-  if (sessionsTab?.project !== project) { disposeSessionPanel(); sessionsTab = { project, host: h("div", "cc-panel") }; }
-  showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: createElement(ProjectSessions, { rows, all: true }) }]);
-  return sessionsTab.host;
+/// The Sessions tab's list. Its key is the project, so redraws keep its
+/// virtual rows, their scroll anchor and focus.
+export function sessionsPanel(project: string, rows: SessionRow[]) {
+  return createElement("div", { className: "cc-panel", key: project }, createElement(ProjectSessions, { rows, all: true }));
 }
 
 /// The project's past sessions, newest first, with the note that they are
@@ -405,7 +397,6 @@ export function sessionsList(p: Project, running: RunningAgent[]): RecentSession
   const past = projectPastSessions(sessions, running, [...moveStore.getState().records.values()]).filter(sessionVisible);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   const freshness = sessions !== undefined ? pageFresh("sessions", p.name, readingSessions.has(p.name)) : null;
-  if (!p.imported || sessions === undefined || !past.length) disposeSessionPanel();
 
   if (!p.imported) return { rows: null, empty: "Import this project to see its sessions.", count: past.length, freshness };
   if (sessions === undefined) return { rows: null, empty: "Reading sessions…", count: past.length, freshness };

@@ -5,11 +5,11 @@ import { ThreadCardContent } from "./threadcard-view.tsx";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
-import type { PaneNow } from "../bar/core.ts";
+import { bar, type PaneNow } from "../bar/core.ts";
 import { el as h } from "../ui/dom.ts";
 import type { ThreadChatRow } from "../project/threads.ts";
 import { openLabel, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
-import { type CenterView, type ViewHead, type ChatItem, $, state } from "./state.ts";
+import { type CenterView, type ViewHead, type ChatItem, state } from "./state.ts";
 import { openUrl } from "./openitems.ts";
 import { currentLocation, drawTop } from "./views.ts";
 import { reloadGroup, paneOn, drawSide, reloadChats, setPinned } from "./sidebar.ts";
@@ -143,7 +143,7 @@ export const paneView: CenterView<"pane"> = {
 /// The window stops showing a chat or group when the pane moves off it, so
 /// a focused window no longer keeps their notices quiet.
 export let last: Pick<PaneNow, "session"> & { view: string | null; group?: string | null } = { view: null, session: null };
-$("#bar").dataset.view = pane.current().view ?? "";
+bar.dataset.view = pane.current().view ?? "";
 pane.onChange(now => {
   if (currentLocation()?.view === "pane") {
     if (last.view === "chat" && now.view !== "chat" && now.view !== "group") invoke("new_chat").catch(() => {});
@@ -151,6 +151,6 @@ pane.onChange(now => {
   }
 
   last = now;
-  $("#bar").dataset.view = now.view ?? "";
+  bar.dataset.view = now.view ?? "";
   drawSide();
 });

@@ -4,7 +4,8 @@
 import { isMobile } from "../ui/platform.ts";
 import { createElement } from "react";
 import { MobileTabs, MobileBack, HideKeyboard } from "./mobile-view.tsx";
-import { removeWindowPart, showWindowParts } from "./window-root.ts";
+import { placeWindowParts, removeWindowPart, showWindowParts } from "./window-root.ts";
+import { windowHost } from "./window-shell.tsx";
 import { allTerms } from "../terminals/view.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
@@ -12,7 +13,7 @@ import { HOME_TAB_EVENT, homeTab, jump } from "./home.ts";
 import { currentLocation, go, goHistory } from "./views.ts";
 import { openProjects, paneOn } from "./sidebar.ts";
 import { activeTab, backTo, fullScreen, type MobileAt, type MobileTab } from "./mobile-state.ts";
-import { $, state } from "./state.ts";
+import { state } from "./state.ts";
 import { atBottom } from "../agents/logscroll.ts";
 
 const OPEN: Record<MobileTab, () => void> = {
@@ -46,23 +47,14 @@ function back() {
   }
 }
 
-let mounted: { tabs: HTMLElement; top: HTMLElement } | null = null;
-
-function build() {
-  const tabs = $("#mb-tabs"), top = $(".cc-top");
-  mounted = { tabs, top };
-  drawMobile(at());
-  // Keep Back before the heading without changing the portal's parent.
-  const back = top.querySelector(".mb-back");
-  if (back) top.prepend(back);
-}
+let mounted = false;
 
 function drawMobile(now: MobileAt) {
   if (!mounted) return;
-  showWindowParts([
-    { part: "mobile-tabs", host: mounted.tabs, content: createElement(MobileTabs, { active: activeTab(now), needsReply: !!state.home?.needs_you.length, open: tab => OPEN[tab]() }) },
-    { part: "mobile-back", host: mounted.top, content: createElement(MobileBack, { hidden: backTo(now) === null, back }) },
-  ]);
+  placeWindowParts({
+    "mobile-tabs": createElement(MobileTabs, { active: activeTab(now), needsReply: !!state.home?.needs_you.length, open: tab => OPEN[tab]() }),
+    "mobile-back": createElement(MobileBack, { hidden: backTo(now) === null, back }),
+  });
 }
 
 /// Updates the phone controls without replacing their buttons or scroll hosts.
@@ -201,7 +193,7 @@ let terminalsQueued = false;
 const page = new MutationObserver(list => {
   if (keyboardHost && !keyboardHost.isConnected) dropKeyboard();
 
-  const main = $("#main");
+  const main = windowHost("main");
   let terminals = false;
   for (const m of list) {
     terminals ||= main.contains(m.target);
@@ -226,7 +218,8 @@ function dropKeyboard() {
 }
 
 export function initMobile() {
-  build();
+  mounted = true;
+  drawMobile(at());
   apply();
   window.addEventListener("resize", apply);
   window.matchMedia("(pointer: coarse)").addEventListener("change", apply);

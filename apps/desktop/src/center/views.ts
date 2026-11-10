@@ -1,4 +1,4 @@
-import { createElement, memo } from "react";
+import { createElement, Fragment, memo } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
@@ -8,7 +8,7 @@ import { invoke, recordTiming } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
 import { chatProject, shortName } from "../project/agent.ts";
-import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName, $, state } from "./state.ts";
+import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName, state } from "./state.ts";
 import { drawSide, openProjects, projectRows } from "./sidebar.ts";
 import { instructionsView, openSettings, providersView } from "../settings/sheet.ts";
 import { paneView, threadChats } from "./threadcard.ts";
@@ -23,7 +23,8 @@ import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { G, S } from "../bar/core.ts";
 import { syncMobile } from "./mobile.ts";
-import { showWindowParts } from "./window-root.ts";
+import { placeWindowParts } from "./window-root.ts";
+import { shell, windowHost } from "./window-shell.tsx";
 
 let currentPage: Location | null = null;
 
@@ -47,9 +48,9 @@ const PAGES = ["projects", "sync", "instructions", "providers", "research", "res
 type Page = typeof PAGES[number];
 const boxes = new Map<Page, HTMLElement>();
 const keepBox = Object.fromEntries(PAGES.map(name => [name, (el: HTMLDivElement | null) => { if (el) boxes.set(name, el); else boxes.delete(name); }]));
-/// The view showing, and how often each page drew; 0 leaves its box empty.
-const shown = createStore<{ view: ViewName | null; drawn: Record<Page, number> }>(() => ({
-  view: null, drawn: { projects: 0, sync: 0, instructions: 0, providers: 0, research: 0, researchopen: 0, terminals: 0 },
+/// How often each page drew; 0 leaves its box empty.
+const shown = createStore<{ drawn: Record<Page, number> }>(() => ({
+  drawn: { projects: 0, sync: 0, instructions: 0, providers: 0, research: 0, researchopen: 0, terminals: 0 },
 }));
 
 /// Draws page `name` in its box again, or empties the box.
@@ -60,7 +61,7 @@ export function drawPage(name: Page, on = true) {
 /// Every page's box, the one showing unhidden. Hidden pages stay drawn, so
 /// coming back keeps their place.
 function CenterPages() {
-  const { view, drawn } = useStore(shown);
+  const view = useStore(shell, s => s.view), drawn = useStore(shown, s => s.drawn);
   return PAGES.map(name => createElement(PageBox, { key: name, name, hidden: view !== name, drawn: drawn[name] }));
 }
 
@@ -81,21 +82,19 @@ const PageContent = memo(function PageContent({ name }: { name: Page; drawn: num
   }
 });
 
-showWindowParts([{ part: "pages", host: $("#main"), content: createElement(CenterPages) }]);
+placeWindowParts({ pages: createElement(CenterPages) });
 
 /// The element view `name` draws in; Home and the pane have theirs in the page.
 export function boxOf(name: ViewName): HTMLElement | null {
   switch (name) {
-    case "home": return $("#home-box");
-    case "pane": return $("#pane-box");
+    case "home": return windowHost("home-box");
+    case "pane": return windowHost("pane-box");
     default: return boxes.get(name) ?? null;
   }
 }
 
 function show(name: ViewName) {
-  $("#home-box").hidden = name !== "home";
-  $("#pane-box").hidden = name !== "pane";
-  flushSync(() => shown.setState({ view: name }));
+  flushSync(() => shell.setState({ view: name }));
 }
 
 /// A pane target that opens an agent view, which can go back.
@@ -241,23 +240,17 @@ function withReturnTarget(page: Location, current: Location | null): Location {
   return page;
 }
 
-let titleHost: HTMLElement | null = null;
-
 export function drawTop() {
   const view = currentPage ? viewOf(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
-  const title = $("#title"), date = $("#date"), project = windowProject;
-  if (titleHost !== title) { title.replaceChildren(); titleHost = title; }
+  const project = windowProject;
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? [S.view, S.session, G.id] : null]);
-  const scope = $("#scope"), tools = $("#tools");
-  showWindowParts([
-    { part: "header-project-back", host: $(".cc-top"), content: project ? createElement("button", { type: "button", className: "dbtn small pw-back", id: "pw-back", title: `Back to ${project} (esc)`, hidden: currentPage?.view === "projects", onClick: () => void openProjects(project) }, shortName(project)) : null },
-    { part: "header-title", host: title, content: head.title || "Beep" },
-    { part: "header-date", host: date, content: head.sub || "" },
-    { part: "header-scope", host: scope, content: head.reactScope ?? null, identity: page },
-    { part: "header-tools", host: tools, content: head.reactTools ?? null, identity: page },
-  ]);
-  const back = document.getElementById("pw-back");
-  if (back && back.nextElementSibling !== title) title.before(back);
+  placeWindowParts({
+    "project-back": project ? createElement("button", { type: "button", className: "dbtn small pw-back", id: "pw-back", title: `Back to ${project} (esc)`, hidden: currentPage?.view === "projects", onClick: () => void openProjects(project) }, shortName(project)) : null,
+    title: head.title || "Beep",
+    date: head.sub || "",
+    scope: head.reactScope ? createElement(Fragment, { key: page }, head.reactScope) : null,
+    tools: head.reactTools ? createElement(Fragment, { key: page }, head.reactTools) : null,
+  });
   syncMobile();
 }
