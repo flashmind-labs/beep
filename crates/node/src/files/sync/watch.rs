@@ -14,10 +14,19 @@ use std::{
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
-use tokio::{sync::mpsc, task::spawn_blocking};
+use crate::events::ChangeKind;
+use beep_proto::node::events::Topic;
+use tokio::{
+    sync::{Notify, mpsc},
+    task::spawn_blocking,
+};
+use tokio_util::task::AbortOnDropHandle;
 
 /// How often a project the watcher cannot follow is rescanned.
 pub(super) const RESCAN: Duration = Duration::from_secs(5 * 60);
+/// The least time between two change signals for one project's files.
+/// Sync itself waits for the folder to go quiet; this only paces listings.
+const ANNOUNCE_GAP: Duration = Duration::from_millis(250);
 /// The share of the watch limit left to other programs, in percent, and
 /// at least `MIN_RESERVE` watches.
 const RESERVE_PERCENT: u64 = 10;
@@ -155,6 +164,65 @@ fn others_watches() -> u64 {
     count
 }
 
+/// Signals `files/<root>` for changed projects: the first change at once,
+/// the rest of a burst once after `ANNOUNCE_GAP`, each root once per signal.
+#[derive(Default)]
+struct Announcer {
+    pending: Mutex<HashMap<PathBuf, ChangeKind>>,
+    wake: Notify,
+    /// Without a runtime to pace them, signals go out at once.
+    paced: std::sync::atomic::AtomicBool,
+}
+
+impl Announcer {
+    /// The announcer, pacing its signals on the current runtime when there is one.
+    fn start() -> (Arc<Self>, Option<AbortOnDropHandle<()>>) {
+        let announcer = Arc::new(Self::default());
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return (announcer, None);
+        };
+        announcer
+            .paced
+            .store(true, std::sync::atomic::Ordering::Release);
+        let paced = announcer.clone();
+        let task = runtime.spawn(async move {
+            loop {
+                paced.wake.notified().await;
+                let pending = std::mem::take(&mut *lock(&paced.pending));
+
+                for (root, kind) in pending {
+                    signal(&root, kind);
+                }
+
+                tokio::time::sleep(ANNOUNCE_GAP).await;
+            }
+        });
+        (announcer, Some(AbortOnDropHandle::new(task)))
+    }
+
+    fn changed(&self, root: &Path, kind: ChangeKind) {
+        if !self.paced.load(std::sync::atomic::Ordering::Acquire) {
+            signal(root, kind);
+            return;
+        }
+
+        lock(&self.pending)
+            .entry(root.to_owned())
+            .and_modify(|held| *held = (*held).max(kind))
+            .or_insert(kind);
+        self.wake.notify_one();
+    }
+}
+
+fn signal(root: &Path, kind: ChangeKind) {
+    let topic = Topic::keyed("files", root.to_string_lossy());
+
+    match kind {
+        ChangeKind::Any => crate::events::system().changed(topic),
+        ChangeKind::WorkTree => crate::events::system().changed_work_tree(topic),
+    }
+}
+
 /// Where events for a project go.
 struct Route {
     root: PathBuf,
@@ -218,6 +286,8 @@ pub(super) struct Watcher {
     // Separate from `inner`: the watcher's thread takes it for every
     // event, and must never wait on a lock held around `watch`.
     routes: Arc<Mutex<HashMap<Key, Route>>>,
+    /// Paces the change signals; dropped with the last clone.
+    _announcing: Option<Arc<AbortOnDropHandle<()>>>,
 }
 
 /// Whether an event can mean a change: opening and reading files, as a
@@ -230,7 +300,7 @@ fn is_change(kind: &EventKind) -> bool {
     }
 }
 
-fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
+fn route(routes: &Mutex<HashMap<Key, Route>>, announcer: &Announcer, event: &Event) {
     let mut routes = lock(routes);
     // The system dropped events (a full inotify queue, an FSEvents
     // overflow): any folder may have changed, so every project scans.
@@ -238,10 +308,7 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
         for route in routes.values_mut() {
             route.changes.invalidate();
             let _ = route.wake.try_send(());
-            crate::events::system().changed(beep_proto::node::events::Topic::keyed(
-                "files",
-                route.root.to_string_lossy(),
-            ));
+            announcer.changed(&route.root, ChangeKind::Any);
         }
 
         return;
@@ -277,13 +344,12 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, event: &Event) {
             route.changes.insert(relative.to_owned());
             // Full means a scan is due already.
             let _ = route.wake.try_send(());
-            let topic = beep_proto::node::events::Topic::keyed("files", route.root.to_string_lossy());
-
-            if gitdir::is_metadata(relative) {
-                crate::events::system().changed(topic);
+            let kind = if gitdir::is_metadata(relative) {
+                ChangeKind::Any
             } else {
-                crate::events::system().changed_work_tree(topic);
-            }
+                ChangeKind::WorkTree
+            };
+            announcer.changed(&route.root, kind);
         }
     }
 }
@@ -297,16 +363,18 @@ impl Watcher {
     pub(super) fn with_budget(budget: Option<Budget>, recount: Option<fn() -> u64>) -> Self {
         let routes: Arc<Mutex<HashMap<Key, Route>>> = Arc::default();
         let events = routes.clone();
+        let (announcer, announcing) = Announcer::start();
         let watcher =
             notify::recommended_watcher(move |event: notify::Result<Event>| {
                 crate::events::paths::counted("sync", &event);
 
                 match event {
-                Ok(event) => route(&events, &event),
+                Ok(event) => route(&events, &announcer, &event),
                 Err(e) => {
                     log::debug!("watch error: {e}");
                     route(
                         &events,
+                        &announcer,
                         &Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan),
                     );
                 }
@@ -328,6 +396,7 @@ impl Watcher {
                 told: false,
             })),
             routes,
+            _announcing: announcing.map(Arc::new),
         }
     }
 
