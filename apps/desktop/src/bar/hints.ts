@@ -1,5 +1,6 @@
 import { attachedCount } from "../chat/attach.ts";
-import { drawQueue, forRoutine } from "../chat/chat.ts";
+import { drawQueue } from "../chat/chat.ts";
+import { forRoutine } from "../chat/approval-cards.ts";
 import { $, bar, here, PANE, queued, S } from "./core.ts";
 import { linkChip } from "../settings/server-state.ts";
 import { liveParts, LV } from "./live.ts";

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useState } from "react";
 import { conversation } from "./conversation.ts";
-import { ASK, askText, focusAsk, scrollDown } from "./chat.ts";
+import { ASK, askText } from "./turns.ts";
+import { focusAsk, scrollDown } from "./chat.ts";
 import { drawThrough, earlierPrompts } from "./history.ts";
 import { ICON } from "../ui/icons.tsx";
 import type { ChatBody, Turn } from "../ui/turn.ts";

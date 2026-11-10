@@ -7,7 +7,7 @@ import { type AgentReport, cardKey, parseAgentReport } from "./agentcard.ts";
 import { type AgentPage, type AgentSession } from "../agents/agents.ts";
 import { loadSessions } from "../agents/sessions.ts";
 import { openAgent } from "../agents/session.ts";
-import { ANSWER, owningChatBody } from "./chat.ts";
+import { ANSWER, owningChatBody } from "./turns.ts";
 import { h } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";

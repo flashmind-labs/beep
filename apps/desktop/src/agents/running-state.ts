@@ -1,6 +1,6 @@
 // What Home and the Projects page say about coding agents running or waiting:
 // their rows, lines and keys, apart from the DOM so it can be tested.
-import type { ApprovalField } from "../chat/chat.ts";
+import type { ApprovalField } from "../chat/approval-cards.ts";
 import { base, formatAgo } from "../ui/format.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 

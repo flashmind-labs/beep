@@ -1,6 +1,8 @@
 import { turnState } from "./turn-state.ts";
 import { conversation } from "./conversation.ts";
-import { ANSWER, askText, body, owningChatBody, follow, keepDown, newTurn, runTurn, scrollDown, startRun } from "./chat.ts";
+import { ANSWER, askText, owningChatBody, newTurn } from "./turns.ts";
+import { body, keepDown, scrollDown } from "./chat.ts";
+import { follow, runTurn, startRun } from "./runs.ts";
 import { discardChatActions, discardChatNotice, discardChatRerunMenu, renderChatActions, renderChatNotice, renderChatRerunMenu } from "./work-view.tsx";
 import { $, here, S, stopping } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";

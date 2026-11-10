@@ -1,7 +1,9 @@
 import { turnState } from "../chat/turn-state.ts";
 import "./keys.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
-import { approvalNotice, answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
+import { approvalNotice, answeredTurns } from "../chat/approval-cards.ts";
+import { openInWindow, renderChat } from "../chat/chat.ts";
+import { watchRun } from "../chat/runs.ts";
 import { loadChats } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
 import { bar, G, here, live, type LinkState, PANE, S } from "./core.ts";

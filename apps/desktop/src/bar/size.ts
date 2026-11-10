@@ -1,4 +1,4 @@
-import { drawMap } from "../chat/chat.ts";
+import { drawLatest } from "../chat/chat.ts";
 import { $, bar, PANE } from "./core.ts";
 import { invoke } from "../ui/tauri.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
@@ -43,7 +43,7 @@ export function fit() {
       invoke("resize_bar", { height }).catch(() => {});
     }
 
-    drawMap();
+    drawLatest();
   });
 }
 
