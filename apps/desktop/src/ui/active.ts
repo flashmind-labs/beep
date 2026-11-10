@@ -37,6 +37,40 @@ export function onShownChange(fn: (shown: boolean) => void, pane = false) {
 
 const changed = () => { for (const fn of told) fn(); };
 
+/// Waits for ambient views: telemetry, lists, badges, sync progress.
+export const AMBIENT_MS = 1000;
+export const SLOW_MS = 2000;
+const ambients = new Set<() => void>();
+
+/// Runs `fn` at most once per `ms`, after the call that started the wait,
+/// while the page shows and `when()` holds. Calls made while off screen mark
+/// it dirty and it runs once when shown again. `run(true)` runs it now, for
+/// approvals and the user's own actions.
+export function ambient(fn: () => unknown, ms: number, when: () => boolean = () => true): (urgent?: boolean) => void {
+  let dirty = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const shown = () => pageShown() && when();
+  const go = () => {
+    if (timer !== null) { clearTimeout(timer); timer = null; }
+    dirty = false;
+    try { void Promise.resolve(fn()).catch(error => console.warn("ambient:", error)); } catch (error) { console.warn("ambient:", error); }
+  };
+  const resume = () => { if (dirty && timer === null && shown()) timer = setTimeout(go, 0); };
+  ambients.add(resume);
+  told.push(resume);
+
+  return (urgent = false) => {
+    dirty = true;
+    if (!shown()) return;
+
+    if (urgent) { go(); return; }
+    timer ??= setTimeout(go, ms);
+  };
+}
+
+/// A route or tab changed: dirty ambient views that now show run once.
+export function shownChanged() { for (const resume of ambients) resume(); }
+
 /// The command center mounted or unmounted the pane.
 export function setPaneShown(on: boolean) {
   lastEvent = on ? "pane-mounted" : "pane-unmounted";
