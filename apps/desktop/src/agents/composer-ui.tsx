@@ -146,5 +146,5 @@ function MenuRows({ rows, index, pick }: Menu) {
 
 export function StopButton({ stop }: { stop(): void }) {
   const { shown, stopping } = useStore(fieldUi, state => state.stop);
-  return <button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop the turn (⌘.)" style={shown ? undefined : { display: "none" }} disabled={stopping} onClick={stop}><AgentStopFace stopping={stopping} /></button>;
+  return <button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop main turn (subagents keep running)" style={shown ? undefined : { display: "none" }} disabled={stopping} onClick={stop}><AgentStopFace stopping={stopping} /></button>;
 }

@@ -6,6 +6,9 @@ Earlier releases predate this changelog.
 
 ### Added
 
+- iOS: Stop all, in a session's menu, ends its turn, subagents, background
+  commands and the agents it started. It asks first while any of those
+  run, and messages not yet delivered go back in the field.
 - iOS: search the Projects page by project name, folder or remote.
 
 ### Changed

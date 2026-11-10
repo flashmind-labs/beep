@@ -244,7 +244,7 @@ type SentImage = { name: string; mime: string; data: string };
 /// those back, stop the turn, close the session, or switch its model or
 /// thinking from the next turn.
 export type Steer = { prompt: { text: string; images?: SentImage[] } } | { steer: { text: string; images?: SentImage[] } } | { drop_steers: null }
-  | { cancel: null } | { close: null } | { configure: { model: string | null; effort: string | null } } | { mode: { mode: string } } | { stop_task: { task: string } };
+  | { cancel: null } | { stop_all: null } | { close: null } | { configure: { model: string | null; effort: string | null } } | { mode: { mode: string } } | { stop_task: { task: string } };
 
 interface AgentState {
   /// What the last failed read of the open session said, and how its link is.

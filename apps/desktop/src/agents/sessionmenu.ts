@@ -7,10 +7,44 @@ import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
 import type { AgentRow, Started } from "./agents.ts";
-import { parentSession, loadSessions } from "./sessions.ts";
-import { sessionOffers } from "./sessionmenu-state.ts";
+import { parentSession, loadSessions, sessions } from "./sessions.ts";
+import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
+import { AG, AGENT_ACTIVE } from "./agents.ts";
+import { sameSession } from "./running-state.ts";
+import { workingSubagents } from "./logview.ts";
+import { runs } from "./tasks.ts";
+import { stopAllWork } from "./messages.ts";
+import { transcriptKey } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
-import { forgetTranscript } from "./session-follow.ts";
+import { forgetTranscript, offScreen, takeHeldSteers } from "./session-follow.ts";
+import { prependDraft } from "../chat/compose.ts";
+
+/// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
+/// first while any of those run.
+function stopAll(s: AgentRow) {
+  const o = { machine_id: s.machine_id, agent: s.agent, session: s.id };
+  const open = sameSession(AG.open, s) && !!AG.page;
+  const run = async () => {
+    if (open) return stopAllWork();
+    await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: "stop_all" });
+    // The node drops the steers it holds: they wait in the session's field instead.
+    const steers = takeHeldSteers(o);
+    if (steers.length) prependDraft(JSON.stringify([s.machine_id, s.agent, s.id]), steers.join("\n"));
+  };
+  const work: SideWork = {
+    subagents: open ? workingSubagents() : 0,
+    tasks: (open ? AG.tasks : offScreen.get(transcriptKey(o))?.tasks ?? []).filter(runs).length,
+    started: sessions.filter(row => { const parent = parentSession(row); return AGENT_ACTIVE.has(row.status) && !!parent && parent.machine_id === s.machine_id && parent.id === s.id; }).length,
+  };
+  if (!stopAllAsks(work)) return void run().catch(err => console.warn("stop all:", err));
+  confirmSheet({
+    title: "Stop all of this session's work?",
+    text: "Stops the turn, its subagents, background commands and the agents it started.",
+    note: "While subagents run, the agent process is stopped. Your next message resumes it.",
+    action: "Stop all",
+    run,
+  });
+}
 
 /// Opens the menu for `s` where `e` was clicked. `open` is what clicking the row does.
 export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow) => void) {
@@ -22,7 +56,10 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     const items: MenuItem[] = [{ label: "Open", on: () => open(s) }];
     const parent = parentSession(s);
     if (parent) items.push({ label: "Open parent", on: () => open(parent) });
-    if (offers.stop) items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
+    if (offers.stop) {
+      items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
+      items.push({ label: "Stop all", on: () => stopAll(s) });
+    }
 
     if (offers.resume) {
       items.push({ label: "Resume", on: () => void invoke<Started>("agent_resume", at).then(started => open(started.session), err => console.warn("resume:", err)) });

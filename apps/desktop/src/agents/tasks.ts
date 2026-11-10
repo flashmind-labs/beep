@@ -32,7 +32,7 @@ export async function readTasks(o: OpenAgent) {
 }
 
 /// A task that has not ended.
-const runs = (t: AgentTask) => t.state === "running" || t.state === "paused";
+export const runs = (t: AgentTask) => t.state === "running" || t.state === "paused";
 
 /// Whether the log entry `at` is a call whose command still runs in the
 /// background, though the call itself is done.

@@ -133,6 +133,22 @@ export function interruptAgent() {
   return true;
 }
 
+/// Stop all on the open session: the turn, its subagents, background commands and the agents
+/// it started. The node drops the steers it holds, so those not yet delivered go back in the field.
+export async function stopAllWork() {
+  const o = AG.open, s = AG.page?.session;
+  if (!o || !s) return;
+  const unsent = AG.queue.filter(q => q.state !== "delivered");
+  AG.queue.splice(0, AG.queue.length);
+  // Each goes in front of what the field holds: the newest first, so the oldest leads.
+  for (const q of unsent.reverse()) backInField(q);
+  if (turnRuns()) AG.stopping = { id: s.id, turns: AG.page?.turns ?? 0 };
+  drawQueue();
+  redrawAgentHints();
+  drawAgentBody();
+  await steerAgent({ stop_all: null });
+}
+
 /// Binds an approval action to the question and options shown to the user,
 /// so an answer reaches only the question it was shown for.
 export function questionKey(q: AgentQuestion, session: OpenAgent) {

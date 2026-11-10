@@ -28,3 +28,15 @@ export function sessionOffers(s: { status: string; external: boolean; agent: str
   if (s.external) return { stop: false, close: false, resume: TAKEOVER.has(s.agent), delete: del };
   return { stop: TURN.has(s.status), close: !ended, resume: ended, delete: del };
 }
+
+/// What a session runs besides its main turn, as far as this window knows.
+export interface SideWork {
+  subagents: number;
+  /// Background commands still running.
+  tasks: number;
+  /// Agents it started that still run.
+  started: number;
+}
+
+/// Stop all asks first while anything besides the main turn runs.
+export const stopAllAsks = (work: SideWork) => work.subagents > 0 || work.tasks > 0 || work.started > 0;
