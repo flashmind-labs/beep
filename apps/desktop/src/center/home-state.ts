@@ -62,6 +62,23 @@ export function homeForDisplay(home: HomeView | null, server: boolean): HomeView
   return { machines: [], running: [], needs_you: [], coming_up: null, updates: null, projects: [] };
 }
 
+const SECTIONS = ["machines", "running", "needs_you", "coming_up", "updates", "projects"] as const;
+
+/// `after` with each section equal to `before`'s kept as `before`'s object,
+/// so views that compare by reference skip it; null when nothing changed.
+export function keepUnchanged(before: HomeView | null, after: HomeView): HomeView | null {
+  if (!before) return after;
+  const kept = { ...after };
+  let changed = false;
+
+  for (const section of SECTIONS) {
+    if (JSON.stringify(before[section]) === JSON.stringify(after[section])) Object.assign(kept, { [section]: before[section] });
+    else changed = true;
+  }
+
+  return changed ? kept : null;
+}
+
 /// A Needs you row: a title, one muted line and its one button. A chat
 /// approval is allowed from the row; an agent's question opens its session.
 export function needsLine(n:

@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { AMBIENT_MS } from "../ui/active.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
 import { makeStartComposer } from "../agents/start-composer.ts";
@@ -177,7 +178,7 @@ async function readProjectHosts() {
 }
 
 // A host can return after the project opened during its update.
-subscribeChanges([topic("machines"), topic("accounts")], () => readProjectHosts(), null, () => !!pc.project && barOn(pc.project));
+subscribeChanges([topic("machines"), topic("accounts")], () => readProjectHosts(), null, () => !!pc.project && barOn(pc.project), AMBIENT_MS);
 
 /// Reads what the bar needs for project `name`: the machines that run
 /// agents, the sessions (for worktrees) and the project's branches.

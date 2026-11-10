@@ -59,7 +59,8 @@ export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
 /// Loads a group's items again. Never two loads at once: one asked for
 /// during a load runs once more after it.
 /// The sidebar redraws once the group is in, unless `redraw` is false and the
-/// caller draws after loading several.
+/// caller draws after loading several. A load asked for during another
+/// returns at once, so the one that follows always draws.
 export async function reloadGroup(name: string, redraw = true) {
   const g = groups.get(name);
   if (!g) return;
@@ -75,7 +76,7 @@ export async function reloadGroup(name: string, redraw = true) {
   }
 
   if (redraw) drawSide();
-  if (g.again) { g.again = false; reloadGroup(name, redraw); }
+  if (g.again) { g.again = false; reloadGroup(name); }
 }
 
 /// What the pane shows, for the sidebar's highlight.
