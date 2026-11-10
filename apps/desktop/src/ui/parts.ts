@@ -1,6 +1,6 @@
 // Shared command-center controls, dialog lifetimes, focus and clipboard behavior.
 import { button, el } from "./dom.ts";
-import { createElement, createRef, type MouseEvent as ReactMouseEvent } from "react";
+import { createElement, createRef, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createDocumentScope } from "./document-root.tsx";
 
 /// A `dbtn` button with `cls` that runs `on`.
@@ -45,6 +45,8 @@ export function focusBack(was: Element | null) {
 type SheetOptions = {
   /// Mount directly into the caller's host so React owns removal there.
   host?: HTMLElement;
+  /// A class the scrim takes besides `am-scrim`.
+  scrim?: string;
   /// False while the sheet must stay: a click on the scrim and the default Esc do nothing.
   canClose?: () => boolean;
   /// Sees every key first, ahead of the page; true when it took the key (Esc included).
@@ -62,18 +64,21 @@ export function sheetAbove(element: HTMLElement) {
 
 interface SheetFrameOptions { host: HTMLElement; scrimClass: string; onScrim(): void }
 
-/// A mounted React dialog frame. Its caller owns dismissal and focus behavior.
+/// A mounted React dialog frame. Its caller owns dismissal and focus behavior;
+/// `render` puts the dialog's content in it, in the caller's flush.
 export function mountSheetFrame(label: string, cls: string, options: SheetFrameOptions) {
   const rootRef = createRef<HTMLDivElement>(), sheetRef = createRef<HTMLDivElement>();
   const owner = createDocumentScope<"sheet">();
-  owner.set([{ slot: "sheet", host: options.host, content: createElement("div", {
+  const frame = (content: ReactNode) => createElement("div", {
     className: options.scrimClass, ref: rootRef,
     onMouseDown: (event: ReactMouseEvent) => { if (event.target === event.currentTarget) options.onScrim(); },
-  }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": label, ref: sheetRef })) }]);
+  }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": label, ref: sheetRef }, content));
+  owner.set([{ slot: "sheet", host: options.host, content: frame(null) }]);
   const root = rootRef.current, sheet = sheetRef.current;
   // The scope commits synchronously, so its DOM refs must be available here.
   if (!root || !sheet) { owner.dispose(); throw new Error("Dialog did not mount"); }
-  return { root, sheet, dispose: owner.dispose };
+  const render = (content: ReactNode) => owner.setDeferred([{ slot: "sheet", host: options.host, content: frame(content) }]);
+  return { root, sheet, render, dispose: owner.dispose };
 }
 
 /// A sheet on the page: a click on the scrim or Esc closes it, and focus goes
@@ -81,7 +86,7 @@ export function mountSheetFrame(label: string, cls: string, options: SheetFrameO
 export function openSheet(label: string, cls: string, options: SheetOptions = {}) {
   const back = document.activeElement;
   const allowed = () => !options.canClose || options.canClose();
-  const { root, sheet, dispose } = mountSheetFrame(label, cls, { host: options.host ?? document.body, scrimClass: "am-scrim", onScrim: () => { if (allowed()) close(); } });
+  const { root, sheet, render, dispose } = mountSheetFrame(label, cls, { host: options.host ?? document.body, scrimClass: options.scrim ? `am-scrim ${options.scrim}` : "am-scrim", onScrim: () => { if (allowed()) close(); } });
   let open = true;
   const close = () => {
     if (!open) return;
@@ -102,5 +107,5 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
   };
   document.addEventListener("keydown", keys, true);
   openSheets.push(root);
-  return { root, sheet, close };
+  return { root, sheet, close, render: (content: ReactNode) => { if (open) render(content); } };
 }

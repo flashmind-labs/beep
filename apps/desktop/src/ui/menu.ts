@@ -1,10 +1,9 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
 import { focusBack, openSheet } from "./parts.ts";
-import { el } from "./dom.ts";
-import { createElement } from "react";
+import { createElement, createRef, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "./document-root.tsx";
+import { createDocumentScope } from "./document-root.tsx";
 import { ConfirmView, RenameView } from "./menu-views.tsx";
 
 /// One line of a menu; `warn` reads it in red.
@@ -33,13 +32,15 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   e.stopPropagation();
   closeMenu();
   const back = document.activeElement;
-  const box = el("div", "cc-menu");
-  const root = createDocumentView(box);
+  const owner = createDocumentScope<"menu">(), boxRef = createRef<HTMLDivElement>();
+  const draw = (content: ReactNode) => owner.set([{ slot: "menu", host: document.body, content: createElement("div", { className: "cc-menu", ref: boxRef }, content) }]);
+  draw(null);
+  const box = boxRef.current;
+  if (!box) { owner.dispose(); throw new Error("Menu did not mount"); }
   let current = items;
   let MenuView: typeof import("./context-menu-view.tsx").ContextMenu | null = null;
   const close = () => {
-    root.unmount();
-    box.remove();
+    owner.dispose();
     window.removeEventListener("mousedown", away, true);
     window.removeEventListener("keydown", keys, true);
     window.removeEventListener("blur", close);
@@ -49,7 +50,7 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   const fill = (list: readonly MenuItem[]) => {
     current = list;
     const View = MenuView;
-    if (View) flushSync(() => root.render(createElement(View, { title, items: list, choose: (index: number) => { const item = current[index]; if (item) { close(); item.on(); } } })));
+    if (View) draw(createElement(View, { title, items: list, choose: (index: number) => { const item = current[index]; if (item) { close(); item.on(); } } }));
   };
   const away = (ev: MouseEvent) => { if (!box.contains(ev.target as Node)) close(); };
   const keys = (ev: KeyboardEvent) => {
@@ -58,7 +59,6 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
     ev.preventDefault();
     ev.stopImmediatePropagation();
   };
-  document.body.append(box);
   // Kept inside the window.
   const r = box.getBoundingClientRect();
   box.style.left = `${Math.max(4, Math.min(e.clientX, innerWidth - r.width - 4))}px`;
@@ -114,11 +114,10 @@ export interface ConfirmOptions {
 /// button runs it and closes the sheet once it worked.
 export function confirmSheet(options: ConfirmOptions) {
   closeMenu();
-  let busy = false, view: DocumentView | null = null;
+  let busy = false;
   const allowed = () => !busy || options.dismissWhileBusy === true;
-  const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
+  const { close: shut, render } = openSheet(options.title, "am-sheet", {
     canClose: allowed,
-    onClose: () => { view?.unmount(); view = null; },
     onKey: event => {
       if (event.key === "Escape") { event.preventDefault(); close(); }
       event.stopImmediatePropagation();
@@ -126,8 +125,7 @@ export function confirmSheet(options: ConfirmOptions) {
     },
   });
   const close = () => { if (allowed()) shut(); };
-  view = createDocumentView(sheet);
-  flushSync(() => view?.render(createElement(ConfirmView, { options, close, pending: value => { busy = value; } })));
+  flushSync(() => render(createElement(ConfirmView, { options, close, pending: value => { busy = value; } })));
 }
 
 export interface RenameOptions { title: string; value: string; run(text: string): Promise<unknown> }
@@ -135,12 +133,8 @@ export interface RenameOptions { title: string; value: string; run(text: string)
 /// Saves a renamed value while keeping the draft available after a failure.
 export function renameSheet(options: RenameOptions) {
   closeMenu();
-  let busy = false, view: DocumentView | null = null;
-  const { sheet, close: shut } = openSheet(options.title, "am-sheet", {
-    canClose: () => !busy,
-    onClose: () => { view?.unmount(); view = null; },
-  });
+  let busy = false;
+  const { close: shut, render } = openSheet(options.title, "am-sheet", { canClose: () => !busy });
   const close = () => { if (!busy) shut(); };
-  view = createDocumentView(sheet);
-  flushSync(() => view?.render(createElement(RenameView, { options, close, pending: value => { busy = value; } })));
+  flushSync(() => render(createElement(RenameView, { options, close, pending: value => { busy = value; } })));
 }

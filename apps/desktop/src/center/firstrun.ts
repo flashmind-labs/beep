@@ -1,7 +1,6 @@
 // The first launch of an app with no subscription: start here, or link another desktop.
 import { createElement } from "react";
-import { flushSync } from "react-dom";
-import { createDocumentView } from "../ui/document-root.tsx";
+import { createDocumentScope } from "../ui/document-root.tsx";
 import { joinTicket } from "../machines/jointicket.ts";
 import { invoke } from "../ui/tauri.ts";
 import { firstRunDue } from "../settings/subscription.ts";
@@ -35,14 +34,12 @@ async function linked() {
 export async function firstRun(subscribed: boolean, after: () => void, signedOut = false) {
   if (!firstRunDue(subscribed, stored(), signedOut)) return after();
   if (await linked()) { keep(); return after(); }
-  const host = document.createElement("div");
-  document.body.append(host);
-  const root = createDocumentView(host);
+  const screen = createDocumentScope<"first-run">();
   let closed = false;
   const leave = () => {
     if (closed) return;
     closed = true;
-    keep(); root.unmount(); host.remove(); after();
+    keep(); screen.dispose(); after();
   };
-  flushSync(() => root.render(createElement(FirstRunScreen, { done: leave, join: joinTicket })));
+  screen.set([{ slot: "first-run", host: document.body, content: createElement("div", null, createElement(FirstRunScreen, { done: leave, join: joinTicket })) }]);
 }

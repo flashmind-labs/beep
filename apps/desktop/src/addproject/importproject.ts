@@ -1,6 +1,5 @@
-import { createElement, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createElement, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { ImportProjectView } from "./importproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
@@ -78,7 +77,7 @@ let lookup = 0;
 let lookupTimer: ReturnType<typeof setTimeout> | undefined;
 /// The folders read while the sheet is open, by machine and folder.
 const listed = new Map<string, readonly string[]>();
-let view: DocumentView | null = null, opening = 0;
+let view: ((content: ReactNode) => void) | null = null, opening = 0;
 
 /// Opens the sheet. Choose… opens the folder picker, never the sheet itself.
 export function openImportProject(options: ImportProjectOptions = {}) {
@@ -93,12 +92,11 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   state = macId && machines.some(m => m.id === macId) ? { ...START, machine: macId } : START;
   if (options.machine && machines.some(m => m.id === options.machine)) state = { ...state, machine: options.machine };
   if (options.repo) state = { ...state, repo: options.repo };
-  ({ root, sheet, close } = openSheet("Import a project", "am-sheet ip-sheet", {
+  ({ root, sheet, close, render: view } = openSheet("Import a project", "am-sheet ip-sheet", {
     canClose: () => state.step !== "cloning",
     onKey,
     onClose: closed,
   }));
-  view = createDocumentView(sheet);
   preview = undefined;
   fork = undefined;
   previewFor = "";
@@ -151,7 +149,7 @@ function closeImportProject() {
 
 function closed() {
   syncthing.dispose();
-  view?.unmount(); view = null;
+  view = null;
   root = sheet = close = null;
   const done = state.step === "done" ? state.project : null;
   state = START;
@@ -213,7 +211,7 @@ function draw() {
   if (!view) return;
   const current = view;
   const folder = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
-  flushSync(() => current.render(createElement(ImportProjectView, {
+  flushSync(() => current(createElement(ImportProjectView, {
     state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), menu, syncChoice: syncthing,
     edit: (repo: string) => { update({ type: "edit", repo }); schedulePreview(); },
     pick: (machine: string | null) => { update({ type: "pick", machine }); learnBase(); },

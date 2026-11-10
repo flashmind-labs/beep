@@ -1,6 +1,5 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { CustomAgentPrompt, CustomAgentsView } from "./customagents-view.tsx";
 // The Custom agents list of a project page: the named agents the coding agent
 // harnesses define in the project's folder on one machine, and the user's own
@@ -70,9 +69,7 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
 
   /// The agent's prompt, read-only, over the window.
   function openPrompt(a: CustomAgentRow, place: AgentsPlace) {
-    let promptRoot: DocumentView | null = null;
-    const { sheet, close } = openSheet(`Custom agent ${a.name}`, "am-sheet ca-sheet", {
-      onClose: () => { promptRoot?.unmount(); promptRoot = null; },
+    const { close, render } = openSheet(`Custom agent ${a.name}`, "am-sheet ca-sheet", {
       onKey: e => {
         if (e.key !== "Escape") return;
         e.preventDefault();
@@ -81,8 +78,7 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
         return true;
       },
     });
-    promptRoot = createDocumentView(sheet);
-    flushSync(() => promptRoot?.render(createElement(CustomAgentPrompt, { agent: a, close, start: () => { close(); deps.start(a, place); } })));
+    flushSync(() => render(createElement(CustomAgentPrompt, { agent: a, close, start: () => { close(); deps.start(a, place); } })));
 
   }
 

@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView } from "../ui/document-root.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { addGroupFolder, groupPath, type ProjectGroup } from "./projects-state.ts";
@@ -19,10 +18,9 @@ export function openGroupSheet(options: GroupSheetOptions) {
   let paths = [...(group?.paths ?? [])], error: string | null = null, saving = false;
   const shell = openSheet(group ? `Folders of ${group.name}` : "New group", "am-sheet", {
     canClose: () => !saving, onKey: keys,
-    onClose: () => { root = null; view.unmount(); },
+    onClose: () => { root = null; },
   });
   root = shell.root;
-  const view = createDocumentView(shell.sheet);
   const field = () => shell.sheet.querySelector<HTMLInputElement>(".gp-field");
   const close = () => { if (!saving) shell.close(); };
   const add = () => {
@@ -59,7 +57,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
   function draw() {
     const n = options.matches(paths), named = group ? null : paths[0] || groupPath(field()?.value ?? "");
     const summary = paths.length ? `${named ? `Named ${named}. ` : ""}${n === 1 ? "1 project matches" : `${n} projects match`}.` : "Add a folder to make the group.";
-    flushSync(() => view.render(<GroupSheet title={group?.name ?? "New group"} paths={paths} error={error} saving={saving} summary={summary}
+    flushSync(() => shell.render(<GroupSheet title={group?.name ?? "New group"} paths={paths} error={error} saving={saving} summary={summary}
       add={add} remove={path => { paths = paths.filter(p => p !== path); error = null; draw(); field()?.focus(); }} close={close} save={() => void save()} />));
   }
   draw();

@@ -1,15 +1,14 @@
 // report/: the "Report a problem" sheet. Main file: this one; its logic is
 // in report-state.ts.
 import { invoke } from "../ui/tauri.ts";
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { openSheet } from "../ui/parts.ts";
 import { ReportBody } from "./report-view.tsx";
 import { START, next, type Draft, type ReportEvent, type Sent } from "./report-state.ts";
 
 let state = START, sheet: HTMLDivElement | null = null, close: (() => void) | null = null;
-let reactRoot: DocumentView | null = null;
+let render: ((content: ReactNode) => void) | null = null;
 /// The file whose text shows under the list, and the issue body before Yes.
 let opened: string | null = null, issueText: string | null = null;
 /// Which opening of the sheet an answer belongs to; one that arrives after
@@ -28,16 +27,14 @@ export function openReport(host: HTMLElement, onDebug?: (text: string) => void) 
   opening++;
   state = START;
   opened = issueText = null;
-  ({ sheet, close } = openSheet("Report a problem", "am-sheet ip-sheet", { host, canClose: () => !busy(), onClose: closed }));
-  reactRoot = createDocumentView(sheet);
+  ({ sheet, close, render } = openSheet("Report a problem", "am-sheet ip-sheet", { host, canClose: () => !busy(), onClose: closed }));
   draw();
   sheet.querySelector("textarea")?.focus();
 }
 
 function closed() {
   opening++;
-  reactRoot?.unmount();
-  reactRoot = null;
+  render = null;
   sheet = close = null;
 }
 
@@ -130,11 +127,11 @@ function retry(button: HTMLButtonElement) {
 }
 
 function draw() {
-  if (!sheet || !reactRoot) return;
-  const box = sheet;
+  if (!sheet || !render) return;
+  const box = sheet, show = render;
   const title = state.step === "sent" || state.step === "issue" ? "Sent" : "Report a problem";
   box.setAttribute("aria-label", title);
-  flushSync(() => reactRoot?.render(createElement(ReportBody, {
+  flushSync(() => show(createElement(ReportBody, {
     state, title, opened, issueText, debug: !!debug,
     update, collect, send, back, retry, openIssue,
     cancel: () => { if (!busy()) close?.(); },

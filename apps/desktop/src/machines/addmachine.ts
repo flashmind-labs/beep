@@ -4,9 +4,8 @@ import { latest, onShownChange, STALE } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { openSheet } from "../ui/parts.ts";
 import { AddMachineBody } from "./addmachine-view.tsx";
 import type { MacControl, MachineView } from "./machine-state.ts";
@@ -31,7 +30,7 @@ const creation = latest();
 let ticker: Timer, poller: (() => void) | undefined, close: (() => void) | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
 let mac: MacSeen | null = null, macAsked = false, macPoller: (() => void) | undefined;
-let reactRoot: DocumentView | null = null;
+let render: ((content: ReactNode) => void) | null = null;
 let opening = 0;
 
 onShownChange(visible => {
@@ -51,8 +50,7 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   onClose = options.onClose || null;
   opening++;
   kind = "node";
-  ({ root, sheet, close } = openSheet("Add a machine", "am-sheet", { onClose: closed }));
-  reactRoot = createDocumentView(sheet);
+  ({ root, sheet, close, render } = openSheet("Add a machine", "am-sheet", { onClose: closed }));
   ticker = setInterval(() => update({ type: "tick", now: Date.now() }), TICK_MS);
   mac = null;
   macAsked = false;
@@ -69,8 +67,7 @@ export function closeAddMachine() {
 function closed() {
   creation.cancel();
   opening++;
-  reactRoot?.unmount();
-  reactRoot = null;
+  render = null;
   clearInterval(ticker);
   poller?.();
   macPoller?.();
@@ -164,9 +161,9 @@ function update(event: AddEvent) {
 }
 
 function draw(focus = true) {
-  if (!sheet || !reactRoot) return;
-  const box = sheet;
-  flushSync(() => reactRoot?.render(createElement(AddMachineBody, {
+  if (!sheet || !render) return;
+  const box = sheet, show = render;
+  flushSync(() => show(createElement(AddMachineBody, {
     state, kind, mac, macAsked, now: Date.now(),
     selectKind: (selected: TicketKind) => { if (kind !== selected) { kind = selected; void start(); } },
     useThisMac: () => { void useThisMac(); }, start: () => { void start(); }, close: closeAddMachine,

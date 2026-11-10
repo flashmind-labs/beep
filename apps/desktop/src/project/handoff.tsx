@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView } from "../ui/document-root.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { reason } from "../ui/format.ts";
@@ -8,9 +7,8 @@ import type { Project } from "./projects-state.ts";
 
 export function openHandoff(project: Project, to: string, changed: () => void) {
   let closed = false;
-  const { sheet } = openSheet("Bring uncommitted work", "am-sheet ip-sheet", { onClose: () => { closed = true; view.unmount(); } });
-  const view = createDocumentView(sheet);
-  flushSync(() => view.render(<Handoff project={project} to={to} closed={() => closed} changed={changed} />));
+  const { render } = openSheet("Bring uncommitted work", "am-sheet ip-sheet", { onClose: () => { closed = true; } });
+  flushSync(() => render(<Handoff project={project} to={to} closed={() => closed} changed={changed} />));
 }
 
 function Handoff({ project, to, closed, changed }: { project: Project; to: string; closed(): boolean; changed(): void }) {

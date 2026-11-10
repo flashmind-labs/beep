@@ -6,7 +6,6 @@ import { withoutCopies } from "./move-store.ts";
 import { S } from "../bar/core.ts";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView } from "../ui/document-root.tsx";
 import { ConversationSwitcher } from "./conversation-switcher-view.tsx";
 import { openSheet } from "../ui/parts.ts";
 
@@ -43,16 +42,14 @@ export function initConversationSwitcher(options: SwitcherOptions) {
     const rows = available();
     refresh();
     if (!rows.length) return false;
-    let view: ReturnType<typeof createDocumentView> | null = null;
-    const { root, sheet, close } = openSheet("Switch active conversation", "am-sheet conversation-switcher", { onClose: () => { view?.unmount(); view = null; picker = null; } });
-    root.classList.add("conversation-scrim");
-    view = createDocumentView(sheet);
+    let open = true;
+    const { close, render } = openSheet("Switch active conversation", "am-sheet conversation-switcher", { scrim: "conversation-scrim", onClose: () => { open = false; picker = null; } });
     const on = current(), currentKey = on ? conversationKey(on) : null;
     const p = {
       close, rows, index: currentKey ? rows.findIndex(s => conversationKey(s) === currentKey) : -1,
       draw() {
-        if (!view) return;
-        flushSync(() => view?.render(createElement(ConversationSwitcher, {
+        if (!open) return;
+        flushSync(() => render(createElement(ConversationSwitcher, {
           rows, index: p.index, current: currentKey, choose: (index: number) => { p.index = index; finish(true); },
         })));
       },

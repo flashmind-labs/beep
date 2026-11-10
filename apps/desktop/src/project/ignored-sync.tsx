@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentView } from "../ui/document-root.tsx";
 import { openSheet } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
@@ -8,8 +7,7 @@ import { ignoredSelection, type IgnoredSync } from "./ignored-sync-state.ts";
 
 export function chooseIgnoredFolders(project: string, initial: IgnoredSync, onChanged: () => void) {
   let busy = false;
-  const { sheet, close } = openSheet("Sync gitignored", "am-sheet", { canClose: () => !busy, onClose: () => root.unmount() });
-  const root = createDocumentView(sheet);
+  const { close, render } = openSheet("Sync gitignored", "am-sheet", { canClose: () => !busy });
   const save = async (enabled: boolean, paths: string, setError: (message: string) => void, setBusy: (value: boolean) => void) => {
     if (busy) return;
     try {
@@ -26,7 +24,7 @@ export function chooseIgnoredFolders(project: string, initial: IgnoredSync, onCh
       setBusy(false);
     }
   };
-  flushSync(() => root.render(<IgnoredSyncView initial={initial} save={save} cancel={() => { if (!busy) close(); }} />));
+  flushSync(() => render(<IgnoredSyncView initial={initial} save={save} cancel={() => { if (!busy) close(); }} />));
 }
 
 function IgnoredSyncView({ initial, save, cancel }: { initial: IgnoredSync; save(enabled: boolean, paths: string, setError: (message: string) => void, setBusy: (value: boolean) => void): void; cancel(): void }) {
