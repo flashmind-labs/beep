@@ -30,6 +30,34 @@ export const shell = () => shellRef.current?.isConnected ? shellRef.current : nu
 export const main = () => mainRef.current?.isConnected ? mainRef.current : null;
 export const paneOf = (d: Dock) => paneRefs[d].current?.isConnected ? paneRefs[d].current : null;
 
+/// The shell's width and the conversation's height, as last read, and the shell
+/// the pane's resize watcher follows.
+let sized: { shell: HTMLElement; width: number; height: number } | null = null;
+let watched: HTMLElement | null = null;
+
+/// The pane's resize watcher follows `el` now, or nothing. The same shell
+/// keeps its size through a session switch.
+export function watchShell(el: HTMLElement | null) {
+  if (watched !== el) sized = null;
+  watched = el;
+}
+
+/// The watcher saw the shell resize: its size is read again.
+export function shellResized() {
+  sized = null;
+}
+
+/// The shell's width and the conversation's height. Kept until the watcher sees the
+/// shell resize, so renders and visibility checks force no layout; read each time
+/// while no watcher follows the shell. Zero without a shell.
+export function shellSize(): { width: number; height: number } {
+  const el = shell();
+  if (!el) return { width: 0, height: 0 };
+  if (sized?.shell === el && watched === el) return sized;
+  sized = { shell: el, width: el.clientWidth, height: main()?.clientHeight ?? 0 };
+  return sized;
+}
+
 /// The dock holding `node`, if any.
 export const dockHolding = (node: Node | null) => DOCKS.find(d => !!node && !!paneOf(d)?.contains(node)) ?? null;
 
@@ -40,7 +68,7 @@ export function tabIds() {
 
 /// The tabs in each dock, as the shell's width lets them sit.
 export function docked(): Record<Dock, string[]> {
-  return splitTabs(P.layout, tabIds(), shell()?.clientWidth ?? SIDE_BY_SIDE_MIN, P.moved);
+  return splitTabs(P.layout, tabIds(), shell() ? shellSize().width : SIDE_BY_SIDE_MIN, P.moved);
 }
 
 /// The dock tab `id` shows in now.
@@ -103,7 +131,8 @@ export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel>
   const docks = fresh ?? paneModel.getState().docks;
   if (!docks) return;
   if (!el || !box) { setPaneModel({ ...extra, docks }); return; }
-  const narrow = el.clientWidth < SIDE_BY_SIDE_MIN;
+  const { width, height } = shellSize();
+  const narrow = width < SIDE_BY_SIDE_MIN;
   const split = docked();
   const next = { ...docks };
 
@@ -111,7 +140,7 @@ export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel>
     // The Files tab is always there while a session shows, so one dock is.
     const has = !!P.session && split[d].length > 0;
     const shown = has && !P.layout.hidden[d];
-    const total = d === "right" ? el.clientWidth : box.clientHeight;
+    const total = d === "right" ? width : height;
     next[d] = { ...docks[d], shown, strip: has && P.layout.hidden[d], size: shown ? paneSize(d, P.layout[d], total) : docks[d].size };
   }
 
@@ -153,7 +182,7 @@ function toggleZoom() {
 }
 
 // S.view stays "agent" while the center shows another page; only a session on screen zooms.
-onZoomKey(() => S.view === "agent" && !!P.session && !!shell()?.clientWidth, toggleZoom);
+onZoomKey(() => S.view === "agent" && !!P.session && shellSize().width > 0, toggleZoom);
 
 // ⌃tab with focus in a dock: its next tab, round to the first; ⌃⇧tab the one before.
 window.addEventListener("keydown", e => {
@@ -171,9 +200,9 @@ window.addEventListener("keydown", e => {
 
 /// Sets dock `dock`'s size, or the default for null, as the shell allows.
 function resize(dock: Dock, size: number | null) {
-  const el = shell(), box = main();
-  if (!el || !box) return;
-  P.layout[dock] = size == null ? null : paneSize(dock, size, dock === "right" ? el.clientWidth : box.clientHeight);
+  if (!shell() || !main()) return;
+  const { width, height } = shellSize();
+  P.layout[dock] = size == null ? null : paneSize(dock, size, dock === "right" ? width : height);
   place();
 }
 

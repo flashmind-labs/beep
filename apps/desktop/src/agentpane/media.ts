@@ -23,8 +23,8 @@ import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { draw, noteTab, pickPhoneTab } from "./media-draw.ts";
-import { dockHolding, dockOf, docked, paneModel, paneOf, place, setPaneModel, shell, shownDocks, tabIds } from "./media-layout.ts";
+import { draw, flipTab, noteTab, pickPhoneTab } from "./media-draw.ts";
+import { dockHolding, dockOf, docked, paneModel, paneOf, place, setPaneModel, shell, shellResized, shellSize, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 export interface FilePart {
@@ -152,8 +152,12 @@ export function startPane(s: PaneSession) {
   if (!el) return;
   P.watch?.disconnect();
   // Too narrow for a right dock, its tabs join the bottom one, and back.
-  P.watch = frameResize(() => paneModel.getState().narrow !== (el.clientWidth < SIDE_BY_SIDE_MIN) ? draw() : place());
+  P.watch = frameResize(() => {
+    shellResized();
+    if (paneModel.getState().narrow !== (shellSize().width < SIDE_BY_SIDE_MIN)) draw(); else place();
+  });
   P.watch.observe(el);
+  watchShell(el);
   readWorktrees(s);
   if (saved && typeof saved === "object" && "tabs" in saved && Array.isArray(saved.tabs)) {
     for (const tab of saved.tabs) {
@@ -347,7 +351,7 @@ export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name
   const id = `term:${name}`;
   // While the window is too narrow for a right dock, every tab shows at
   // the bottom and a new one keeps the dock it would have.
-  const narrow = (shell()?.clientWidth ?? SIDE_BY_SIDE_MIN) < SIDE_BY_SIDE_MIN;
+  const narrow = !!shell() && shellSize().width < SIDE_BY_SIDE_MIN;
   const newest = terms.at(-1);
   const to = d && !narrow ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
   if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);
@@ -485,7 +489,7 @@ export function leavePane() {
 export function showTab(d: Dock, id: string) {
   P.on[d] = id;
   rememberPane();
-  draw();
+  if (!flipTab(d)) draw();
   paneOf(d)?.focus({ preventScroll: true });
 }
 
@@ -551,7 +555,7 @@ function dropTab(t: MediaTab) {
 
 // Leaving the session view lets go of what its tabs hold. Files and Changes
 // keep their views of the last few folders, to show again as they were.
-changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); P.watch?.disconnect(); P.watch = null; } });
+changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); P.watch?.disconnect(); P.watch = null; watchShell(null); } });
 
 function loadLayout(): PaneLayout {
   try { return readLayout(localStorage.getItem(KEY)); } catch { return readLayout(null); }

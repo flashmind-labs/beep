@@ -98,7 +98,7 @@ function PaneView({ view }: { view: DockView }) {
 }
 
 /// The Changes tab: the diff viewer's own element, kept per session, goes into the view.
-function ChangesView({ hidden }: { hidden: boolean }) {
+const ChangesView = memo(function ChangesView({ hidden }: { hidden: boolean }) {
   const { entry, note } = useStore(changesModel);
   const host = useRef<HTMLDivElement>(null);
 
@@ -111,7 +111,7 @@ function ChangesView({ hidden }: { hidden: boolean }) {
   }, [entry]);
 
   return <div className="agpview changes" hidden={hidden} ref={host}>{entry && <div className="dv-note" hidden={!note}>{note}</div>}</div>;
-}
+});
 
 /// What an opened tab shows: a file as text, a terminal, a picture, a video,
 /// a PDF or a 3D model, or its load while it reads.

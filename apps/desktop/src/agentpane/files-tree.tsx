@@ -1,5 +1,5 @@
 import { Spinner } from "../ui/kit.tsx";
-import { Fragment, useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
+import { Fragment, memo, useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
 import { useStore } from "zustand";
 import type { GitChange, TreeRow } from "./files-state.ts";
 import { FilesMenu } from "./files-menu.tsx";
@@ -9,7 +9,7 @@ const marks: Record<GitChange, [string, string]> = { untracked: ["U", "Untracked
 const depth = (value: number): CSSProperties & { "--d": number } => ({ "--d": value });
 
 /// The Files tab: the filter, the tree and its menu, and the footer.
-export function FilesView({ hidden }: { hidden: boolean }) {
+export const FilesView = memo(function FilesView({ hidden }: { hidden: boolean }) {
   const m = useStore(filesModel);
   const picked = useRef<HTMLDivElement>(null);
 
@@ -34,7 +34,7 @@ export function FilesView({ hidden }: { hidden: boolean }) {
     <div className="agpacts"><span className="meta mono" title={m.root}>{m.label || m.root}</span><span data-fstatus role="status">{m.status}</span><span className="sp" /><span className="hint">Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting.</span></div>
     {m.menu && <FilesMenu {...m.menu} menuRef={filesMenuRef} />}
   </div>;
-}
+});
 
 function FilesTree({ tree, selected, drop, reveal, picked }: { tree: TreeView; selected: ReadonlySet<string>; drop: string | null; reveal: string | null; picked: RefObject<HTMLDivElement | null> }) {
   const shown = useRef<HTMLDivElement>(null);

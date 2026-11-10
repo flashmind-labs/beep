@@ -308,9 +308,10 @@ async function refresh() {
   }
 }
 
-/// Whether the tree can be seen: its tab is picked in a dock not folded
-/// (`offsetParent` is null under a hidden one), and the pane shows.
-const filesShown = () => !!filesRef.current?.offsetParent && paneShown();
+/// Whether the tree can be seen: its tab is picked (a view behind another
+/// is `hidden` but keeps its layout) in a dock not folded (`offsetParent` is
+/// null under one), and the pane shows.
+const filesShown = () => !!filesRef.current?.offsetParent && !filesRef.current.hidden && paneShown();
 
 /// Reads the rest of the tree while a filter is typed, so it finds what no
 /// folder opened yet shows.

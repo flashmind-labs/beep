@@ -183,7 +183,8 @@ function watch(entry: Kept) {
   });
 }
 
-const changesShown = () => !!shown?.view.el.offsetParent && paneShown();
+/// The diff's tab is picked (a view behind another keeps its layout) in a dock not folded.
+const changesShown = () => !!shown?.view.el.offsetParent && !shown.view.el.parentElement?.hidden && paneShown();
 /// A folder that changes while its diff shows is read again at most this often.
 const changed = ambient(() => { if (shown?.dirty && changesShown()) shown.view.reload(); }, SLOW_MS, changesShown);
 

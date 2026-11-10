@@ -6,7 +6,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type { RunningProcess } from "./running-state.ts";
 import { paneSession } from "./media.ts";
 import { draw } from "./media-draw.ts";
-import { shell, shownDocks } from "./media-layout.ts";
+import { shellSize, shownDocks } from "./media-layout.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AGENT_READ_WAIT_MS, type AgentTask } from "../agents/agents.ts";
@@ -57,7 +57,7 @@ function syncSession() {
 
 export function runningCount() { syncSession(); return list.length + paneTasks().length; }
 
-const visible = () => paneShown() && !!shell()?.clientWidth && shownDocks().length > 0;
+const visible = () => paneShown() && shellSize().width > 0 && shownDocks().length > 0;
 
 window.addEventListener("agent-pane-shown", () => void readRunning());
 onShownChange(shown => { if (shown) void readRunning(); }, true);
