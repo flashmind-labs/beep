@@ -3,7 +3,11 @@
 
 use crate::{
     beep::{Beep, Field},
-    chat::{cards, markdown, products, tool_labels},
+    chat::{
+        cards, markdown,
+        products::{self, ProductCard},
+        tool_labels,
+    },
     error::Result,
 };
 use beep_proto::{
@@ -87,8 +91,8 @@ pub struct ToolStep {
     pub file: Option<SentFile>,
     /// A `send_image` result's pictures.
     pub images: Vec<SentImage>,
-    /// A `show_products` result's cards, as HTML.
-    pub products: Option<String>,
+    /// A `show_products` result's cards.
+    pub products: Option<Vec<ProductCard>>,
     /// A `show_cards` result's cards, as HTML.
     pub cards: Option<String>,
     /// A `show_chart` or `show_stock_chart` result's chart.

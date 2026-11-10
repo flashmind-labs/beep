@@ -8,7 +8,7 @@ import type { AskFile } from "./attach.ts";
 import { type Chart, chartRow } from "./charts.ts";
 import { coderCard } from "./codercard.ts";
 import { productRow, replyPic, sentFile } from "./media.ts";
-import type { PicRef, SentFile, SentImage } from "./media.ts";
+import type { PicRef, ProductCard, SentFile, SentImage } from "./media.ts";
 import { canPickModel, modelName } from "../settings/model.ts";
 import { routeRow } from "./routes.ts";
 import { doneLabel } from "./tools.ts";
@@ -26,8 +26,8 @@ export interface ToolOutput {
   file: SentFile | null;
   /// A `send_image` result's pictures.
   images: SentImage[];
-  /// A `show_products` result's cards, as HTML.
-  products: string | null;
+  /// A `show_products` result's cards.
+  products: ProductCard[] | null;
   /// A `show_cards` result's cards, as HTML.
   cards: string | null;
   chart: Chart | null;
@@ -194,8 +194,8 @@ export function moveChatReply(from: Turn, to: Turn) {
 export function toolOutput(turn: Turn, x: ToolOutput, route: string | null) {
   if (x.file) sentFile(turn, x.file);
   for (const p of x.images ?? []) replyPic(turn, p);
-  if (x.products) productRow(turn, x.products);
-  if (x.cards) productRow(turn, x.cards);
+  if (x.products) productRow(turn, { kind: "products", cards: x.products });
+  if (x.cards) productRow(turn, { kind: "html", html: x.cards });
   if (x.chart) chartRow(turn, x.chart);
   if (route) routeRow(turn, route);
   if (x.code_agent) coderCard(turn, x.code_agent);

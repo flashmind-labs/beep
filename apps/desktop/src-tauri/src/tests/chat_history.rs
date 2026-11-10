@@ -60,10 +60,10 @@ fn made_media_shows_like_sent_media() {
 #[test]
 fn shown_products_reads_show_products_results_only() {
     let output = r#"{"action":"show_products","products":[{"title":"Kettle","url":"https://shop.example/k","store":"shop.example","price":19.5,"currency":"USD"}]}"#;
-    let row = tool_step(SHOW_PRODUCTS, "c1", output, true)
+    let cards = tool_step(SHOW_PRODUCTS, "c1", output, true)
         .products
         .expect("a show_products result has cards");
-    assert!(row.contains("<b>$19.50</b>"), "{row}");
+    assert_eq!(cards[0].price.as_deref(), Some("$19.50"));
     assert!(tool_step(SEND_FILE, "c1", output, true).products.is_none());
     assert!(
         tool_step(SHOW_PRODUCTS, "c1", "failed", true)

@@ -16,7 +16,7 @@ import { AgentTurnHeading, type TurnHeading } from "../agents/turn-heading-view.
 import { RouteView } from "./route-view.tsx";
 import { ChartView } from "./chart-view.tsx";
 import type { Chart, ChartCard } from "./charts.ts";
-import { fileKind, fileSize, GONE, GONE_PIC, loadPic, openViewer, pictures, savePic, type PicRef, type SentFile, type SentImage } from "./media.ts";
+import { fileKind, fileSize, GONE, GONE_PIC, loadPic, openViewer, pictures, savePic, type PicRef, type ProductCard, type SentCards, type SentFile, type SentImage } from "./media.ts";
 import { VOICE_ICON } from "../bar/live.ts";
 import type { AskFile } from "./attach.ts";
 import type { ChatBody, Turn } from "../ui/turn.ts";
@@ -45,7 +45,7 @@ type Part =
   | { kind: "route"; callId: string }
   | { kind: "chart"; card: ChartCard; chart: Chart }
   | { kind: "notice"; value: StatusNotice }
-  | { kind: "product"; html: string }
+  | { kind: "product"; cards: SentCards }
   | { kind: "replyPictures"; images: SentImage[] }
   | { kind: "sentFile"; file: SentFile }
   | { kind: "pictures"; images: PicRef[] }
@@ -256,8 +256,8 @@ export function renderChatChart(body: ChatBody, turn: Turn, box: ChartCard, char
   show(body, turn, box, { kind: "chart", card: box, chart });
 }
 
-export function renderChatProduct(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
-  show(body, turn, box, { kind: "product", html });
+export function renderChatProduct(body: ChatBody, turn: Turn, box: HTMLElement, cards: SentCards) {
+  show(body, turn, box, { kind: "product", cards });
 }
 
 export function renderChatReplyPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: SentImage[]) {
@@ -438,7 +438,7 @@ function partView(part: Part): ReactNode {
     case "route": return <RouteView callId={part.callId} />;
     case "chart": return <ChartView card={part.card} initial={part.chart} />;
     case "notice": return <Notice value={part.value} />;
-    case "product": return <Html html={part.html} />;
+    case "product": return part.cards.kind === "products" ? <ProductCards cards={part.cards.cards} /> : <Html html={part.cards.html} />;
     case "replyPictures": return <ReplyPictures images={part.images} />;
     case "sentFile": return <SentFileCard file={part.file} />;
     case "pictures": return <PromptPictures images={part.images} />;
@@ -480,6 +480,18 @@ const Html = memo(function Html({ html }: { html: string }) {
 });
 const Prompt = memo(function Prompt({ html }: { html: string }) {
   return <><b>You</b><span dangerouslySetInnerHTML={{ __html: html }} /></>;
+});
+/// The same markup as a reply's ```product blocks, which Rust writes.
+const ProductCards = memo(function ProductCards({ cards }: { cards: ProductCard[] }) {
+  return <div className="dprods">{cards.map((card, index) => <div className="dprod" key={index}>
+    <a className="dprod-card" href={card.url} aria-label={card.label}>
+      {card.image !== null && <span className="dprod-img"><img src={card.image} alt="" loading="lazy" /></span>}
+      <span className="dprod-info"><span className="dprod-store">{card.store}</span><span className="dprod-title">{card.title}</span>
+        {card.price !== null ? <span className="dprod-price"><b>{card.price}</b>{card.was !== null && <s>{card.was}</s>}</span> : <span className="dprod-meta">See price on the site</span>}
+        {card.meta !== null && <span className="dprod-meta">{card.meta}</span>}</span>
+    </a>
+    <button className="dprod-copy" data-copy={card.url} aria-label="Copy link"><Icon name="copy" /></button>
+  </div>)}</div>;
 });
 function Notice({ value }: { value: StatusNotice }) {
   if (value.kind === "label") return <>{value.message}</>;

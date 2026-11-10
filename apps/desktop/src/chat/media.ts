@@ -70,18 +70,34 @@ export function sentBox(turn: Turn) {
   return box;
 }
 
-/// A `show_products` or `show_cards` row. Rust escapes its fields into the
-/// same sanitized markup a reply's product blocks use, so it stays a markup
-/// boundary; the bar's click handler opens and copies its links.
+/// A `show_products` card (`ProductCard`), its fields checked by Rust.
+export interface ProductCard {
+  title: string;
+  url: string;
+  store: string;
+  image: string | null;
+  price: string | null;
+  was: string | null;
+  /// Rating, review count and note, as `4.6 ★ (1,204) · Quietest`.
+  meta: string | null;
+  label: string;
+}
+
+/// What a `show_products` or `show_cards` row shows: typed product cards, or
+/// recommendation cards Rust escapes into sanitized markup. The bar's click
+/// handler opens and copies their links.
+export type SentCards = { kind: "products"; cards: ProductCard[] } | { kind: "html"; html: string };
+
+/// Each row's source, so a refresh keeps a row whose cards did not change.
 export const productSources = new WeakMap<Element, string>();
-export function productRow(turn: Turn, html: string) {
+export function productRow(turn: Turn, cards: SentCards) {
   const owner = owningChatBody(turn);
   if (!owner) return;
   const host = document.createElement("span");
   host.style.display = "contents";
-  productSources.set(host, html);
+  productSources.set(host, JSON.stringify(cards));
   sentBox(turn).append(host);
-  renderChatProduct(owner, turn, host, html);
+  renderChatProduct(owner, turn, host, cards);
 }
 
 /// A file Beep sent: a picture when it is an image, a card otherwise.
