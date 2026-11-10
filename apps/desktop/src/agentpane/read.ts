@@ -1,4 +1,5 @@
 import { drawTermFooter } from "./term-footer.tsx";
+import { drawPending } from "./media-view.tsx";
 import { removeSessionPortal } from "../agents/session-frame.tsx";
 import { takeQueuedPreview } from "./html-preview-state.ts";
 // Reading a tab's file from the session's machine, a part at a time, and
@@ -131,8 +132,7 @@ export async function load(t: MediaTab) {
     const { bytes, mime } = await readFile(s.machine_id, t.path, (done, size) => {
       t.done = done;
       t.size = size;
-      const bar = t.el?.querySelector<HTMLElement>(".agpload i");
-      if (bar) bar.style.transform = `scaleX(${size ? Math.min(1, Math.max(0, done / size)) : 0})`;
+      if (t.el) drawPending(t.el, t, P.session?.machine_name ?? null);
     });
     if (!P.tabs.includes(t)) return;
     t.size = bytes.length;

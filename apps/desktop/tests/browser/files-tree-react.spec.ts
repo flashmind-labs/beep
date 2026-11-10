@@ -218,3 +218,27 @@ test("image controls preserve focus, zoom and native image until the tab closes"
 function assertBounds(value: { x: number; y: number; width: number; height: number } | null): asserts value is { x: number; y: number; width: number; height: number } {
   if (!value) throw new Error("Image stage has no bounds");
 }
+
+test("file loading progress updates the retained pending view", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: listing(["slow.png"]) });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command !== "agent_file") return invoke<T>(command, args);
+      if (typeof args?.offset === "number" && args.offset > 0) await new Promise<void>(resolve => window.addEventListener(`release-image-part-${args.offset}`, () => resolve(), { once: true }));
+      return { size: 3, mime: "image/png", data: "AA==" } as T;
+    };
+    window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } });
+  });
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="slow.png"]').click();
+  const pending = page.locator(".agpview:visible .agpmsg").filter({ hasText: "Opening slow.png" });
+  await expect(pending).toBeVisible();
+  await expect(pending.locator(".agpload i")).toHaveCSS("transform", "matrix(0.333333, 0, 0, 1, 0, 0)");
+  await pending.evaluate(element => { element.dataset.identity = "kept"; });
+  await page.evaluate(() => window.dispatchEvent(new Event("release-image-part-1")));
+  await expect(pending.locator(".agpload i")).toHaveCSS("transform", "matrix(0.666667, 0, 0, 1, 0, 0)");
+  await expect(pending).toHaveAttribute("data-identity", "kept");
+  await page.evaluate(() => window.dispatchEvent(new Event("release-image-part-2")));
+  await expect(page.locator('.agpstage.img img[alt="slow.png"]')).toBeVisible();
+});
