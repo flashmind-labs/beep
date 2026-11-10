@@ -6,7 +6,7 @@ import { S } from "../src/bar/core.ts";
 import { SLOW_MS } from "../src/ui/active.ts";
 import { drawMove } from "../src/agents/move.ts";
 import { MV } from "../src/agents/move-store.ts";
-import { drawAgentFrame, stopAgentFollow, userImages } from "../src/agents/session.ts";
+import { drawAgentFrame, forgetAgentFollows, userImages } from "../src/agents/session.ts";
 import { disposeQueue } from "../src/agents/messages.ts";
 import type { ChatBody } from "../src/ui/turn.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
@@ -68,7 +68,7 @@ test("taking over an external session retains the transcript and dock", t => {
   Object.assign(AG, { open: { machine_id: session.machine_id, agent: session.agent, session: session.id }, page, modes: null, tasks: [], queue: [] });
   Object.assign(answers, { agent_tasks: [], editors: [], agent_hosts: [], session_moves: [] });
   S.view = "agent";
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   drawAgentFrame();
   const body = bar.querySelector<ChatBody>("#agbody"), dock = bar.querySelector("#agpane-right");
   assert.ok(body && dock); assert.ok(bar.querySelector(".dbanner"));
@@ -86,7 +86,7 @@ test("a cached transcript survives reattachment and is released when replaced", 
   Object.assign(AG, { open: { machine_id: session.machine_id, agent: session.agent, session: session.id }, page, log: agentlog, modes: null, tasks: [], queue: [] });
   Object.assign(answers, { agent_tasks: [], editors: [], agent_hosts: [], session_moves: [] });
   S.view = "agent";
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   drawAgentFrame();
   const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);
   Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });

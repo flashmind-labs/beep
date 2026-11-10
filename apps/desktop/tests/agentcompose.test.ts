@@ -6,7 +6,7 @@ import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type Wind
 import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
-import { agentHints, closeOpenSession, pollAgent, sessionPicks, stopAgentFollow } from "../src/agents/session.ts";
+import { agentHints, closeOpenSession, pollAgent, sessionPicks, forgetAgentFollows } from "../src/agents/session.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
@@ -40,7 +40,7 @@ const field = (value = "") => ({ value, placeholder: "", disabled: false, focus(
 
 /// Opens session s1 in `status`; polls stay off unless `polls`.
 function openSession(status: string, polls = false): AgentPage {
-  stopAgentFollow();
+  forgetAgentFollows();
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
   const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0 };
   S.view = "agent";
@@ -121,7 +121,7 @@ test("live suffixes preserve history and a late fallback read cannot replace the
   let finish!: (page: AgentPage) => void;
   answers.agent_view = new Promise<AgentPage>(resolve => { finish = resolve; });
   t.after(() => {
-    stopAgentFollow();
+    forgetAgentFollows();
     finish(page);
     visible(false);
     delete answers.agent_follow;
@@ -154,7 +154,7 @@ test("a transcript burst draws once per frame and ends with the full text", asyn
   show({});
   answers.agent_follow = new Promise<void>(() => {});
   t.after(() => {
-    stopAgentFollow();
+    forgetAgentFollows();
     visible(false);
     delete answers.agent_follow;
   });

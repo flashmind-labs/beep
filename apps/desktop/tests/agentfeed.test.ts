@@ -1,19 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AgentFeed } from "../src/agents/agentfeed-state.ts";
+import { AgentFeed, BACKGROUND_FOLLOWS, IDLE_FOLLOW_MS } from "../src/agents/agentfeed-state.ts";
 
 function setup() {
   let now = 0;
-  const readers: { key: string; receive(update: string): void; end(): void; fail(error: unknown): void }[] = [];
-  const received: string[] = [], closed: string[] = [], lost: unknown[] = [];
+  const readers: { key: string; id: string; receive(update: string): void; end(): void; fail(error: unknown): void }[] = [];
+  const received: string[] = [], closed: string[] = [], lost: unknown[] = [], shown: (string | null)[] = [];
+  const timers = new Set<{ at: number; run(): void }>();
   const feed = new AgentFeed<string, string>({
-    id: () => String(readers.length), now: () => now,
-    open: (key, _id, receive) => new Promise<void>((end, fail) => { readers.push({ key, receive, end, fail }); }),
+    id: () => String(readers.length), now: () => now, name: key => key,
+    later: (ms, run) => { const timer = { at: now + ms, run }; timers.add(timer); return () => { timers.delete(timer); }; },
+    show: id => { shown.push(id); },
+    open: (key, id, receive) => new Promise<void>((end, fail) => { readers.push({ key, id, receive, end, fail }); }),
     close: id => { closed.push(id); },
     receive: (key, update) => { received.push(`${key}: ${update}`); },
     disconnected: (_key, error) => { lost.push(error); },
   });
-  return { feed, readers, received, closed, lost, advance(ms: number) { now += ms; } };
+  const advance = (ms: number) => {
+    now += ms;
+    for (const timer of [...timers]) if (timer.at <= now) { timers.delete(timer); timer.run(); }
+  };
+  return { feed, readers, received, closed, lost, shown, timers, advance };
 }
 
 test("a quiet view keeps one live reader past the former five-minute cutoff", () => {
@@ -28,43 +35,103 @@ test("a quiet view keeps one live reader past the former five-minute cutoff", ()
   assert.deepEqual(received, ["first: initial", "first: new turn"]);
 });
 
-test("switching sessions detaches the old reader and ignores its late messages and failure", async () => {
-  const { feed, readers, received, closed, lost } = setup();
+test("a running session left for another keeps streaming into its model with no new reader", () => {
+  const { feed, readers, received, closed, shown } = setup();
   feed.follow("first");
   readers[0].receive("initial");
-  const oldVersion = feed.version("first");
+  feed.activity("first", "running");
   feed.follow("second");
-  readers[0].receive("late");
-  readers[0].fail("old failure");
-  readers[1].receive("current");
-  await Promise.resolve();
-  assert.deepEqual(closed, ["0"]);
-  assert.deepEqual(lost, []);
-  assert.deepEqual(received, ["first: initial", "second: current"]);
-  assert.ok(feed.version("second") > oldVersion);
-  feed.stop();
-  readers[1].receive("detached");
-  assert.equal(feed.live("second"), false);
-  assert.deepEqual(closed, ["0", "1"]);
-  assert.equal(received.length, 2);
-});
-
-test("a dropped live reader reconnects after backoff and advances the read version", async () => {
-  const { feed, readers, advance, lost } = setup();
-  feed.follow("first");
-  readers[0].receive("initial");
-  const version = feed.version("first");
-  readers[0].end();
-  await Promise.resolve();
-  assert.equal(feed.live("first"), false);
-  assert.equal(lost.length, 1);
-  feed.follow("first");
-  assert.equal(readers.length, 1);
-  advance(5000);
+  readers[0].receive("off screen");
+  assert.deepEqual(closed, []);
+  assert.deepEqual(feed.followed(), ["first", "second"]);
   feed.follow("first");
   assert.equal(readers.length, 2);
-  assert.ok(feed.version("first") > version);
-  readers[1].receive("fresh snapshot");
+  assert.equal(feed.live("first"), true);
+  assert.deepEqual(received, ["first: initial", "first: off screen"]);
+  assert.deepEqual(shown, ["0", "1", "0"]);
+});
+
+test("an idle session off screen is unfollowed five minutes after it went idle", () => {
+  const { feed, readers, closed, timers, advance } = setup();
+  feed.follow("first");
+  feed.activity("first", "running");
+  feed.follow("second");
+  advance(60_000);
+  feed.activity("first", "idle");
+  assert.equal(timers.size, 1);
+  advance(IDLE_FOLLOW_MS - 1);
+  assert.deepEqual(closed, []);
+  feed.activity("first", "running");
+  assert.equal(timers.size, 0);
+  feed.activity("first", "idle");
+  advance(IDLE_FOLLOW_MS);
+  assert.deepEqual(closed, ["0"]);
+  assert.deepEqual(feed.followed(), ["second"]);
+  readers[0].receive("late");
+  assert.equal(feed.live("first"), false);
+});
+
+test("leaving a session idle long enough unfollows it at once", () => {
+  const { feed, closed, advance } = setup();
+  feed.follow("first");
+  advance(IDLE_FOLLOW_MS);
+  feed.leave();
+  assert.deepEqual(closed, ["0"]);
+  assert.deepEqual(feed.followed(), []);
+});
+
+test("past the cap the least recently viewed goes, and one that asks goes last", () => {
+  const { feed, closed } = setup();
+  const names = Array.from({ length: BACKGROUND_FOLLOWS + 2 }, (_, i) => `s${i}`);
+
+  for (const name of names) {
+    feed.follow(name);
+    feed.activity(name, name === "s0" ? "asking" : "running");
+  }
+
+  assert.deepEqual(closed, ["1"]);
+  feed.leave();
+  assert.deepEqual(closed, ["1", "2"]);
+  assert.ok(feed.followed().includes("s0"));
+  assert.equal(feed.followed().length, BACKGROUND_FOLLOWS);
+});
+
+test("a background reader that drops is forgotten, and the shown one reconnects after backoff", async () => {
+  const { feed, readers, advance, lost } = setup();
+  feed.follow("first");
+  feed.activity("first", "running");
+  feed.follow("second");
+  readers[0].end();
+  await Promise.resolve();
+  assert.deepEqual(feed.followed(), ["second"]);
+  assert.deepEqual(lost, []);
+  readers[1].receive("initial");
+  const version = feed.version("second");
+  readers[1].end();
+  await Promise.resolve();
+  assert.equal(feed.live("second"), false);
+  assert.equal(lost.length, 1);
+  feed.follow("second");
+  assert.equal(readers.length, 2);
+  advance(5000);
+  feed.follow("second");
+  assert.equal(readers.length, 3);
+  assert.ok(feed.version("second") > version);
+  readers[2].receive("fresh snapshot");
+  assert.equal(feed.live("second"), true);
+});
+
+test("resync reopens every followed session once and keeps the one shown", () => {
+  const { feed, readers, closed, shown } = setup();
+  feed.follow("first");
+  feed.activity("first", "running");
+  feed.follow("second");
+  feed.resync();
+  assert.deepEqual(closed, ["0", "1"]);
+  assert.deepEqual(readers.slice(2).map(r => r.key), ["first", "second"]);
+  assert.equal(shown.at(-1), "3");
+  readers[0].receive("stale");
+  readers[2].receive("resumed");
   assert.equal(feed.live("first"), true);
 });
 

@@ -7,7 +7,7 @@ import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody } from "../src/agents/logview.ts";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { answerAgentQuestion, answerFirst, questionKey, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
-import { pollAgent, stopAgentFollow } from "../src/agents/session.ts";
+import { pollAgent, forgetAgentFollows } from "../src/agents/session.ts";
 import { askUpload, MN } from "../src/agents/workdrop.ts";
 import { drawTasks } from "../src/agents/tasks.ts";
 import { drawAgentAttached } from "../src/agents/images.ts";
@@ -45,7 +45,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 
 test("agent prompt keeps context before the user and retains its element", t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   page.entries = [{ kind: "user", text: '<beep-context>\nContext\n</beep-context>\n<from-session id="one" name="Example">\nRead this\n</from-session>\nHello', html: "<p>Hello</p>" }, { kind: "agent", text: "Reply" }];
   drawAgentBody();
   const prompt = bar.querySelector<HTMLElement>(".dcoderen.user.md"), context = bar.querySelector(".beepctx");
@@ -57,7 +57,7 @@ test("agent prompt keeps context before the user and retains its element", t => 
 
 test("child replies keep their action and message during refresh", t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   page.entries = [{ kind: "user", text: '<beep-child id="child@box" name="Helper" state="asking">\nPlease check this\n</beep-child>\nContinue' }, { kind: "agent", text: "Reply" }];
   drawAgentBody();
   const card = bar.querySelector<HTMLElement>(".kidreply"), action = card?.querySelector<HTMLButtonElement>('[data-kid="child@box"]');
@@ -68,7 +68,7 @@ test("child replies keep their action and message during refresh", t => {
 
 test("session status updates preserve the status element for writable and read-only sessions", t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   bar.insertAdjacentHTML("afterbegin", '<span id="agstate"></span>');
   const status = () => bar.querySelector("#agstate .dstate");
   drawAgentBody();
@@ -84,7 +84,7 @@ test("session status updates preserve the status element for writable and read-o
 
 test("unchanged primitive control props skip rendering without hiding later updates", t => {
   setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const field = bar.querySelector<HTMLElement>("#agfield"); assert.ok(field);
   const host = document.createElement("span"); field.append(host);
   let renders = 0;
@@ -105,7 +105,7 @@ test("unchanged primitive control props skip rendering without hiding later upda
 
 test("streaming agent replies keep their element across updates", t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   page.entries = [{ kind: "user", text: "Explain" }, { kind: "agent", text: "First", html: "<p>First</p>" }];
   drawAgentBody();
   const reply = bar.querySelector<HTMLElement>(".dcoderen.agent"); assert.ok(reply);
@@ -154,7 +154,7 @@ test("steers appear only in the composer until recorded in the transcript", asyn
   const { page, input } = setup();
   let acknowledge!: (keys: string[]) => void;
   answers.agent_steer = new Promise<string[]>(resolve => { acknowledge = resolve; });
-  t.after(() => { acknowledge([]); stopAgentFollow(); delete answers.agent_steer; });
+  t.after(() => { acknowledge([]); forgetAgentFollows(); delete answers.agent_steer; });
   steerMessage(input);
   const queued = () => bar.querySelector("#agqueue");
   const transcript = () => bar.querySelector("#agbody")?.textContent ?? "";
@@ -181,7 +181,7 @@ test("a refused steer removes its steering row and restores the draft", async t 
   const { input } = setup();
   let refuse!: (error: string) => void;
   answers.agent_steer = new Promise((_resolve, reject) => { refuse = reject; });
-  t.after(() => { stopAgentFollow(); delete answers.agent_steer; });
+  t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
   steerMessage(input);
   assert.ok(bar.querySelector("#agqueue"));
   refuse("bad request: message refused");
@@ -194,7 +194,7 @@ test("a refused steer removes its steering row and restores the draft", async t 
 test("editing a pending steer removes its steering row and restores its text", async t => {
   const { input } = setup();
   answers.agent_steer = [];
-  t.after(() => { stopAgentFollow(); delete answers.agent_steer; });
+  t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
   steerMessage(input);
   await settle();
   assert.ok(bar.querySelector("#agqueue"));
@@ -208,7 +208,7 @@ test("a pending steer returns after switching conversations without sending it a
   answers.agent_steer = [];
   answers.agent_tasks = [];
   t.after(() => {
-    stopAgentFollow();
+    forgetAgentFollows();
     for (const cmd of ["agent_steer", "agent_view", "agent_tasks"]) delete answers[cmd];
   });
   steerMessage(input);
@@ -238,7 +238,7 @@ test("a send acknowledged after switching updates its original queue", async t =
   const { input } = setup();
   let acknowledge!: (keys: string[]) => void;
   answers.agent_steer = new Promise<string[]>(resolve => { acknowledge = resolve; });
-  t.after(() => { acknowledge([]); stopAgentFollow(); delete answers.agent_steer; });
+  t.after(() => { acknowledge([]); forgetAgentFollows(); delete answers.agent_steer; });
   steerMessage(input);
   const original = AG.queue;
   Object.assign(AG, {
@@ -255,7 +255,7 @@ test("a send acknowledged after switching updates its original queue", async t =
 
 test("stream updates keep queued message controls and focus", t => {
   setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const item = (text: string) => ({ how: "steer" as const, typed: text, text, paths: [], images: [], state: "sending" as "sending" | "sent", after: 0 });
   const first = item("First"), second = item("Second");
   AG.queue = [first, second];
@@ -275,7 +275,7 @@ test("stream updates keep queued message controls and focus", t => {
 
 test("unchanged queue snapshots keep focused controls, then show changed content", t => {
   setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const item = { how: "steer" as const, typed: "First", text: "First", paths: [], images: [], state: "sent" as const, after: 0 };
   AG.queue = [item];
   drawQueue();
@@ -293,7 +293,7 @@ test("unchanged queue snapshots keep focused controls, then show changed content
 
 test("leaving the agent disposes its queue view but keeps pending messages", async t => {
   setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const item = { how: "steer" as const, typed: "Pending", text: "Pending", paths: [], images: [], state: "sent" as const, after: 0 };
   AG.queue = [item];
   drawQueue();
@@ -310,7 +310,7 @@ test("leaving the agent disposes its queue view but keeps pending messages", asy
 
 test("drawing with no agent field leaves the queued messages unchanged", t => {
   setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const delivered = { how: "steer" as const, typed: "Delivered", text: "Delivered", paths: [], images: [], state: "delivered" as const, after: 0 };
   AG.queue = [delivered];
   bar.querySelector("#agfield")?.remove();
@@ -362,7 +362,7 @@ test("mode and plan controls share the queue owner without losing focus", async 
 
 test("log shell retains the transcript and defers a focused approval update", t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   page.session.question = { id: 1, text: "Run this?", detail: "command", options: [{ id: "yes", name: "Allow", allow: true }, { id: "no", name: "Deny", allow: false }] };
   drawAgentBody();
   const body = bar.querySelector<HTMLElement>("#agbody"), log = bar.querySelector(".dcoderlog");
@@ -385,7 +385,7 @@ test("log shell retains the transcript and defers a focused approval update", t 
 
 test("replacing a transcript with a starting state clears virtualized rows", t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   drawAgentBody();
   assert.ok(bar.querySelector(".dcoderen"));
   page.entries = []; page.session.status = "starting";
@@ -400,7 +400,7 @@ test("replacing a transcript with a starting state clears virtualized rows", t =
 
 test("stale displayed approvals cannot answer a replacement question or changed options", async t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   page.session.question = { id: 1, text: "Run this?", detail: null, options: [{ id: "yes", name: "Allow", allow: true }] };
   drawAgentBody();
   const old = bar.querySelector<HTMLButtonElement>("[data-agopt='0']"); assert.ok(old); old.focus();
@@ -424,7 +424,7 @@ test("stale displayed approvals cannot answer a replacement question or changed 
 
 test("plan approval shortcuts validate the displayed question", t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const first = { id: 4, text: "Approve plan?", detail: null, options: [{ id: "allow", name: "Allow", allow: true }] };
   page.session.question = first;
   const field = bar.querySelector<HTMLElement>("#agfield"); assert.ok(field);
@@ -437,7 +437,7 @@ test("plan approval shortcuts validate the displayed question", t => {
 
 test("approval actions use the active session and ignore cached controls", async t => {
   const { page } = setup();
-  t.after(() => { disposeQueue(); stopAgentFollow(); });
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const question = { id: 7, text: "Continue?", detail: null, options: [{ id: "yes", name: "Allow", allow: true }] };
   page.session.question = question;
   drawAgentBody();
