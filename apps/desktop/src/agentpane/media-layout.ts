@@ -49,13 +49,15 @@ export function shellResized() {
 
 /// The shell's width and the conversation's height. Kept until the watcher sees the
 /// shell resize, so renders and visibility checks force no layout; read each time
-/// while no watcher follows the shell. Zero without a shell.
+/// while no watcher follows the shell, or while it is hidden, as it can show before
+/// the watcher hears of it. Zero without a shell.
 export function shellSize(): { width: number; height: number } {
   const el = shell();
   if (!el) return { width: 0, height: 0 };
   if (sized?.shell === el && watched === el) return sized;
-  sized = { shell: el, width: el.clientWidth, height: main()?.clientHeight ?? 0 };
-  return sized;
+  const size = { shell: el, width: el.clientWidth, height: main()?.clientHeight ?? 0 };
+  sized = size.width > 0 ? size : null;
+  return size;
 }
 
 /// The dock holding `node`, if any.
