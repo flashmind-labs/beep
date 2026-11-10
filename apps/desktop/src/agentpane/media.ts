@@ -17,8 +17,8 @@ import type { Artifact } from "./artifacts-state.ts";
 import type { ModelView } from "./model3d.ts";
 import { artifactCount, artifactsView, checkArtifacts, pickArtifact, setArtifacts, showFrames } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
-import { changesView, dropChanges, focusChanges, madeChangesView, reloadChanges } from "./changes.ts";
-import { closeFilesMenu, filesView, pointFilesAt } from "./files.ts";
+import { changesView, focusChanges, madeChangesView, revalidateChanges } from "./changes.ts";
+import { closeFilesMenu, filesView, pointFilesAt, revalidateFiles } from "./files.ts";
 import { drawWorktrees, paneRoot, startWorktrees } from "./worktree.ts";
 import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
@@ -246,8 +246,7 @@ export function startPane(s: PaneSession) {
 
 /// Files and Changes read the folder of session `s`.
 function readWorktrees(s: PaneSession) {
-  dropChanges();
-  startWorktrees(s, root => { if (root) { pointFilesAt(); reloadChanges(); } draw(); });
+  startWorktrees(s, root => { if (root) { pointFilesAt(); revalidateChanges(); } draw(); });
 }
 
 /// The pane's session changes with its frame as it is: the empty view's place
@@ -260,7 +259,7 @@ export function rebindPane(s: PaneSession) {
   if (was && was.machine_id !== s.machine_id) for (const t of P.tabs.filter(x => x.kind !== "term")) closeTab(t.id);
   readWorktrees(s);
   pointFilesAt();
-  reloadChanges();
+  revalidateChanges();
   draw();
 }
 
@@ -337,8 +336,9 @@ function dropTab(t: MediaTab) {
   t.el?.remove();
 }
 
-// Leaving the session view lets go of what its tabs hold.
-changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); dropChanges(); P.watch?.disconnect(); P.watch = null; } });
+// Leaving the session view lets go of what its tabs hold. Files and Changes
+// keep their views of the last few folders, to show again as they were.
+changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); P.watch?.disconnect(); P.watch = null; } });
 
 /// Every tab's id, in the order the tab strips show them.
 function tabIds() {
@@ -589,14 +589,17 @@ function drawDock(d: Dock, ids: string[]) {
     if (filesEl.parentElement !== views) views.prepend(filesEl);
     filesEl.hidden = on !== FILES;
     if (on !== FILES) closeFilesMenu();
+    revalidateFiles(on === FILES && !P.layout.hidden[d]);
   }
 
-  // The Changes view is made the first time it shows, as it runs git.
+  // The Changes view is made the first time it shows, as it runs git; shown
+  // again, it reads only when the folder changed.
   const changesEl = on === CHANGES ? changesView() : madeChangesView();
 
   if (changesEl && ids.includes(CHANGES)) {
     if (changesEl.parentElement !== views) views.append(changesEl);
     changesEl.hidden = on !== CHANGES;
+    revalidateChanges(on === CHANGES && !P.layout.hidden[d]);
   }
 
   // So is the Artifacts view, while there are any.
@@ -676,8 +679,6 @@ onShownChange(shown => {
 }, true);
 
 function showTab(d: Dock, id: string) {
-  // Shown again, the changes are read again.
-  if (id === CHANGES && P.on[d] !== CHANGES && madeChangesView()) reloadChanges();
   P.on[d] = id;
   rememberPane();
   draw();

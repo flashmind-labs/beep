@@ -21,6 +21,8 @@ interface NavigationHarness {
   calls(): NativeCall[];
   respond(command: string, value: unknown): void;
   notify(topic: string): void;
+  /// One event on exactly `topic`, at `revision` or the next one.
+  publish(topic: string, revision: number | null): void;
   emit(name: string, payload: unknown): void;
   hold(command: string): void;
   holdNext(command: string): void;
@@ -168,6 +170,10 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     notify(topic) {
       const event: MeshEvent = { machine_id: data.project.machine_id, topic: `${topic}.*`, revision: ++revision, initial: false };
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === event.topic)) reader.channel.onmessage(event);
+    },
+    publish(topic, at) {
+      const event: MeshEvent = { machine_id: data.project.machine_id, topic, revision: at ?? ++revision, initial: false };
+      for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === topic)) reader.channel.onmessage(event);
     },
     ready: () => (pendingReads > 0 || typeof answers.center_window_project === "string") && handlers.has("center-open"),
   };

@@ -13,6 +13,7 @@ import { createElement } from "react";
 import { hasSessionPortal, removeSessionPortal, setSessionPortal } from "../agents/session-frame.tsx";
 import { WorktreeMenu } from "./worktree-view.tsx";
 import { invoke } from "../ui/tauri.ts";
+import { subscribeTopics, topic } from "../ui/mesh-events.ts";
 
 /// The session the pane belongs to.
 interface Place {
@@ -65,6 +66,11 @@ let firstRead: Promise<void> = Promise.resolve();
 /// Initial reads wait until a removed worktree has resolved to its checkout.
 export function worktreesReady(): Promise<void> { return firstRead; }
 
+/// Whether the first read of the session's worktrees finished, so the root
+/// shown is no longer only the session's folder by default.
+let settled = false;
+export const worktreesSettled = () => settled;
+
 const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
 
 /// Starts on session `place`; `changed` hears that the root moved (true)
@@ -74,7 +80,8 @@ export function startWorktrees(place: Place, changed: (root: boolean) => void) {
     place, trees: [], reading: false, again: false, follow: true, placed: null, pick: null, seen: null, cwd: bare(place.cwd), last: bare(place.cwd), next: 0, child: null, handled: false,
     log: { entries: [], earlier: 0 }, asked: new Set(), shown: bare(place.cwd), open: false, search: "", finished: new Set<number>(), changed,
   });
-  firstRead = readTrees();
+  settled = false;
+  firstRead = readTrees().finally(() => { if (W.place === place) settled = true; });
   report();
 }
 
@@ -106,6 +113,25 @@ export function paneLinked() {
   const at = W.trees.findIndex(t => rootOf(t, W.cwd) === root);
   if (at >= 0) return at > 0;
   return !!W.placed?.linked && bare(W.placed.folder) === bare(root);
+}
+
+/// The last revision heard of each folder's `files` topic, by machine. A new
+/// subscription is primed with the last event again, which is no change.
+const heard = new Map<string, number>();
+
+/// Calls `changed` when the node says something in `root` on `machine`
+/// changed, its Git metadata included. The subscription stays while a view
+/// of the folder is kept, shown or not, so returning to it knows whether to
+/// read again. Returns the unsubscribe.
+export function watchRoot(machine: string, root: string, changed: () => void): () => void {
+  const name = topic("files", root), id = `${machine}\n${name}`;
+  let seen = heard.get(id) ?? null;
+  return subscribeTopics(name, event => {
+    if (event.revision === seen) return;
+    seen = event.revision;
+    heard.set(id, seen);
+    changed();
+  }, machine);
 }
 
 /// Reads the list of worktrees again, as the Changes tab does on a refresh.
