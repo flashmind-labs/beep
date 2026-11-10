@@ -199,7 +199,8 @@
   const MACHINES = [["build-box", "Claude Code, Codex, pi, flsh, Hermes", true], ["mac-box", "Claude Code, Codex, Gemini CLI", true], ["win-box", "", false]];
   const MODELS = { hermes: [["Default", "its own"], ["openrouter:vendor/model-a", ""]], claude: [["Default", "model-large"], ["model-large", ""], ["model-small", ""]],
     codex: [["Default", "gpt-test"], ["gpt-test", ""], ["gpt-mini", ""]],
-    flsh: [["Default", "openai:gpt-test"], ["anthropic:model-large", ""], ["openrouter:vendor/model-a", ""], ["ollama:local-model", ""]] };
+    // #569: readable names; the note leads with the provider, as a name can show under several.
+    flsh: [["Default", "openai:gpt-test"], ["Model Large", "anthropic · anthropic:model-large"], ["Model A", "openrouter · openrouter:vendor/model-a"], ["Model A", "mistral · mistral:model-a"], ["Local Model", "ollama · ollama:local-model"]] };
   const THINK = { claude: ["Low", "Medium", "High", "Extra high", "Max"], codex: ["Low", "Medium", "High"], flsh: ["Off", "Low", "Medium", "High"] };
 
   const pick = (key, ok, def) => ok.includes(S.d[key]) ? S.d[key] : def;
@@ -214,7 +215,7 @@
       ? [`<button type="button" class="on">Default${CHECK}</button>`, ...levels.map(t => `<button type="button">${t}</button>`)].join("")
       : `<p class="none">${name} has no thinking setting Beep can pass.</p>`;
     const rows = !models ? `<button type="button" class="on">Default<small>its own</small></button>${failed ? "" : '<p class="none">Pick a machine to list its models.</p>'}`
-      : MODELS[agent].map(([m, note], i) => `<button type="button" class="${i === 0 ? "on" : ""}${agent === "flsh" && i ? " mono" : ""}"${act ? ` data-dact="${act}"` : ""}>${m}${note ? `<small>${note}</small>` : ""}</button>`).join("");
+      : MODELS[agent].map(([m, note], i) => `<button type="button" class="${i === 0 ? "on" : ""}"${act ? ` data-dact="${act}"` : ""}>${m}${note ? `<small>${note}</small>` : ""}</button>`).join("");
     return `<div class="agc-pick" role="dialog" aria-label="Harness, model and thinking">
         <div class="agc-rail">${rail}</div>
         <div class="agc-list"><div class="agc-find"><input class="agc-search" spellcheck="false" autocomplete="off" placeholder="Search ${name} models…"></div><div class="agc-models">${rows}${failed ? `<p class="none" role="status">Couldn't load models.</p><button type="button" data-dact="dset:agc:picker">Retry</button>` : ""}</div></div>

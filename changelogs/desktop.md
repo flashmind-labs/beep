@@ -19,6 +19,9 @@ Other apps have independent versions and changelogs:
 
 ### Changed
 
+- Desktop: the model picker shows flsh models by name, with their provider
+  and full id under each, so a name offered by several providers can be told
+  apart. Search matches the name, the id or the provider.
 - Desktop: a double tap of Option opens the bar on the sessions waiting for
   you: questions first, then finished turns you have not read, then running
   and recent sessions. Return opens one with its composer, Esc comes back, ⌘N
