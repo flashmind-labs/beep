@@ -251,8 +251,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-line .t:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
 .cc-line .r { grid-auto-flow: column; align-items: center }
 .cc-running { display: inline-flex; align-items: center; gap: 8px }
-.cc-line .t > .cc-sub { display: flex; align-items: center; gap: 6px }
-.cc-sub .chip { font-style: normal }
 .cc-line .ok { font-size: 12px; color: var(--accent) }
 .cc-line .err { font-size: 12px; color: var(--err) }
 /* Home's open PRs and issues by project: counts and chips on one line, the
@@ -293,48 +291,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* A sidebar group title that opens its view. */
 .cc-grp h3 button.cc-gt { padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; display: inline; cursor: pointer }
 .cc-grp h3 button.cc-gt:hover { color: var(--fg) }
-.cc-mt.cc-pt .acts { display: flex; gap: 6px; align-items: center; justify-content: flex-end }
-/* The Projects page's list: one 40 px row per project, in groups. */
-.cc-sec .pl-filter { margin-left: auto; height: 26px; width: 220px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; outline: none }
-.cc-sec .pl-filter:focus { border-color: var(--border-hi) }
-.cc-sec .pl-filter::placeholder { color: var(--dim) }
 .pl { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); overflow: hidden }
-.pl-row { all: unset; box-sizing: border-box; display: grid; grid-template-columns: minmax(180px, 1.4fr) 110px minmax(0, 2fr) 60px 36px 70px; gap: 12px; align-items: center; width: 100%; min-height: 40px; padding: 0 14px; border-top: 1px solid var(--border); font-size: 13px; color: var(--fg); cursor: pointer }
-.pl-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
-.pl-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
-.pl-head { min-height: 32px; border-top: 0; cursor: default; color: var(--muted); font-size: 11.5px }
-.pl-head:hover { background: none }
-.pl-grp { padding: 10px 14px 4px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em }
-.pl-none { padding: 12px 14px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--muted) }
-.pl-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.pl-owner { color: var(--muted) }
-.pl-name b { font-weight: 500 }
-.pl-branch { font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.pl-mach { display: flex; gap: 6px; overflow: hidden; min-width: 0 }
-.pl-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; white-space: nowrap }
-.pl-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--ok) }
-.pl-dot.syncing, .pl-dot.live { background: var(--accent) } .pl-dot.conflict { background: var(--warn) } .pl-dot.off { background: var(--dim) }
-.pl-ag { display: flex; align-items: center; gap: 6px; color: var(--muted); font-variant-numeric: tabular-nums }
-.pl-ci { width: 8px; height: 8px; border-radius: 50%; justify-self: center; box-sizing: border-box }
-.pl-ci.ok { background: var(--ok) } .pl-ci.bad { background: var(--err) } .pl-ci.busy { background: var(--warn) } .pl-ci.none { border: 1px solid var(--border-hi) }
-.pl-last { color: var(--muted); text-align: right; font-size: 12px; font-variant-numeric: tabular-nums }
-/* Where it lives sits at half width: names and folders stay on one line and shorten. */
-.cc-mt.pj-where .nm > b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.cc-mt.pj-where .nm.wide { grid-column: span 2 }
-.cc-mt.pj-where > .acts { flex-wrap: nowrap }
-.cc-mt.pj-where > :not(.th) { padding: 12px 14px }
-.cc-mt.pj-where > .th { padding-left: 14px; padding-right: 14px }
-.cc-mt.pj-where .nm { gap: 4px }
-.cc-mt.pj-where .nm > * { flex-shrink: 0 }
-.cc-mt.pj-where .gs-line { display: block; font-size: 12px; color: var(--muted) }
-.cc-mt.pj-where .gs.err { color: var(--err) }
-.cc-mt.pj-where .gi { padding: 3px 6px }
-.cc-mt.pj-where .gi-in { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums }
-.cc-mt.pj-where .gi:disabled { opacity: .45 }
-.cc-mt.pj-where .gi .dspin { width: 10px; height: 10px }
-.cc-mt.pj-where .rmx { display: inline-grid; place-items: center; padding: 3px 5px }
-.cc-mt.pj-where .rmx:disabled { opacity: .4 }
-.cc-mt.pj-where .rmx-off { display: inline-flex }
 
 /* One project: where it lives, its agents and its sessions. */
 .pv-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px }
@@ -463,14 +420,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-det .cc-sec > h4 + small { margin-right: auto }
 .pj-det .pj-labels { padding: 0; gap: 6px; margin-bottom: 12px }
 .pj-det .pj-labels .pj-tag { font-size: 11.5px; line-height: 18px; padding: 2px 10px; border-radius: var(--radius-sm) }
-.pj-br.pj-task { gap: 2px 16px; padding: 9px 14px }
-.pj-br .t { display: flex; align-items: baseline; gap: 8px; grid-column: 1 }
-.pj-br .t code { overflow: hidden; text-overflow: ellipsis }
-.pj-br .m { grid-column: 1; flex-wrap: nowrap; font-size: 12px }
-.pj-br .m > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.pj-br .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-wrap: nowrap }
-.br-tag { flex: none; font-size: 11.5px; font-weight: 400; color: var(--muted) }
-.br-add { flex: none; font-size: 11.5px; font-weight: 500; color: var(--ok, #4cb782); font-variant-numeric: tabular-nums }
 .pj-ov { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start }
 .pj-ov > div { display: grid; gap: 18px; min-width: 0 }
 .pj-ov .cc-sec:not(:first-child) { margin-top: 0 }
@@ -574,17 +523,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .in-layers li small { grid-column: 2; font-size: 11.5px; color: var(--muted) }
 .in-layers li.me { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .in-layers b { font-weight: 500; color: var(--fg) }
-.in-mach { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 10px 12px; border-bottom: 1px solid var(--border) }
-.in-mach:last-child { border-bottom: 0 }
-.in-mach > b { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600 }
-.in-files { grid-column: 1 / -1; display: grid; gap: 2px }
-.in-file { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 0; font-size: 12.5px }
-.in-file.miss { color: var(--muted) }
-.in-file .ag { color: var(--muted) }
-.in-file code { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.in-file .r { display: flex; align-items: center; gap: 6px; color: var(--muted) }
-.in-ok { color: var(--accent) }
-.in-warn { color: var(--warn) }
 .in-pre { margin: 4px 0 6px; padding: 8px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--shade) 25%, transparent); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; max-height: 260px; overflow: auto; user-select: text }
 .in-hist { padding: 10px 12px; border-bottom: 1px solid var(--border) }
 .in-hist:last-child { border-bottom: 0 }
@@ -593,7 +531,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .in-hist .acts { margin-left: auto; display: flex; gap: 6px }
 
 /* A project's terminals: tabs, the open one's output, the new one's form. */
-.tm-tabs .tm-tab { display: inline-flex; align-items: center; gap: 6px }
 .tm-panel { display: grid; gap: 0; overflow: hidden }
 .tm-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; color: var(--muted) }
 .tm-head b { color: var(--fg); font-weight: 600 }
@@ -683,7 +620,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .rv-shard + .rv-shard { border-top: 1px solid var(--border) }
 .rv-shard .t b { font-family: var(--mono) }
 .rv-shard .chip { max-width: 180px; overflow: hidden; text-overflow: ellipsis }
-.pj-task .acts.rv-acts .dbtn { margin-left: 0 }
 .rv-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 10px 0 12px; border-top: 1px solid var(--border); background: var(--ink) }
 .rv-bar small { flex-basis: 100%; font-size: 12px; color: var(--muted) }
 
@@ -951,9 +887,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .fb-x:hover { color: var(--fg, inherit) }
 .fb-more summary { margin-top: 6px; cursor: pointer; color: var(--muted); font-size: 12px }
 .fb-more pre { margin: 6px 0 0; max-height: 220px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--ink); border: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere }
-button.cc-note.in-go { width: 100%; text-align: left; font: inherit; font-size: 12.5px; cursor: pointer }
-button.cc-note.in-go:hover { border-color: var(--border-hi) }
-.cc-note.in-go .go { margin-left: auto; color: var(--accent); white-space: nowrap }
 .pj-task.ca-row > .t, .pj-task.ca-row > .m { grid-column: 1 }
 .pj-task.ca-row > .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding-left: 12px }
 
