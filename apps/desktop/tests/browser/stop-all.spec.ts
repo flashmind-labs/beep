@@ -70,3 +70,33 @@ test("Stop all puts the steers the node held back in the session's field", async
   await page.evaluate(session => window.__navigation.open({ agent: session }), running);
   await expect(page.locator("#agmsg")).toHaveValue("Use the fixture instead");
 });
+
+test("Stop all on a session no longer followed puts back no steers its old page held", async ({ page }) => {
+  await page.clock.install();
+  await openDesktop(page, false, { agent_steer: [] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command !== "agent_follow" || args?.session !== "notice-one") return invoke<T>(command, args);
+      const channel = args.onEvent as { onmessage(value: unknown): void };
+      const base = await invoke<Record<string, unknown>>("agent_view", { session: "notice-one" });
+      // Idle: off screen it is unfollowed after a while, its page still held.
+      const session = { ...base.session as object, status: "idle" };
+      channel.onmessage({ kind: "snapshot", resumed: false, cursor: { start: 0, next: 1, fingerprint: "0" }, page: { ...base, session, entries: [{ kind: "user", text: "Check" }], earlier: 0, queued: 1, queued_messages: ["Delivered since"] }, modes: null, tasks: [] });
+      return new Promise<T>(() => {});
+    };
+  });
+  await page.evaluate(session => window.__navigation.open({ agent: session }), running);
+  await expect(page.locator("#agbody")).toContainText("Check");
+  await page.evaluate(session => window.__navigation.open({ agent: session }), { ...running, id: "notice-two", title: "Second notification" });
+  await expect(page.locator("#agbody")).not.toContainText("Check");
+  await page.clock.runFor(6 * 60_000);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_unfollow").length)).toBeGreaterThan(0);
+
+  await menuOnHome(page);
+  await page.getByRole("menuitem", { name: "Stop all" }).click();
+  await expect.poll(() => steers(page)).toEqual(["stop_all"]);
+  await page.evaluate(session => window.__navigation.open({ agent: session }), running);
+  await expect(page.locator("#agbody")).toContainText("Check");
+  await expect(page.locator("#agmsg")).toHaveValue("");
+});

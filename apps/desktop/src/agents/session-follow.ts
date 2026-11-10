@@ -108,11 +108,12 @@ export async function keptTranscript(o: OpenAgent): Promise<AgentPage | null> {
 }
 
 /// The steers the node holds for `o`, as its newest page says, now dropped by a Stop all: the
-/// page held no longer lists them.
+/// page held no longer lists them. A page no longer followed may list steers the node has
+/// delivered since: it gives none.
 export function takeHeldSteers(o: OpenAgent): string[] {
   const held = transcripts.peek(transcriptKey(o));
   if (!held) return [];
-  const steers = held.page.queued_messages ?? [];
+  const steers = feed.live(o) ? held.page.queued_messages ?? [] : [];
   held.page = { ...held.page, queued: 0, queued_messages: [] };
   return steers;
 }
