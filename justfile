@@ -12,9 +12,11 @@ mockups port="8000":
 build-server:
     cargo build --package beep-server
 
-# Download the pinned native macOS updater framework and signing tools.
+# Download the pinned native macOS updater framework and signing tools, and
+# sign the framework as the app is signed: ad hoc unless APPLE_SIGNING_IDENTITY
+# names an identity. macOS refuses to load a framework signed by another team.
 desktop-sparkle:
-    if [ "$(uname -s)" = Darwin ]; then bash scripts/download-sparkle.sh; fi
+    if [ "$(uname -s)" = Darwin ]; then bash scripts/download-sparkle.sh && APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:--}" bash scripts/sign-sparkle.sh; fi
 
 # Run the macOS desktop app from source
 desktop-dev: desktop-sparkle
