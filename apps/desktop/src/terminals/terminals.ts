@@ -12,7 +12,7 @@ import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import type { Ago } from "../ui/dom.ts";
 import type { TileData } from "../project/board.ts";
-import { MACHINE_REFRESH_MS, PageCache, type SectionStore } from "../ui/pagecache.ts";
+import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { reason } from "../ui/format.ts";
 import { newTermLike } from "./newkey-state.ts";
 
@@ -46,8 +46,6 @@ export function makeTerminals(deps: TerminalDeps) {
   });
 
   const kept = deps.kept ?? new PageCache(null).section<TerminalRow[] | null>("terminals");
-  /// The lists being read: a load meanwhile is dropped.
-  const reading = new Set<string>();
 
   /// A project's terminals, from the cache until they are read.
   const of = (name: string) => {
@@ -66,8 +64,6 @@ export function makeTerminals(deps: TerminalDeps) {
   }
 
   async function readList(name: string) {
-    if (reading.has(name)) return;
-    reading.add(name);
     const t = of(name);
 
     try {
@@ -80,17 +76,9 @@ export function makeTerminals(deps: TerminalDeps) {
     } catch (e) {
       t.list ??= [];
       t.error = reason(e);
-    } finally {
-      reading.delete(name);
     }
 
     redraw();
-  }
-
-  /// Reads project `name`'s list when the last read is `every` old or
-  /// there was none. The read, when one starts.
-  function ensure(name: string, every = MACHINE_REFRESH_MS): Promise<void> | undefined {
-    if (kept.due(name, every) && !reading.has(name)) return load(name);
   }
 
   const outputReads = new Map<string, Promise<void>>();
@@ -503,7 +491,6 @@ export function makeTerminals(deps: TerminalDeps) {
 
   return {
     load,
-    ensure,
     list: (name: string) => of(name).list,
     machinesPanel,
     follow: watch,
