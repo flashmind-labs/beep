@@ -161,8 +161,8 @@ function drawFrame() {
   });
   attachments = startAttachments(c, text => { AG.error = text; c.update({ error: text }); }, () => drawParts());
   c.setText(f.prompt);
-  const page = shellPage = openBarPage(() => { shellPage = null; bar.classList.remove("agc-menuopen"); closedPicker(c.pick); c.dispose(); stopOutside(); });
-  flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, openList: renderAgents } }));
+  const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); c.dispose(); stopOutside(); });
+  flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, menuOpen: !!f.open, openList: renderAgents } }));
   composeField(c.input, { images: files => attachments.add(files) });
   attachments.bindStash(() => AG.form.project ?? null);
   stopOutside();
@@ -188,7 +188,8 @@ function drawParts() {
   if (S.view !== "agentnew" || !c?.box.isConnected) return;
   const f = AG.form, hosts = AG.hosts ?? [];
   const page = shellPage;
-  if (page) flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, openList: renderAgents } }));
+  // The key hints under the form give way to an open menu.
+  if (page) flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, menuOpen: !!f.open, openList: renderAgents } }));
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
@@ -212,8 +213,6 @@ function drawParts() {
     folderHidden: !!f.typing, folderTitle: f.cwd.trim() || host?.workspace || "The machine's workspace",
   });
   attachments.setBusy(AG.busy);
-  // The key hints under the bar give way to an open menu.
-  bar.classList.toggle("agc-menuopen", !!f.open);
   // Text set from code (a stash restore, a start) fits once drawn.
   requestAnimationFrame(c.grow);
   drawPill(c, none);

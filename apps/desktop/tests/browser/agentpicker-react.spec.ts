@@ -54,9 +54,13 @@ test("new-agent picker changes harness, effort and model", async ({ page }, info
   const choices = page.locator(".cc-pjc.centered > .choices");
   await expect(choices).toHaveCSS("display", "flex");
   await expect(pill).toBeEnabled();
+  // The key hints under the form give way while the picker is open.
+  const keys = page.locator("#agcomposer ~ .prompt-stash-bar");
+  await expect(keys).toBeVisible();
   await pill.click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
+  await expect(keys).toBeHidden();
   await picker.locator('[data-agh="codex"]').click();
   await expect(picker.locator('[data-agh="codex"]')).toHaveAttribute("aria-pressed", "true");
   await picker.locator('[data-age="high"]').click();
