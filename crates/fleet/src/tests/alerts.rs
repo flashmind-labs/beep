@@ -1,12 +1,16 @@
 use super::*;
 use async_trait::async_trait;
-use beep_mesh::{DeviceKind, JOIN_ALPN, PEER_ALPN, PeerStream, transport_config};
+use beep_mesh::{DeviceKind, JOIN_ALPN, PEER_ALPN, transport_config};
 use beep_proto::node::{
-    Open, Opened,
+    Opened,
     agent::{Alert, AlertKind, OptionKind, Question},
-    link,
+    commands, link,
 };
-use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
+use iroh::{
+    Endpoint, SecretKey,
+    endpoint::{Connection, RecvStream, SendStream, presets},
+    protocol::{AcceptError, ProtocolHandler, Router},
+};
 use tempfile::TempDir;
 use tokio::sync::Notify;
 
@@ -56,16 +60,16 @@ struct Dev {
     _dir: TempDir,
 }
 
-async fn dev(from: Option<&Dev>, kind: DeviceKind, name: &str) -> Dev {
-    join(from, Some(kind), name).await
+async fn dev(from: Option<&Dev>, kind: DeviceKind, name: &str, serves: Serves) -> Dev {
+    join(from, Some(kind), name, serves).await
 }
 
 /// A phone: joins with an observer ticket, so it is a member but not a code host.
-async fn phone(from: &Dev, name: &str) -> Dev {
-    join(Some(from), None, name).await
+async fn phone(from: &Dev, name: &str, asked: Arc<Notify>) -> Dev {
+    join(Some(from), None, name, Serves::Asked(asked)).await
 }
 
-async fn join(from: Option<&Dev>, kind: Option<DeviceKind>, name: &str) -> Dev {
+async fn join(from: Option<&Dev>, kind: Option<DeviceKind>, name: &str, serves: Serves) -> Dev {
     let key = SecretKey::generate();
     let dir = TempDir::new().expect("a temp dir");
     let endpoint = Endpoint::builder(presets::Minimal)
@@ -96,6 +100,7 @@ async fn join(from: Option<&Dev>, kind: Option<DeviceKind>, name: &str) -> Dev {
         _router: Router::builder(endpoint)
             .accept(PEER_ALPN, peer)
             .accept(JOIN_ALPN, join)
+            .accept(commands::ALPN, serves)
             .spawn(),
         mesh,
         _dir: dir,
@@ -147,44 +152,68 @@ fn asking() -> Alert {
     }
 }
 
-/// A node that tells `alert` to whoever follows its alerts and holds every follow open, and
-/// says when a followed alerts stream ends.
-fn node_of(dev: &Dev, alert: Alert, closed: Arc<Notify>) {
-    let (peer, _) = dev.mesh.protocols();
-    peer.on_stream(Arc::new(move |stream: PeerStream| {
-        let alert = alert.clone();
-        let closed = closed.clone();
-        Box::pin(async move {
-            let (mut tx, mut rx) = link(stream.send, stream.recv);
-            let Ok(Some(open)) = rx.recv::<Open>().await else {
-                return;
-            };
-
-            if open.protocol != SESSIONS_PROTOCOL || tx.send(&Opened::Ready {}).await.is_err() {
-                return;
-            }
-
-            let alerts = match rx.recv::<SessionsRequest>().await {
-                Ok(Some(SessionsRequest::FollowAlerts {})) => true,
-                Ok(Some(SessionsRequest::FollowRuns {})) => false,
-                _ => return,
-            };
-
-            if alerts && tx.send(&SessionsReply::Alert { alert }).await.is_err() {
-                return;
-            }
-            // Held open until the follower goes.
-            while let Ok(Some(_)) = rx.recv::<Open>().await {}
-            if alerts {
-                closed.notify_one();
-            }
-        })
-    }));
+/// What a device does with the session streams a peer opens on the commands ALPN.
+#[derive(Clone, Debug)]
+enum Serves {
+    /// A node: tells `alert` to whoever follows its alerts, holds every follow open, and says
+    /// when a followed alerts stream ends.
+    Alert { alert: Alert, closed: Arc<Notify> },
+    /// Says that a stream was opened at all.
+    Asked(Arc<Notify>),
 }
 
-async fn two() -> (Dev, Dev) {
-    let desktop = dev(None, DeviceKind::Desktop, "Studio").await;
-    let node = dev(Some(&desktop), DeviceKind::Node, "build-box").await;
+impl ProtocolHandler for Serves {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        while let Ok((send, recv)) = connection.accept_bi().await {
+            tokio::spawn(self.clone().serve(send, recv));
+        }
+
+        Ok(())
+    }
+}
+
+impl Serves {
+    async fn serve(self, send: SendStream, recv: RecvStream) {
+        let (alert, closed) = match self {
+            Serves::Alert { alert, closed } => (alert, closed),
+            Serves::Asked(asked) => return asked.notify_one(),
+        };
+        let (mut tx, mut rx) = link(send, recv);
+        let Ok(Some(commands::Open::Session { protocol })) = rx.recv().await else {
+            return;
+        };
+
+        if protocol != SESSIONS_PROTOCOL || tx.send(&Opened::Ready {}).await.is_err() {
+            return;
+        }
+
+        let alerts = match rx.recv::<SessionsRequest>().await {
+            Ok(Some(SessionsRequest::FollowAlerts {})) => true,
+            Ok(Some(SessionsRequest::FollowRuns {})) => false,
+            _ => return,
+        };
+
+        if alerts && tx.send(&SessionsReply::Alert { alert }).await.is_err() {
+            return;
+        }
+        // Held open until the follower goes.
+        while let Ok(Some(_)) = rx.recv::<commands::Open>().await {}
+
+        if alerts {
+            closed.notify_one();
+        }
+    }
+}
+
+/// A desktop and a node that asks `asking()`, telling `closed` when a followed alerts stream ends.
+async fn two(closed: Arc<Notify>) -> (Dev, Dev) {
+    let unused = Serves::Asked(Arc::new(Notify::new()));
+    let desktop = dev(None, DeviceKind::Desktop, "Studio", unused).await;
+    let node = Serves::Alert {
+        alert: asking(),
+        closed,
+    };
+    let node = dev(Some(&desktop), DeviceKind::Node, "build-box", node).await;
     let mut updates = desktop.mesh.updates();
     timeout(LIMIT, async {
         loop {
@@ -209,8 +238,7 @@ async fn two() -> (Dev, Dev) {
 
 #[tokio::test]
 async fn a_machines_question_arrives_with_its_options() {
-    let (desktop, node) = two().await;
-    node_of(&node, asking(), Arc::new(Notify::new()));
+    let (desktop, node) = two(Arc::new(Notify::new())).await;
     let (following, mut heard) = follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
     let following = tokio::spawn(following);
     let (key, notice, options) = timeout(LIMIT, async {
@@ -241,9 +269,8 @@ async fn a_machines_question_arrives_with_its_options() {
 
 #[tokio::test]
 async fn machine_leaving_stops_its_stream() {
-    let (desktop, node) = two().await;
     let closed = Arc::new(Notify::new());
-    node_of(&node, asking(), closed.clone());
+    let (desktop, node) = two(closed.clone()).await;
     let (following, mut heard) = follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
     let _following = tokio::spawn(following);
     timeout(LIMIT, async {
@@ -263,16 +290,9 @@ async fn machine_leaving_stops_its_stream() {
 
 #[tokio::test]
 async fn a_paired_phone_gets_no_stream() {
-    let (desktop, node) = two().await;
-    let phone = phone(&desktop, "pocket").await;
+    let (desktop, _node) = two(Arc::new(Notify::new())).await;
     let phone_asked = Arc::new(Notify::new());
-    let asked = phone_asked.clone();
-    let (peer, _) = phone.mesh.protocols();
-    peer.on_stream(Arc::new(move |_stream: PeerStream| {
-        let asked = asked.clone();
-        Box::pin(async move { asked.notify_one() })
-    }));
-    node_of(&node, asking(), Arc::new(Notify::new()));
+    let phone = phone(&desktop, "pocket", phone_asked.clone()).await;
     let (following, mut heard) = follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
     let _following = tokio::spawn(following);
     // The node's notice proves the pass over the members ran.
