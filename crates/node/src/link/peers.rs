@@ -69,10 +69,9 @@ pub(super) const CHANNEL_OPEN_WAIT: Duration = Duration::from_secs(10);
 
 /// How often the machine is probed again for changes.
 const REPROBE: Duration = Duration::from_secs(10 * 60);
-/// How often free disk and memory are sampled.
+/// How often free disk and memory are sampled and the traffic counters
+/// read. Each is sent only when it changed.
 const RESAMPLE: Duration = Duration::from_secs(60);
-/// How often the traffic counters are reported.
-const REPORT_TRAFFIC: Duration = Duration::from_secs(60);
 
 /// What the node holds once it is in a mesh. The mesh stops with its last
 /// clone.
@@ -797,13 +796,14 @@ where
     adapters.mark_unchanged();
     tx.send(&Report::Offers(offers.names())).await?;
     let mut reprobe = interval(REPROBE);
+    reprobe.set_missed_tick_behavior(MissedTickBehavior::Skip);
     reprobe.tick().await;
     let mut probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
     let mut resample = interval(RESAMPLE);
-    resample.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    let mut traffic = interval(REPORT_TRAFFIC);
-    traffic.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    resample.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut reported = None;
+    let mut stats_sent = None;
+    let mut traffic_sent = None;
 
     loop {
         tokio::select! {
@@ -841,9 +841,20 @@ where
             }
             _ = resample.tick() => {
                 let folders = dirs::home_dir().into_iter().collect();
-                tx.send(&Report::Stats(stats::sample(folders).await)).await?;
+                let stats = stats::sample(folders).await;
+
+                if stats_sent.as_ref() != Some(&stats) {
+                    tx.send(&Report::Stats(stats.clone())).await?;
+                    stats_sent = Some(stats);
+                }
+
+                let traffic = offers.traffic.report();
+
+                if traffic_sent.as_ref() != Some(&traffic) {
+                    tx.send(&Report::Traffic(traffic.clone())).await?;
+                    traffic_sent = Some(traffic);
+                }
             }
-            _ = traffic.tick() => tx.send(&Report::Traffic(offers.traffic.report())).await?,
         }
     }
 }
