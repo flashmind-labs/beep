@@ -10,6 +10,7 @@ import { openAddMachine } from "./addmachine.ts";
 import { openJoinTicket } from "./jointicket.ts";
 import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
 import { bar, S } from "../bar/core.ts";
+import { type BarPage, type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { MachineTraffic } from "./traffic-state.ts";
 import { hintModel } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
@@ -443,10 +444,26 @@ function ensureScreen(el: HTMLElement) {
   return screenRoot.root;
 }
 
+/// A Machines screen, drawn in the bar as its page or in the Settings sheet's box.
+type MachinesPage = Extract<BarPage, { view: "machines" | "machine" | "machine-loading" }>;
+let barPage: BarPageSlot | null = null;
+
+function showScreen(at: MachinesHost | null, page: MachinesPage) {
+  if (!at) {
+    if (S.view !== "machines") return;
+    const slot = barPage ??= openBarPage(() => { barPage = null; });
+    flushSync(() => slot.show(page));
+    return;
+  }
+
+  const screen = ensureScreen(at.root);
+  flushSync(() => screen.render(page.view === "machines" ? createElement(MachineList, page.props)
+    : page.view === "machine" ? createElement(MachineDetail, page.props) : createElement(MachineLoading)));
+}
+
 function drawList(el: HTMLElement, at: MachinesHost | null) {
-  const screen = ensureScreen(el);
   const refreshAfterSheet = () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); };
-  flushSync(() => screen.render(createElement(MachineList, {
+  showScreen(at, { view: "machines", props: {
     list: MC.list, error: MC.error, hosted: !!at, mac: MC.mac, newest: newest(), asking: MC.asking,
     adapterTries: MC.adapterTries, hints: at ? null : hintModel([["esc", "back"]]), age: span,
     open: (id: string) => { if (at) { at.opened(id); void renderMachines(id); } },
@@ -456,12 +473,11 @@ function drawList(el: HTMLElement, at: MachinesHost | null) {
     cancelRemove: () => { MC.asking = null; drawMachines(); },
     remove: () => { void removeMachine(); },
     retryAdapter: (id: string) => { void retryAdapters(id); },
-  })));
+  } });
 }
 
-function drawDetail(el: HTMLElement, machine: Machine) {
-  const screen = ensureScreen(el);
-  flushSync(() => screen.render(createElement(MachineDetail, {
+function drawDetail(el: HTMLElement, at: MachinesHost | null, machine: Machine) {
+  showScreen(at, { view: "machine", props: {
     machine, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
     nodeUpdate: MC.updates.get(machine.id) ?? null, search, log, tools: MC.tools, toolUps: MC.toolUps,
     installed: MC.installed, traffic: MC.traffic.find(t => t.id === machine.id), asking: MC.asking, age: span,
@@ -472,7 +488,7 @@ function drawDetail(el: HTMLElement, machine: Machine) {
     logRead: () => { void readLog(machine.id); }, logSave: () => { void saveLog(machine); },
     askRemove: () => { MC.asking = { id: machine.id, busy: false, error: "" }; drawMachines(); el.querySelector<HTMLElement>(".ask .quiet")?.focus(); },
     remove: () => { void removeMachine(); }, cancelRemove: () => { MC.asking = null; drawMachines(); },
-  })));
+  } });
 }
 
 function drawMachines() {
@@ -491,10 +507,9 @@ function drawMachines() {
   }
 
   if (open) {
-    drawDetail(el, open);
+    drawDetail(el, at, open);
   } else {
-    const screen = ensureScreen(el);
-    flushSync(() => screen.render(createElement(MachineLoading)));
+    showScreen(at, { view: "machine-loading" });
   }
 
 }

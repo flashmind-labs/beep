@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { WINDOWS } from "../ui/platform.ts";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/page-root.ts";
+import { openBarPage } from "../bar/bar-app.tsx";
 import { AgentsList, type AgentListRow } from "./agents-list-view.tsx";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one

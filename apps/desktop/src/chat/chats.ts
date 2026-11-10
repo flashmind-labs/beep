@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/page-root.ts";
+import { openBarPage } from "../bar/bar-app.tsx";
 import { ChatsShell } from "./chats-view.tsx";
 import { openInWindow } from "./chat.ts";
 import { copy } from "../ui/parts.ts";

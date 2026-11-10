@@ -3,6 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { MC, machinesIn, machinesOut, renderMachines } from "../src/machines/machines.ts";
 import { S } from "../src/bar/core.ts";
+import { openBarPage } from "../src/bar/bar-app.tsx";
+import { flushSync } from "react-dom";
 
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
 answers.list_machines = [];
@@ -11,23 +13,27 @@ answers.machine_traffic = [];
 answers.machine_clocks = [];
 answers.tool_updates = [];
 
-test("machine screen releases detached controls and reopens with a new owner", async () => {
+/// Another page opens in the bar, as when the user leaves Machines.
+function leave() {
+  S.view = "chat";
+  flushSync(() => openBarPage(() => {}).root.render(null));
+}
+
+test("the bar's machine screen unmounts when another page opens and draws again when reopened", async () => {
   S.view = "machines";
   await renderMachines();
-  const mount = bar.firstElementChild;
-  assert.ok(mount);
-  assert.ok(mount.querySelector("#mcAdd"));
-  S.view = "chat";
-  bar.replaceChildren();
+  const add = bar.querySelector("#mcAdd");
+  assert.ok(add);
+  leave();
   await settle();
-  assert.equal(mount.childElementCount, 0);
+  assert.equal(bar.querySelector("#mcAdd"), null);
+  assert.equal(add.isConnected, false);
 
   S.view = "machines";
   await renderMachines();
-  assert.notEqual(bar.firstElementChild, mount);
   assert.ok(bar.querySelector("#mcAdd"));
-  S.view = "chat";
-  bar.replaceChildren();
+  assert.notEqual(bar.querySelector("#mcAdd"), add);
+  leave();
   await settle();
 });
 
@@ -80,7 +86,6 @@ test("overlapping machine refreshes wait for the latest read", async () => {
   assert.equal(calls.filter(call => call.cmd === "list_machines").length - before, 2);
   assert.equal(MC.list?.[0]?.name, "Current");
   answers.list_machines = [];
-  S.view = "chat";
-  bar.replaceChildren();
+  leave();
   await settle();
 });

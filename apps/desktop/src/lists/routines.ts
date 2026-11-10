@@ -1,8 +1,5 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/page-root.ts";
-import { GrantsList, RoutineEditor, RoutinesList } from "./routines-view.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { $, $$, bar, S } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { openSession } from "../chat/history.ts";
@@ -117,11 +114,8 @@ export async function loadRoutines() {
   if (S.view === "routines") drawRoutines();
 }
 
-let routineRoot: { host: HTMLElement; root: Root } | null = null;
-function routinePage(): Root {
-  if (!routineRoot || routineRoot.host.parentElement !== bar) routineRoot = openBarPage(() => { routineRoot = null; });
-  return routineRoot.root;
-}
+let routineRoot: BarPageSlot | null = null;
+const routinePage = () => routineRoot ??= openBarPage(() => { routineRoot = null; });
 
 export function drawRoutines() {
   clampSel(R);
@@ -130,7 +124,7 @@ export function drawRoutines() {
   const keys = R.loaded && !R.list.length ? [["⌘N", "new routine"], ["esc", "back"]] : R.mode === "actions"
     ? [["⌘E", "edit"], ["tab", "hide actions"], ["esc", "back"]] : [["↑↓", "move"], ["space", "on or off"], ["tab", "actions"], ["⌘N", "new routine"], ["⌘G", "grants"], ["esc", "back"]];
   const root = routinePage();
-  flushSync(() => root.render(createElement(RoutinesList, { list: R.list, selected: R.sel, mode: R.mode, loaded: R.loaded, error: R.error, summary: sum, grants: GR.list.length, hints: hintModel(keys) })));
+  flushSync(() => root.show({ view: "routines", props: { list: R.list, selected: R.sel, mode: R.mode, loaded: R.loaded, error: R.error, summary: sum, grants: GR.list.length, hints: hintModel(keys) } }));
   bar.onclick = routineClick;
   bar.oncontextmenu = routineMenu;
 }
@@ -274,10 +268,10 @@ export function renderRoutineEdit(c: Cron) {
 export function drawRoutineNew() {
   const go = NR.edit ? "Save" : "Create";
   const root = routinePage();
-  flushSync(() => root.render(createElement(RoutineEditor, {
+  flushSync(() => root.show({ view: "routine-editor", props: {
     form: NR, hints: hintModel([["tab", "next field"], [`⌘${ICON.ret}`, go.toLowerCase()], ["esc", "cancel"]]),
     input: (key: "label" | "prompt" | "time" | "date" | "cron", value: string) => { NR[key] = value; if (key === "cron") cronSays(); },
-  })));
+  } }));
   cronSays();
   bar.onclick = e => {
     if (S.view !== "rnew") return;
@@ -397,7 +391,7 @@ export function drawGrants() {
   const keys = GR.loaded && !GR.list.length ? [["esc", "back"]] : GR.mode === "confirm"
     ? [[ICON.ret, "revoke"], ["esc", "cancel"]] : [["↑↓", "move"], ["⌘⌫", "revoke"], ["esc", "back"]];
   const root = routinePage();
-  flushSync(() => root.render(createElement(GrantsList, { list: GR.list, selected: GR.sel, mode: GR.mode, loaded: GR.loaded, error: GR.error, hints: hintModel(keys) })));
+  flushSync(() => root.show({ view: "grants", props: { list: GR.list, selected: GR.sel, mode: GR.mode, loaded: GR.loaded, error: GR.error, hints: hintModel(keys) } }));
   bar.onclick = grantClick;
 }
 

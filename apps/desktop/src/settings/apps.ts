@@ -1,7 +1,7 @@
 import { createElement, createRef, type ReactElement } from "react";
 import { flushSync } from "react-dom";
-import { openBarPage } from "../bar/page-root.ts";
-import { AppBarFrame, AppsListView } from "./apps-list-view.tsx";
+import { openBarPage } from "../bar/bar-app.tsx";
+import { AppsListView } from "./apps-list-view.tsx";
 import { AppPermissionsView } from "./app-permissions-view.tsx";
 import { McpView } from "./mcp-view.tsx";
 import type { SettingsContentOwner } from "./settings.ts";
@@ -169,8 +169,8 @@ function mountView(section: AppsView): AppMount {
   const page = openBarPage(() => { disposeApps(); disposeMcp(); disposePerms(); });
   return {
     embedded: false,
-    render(content) { flushSync(() => page.root.render(createElement(AppBarFrame, { section, hints: backHint(), children: content }))); },
-    unmount() { flushSync(() => page.root.render(null)); },
+    render(content) { flushSync(() => page.show({ view: "apps", props: { section, hints: backHint(), children: content } })); },
+    unmount() { flushSync(() => page.show({ view: "none" })); },
   };
 }
 

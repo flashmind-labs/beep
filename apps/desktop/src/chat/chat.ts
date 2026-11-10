@@ -2,7 +2,7 @@
 // attachments and the cards under a reply. Entry: this file, the open chat's shell.
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { openBarPage } from "../bar/page-root.ts";
+import { openBarPage } from "../bar/bar-app.tsx";
 import { ChatShell } from "./chat-shell.tsx";
 import { updateChatNavigation } from "./navigation-view.tsx";
 import { createChatBody, disposeChatBody } from "./work-view.tsx";

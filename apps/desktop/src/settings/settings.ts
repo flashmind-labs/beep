@@ -7,14 +7,14 @@ import { ModelSettingsView } from "./model-settings-view.tsx";
 import { ServerView } from "./server-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsBarShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading, Mounted } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading, Mounted } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 import { agentAccountsContent, credentialsContent, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
 import { A, type App, appsIn, appsOut, type AppsView, loadApps, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
 import { toWindow } from "../chat/chat.ts";
 import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
-import { openBarPage } from "../bar/page-root.ts";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { hintModel, refreshHints } from "../bar/hints.ts";
 import { renderInvitePhone } from "../bar/link.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
@@ -114,9 +114,8 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
     SET.local = null;
     renderedPath = null;
     leavePage();
-    const failure = createElement(SettingsFailure, { error: String(got) });
-    if (SET.root) showSheet(SET.root, failure);
-    else flushSync(() => openBarPage(() => { barSettings = null; }).root.render(failure));
+    if (SET.root) showSheet(SET.root, createElement(SettingsFailure, { error: String(got) }));
+    else flushSync(() => openBarPage(() => { barSettings = null; }).show({ view: "settings-failure", error: String(got) }));
     return;
   }
 
@@ -128,7 +127,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   if (SET.root) {
     drawSheet();
   } else {
-    if (!barSettings || barSettings.host.parentElement !== bar) barSettings = openBarPage(() => { barSettings = null; });
+    barSettings ??= openBarPage(() => { barSettings = null; });
     drawBarSettings();
   }
 
@@ -195,9 +194,9 @@ const sheetPages = () => SET.local ? settingsSections(SET.local.mac, SET.local.l
 /// The box of the page whose own code draws it (Machines, the embedded views).
 const pageHost = createRef<HTMLDivElement>();
 
-/// The window's tree, which the sheet renders as a part of. The window
+/// The sheet's frame, which Settings renders its content in. The window
 /// hands it over (sheet.ts), so the bar never loads the window's modules.
-export interface SettingsSheetOwner { show(sheet: HTMLElement, content: ReactNode): void; remove(): void }
+export interface SettingsSheetOwner { show(sheet: HTMLElement, content: ReactNode): void }
 let sheetOwner: SettingsSheetOwner | null = null;
 export function connectSettingsSheet(owner: SettingsSheetOwner) { sheetOwner = owner; }
 
@@ -217,13 +216,12 @@ function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPa
   }));
 }
 
-/// The sheet closed: its pages stop drawing and its part of the window goes.
+/// The sheet closed: its pages stop drawing; its content goes with its frame.
 export function settingsClosed() {
   if (!shownSheet) return;
   shownSheet = null;
   renderedPath = null;
   leavePage();
-  sheetOwner?.remove();
 }
 /// Draws the sheet's current page while keeping its navigation mounted.
 function drawSheet() {
@@ -346,12 +344,12 @@ async function openApps(sub: SettingsSub | null) {
   return "slug" in picked ? renderAppPermissions(picked) : renderMcpServer(picked);
 }
 
-let barSettings: ReturnType<typeof openBarPage> | null = null;
+let barSettings: BarPageSlot | null = null;
 function drawBarSettings() {
   const current = barSettings, local = SET.local;
-  if (!current || !current.host.isConnected || !local) return;
+  if (!current || !local) return;
   const sections = settingsSections(local.mac, local.linked, false).map(([, content]) => content);
-  flushSync(() => current.root.render(createElement(SettingsBarShell, { version: local.set.version, sections, hints: hintModel([["esc", "close"]]) })));
+  flushSync(() => current.show({ view: "settings", props: { version: local.set.version, sections, hints: hintModel([["esc", "close"]]) } }));
 }
 
 /// The sections of Settings, in order, each with the page it is.

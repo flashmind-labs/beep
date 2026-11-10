@@ -1,9 +1,6 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
-import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/page-root.ts";
-import { ModelView } from "./model-view.tsx";
-import { bar, S } from "../bar/core.ts";
+import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
+import { S } from "../bar/core.ts";
 import { hintModel, refreshHints } from "../bar/hints.ts";
 import { cap } from "../chat/tools.ts";
 import { ICON } from "../ui/icons.tsx";
@@ -90,21 +87,21 @@ export function renderModel() {
   modelError = "";
   drawModel();
 }
-let modelRoot: { host: HTMLElement; root: Root } | null = null;
+let modelPage: BarPageSlot | null = null;
 let modelError = "";
 
 function drawModel() {
   const m = MODELS.info;
   if (!m) return;
-  if (!modelRoot || modelRoot.host.parentElement !== bar) modelRoot = openBarPage(() => { modelRoot = null; });
-  flushSync(() => modelRoot?.root.render(createElement(ModelView, {
+  const page = modelPage ??= openBarPage(() => { modelPage = null; });
+  flushSync(() => page.show({ view: "model", props: {
     model: m, selected: MODELS.sel, agents: MODELS.agents, agentNames: MODELS.list,
     error: modelError, hints: hintModel([["↑↓", "move"], [ICON.ret, "use"], ["esc", "back"]]), thinkingLevels: THINKING, price: modelPrice, capitalize: cap,
     pick: (index: number) => { MODELS.sel = index; void pickModel(); },
     setThinking: (level: Thinking) => { void changeModel("set_thinking", { level }); },
     setAuto: () => { void changeModel("set_auto_model", { enabled: !m.auto }); },
     setAgents: () => { void change("set_agents", { enabled: !MODELS.agents }, takeAgents); },
-  })));
+  } }));
 }
 /// Runs a change the server answers with `T`, which `take` stores; an error
 /// shows under the form.
@@ -124,15 +121,6 @@ function changeModel(command: string, args: Record<string, unknown>) {
   return change<Models>(command, args, m => { MODELS.info = m; });
 }
 const pickModel = () => changeModel("set_model", { id: MODELS.info!.choices[MODELS.sel].id });
-export function modelClick(e: MouseEvent) {
-  const t = e.target as HTMLElement;
-  const pick = t.closest<HTMLElement>("[data-pick]");
-  if (pick) { MODELS.sel = +pick.dataset.pick!; return pickModel(); }
-  const level = t.closest<HTMLElement>("[data-level]");
-  if (level) return changeModel("set_thinking", { level: level.dataset.level });
-  if (t.closest('[data-act="auto"]')) return changeModel("set_auto_model", { enabled: !MODELS.info!.auto });
-  if (t.closest('[data-act="agents"]')) return change("set_agents", { enabled: !MODELS.agents }, takeAgents);
-}
 export function modelKeys(e: KeyboardEvent) {
   const m = MODELS.info!;
   if (MODELS.agents && m.auto_available && m.auto) return;

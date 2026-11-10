@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
-import { openBarPage } from "../bar/page-root.ts";
+import { openBarPage } from "../bar/bar-app.tsx";
 import { ResearchesView } from "./researches-view.tsx";
 import { failed, newTurn } from "../chat/turns.ts";
 import { grow } from "../chat/ask-height.ts";

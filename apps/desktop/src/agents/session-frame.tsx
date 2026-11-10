@@ -6,7 +6,7 @@ import { cloneElement, createRef, Fragment, isValidElement, memo, useLayoutEffec
 import { createStore, useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { createPortal, flushSync } from "react-dom";
-import { openBarPage } from "../bar/page-root.ts";
+import { openBarPage } from "../bar/bar-app.tsx";
 import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 
