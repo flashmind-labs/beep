@@ -95,6 +95,11 @@ Other apps have independent versions and changelogs:
   network drop of up to 30 seconds. Agent alerts and CI runs are followed
   only from machines that are online, and a machine that keeps refusing is
   tried at most once a minute instead of every 2 seconds.
+- Desktop: an idle or hidden window wakes far less often. Agent sessions
+  followed in the background send nothing while the window is hidden and
+  catch up once when it shows. The command palette, the bell and machine
+  follows react to mesh changes instead of checking every few seconds, and
+  closed terminal views stop at once.
 
 ## [0.7.0] - 2026-11-09
 
