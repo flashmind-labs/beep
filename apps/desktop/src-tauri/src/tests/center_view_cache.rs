@@ -66,10 +66,23 @@ fn another_version_keeps_only_local_search_lists() {
 }
 
 #[test]
-fn disabling_server_views_preserves_search_across_restart() {
+fn disabling_server_views_keeps_the_mesh_views_across_restart() {
     let path = path();
     let cache = ViewCache::load(path.clone(), "0.2.0");
-    cache.put(View::Home, json!({"projects": []}));
+    cache.put(
+        View::Home,
+        json!({
+            "machines": [{"id": "a", "joined": true}, {"id": "b", "joined": false}],
+            "running": [{"kind": "agent", "id": "s1"}, {"kind": "research", "topic": "t"}],
+            "needs_you": [{"kind": "agent", "session": "s1"}, {"kind": "chat", "session_id": "c"}],
+            "coming_up": [{"id": "cron"}],
+            "updates": [{"id": 1}],
+            "projects": [{"name": "acme/widget"}],
+        }),
+    );
+    cache.put(View::Top, json!(["acme/widget"]));
+    cache.put(View::Agents, json!([{"name": "acme/widget"}]));
+    cache.put(View::Overview, json!([]));
     cache.put(
         View::Palette,
         json!({"projects": [{"project": "acme/widget"}]}),
@@ -78,10 +91,32 @@ fn disabling_server_views_preserves_search_across_restart() {
     cache.write_unsaved();
     cache.keep_local();
     let reopened = ViewCache::load(path, "0.2.0");
-    assert_eq!(reopened.get(View::Home), None);
+    assert_eq!(
+        reopened.get(View::Home),
+        Some(json!({
+            "machines": [{"id": "a", "joined": true}],
+            "running": [{"kind": "agent", "id": "s1"}],
+            "needs_you": [{"kind": "agent", "session": "s1"}],
+            "coming_up": null,
+            "updates": null,
+            "projects": [{"name": "acme/widget"}],
+        }))
+    );
+    assert_eq!(reopened.get(View::Top), Some(json!(["acme/widget"])));
+    assert_eq!(reopened.get(View::Agents), None);
+    assert_eq!(reopened.get(View::Overview), None);
     assert_eq!(reopened.get(View::Palette), cache.get(View::Palette));
     assert_eq!(reopened.get(View::AgentSessions), Some(json!([])));
     reopened.clear();
+}
+
+#[test]
+fn keeping_local_views_writes_nothing_when_nothing_goes() {
+    let path = path();
+    let cache = ViewCache::load(path.clone(), "0.2.0");
+    cache.put(View::Top, json!([]));
+    cache.keep_local();
+    assert!(!path.exists());
 }
 
 #[test]

@@ -681,8 +681,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         dir.join("views.json"),
         env!("CARGO_PKG_VERSION"),
     ));
-    // Hide server views while keeping the mesh's saved search lists for
-    // Cmd+K, before any machine has answered.
+    // Hide server views; the mesh's views stay, so Home draws from disk
+    // before any machine has answered.
     if !beep::SERVER_ENABLED {
         chats.clear();
         views.keep_local();
