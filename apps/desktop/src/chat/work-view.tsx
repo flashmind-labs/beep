@@ -1,10 +1,9 @@
 import { AppLogo } from "./applogo-view.tsx";
 import { BackgroundView, type BackgroundQuestions } from "./background-view.tsx";
-import { createElement, Fragment, memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
-import { COPY_ICON, ICON } from "../ui/icons.tsx";
-import { PLAY_ICON } from "../lists/memories.ts";
+import { COPY_ICON, ICON, Icon } from "../ui/icons.tsx";
 import type { ApprovalField, Decision } from "./chat.ts";
 import { invoke } from "../ui/tauri.ts";
 import { writeClipboard } from "../ui/parts.ts";
@@ -33,30 +32,448 @@ interface ReplyActions { copy: boolean; rerun: boolean; agent: string | null }
 interface ApprovalView { app: string; action: string; fields: ApprovalField[]; grant: boolean; answer: (decision: Decision) => void }
 type StatusNotice = { kind: "label"; message: string } | { kind: "error"; message: string } | { kind: "stopped"; message: string; retry: boolean };
 interface TurnFrame { prompt: boolean; pictures: boolean }
-interface Owner { background: Map<HTMLElement, { key: number; value: BackgroundQuestions; signature: string }>; disposed: boolean; menus: Map<HTMLElement, { key: number; value: RerunView }>; coders: Map<HTMLElement, { key: number; view: ReactElement }>; routes: Map<HTMLElement, { key: number; callId: string }>; frames: Map<HTMLElement, { key: number; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }>; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; charts: Map<ChartCard, { key: number; chart: Chart }>; notices: Map<HTMLElement, { key: number; value: StatusNotice }>; products: Map<HTMLElement, { key: number; html: string }>; replyPictures: Map<HTMLElement, { key: number; images: SentImage[] }>; sentFiles: Map<HTMLElement, { key: number; file: SentFile }>; pictures: Map<HTMLElement, { key: number; images: PicRef[] }>; files: Map<HTMLElement, { key: number; files: AskFile[] }>; root: DocumentView; sources: Map<HTMLElement, { key: number; items: Source[] }>; actions: Map<HTMLElement, { key: number; value: ReplyActions }>; approvals: Map<HTMLElement, { key: number; value: ApprovalView }>; prompts: Map<HTMLElement, { key: number; html: string }>; suggestions: Map<HTMLElement, { key: number; replies: string[]; send: (text: string) => void }>; rows: Map<HTMLElement, { key: number; store: RowStore<WorkView> }>; replies: Map<HTMLElement, { key: number; store: RowStore<string> }>; next: number }
+
+// A chat body is one React root. Each native box inside it (a turn's frame,
+// its prompt, work rows, reply, cards) holds one portal, drawn from a part.
+// Sanitized markup and streamed rows stay native boundaries the history merge
+// moves between turns, so a turn keeps a model of which boxes it owns.
+type Part =
+  | { kind: "frame"; value: TurnFrame; setTurn(element: HTMLDivElement | null): void }
+  | { kind: "background"; value: BackgroundQuestions; signature: string }
+  | { kind: "menu"; value: RerunView }
+  | { kind: "coder"; view: ReactElement }
+  | { kind: "route"; callId: string }
+  | { kind: "chart"; card: ChartCard; chart: Chart }
+  | { kind: "notice"; value: StatusNotice }
+  | { kind: "product"; html: string }
+  | { kind: "replyPictures"; images: SentImage[] }
+  | { kind: "sentFile"; file: SentFile }
+  | { kind: "pictures"; images: PicRef[] }
+  | { kind: "files"; files: AskFile[] }
+  | { kind: "sources"; items: Source[] }
+  | { kind: "actions"; value: ReplyActions }
+  | { kind: "approval"; value: ApprovalView }
+  | { kind: "suggestions"; replies: string[]; send: (text: string) => void }
+  | { kind: "prompt"; html: string }
+  | { kind: "work"; store: RowStore<WorkView> }
+  | { kind: "reply"; store: RowStore<string> };
+type Kind = Part["kind"];
+type Slot = Part & { key: number };
+interface Owner { root: DocumentView; host: HTMLElement | null; body: ChatBody | null; setBody(element: HTMLDivElement | null): void; slots: Map<HTMLElement, Slot>; disposed: boolean; next: number }
+/// The boxes of one kind a turn owns. Single kinds keep only the latest box.
+interface Boxes { owner: Owner; boxes: HTMLElement[] }
+type TurnModel = Map<Kind, Boxes>;
+
 // A retained chat body owns all its portals, including detached turns while
-// history is merged. Transfer moved hosts before discarding the fresh turn.
+// history is merged. Transfer moved boxes before discarding the fresh turn.
 const owners = new WeakMap<ChatBody, Owner>();
-const turnHosts = new WeakMap<Turn, { host: HTMLElement; owner: Owner }>();
-const menuTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const routeTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
-const chartTurns = new WeakMap<Turn, { owner: Owner; boxes: ChartCard[] }>();
-const noticeTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
-const productTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
-const replyPictureTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const sentFileTurns = new WeakMap<Turn, { owner: Owner; boxes: HTMLElement[] }>();
-const pictureTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const fileTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const sourceTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const actionTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const approvalTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const suggestionTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const promptTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const turns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const replyTurns = new WeakMap<Turn, { owner: Owner; box: HTMLElement }>();
-const promptPending = new Map<HTMLElement, { html: string; resume: () => void }>();
-const replyPending = new Map<HTMLElement, { html: string; resume: () => void }>();
-const pending = new Map<HTMLElement, { value: WorkView; after: () => void; resume: () => void }>();
+const turnModels = new WeakMap<Turn, TurnModel>();
+// Updates to a box the user is selecting text in wait until the selection leaves it.
+const deferred = new Map<HTMLElement, { apply(): void; resume(): void }>();
+
+export function createChatBody(): ChatBody {
+  const host = document.createElement("div");
+  host.style.display = "contents";
+  const owner = makeOwner(host);
+  draw(owner);
+  if (!owner.body) throw new Error("Chat body did not mount");
+  owners.set(owner.body, owner);
+  return owner.body;
+}
+
+export function chatBodyHost(body: ChatBody): HTMLElement {
+  return owners.get(body)?.host ?? body;
+}
+
+/// A detached live body stays owned; only cache eviction releases its root.
+export function disposeChatBody(body: ChatBody) {
+  const owner = owners.get(body);
+  if (!owner || owner.disposed) return;
+
+  owner.disposed = true;
+  for (const box of owner.slots.keys()) cancelDeferred(box);
+  owner.root.unmount();
+  owner.slots.clear();
+}
+
+// History creates frames in one render; their content portals can then update
+// independently while the conversation moves the display-contents hosts.
+export function createChatTurns(body: ChatBody, values: readonly TurnFrame[]): Turn[] {
+  if (!values.length) return [];
+
+  const owner = ownerOf(body);
+  const frames = values.map(value => {
+    const host = document.createElement("div");
+    host.style.display = "contents";
+    const frame: { host: HTMLElement; turn: Turn | null } = { host, turn: null };
+    owner.slots.set(host, { kind: "frame", key: ++owner.next, value, setTurn: element => { frame.turn = element; } });
+    return frame;
+  });
+  draw(owner);
+
+  return frames.map(frame => {
+    if (!frame.turn) throw new Error("Chat turn did not mount");
+    turnModels.set(frame.turn, new Map([["frame", { owner, boxes: [frame.host] }]]));
+    return frame.turn;
+  });
+}
+
+export function createChatTurn(body: ChatBody, value: TurnFrame): Turn {
+  const turn = createChatTurns(body, [value])[0];
+  if (!turn) throw new Error("Chat turn did not mount");
+  return turn;
+}
+
+export function chatTurnHost(turn: Turn): HTMLElement {
+  return turnModels.get(turn)?.get("frame")?.boxes[0] ?? turn;
+}
+
+export function ensureChatPrompt(turn: Turn): HTMLElement | null {
+  const entry = turnModels.get(turn)?.get("frame"), host = entry?.boxes[0], frame = host && entry.owner.slots.get(host);
+  if (!entry || frame?.kind !== "frame") return null;
+
+  if (!frame.value.prompt) {
+    frame.value = { ...frame.value, prompt: true };
+    draw(entry.owner);
+  }
+
+  return turn.querySelector<HTMLElement>(":scope > .dcoderen.user");
+}
+
+export function discardChatWork(turn: Turn) {
+  const model = turnModels.get(turn);
+  turnModels.delete(turn);
+  if (!model) return;
+
+  const touched = new Set<Owner>();
+  for (const entry of model.values()) {
+    for (const box of entry.boxes) { cancelDeferred(box); entry.owner.slots.delete(box); }
+    touched.add(entry.owner);
+  }
+
+  for (const owner of touched) draw(owner);
+}
+
+export function renderChatBackground(body: ChatBody, box: HTMLElement, value: BackgroundQuestions) {
+  const owner = ownerOf(body), prior = owner.slots.get(box), signature = JSON.stringify(value);
+  if (prior?.kind === "background" && prior.signature === signature) return false;
+
+  place(owner, box, { kind: "background", value, signature }, true);
+  draw(owner);
+  return true;
+}
+
+export function discardChatBackground(body: ChatBody, box: HTMLElement) {
+  const owner = owners.get(body);
+  if (owner?.slots.get(box)?.kind === "background" && owner.slots.delete(box)) draw(owner);
+}
+
+export function renderChatCoderCards(body: ChatBody, cards: readonly { host: HTMLElement; view: ReactElement }[]) {
+  const owner = ownerOf(body), keys = new Map<HTMLElement, number>();
+  for (const [box, slot] of owner.slots) if (slot.kind === "coder") { keys.set(box, slot.key); owner.slots.delete(box); }
+
+  for (const card of cards) owner.slots.set(card.host, { kind: "coder", key: keys.get(card.host) ?? ++owner.next, view: card.view });
+  draw(owner);
+}
+
+export function renderChatPrompt(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
+  show(body, turn, box, { kind: "prompt", html });
+}
+
+export function updateChatPrompt(turn: Turn, html: string) {
+  const entry = turnModels.get(turn)?.get("prompt"), box = entry?.boxes[0];
+  if (!entry || !box || entry.owner.slots.get(box)?.kind !== "prompt") return false;
+
+  whenUnselected(box, true, () => {
+    const slot = entry.owner.slots.get(box);
+    if (slot?.kind !== "prompt") return;
+    entry.owner.slots.set(box, { ...slot, html });
+    draw(entry.owner);
+  });
+  return true;
+}
+
+export function renderChatPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: PicRef[]) {
+  show(body, turn, box, { kind: "pictures", images });
+}
+
+export function renderChatFiles(body: ChatBody, turn: Turn, box: HTMLElement, files: AskFile[]) {
+  show(body, turn, box, { kind: "files", files });
+}
+
+/// Streaming updates notify only their row; a new row draws the body once.
+export function renderChatWork(body: ChatBody, turn: Turn, box: HTMLElement, value: WorkView, after: () => void) {
+  const owner = ownerOf(body), prior = owner.slots.get(box);
+  track(turn, owner, "work", box);
+
+  whenUnselected(box, prior?.kind === "work", () => {
+    if (prior?.kind === "work") prior.store.set(value);
+    else { place(owner, box, { kind: "work", store: rowStore(value) }, false); draw(owner); }
+    after();
+  });
+}
+
+export function renderChatReply(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
+  const owner = ownerOf(body), prior = owner.slots.get(box);
+  track(turn, owner, "reply", box);
+  if (prior?.kind === "reply" && prior.store.get() === html && !deferred.has(box)) return;
+
+  whenUnselected(box, prior?.kind === "reply", () => {
+    if (prior?.kind === "reply") prior.store.set(html);
+    else { place(owner, box, { kind: "reply", store: rowStore(html) }, false); draw(owner); }
+  });
+}
+
+export function renderChatApproval(body: ChatBody, turn: Turn, box: HTMLElement, value: ApprovalView) {
+  show(body, turn, box, { kind: "approval", value }, true);
+}
+
+export function renderChatSuggestions(body: ChatBody, turn: Turn, box: HTMLElement, replies: string[], send: (text: string) => void) {
+  show(body, turn, box, { kind: "suggestions", replies, send }, true);
+}
+
+export function renderChatNotice(body: ChatBody, turn: Turn, box: HTMLElement, value: StatusNotice) {
+  show(body, turn, box, { kind: "notice", value });
+}
+
+export function renderChatActions(body: ChatBody, turn: Turn, box: HTMLElement, value: ReplyActions) {
+  show(body, turn, box, { kind: "actions", value }, true);
+}
+
+export function renderChatRerunMenu(body: ChatBody, turn: Turn, box: HTMLElement, value: RerunView) {
+  show(body, turn, box, { kind: "menu", value });
+}
+
+export function renderChatSources(body: ChatBody, turn: Turn, box: HTMLElement, items: Source[]) {
+  show(body, turn, box, { kind: "sources", items }, true);
+}
+
+export function renderChatRoute(body: ChatBody, turn: Turn, box: HTMLElement, callId: string) {
+  show(body, turn, box, { kind: "route", callId });
+}
+
+export function renderChatChart(body: ChatBody, turn: Turn, box: ChartCard, chart: Chart) {
+  show(body, turn, box, { kind: "chart", card: box, chart });
+}
+
+export function renderChatProduct(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
+  show(body, turn, box, { kind: "product", html });
+}
+
+export function renderChatReplyPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: SentImage[]) {
+  show(body, turn, box, { kind: "replyPictures", images: images.slice() }, true);
+}
+
+export function renderChatSentFile(body: ChatBody, turn: Turn, box: HTMLElement, file: SentFile) {
+  show(body, turn, box, { kind: "sentFile", file });
+}
+
+export const discardChatRerunMenu = (turn: Turn) => discard(turn, "menu");
+export const discardChatSources = (turn: Turn) => discard(turn, "sources");
+export const discardChatActions = (turn: Turn) => discard(turn, "actions");
+export const discardChatApproval = (turn: Turn) => discard(turn, "approval");
+export const discardChatSuggestions = (turn: Turn) => discard(turn, "suggestions");
+
+export function discardChatNotice(turn: Turn, box: HTMLElement) {
+  const entry = turnModels.get(turn)?.get("notice");
+  if (!entry) return;
+
+  untrack(turn, "notice", box);
+  entry.owner.slots.delete(box);
+  draw(entry.owner);
+}
+
+// History merges a fresh turn into the shown one. A moved box keeps its
+// portal; the shown turn now owns it.
+export const transferChatPrompt = (from: Turn, to: Turn) => move(from, to, "prompt");
+export const transferChatFiles = (from: Turn, to: Turn) => move(from, to, "files");
+export const transferChatPictures = (from: Turn, to: Turn) => move(from, to, "pictures");
+export const transferChatReply = (from: Turn, to: Turn) => move(from, to, "reply");
+export const transferChatApproval = (from: Turn, to: Turn) => replace(from, to, ["approval"]);
+export const transferChatSuggestions = (from: Turn, to: Turn) => replace(from, to, ["suggestions"]);
+/// The sent box holds routes, charts, products, pictures and files.
+export const transferChatSentFiles = (from: Turn, to: Turn) => replace(from, to, ["route", "chart", "product", "replyPictures", "sentFile"]);
+
+export function transferChatNotice(from: Turn, to: Turn, box: HTMLElement) {
+  const entry = turnModels.get(from)?.get("notice");
+  if (!entry || !entry.boxes.includes(box)) return;
+
+  untrack(from, "notice", box);
+  const target = modelOf(to).get("notice");
+  if (target) target.boxes.push(box); else modelOf(to).set("notice", { owner: entry.owner, boxes: [box] });
+}
+
+// ---------- Turn model ----------
+
+/// Kinds a turn holds one box of; a new box replaces the old in the model.
+const SINGLE = new Set<Kind>(["frame", "menu", "replyPictures", "pictures", "files", "sources", "actions", "approval", "suggestions", "prompt", "work", "reply"]);
+
+/// Shows `part` in `box` and records it on `turn`. `keep` updates a portal
+/// already in `box` in place; otherwise the part mounts fresh.
+function show(body: ChatBody, turn: Turn, box: HTMLElement, part: Part, keep = false) {
+  const owner = ownerOf(body);
+  track(turn, owner, part.kind, box);
+  place(owner, box, part, keep);
+  draw(owner);
+}
+
+function place(owner: Owner, box: HTMLElement, part: Part, keep: boolean) {
+  const prior = owner.slots.get(box);
+  owner.slots.set(box, { ...part, key: keep && prior?.kind === part.kind ? prior.key : ++owner.next });
+}
+
+function track(turn: Turn, owner: Owner, kind: Kind, box: HTMLElement) {
+  const model = modelOf(turn), entry = model.get(kind);
+  if (entry && !SINGLE.has(kind)) entry.boxes.push(box);
+  else model.set(kind, { owner, boxes: [box] });
+}
+
+function untrack(turn: Turn, kind: Kind, box: HTMLElement) {
+  const model = turnModels.get(turn), entry = model?.get(kind);
+  if (!entry) return;
+
+  entry.boxes = entry.boxes.filter(item => item !== box);
+  if (!entry.boxes.length) model?.delete(kind);
+}
+
+function discard(turn: Turn, kind: Kind) {
+  const entry = turnModels.get(turn)?.get(kind);
+  turnModels.get(turn)?.delete(kind);
+  if (!entry) return;
+
+  for (const box of entry.boxes) entry.owner.slots.delete(box);
+  draw(entry.owner);
+}
+
+function move(from: Turn, to: Turn, kind: Kind) {
+  const entry = turnModels.get(from)?.get(kind);
+  if (!entry) return;
+
+  turnModels.get(from)?.delete(kind);
+  modelOf(to).set(kind, entry);
+}
+
+/// Moves `from`'s boxes of `kinds` to `to`, dropping the portals `to` had.
+function replace(from: Turn, to: Turn, kinds: readonly Kind[]) {
+  const source = turnModels.get(from), target = modelOf(to), touched = new Set<Owner>();
+  for (const kind of kinds) {
+    const next = source?.get(kind), prior = target.get(kind);
+    source?.delete(kind);
+    if (prior) { for (const box of prior.boxes) prior.owner.slots.delete(box); touched.add(prior.owner); }
+    if (next) { target.set(kind, next); touched.add(next.owner); } else target.delete(kind);
+  }
+
+  for (const owner of touched) draw(owner);
+}
+
+function modelOf(turn: Turn): TurnModel {
+  let model = turnModels.get(turn);
+  if (!model) { model = new Map(); turnModels.set(turn, model); }
+  return model;
+}
+
+/// Runs `apply` now, or once the user's selection leaves `box` when `wait`
+/// and it is selected. A later update replaces a waiting one.
+function whenUnselected(box: HTMLElement, wait: boolean, apply: () => void) {
+  const selected = () => {
+    const selection = document.getSelection();
+    return !!selection && !selection.isCollapsed && selection.containsNode(box, true);
+  };
+
+  if (wait && selected()) {
+    const waiting = deferred.get(box);
+    if (waiting) { waiting.apply = apply; return; }
+
+    const resume = () => {
+      const latest = deferred.get(box);
+      if (!latest || selected()) return;
+      cancelDeferred(box);
+      latest.apply();
+    };
+    deferred.set(box, { apply, resume });
+    document.addEventListener("selectionchange", resume);
+    return;
+  }
+
+  cancelDeferred(box);
+  apply();
+}
+
+function cancelDeferred(box: HTMLElement) {
+  const waiting = deferred.get(box);
+  if (!waiting) return;
+
+  document.removeEventListener("selectionchange", waiting.resume);
+  deferred.delete(box);
+}
+
+// ---------- Body root ----------
+
+function ownerOf(body: ChatBody) {
+  let owner = owners.get(body);
+  if (!owner) { owner = makeOwner(null); owners.set(body, owner); }
+  return owner;
+}
+
+function makeOwner(host: HTMLElement | null): Owner {
+  const owner: Owner = { root: createDocumentView(host ?? document.createElement("div")), host, body: null, setBody: element => { owner.body = element; }, slots: new Map(), disposed: false, next: 0 };
+  return owner;
+}
+
+function draw(owner: Owner) {
+  if (owner.disposed) return;
+
+  flushSync(() => owner.root.render(<>
+    {owner.host && <div key="body" className="dbody" id="body" ref={owner.setBody} />}
+    {[...owner.slots].map(([box, slot]) => createPortal(partView(slot), box, slot.key))}
+  </>));
+}
+
+function partView(part: Part): ReactNode {
+  switch (part.kind) {
+    case "frame": return <div className="turn dcoderlog" ref={part.setTurn}>{part.value.prompt && <div className="dcoderen user" key="prompt" />}{part.value.pictures && <div className="dpics" key="pictures" />}<template key="anchor" data-chat-anchor="" /></div>;
+    case "background": return <BackgroundView value={part.value} />;
+    case "menu": return <RerunMenu value={part.value} />;
+    case "coder": return part.view;
+    case "route": return <RouteView callId={part.callId} />;
+    case "chart": return <ChartView card={part.card} initial={part.chart} />;
+    case "notice": return <Notice value={part.value} />;
+    case "product": return <Html html={part.html} />;
+    case "replyPictures": return <ReplyPictures images={part.images} />;
+    case "sentFile": return <SentFileCard file={part.file} />;
+    case "pictures": return <PromptPictures images={part.images} />;
+    case "files": return <Files files={part.files} />;
+    case "sources": return <Sources items={part.items} />;
+    case "actions": return <ReplyActionsView value={part.value} />;
+    case "approval": return <Approval value={part.value} />;
+    case "suggestions": return <Suggestions replies={part.replies} send={part.send} />;
+    case "prompt": return <Prompt html={part.html} />;
+    case "work": return <WorkSlot store={part.store} />;
+    case "reply": return <ReplySlot store={part.store} />;
+  }
+}
+
+// Streaming updates notify only their row; portal membership remains synchronous.
+interface RowStore<T> { get(): T; subscribe(listener: () => void): () => void; set(value: T): void }
+function rowStore<T>(initial: T): RowStore<T> {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    set: next => { if (Object.is(value, next)) return; value = next; flushSync(() => { for (const listener of listeners) listener(); }); },
+  };
+}
+
+const WorkSlot = memo(function WorkSlot({ store }: { store: RowStore<WorkView> }) {
+  return <Work value={useSyncExternalStore(store.subscribe, store.get, store.get)} />;
+});
+const ReplySlot = memo(function ReplySlot({ store }: { store: RowStore<string> }) {
+  return <Html html={useSyncExternalStore(store.subscribe, store.get, store.get)} />;
+});
+
+// ---------- Parts ----------
+
 
 const Html = memo(function Html({ html }: { html: string }) {
   return <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: html }} />;
@@ -151,7 +568,7 @@ const ReplyActionsView = memo(function ReplyActionsView({ value }: { value: Repl
     if (generation.current === mine) timer.current = setTimeout(() => setCopyState("idle"), 1200);
   };
   const label = copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy";
-  return <>{value.copy && <button className="dcopy" data-act="copyReply" onClick={event => { event.stopPropagation(); void copyReply(event.currentTarget); }}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: copyState === "copied" ? ICON.check : COPY_ICON }} />{label}</button>}{value.rerun && <span className="drerun"><button className="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded={false}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: PLAY_ICON }} />Rerun<span className="dchev" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button></span>}{value.agent && <span className="dagent" title="The agent that answered">{value.agent}</span>}</>;
+  return <>{value.copy && <button className="dcopy" data-act="copyReply" onClick={event => { event.stopPropagation(); void copyReply(event.currentTarget); }}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: copyState === "copied" ? ICON.check : COPY_ICON }} />{label}</button>}{value.rerun && <span className="drerun"><button className="dcopy" data-act="rerunMenu" aria-haspopup="menu" aria-expanded={false}><span style={{ display: "contents" }}><Icon name="playSmall" /></span>Rerun<span className="dchev" dangerouslySetInnerHTML={{ __html: ICON.chev }} /></button></span>}{value.agent && <span className="dagent" title="The agent that answered">{value.agent}</span>}</>;
 });
 const Approval = memo(function Approval({ value }: { value: ApprovalView }) {
   return <><div className="head"><AppLogo app={value.app} /><div className="dcol"><b>{value.action}?</b><small>{value.app} asks first</small></div></div>
@@ -185,450 +602,3 @@ function LiveLine({ value }: { value: WorkLive }) {
 const Work = memo(function Work({ value }: { value: WorkView }) {
   return <>{value.heading && <AgentTurnHeading value={value.heading} onToggle={value.toggleSteps} />}{value.thought && <Thought value={value.thought} onToggle={value.toggleThought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <LiveLine value={value.live} />}</>;
 });
-// Streaming updates notify only their row; portal membership remains synchronous.
-interface RowStore<T> { get(): T; subscribe(listener: () => void): () => void; set(value: T): void }
-function rowStore<T>(initial: T): RowStore<T> {
-  let value = initial;
-  const listeners = new Set<() => void>();
-  return {
-    get: () => value,
-    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    set: next => { if (Object.is(value, next)) return; value = next; flushSync(() => { for (const listener of listeners) listener(); }); },
-  };
-}
-const WorkSlot = memo(function WorkSlot({ store }: { store: RowStore<WorkView> }) {
-  return <Work value={useSyncExternalStore(store.subscribe, store.get, store.get)} />;
-});
-const ReplySlot = memo(function ReplySlot({ store }: { store: RowStore<string> }) {
-  return <Html html={useSyncExternalStore(store.subscribe, store.get, store.get)} />;
-});
-function draw(owner: Owner) {
-  if (owner.disposed) return;
-  flushSync(() => owner.root.render(createElement(Fragment, null,
-    owner.host ? createElement("div", { key: "body", className: "dbody", id: "body", ref: owner.setBody }) : null,
-    ...[...owner.frames].map(([host, row]) => createPortal(createElement("div", { className: "turn dcoderlog", ref: row.setTurn }, row.value.prompt ? createElement("div", { className: "dcoderen user", key: "prompt" }) : null, row.value.pictures ? createElement("div", { className: "dpics", key: "pictures" }) : null, createElement("template", { key: "anchor", "data-chat-anchor": "" })), host, row.key)),
-    ...[...owner.background].map(([host, row]) => createPortal(createElement(BackgroundView, { value: row.value }), host, row.key)),
-    ...[...owner.menus].map(([host, row]) => createPortal(createElement(RerunMenu, { value: row.value }), host, row.key)),
-    ...[...owner.coders].map(([host, row]) => createPortal(row.view, host, row.key)),
-    ...[...owner.routes].map(([host, row]) => createPortal(createElement(RouteView, { callId: row.callId }), host, row.key)),
-    ...[...owner.charts].map(([host, row]) => createPortal(createElement(ChartView, { card: host, initial: row.chart }), host, row.key)),
-    ...[...owner.notices].map(([host, row]) => createPortal(createElement(Notice, { value: row.value }), host, row.key)),
-    ...[...owner.products].map(([host, row]) => createPortal(createElement(Html, { html: row.html }), host, row.key)),
-    ...[...owner.replyPictures].map(([host, row]) => createPortal(createElement(ReplyPictures, { images: row.images }), host, row.key)),
-    ...[...owner.sentFiles].map(([host, row]) => createPortal(createElement(SentFileCard, { file: row.file }), host, row.key)),
-    ...[...owner.pictures].map(([host, row]) => createPortal(createElement(PromptPictures, { images: row.images }), host, row.key)),
-    ...[...owner.files].map(([host, row]) => createPortal(createElement(Files, { files: row.files }), host, row.key)),
-    ...[...owner.sources].map(([host, row]) => createPortal(createElement(Sources, { items: row.items }), host, row.key)),
-    ...[...owner.actions].map(([host, row]) => createPortal(createElement(ReplyActionsView, { value: row.value }), host, row.key)),
-    ...[...owner.approvals].map(([host, row]) => createPortal(createElement(Approval, { value: row.value }), host, row.key)),
-    ...[...owner.suggestions].map(([host, row]) => createPortal(createElement(Suggestions, { replies: row.replies, send: row.send }), host, row.key)),
-    ...[...owner.prompts].map(([host, row]) => createPortal(createElement(Prompt, { html: row.html }), host, row.key)),
-    ...[...owner.rows].map(([host, row]) => createPortal(createElement(WorkSlot, { store: row.store }), host, row.key)),
-    ...[...owner.replies].map(([host, row]) => createPortal(createElement(ReplySlot, { store: row.store }), host, row.key)))));
-}
-function makeOwner(host: HTMLElement | null): Owner {
-  const container = host ?? document.createElement("div");
-  const owner: Owner = { background: new Map(), disposed: false, menus: new Map(), coders: new Map(), routes: new Map(), frames: new Map(), host, body: null, setBody: element => { owner.body = element; }, charts: new Map(), notices: new Map(), products: new Map(), replyPictures: new Map(), sentFiles: new Map(), pictures: new Map(), files: new Map(), root: createDocumentView(container), sources: new Map(), actions: new Map(), approvals: new Map(), prompts: new Map(), suggestions: new Map(), rows: new Map(), replies: new Map(), next: 0 };
-  return owner;
-}
-function ownerOf(body: ChatBody) {
-  let owner = owners.get(body);
-  if (!owner) { owner = makeOwner(null); owners.set(body, owner); }
-  return owner;
-}
-/// A detached live body stays owned; only cache eviction releases its root.
-export function disposeChatBody(body: ChatBody) {
-  const owner = owners.get(body);
-  if (!owner || owner.disposed) return;
-  owner.disposed = true;
-  for (const box of owner.prompts.keys()) {
-    const waiting = promptPending.get(box);
-    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); promptPending.delete(box); }
-  }
-  for (const box of owner.replies.keys()) {
-    const waiting = replyPending.get(box);
-    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(box); }
-  }
-  for (const box of owner.rows.keys()) {
-    const waiting = pending.get(box);
-    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); pending.delete(box); }
-  }
-  owner.root.unmount();
-  owner.background.clear(); owner.frames.clear(); owner.menus.clear(); owner.coders.clear(); owner.routes.clear(); owner.charts.clear(); owner.notices.clear();
-  owner.products.clear(); owner.replyPictures.clear(); owner.sentFiles.clear(); owner.pictures.clear(); owner.files.clear();
-  owner.sources.clear(); owner.actions.clear(); owner.approvals.clear(); owner.prompts.clear(); owner.suggestions.clear(); owner.rows.clear(); owner.replies.clear();
-}
-export function renderChatBackground(body: ChatBody, box: HTMLElement, value: BackgroundQuestions) {
-  const owner = ownerOf(body), prior = owner.background.get(box), signature = JSON.stringify(value);
-  if (prior?.signature === signature) return false;
-  owner.background.set(box, { key: prior?.key ?? ++owner.next, value, signature });
-  draw(owner);
-  return true;
-}
-export function discardChatBackground(body: ChatBody, box: HTMLElement) {
-  const owner = owners.get(body);
-  if (owner?.background.delete(box)) draw(owner);
-}
-export function createChatBody(): ChatBody {
-  const host = document.createElement("div");
-  host.style.display = "contents";
-  const owner = makeOwner(host);
-  draw(owner);
-  if (!owner.body) throw new Error("Chat body did not mount");
-  owners.set(owner.body, owner);
-  return owner.body;
-}
-export function chatBodyHost(body: ChatBody): HTMLElement {
-  return owners.get(body)?.host ?? body;
-}
-
-// History creates frames in one render; their content portals can then update
-// independently while the conversation moves the display-contents hosts.
-export function createChatTurns(body: ChatBody, values: readonly TurnFrame[]): Turn[] {
-  if (!values.length) return [];
-  const owner = ownerOf(body);
-  const frames = values.map(value => {
-    const host = document.createElement("div");
-    host.style.display = "contents";
-    const frame: { host: HTMLElement; turn: Turn | null } = { host, turn: null };
-    owner.frames.set(host, { key: ++owner.next, value, setTurn: element => { frame.turn = element; } });
-    return frame;
-  });
-  draw(owner);
-  return frames.map(frame => {
-    if (!frame.turn) throw new Error("Chat turn did not mount");
-    turnHosts.set(frame.turn, { host: frame.host, owner });
-    return frame.turn;
-  });
-}
-export function createChatTurn(body: ChatBody, value: TurnFrame): Turn {
-  const turn = createChatTurns(body, [value])[0];
-  if (!turn) throw new Error("Chat turn did not mount");
-  return turn;
-}
-
-export function ensureChatPrompt(turn: Turn): HTMLElement | null {
-  const entry = turnHosts.get(turn), frame = entry?.owner.frames.get(entry.host);
-  if (!entry || !frame) return null;
-  if (!frame.value.prompt) {
-    frame.value = { ...frame.value, prompt: true };
-    draw(entry.owner);
-  }
-  return turn.querySelector<HTMLElement>(":scope > .dcoderen.user");
-}
-export function chatTurnHost(turn: Turn): HTMLElement {
-  return turnHosts.get(turn)?.host ?? turn;
-}
-export function renderChatRerunMenu(body: ChatBody, turn: Turn, box: HTMLElement, value: RerunView) {
-  const owner = ownerOf(body);
-  menuTurns.set(turn, { owner, box });
-  owner.menus.set(box, { key: ++owner.next, value });
-  draw(owner);
-}
-export function discardChatRerunMenu(turn: Turn) {
-  const entry = menuTurns.get(turn);
-  menuTurns.delete(turn);
-  if (entry) { entry.owner.menus.delete(entry.box); draw(entry.owner); }
-}
-export function renderChatCoderCards(body: ChatBody, cards: readonly { host: HTMLElement; view: ReactElement }[]) {
-  const owner = ownerOf(body), next = new Map<HTMLElement, { key: number; view: ReactElement }>();
-  for (const card of cards) next.set(card.host, { key: owner.coders.get(card.host)?.key ?? ++owner.next, view: card.view });
-  owner.coders = next;
-  draw(owner);
-}
-export function renderChatRoute(body: ChatBody, turn: Turn, box: HTMLElement, callId: string) {
-  const owner = ownerOf(body), entry = routeTurns.get(turn);
-  if (entry) entry.boxes.push(box); else routeTurns.set(turn, { owner, boxes: [box] });
-  owner.routes.set(box, { key: ++owner.next, callId });
-  draw(owner);
-}
-export function renderChatChart(body: ChatBody, turn: Turn, box: ChartCard, chart: Chart) {
-  const owner = ownerOf(body), entry = chartTurns.get(turn);
-  if (entry) entry.boxes.push(box); else chartTurns.set(turn, { owner, boxes: [box] });
-  owner.charts.set(box, { key: ++owner.next, chart });
-  draw(owner);
-}
-export function renderChatNotice(body: ChatBody, turn: Turn, box: HTMLElement, value: StatusNotice) {
-  const owner = ownerOf(body), entry = noticeTurns.get(turn);
-  if (entry) entry.boxes.push(box); else noticeTurns.set(turn, { owner, boxes: [box] });
-  owner.notices.set(box, { key: ++owner.next, value });
-  draw(owner);
-}
-export function discardChatNotice(turn: Turn, box: HTMLElement) {
-  const entry = noticeTurns.get(turn);
-  if (!entry) return;
-  entry.boxes = entry.boxes.filter(item => item !== box);
-  if (!entry.boxes.length) noticeTurns.delete(turn);
-  entry.owner.notices.delete(box);
-  draw(entry.owner);
-}
-export function transferChatNotice(from: Turn, to: Turn, box: HTMLElement) {
-  const entry = noticeTurns.get(from);
-  if (!entry || !entry.boxes.includes(box)) return;
-  entry.boxes = entry.boxes.filter(item => item !== box);
-  if (!entry.boxes.length) noticeTurns.delete(from);
-  const target = noticeTurns.get(to);
-  if (target) target.boxes.push(box); else noticeTurns.set(to, { owner: entry.owner, boxes: [box] });
-}
-export function renderChatProduct(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
-  const owner = ownerOf(body), entry = productTurns.get(turn);
-  if (entry) entry.boxes.push(box); else productTurns.set(turn, { owner, boxes: [box] });
-  owner.products.set(box, { key: ++owner.next, html });
-  draw(owner);
-}
-export function renderChatReplyPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: SentImage[]) {
-  const owner = ownerOf(body), prior = owner.replyPictures.get(box);
-  replyPictureTurns.set(turn, { owner, box });
-  owner.replyPictures.set(box, { key: prior?.key ?? ++owner.next, images: images.slice() });
-  draw(owner);
-}
-export function renderChatSentFile(body: ChatBody, turn: Turn, box: HTMLElement, file: SentFile) {
-  const owner = ownerOf(body), entry = sentFileTurns.get(turn);
-  if (entry) entry.boxes.push(box); else sentFileTurns.set(turn, { owner, boxes: [box] });
-  owner.sentFiles.set(box, { key: ++owner.next, file });
-  draw(owner);
-}
-export function transferChatSentFiles(from: Turn, to: Turn) {
-  const nextRoutes = routeTurns.get(from), priorRoutes = routeTurns.get(to);
-  routeTurns.delete(from);
-  if (priorRoutes) for (const box of priorRoutes.boxes) priorRoutes.owner.routes.delete(box);
-  if (nextRoutes) routeTurns.set(to, nextRoutes); else routeTurns.delete(to);
-  if (priorRoutes && priorRoutes.owner !== nextRoutes?.owner) draw(priorRoutes.owner);
-  const nextCharts = chartTurns.get(from), priorCharts = chartTurns.get(to);
-  chartTurns.delete(from);
-  if (priorCharts) for (const box of priorCharts.boxes) priorCharts.owner.charts.delete(box);
-  if (nextCharts) chartTurns.set(to, nextCharts); else chartTurns.delete(to);
-  if (priorCharts && priorCharts.owner !== nextCharts?.owner) draw(priorCharts.owner);
-  const nextProducts = productTurns.get(from), priorProducts = productTurns.get(to);
-  productTurns.delete(from);
-  if (priorProducts) for (const box of priorProducts.boxes) priorProducts.owner.products.delete(box);
-  if (nextProducts) productTurns.set(to, nextProducts); else productTurns.delete(to);
-  if (priorProducts && priorProducts.owner !== nextProducts?.owner) draw(priorProducts.owner);
-  const nextPictures = replyPictureTurns.get(from), priorPictures = replyPictureTurns.get(to);
-  replyPictureTurns.delete(from);
-  if (priorPictures) priorPictures.owner.replyPictures.delete(priorPictures.box);
-  if (nextPictures) replyPictureTurns.set(to, nextPictures); else replyPictureTurns.delete(to);
-  if (priorPictures && priorPictures.owner !== nextPictures?.owner) draw(priorPictures.owner);
-  const next = sentFileTurns.get(from), prior = sentFileTurns.get(to);
-  sentFileTurns.delete(from);
-  if (prior) for (const box of prior.boxes) prior.owner.sentFiles.delete(box);
-  if (next) sentFileTurns.set(to, next); else sentFileTurns.delete(to);
-  if (prior && prior.owner !== next?.owner) draw(prior.owner);
-  const owner = next?.owner ?? prior?.owner ?? nextPictures?.owner ?? priorPictures?.owner ?? nextProducts?.owner ?? priorProducts?.owner ?? nextCharts?.owner ?? priorCharts?.owner ?? nextRoutes?.owner ?? priorRoutes?.owner;
-  if (owner) draw(owner);
-}
-export function renderChatPictures(body: ChatBody, turn: Turn, box: HTMLElement, images: PicRef[]) {
-  const owner = ownerOf(body);
-  pictureTurns.set(turn, { owner, box });
-  owner.pictures.set(box, { key: ++owner.next, images });
-  draw(owner);
-}
-export function transferChatPictures(from: Turn, to: Turn) {
-  const entry = pictureTurns.get(from);
-  if (!entry) return;
-  pictureTurns.delete(from); pictureTurns.set(to, entry);
-}
-export function renderChatFiles(body: ChatBody, turn: Turn, box: HTMLElement, files: AskFile[]) {
-  const owner = ownerOf(body);
-  fileTurns.set(turn, { owner, box });
-  owner.files.set(box, { key: ++owner.next, files });
-  draw(owner);
-}
-export function transferChatFiles(from: Turn, to: Turn) {
-  const entry = fileTurns.get(from);
-  if (!entry) return;
-  fileTurns.delete(from); fileTurns.set(to, entry);
-}
-export function renderChatSources(body: ChatBody, turn: Turn, box: HTMLElement, items: Source[]) {
-  const owner = ownerOf(body), prior = owner.sources.get(box);
-  sourceTurns.set(turn, { owner, box });
-  owner.sources.set(box, { key: prior?.key ?? ++owner.next, items });
-  draw(owner);
-}
-export function discardChatSources(turn: Turn) {
-  const entry = sourceTurns.get(turn);
-  sourceTurns.delete(turn);
-  if (entry) { entry.owner.sources.delete(entry.box); draw(entry.owner); }
-}
-export function renderChatActions(body: ChatBody, turn: Turn, box: HTMLElement, value: ReplyActions) {
-  const owner = ownerOf(body), prior = owner.actions.get(box);
-  actionTurns.set(turn, { owner, box });
-  owner.actions.set(box, { key: prior?.key ?? ++owner.next, value });
-  draw(owner);
-}
-export function discardChatActions(turn: Turn) {
-  const entry = actionTurns.get(turn);
-  actionTurns.delete(turn);
-  if (entry) { entry.owner.actions.delete(entry.box); draw(entry.owner); }
-}
-export function renderChatApproval(body: ChatBody, turn: Turn, box: HTMLElement, value: ApprovalView) {
-  const owner = ownerOf(body), prior = owner.approvals.get(box);
-  approvalTurns.set(turn, { owner, box });
-  owner.approvals.set(box, { key: prior?.key ?? ++owner.next, value });
-  draw(owner);
-}
-export function discardChatApproval(turn: Turn) {
-  const entry = approvalTurns.get(turn);
-  approvalTurns.delete(turn);
-  if (entry) { entry.owner.approvals.delete(entry.box); draw(entry.owner); }
-}
-export function transferChatApproval(from: Turn, to: Turn) {
-  const next = approvalTurns.get(from), prior = approvalTurns.get(to);
-  approvalTurns.delete(from);
-  if (prior) prior.owner.approvals.delete(prior.box);
-  if (next) approvalTurns.set(to, next); else approvalTurns.delete(to);
-  if (prior && prior.owner !== next?.owner) draw(prior.owner);
-  const current = next ?? prior;
-  if (current) draw(current.owner);
-}
-export function renderChatSuggestions(body: ChatBody, turn: Turn, box: HTMLElement, replies: string[], send: (text: string) => void) {
-  const owner = ownerOf(body), prior = owner.suggestions.get(box);
-  suggestionTurns.set(turn, { owner, box });
-  owner.suggestions.set(box, { key: prior?.key ?? ++owner.next, replies, send });
-  draw(owner);
-}
-export function discardChatSuggestions(turn: Turn) {
-  const entry = suggestionTurns.get(turn);
-  suggestionTurns.delete(turn);
-  if (entry) { entry.owner.suggestions.delete(entry.box); draw(entry.owner); }
-}
-export function transferChatSuggestions(from: Turn, to: Turn) {
-  const next = suggestionTurns.get(from), prior = suggestionTurns.get(to);
-  suggestionTurns.delete(from);
-  if (prior) prior.owner.suggestions.delete(prior.box);
-  if (next) suggestionTurns.set(to, next); else suggestionTurns.delete(to);
-  if (prior && prior.owner !== next?.owner) draw(prior.owner);
-  const current = next ?? prior;
-  if (current) draw(current.owner);
-}
-export function renderChatPrompt(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
-  const owner = ownerOf(body);
-  promptTurns.set(turn, { owner, box });
-  owner.prompts.set(box, { key: ++owner.next, html });
-  draw(owner);
-}
-export function updateChatPrompt(turn: Turn, html: string) {
-  const entry = promptTurns.get(turn);
-  if (!entry) return false;
-  const prior = entry.owner.prompts.get(entry.box);
-  if (!prior) return false;
-  const selected = () => { const selection = document.getSelection(); return !!selection && !selection.isCollapsed && selection.containsNode(entry.box, true); };
-  const apply = (value: string) => { entry.owner.prompts.set(entry.box, { ...prior, html: value }); draw(entry.owner); };
-  if (selected()) {
-    const waiting = promptPending.get(entry.box);
-    if (waiting) { waiting.html = html; return true; }
-    const resume = () => {
-      const latest = promptPending.get(entry.box);
-      if (!latest || selected()) return;
-      promptPending.delete(entry.box); document.removeEventListener("selectionchange", resume); apply(latest.html);
-    };
-    promptPending.set(entry.box, { html, resume }); document.addEventListener("selectionchange", resume);
-    return true;
-  }
-  const waiting = promptPending.get(entry.box);
-  if (waiting) { document.removeEventListener("selectionchange", waiting.resume); promptPending.delete(entry.box); }
-  apply(html);
-  return true;
-}
-export function transferChatPrompt(from: Turn, to: Turn) {
-  const entry = promptTurns.get(from);
-  if (!entry) return;
-  promptTurns.delete(from); promptTurns.set(to, entry);
-}
-export function renderChatWork(body: ChatBody, turn: Turn, box: HTMLElement, value: WorkView, after: () => void) {
-  const current = ownerOf(body);
-  const selected = () => {
-    const selection = document.getSelection();
-    return !!selection && !selection.isCollapsed && selection.containsNode(box, true);
-  };
-  const prior = current.rows.get(box);
-  const apply = (next: WorkView, done: () => void) => {
-    if (prior) prior.store.set(next);
-    else { current.rows.set(box, { key: ++current.next, store: rowStore(next) }); draw(current); }
-    done();
-  };
-  turns.set(turn, { owner: current, box });
-  if (prior && selected()) {
-    const waiting = pending.get(box);
-    if (waiting) { waiting.value = value; waiting.after = after; return; }
-    const resume = () => {
-      const latest = pending.get(box);
-      if (!latest || selected()) return;
-      pending.delete(box);
-      document.removeEventListener("selectionchange", resume);
-      apply(latest.value, latest.after);
-    };
-    pending.set(box, { value, after, resume });
-    document.addEventListener("selectionchange", resume);
-    return;
-  }
-  const waiting = pending.get(box);
-  if (waiting) { document.removeEventListener("selectionchange", waiting.resume); pending.delete(box); }
-  apply(value, after);
-}
-export function renderChatReply(body: ChatBody, turn: Turn, box: HTMLElement, html: string) {
-  const owner = ownerOf(body), prior = owner.replies.get(box);
-  replyTurns.set(turn, { owner, box });
-  if (prior?.store.get() === html && !replyPending.has(box)) return;
-  const selected = () => { const selection = document.getSelection(); return !!selection && !selection.isCollapsed && selection.containsNode(box, true); };
-  const apply = (value: string) => {
-    if (prior) prior.store.set(value);
-    else { owner.replies.set(box, { key: ++owner.next, store: rowStore(value) }); draw(owner); }
-  };
-  if (prior && selected()) {
-    const waiting = replyPending.get(box);
-    if (waiting) { waiting.html = html; return; }
-    const resume = () => {
-      const latest = replyPending.get(box);
-      if (!latest || selected()) return;
-      replyPending.delete(box); document.removeEventListener("selectionchange", resume); apply(latest.html);
-    };
-    replyPending.set(box, { html, resume }); document.addEventListener("selectionchange", resume);
-    return;
-  }
-  const waiting = replyPending.get(box);
-  if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(box); }
-  apply(html);
-}
-export function transferChatReply(from: Turn, to: Turn) {
-  const entry = replyTurns.get(from);
-  if (!entry) return;
-  replyTurns.delete(from); replyTurns.set(to, entry);
-}
-export function discardChatWork(turn: Turn) {
-  const frame = turnHosts.get(turn);
-  turnHosts.delete(turn);
-  if (frame) frame.owner.frames.delete(frame.host);
-  const menu = menuTurns.get(turn), routes = routeTurns.get(turn), charts = chartTurns.get(turn), notices = noticeTurns.get(turn), products = productTurns.get(turn), replyPictures = replyPictureTurns.get(turn), sentFiles = sentFileTurns.get(turn), pictures = pictureTurns.get(turn), files = fileTurns.get(turn), sources = sourceTurns.get(turn), actions = actionTurns.get(turn), approval = approvalTurns.get(turn), suggestion = suggestionTurns.get(turn), prompt = promptTurns.get(turn), work = turns.get(turn), reply = replyTurns.get(turn);
-  menuTurns.delete(turn); routeTurns.delete(turn); chartTurns.delete(turn); noticeTurns.delete(turn); productTurns.delete(turn); replyPictureTurns.delete(turn); sentFileTurns.delete(turn); pictureTurns.delete(turn); fileTurns.delete(turn); sourceTurns.delete(turn); actionTurns.delete(turn); approvalTurns.delete(turn); suggestionTurns.delete(turn); promptTurns.delete(turn); turns.delete(turn); replyTurns.delete(turn);
-  if (menu) menu.owner.menus.delete(menu.box);
-  if (routes) for (const box of routes.boxes) routes.owner.routes.delete(box);
-  if (charts) for (const box of charts.boxes) charts.owner.charts.delete(box);
-  if (notices) for (const box of notices.boxes) notices.owner.notices.delete(box);
-  if (products) for (const box of products.boxes) products.owner.products.delete(box);
-  if (replyPictures) replyPictures.owner.replyPictures.delete(replyPictures.box);
-  if (sentFiles) for (const box of sentFiles.boxes) sentFiles.owner.sentFiles.delete(box);
-  if (pictures) pictures.owner.pictures.delete(pictures.box);
-  if (files) files.owner.files.delete(files.box);
-  if (sources) sources.owner.sources.delete(sources.box);
-  if (actions) actions.owner.actions.delete(actions.box);
-  if (approval) approval.owner.approvals.delete(approval.box);
-  if (suggestion) suggestion.owner.suggestions.delete(suggestion.box);
-  if (prompt) {
-    const waiting = promptPending.get(prompt.box);
-    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); promptPending.delete(prompt.box); }
-    prompt.owner.prompts.delete(prompt.box);
-  }
-  if (work) {
-    const waiting = pending.get(work.box);
-    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); pending.delete(work.box); }
-    work.owner.rows.delete(work.box);
-  }
-  if (reply) {
-    const waiting = replyPending.get(reply.box);
-    if (waiting) { document.removeEventListener("selectionchange", waiting.resume); replyPending.delete(reply.box); }
-    reply.owner.replies.delete(reply.box);
-  }
-  const owners = new Set([frame?.owner, menu?.owner, routes?.owner, charts?.owner, notices?.owner, products?.owner, replyPictures?.owner, sentFiles?.owner, pictures?.owner, files?.owner, sources?.owner, actions?.owner, approval?.owner, suggestion?.owner, prompt?.owner, work?.owner, reply?.owner]);
-  for (const owner of owners) if (owner) draw(owner);
-}
