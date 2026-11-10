@@ -19,15 +19,16 @@ test("research header preserves the running controls across streaming updates", 
   const research: Research = { topic: "Example topic", status: "researching", agents: [], sources: [], draft: "", draft_html: "", started_at: 1, finished_at: null, round: 1 };
   try {
     await act(() => { root.render(createElement(ResearchHead, { research, entries: [], sending: "" })); });
-    const running = host.querySelector(".drun"), stop = host.querySelector<HTMLButtonElement>('button[data-act="stop"]');
+    const stopButton = () => [...host.querySelectorAll("button")].find(button => button.textContent === "Stop") ?? null;
+    const running = host.querySelector(".drun"), stop = stopButton();
     assert.ok(running && stop);
     stop.focus();
     await act(() => { root.render(createElement(ResearchHead, { research, entries: [], sending: "New streaming text" })); });
     assert.equal(host.querySelector(".drun"), running);
-    assert.equal(host.querySelector('button[data-act="stop"]'), stop);
+    assert.equal(stopButton(), stop);
     assert.equal(dom.window.document.activeElement, stop);
     await act(() => { root.render(createElement(ResearchHead, { research: { ...research, status: "done" }, entries: [], sending: null })); });
-    assert.equal(host.querySelector('button[data-act="stop"]'), null);
+    assert.equal(stopButton(), null);
     assert.equal(host.querySelector(".chip")?.textContent, "Done");
   } finally {
     await act(() => { root.unmount(); });

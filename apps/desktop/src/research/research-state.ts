@@ -55,6 +55,11 @@ export type Turn =
   | { role: "scheduled"; label: string }
   | { role: "approval" };
 
+/// What a control on an opened research asks for.
+export type ResearchAct =
+  | { kind: "go" } | { kind: "stop" } | { kind: "copy" } | { kind: "export" } | { kind: "rounds" } | { kind: "room" }
+  | { kind: "tab"; tab: string } | { kind: "close"; tab: string } | { kind: "agent"; agent: string } | { kind: "round"; round: number };
+
 /// What an agent is doing: a line and its state.
 export type Doing = [line: string, state: "run" | "ok" | "wait" | ""];
 

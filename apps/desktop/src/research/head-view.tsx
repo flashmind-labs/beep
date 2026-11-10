@@ -1,5 +1,7 @@
 import { chipClass, phaseStep, PHASES, STATUS_LABEL, type ResearchStatus } from "./research-list.ts";
+import { useContext } from "react";
 import { facts, RUNNING, type Entry, type Research } from "./research-state.ts";
+import { ResearchActions } from "./shell-view.tsx";
 
 interface Props {
   research: Research | null;
@@ -16,7 +18,7 @@ export function ResearchHead({ research, entries, sending }: Props) {
     <span className="tt"><b>{research?.topic || "Research"}</b>{line && <small>{line}</small>}</span>
     {status ? <Status status={status} label={STATUS_LABEL[status]}/> : sending !== null && <Status status="researching" label="Planning"/>}
     {step > 0 && <span className="cc-rsteps">{PHASES.map((phase, index) => <i key={phase} className={index + 1 < step ? "done" : index + 1 === step ? "now" : ""}/>)}</span>}
-    {RUNNING.has(status) && <button className="dbtn small warn" data-act="stop">Stop</button>}
+    {RUNNING.has(status) && <StopButton />}
   </>;
 }
 
@@ -24,4 +26,9 @@ function Status({ status, label }: { status: ResearchStatus; label: string }) {
   const cls = chipClass(status);
   const spinning = status === "researching" || status === "reviewing" || status === "writing";
   return <span className={`chip${cls ? ` ${cls}` : ""}`}>{spinning && <span className="drun"/>}{label}</span>;
+}
+
+function StopButton() {
+  const act = useContext(ResearchActions);
+  return <button className="dbtn small warn" onClick={() => act({ kind: "stop" })}>Stop</button>;
 }

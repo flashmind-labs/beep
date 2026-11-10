@@ -42,10 +42,10 @@ test("research tabs preserve their elements and delegated open and close actions
   await agents.click();
   await expect(page.locator(".rs .agpviews .rpane:visible")).toHaveCount(1);
   await expect(notes).toHaveAttribute("data-test-identity", "kept");
-  await page.locator('.rs [data-act="room"]:visible').click();
+  await page.locator(".rs .rpane.agents:visible").getByRole("button", { name: /Room/ }).click();
   const room = tabs.getByRole("tab", { name: "Room Close Room" });
   await expect(room).toHaveAttribute("aria-selected", "true");
-  await tabs.locator('[data-act="close:room"]').click();
+  await tabs.getByRole("button", { name: "Close Room" }).click();
   await expect(room).toHaveCount(0);
   await expect(agents).toHaveAttribute("aria-selected", "true");
 });
@@ -108,7 +108,7 @@ test("research notes and room preserve scroll and update incrementally", async (
   await expect(pane).toHaveJSProperty("scrollTop", before);
   await expect(firstNote).toHaveAttribute("data-test-identity", "kept");
   await tabs.getByRole("tab", { name: "Agents" }).click();
-  await page.locator('.rs [data-act="room"]:visible').click();
+  await page.locator(".rs .rpane.agents:visible").getByRole("button", { name: /Room/ }).click();
   await expect(pane).toContainText("A new message");
   await expect.poll(() => pane.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(1);
   await pane.evaluate(el => { el.scrollTop = 0; });
@@ -155,7 +155,7 @@ test("agent threads retain selected entries and scroll as new work arrives", asy
   const initial = { ...research("Thread example"), agents: [agent], entries };
   await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, cached_research: initial, get_research: initial, research_history: [], research_pending: null, list_researches: [] });
   await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
-  await page.locator('.rs [data-act="agent:scout-1"]').click();
+  await page.locator(".rs .rpane.agents:visible").getByRole("button", { name: /Scout/ }).click();
   const pane = page.locator(".rs .rpane.thread:visible"), message = pane.locator(".rmsg").first();
   await expect(message).toContainText("Finding 1");
   await message.evaluate(el => { const node = el.querySelector("p")?.firstChild; if (!node) return; const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 7); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range); Reflect.set(window, "researchThreadMessage", el); });

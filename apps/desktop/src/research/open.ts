@@ -1,13 +1,13 @@
 import { commandKey } from "../ui/platform.ts";
-import { createElement, type ReactElement } from "react";
+import { createElement, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
 import { ResearchLivePane } from "./live-pane-view.tsx";
 import { ResearchChat, ResearchPaper } from "./chat-paper-view.tsx";
 import { ResearchAgents, ResearchThread } from "./agents-pane-view.tsx";
-import { ResearchShell } from "./shell-view.tsx";
-import { ResearchNotice, ResearchQuote } from "./open-controls.tsx";
+import { ResearchShell, type ShellParts } from "./shell-view.tsx";
 import { createDocumentScope } from "../ui/document-root.tsx";
+import { ResearchNotice, ResearchQuote } from "./open-controls.tsx";
 // An opened research, as a page of the command center laid out like a coding
 // agent session: the lead's chat on the left, the paper, notes, sources and the
 // team as the tabs of a side pane on the right. The page is drawn once and
@@ -15,7 +15,6 @@ import { createDocumentScope } from "../ui/document-root.tsx";
 import { copyCode } from "../agents/turnrows.ts";
 import { atBottom, followsAfterScroll } from "../agents/logscroll.ts";
 import { followEnd } from "../ui/followend.ts";
-import type { ChatBody } from "../ui/turn.ts";
 import { onZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
@@ -23,7 +22,7 @@ import { currentLocation, drawPage } from "../center/views.ts";
 import type { CenterView } from "../center/state.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { type Open, type ResearchView, type Turn, RUNNING, agentOf, closeTab, followsEnd, openTab, placeholder, round, shownTab } from "./research-state.ts";
+import { type Open, type ResearchAct, type ResearchView, type Turn, RUNNING, agentOf, closeTab, followsEnd, openTab, placeholder, round, shownTab } from "./research-state.ts";
 import { dragHandle } from "../ui/drag.ts";
 import { onShownChange, pageShown } from "../ui/active.ts";
 
@@ -42,28 +41,22 @@ const CHAT_EVERY = 4;
 /// Where the side pane's width is kept.
 const WIDTH_KEY = "research.paneWidth";
 
-/// The parts of the page, once built.
-interface Page {
-  root: HTMLElement;
-  head: HTMLElement;
-  shell: HTMLElement;
-  log: ChatBody;
-  chat: HTMLElement;
-  ask: HTMLTextAreaElement;
-  pane: HTMLElement;
-  tabs: HTMLElement;
-  view: HTMLElement;
-}
-
 const fresh = (session: string): Open => ({
   session, research: null, entries: [], after: 0, turns: [], tabs: [], tab: null, pick: null, menu: false, sending: null, error: "", exporting: false,
 });
 
 let R = fresh("");
-let page: Page | null = null;
+let page: ShellParts | null = null;
 /// Counts the pages built, so a new research draws a new shell.
 let built = 0;
 let headNode: ReactElement | null = null, tabsNode: ReactElement | null = null, paneNode: ReactElement | null = null, chatNode: ReactElement | null = null;
+let noticeNode: ReactElement | null = null;
+/// The tab the pane last drew, so a newly opened one starts at its top.
+let paneTab: string | null = null;
+/// The side pane while its grip is dragged, and its width as drawn.
+let resizing = false, paneBasis: number | null = null;
+/// Where the reader left the lead's chat, to tell scrolling up from it growing.
+let logTop = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight = false;
 let polls = 0;
@@ -81,9 +74,9 @@ export const researchOpenView: CenterView<"researchopen"> = {
   title: () => ({ title: "Research" }),
   mount(el, arg) {
     const { session } = arg;
-    if (R.session !== session || !page || page.root.parentElement !== el) build(el, session);
+    if (R.session !== session || !page || page.root.parentElement !== el) build(session);
     if (!inflight) void poll(true);
-    page!.ask.focus();
+    page?.ask.focus();
   },
   unmount() {
     clearTimeout(timer);
@@ -93,32 +86,30 @@ export const researchOpenView: CenterView<"researchopen"> = {
 
 // ---------- The page ----------
 
-function build(el: HTMLElement, session: string) {
-  zoomed = false;
-  headNode = tabsNode = paneNode = chatNode = null;
+function build(session: string) {
+  zoomed = resizing = false;
+  headNode = tabsNode = paneNode = chatNode = noticeNode = null;
+  paneTab = null;
+  logTop = 0;
   R = fresh(session);
   polls = 0;
   built++;
   drawPage("researchopen");
-  const root = el.querySelector<HTMLElement>(".rs")!;
-  const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
-  page = { root, head: q(".dhead"), shell: q(".agshell"), log: q(".rs-log"), chat: q(".dcoderlog"), ask: q("textarea"), pane: q(".rs-pane"), tabs: q(".agtabs"), view: q(".agpviews") };
-  composeField(page.ask, { grow: 156 });
-  root.addEventListener("click", onClick);
-  page.ask.addEventListener("keydown", onAskKey);
-  for (const part of [page.log, page.view]) part.addEventListener("scroll", () => hideQuote(), true);
+  if (!page) return;
+  const parts = page;
+  composeField(parts.ask, { grow: 156 });
   // The lead's chat follows its end until the reader scrolls up, and stays there as it grows.
-  const log = page.log;
-  let top = 0;
-  log.addEventListener("scroll", () => { log.stuck = followsAfterScroll(log.stuck !== false, top, log); top = log.scrollTop; }, { passive: true });
-  followEnd(log, page.chat);
-  wireDivider(page);
+  followEnd(parts.log, parts.chat);
+  wireDivider(parts);
   watch?.disconnect();
   watch = new ResizeObserver(place);
-  watch.observe(page.shell);
+  watch.observe(parts.shell);
   place();
   void start();
 }
+
+/// The shell hands over its elements as it mounts, and null as it goes.
+function bind(parts: ShellParts | null) { page = parts; }
 
 /// What this Mac already holds draws at once; the poll adds what is new.
 async function start() {
@@ -134,33 +125,39 @@ async function start() {
 
 const place = () => {
   if (!page) return;
-  page.pane.style.flexBasis = `${paneSize("right", paneWidth, page.shell.clientWidth)}px`;
-  page.shell.classList.toggle("zoomed", zoomed);
-  page.pane.classList.toggle("zoomed", zoomed);
+  const basis = paneSize("right", paneWidth, page.shell.clientWidth);
+  if (basis === paneBasis) return;
+  paneBasis = basis;
+  drawShell();
 };
 
 // ⇧esc: the side pane fills the page over the chat, as in a session; only classes
 // change, so nothing in it reloads. In the capture phase so no Esc handler sees it.
-onZoomKey(active, () => { zoomed = !zoomed; place(); });
+onZoomKey(active, () => { zoomed = !zoomed; drawShell(); });
 
 /// The grip between the chat and the pane: drag to resize, double-click to reset.
-function wireDivider(p: Page) {
-  const div = p.shell.querySelector<HTMLElement>(".agdiv")!;
-  const set = (width: number | null) => { paneWidth = width == null ? null : paneSize("right", width, p.shell.clientWidth); place(); };
-  const keep = () => { try { if (paneWidth) localStorage.setItem(WIDTH_KEY, String(paneWidth)); else localStorage.removeItem(WIDTH_KEY); } catch { /* kept while the window is open */ } };
-  dragHandle(div, () => {
-    p.shell.classList.add("resizing");
-    div.classList.add("active");
+function wireDivider(p: ShellParts) {
+  dragHandle(p.divider, () => {
+    resizing = true;
+    drawShell();
     return {
-      move: ev => set(p.shell.getBoundingClientRect().right - ev.clientX),
+      move: ev => setPaneWidth(p.shell.getBoundingClientRect().right - ev.clientX),
       end: () => {
-        p.shell.classList.remove("resizing");
-        div.classList.remove("active");
-        keep();
+        resizing = false;
+        drawShell();
+        keepPaneWidth();
       },
     };
   });
-  div.addEventListener("dblclick", () => { set(null); keep(); });
+}
+
+function setPaneWidth(width: number | null) {
+  paneWidth = width === null || !page ? null : paneSize("right", width, page.shell.clientWidth);
+  place();
+}
+
+function keepPaneWidth() {
+  try { if (paneWidth) localStorage.setItem(WIDTH_KEY, String(paneWidth)); else localStorage.removeItem(WIDTH_KEY); } catch { /* kept while the window is open */ }
 }
 
 // ---------- Drawing ----------
@@ -171,7 +168,16 @@ function drawShell() {
 
 /// The opened research, with what each part last drew.
 export function ResearchOpenPage() {
-  return createElement(ResearchShell, { key: built, head: headNode, chat: chatNode, tabs: tabsNode, pane: paneNode });
+  return createElement(ResearchShell, { key: built, head: headNode, chat: chatNode, tabs: tabsNode, pane: paneNode, notice: noticeNode,
+    placeholder: placeholder(R), zoomed, resizing, paneBasis, act: run, bind, click, askKey, logScrolled, scrolled: hideQuote,
+    resetPane: () => { setPaneWidth(null); keepPaneWidth(); } });
+}
+
+function logScrolled() {
+  const log = page?.log;
+  if (!log) return;
+  log.stuck = followsAfterScroll(log.stuck !== false, logTop, log);
+  logTop = log.scrollTop;
 }
 
 function drawHead() {
@@ -185,22 +191,21 @@ function drawChat() {
   chatNode = createElement(ResearchChat, { research: R });
   drawShell();
   if (log.stuck !== false) log.scrollTop = log.scrollHeight;
-  page.ask.placeholder = placeholder(R);
 }
 
 function drawPane() {
   if (!page) return;
-  const tab = shownTab(R), same = page.view.dataset.tab === tab;
-  page.view.dataset.tab = tab;
+  const tab = shownTab(R), same = paneTab === tab;
+  paneTab = tab;
   tabsNode = createElement(ResearchTabs, { research: R });
-  const before = page.view.querySelector<HTMLElement>(".rpane");
+  const before = page.views.querySelector<HTMLElement>(".rpane");
   const stuck = !!before && atBottom(before);
   paneNode = tab === "draft" ? createElement(ResearchPaper, { research: R })
     : tab === "agents" ? createElement(ResearchAgents, { research: R })
     : tab === "sources" || tab === "notes" || tab === "room" ? createElement(ResearchLivePane, { research: R, tab })
     : createElement(ResearchThread, { research: R, agent: agentOf(R, tab) });
   drawShell();
-  const body = page.view.querySelector<HTMLElement>(".rpane");
+  const body = page.views.querySelector<HTMLElement>(".rpane");
   if (!body) return;
   // A thread or the room follows its newest line; a tab just opened starts at its top.
   if (!same) body.scrollTop = followsEnd(tab) ? body.scrollHeight : 0;
@@ -306,28 +311,25 @@ onShownChange(shown => {
 
 // ---------- Input ----------
 
-function onAskKey(e: KeyboardEvent) {
-  if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+function askKey(e: ReactKeyboardEvent<HTMLTextAreaElement>) {
+  if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
   e.preventDefault();
   // The lead is still answering: keep what was typed for after.
   if (R.sending !== null) return;
-  const ask = page!.ask;
+  const ask = e.currentTarget;
   const text = composeMessage(ask.value);
   ask.value = "";
   void send(text);
 }
 
-function onClick(e: MouseEvent) {
-  const target = e.target as Element;
-  const b = target.closest<HTMLElement>("[data-act]");
-  const name = b?.dataset.act;
-  if (R.menu && name !== "rounds" && !name?.startsWith("round:")) { R.menu = false; drawPane(); }
-  if (target.closest("[data-copy]")) return copyCode(target.closest<HTMLElement>("[data-copy]")!);
-
-  if (b) {
-    const [a, v] = b.dataset.act!.split(/:(.*)/);
-    return void act(a, v);
-  }
+/// A click anywhere closes the rounds menu. The reply's sanitized markup brings
+/// its own code copy buttons and links, which open in the browser.
+function click(e: ReactMouseEvent<HTMLElement>) {
+  if (R.menu) { R.menu = false; drawPane(); }
+  const target = e.target;
+  if (!(target instanceof Element)) return;
+  const code = target.closest<HTMLElement>("[data-copy]");
+  if (code) return copyCode(code);
 
   const link = target.closest<HTMLAnchorElement>("a[href]");
   if (!link) return;
@@ -335,22 +337,24 @@ function onClick(e: MouseEvent) {
   invoke("open_url", { url: link.href }).catch(ignore);
 }
 
-async function act(a: string, v: string | undefined) {
-  if (a === "go") return void send("Go");
-
-  if (a === "stop") {
-    await invoke("stop_research", { session: R.session }).catch(err => { R.error = String(err); });
-    return void poll(true);
+function run(a: ResearchAct) {
+  switch (a.kind) {
+    case "go": return void send("Go");
+    case "stop": return void stop();
+    case "tab": R.tab = a.tab; return drawPane();
+    case "agent": if (R.research?.status === "planning" && a.agent !== "lead") return; openTab(R, a.agent); return drawPane();
+    case "room": if (!R.research || R.research.status === "planning") return; openTab(R, "room"); return drawPane();
+    case "close": closeTab(R, a.tab); return drawPane();
+    case "rounds": R.menu = !R.menu; return drawPane();
+    case "round": R.pick = a.round === round(R) ? null : a.round; R.menu = false; return drawPane();
+    case "copy": return void copy(R.research?.draft ?? "");
+    case "export": return void exportPdf();
   }
+}
 
-  if (a === "tab") { R.tab = v!; return drawPane(); }
-  if (a === "agent") { if (R.research?.status === "planning" && v !== "lead") return; openTab(R, v!); return drawPane(); }
-  if (a === "room") { if (!R.research || R.research.status === "planning") return; openTab(R, "room"); return drawPane(); }
-  if (a === "close") { closeTab(R, v!); return drawPane(); }
-  if (a === "rounds") { R.menu = !R.menu; return drawPane(); }
-  if (a === "round") { R.pick = Number(v) === round(R) ? null : Number(v); R.menu = false; return drawPane(); }
-  if (a === "copy") return copy(R.research?.draft ?? "");
-  if (a === "export") return exportPdf();
+async function stop() {
+  await invoke("stop_research", { session: R.session }).catch(err => { R.error = String(err); });
+  void poll(true);
 }
 
 async function exportPdf() {
@@ -373,15 +377,15 @@ async function exportPdf() {
 
 /// A short note over the pane; one that names a saved file can show it in
 /// Finder. It goes after a while, unless it is waiting on something.
-const noticeScope = createDocumentScope<"notice">();
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 function notice(text: string, { path, bad, busy }: { path?: string; bad?: boolean; busy?: boolean } = {}) {
   clearTimeout(noticeTimer);
   if (!page) return;
-  noticeScope.set([{ slot: "notice", host: page.pane, content: createElement(ResearchNotice, {
+  noticeNode = createElement(ResearchNotice, {
     text, path: path ?? null, bad: !!bad, busy: !!busy, reveal: value => { void invoke("reveal_file", { path: value }).catch(ignore); },
-  }) }]);
-  if (!busy) noticeTimer = setTimeout(() => noticeScope.remove(["notice"]), bad ? 10000 : 6000);
+  });
+  drawShell();
+  if (!busy) noticeTimer = setTimeout(() => { noticeNode = null; drawShell(); }, bad ? 10000 : 6000);
 }
 
 async function copy(text: string) {
