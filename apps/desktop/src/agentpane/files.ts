@@ -4,15 +4,16 @@ import { setSessionChild } from "../agents/session-frame.tsx";
 import { FilesShell, FilesTree } from "./files-tree.tsx";
 import { FilesMenu, type FilesMenuProps } from "./files-menu.tsx";
 import { isHtmlFile } from "./html-preview-state.ts";
-import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 // The Files tab of a coding agent session's pane: the session's working folder
 // on its machine as a tree, read three levels at a time, what git ignores left
-// out unless asked, git's marks beside what changed.
+// out unless asked, git's marks beside what changed. The trees of the last few
+// folders are kept: showing one again draws it as it was left and reads its
+// folders again only when the folder's `files` topic said something changed.
 
 import { type Listing, type Tree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { resolvePath } from "./media-state.ts";
-import { paneRoot, worktreesReady } from "./worktree.ts";
+import { paneRoot, watchRoot, worktreesReady } from "./worktree.ts";
 import { mentioned } from "./worktree-state.ts";
 import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
@@ -20,14 +21,42 @@ import { addMention, askUpload } from "../agents/workdrop.ts";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
 import { confirmSheet, renameSheet } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
-import { AMBIENT_MS, paneShown } from "../ui/active.ts";
+import { AMBIENT_MS, ambient, paneShown } from "../ui/active.ts";
 
 /// The type a row of the tree drags as, its path relative to the session's folder.
 export const PATH_TYPE = "application/x-beep-path";
 
+/// How many folders keep their tree.
+const KEPT = 4;
+
+/// The tree of one folder, kept while another shows.
+interface Kept {
+  key: string;
+  listings: Map<string, Listing>;
+  roots: Set<string>;
+  flat: boolean;
+  open: Set<string>;
+  filter: string;
+  /// Whether its listings include what git ignores.
+  ignored: boolean;
+  picked: string | null;
+  anchor: string | null;
+  selected: Set<string>;
+  scroll: number;
+  /// Folders whose reads stopped as another folder showed.
+  unread: Set<string>;
+  /// The node said something in the folder changed since the last refresh.
+  dirty: boolean;
+  unwatch: () => void;
+}
+
+/// Most recently shown last.
+const kept = new Map<string, Kept>();
+
 const F = {
-  /// The session's machine and folder the tree is of.
+  /// The session's machine and folder the tree is of, and what is kept of it.
   key: "",
+  kept: null as Kept | null,
   listings: new Map<string, Listing>(),
   /// The folders the tree was read from, read again on refresh.
   roots: new Set<string>(),
@@ -40,7 +69,6 @@ const F = {
   walking: false,
   /// That read stopped at `WALK_ENTRIES`.
   capped: false,
-  unfollow: null as (() => void) | null,
   open: new Set<string>(),
   filter: "",
   ignored: false,
@@ -90,26 +118,20 @@ function drawViews(host: HTMLElement) {
 const WALK_AT_ONCE = 8;
 const WALK_ENTRIES = 50_000;
 
-/// The Files view of the pane's session, made once per session.
+/// The Files view of the pane's session, made once and showing the tree of
+/// the folder the pane reads.
 export function filesView() {
-  const s = paneSession();
-  const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
-  if (F.el && F.key === key) { renderViews(); return F.el; }
-  setSessionChild("files", null); treeHost = null; treeView = null; menuView = null; showingRows = false;
-  shell = { label: "", busy: false, active: null, status: "" };
-  F.el?.remove();
-  F.unfollow?.();
-  Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), filter: "", picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
-    unfollow: s?.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown, AMBIENT_MS) : null,
-  });
-  const el = document.createElement("div");
-  el.className = "agpview files";
-  F.el = el;
-  renderViews();
-  wire(el);
-  load("");
-  return el;
+  if (!F.el) {
+    const el = document.createElement("div");
+    el.className = "agpview files";
+    F.el = el;
+    wire(el);
+  }
+
+  const key = treeKey();
+  if (key !== F.key) showTree(key);
+  else renderViews();
+  return F.el;
 }
 
 /// Closes the menu a right-click opened; true when one was open.
@@ -121,21 +143,94 @@ export function closeFilesMenu() {
   return !!m;
 }
 
-/// Reads the tree of the worktree the pane shows now, in place: the filter
-/// and what git ignores stay as they are, the open file tabs are not touched.
+/// Shows the tree of the worktree the pane shows now: as it was left when it
+/// is kept, read otherwise. What git ignores stays as it is, the open file
+/// tabs are not touched.
 export function pointFilesAt() {
+  const key = treeKey();
+  if (F.el && key !== F.key) showTree(key);
+}
+
+const treeKey = () => {
   const s = paneSession();
-  const key = s ? `${s.machine_id}\n${paneRoot()}` : "";
-  if (!F.el || !s || key === F.key) return;
+  return s?.cwd && paneRoot() ? `${s.machine_id}\n${paneRoot()}` : "";
+};
+
+/// Keeps the tree shown and shows the one of `key`, kept or new.
+function showTree(key: string) {
   closeFilesMenu();
-  F.unfollow?.();
-  F.unfollow = s.machine_id && paneRoot() ? subscribeTopics(topic("files", paneRoot()), () => refresh(), s.machine_id, filesShown, AMBIENT_MS) : null;
+  keep();
+  const s = paneSession();
+  let entry = kept.get(key) ?? null;
+
+  if (!entry && key && s) {
+    const made: Kept = { key, listings: new Map(), roots: new Set(), flat: false, open: new Set(), filter: "", ignored: F.ignored, picked: null, anchor: null, selected: new Set(), scroll: 0, unread: new Set(), dirty: false, unwatch: () => {} };
+    made.unwatch = watchRoot(s.machine_id, paneRoot(), () => {
+      made.dirty = true;
+      if (F.kept === made) revalidate();
+    });
+    entry = made;
+  }
+
+  if (entry) { kept.delete(key); kept.set(key, entry); }
   Object.assign(F, {
-    key, listings: new Map(), roots: new Set(), reading: new Set(), again: new Set(), flat: false, walking: false, capped: false, open: new Set(), picked: null, anchor: null, selected: new Set(), busy: false, fresh: false, generation: F.generation + 1, reveal: null,
+    key, kept: entry, reading: new Set(), again: new Set(), walking: false, capped: false, busy: false, fresh: false, generation: F.generation + 1, reveal: null,
+    listings: entry?.listings ?? new Map(), roots: entry?.roots ?? new Set(), flat: entry?.flat ?? false, open: entry?.open ?? new Set(),
+    filter: entry?.filter ?? "", picked: entry?.picked ?? null, anchor: entry?.anchor ?? null, selected: entry?.selected ?? new Set(),
   });
-  shell = { ...shell, label: "", active: null };
+  shell = { ...shell, label: "", active: null, status: "" };
+  filesOnScreen = false;
+  trim();
+
+  // The filter's field keeps what was typed in it; it shows this tree's.
+  const find = F.el?.querySelector<HTMLInputElement>(".agffind");
+  if (find) find.value = F.filter;
   renderViews();
-  load("");
+  draw();
+  if (!entry) return;
+
+  // Read what was never read or stopped, and all of it when it was read with ignored files shown otherwise.
+  if (entry.ignored !== F.ignored) { entry.ignored = F.ignored; entry.dirty = true; }
+  if (!F.listings.get("")?.entries) load("");
+  for (const dir of entry.unread) load(dir);
+  entry.unread.clear();
+  if (F.filter.trim()) readAll();
+
+  const scroll = entry.scroll;
+  if (scroll) requestAnimationFrame(() => { if (F.kept === entry && treeHost) treeHost.scrollTop = scroll; });
+}
+
+/// Puts what the tree shows back in what is kept of it.
+function keep() {
+  const entry = F.kept;
+  if (!entry) return;
+  Object.assign(entry, { listings: F.listings, roots: F.roots, flat: F.flat, open: F.open, filter: F.filter, picked: F.picked, anchor: F.anchor, selected: F.selected });
+  for (const dir of F.reading) entry.unread.add(dir);
+  if (treeHost?.isConnected) entry.scroll = treeHost.scrollTop;
+}
+
+/// Lets go of the least recent trees past `KEPT`.
+function trim() {
+  for (const entry of kept.values()) {
+    if (kept.size <= KEPT) return;
+    if (entry === F.kept) continue;
+    entry.unwatch();
+    kept.delete(entry.key);
+  }
+}
+
+/// Whether the tree was on screen when last asked.
+let filesOnScreen = false;
+/// A folder that changes while its tree shows is read again at most this often.
+const revalidate = ambient(() => F.kept?.dirty ? refresh() : undefined, AMBIENT_MS, () => filesShown());
+
+/// The tab drew; `visible` says whether the tree is on screen. A tree that
+/// comes on screen reads its folders again at once when the folder changed
+/// since, one already on screen at a slower pace while the agent works.
+export function revalidateFiles(visible: boolean) {
+  const now = visible && paneShown(), appeared = now && !filesOnScreen;
+  filesOnScreen = now;
+  if (now && F.kept?.dirty) revalidate(appeared);
 }
 
 /// Shows `rel`, a file in the session's folder, in the tree: its folders
@@ -166,26 +261,33 @@ export function revealPath(rel: string) {
   draw();
 }
 
-/// Reads `dir` again when the tree has it, as after an upload into it.
+/// Reads `dir` again from the node when the tree has it, as after an upload into it.
 export function reloadFolder(dir: string) {
   for (let d = dir.replace(/\/+$/, ""); ; d = parentPath(d)) {
-    if (F.listings.has(d)) { load(d); return; }
+    if (F.listings.has(d)) { load(d, false, true); return; }
     if (!d) return;
   }
 }
 
-/// Reads every folder the tree was read from again, in place.
+/// Reads every folder the tree was read from again, in place, past the
+/// native cache: only for a change, a refresh or an edit.
 async function refresh() {
   const key = F.key, generation = F.generation;
+  const same = () => F.key === key && F.generation === generation;
+  if (F.kept) F.kept.dirty = false;
   F.fresh = true;
   const roots = [...new Set([...F.roots, ...F.reading])];
 
-  for (let offset = 0; offset < roots.length; offset += WALK_AT_ONCE) {
-    if (F.key !== key || F.generation !== generation) return;
-    await Promise.all(roots.slice(offset, offset + WALK_AT_ONCE).map(dir => load(dir)));
+  try {
+    for (let offset = 0; offset < roots.length; offset += WALK_AT_ONCE) {
+      if (!same()) return;
+      await Promise.all(roots.slice(offset, offset + WALK_AT_ONCE).map(dir => load(dir)));
+    }
+  } finally {
+    if (same()) F.fresh = false;
   }
 
-  if (F.key !== key || F.generation !== generation) return;
+  if (!same()) return;
   const error = [...F.listings.values()].find(listing => listing.error)?.error;
   if (error) throw new Error(error);
 }
@@ -217,9 +319,10 @@ async function readAll() {
 }
 
 /// Reads the tree from `dir` down and merges it in. `deep` is a filter's
-/// read: as far as one read goes, and not read again on refresh.
+/// read: as far as one read goes, and not read again on refresh. `fresh`
+/// asks the node past the copy of the folder this computer may have.
 const reads = new Map<string, Promise<void>>();
-function load(dir: string, deep = false): Promise<void> {
+function load(dir: string, deep = false, fresh = false): Promise<void> {
   const key = F.key, generation = F.generation;
   const token = JSON.stringify([key, generation, dir]);
   const pending = reads.get(token);
@@ -227,7 +330,7 @@ function load(dir: string, deep = false): Promise<void> {
   const read = (async () => {
     do {
       F.again.delete(dir);
-      await readFolder(dir, deep);
+      await readFolder(dir, deep, fresh);
       deep = false;
     } while (F.key === key && F.generation === generation && F.again.has(dir));
   })().finally(() => reads.delete(token));
@@ -235,7 +338,7 @@ function load(dir: string, deep = false): Promise<void> {
   return read;
 }
 
-async function readFolder(dir: string, deep: boolean) {
+async function readFolder(dir: string, deep: boolean, fresh: boolean) {
   const key = F.key, generation = F.generation;
   await worktreesReady();
   if (F.key !== key || F.generation !== generation) return;
@@ -250,7 +353,7 @@ async function readFolder(dir: string, deep: boolean) {
   let changed = true;
 
   try {
-    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep, fresh: F.fresh });
+    const got = await invoke<Tree>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep, fresh: fresh || F.fresh });
     if (F.key !== key || F.generation !== generation) return;
     changed = mergeTree(F.listings, got);
     if (!deep) F.roots.add(dir);
@@ -337,6 +440,7 @@ function wire(el: HTMLElement) {
     const box = e.target as HTMLElement;
     if (!(box instanceof HTMLInputElement) || !box.matches(".agfign input")) return;
     F.ignored = box.checked;
+    if (F.kept) F.kept.ignored = F.ignored;
     void refresh().catch(e => console.warn("files:", e));
   });
   el.addEventListener("click", e => { if ((e.target as HTMLElement).closest("[data-frefresh]")) void refresh(); });
