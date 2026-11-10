@@ -1,0 +1,229 @@
+body.cbody
+  div.cwin [aria-label="Beep" role="main"] style(--side-w)
+    aside#side.cc-side
+      div.cc-head
+      div.cc-brand
+        b "Beep"
+        button.cc-side-toggle [aria-controls="side-content" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
+          span
+            svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
+      div#side-content.cc-side-list
+        div.cc-grp.cc-nav
+          button.cc-search.cc-si [aria-label="Search" title="Search" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Search"
+            kbd "⌘K"
+          button.cc-si [aria-current="true" aria-label="Home" title="Home" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Home"
+          button.cc-si [aria-label="Running" title="Running" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Running"
+            span.n "2"
+        div.cc-grp.chats
+          h3
+            button.cc-gt [type="button"] "Chats"
+            button [aria-label="New chat" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          span.cc-si.none "No chats yet"
+          div style(display)
+        div.cc-grp.projects
+          h3
+            button.cc-gt [type="button"] "Projects"
+            button [aria-label="Add a project" title="Add a project" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div style(display)
+            button.cc-org [aria-expanded="true" aria-label="example/" title="example/" type="button"]
+              span.open.twist
+                svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+              span.tt "example/"
+            div.cc-pjthreads
+              div.cc-chat.cc-si.pj-repo
+                button.open [aria-label="example/widget" title="example/widget build-box: /srv/project" type="button"]
+                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  span.tt "widget"
+                  span.n "2"
+                button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+        div.cc-grp.machines
+          h3
+            button.cc-gt [type="button"] "Machines"
+            button [aria-label="Add a machine" title="Add a machine" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div style(display)
+            button.cc-si [aria-label="This computer" title="This computer: Joining your machines" type="button"]
+              span.ddot.off
+              span.tt "This computer"
+              span.mac-state.n "Connecting"
+        div.cc-grp.cc-nav.views
+          h3 "Beep"
+          div style(display)
+            button.cc-si [aria-label="Settings" title="Settings" type="button"]
+              span.sidebar-icon style(display)
+                svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span.tt "Settings"
+              kbd "⌘,"
+        div.cc-foot
+          span "No machines linked"
+          button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
+            svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+    div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
+    div#main.cc-main
+      div.cc-top
+        button.mb-back [aria-label="Back" hidden type="button"]
+          svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
+        h2#title "Home"
+        span#scope
+        small#date "Thursday, January 15"
+        span#tools.tools
+        span#usage.us [hidden]
+        span#bell.nt
+          button.nt-bell [aria-expanded="false" aria-label="Notifications" title="Notifications (⌘B)" type="button"]
+            span style(display)
+              svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
+      div#home-box.cc-box
+        div#view.cc-view
+          div.cc-mstrip
+            div.m.off [title="This computer: Joining your machines"]
+              span.ddot.off
+              b "This computer"
+              span "Connecting"
+            button.dbtn.quiet.small [type="button"] "Add a machine"
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div.cc-tabs [role="tablist"]
+            button [aria-selected="true" role="tab" type="button"] "Overview"
+            button [aria-selected="false" role="tab" type="button"] "PRs and issues"
+            button [aria-selected="false" role="tab" type="button"] "Machines"
+          div#sec-running
+            div.cc-sec
+              h4
+                button.dbtn.lk [type="button"] "Running"
+                span.n "2"
+            div.cc-panel
+              div.cc-line.cc-row
+                span.cc-ag.codex.mark
+                  svg [aria-hidden="true" viewBox="0 0 24 24"]
+                button.t [title="First notification" type="button"]
+                  b "First notification"
+                  span "example/widget · build-box"
+                span.r
+                  span.cc-running "now"
+                    span.dspin [aria-label="Working" role="img"]
+              div.cc-line.cc-row
+                span.cc-ag.codex.mark
+                  svg [aria-hidden="true" viewBox="0 0 24 24"]
+                button.t [title="Second notification" type="button"]
+                  b "Second notification"
+                  span "example/widget · build-box"
+                span.r
+                  span.cc-running "now"
+                    span.dspin [aria-label="Working" role="img"]
+        form#home-comp.cc-comp
+          input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep anything" spellcheck="false" type="text" value] value=""
+          span#home-err.cc-err [role="status"]
+          button#home-agent.dbtn [title="Start a coding agent on a machine" type="button"] style(display;display:none) "Agent"
+          button.dbtn.pri [type="submit"] "Send"
+            kbd "⏎"
+      div#pane-box.cc-box [hidden]
+        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="chat"]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+      div.cc-box [hidden]
+    nav#mb-tabs.mb-tabs [aria-label="Sections"]
+      button [type="button"] "Home"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Projects"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Agents"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Terminals"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+      button [type="button"] "Machines"
+        span.ic
+          svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
+  div.cc-set-scrim
+    div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"]
+      nav.dset-nav [aria-label="Settings pages"]
+        b "Settings"
+        div.dset-pages
+          button.cc-si [data-goto="general"]
+            span.tt "General"
+          button.cc-si [aria-current="true" data-goto="appearance"] (focused)
+            span.tt "Appearance"
+          button.cc-si [data-goto="models"]
+            span.tt "Models"
+          button.cc-si [data-goto="apps"]
+            span.tt "Apps"
+          button.cc-si [data-goto="mac"]
+            span.tt "This computer"
+          button.cc-si [data-goto="machines"]
+            span.tt "Machines"
+          button.cc-si [data-goto="agents"]
+            span.tt "Agent accounts"
+          button.cc-si [data-goto="creds"]
+            span.tt "Credentials"
+          button.cc-si [data-goto="instr"]
+            span.tt "Instructions"
+          button.cc-si [data-goto="devices"]
+            span.tt "Beep server"
+        small.dset-ver "Beep desktop 0.9.0"
+      div.dset-body
+        div.dset-top
+          span.dset-crumbs
+            b "Appearance"
+          kbd "esc"
+        div.dform.dset-page
+          section#set-appearance-sec [data-sec="appearance"]
+            div.dsec.flat.top "Appearance"
+            div#set-appearance
+              div.dskins
+                small "Dark"
+                div
+                  button.dskin [aria-pressed="false" data-skin-pick="flashmind"] "Flashmind"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="true" data-skin-pick="linear"] "Linear"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="classic"] "Classic"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="quiet"] "Quiet"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="github"] "GitHub dark"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="zed"] "Zed"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="tokyo"] "Tokyo Night"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="mocha"] "Catppuccin Mocha"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="nord"] "Nord"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="gruvbox"] "Gruvbox"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="rosepine"] "Rose Pine"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="geist"] "Geist"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="mono"] "High contrast"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+              div.dskins
+                small "Light"
+                div
+                  button.dskin [aria-pressed="false" data-skin-pick="paper"] "Light"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="solarized"] "Solarized"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="macos"] "macOS"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                  button.dskin [aria-pressed="false" data-skin-pick="warm"] "Warm"
+                    i style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)

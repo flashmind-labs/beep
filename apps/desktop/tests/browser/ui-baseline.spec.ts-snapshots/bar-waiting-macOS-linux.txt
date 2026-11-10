@@ -1,0 +1,54 @@
+body
+  div#bar.dbar [aria-label="Beep" role="dialog"]
+    div [data-bar-page] style(display)
+      div.dhead
+        span.tt
+          b "Sessions"
+          small "2 waiting for you"
+        button#wtNew.dbtn "New"
+          kbd "⌘N"
+      div#wtlist.dlist.top [aria-activedescendant="wt-0" aria-label="Sessions" role="listbox" tabindex="0"] (focused)
+        button#wt-0.dchat [aria-selected="true" data-wti="0" role="option" tabindex="-1"]
+          span style(display)
+            span.claude.dapp.dcoderav.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
+          span.t
+            span "Asks a question"
+            small "project · build-box · 10 min"
+          span.ask.dstate "Needs you"
+        button#wt-1.dchat [aria-selected="false" data-wti="1" role="option" tabindex="-1"]
+          span style(display)
+            span.codex.dapp.dcoderav.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
+          span.t
+            span "Finished turn"
+            small "project · build-box · 5 min"
+          span.dstate.run "Done"
+        button#wt-2.dchat [aria-selected="false" data-wti="2" role="option" tabindex="-1"]
+          span style(display)
+            span.codex.dapp.dcoderav.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
+          span.t
+            span "Still running"
+            small "project · build-box · now"
+          span.run [title="Running tests"]
+            span.dspin
+            span.tx "Running tests"
+        button#wt-3.dchat [aria-selected="false" data-wti="3" role="option" tabindex="-1"]
+          span style(display)
+            span.codex.dapp.dcoderav.mark
+              svg [aria-hidden="true" viewBox="0 0 24 24"]
+          span.t
+            span "Old idle work"
+            small "project · build-box · 1 min"
+          span.w "Idle"
+      div.dhints
+        span "open"
+          kbd
+            svg [fill="none" height="11" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="11"]
+        span "move"
+          kbd "↑↓"
+        span.lo "new agent"
+          kbd "⌘N"
+        span.lo "to hide"
+          kbd "esc"
