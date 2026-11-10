@@ -179,3 +179,42 @@ test("video and PDF tabs retain their controls and native media", async ({ page 
   await expect(page.locator('iframe[title="report.pdf"]')).toBeVisible();
   await expect(page.getByRole("button", { name: "Open in Preview" })).toBeVisible();
 });
+
+test("image controls preserve focus, zoom and native image until the tab closes", async ({ page }) => {
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+  await openDesktop(page, true, { agent_tree: listing(["image.png"]), agent_file: { size: 68, mime: "image/png", data: png } });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator('[data-fpath="image.png"]').click();
+  const stage = page.locator(".agpstage.img"), image = stage.locator("img");
+  await expect(image).toBeVisible();
+  await expect(page.locator(".agpview:visible .zoom")).not.toHaveText("");
+  await image.evaluate(element => { element.dataset.identity = "kept"; });
+  const actual = page.getByRole("button", { name: "Actual size" });
+  await actual.click();
+  await expect(actual).toBeFocused();
+  await expect(actual).toHaveClass(/on/);
+  await stage.dispatchEvent("wheel", { deltaY: -40, ctrlKey: true, clientX: 100, clientY: 100 });
+  await expect(page.locator(".agpview:visible .zoom")).not.toHaveText("100%");
+  await expect(image).toHaveAttribute("data-identity", "kept");
+  await expect(actual).toBeFocused();
+  const bounds = await stage.boundingBox(); assertBounds(bounds);
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width / 2 + 15, bounds.y + bounds.height / 2 + 10);
+  await page.mouse.up();
+  await expect(image).toHaveAttribute("data-identity", "kept");
+  await page.getByRole("button", { name: "Fit", exact: true }).click();
+  await page.getByRole("button", { name: "Open in Preview" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file_open").length)).toBe(1);
+  await stage.dispatchEvent("wheel", { deltaY: -40, ctrlKey: true, clientX: 100, clientY: 100 });
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.locator('[role="tab"][data-mtab] [data-mclose]').evaluate(element => { if (element instanceof HTMLElement) element.click(); });
+  await page.mouse.up();
+  await expect(stage).toHaveCount(0);
+});
+
+function assertBounds(value: { x: number; y: number; width: number; height: number } | null): asserts value is { x: number; y: number; width: number; height: number } {
+  if (!value) throw new Error("Image stage has no bounds");
+}
