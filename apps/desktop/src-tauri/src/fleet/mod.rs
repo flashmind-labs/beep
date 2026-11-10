@@ -109,6 +109,66 @@ enum Opened {
     Failed(String),
 }
 
+/// The mesh's own updates, from the mesh open now.
+fn members(opened: &mut watch::Receiver<Opened>) -> Option<watch::Receiver<u64>> {
+    match &*opened.borrow_and_update() {
+        Opened::Open(mesh) => Some(mesh.updates()),
+        _ => None,
+    }
+}
+
+/// Follows the mesh opening or being replaced, its devices, state and who
+/// is online, and the machines' reports where they change the machine list.
+pub(crate) struct Changes {
+    opened: watch::Receiver<Opened>,
+    members: Option<watch::Receiver<u64>>,
+    status: watch::Receiver<status::Revision>,
+    machines: u64,
+}
+
+impl Changes {
+    /// Waits for the next change; false once the app is closing.
+    pub(crate) async fn changed(&mut self) -> bool {
+        loop {
+            tokio::select! {
+                changed = self.opened.changed() => {
+                    if changed.is_err() {
+                        return false;
+                    }
+
+                    self.members = members(&mut self.opened);
+                    return true;
+                }
+                changed = async {
+                    match &mut self.members {
+                        Some(members) => members.changed().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if changed.is_ok() {
+                        return true;
+                    }
+
+                    // That mesh closed; the next one comes through `opened`.
+                    self.members = None;
+                }
+                changed = self.status.changed() => {
+                    if changed.is_err() {
+                        return false;
+                    }
+
+                    let machines = self.status.borrow_and_update().machines;
+
+                    if machines != self.machines {
+                        self.machines = machines;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub struct Fleet {
     me: EndpointId,
     endpoint: Endpoint,
@@ -449,6 +509,20 @@ impl Fleet {
     /// What the machines of the mesh last reported.
     pub fn status(&self) -> &Status {
         &self.status
+    }
+
+    /// Wakes on each change to the mesh or to its list of machines.
+    pub(crate) fn changes(&self) -> Changes {
+        let mut opened = self.mesh.subscribe();
+        let members = members(&mut opened);
+        let mut status = self.status.changes();
+        let machines = status.borrow_and_update().machines;
+        Changes {
+            opened,
+            members,
+            status,
+            machines,
+        }
     }
 
     /// Mints a ticket that brings a device of `kind` into the mesh. Only a

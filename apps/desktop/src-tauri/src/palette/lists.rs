@@ -41,8 +41,15 @@ const PALETTE_CHANGED: &str = "palette-changed";
 const READ_EVERY: Duration = Duration::from_secs(300);
 /// The least time between two reads of the lists, however often it opens.
 const READ_GAP: Duration = Duration::from_secs(10);
+/// The least time between two reads of the mesh's projects and machines.
+const LOCAL_GAP: Duration = Duration::from_secs(2);
 /// The least time between two reads of the chats, while one is busy.
 const CHATS_GAP: Duration = Duration::from_secs(2);
+/// The sessions are read when a session starts or ends, when the palette
+/// opens, and this often besides.
+const SESSIONS_EVERY: Duration = Duration::from_secs(600);
+/// The least time between two reads of the sessions.
+const SESSIONS_GAP: Duration = Duration::from_secs(5);
 /// The most projects whose branches are read.
 const BRANCH_PROJECTS: usize = 8;
 
@@ -276,6 +283,11 @@ impl PaletteCache {
         self.read_chats.notify_one();
     }
 
+    /// A machine started or ended sessions: read them again, soon.
+    pub(crate) fn sessions_changed(&self) {
+        self.read_sessions.notify_one();
+    }
+
     /// Signing in or out changed what the server lists: read everything again, soon.
     pub(crate) fn link_changed(&self) {
         self.read_lists.notify_one();
@@ -398,9 +410,22 @@ async fn read_lists(app: &AppHandle, beep: &Arc<Beep>) {
 }
 
 async fn follow_local(app: &AppHandle) {
+    let mut changes = app.state::<Arc<Fleet>>().changes();
+
     loop {
         read_local_lists(app).await;
-        sleep(Duration::from_secs(2)).await;
+        // Changes come in bursts: one read covers the rest of the burst.
+        sleep(LOCAL_GAP).await;
+
+        select! {
+            changed = changes.changed() => {
+                if !changed {
+                    return;
+                }
+            }
+            // The server's machines, which say nothing when they change.
+            () = sleep(READ_EVERY) => {}
+        }
     }
 }
 
@@ -486,9 +511,9 @@ async fn follow_sessions(app: &AppHandle, beep: &Arc<Beep>) {
 
     loop {
         read_sessions(app, beep).await;
-        sleep(Duration::from_secs(5)).await;
+        sleep(SESSIONS_GAP).await;
         select! {
-            () = sleep(Duration::from_secs(30)) => {}
+            () = sleep(SESSIONS_EVERY) => {}
             () = cache.read_sessions.notified() => {}
         }
     }

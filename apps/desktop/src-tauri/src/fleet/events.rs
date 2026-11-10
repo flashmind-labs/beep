@@ -1426,6 +1426,8 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
             outside.scans.stale();
             app.state::<Arc<crate::center::home_sessions::AgentSessions>>()
                 .stale();
+            app.state::<crate::palette::lists::PaletteCache>()
+                .sessions_changed();
         }
         "agent" => {
             if let Some(events::Value::Sessions(reply)) = value

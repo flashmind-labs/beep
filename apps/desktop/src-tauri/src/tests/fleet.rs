@@ -251,6 +251,16 @@ async fn a_second_desktop_joins_and_sees_the_machines() {
     assert!(matches!(report, Some(Report::Offers(_))), "{report:?}");
 }
 
+#[tokio::test]
+async fn a_machine_joining_wakes_what_follows_the_mesh() {
+    let mac = start("Studio").await;
+    let mut changes = mac.fleet.changes();
+    let (_mesh, _router, _node) = join(&mac.fleet, DeviceKind::Node, "Server").await;
+
+    let woke = timeout(LIMIT, changes.changed()).await;
+    assert_eq!(woke.ok(), Some(true));
+}
+
 /// Issue #408: a session moving here from a node waited forever, since
 /// its source could not ask this Mac how the move stood.
 #[tokio::test]

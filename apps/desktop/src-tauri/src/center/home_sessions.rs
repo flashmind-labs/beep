@@ -27,8 +27,10 @@ use tokio::{sync::oneshot, time::timeout};
 /// How long Home waits for the list when it has an older one to show.
 const WAIT: Duration = Duration::from_millis(1500);
 /// A list this new is shown as it is, without asking again. It covers the
-/// redraw that a late answer asks for.
-const FRESH: Duration = Duration::from_secs(5);
+/// redraw that a late answer asks for, and the many Home redraws of a turn:
+/// a session starting or ending marks the list stale, and live reports
+/// update it in place.
+const FRESH: Duration = Duration::from_secs(60);
 /// Tells the windows a late answer came, for Home to load again.
 pub const HOME_CHANGED: &str = "home-changed";
 
