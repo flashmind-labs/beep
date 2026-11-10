@@ -6,7 +6,6 @@ import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import { bar, type PaneNow } from "../bar/core.ts";
-import { el as h } from "../ui/dom.ts";
 import type { ThreadChatRow } from "../project/threads.ts";
 import { openLabel, threadLabel, type ThreadChatEntry } from "./sidechats.ts";
 import { type CenterView, type ViewHead, type ChatItem, state } from "./state.ts";
@@ -77,7 +76,9 @@ export function threadCard(t: ThreadChatEntry) {
   let card = threadCards.get(t.chat_id);
 
   if (!card) {
-    const el = h("div", "th-card");
+    // The chat body places this host atop the open chat; its content is React.
+    const el = document.createElement("div");
+    el.className = "th-card";
     card = { el, view: undefined, at: 0, error: "", loading: false, all: false };
     threadCards.set(t.chat_id, card);
   }

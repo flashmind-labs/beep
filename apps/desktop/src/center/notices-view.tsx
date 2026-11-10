@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { formatAgo } from "../ui/format.ts";
 import { IC } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -14,8 +14,20 @@ export function NoticesView(p: Props) {
   return <><button type="button" className="nt-bell" title="Notifications (⌘B)" aria-label={bellLabel(p.items)} aria-expanded={p.open} onClick={p.toggle}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: BELL }} />{count && <span className="nt-n">{count}</span>}</button>{p.open && (shown ? shown.server ? <Opened key={shown.id} item={shown} p={p} /> : <Skill key={shown.id} item={shown} p={p} /> : <List p={p} />)}</>;
 }
 function List({ p }: { p: Props }) {
-  const unread = unreadCount(p.items);
-  return <div className="nt-pop" tabIndex={-1}><div className="nt-h"><b>Notifications</b>{!!unread && <span>{unread} unread</span>}{!!p.items.length && <button type="button" className="dbtn small quiet" onClick={() => p.dismiss(p.items.map(i => i.id))}>Clear</button>}</div><div className="nt-list">{p.items.length ? p.items.map(i => <Row key={i.id} item={i} p={p} />) : <div className="nt-empty">No notifications</div>}</div></div>;
+  const unread = unreadCount(p.items), list = useRef<HTMLDivElement>(null);
+  // ↑ and ↓ move between the rows, round the ends.
+  const move = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+    const rows = [...list.current?.children ?? []].filter(row => row instanceof HTMLElement && row.classList.contains("nt-row"));
+    if (!rows.length || !(e.target instanceof Element)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const at = e.target.closest(".nt-row"), index = at ? rows.indexOf(at) : -1;
+    const next = index < 0 ? (e.key === "ArrowDown" ? 0 : rows.length - 1) : (index + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+    const row = rows[next];
+    if (row instanceof HTMLElement) row.focus();
+  };
+  return <div className="nt-pop" tabIndex={-1} onKeyDown={move}><div className="nt-h"><b>Notifications</b>{!!unread && <span>{unread} unread</span>}{!!p.items.length && <button type="button" className="dbtn small quiet" onClick={() => p.dismiss(p.items.map(i => i.id))}>Clear</button>}</div><div className="nt-list" ref={list}>{p.items.length ? p.items.map(i => <Row key={i.id} item={i} p={p} />) : <div className="nt-empty">No notifications</div>}</div></div>;
 }
 function Row({ item: i, p }: { item: Item; p: Props }) {
   const over = p.keeping.has(i.id) && !i.done ? "Keeping" : doneLabel(i), why = p.failed.get(i.id);

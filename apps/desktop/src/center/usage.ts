@@ -215,17 +215,6 @@ export function hasUsage(view: UsageView | null): view is UsageView {
 
 let allProjects = false;
 
-/// Moves `pop` back inside the window when its edge would leave it, and
-/// lets it scroll when it is taller than the room below.
-function keepInWindow(pop: HTMLElement) {
-  pop.style.transform = "";
-  const r = pop.getBoundingClientRect();
-  const gap = 8;
-  if (r.right > window.innerWidth - gap) pop.style.transform = `translateX(${window.innerWidth - gap - r.right}px)`;
-  else if (r.left < gap) pop.style.transform = `translateX(${gap - r.left}px)`;
-  pop.style.maxHeight = `${Math.max(160, window.innerHeight - r.top - gap)}px`;
-}
-
 /// Draws the header's usage pill and keeps it current.
 export function mountUsage(read: (refresh: boolean) => Promise<UsageView | null>) {
   let view: UsageView | null = null;
@@ -237,7 +226,7 @@ export function mountUsage(read: (refresh: boolean) => Promise<UsageView | null>
     if (!hasUsage(view)) { placeWindowParts({ usage: null }); return; }
     const current = view;
     placeWindowParts({ usage: createElement(UsageWidget, { view: current, open, period, allProjects,
-      toggle: () => toggle(!open), pick, more: () => { allProjects = !allProjects; draw(); }, position: keepInWindow }) });
+      toggle: () => toggle(!open), pick, more: () => { allProjects = !allProjects; draw(); } }) });
   };
 
   const load = async (refresh: boolean) => {

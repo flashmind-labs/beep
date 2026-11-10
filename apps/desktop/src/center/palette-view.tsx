@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef } from "react";
+import { Fragment, useLayoutEffect, useRef, type RefObject } from "react";
 import type { Hit } from "./palette.ts";
 
 function Marked({ text, query }: { text: string; query: string }) {
@@ -15,13 +15,13 @@ function Marked({ text, query }: { text: string; query: string }) {
   return <>{parts}</>;
 }
 
-export function PaletteView({ hits, selected, query, subscribed, searchIcon, group, icon, search, choose, hover, ask }: {
-  hits: Hit[]; selected: number; query: string; subscribed: boolean;
+export function PaletteView({ input, hits, selected, query, subscribed, searchIcon, group, icon, search, choose, hover, ask }: {
+  input: RefObject<HTMLInputElement | null>; hits: Hit[]; selected: number; query: string; subscribed: boolean;
   searchIcon: string;
   group(hit: Hit, query: string): string; icon(hit: Hit): string | null;
   search(value: string): void; choose(hit: Hit): void; hover(index: number): void; ask(value: string): void;
 }) {
-  const input = useRef<HTMLInputElement>(null), active = useRef<HTMLButtonElement>(null);
+  const active = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { input.current?.focus(); }, []);
   useLayoutEffect(() => { active.current?.scrollIntoView({ block: "nearest" }); }, [selected, query]);
   return <div className="cc-pal" role="dialog" aria-label="Search"><div className="q"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: searchIcon }} /><input ref={input} type="text" placeholder={`Search anything: ${subscribed ? "chats, " : ""}projects, coding agents, machines, settings, PRs…`} autoComplete="off" spellCheck={false} aria-label="Search" role="combobox" aria-controls="pal-list" aria-expanded="true" aria-activedescendant={hits[selected] ? `pal-opt-${selected}` : undefined} onChange={e => search(e.currentTarget.value)} /></div>
