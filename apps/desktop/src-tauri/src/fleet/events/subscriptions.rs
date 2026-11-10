@@ -89,7 +89,7 @@ impl SubscriptionWorker {
         app.state::<Events>()
             .forget_queries(machine, &fleet.snapshots.queries(machine));
         let mut sent = queries.clone();
-        log::info!(
+        log::debug!(
             "node watch sending machine={machine} generation={generation} watch=1 topics=1 queries={}",
             queries.len()
         );
@@ -123,7 +123,7 @@ impl SubscriptionWorker {
                 next = next
                     .checked_add(1)
                     .ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
-                log::info!(
+                log::debug!(
                     "node watch sending machine={machine} generation={generation} watch={next} topics=1 queries={}",
                     queries.len()
                 );
@@ -159,11 +159,11 @@ impl SubscriptionWorker {
 
                     match reply {
                         Reply::Watching { id } => {
-                            log::info!("node watch acknowledged machine={machine} generation={generation} watch={id}");
+                            log::debug!("node watch acknowledged machine={machine} generation={generation} watch={id}");
                             watches.remove(&id);
                         },
                         Reply::Snapshot(snapshot) => {
-                            log::info!("node snapshot received machine={machine} generation={generation} query={:?} topic={} revision={}", snapshot.query, snapshot.topic.name(), snapshot.revision);
+                            log::debug!("node snapshot received machine={machine} generation={generation} query={:?} topic={} revision={}", snapshot.query, snapshot.topic.name(), snapshot.revision);
                             revision = snapshot.revision;
                             let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
 

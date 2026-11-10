@@ -1,6 +1,7 @@
 //! The app's log, under `~/Library/Logs/Beep`, the place macOS keeps logs
 //! and Console shows them, so a user can send it. Beep's own lines from
-//! debug up, the embedded node's from info, iroh and the networking crates
+//! debug up but the per-snapshot event lines, the embedded node's from info
+//! but its per-read subscription lines, iroh and the networking crates
 //! under it only when something goes wrong. `RUST_LOG` overrides it.
 
 use std::path::{Path, PathBuf};
@@ -10,8 +11,10 @@ use tracing_appender::{
 };
 use tracing_subscriber::EnvFilter;
 
-const LOG_FILTER: &str = "info,beep_desktop=debug,iroh=warn,noq=warn,n0=warn,netwatch=warn,\
-                          netdev=warn,portmapper=warn,igd_next=warn,notify::inotify=warn";
+const LOG_FILTER: &str = "info,beep_desktop=debug,beep_desktop_lib::fleet::events=info,\
+                          beep_node::link::events=warn,iroh=warn,noq=warn,n0=warn,\
+                          netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn,\
+                          notify::inotify=warn";
 /// The current daily log and the two previous daily logs.
 const FILES_KEPT: usize = 3;
 /// A page's error is cut to this many characters.

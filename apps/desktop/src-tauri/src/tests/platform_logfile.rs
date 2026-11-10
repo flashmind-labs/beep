@@ -1,4 +1,4 @@
-use super::{FILES_KEPT, appender};
+use super::{FILES_KEPT, LOG_FILTER, appender};
 use std::{
     env, fs,
     io::Write,
@@ -56,4 +56,12 @@ fn daily_appender_keeps_large_logs_and_appends_after_restart() {
     );
     drop(writer);
     fs::remove_dir_all(&dir).expect("remove log directory");
+}
+
+#[test]
+fn the_filter_parses_and_quiets_per_snapshot_lines() {
+    let filter = tracing_subscriber::EnvFilter::try_new(LOG_FILTER).expect("log filter");
+    let text = filter.to_string();
+    assert!(text.contains("beep_desktop_lib::fleet::events=info"));
+    assert!(text.contains("beep_node::link::events=warn"));
 }
