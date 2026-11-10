@@ -82,7 +82,8 @@ export function openBarPage(release: () => void): BarPageSlot {
 /// The page box, mounted on first use. When something replaced the bar's
 /// contents, the next draw mounts a new box with the page on screen.
 function mount(): HTMLElement {
-  if (app?.host.isConnected) return app.host;
+  // `#bar` itself may move between hosts; only a box taken out of it is gone.
+  if (app?.host.parentElement === bar) return app.host;
 
   app?.root.unmount();
   const host = document.createElement("div");
