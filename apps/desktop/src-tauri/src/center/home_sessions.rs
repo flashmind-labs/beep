@@ -42,9 +42,19 @@ pub struct AgentSessions {
 
 #[derive(Clone)]
 struct Listed {
-    /// When the server listed them; `None` for a list read from disk.
-    at: Option<Instant>,
+    age: Age,
     sessions: Vec<MachineSession>,
+}
+
+/// How old the last list is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Age {
+    /// Read from disk at start: Home shows it at once, and the answer draws Home again.
+    Saved,
+    /// A session started or ended since: Home waits up to `WAIT` for the new list.
+    Stale,
+    /// Listed then.
+    Listed(Instant),
 }
 
 impl AgentSessions {
@@ -54,7 +64,10 @@ impl AgentSessions {
             .get(View::AgentSessions)
             .map(serde_json::from_value::<Vec<MachineSession>>)
         {
-            Some(Ok(sessions)) => Some(Listed { at: None, sessions }),
+            Some(Ok(sessions)) => Some(Listed {
+                age: Age::Saved,
+                sessions,
+            }),
             Some(Err(e)) => {
                 // Only a head start: the server's list replaces it.
                 log::info!("the saved agent sessions do not parse: {e}");
@@ -111,13 +124,16 @@ impl AgentSessions {
     }
 
     pub(crate) fn stale(&self) {
-        if let Some(listed) = self.last().as_mut() {
-            listed.at = None;
+        // A list from disk is older still and keeps drawing at once.
+        if let Some(listed) = self.last().as_mut()
+            && matches!(listed.age, Age::Listed(_))
+        {
+            listed.age = Age::Stale;
         }
     }
 
-    /// The sessions, as fresh as `WAIT` allows. Without an older list it
-    /// waits for the server's answer.
+    /// The sessions, as fresh as `WAIT` allows; the list kept on disk at once. Without an
+    /// older list it waits for the answer.
     pub async fn list(
         self: &Arc<Self>,
         app: &AppHandle,
@@ -140,23 +156,31 @@ impl AgentSessions {
         let last = self.last().clone();
 
         if let Some(listed) = &last
-            && listed.at.is_some_and(|at| at.elapsed() < FRESH)
+            && matches!(listed.age, Age::Listed(at) if at.elapsed() < FRESH)
         {
             return Ok(listed.sessions.clone());
         }
 
         let Ok(asking) = self.asking.clone().try_lock_owned() else {
             // Another window is asking already; its answer redraws this one.
-            return match last {
-                Some(listed) => Ok(listed.sessions),
-                None => Ok(machine_sessions(
-                    app,
-                    beep,
-                    &app.state::<Arc<Fleet>>(),
-                    &app.state::<Outside>(),
-                )
-                .await),
-            };
+            if let Some(listed) = last {
+                return Ok(listed.sessions);
+            }
+
+            // Nothing to show yet: take that answer rather than listing every machine again.
+            drop(self.asking.lock().await);
+
+            if let Some(listed) = self.last().clone() {
+                return Ok(listed.sessions);
+            }
+
+            return Ok(machine_sessions(
+                app,
+                beep,
+                &app.state::<Arc<Fleet>>(),
+                &app.state::<Outside>(),
+            )
+            .await);
         };
         let (tx, rx) = oneshot::channel();
         let me = self.clone();
@@ -173,7 +197,7 @@ impl AgentSessions {
             if let Ok(sessions) = &listed {
                 cache_view(&cache, View::AgentSessions, sessions);
                 *me.last() = Some(Listed {
-                    at: Some(Instant::now()),
+                    age: Age::Listed(Instant::now()),
                     sessions: sessions.clone(),
                 });
             }
@@ -188,6 +212,11 @@ impl AgentSessions {
         let Some(last) = last else {
             return rx.await.map_err(|_| stopped())?;
         };
+
+        // The list from the last run draws at once; the answer draws Home again.
+        if last.age == Age::Saved {
+            return Ok(last.sessions);
+        }
 
         match timeout(WAIT, rx).await {
             Ok(Ok(listed)) => listed,

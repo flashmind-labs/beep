@@ -21,7 +21,7 @@ fn external(id: &str, status: AgentStatus) -> MachineSession {
 fn listed(sessions: Vec<MachineSession>) -> AgentSessions {
     AgentSessions {
         last: Mutex::new(Some(Listed {
-            at: Some(Instant::now()),
+            age: Age::Listed(Instant::now()),
             sessions,
         })),
         asking: Arc::new(AsyncMutex::new(())),
@@ -46,7 +46,7 @@ fn a_live_report_updates_its_session_and_keeps_the_list_fresh() {
     sessions.live("build-box", &report);
 
     let last = sessions.last().clone().unwrap();
-    assert!(last.at.is_some());
+    assert!(matches!(last.age, Age::Listed(_)));
     assert_eq!(last.sessions[0].status, AgentStatus::Waiting {});
     assert_eq!(last.sessions[0].title.as_deref(), Some("Fix the build"));
     assert_eq!(
@@ -76,4 +76,17 @@ fn a_report_without_presence_or_from_another_machine_changes_nothing() {
 
     let last = sessions.last().clone().unwrap();
     assert_eq!(last.sessions[0].status, AgentStatus::Running {});
+}
+
+#[test]
+fn a_change_marks_a_listed_list_stale_and_leaves_one_from_disk_drawing_at_once() {
+    let sessions = listed(vec![external("s1", AgentStatus::Running {})]);
+    sessions.stale();
+    assert_eq!(sessions.last().as_ref().map(|l| l.age), Some(Age::Stale));
+
+    if let Some(listed) = sessions.last().as_mut() {
+        listed.age = Age::Saved;
+    }
+    sessions.stale();
+    assert_eq!(sessions.last().as_ref().map(|l| l.age), Some(Age::Saved));
 }
