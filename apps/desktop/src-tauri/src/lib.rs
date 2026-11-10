@@ -251,6 +251,7 @@ pub fn run() {
             fleet::events::mesh_topics,
             fleet::events::mesh_command,
             agents::follow::agent_unfollow,
+            agents::follow::agent_follow_show,
             agents::steer::agent_steer,
             bar::app::allow_mac_permission,
             bar::app::link_offer,

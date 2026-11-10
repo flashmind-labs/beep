@@ -61,20 +61,20 @@ test("cache eviction bounds inactive sessions and keys include machine and agent
   assert.notEqual(transcriptKey(key), transcriptKey({ ...key, agent: "agent-b" }));
 });
 
-test("late readers cannot alter a cached session after navigating away and returning", () => {
+test("a dropped reader cannot alter a cached session once it is followed again", () => {
   const cache = new TranscriptCache<Run>();
   const readers: ((update: TranscriptUpdate<Run>) => void)[] = [];
   const feed = new AgentFeed<string, TranscriptUpdate<Run>>({
-    id: () => String(readers.length), now: () => 0,
+    id: () => String(readers.length), now: () => 0, name: key => key, later: () => () => {}, show: () => {},
     open: (_key, _id, receive) => { readers.push(receive); return new Promise(() => {}); },
     close: () => {}, disconnected: () => {}, receive: (key, value) => { cache.receive(key, value); },
   });
   feed.follow("one");
   readers[0](update("snapshot", 0, ["first"]));
-  feed.follow("two");
+  feed.drop("one");
   readers[0](update("delta", 1, ["late"]));
   feed.follow("one");
-  readers[2](update("snapshot", 1, ["current"], 0, true));
+  readers[1](update("snapshot", 1, ["current"], 0, true));
   assert.deepEqual(cache.get("one")?.page.entries.map(e => e.text), ["first", "current"]);
 });
 

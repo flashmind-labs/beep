@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { SessionField, SessionHead, removeSessionPortal, setSessionPortal, showSessionFrame, updateSessionHints, updateSessionTitle } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
-import { AgentFeed } from "./agentfeed-state.ts";
+import { AgentFeed, BACKGROUND_FOLLOWS, type Activity } from "./agentfeed-state.ts";
 import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.ts";
 import { fileLinkMenu } from "./filelinks.ts";
@@ -40,6 +40,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { ICON } from "../ui/icons.ts";
 import { Channel, invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { AMBIENT_MS, ambient, onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
+import { onPhone } from "../ui/platform.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
@@ -71,7 +72,8 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
     if (AG.page.session.status === "ended" && s.status !== "ended") {
-      stopAgentFollow();
+      clearTimeout(AG.timer);
+      feed.drop(AG.open!);
       AG.page.session = s;
       AG.sig = "";
       drawAgentHeading();
@@ -116,6 +118,14 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     held: 0, stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
+  const kept = offScreen.get(transcriptKey(AG.open!));
+
+  if (kept) {
+    offScreen.delete(transcriptKey(AG.open!));
+    AG.modes = kept.modes;
+    AG.tasks = kept.tasks;
+  }
+
   if (AG.open) firstRead = { open: AG.open, at: performance.now() };
   drawAgentFrame(inPlace);
   watchRead(AG.open!);
@@ -153,16 +163,29 @@ const sessionKey = (s: AgentRow) => `${s.machine_id}\n${s.id}`;
 
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
-const transcripts = new TranscriptCache<AgentPage>();
+// Room for the open session, those followed off screen and a few recent.
+const transcripts = new TranscriptCache<AgentPage>(BACKGROUND_FOLLOWS + 4);
 
 interface FeedUpdate extends TranscriptUpdate<AgentPage> {
   modes: typeof AG.modes;
   tasks: typeof AG.tasks;
 }
 
+/// The newest modes and tasks of sessions followed off screen, by `transcriptKey`.
+const offScreen = new Map<string, Pick<FeedUpdate, "modes" | "tasks">>();
+
+/// What a session is doing, for how long it stays followed off screen.
+const activityOf = (s: AgentRow): Activity =>
+  s.question || s.status === "asking" ? "asking" : AGENT_ACTIVE.has(s.status) ? "running" : "idle";
+
+/// Follows the open session and, off screen, those that run or ask, so they
+/// show at once when opened again. Off screen an update only joins its model.
 const feed = new AgentFeed<OpenAgent, FeedUpdate>({
   id: () => crypto.randomUUID(),
   now: () => Date.now(),
+  name: transcriptKey,
+  later: (ms, run) => { const timer = setTimeout(run, ms); return () => clearTimeout(timer); },
+  show: id => { void invoke("agent_follow_show", { id }).catch(e => console.warn("session shown:", e)); },
   open: (o, id, receive) => {
     const onEvent = new Channel<FeedUpdate>();
     onEvent.onmessage = receive;
@@ -170,20 +193,42 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
   },
   close: id => { void invoke("agent_unfollow", { id }).catch(e => console.warn("session detach:", e)); },
   receive: (o, update) => {
-    if (!isOpen(o) || !agentOnScreen()) { feed.stop(); return; }
-    const page = transcripts.receive(transcriptKey(o), update);
+    const key = transcriptKey(o);
+    const page = transcripts.receive(key, update);
+    const open = AG.open && transcriptKey(AG.open) === key ? AG.open : null;
 
+    // A gap: the session is read again whole, now if it shows, else when it opens.
     if (!page) {
-      flushDraw();
-      feed.stop();
-      void pollAgent(true);
+      feed.drop(o);
+      offScreen.delete(key);
+
+      if (isOpen(open)) {
+        flushDraw(true);
+        void pollAgent(true);
+      }
+
+      return;
+    }
+
+    feed.activity(o, activityOf(page.session));
+    const fresh = update.kind === "delta" ? update.page : page;
+
+    if (!open) {
+      offScreen.set(key, { modes: update.modes, tasks: update.tasks });
       return;
     }
 
     AG.modes = update.modes;
     AG.tasks = update.tasks;
+
+    // Left for another view: its model takes the update with no draw.
+    if (!isOpen(open)) {
+      if (AG.page) AG.page = update.kind === "snapshot" ? page : joinRuns(AG.page, fresh);
+      return;
+    }
+
     // Normal updates only redraw their changed suffix.
-    queueDraw(o, update.kind === "delta" ? update.page : page, update.kind === "snapshot");
+    queueDraw(open, fresh, update.kind === "snapshot");
   },
   disconnected: (o, error) => {
     if (!isOpen(o) || !agentOnScreen()) return;
@@ -201,35 +246,47 @@ const feed = new AgentFeed<OpenAgent, FeedUpdate>({
 let held: { open: OpenAgent; page: AgentPage; replace: boolean; read: number; frame: number } | null = null;
 
 /// Draws a burst of pushed updates once per frame: each delta joins the
-/// held page in order, and a snapshot replaces it.
+/// held page in order, and a snapshot replaces it. While the view is
+/// hidden they are held, with no frame asked, until it shows again.
 function queueDraw(o: OpenAgent, page: AgentPage, replace: boolean) {
-  if (held && held.open !== o) flushDraw();
+  if (held && held.open !== o) flushDraw(true);
 
   if (held) {
     held.page = replace ? page : joinRuns(held.page, page);
     held.replace ||= replace;
     held.read = ++AG.polls;
-    return;
+  } else {
+    held = { open: o, page, replace, read: ++AG.polls, frame: 0 };
   }
 
-  held = { open: o, page, replace, read: ++AG.polls, frame: requestAnimationFrame(flushDraw) };
+  if (!held.frame && agentOnScreen()) held.frame = requestAnimationFrame(() => flushDraw());
 }
 
-/// Applies the held updates now. A session no longer shown keeps them for
-/// when it shows again.
-function flushDraw() {
+/// Applies the held updates, on screen or `now`; a hidden view keeps them
+/// for when it shows. A session no longer shown keeps them in its model.
+function flushDraw(now = false) {
   const next = held;
   if (!next) return;
-  held = null;
   cancelAnimationFrame(next.frame);
+  next.frame = 0;
+  if (!now && isOpen(next.open) && !agentOnScreen()) return;
+  held = null;
 
   if (isOpen(next.open)) applyAgentPage(next.open, next.page, next.read, next.replace, true);
   else if (AG.open === next.open && AG.page) AG.page = next.replace ? next.page : joinRuns(AG.page, next.page);
 }
 
+/// The open session leaves the screen; it stays followed while it runs or asks.
 export function stopAgentFollow() {
   clearTimeout(AG.timer);
-  feed.stop();
+  feed.leave();
+}
+
+/// Stops following every session, the open one included.
+export function forgetAgentFollows() {
+  clearTimeout(AG.timer);
+  feed.clear();
+  offScreen.clear();
 }
 
 changeListeners.push(() => {
@@ -302,19 +359,26 @@ export function agentDelay() {
 export async function pollAgent(readNow = false) {
   clearTimeout(AG.timer);
   const o = AG.open;
-  if (!o) { feed.stop(); return; }
+  if (!o) { feed.leave(); return; }
   const trace = readNow || !AG.sig;
   const skip = !isOpen(o) ? "different-view" : AG.inflight === o ? "in-flight" : !readNow && !agentOnScreen() ? "hidden" : null;
 
   if (skip) {
-    if (skip !== "in-flight") feed.stop();
+    if (skip !== "in-flight") feed.leave();
     if (trace) traceSession("read-skipped", o, { reason: skip, readNow });
     return;
   }
 
   if (agentOnScreen()) feed.follow(o);
-  else feed.stop();
-  if (feed.live(o)) return;
+  else feed.leave();
+
+  // Followed all along: what came while it was away is drawn once from its model.
+  if (feed.live(o)) {
+    flushDraw();
+    if (!AG.sig) shownFromModel(o);
+    return;
+  }
+
   // Give the initial snapshot a chance to arrive before asking an older node for a fallback.
   if (feed.waiting(o)) { AG.timer = setTimeout(pollAgent, 3000); return; }
   const version = feed.version(o);
@@ -335,7 +399,7 @@ export async function pollAgent(readNow = false) {
       AG.modes = modes;
       AG.tasks = tasks;
       // A push received while this fallback read ran is newer than its reply.
-      flushDraw();
+      flushDraw(true);
       applyAgentPage(o, page, read);
       if (trace) traceSession("read-applied", o, { status: page.session.status, entries: page.entries.length, ms: Date.now() - current.at });
     }
@@ -369,6 +433,15 @@ export async function pollAgent(readNow = false) {
   if (!feed.live(o)) AG.timer = setTimeout(pollAgent, delay);
 }
 
+/// The session opened again was followed off screen: its model, drawn with
+/// the frame, counts as its first read.
+function shownFromModel(o: OpenAgent) {
+  AG.sig = `pushed ${++AG.polls}`;
+  AG.changed = Date.now();
+  finishFirstRead(o, "ok");
+  if (AG.page) void readUsage(o, AG.page);
+}
+
 /// Follows the open session again after showing it or sending a message.
 export function resumeAgent() {
   AG.changed = Date.now();
@@ -393,12 +466,23 @@ window.addEventListener("agent-pane-shown", () => {
 onShownChange(shown => {
   if (AG.open && S.view === "agent") traceSession("visibility-changed", AG.open, { shown });
 
-  if (!shown) { clearTimeout(AG.timer); feed.stop(); }
+  if (!shown) { clearTimeout(AG.timer); feed.leave(); }
   else if (S.view === "agent") {
+    flushDraw();
     restoreAgentScroll();
     pollAgent();
   }
 }, true);
+
+// A phone app back from the background may have been suspended, and its
+// links with it: each followed session reads on once from where it was,
+// and the open one falls back to a read if its stream does not answer.
+onShownChange(shown => {
+  if (!shown || !onPhone()) return;
+  feed.resync();
+  if (S.view === "agent") void pollAgent();
+});
+
 const titlesChanged = ambient(() => {
   if (S.view === "agent") void pollAgent(true);
   return loadSessions().then(() => { if (S.view === "agents") drawAgents(false); });
