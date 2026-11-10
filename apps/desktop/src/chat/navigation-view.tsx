@@ -15,18 +15,19 @@ interface Navigation { latest: boolean; top: number; height: number; many: boole
 const prompted = (body: ChatBody): Turn[] => turnsOf(body).filter(turn => viewOf(turn).prompt !== null);
 
 function readNavigation(body: ChatBody): Navigation {
+  const latest = body.stuck === false, top = body.offsetTop, height = body.clientHeight;
   const turns = prompted(body).flatMap(turn => { const element = turnElement(turn); return element ? [{ turn, element }] : []; });
   const earlier = earlierPrompts(body), total = earlier.length + turns.length;
+  // Under two prompts, or with nothing to scroll, there is nothing to tick.
+  if (turns.length < 2 || body.scrollHeight <= body.clientHeight + 4) return { latest, top, height, many: total > 12, ticks: [] };
   let current = earlier.length;
   turns.forEach(({ element }, index) => { if (element.offsetTop - body.offsetTop <= body.scrollTop + body.clientHeight / 3) current = earlier.length + index; });
   const place = (position: number) => Math.min(97, Math.max(3, position / total * 100));
-  const visible = turns.length >= 2 && body.scrollHeight > body.clientHeight + 4;
-  const ticks: Tick[] = visible ? [
+  const ticks: Tick[] = [
     ...earlier.map((title, index) => ({ key: `earlier:${index}`, title, top: place(index), active: index === current, turn: null, earlier: index })),
     ...turns.map(({ turn, element }, index) => ({ key: `turn:${turn.key}`, title: askText(turn), top: place(earlier.length + (element.offsetTop - body.offsetTop) / body.scrollHeight * turns.length), active: earlier.length + index === current, turn: element, earlier: null })),
-  ] : [];
-  const latest = body.stuck === false, top = body.offsetTop, height = body.clientHeight, many = total > 12;
-  return { latest, top, height, many, ticks };
+  ];
+  return { latest, top, height, many: total > 12, ticks };
 }
 
 function sameNavigation(a: Navigation | null, b: Navigation) {
