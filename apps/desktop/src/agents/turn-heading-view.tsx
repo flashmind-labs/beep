@@ -1,10 +1,13 @@
-import { memo } from "react";
-import { clock, heading, type TurnState } from "./agentturns.ts";
+// Parts a turn's rows share in a Beep chat and a coding agent's log: the
+// heading, a step's mark and a running clock.
+import { memo, useLayoutEffect, useSyncExternalStore } from "react";
+import { clock, duration, heading, type TurnState } from "./agentturns.ts";
+import { Icon } from "../ui/icons.tsx";
+import { onShownChange, paneShown } from "../ui/active.ts";
 
 export interface TurnHeading {
   kind: "heading";
   id: string;
-  html: string;
   state: TurnState;
   start: number | null;
   ms: number | null;
@@ -13,8 +16,78 @@ export interface TurnHeading {
   opened: boolean;
 }
 
+/// A turn's heading: how long it worked and what it did. With a `turn` it is
+/// a button that opens or folds the steps. A running turn's clock is on its
+/// live line, so without a `turn` it has none.
+export function turnHeading(value: Omit<TurnHeading, "kind" | "id">): TurnHeading | null {
+  if (value.state !== "done" && value.turn === null) return null;
+  return { kind: "heading", id: value.turn === null ? "turn" : `steps:${value.turn}`, ...value };
+}
+
 export const AgentTurnHeading = memo(function AgentTurnHeading({ value, onToggle = null }: { value: TurnHeading; onToggle?: (() => void) | null }) {
   const done = value.state === "done";
   const label = done ? <><span>{heading(value.state, value.ms)}</span>{value.stats && <span className="stats">· {value.stats}</span>}</> : <span>{value.stats || "Steps"}</span>;
-  return <div className="dcoderturn">{value.turn === null ? <span className="hd">{label}</span> : <button className={`hd${value.opened ? " open" : ""}`} data-turn={value.turn} aria-expanded={value.opened} title={value.opened ? "Fold the steps" : "Show the steps"} onClick={onToggle ?? undefined}>{label}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg></button>}{value.start !== null && <span className="when">{clock(value.start)}</span>}</div>;
+  return <div className="dcoderturn">{value.turn === null ? <span className="hd">{label}</span> : <button className={`hd${value.opened ? " open" : ""}`} data-turn={value.turn} aria-expanded={value.opened} title={value.opened ? "Fold the steps" : "Show the steps"} onClick={onToggle ?? undefined}>{label}<Icon name="chev" /></button>}{value.start !== null && <span className="when">{clock(value.start)}</span>}</div>;
 });
+
+/// How a step stands: done, failed, running or did not finish.
+export type StepMark = "done" | "failed" | "running" | "stopped" | "none";
+
+export function stepMark(status: string, running: boolean): StepMark {
+  return status === "completed" ? "done" : status === "failed" ? "failed" : status && running ? "running" : status ? "stopped" : "none";
+}
+
+export function StepMarkView({ mark }: { mark: StepMark }) {
+  if (mark === "done") return <span className="dok" title="Done"><Icon name="check" /></span>;
+  if (mark === "failed") return <span className="dbad" title="Failed"><Icon name="x" /></span>;
+  if (mark === "running") return <span className="dspin" title="Running" />;
+  if (mark === "stopped") return <span className="ddot off" title="Did not finish" />;
+  return null;
+}
+
+/// How long since `start`, moving on each second while the pane shows.
+export function Since({ start, className, title }: { start: number; className?: string; title?: string }) {
+  useSyncExternalStore(subscribeSecond, currentSecond, currentSecond);
+  useLayoutEffect(tickClocks);
+  return <span className={className} data-since={start} title={title}>{duration(Date.now() - start)}</span>;
+}
+
+// One timer serves every clock, and stops while none is in the page or the
+// pane hides. A log put back in the page starts it with its next draw.
+const clocks = new Set<() => void>();
+let second = 0;
+let ticking: ReturnType<typeof setInterval> | null = null;
+
+const currentSecond = () => second;
+
+function subscribeSecond(listener: () => void) {
+  clocks.add(listener);
+  tickClocks();
+  return () => {
+    clocks.delete(listener);
+    tickClocks();
+  };
+}
+
+const shownClock = () => clocks.size > 0 && paneShown() && !!document.querySelector("[data-since]");
+
+/// Starts the clocks' timer when one shows.
+export function tickClocks() {
+  const run = shownClock();
+  if (run && ticking === null) {
+    ticking = setInterval(() => {
+      if (!shownClock()) { tickClocks(); return; }
+      second++;
+      for (const listener of clocks) listener();
+    }, 1000);
+  } else if (!run && ticking !== null) {
+    clearInterval(ticking);
+    ticking = null;
+  }
+}
+
+onShownChange(shown => {
+  tickClocks();
+  // What was hidden catches up at once.
+  if (shown) { second++; for (const listener of clocks) listener(); }
+}, true);

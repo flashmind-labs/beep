@@ -4,7 +4,7 @@ import { openViewer } from "../chat/media.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, showArtifact } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
-import { copyCode, toggleThought } from "./turnrows.ts";
+import { copyCode } from "./turnrows.ts";
 import { AG } from "./agents.ts";
 import { fullPic } from "./images.ts";
 import { childRow } from "./nesting-state.ts";
@@ -67,29 +67,12 @@ export function agentClick(e: MouseEvent) {
   }
 
   if (target.closest("#agbody pre.out.all")) return;
-  // A run of calls opens and folds in place, like a thought.
+  // A run of calls opens and folds where it is, like a thought.
   const runBtn = target.closest<HTMLElement>("#agbody [data-run]");
-
-  if (runBtn && AG.open) {
-    const opened = turnsOf(AG.open.session).runs, at = Number(runBtn.dataset.run);
-    const open = !opened.delete(at);
-    if (open) opened.add(at);
-    runBtn.parentElement?.classList.toggle("open", open);
-    runBtn.setAttribute("aria-expanded", String(open));
-    return;
-  }
-
-  // The files a turn made fold and open in place, like a run of calls.
+  if (runBtn && AG.open) return toggleRow(turnsOf(AG.open.session).runs, Number(runBtn.dataset.run));
+  // The files a turn made fold and open, like a run of calls.
   const madeHead = target.closest<HTMLElement>("#agbody [data-madeat]");
-
-  if (madeHead && AG.open) {
-    const opened = turnsOf(AG.open.session).made, at = Number(madeHead.dataset.madeat);
-    const open = !opened.delete(at);
-    if (open) opened.add(at);
-    madeHead.parentElement?.classList.toggle("open", open);
-    madeHead.setAttribute("aria-expanded", String(open));
-    return;
-  }
+  if (madeHead && AG.open) return toggleRow(turnsOf(AG.open.session).made, Number(madeHead.dataset.madeat));
 
   // A file a turn made opens in the Artifacts tab, or else in its own tab.
   const madeFile = target.closest<HTMLElement>("#agbody [data-made]");
@@ -102,15 +85,9 @@ export function agentClick(e: MouseEvent) {
   const copy = target.closest<HTMLElement>("#agbody [data-copy]");
   if (copy) return copyCode(copy);
   if (target.closest("#agjump")) { jumpToLatest(); return; }
-  // A thought opens and folds in place, so only it animates.
+  // A thought opens and folds where it is; only its row draws again.
   const thought = target.closest<HTMLElement>("#agbody [data-thought]");
-
-  if (thought && AG.open) {
-    const m = turnsOf(AG.open.session), at = Number(thought.dataset.thought);
-    if (toggleThought(thought)) m.thoughts.add(at);
-    else m.thoughts.delete(at);
-    return;
-  }
+  if (thought && AG.open) return toggleRow(turnsOf(AG.open.session).thoughts, Number(thought.dataset.thought));
 
   // The heading toggles the steps; the bottom chevron returns to it.
   const turn = target.closest<HTMLElement>("#agbody [data-turn]");
@@ -196,6 +173,12 @@ export function agentClick(e: MouseEvent) {
   }
 
   if (target.closest("#agresume")) return resumeAgent();
+}
+
+/// Opens or folds the row at `at`, which stays where it is on screen.
+function toggleRow(opened: Set<number>, at: number) {
+  if (!opened.delete(at)) opened.add(at);
+  drawAgentBody(`[data-row="${at}"]`);
 }
 
 /// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again.

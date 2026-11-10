@@ -12,7 +12,7 @@ test("subagent updates keep focused rows and their actions", () => {
   const host = dom.window.document.getElementById("root");
   assert.ok(host);
   const root = createRoot(host);
-  const row: SubagentRow = { at: 1, title: "Check files", agent: "Explorer", meta: "working", mark: "", target: { kind: "child", id: "child", key: "key" }, dismiss: false, stoppable: true, result: null, prompt: null };
+  const row: SubagentRow = { at: 1, title: "Check files", agent: "Explorer", meta: "working", mark: "none", target: { kind: "child", id: "child", key: "key" }, dismiss: false, stoppable: true, result: null, prompt: null };
   flushSync(() => root.render(createElement(SubagentsView, { rows: [row] })));
   const button = host.querySelector("button");
   assert.ok(button);

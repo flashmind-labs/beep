@@ -3,7 +3,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentToolCall } from "../src/agents/agents.ts";
 import * as agentlog from "../src/agents/agentlog.ts";
-import { toolRow } from "../src/agents/logview.ts";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { toolRows } from "../src/agents/logview.ts";
+import { ActivityView } from "../src/agents/activity-view.tsx";
+import type { AgentEntry } from "../src/agents/agents.ts";
+
+const toolRow = (en: AgentEntry, at: number) => renderToStaticMarkup(toolRows(en, at).map((row, i) => createElement(ActivityView, { key: i, row })));
 
 const tool: AgentToolCall = {
   name: "Bash", input: '{"command":"sleep 45"}', input_truncated: false,

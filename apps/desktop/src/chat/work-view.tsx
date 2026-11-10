@@ -9,10 +9,10 @@ import { invoke } from "../ui/tauri.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import type { WebSource } from "./history.ts";
 import { liveText } from "../agents/karaoke.ts";
-import { duration, thoughtLabel } from "../agents/agentturns.ts";
+import { thoughtLabel } from "../agents/agentturns.ts";
 import { KIND_ICONS } from "../agents/agentturns.ts";
 import type { ToolKind } from "../agents/agentturns.ts";
-import { AgentTurnHeading, type TurnHeading } from "../agents/turn-heading-view.tsx";
+import { AgentTurnHeading, Since, StepMarkView, type TurnHeading } from "../agents/turn-heading-view.tsx";
 import { RouteView } from "./route-view.tsx";
 import { ChartView } from "./chart-view.tsx";
 import type { Chart, ChartCard } from "./charts.ts";
@@ -590,8 +590,9 @@ const Approval = memo(function Approval({ value }: { value: ApprovalView }) {
 const Suggestions = memo(function Suggestions({ replies, send }: { replies: string[]; send: (text: string) => void }) {
   return <>{replies.map((reply, i) => <button className="dbtn" key={`${i}:${reply}`} onClick={() => send(reply)}>{reply}</button>)}</>;
 });
+const STEP_MARKS = { run: "running", ok: "done", bad: "failed", stop: "stopped" } as const;
 const WorkStepRow = memo(function WorkStepRow({ step }: { step: WorkStep }) {
-  return <div className="dcoderen tool row"><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[step.kind] }} /><span className="vb">{step.verb}</span><code className="tt" title={step.label}>{step.target}</code><span className={`rm${step.state === "bad" ? " bad" : ""}`}>{step.state === "bad" ? "failed" : ""}</span><span className="mk">{step.state === "run" ? <span className="dspin" title="Running" /> : step.state === "stop" ? <span className="ddot off" title="Did not finish" /> : <span className={step.state === "ok" ? "dok" : "dbad"} title={step.state === "ok" ? "Done" : "Failed"} dangerouslySetInnerHTML={{ __html: step.state === "ok" ? ICON.check : ICON.x }} />}</span></div>;
+  return <div className="dcoderen tool row"><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[step.kind] }} /><span className="vb">{step.verb}</span><code className="tt" title={step.label}>{step.target}</code><span className={`rm${step.state === "bad" ? " bad" : ""}`}>{step.state === "bad" ? "failed" : ""}</span><span className="mk"><StepMarkView mark={STEP_MARKS[step.state]} /></span></div>;
 });
 function Thought({ value, onToggle }: { value: WorkThought; onToggle(open: boolean): void }) {
   const box = useRef<HTMLDivElement>(null), ended = useRef<HTMLDivElement>(null);
@@ -609,7 +610,7 @@ function Thought({ value, onToggle }: { value: WorkThought; onToggle(open: boole
 }
 function LiveLine({ value }: { value: WorkLive }) {
   const lead = value.thinking ? "Thinking" : "Working";
-  return <div className="dthink dlive live"><span className="lb" title={lead}>{lead}</span>{value.start !== null && <span className="since" data-since={value.start}>{duration(Date.now() - value.start)}</span>}</div>;
+  return <div className="dthink dlive live"><span className="lb" title={lead}>{lead}</span>{value.start !== null && <Since className="since" start={value.start} />}</div>;
 }
 const Work = memo(function Work({ value }: { value: WorkView }) {
   return <>{value.heading && <AgentTurnHeading value={value.heading} onToggle={value.toggleSteps} />}{value.thought && <Thought value={value.thought} onToggle={value.toggleThought} />}{value.steps.map(step => <WorkStepRow key={step.key} step={step} />)}{value.live && <LiveLine value={value.live} />}</>;
