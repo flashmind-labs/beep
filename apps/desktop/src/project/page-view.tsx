@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, type ReactElement } from "react";
-import { IC } from "../ui/icons.tsx";
+import { Icon } from "../ui/icons.tsx";
 import type { Freshness } from "../ui/pagecache.ts";
 import type { ChatApproval } from "../agents/running-state.ts";
 import type { ProjectActs } from "./agent.ts";
@@ -53,7 +53,7 @@ export function NoProjects({ add }: { add: () => void }) {
   return <div className="cc-panel cc-empty">
     <b>No projects yet</b>
     <span>A folder or a repository to clone.</span>
-    <button type="button" className="pri" onClick={add} dangerouslySetInnerHTML={{ __html: `${IC.plus} Add a project` }}/>
+    <button type="button" className="pri" onClick={add}><Icon name="plus"/> Add a project</button>
   </div>;
 }
 
