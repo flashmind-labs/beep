@@ -43,3 +43,19 @@ test("mobile keyboard dismissal preserves the composer and its draft", async ({ 
   await page.evaluate(() => window.__navigation.open("home"));
   await expect(hide).toBeHidden();
 });
+
+test("on a phone, sheets and menus opened outside the main area lose shortcut hints", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDesktop(page);
+  await expect(page.locator("body")).toHaveClass(/mobile/);
+  // A sheet as the window mounts one, its content drawn after it opens.
+  await page.evaluate(() => {
+    const sheet = document.createElement("div");
+    sheet.id = "test-sheet";
+    sheet.innerHTML = '<button id="test-now" title="Close (esc)">Close</button>';
+    document.body.append(sheet);
+    requestAnimationFrame(() => { sheet.insertAdjacentHTML("beforeend", '<div><button id="test-later" title="Send (⌘⏎)">Send</button></div>'); });
+  });
+  await expect(page.locator("#test-now")).toHaveAttribute("title", "Close");
+  await expect(page.locator("#test-later")).toHaveAttribute("title", "Send");
+});
