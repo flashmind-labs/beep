@@ -3,11 +3,15 @@
 //! `open_project`, `hide_on_close`, `is_center`.
 
 use crate::{bar, error::Result};
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, MutexGuard, PoisonError},
+};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, Window, WindowEvent,
 };
+use tokio::sync::watch;
 
 pub const LABEL: &str = "center";
 /// The window never shrinks below this.
@@ -304,24 +308,44 @@ pub fn center_window_project(window: WebviewWindow) -> Option<String> {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn closed<R: Runtime>(_: &AppHandle<R>, _: &str) {}
 
-/// Whether each command center page was last told its window shows.
+/// Whether each command center page was last told its window shows, `None`
+/// before it was told anything. Native work for a window waits on it too.
 #[derive(Default)]
-pub(crate) struct OnScreen(Mutex<HashMap<String, bool>>);
+pub(crate) struct OnScreen(Mutex<HashMap<String, watch::Sender<Option<bool>>>>);
 
 impl OnScreen {
+    fn told(&self) -> MutexGuard<'_, HashMap<String, watch::Sender<Option<bool>>>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Records that `label` shows or not, true if that changed.
     fn record(&self, label: &str, shown: bool) -> bool {
-        let mut told = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        told.insert(label.to_owned(), shown) != Some(shown)
+        let mut told = self.told();
+        let sender = told
+            .entry(label.to_owned())
+            .or_insert_with(|| watch::Sender::new(None));
+        sender.send_replace(Some(shown)) != Some(shown)
+    }
+
+    /// Whether window `label` shows, as it changes. The receiver closes with
+    /// the window.
+    pub(crate) fn watch(&self, label: &str) -> watch::Receiver<Option<bool>> {
+        self.told()
+            .entry(label.to_owned())
+            .or_insert_with(|| watch::Sender::new(None))
+            .subscribe()
     }
 
     /// The window closed for good.
     pub(crate) fn clear(&self, label: &str) {
-        self.0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(label);
+        self.told().remove(label);
     }
+}
+
+/// Whether a window `OnScreen::watch` follows is hidden. One never told is
+/// taken as shown.
+pub(crate) fn hidden(shown: &watch::Receiver<Option<bool>>) -> bool {
+    *shown.borrow() == Some(false)
 }
 
 /// Whether a page hears its window's state again when nothing changed.

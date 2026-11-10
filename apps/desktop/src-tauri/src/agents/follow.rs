@@ -3,7 +3,10 @@
 
 use super::sessions::{ModesRow, SessionPage, TaskRow};
 use crate::{
-    center::AgentsShown,
+    center::{
+        AgentsShown,
+        window::{OnScreen, hidden},
+    },
     error::{DesktopError, Result},
     fleet::Machines,
 };
@@ -356,6 +359,10 @@ pub async fn agent_follow(
             .await?;
         let mut pace = Pace::default();
         let mut retried = false;
+        // A hidden window hears nothing until it shows again.
+        let mut window_shown = app.state::<OnScreen>().watch(window.label());
+        let mut watching = true;
+        pace.window(hidden(&window_shown), Instant::now());
 
         loop {
             let due = pace.due();
@@ -380,6 +387,17 @@ pub async fn agent_follow(
                     if *on_screen.borrow_and_update()
                         && let Some(pushed) = pace.flush(Instant::now())
                     {
+                        on_event.send(pushed.into())?;
+                    }
+
+                    continue;
+                }
+                changed = window_shown.changed(), if watching => {
+                    // The window is gone: the next update ends the follow.
+                    let hidden = changed.is_ok() && hidden(&window_shown);
+                    watching = changed.is_ok();
+
+                    if let Some(pushed) = pace.window(hidden, Instant::now()) {
                         on_event.send(pushed.into())?;
                     }
 

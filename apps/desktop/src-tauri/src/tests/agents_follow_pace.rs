@@ -151,3 +151,31 @@ fn a_question_a_run_ending_or_the_screen_sends_at_once() {
         vec![vec!["d", "e"]]
     );
 }
+
+#[test]
+fn a_hidden_window_hears_nothing_until_it_shows() {
+    let mut pace = Pace::default();
+    let start = Instant::now();
+    assert!(pace.window(true, start).is_none());
+
+    let first = pace.push(
+        pushed(UpdateKind::Snapshot, 0, &["a"], WORKING),
+        true,
+        start,
+    );
+    assert!(first.is_empty(), "even the session it showed waits");
+
+    let ended = pushed(UpdateKind::Delta, 1, &["b"], AgentStatus::Ended {});
+    let later = start + Duration::from_secs(5);
+    assert!(
+        pace.push(ended, false, later).is_empty(),
+        "a run ending waits too"
+    );
+    assert_eq!(pace.due(), None, "nothing is due while hidden");
+
+    let shown = pace
+        .window(false, later)
+        .expect("the held state goes on show");
+    assert_eq!(texts(&shown), ["a", "b"]);
+    assert!(pace.window(false, later).is_none());
+}

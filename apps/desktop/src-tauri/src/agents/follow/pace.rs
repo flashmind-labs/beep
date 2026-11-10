@@ -1,6 +1,7 @@
 //! Paces the updates of a session followed off screen: at most one a second,
 //! the newest state with every entry kept, and at once when its run starts or
-//! ends, it asks something, or it shows again.
+//! ends, it asks something, or it shows again. While its window is hidden
+//! everything is held, and the newest state goes once the window shows.
 
 use super::UpdateKind;
 use crate::agents::sessions::{ModesRow, TaskRow};
@@ -84,6 +85,8 @@ pub(super) struct Pace {
     held: Option<Pushed>,
     sent: Option<Instant>,
     turn: Option<Turn>,
+    /// The window is hidden: nothing is due.
+    hidden: bool,
 }
 
 impl Pace {
@@ -91,7 +94,7 @@ impl Pace {
     /// The session on screen, when `shown`, gets every update at once.
     pub(super) fn push(&mut self, next: Pushed, shown: bool, now: Instant) -> Vec<Pushed> {
         let turn = Turn::from(&next.view);
-        let urgent = shown || self.turn != Some(turn);
+        let urgent = !self.hidden && (shown || self.turn != Some(turn));
         self.turn = Some(turn);
         let mut out = Vec::new();
         let rest = match &mut self.held {
@@ -103,9 +106,10 @@ impl Pace {
             out.extend(self.held.replace(rest));
         }
 
-        let quiet = self
-            .sent
-            .is_none_or(|sent| now.saturating_duration_since(sent) >= OFF_SCREEN_EVERY);
+        let quiet = !self.hidden
+            && self
+                .sent
+                .is_none_or(|sent| now.saturating_duration_since(sent) >= OFF_SCREEN_EVERY);
 
         if urgent || quiet {
             out.extend(self.held.take());
@@ -120,8 +124,19 @@ impl Pace {
 
     /// When what is held is due.
     pub(super) fn due(&self) -> Option<Instant> {
+        if self.hidden {
+            return None;
+        }
+
         self.held.as_ref()?;
         self.sent.map(|sent| sent + OFF_SCREEN_EVERY)
+    }
+
+    /// The window hid or showed again at `now`; on show, what is held.
+    pub(super) fn window(&mut self, hidden: bool, now: Instant) -> Option<Pushed> {
+        self.hidden = hidden;
+
+        if hidden { None } else { self.flush(now) }
     }
 
     /// What is held, sent at `now`.

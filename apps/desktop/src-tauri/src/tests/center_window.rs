@@ -70,6 +70,24 @@ fn a_page_hears_its_window_state_again_only_when_it_changes() {
     assert!(told.record(LABEL, true), "a closed window starts over");
 }
 
+#[test]
+fn native_work_hears_whether_its_window_shows() {
+    let told = OnScreen::default();
+    let mut shown = told.watch(LABEL);
+    assert!(!hidden(&shown), "a window never told counts as shown");
+
+    told.record(LABEL, false);
+    assert!(shown.has_changed().unwrap_or(false));
+    assert!(hidden(&shown));
+
+    told.record(LABEL, true);
+    assert!(!hidden(&shown));
+
+    told.clear(LABEL);
+    assert!(shown.borrow_and_update().is_some());
+    assert!(shown.has_changed().is_err(), "it closes with the window");
+}
+
 #[cfg(desktop)]
 #[test]
 fn minimizing_and_restoring_reach_the_page_from_resizes_and_focus() {
