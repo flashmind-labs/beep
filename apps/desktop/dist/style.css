@@ -73,7 +73,8 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 /* A hidden window keeps no spinner turning (ui/active.ts sets data-hidden). */
 :root[data-hidden] .dspin { animation-play-state: paused }
 /* A Mermaid block not yet drawn announces itself to chat/diagrams.ts as it shows. */
-pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms }
+/* Found even with Reduce motion on, which removes every other animation. */
+pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms !important }
 @keyframes diagram-found { from { opacity: .99 } }
 .dok { color: var(--accent); display: grid } .dbad { color: var(--err); display: grid }
 .caret { display: inline-block; width: 2px; height: 16px; margin-left: 1px; background: var(--accent); vertical-align: -3px }
