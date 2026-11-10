@@ -1,6 +1,6 @@
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
-import { SessionField, SessionHead, removeSessionPortal, setSessionPortal, showSessionFrame, updateSessionHints, updateSessionTitle } from "./session-frame.tsx";
+import { SessionField, SessionHead, removeSessionPortal, sessionEditHost, setSessionPortal, showSessionFrame, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
 import { AgentFeed, BACKGROUND_FOLLOWS, type Activity } from "./agentfeed-state.ts";
@@ -582,8 +582,7 @@ async function readUsage(o: OpenAgent, page: AgentPage) {
     const u = await invoke<AgentUsage | null>("agent_usage", where(o));
     if (usage.of !== of || usage.turns !== page.turns || !u) return;
     usage.text = usageLine(u);
-    const line = $("#aguse");
-    if (line && isOpen(o)) line.textContent = usage.text;
+    if (isOpen(o)) updateSessionHead({ usage: usage.text });
   } catch (e) {
     console.warn("agent usage not read", e);
     if (usage.of === of) usage.turns = -1;
@@ -602,7 +601,7 @@ export function openEditorKey() {
 /// Open in an editor, in the head, when this Mac has the folder `cwd` of
 /// `machine`; `current` says the head still belongs to it.
 export async function drawEditors(machine: string, cwd: string, current: () => boolean) {
-  const target = $("#agedit"), key = JSON.stringify([machine, cwd]);
+  const target = sessionEditHost(), key = JSON.stringify([machine, cwd]);
   if (!target || (editorHead?.target === target && editorHead.key === key)) return;
   if (editorHead && editorHead.target !== target) removeSessionPortal(editorHead.target);
   const head = editorHead = { target, key };
@@ -611,7 +610,7 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
   const folder = await invoke<string | null>("session_folder_here", { machineId: machine, cwd })
     .catch(e => { console.warn("session folder not read", e); return null; });
   const draw = () => {
-    if (!current() || editorHead !== head || $("#agedit") !== target) return;
+    if (!current() || editorHead !== head || sessionEditHost() !== target) return;
     editorFolder = folder;
     const editors = editorsFor(folder, draw);
     if (folder && editors.length) setSessionPortal(target, createElement(ProjectEditors, { editors, folder }));
@@ -623,25 +622,23 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
 // Titles and checkout details can arrive after the frame first draws.
 function drawAgentHeading() {
   const s = AG.page?.session;
-  if (!s) return;
-  if (!$("#agtitle")) return;
-  updateSessionTitle(s.title || agentKind(s.agent).name);
-  const project = windowHooks?.sessionProject?.(s), place = placeOf(s);
-  const folder = $("#agproj"), branch = $("#agbranch");
-  setText(folder, project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || agentKind(s.agent).name);
-  setText(branch, place?.linked ? ` · ${placeName(place)}` : "");
+  if (!s || !updateSessionHead(headText(s))) return;
   const here = $("#aghere");
   // Keep the machine menu when checkout details change.
-  if (here && !here.querySelector(".mvb")) setText(here, s.machine_name);
+  if (here && !here.querySelector(".mvb") && here.textContent !== s.machine_name) here.textContent = s.machine_name;
   void drawEditors(s.machine_id, s.cwd, () => !!AG.page && usageKey(AG.page.session) === usageKey(s));
 }
 onPlaces(drawAgentHeading);
 
-/// The heading redraws with every delta: only a changed text replaces its node.
-function setText(el: Element | null, text: string) {
-  if (el && el.textContent !== text) el.textContent = text;
+/// The head's title, and the folder and worktree the session works in.
+function headText(s: AgentRow) {
+  const project = windowHooks?.sessionProject?.(s), place = placeOf(s), name = agentKind(s.agent).name;
+  return {
+    title: s.title || name,
+    folder: project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || name,
+    branch: place?.linked ? ` · ${placeName(place)}` : "",
+  };
 }
-
 
 /// Closes the open session, preserving its conversation for later.
 export async function closeOpenSession() {
@@ -691,12 +688,13 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await pollAgent(true);
     void loadSessions().catch(e => console.warn("session titles:", e));
   };
-  showSessionFrame({ head: createElement(SessionHead, { agent: s.agent, title: s.title || k.name, folder: project?.label || shortCwd(s.cwd) || k.name, project: !!project, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "", saveTitle }), field: createElement(SessionField, { mode, name: k.name, banner, attach: agentDrop }), body: b, hints: agentHints() }, inPlace, disposeQueue);
+  const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: usage.of === usageKey(s) ? usage.text : "", saveTitle });
+  const field = createElement(SessionField, { mode, name: k.name, banner, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
+  showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   if (left && left.body !== b) {
     disposeLogShell(left.body);
   }
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
-  if (project) $("#agproj")?.addEventListener("click", project.open);
   drawAgentHeading();
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;
@@ -820,8 +818,7 @@ function agentClick(e: MouseEvent) {
   // An agent another agent started opens as its own session.
   const kid = target.closest<HTMLElement>(":is(#agbody, .agpane) [data-kid]");
   if (kid) { void openKid(kid.dataset.kid!, kid.dataset.key); return; }
-  const up = target.closest("#agup, #agup2, #agnativeparent");
-  if (up) { const row = AG.open && AG.page && parentSession(AG.page.session); if (row) openAgent(row, { back: AG.back }); return; }
+  if (target.closest("#agup, #agup2")) return openParent();
   // "Show all N lines" opens the whole output in a box that scrolls.
   const all = target.closest<HTMLElement>("#agbody [data-all]");
 
@@ -961,12 +958,12 @@ function agentClick(e: MouseEvent) {
   }
 
   if (target.closest("#agresume")) return resumeAgent();
-  if (target.closest("#agstop")) return void interruptAgent();
+}
 
-  if (target.closest("#agsend")) {
-    const input = $<HTMLTextAreaElement>("#agmsg");
-    if (input) submitAgentMessage(input);
-  }
+/// Opens the session that started the open one.
+function openParent() {
+  const row = AG.open && AG.page && parentSession(AG.page.session);
+  if (row) openAgent(row, { back: AG.back });
 }
 
 /// Replayed prompts can have more text after their image lines.
