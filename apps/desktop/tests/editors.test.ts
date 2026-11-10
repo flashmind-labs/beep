@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { editorsFor, openInEditor, type EditorRow } from "../src/project/editors.ts";
 import { drawEditors } from "../src/agents/session-head.ts";
-import { DraftHead, showSessionFrame } from "../src/agents/session-frame.tsx";
+import { DraftHead, draftMessage, showSessionFrame, shownMessage } from "../src/agents/session-frame.tsx";
 import { createElement } from "react";
 import { createStore } from "zustand/vanilla";
 
@@ -79,4 +79,23 @@ test("a successful editor launch shows no error", async () => {
   await openInEditor("/srv/project");
 
   assert.equal(bar.querySelector("#saved"), null);
+});
+
+test("a session drawn in place of a draft releases the draft's field", () => {
+  const head = createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") });
+  const hints = { value: { items: [], window: false, model: null, link: null }, project: null };
+  const field = document.createElement("textarea");
+  showSessionFrame({ head, field: null, body: document.createElement("div"), hints }, false, () => { draftMessage.current = null; });
+  draftMessage.current = field;
+  document.body.append(field);
+  assert.equal(shownMessage(), field);
+
+  let released = 0;
+  showSessionFrame({ head, field: null, body: document.createElement("div"), hints }, true, () => { released++; });
+  assert.equal(draftMessage.current, null);
+  assert.equal(released, 0);
+  field.remove();
+  draftMessage.current = field;
+  assert.equal(shownMessage(), null, "a detached field does not take the keys");
+  draftMessage.current = null;
 });

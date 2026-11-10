@@ -135,6 +135,9 @@ export const agentMessage = createRef<HTMLTextAreaElement>();
 /// The new-agent field while an empty agent view (a draft) shows it.
 export const draftMessage = createRef<HTMLTextAreaElement>();
 
+/// The field that takes the keys back from the pane: the session's or the draft's, while shown.
+export const shownMessage = () => [agentMessage.current, draftMessage.current].find(field => field?.isConnected) ?? null;
+
 export function SessionField({ mode, name, banner, moveKey, attach, send, stop, openParent }: SessionFieldProps) {
   const input = agentMessage, dropping = useFieldDrop();
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><button className="dbtn" id="agnativeparent" onClick={openParent}>Open parent</button></div>;
@@ -154,8 +157,10 @@ export function showSessionFrame(frame: Frame, inPlace: boolean, release: () => 
     return;
   }
 
-  const owner = current;
+  // The page it replaces lets go of what it held, as a draft its field.
+  const owner = current, previous = owner.release;
   owner.release = release;
+  previous();
   owner.frame = frame;
   owner.revision++;
   draw(owner);
