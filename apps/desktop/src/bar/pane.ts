@@ -8,7 +8,9 @@ import { closePaneTabs, newTerminal, openTerminal } from "../agentpane/media.ts"
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { sessions } from "../agents/sessions.ts";
 import { renderApps } from "../settings/apps.ts";
-import { body, focusAsk, grow, newChat, renderChat, send } from "../chat/chat.ts";
+import { body, focusAsk, newChat, renderChat } from "../chat/chat.ts";
+import { grow } from "../chat/ask-height.ts";
+import { send } from "../chat/runs.ts";
 import { renderChats, rows, type SessionSummary } from "../chat/chats.ts";
 import { $, type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, live, type PaneNow, S } from "./core.ts";
 import { type GroupSummary, renderGroup } from "../chat/groups.ts";

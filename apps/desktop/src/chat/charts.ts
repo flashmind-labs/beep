@@ -1,5 +1,5 @@
 import { sentBox } from "./media.ts";
-import { owningChatBody } from "./chat.ts";
+import { owningChatBody } from "./turns.ts";
 import { renderChatChart } from "./work-view.tsx";
 import { h } from "../ui/dom.ts";
 import type { Turn } from "../ui/turn.ts";

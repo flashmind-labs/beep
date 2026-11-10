@@ -1,4 +1,5 @@
-import { body, type ApprovalField, type Decision, forRoutine, keepDown } from "../chat/chat.ts";
+import { body, keepDown } from "../chat/chat.ts";
+import { type ApprovalField, type Decision, forRoutine } from "../chat/approval-cards.ts";
 import { here, S } from "./core.ts";
 import { refreshHints } from "./hints.ts";
 import { notice } from "../chat/media.ts";

@@ -1,4 +1,4 @@
-import { owningChatBody } from "./chat.ts";
+import { owningChatBody } from "./turns.ts";
 import { renderChatRoute } from "./work-view.tsx";
 import { sentBox } from "./media.ts";
 import { esc } from "../ui/format.ts";

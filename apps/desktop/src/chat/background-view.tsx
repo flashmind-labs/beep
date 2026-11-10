@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { AppLogo } from "./applogo-view.tsx";
-import { forRoutine, type Decision } from "./chat.ts";
+import { forRoutine, type Decision } from "./approval-cards.ts";
 import { answerWorkById, type HeldQuestion } from "../bar/work.ts";
 import { ICON } from "../ui/icons.tsx";
 

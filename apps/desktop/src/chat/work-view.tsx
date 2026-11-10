@@ -4,7 +4,7 @@ import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState, useSyncEx
 import { createPortal, flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import { COPY_ICON, ICON, Icon } from "../ui/icons.tsx";
-import type { ApprovalField, Decision } from "./chat.ts";
+import type { ApprovalField, Decision } from "./approval-cards.ts";
 import { invoke } from "../ui/tauri.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import type { WebSource } from "./history.ts";

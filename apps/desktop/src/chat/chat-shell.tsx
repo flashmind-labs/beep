@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
-import { focusAsk, stop } from "./chat.ts";
+import { focusAsk } from "./chat.ts";
+import { stop } from "./runs.ts";
 import { LiveDock, LiveSheet } from "../bar/live-dock.tsx";
 import type { LiveView } from "../bar/live.ts";
 import { ICON } from "../ui/icons.tsx";

@@ -1,6 +1,9 @@
 import { turnState } from "../chat/turn-state.ts";
 import { ensureChatPrompt, renderChatPrompt, updateChatPrompt } from "../chat/work-view.tsx";
-import { ASK, approvalNotice, askText, body, owningChatBody, type Decision, focusAsk, forgetChat, followAnswered, forRoutine, newTurn, removeChatSuggestions, renderChat, setChatDock, scrollDown, settle, startRun } from "../chat/chat.ts";
+import { ASK, askText, owningChatBody, newTurn, removeChatSuggestions } from "../chat/turns.ts";
+import { approvalNotice, type Decision, forRoutine, settle } from "../chat/approval-cards.ts";
+import { body, focusAsk, forgetChat, renderChat, setChatDock, scrollDown } from "../chat/chat.ts";
+import { followAnswered, startRun } from "../chat/runs.ts";
 import { touch } from "../chat/chats.ts";
 import { $, entry, here, live, PANE, S } from "./core.ts";
 import { refreshHints } from "./hints.ts";

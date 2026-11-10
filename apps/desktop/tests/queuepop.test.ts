@@ -1,7 +1,8 @@
 import { bar } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enqueue, popQueued, renderChat } from "../src/chat/chat.ts";
+import { enqueue, popQueued } from "../src/chat/queue.ts";
+import { renderChat } from "../src/chat/chat.ts";
 import { queued, S } from "../src/bar/core.ts";
 
 globalThis.getComputedStyle = window.getComputedStyle.bind(window);
