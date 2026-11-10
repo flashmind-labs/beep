@@ -11,7 +11,7 @@ import { conflictCount, conflictList, conflictTotal } from "./filesync.ts";
 import { fsync } from "./sections.ts";
 import { createElement } from "react";
 import { showWindowParts } from "../center/window-root.ts";
-import { SyncProject } from "./syncpage-view.tsx";
+import { SyncPage } from "./syncpage-view.tsx";
 
 /// How old a project's sync may get while the page shows and its summary
 /// changes.
@@ -51,9 +51,7 @@ function drawSync() {
   const count = (p: string) => conflictList(fsync.detail(p)).length;
   const projects = syncProjects().sort((a, b) => count(b) - count(a) || a.localeCompare(b));
   const models = projects.map(project => ({ project, model: fsync.page(project) }));
-  showWindowParts([{ part: "sync-page", host: el, content: createElement("div", { className: "cc-view" }, projects.length
-    ? models.map(({ project, model }) => createElement(SyncProject, { key: project, sync: fsync, project, model }))
-    : createElement("div", { className: "cc-panel cc-empty" }, createElement("b", null, "No project syncs yet"))) }]);
+  showWindowParts([{ part: "sync-page", host: el, content: createElement(SyncPage, { sync: fsync, models }) }]);
 }
 
 registerView("sync", {
