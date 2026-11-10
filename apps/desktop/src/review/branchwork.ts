@@ -60,18 +60,6 @@ export interface OutsideRow<T> {
   items: T[];
 }
 
-/// The online machines a worktree can go on: the one the branches were
-/// read on first, then the rest by name.
-export function worktreeMachines(machines: readonly (Place & { online: boolean })[] | null | undefined, readOn: string | null | undefined) {
-  return (machines || []).filter(m => m.online).map((m): Place => ({ id: m.id, name: m.name }))
-    .sort((a, b) => (Number(b.id === readOn) - Number(a.id === readOn)) || a.name.localeCompare(b.name));
-}
-
-/// ".worktrees/fix-it" from "fix/it", as the server names a worktree.
-export function worktreeName(branch: string) {
-  return `.worktrees/${String(branch).replace(/\//g, "-")}`;
-}
-
 /// Where each preview branch goes by default, by name: the first checkout's
 /// machine for a branch with a pull request or commits ahead and no worktree
 /// yet; nothing (Skip) for the rest.

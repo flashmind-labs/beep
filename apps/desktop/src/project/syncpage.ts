@@ -1,16 +1,13 @@
 // The command center's Sync page: a panel for each project that syncs, its
 // machines and its conflicts, those with conflicts first. The sidebar's count
 // comes from the same reads.
-import { svgEl as icon } from "../ui/parts.ts";
 import { state, views } from "../center/state.ts";
-import { currentLocation, registerView, drawTop, go } from "../center/views.ts";
+import { currentLocation, registerView, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { ensureHome } from "../center/refresh.ts";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { draw } from "../center/home.ts";
-import { conflictCount, conflictList, conflictSub, conflictTotal } from "./filesync.ts";
-import { line, rowButton } from "../ui/pieces.ts";
-import { IC } from "../ui/icons.ts";
+import { conflictCount, conflictList, conflictTotal } from "./filesync.ts";
 import { fsync } from "./sections.ts";
 import { createElement } from "react";
 import { showWindowParts } from "../center/window-root.ts";
@@ -25,19 +22,6 @@ export const syncProjects = () => [...new Set(state.sync.map(r => r.project))];
 
 /// Conflicts across the projects read so far.
 export const syncConflicts = () => conflictTotal(syncProjects().map(fsync.detail));
-
-/// Every conflict as one Needs you line on Home, Resolve opening the Sync
-/// page where it is compared and settled.
-export function conflictLines() {
-  return syncProjects().flatMap(p => {
-    const d = fsync.detail(p);
-    return conflictList(d).map(c => {
-      const row = line(icon(IC.sync), c.path, conflictSub(p, c, d?.machines ?? []), [rowButton("Resolve", "small", () => go("sync"))], () => go("sync"));
-      row.title = c.path;
-      return row;
-    });
-  });
-}
 
 /// Reads the projects' sync that are due, `age` old by default; what
 /// changed draws itself.

@@ -1,10 +1,8 @@
 import { createElement } from "react";
 import { SidebarMachine } from "../machines/sidebar-machine-view.tsx";
 // Project groups in the sidebar: heading, menu, rename and remove.
-import { svgEl as icon } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { groupMatches, type ProjectGroup } from "./projects-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { state } from "../center/state.ts";
@@ -12,16 +10,7 @@ import { currentLocation } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, projectRows, openAddMachine, openProjects } from "../center/sidebar.ts";
 import { redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { jump } from "../center/home.ts";
-import { IC } from "../ui/icons.ts";
 import { type MachineCard, type MacRow, thisMacRow } from "../machines/machine-state.ts";
-
-/// A group's heading in the sidebar; right-click for its menu.
-export function groupHeading(g: ProjectGroup, extra: MenuItem[] = []) {
-  const head = h("button", "cc-org gp", icon(IC.folder), g.name);
-  head.title = `${g.paths.join(", ")} on every machine`;
-  head.addEventListener("contextmenu", e => groupMenu(e, g, extra));
-  return head;
-}
 
 /// `extra` goes first, for what only the place that shows the group can do.
 export function groupMenu(e: MouseEvent, g: ProjectGroup, extra: MenuItem[] = []) {

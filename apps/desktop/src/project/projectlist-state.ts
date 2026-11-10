@@ -20,8 +20,6 @@ export interface ListChip {
 /// The CI dot: the newest run passed, failed, is running, or there is none.
 export type CiState = "ok" | "bad" | "busy" | "none";
 
-export const CI_TITLES: Record<CiState, string> = { ok: "Checks passed", bad: "Checks failed", busy: "Checks running", none: "No checks" };
-
 /// What the list knows of the user's machines and each project's sync, all
 /// of it read already: Home's machines, `project_sync`, and the sync details
 /// a project's page last read.

@@ -268,8 +268,3 @@ if (typeof window !== "undefined") {
   onShownChange(refreshTopicSubscriptions, true);
   window.addEventListener("pagehide", stop);
 }
-
-/// Commands are sent once. A lost acknowledgement is returned to the caller for reconciliation.
-export function meshCommand<T>(machine: string, operation: unknown): Promise<T> {
-  return import("./tauri.ts").then(({ invoke }) => invoke<T>("mesh_command", { machine, operation }));
-}

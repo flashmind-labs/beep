@@ -2,8 +2,6 @@
 // machine stops syncing the project and leaves its list; its folder stays,
 // unless the user ticks to delete it there too.
 import { invoke } from "../ui/tauri.ts";
-import { el } from "../ui/dom.ts";
-import { dbtn } from "../ui/parts.ts";
 import { confirmSheet, type MenuItem } from "../ui/menu.ts";
 import { state } from "../center/state.ts";
 import { refresh } from "../center/refresh.ts";
@@ -38,25 +36,6 @@ export function confirmRemove(project: string, m: WhereRow) {
       return said;
     },
   });
-}
-
-/// Removal on a machine header: disabled, with why, on the
-/// last machine and while an agent works there.
-export function removeButton(project: string, rows: readonly WhereRow[], m: WhereRow) {
-  const why = blocked(project, rows, m);
-  const b = dbtn("Remove", "small warn", () => confirmRemove(project, m));
-  b.setAttribute("aria-label", `Remove from ${m.name}`);
-
-  if (!why) {
-    b.title = `Remove from ${m.name}`;
-    return b;
-  }
-
-  b.disabled = true;
-  // A disabled button shows no tooltip, so the span around it does.
-  const wrap = el("span", "rmx-off", b);
-  wrap.title = why;
-  return wrap;
 }
 
 /// The row menu's line for it; none when it cannot, as the x says why.
