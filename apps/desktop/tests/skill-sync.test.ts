@@ -8,37 +8,37 @@ test("skill sync waits for a save and keeps saved state when a write fails", asy
   answers.skill_sync_get = true;
   const store = createSyncSetting(invoke, "skills");
   await store.load();
-  assert.equal(store.snapshot().enabled, true);
+  assert.equal(store.state.getState().enabled, true);
   let finish: () => void = () => {};
   answers.skill_sync_set = new Promise<void>(resolve => { finish = resolve; });
   const saving = store.change();
-  assert.equal(store.snapshot().busy, true);
-  assert.equal(store.snapshot().enabled, true);
+  assert.equal(store.state.getState().busy, true);
+  assert.equal(store.state.getState().enabled, true);
   assert.deepEqual(calls.at(-1), { cmd: "skill_sync_set", args: { enabled: false } });
   finish(); await saving;
-  assert.equal(store.snapshot().enabled, false);
+  assert.equal(store.state.getState().enabled, false);
   answers.skill_sync_set = Promise.reject("Save failed <detail>");
   await store.change();
-  assert.equal(store.snapshot().busy, false);
-  assert.equal(store.snapshot().enabled, false);
-  assert.equal(store.snapshot().error, "Save failed <detail>");
+  assert.equal(store.state.getState().busy, false);
+  assert.equal(store.state.getState().enabled, false);
+  assert.equal(store.state.getState().error, "Save failed <detail>");
 });
 
 test("skill sync retries failed reads and blocks writes before loading", async () => {
   answers.skill_sync_get = Promise.reject("Could not read the setting");
   const store = createSyncSetting(invoke, "skills");
   await store.load();
-  assert.equal(store.snapshot().enabled, null);
+  assert.equal(store.state.getState().enabled, null);
   await store.change();
-  assert.equal(store.snapshot().error, "Could not read the setting");
+  assert.equal(store.state.getState().error, "Could not read the setting");
   answers.skill_sync_get = true;
   await store.load();
-  assert.deepEqual(store.snapshot(), { enabled: true, busy: false, error: "" });
+  assert.deepEqual(store.state.getState(), { enabled: true, busy: false, error: "" });
   answers.skill_sync_get = Promise.reject("Read failed again");
   await store.load();
-  assert.equal(store.snapshot().enabled, null);
+  assert.equal(store.state.getState().enabled, null);
   await store.change();
-  assert.equal(store.snapshot().error, "Read failed again");
+  assert.equal(store.state.getState().error, "Read failed again");
 });
 
 
@@ -47,13 +47,13 @@ test("project sync has one master switch and resumes through the saved setting",
   answers.project_sync_set = null;
   const store = createSyncSetting(invoke, "projects");
   await store.load();
-  assert.equal(store.snapshot().enabled, true);
+  assert.equal(store.state.getState().enabled, true);
   await store.change();
   assert.deepEqual(calls.findLast(call => call.cmd === "project_sync_set"), { cmd: "project_sync_set", args: { enabled: false } });
-  assert.equal(store.snapshot().enabled, false);
+  assert.equal(store.state.getState().enabled, false);
   await store.change();
   assert.deepEqual(calls.findLast(call => call.cmd === "project_sync_set"), { cmd: "project_sync_set", args: { enabled: true } });
-  assert.equal(store.snapshot().enabled, true);
+  assert.equal(store.state.getState().enabled, true);
 });
 
 test("project sync rereads the master preference after a partial write failure", async () => {
@@ -63,5 +63,5 @@ test("project sync rereads the master preference after a partial write failure",
   answers.project_sync_get = false;
   answers.project_sync_set = Promise.reject("Some machines did not answer");
   await store.change();
-  assert.deepEqual(store.snapshot(), { enabled: false, busy: false, error: "Some machines did not answer" });
+  assert.deepEqual(store.state.getState(), { enabled: false, busy: false, error: "Some machines did not answer" });
 });
