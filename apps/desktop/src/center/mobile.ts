@@ -13,6 +13,7 @@ import { currentLocation, go, goHistory } from "./views.ts";
 import { openProjects, paneOn } from "./sidebar.ts";
 import { activeTab, backTo, fullScreen, type MobileAt, type MobileTab } from "./mobile-state.ts";
 import { $, state } from "./state.ts";
+import { atBottom } from "../agents/logscroll.ts";
 
 const OPEN: Record<MobileTab, () => void> = {
   home: () => jump(),
@@ -122,15 +123,39 @@ function keyboard() {
   const typing = () => document.activeElement instanceof Element && document.activeElement.matches(TEXT_FIELD);
   const check = () => {
     const up = window.innerHeight - vv.height > 150 || (touch.matches && typing());
+    const top = `${vv.offsetTop}px`, height = `${vv.height}px`, root = document.documentElement.style;
+    if (up === document.body.classList.contains("mb-kbd") && root.getPropertyValue("--mb-vv-top") === top && root.getPropertyValue("--mb-vv-height") === height) return;
+
+    // A log read to its end stays at its end when the window shrinks or grows.
+    const ends = [...document.querySelectorAll<HTMLElement>(".dbody")].filter(log => log.clientHeight && atBottom(log));
     document.body.classList.toggle("mb-kbd", up);
-    const root = document.documentElement.style;
-    root.setProperty("--mb-vv-top", `${vv.offsetTop}px`);
-    root.setProperty("--mb-vv-height", `${vv.height}px`);
+    root.setProperty("--mb-vv-top", top);
+    root.setProperty("--mb-vv-height", height);
+    for (const log of ends) log.scrollTop = log.scrollHeight;
+
+    if (up) unscroll();
+  };
+  // iOS scrolls boxes that clip their overflow to bring a focused field into view, which
+  // moves the composer off its place; the window already ends at the keyboard.
+  const unscroll = () => {
+    const field = document.activeElement instanceof HTMLElement && document.activeElement.matches(TEXT_FIELD) ? document.activeElement : null;
+    for (let box = field?.parentElement ?? null; box && box !== document.body; box = box.parentElement) {
+      if (box.scrollTop && getComputedStyle(box).overflowY === "hidden") box.scrollTop = 0;
+    }
+  };
+  // The keyboard slides in over a few frames, and WebKit does not always report where it
+  // stopped, so the window follows it until it settles.
+  let settle = 0;
+  const follow = () => {
+    const until = performance.now() + 800;
+    cancelAnimationFrame(settle);
+    const step = () => { check(); if (performance.now() < until) settle = requestAnimationFrame(step); };
+    step();
   };
   vv.addEventListener("resize", check);
   vv.addEventListener("scroll", check);
-  document.addEventListener("focusin", check);
-  document.addEventListener("focusout", () => requestAnimationFrame(check));
+  document.addEventListener("focusin", follow);
+  document.addEventListener("focusout", follow);
   const dismiss = () => (document.activeElement as HTMLElement | null)?.blur();
 
   document.addEventListener("focusin", e => {
