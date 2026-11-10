@@ -268,6 +268,11 @@ pub(crate) fn id_of_metadata(metadata: &Metadata) -> FileId {
     }
 }
 
+/// The id of the open `file`.
+pub(crate) fn id_of_file(file: &File) -> io::Result<FileId> {
+    Ok(id_of_metadata(&file.metadata()?))
+}
+
 /// The id of what `path` names, following links.
 pub(crate) fn id_of_path(path: &Path) -> io::Result<FileId> {
     Ok(id_of_metadata(&std::fs::metadata(path)?))

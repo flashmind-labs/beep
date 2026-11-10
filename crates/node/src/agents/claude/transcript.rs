@@ -6,6 +6,7 @@ use super::subagents;
 use crate::agents::tool_details;
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
+    files::fsat::{self, FileId},
     agents::tags::{self, Part},
     agents::{Picture, block_picture, cut, window::window},
 };
@@ -930,6 +931,9 @@ struct Parsed {
     /// The file's length and time when last read, to skip an unchanged one.
     len: u64,
     modified: SystemTime,
+    /// Which file it was: one written to a new file and moved over the old
+    /// is parsed again, whatever its length, time and bytes.
+    id: FileId,
     /// The `CHECKED` bytes before `end`.
     check: Vec<u8>,
 }
@@ -990,8 +994,9 @@ fn refresh(path: &Path, parsed: &mut Option<Parsed>) -> io::Result<()> {
     let mut file = File::open(path)?;
     let meta = file.metadata()?;
     let (len, modified) = (meta.len(), meta.modified()?);
+    let id = fsat::id_of_file(&file)?;
 
-    if let Some(kept) = parsed.as_mut() {
+    if let Some(kept) = parsed.as_mut().filter(|kept| kept.id == id) {
         if kept.len == len && kept.modified == modified {
             return Ok(());
         }
@@ -1022,6 +1027,7 @@ fn refresh(path: &Path, parsed: &mut Option<Parsed>) -> io::Result<()> {
         end: tail.end,
         len,
         modified,
+        id,
         check: bytes_before(&mut file, tail.end)?,
     });
     Ok(())
@@ -1413,6 +1419,39 @@ pub(super) mod tests {
         fs::write(&path, text.replace("prompt 03999", "PROMPT 03999")).expect("rewrite");
         let again = entries(&path, 1, None, &kept).expect("read");
         assert!(again.entries[0].text.starts_with("PROMPT 03999"));
+    }
+
+    #[test]
+    fn a_file_moved_over_the_transcript_is_parsed_again() {
+        let folder = tempfile::tempdir().expect("a temp folder");
+        let path = folder.path().join("c4d8e1.jsonl");
+        let text = |first: &str| {
+            [first, "second", "third"]
+                .map(|prompt| {
+                    serde_json::json!({"type": "user", "message": {"role": "user", "content": prompt}})
+                        .to_string()
+                        + "\n"
+                })
+                .concat()
+        };
+        fs::write(&path, text("first")).expect("a transcript");
+        let modified = fs::metadata(&path).and_then(|meta| meta.modified()).expect("a time");
+        let kept = Transcripts::new(2);
+        let before = entries(&path, 3, None, &kept).expect("read");
+        assert_eq!(before.entries[0].text, "first");
+
+        // The same length, time and last bytes, in another file.
+        let replacement = folder.path().join("c4d8e1.jsonl.tmp");
+        fs::write(&replacement, text("FIRST")).expect("a replacement");
+        fs::File::options()
+            .write(true)
+            .open(&replacement)
+            .and_then(|file| file.set_modified(modified))
+            .expect("its time");
+        fs::rename(&replacement, &path).expect("moved over");
+
+        let after = entries(&path, 3, None, &kept).expect("read");
+        assert_eq!(after.entries[0].text, "FIRST");
     }
 }
 
