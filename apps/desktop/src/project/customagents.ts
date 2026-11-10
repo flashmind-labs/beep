@@ -22,7 +22,6 @@ export interface CustomAgentsDeps {
   redraw: () => void;
   /// Start: a coding session with agent `a`, read on `place`.
   start: (a: CustomAgentRow, place: AgentsPlace) => void;
-  slot: (host: HTMLElement) => HTMLElement;
 }
 
 export function makeCustomAgents(deps: CustomAgentsDeps) {
@@ -77,7 +76,7 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
       open: (a: CustomAgentRow) => { if (place) openPrompt(a, place); },
       start: (a: CustomAgentRow) => { if (place) deps.start(a, place); },
     }) }]);
-    return deps.slot(current.host);
+    return current.host;
   }
 
   function dispose() { if (mounted) removeWindowPart("project-custom-agents"); mounted = null; }

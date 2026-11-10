@@ -33,7 +33,7 @@ import { failure } from "../ui/pieces.ts";
 import { openUrl } from "../center/openitems.ts";
 import { currentLocation, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
-import { openTile, panelSlot } from "./split.ts";
+import { openTile } from "./split.ts";
 import { AG } from "../agents/agents.ts";
 import { barOn, drawProjectComp, workOnIssue, continuePr, reviewPr, fixRun, fixConflict } from "./composer.ts";
 import { redrawSync } from "./syncpage.ts";
@@ -106,7 +106,6 @@ export const runs = makeRuns({
   mode: liveMode.mode,
   kept: keptSection("runs"),
   hostsChanged: () => redrawProjectsPage(),
-  slot: panelSlot,
 });
 
 /// Every 10 seconds while a project page shows: the runs move on, but only

@@ -2,9 +2,7 @@ import { onPhone } from "../ui/platform.ts";
 // project/: the Projects page and one project's page (tasks, threads, runs,
 // file sync, custom agents, the agent bar). Entry: this file's view.
 // The Projects page: drawing it, and the project rows Home lists.
-import { emptyPanel } from "../ui/parts.ts";
 import { filterProjects, whereRows, forgeLinks, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, type Project } from "./projects-state.ts";
-import { el as h } from "../ui/dom.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { openProjectMenu } from "./syncthing.ts";
 import { editorsFor } from "./editors.ts";
@@ -17,87 +15,56 @@ import { openUrl } from "../center/openitems.ts";
 import { registerView, windowProject } from "../center/views.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, loadFound, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
-import { importButton, overviewSection, loadOverview, projectDetail } from "./projects.ts";
-import { splitOn, openTile, projectPanel } from "./split.ts";
+import { overviewSection, loadOverview, projectDetail } from "./projects.ts";
+import { EmptyPanel, NoProjects, Parts, hostPart, viewPart, type PagePart } from "./page-view.tsx";
+import { createDocumentScope } from "../ui/document-root.tsx";
+import { splitOn, openTile } from "./split.ts";
 import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
-import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, sessionPanel, disposeSessionPanel } from "./loads.ts";
+import { noteRecent, revalidate, prefetchRecentSoon, whereDue, gitDue, sessionsDue, foundSection, disposeFoundSection, elsewhereSection, disposeElsewhereSection, disposeSessionPanel } from "./loads.ts";
 import { refresh } from "../center/refresh.ts";
 import { IC } from "../ui/icons.ts";
-import { patchChildren } from "../ui/patch.ts";
-import { threadPanel } from "./threaddetail.ts";
 
-// These wrappers have no event handlers. Keep them attached while their
-// independent sections change, so a sync update cannot interrupt a click.
-const layouts = ".pj-split, .pj-list, .pj-det, .pj-ov, .pj-ov > div, .pj-cols, .ca-col, #sec-sessions";
-
-function patchProjectView(current: Element, next: Element) {
-  const replacedPanels = new Set<number>();
-  const children = [...next.children].map((child, i) => {
-    const old = current.children[i];
-    const panel = projectPanel(child) ?? sessionPanel(child) ?? threadPanel(child);
-    if (panel) { if (old !== panel) replacedPanels.add(i); return panel; }
-    const split = old?.classList.contains("pj-split") && child.classList.contains("pj-split");
-    if (!old || old.tagName !== child.tagName || (!split && old.className !== child.className) || !old.matches(layouts)) {
-      if (child.matches(layouts)) patchProjectView(child, child);
-      return child;
-    }
-    if (split && old.className !== child.className) old.className = child.className;
-    patchProjectView(old, child);
-    return old;
-  });
-  patchChildren(current, children, i => replacedPanels.has(i));
-}
+/// The page's outer view. It stays rendered while another page shows, so
+/// coming back keeps its place.
+const page = createDocumentScope<"page">();
 
 export function drawProjects(el: HTMLElement) {
   const rows = projectRows();
   if (!state.picked) disposeSessionPanel();
   if (!state.home || !rows?.length) { disposeFoundSection(); disposeElsewhereSection(); }
-  let view: HTMLElement = h("div", "cc-view");
-  view.dataset.project = state.picked ?? "";
+  const parts: PagePart[] = [];
   let one: Project | null = null;
 
   if (!state.home) {
-    view.append(emptyPanel(h("b", "", "Loading projects…")));
+    parts.push(viewPart("loading", createElement(EmptyPanel, { text: "Loading projects…", bold: true })));
   } else if (!rows || !rows.length) {
-    view.append(h("div", "cc-panel cc-empty",
-      h("b", "", "No projects yet"),
-      h("span", "", "A folder or a repository to clone."),
-      importButton("pri")));
+    parts.push(viewPart("none", createElement(NoProjects, { add: addProject })));
   } else {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
     liveMode.follow(one ? agentFor(state.agents, one.name)?.project_id ?? null : null);
-
-    if (one) {
-      view.append(...projectDetail(one));
-      if (splitOn(one)) view.classList.add("split");
-    } else view.append(...overviewSection(shownRows.length ? shownRows : rows));
+    parts.push(...(one ? projectDetail(one) : overviewSection(shownRows.length ? shownRows : rows)));
 
     const found = foundSection(!one);
-    if (found) view.append(found);
+    if (found) parts.push(hostPart(found));
     const elsewhere = elsewhereSection(rows, !state.picked);
-    if (elsewhere) view.append(elsewhere);
+    if (elsewhere) parts.push(hostPart(elsewhere));
   }
 
-  // Patch within one project; changing projects installs new event handlers
-  // even when the two projects happen to have the same markup.
+  // Read before the draw: a node that moves scrolls to 0.
   const old = el.querySelector<HTMLElement>(":scope > .cc-view");
+  const top = old?.scrollTop ?? 0;
+  const inner = old ? [...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].flatMap(s => { const id = s.closest("[id]")?.id; return id ? [[id, s.scrollTop] as const] : []; }) : [];
+  const cols = [".pj-list", ".pj-det", ".pj-scroll"].map(c => [c, old?.querySelector(c)?.scrollTop ?? 0] as const);
 
-  if (old) {
-    // Read before the swap: a detached element scrolls to 0.
-    const top = old.scrollTop;
-    const inner = new Map([...old.querySelectorAll<HTMLElement>("[id] .pv-scroll")].map(s => [s.closest("[id]")!.id, s.scrollTop]));
-    const cols = [".pj-list", ".pj-det", ".pj-scroll"].map(c => [c, old.querySelector(c)?.scrollTop ?? 0] as const);
+  // A new project gets a new view, so nothing of the last one carries over.
+  page.set([{ slot: "page", host: el, identity: state.picked ?? "", content: createElement(Parts, {
+    className: one && splitOn(one) ? "cc-view split" : "cc-view", project: state.picked ?? "", parts }) }]);
 
-    if (old.dataset.project === view.dataset.project && old.className === view.className) {
-      patchProjectView(old, view);
-      view = old;
-    } else {
-      patchProjectView(view, view);
-      old.replaceWith(view);
-    }
+  const view = el.querySelector<HTMLElement>(":scope > .cc-view");
 
+  if (old && view) {
     if (view.scrollTop !== top) view.scrollTop = top;
     for (const [c, at] of cols) { const col = view.querySelector(c); if (col && col.scrollTop !== at) col.scrollTop = at; }
 
@@ -105,15 +72,12 @@ export function drawProjects(el: HTMLElement) {
       const s = view.querySelector<HTMLElement>(`#${CSS.escape(id)} .pv-scroll`);
       if (s && s.scrollTop !== at) s.scrollTop = at;
     }
-  } else {
-    patchProjectView(view, view);
-    el.prepend(view);
   }
 
   // The bar starts coding agents in the project's checkout.
   if (one) {
     drawProjectComp(one.name);
-    if (projectComp.form.parentNode !== el) el.append(projectComp.form);
+    if (el.lastElementChild !== projectComp.form) el.append(projectComp.form);
   } else {
     projectComp.form.remove();
   }

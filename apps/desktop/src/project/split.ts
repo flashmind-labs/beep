@@ -10,10 +10,10 @@ import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
 // the left, the picked row's view on the right.
 import { sessionVisible } from "../agents/closing.ts";
 import { ago, plural } from "../ui/format.ts";
-import { dbtn as button, errorNote } from "../ui/parts.ts";
 import { projectPastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { el as h } from "../ui/dom.ts";
-import { agentFor, pageAgent, cardsSection } from "./agent.ts";
+import { agentFor, pageAgent } from "./agent.ts";
+import { EmptyPanel, ErrorNote, FreshNote, NeedsYou, Parts, hostPart, threadsParts, viewPart, type PagePart } from "./page-view.tsx";
 import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { taskTile, machineTile, askingSessions } from "./board.ts";
@@ -27,21 +27,9 @@ import { go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, disposeCustomAgents, disposeOverview, disposeProjectFallback, disposeRunningAgents, whereSection } from "./projects.ts";
 import { pa, terms, fsync, revs, gitHistory, thr, details, runs, projectsEl, redrawProjects, agentActs, repoActs, answerCard } from "./sections.ts";
-import { sessionPanel, sessionsList, sessionsDue, loadSessions } from "./loads.ts";
+import { sessionsList, sessionsDue, loadSessions } from "./loads.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
-
-const panelSlots = new WeakMap<Element, HTMLElement>();
-
-export function projectPanel(slot: Element): HTMLElement | null {
-  return panelSlots.get(slot) ?? null;
-}
-
-export function panelSlot(panel: HTMLElement): HTMLElement {
-  const slot = h("div");
-  panelSlots.set(slot, panel);
-  return slot;
-}
 
 interface ProjectShell {
   project: string;
@@ -49,13 +37,11 @@ interface ProjectShell {
   strip: HTMLElement;
   issues: HTMLElement;
   tasks: HTMLElement;
-  sessionTabs: HTMLElement;
   overview: HTMLElement;
   navView: ReactNode;
   stripView: ReactNode;
   issuesView: ReactNode;
   tasksView: ReactNode;
-  sessionTabsView: ReactNode;
   overviewView: ReactNode;
   overviewScroll: Map<string, number>;
 }
@@ -65,8 +51,7 @@ function renderProjectShell(current: ProjectShell) {
   // Project panels remain in their existing slots while their shared owner updates.
   showWindowParts([{ part: "project-shell", host: null, identity: current.project, content: createElement(Fragment, null,
     createPortal(current.navView, current.navigation, "navigation"), createPortal(current.stripView, current.strip, "strip"),
-    createPortal(current.issuesView, current.issues, "issues"), createPortal(current.tasksView, current.tasks, "tasks"),
-    createPortal(current.sessionTabsView, current.sessionTabs, "session-tabs"), createPortal(current.overviewView, current.overview, "overview")) }]);
+    createPortal(current.issuesView, current.issues, "issues"), createPortal(current.tasksView, current.tasks, "tasks"), createPortal(current.overviewView, current.overview, "overview")) }]);
 }
 export function disposeProjectShell() {
   if (!shell) return;
@@ -77,16 +62,15 @@ function projectShell(project: string) {
   if (shell?.project === project) return shell;
   disposeProjectShell();
   shell = { project, navigation: h("div", "pj-list"), strip: h("div", "cc-mstrip pj-strip"),
-    issues: h("div", "pj-det"), tasks: h("div", "pj-cols"), sessionTabs: h("div", "cc-tabs pj-tabs"), overview: h("div", "pj-ov"),
-    navView: null, stripView: null, issuesView: null, tasksView: null, sessionTabsView: null, overviewView: null, overviewScroll: new Map() };
-  shell.sessionTabs.setAttribute("role", "tablist");
+    issues: h("div", "pj-det"), tasks: h("div", "pj-cols"), overview: h("div", "pj-ov"),
+    navView: null, stripView: null, issuesView: null, tasksView: null, overviewView: null, overviewScroll: new Map() };
   return shell;
 }
 function taskPanel(project: string, view: Parameters<typeof ProjectTasks>[0]["view"]) {
   const shell = projectShell(project);
   shell.tasksView = createElement(ProjectTasks, { view, act: agentActs });
   renderProjectShell(shell);
-  return panelSlot(shell.tasks);
+  return shell.tasks;
 }
 
 /// The split shows for an imported project whose agent's view has loaded, and with no
@@ -145,7 +129,7 @@ export interface SplitItem {
   open?: () => void;
   /// What right-clicking the row does.
   menu?: (e: MouseEvent) => void;
-  detail?: () => Node[];
+  detail?: () => PagePart[];
 }
 
 /// A list's label filter: the labels its items carry, the one picked, and
@@ -180,7 +164,7 @@ function hostNote(list: unknown[] | null | undefined, error: string, none: strin
 
 /// The project page: everything going on in one list at the left, the
 /// picked row's detail and actions at the right.
-export function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]): Node[] {
+export function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]): PagePart[] {
   // No view and no agent chat without a subscription: no card, tasks or plan.
   if (pa.tile === "sync" || pa.tile === "terminals") pa.tile = "machines";
   const view = state.pview.get(p.name)?.view ?? null;
@@ -201,21 +185,21 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const acts = repoActs(p);
   const sync = state.sync.filter(s => s.project === p.name);
   const syncCount = fileSyncTile(fsync.forTile(p.name), sync, new Map(rows.map(m => [m.id, m.name]))).count;
-  const cards = view && cardsSection(view, { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) });
+  const cards = view?.cards.length ? viewPart("needs", createElement(NeedsYou, { cards: view.cards, act: { ...agentActs, answer: (c, decision, said) => answerCard(agent, c, decision, said) } })) : null;
   const groups: SplitGroup[] = [];
   // Overview, Needs you and Running head the list, each one line.
   const top: SplitItem[] = [];
-  if (cards) top.push({ key: "needs", title: "Needs you", sub: String(view.cards.length), detail: () => [cards] });
+  if (cards && view) top.push({ key: "needs", title: "Needs you", sub: String(view.cards.length), detail: () => [cards] });
   const project: SplitItem[] = [
-    { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [runs.section(agent)] },
+    { key: "actions", title: "Actions", sub: runs.tile(pid).count || "", detail: () => [hostPart(runs.section(agent))] },
     // A machine's terminals sit below it, as on Home.
-    { key: "machines", title: "Machines", sub: [syncCount || machineTile(rows, sync).count, terminalTile(terms.list(p.name), ago).count].filter(Boolean).join(" · "), detail: () => [whereSection(p, rows, known)] },
+    { key: "machines", title: "Machines", sub: [syncCount || machineTile(rows, sync).count, terminalTile(terms.list(p.name), ago).count].filter(Boolean).join(" · "), detail: () => [hostPart(whereSection(p, rows, known))] },
   ];
   const threads = thr.threads(pid);
 
   if (threads?.length) {
     const waiting = threads.filter(t => t.needs_reply).length;
-    project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => thr.threadsPanel(agent) });
+    project.push({ key: "threads", title: "Your pull requests and issues", sub: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : `${threads.length} open`, detail: () => threadsParts(thr.threadsPanel(agent)) });
   }
 
   const runItems: SplitItem[] = byRecent(running).map(r => ({
@@ -223,11 +207,11 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     right: createElement(RunningStatus, { row: r }), open: () => go("pane", { agent: r }),
     menu: e => void sessionMenu(e, r, s => go("pane", { agent: s })),
   }));
-  if (runItems.length) top.push({ key: "running", title: "Running", sub: String(runItems.length), detail: () => [agentsSection(running)] });
+  if (runItems.length) top.push({ key: "running", title: "Running", sub: String(runItems.length), detail: () => [hostPart(agentsSection(running))] });
   groups.push({ title: "", items: project });
   const past = sessions ? projectPastSessions(sessions, running, [...MV.records.values()]).filter(sessionVisible) : [];
   groups.push({ title: "", items: [
-    ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [taskPanel(p.name, view)] }] : []),
+    ...(view ? [{ key: "tasks", title: "Tasks", sub: taskTile(view.tasks, view.workers, askingSessions(running, state.home?.needs_you)).count || "None open", detail: () => [hostPart(taskPanel(p.name, view))] }] : []),
     // Running agents have their own rows above; this keeps past sessions and the custom agents.
     { key: "agents", title: "Sessions", sub: past.length ? `${past.length} past` : "None yet", detail: () => sessionTabs(p, running, rows) },
     { key: "branches", title: "Git", sub: "History and worktrees", detail: () => [] },
@@ -240,7 +224,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
       key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ago).join(" · "), tags: pr.labels,
       right: chip && createElement(Chip, { cls: chip.cls, text: chip.text, spin: chip.cls === "running" }),
       menu: e => thr.prMenu(e, agent, acts, l),
-      detail: () => details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, l)),
+      detail: () => [hostPart(details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, l)))],
     };
   });
   const prKey = `${p.name}:prs`;
@@ -252,8 +236,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     sub: l.issue ? issueMeta(l.issue, ago) : `task: ${l.task!.title}`, tags: l.issue?.labels,
     right: l.task && createElement(Chip, { cls: l.task.state, text: l.task.state, spin: l.task.state === "running" }),
     menu: l.issue ? (e => thr.issueMenu(e, agent, acts, l.issue!)) : undefined,
-    detail: () => details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
-      l.issue ? thr.issueButtons(agent, acts, l.issue) : { buttons: [{ key: "tasks", label: "Tasks", primary: false, disabled: false, title: "", run: () => openTile("tasks") }], error: null }),
+    detail: () => [hostPart(details.pane(pid, { number: l.number, title: l.title, url: l.url, author: l.issue?.author || "", opened_at: l.issue?.opened_at || 0 },
+      l.issue ? thr.issueButtons(agent, acts, l.issue) : { buttons: [{ key: "tasks", label: "Tasks", primary: false, disabled: false, title: "", run: () => openTile("tasks") }], error: null }))],
   }));
   const issueKey = `${p.name}:issues`;
   const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, redrawProjects);
@@ -262,14 +246,14 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   // Too many to list at the left: the row opens them at the right.
   project.push({ key: "issues", title: "Issues", sub: issueNote || `${issueItems.length} open`, detail: () => [] });
   const overview = projectOverview(p, running, { run: runItems, prs: prItems, issues: issueItems, prNote: hostNote(prs, thr.prsError(pid), "No open pull requests."), issueNote }, machineTile(rows, sync));
-  top.unshift({ key: "overview", title: "Overview", sub: "", detail: () => [overview.body] });
+  top.unshift({ key: "overview", title: "Overview", sub: "", detail: () => [hostPart(overview)] });
   groups.unshift({ title: "", items: top });
   // A review opens from Branches and an issue from Issues, each keeping its row lit.
   const all = groups.flatMap(g => g.items);
-  const issue = issueItems.find(i => i.key === pa.tile);
+  const issueDetail = issueItems.find(i => i.key === pa.tile)?.detail;
   const picked = pa.tile === "review"
     ? { key: "branches", detail: () => [] }
-    : issue ? { key: "issues", detail: () => [button("All issues", "quiet small pj-back", () => openTile("issues")), ...issue.detail!()] }
+    : issueDetail ? { key: "issues", detail: () => [viewPart("all-issues", createElement("button", { type: "button", className: "dbtn quiet small pj-back", onClick: () => openTile("issues") }, "All issues")), ...issueDetail()] }
     : all.find(i => i.key === pa.tile && i.detail) || all[0];
   const currentShell = projectShell(p.name);
   currentShell.navView = createElement(ProjectNavigation, { groups, picked: picked.key, openTile });
@@ -286,7 +270,10 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     pick: (id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, redrawProjects),
     openTile,
   });
-  const det = history?.detail || (showIssues ? currentShell.issues : showReview ? revs.reviewDetail(p.name, error ?? null) : h("div", "pj-det", error ? errorNote(`Could not refresh the project: ${error}`) : null, ...picked.detail!()));
+  const host = history?.detail ?? (showIssues ? currentShell.issues : showReview ? revs.reviewDetail(p.name, error ?? null) : null);
+  const det = host ? hostPart(host) : viewPart("detail", createElement(Parts, { className: "pj-det", parts: [
+    ...(error ? [viewPart("error", createElement(ErrorNote, { text: `Could not refresh the project: ${error}` }))] : []), ...(picked.detail?.() ?? []),
+  ] }));
   const waiting = threads?.filter(t => t.needs_reply).length ?? 0;
   const cells = [
     { label: projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
@@ -298,20 +285,22 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   ];
   currentShell.stripView = createElement(ProjectStatus, { cells, openTile });
   renderProjectShell(currentShell);
-  return [panelSlot(currentShell.strip), h("div", `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`, panelSlot(history ? history.navigation : currentShell.navigation), history || showIssues || showReview ? panelSlot(det) : det)];
+  return [hostPart(currentShell.strip), viewPart("split", createElement(Parts, { className: `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`,
+    parts: [hostPart(history ? history.navigation : currentShell.navigation), det] }))];
 }
 
 /// The Sessions row's tab on screen.
 let sessionTab: "sessions" | "agents" = "sessions";
 
 /// Past sessions and custom agents in two tabs, so each gets the whole height.
-function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): Node[] {
+function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): PagePart[] {
   const list = sessionsList(p, running, true);
-  const current = projectShell(p.name);
-  current.sessionTabsView = createElement(SessionTabs, { selected: sessionTab, sessions: list.count, agents: customAgentsCount(rows),
-    select: tab => { sessionTab = tab; redrawProjects(); } });
+  const tabs = viewPart("session-tabs", createElement("div", { className: "cc-tabs pj-tabs", role: "tablist" }, createElement(SessionTabs, {
+    selected: sessionTab, sessions: list.count, agents: customAgentsCount(rows), select: tab => { sessionTab = tab; redrawProjects(); } })));
+  if (sessionTab === "agents") return [tabs, hostPart(customAgentsSection(rows))];
 
-  return sessionTab === "sessions" ? [panelSlot(current.sessionTabs), list.body, ...(list.note ? [list.note] : [])] : [panelSlot(current.sessionTabs), customAgentsSection(rows)];
+  const note = list.freshness && (list.freshness.spin || list.freshness.text) ? [viewPart("session-note", createElement(FreshNote, { freshness: list.freshness, className: " ss-updating" }))] : [];
+  return [tabs, list.host ? hostPart(list.host) : viewPart("session-empty", createElement(EmptyPanel, { text: list.empty ?? "" })), ...note];
 }
 
 /// The agent view with terminal `t`, one of project `name`, in a pane tab with the keys.
@@ -323,9 +312,7 @@ function openTerminal(name: string, t: TerminalRow) {
 /// the right, each title opening that row of the list. Issues scroll in their box.
 function projectOverview(p: Project, running: RunningAgent[], open: { run: SplitItem[]; prs: SplitItem[]; issues: SplitItem[]; prNote: string | undefined; issueNote: string | undefined }, where: ReturnType<typeof machineTile>) {
   const current = projectShell(p.name);
-  const sessions = sessionsList(p, running, false);
   current.overviewView = createElement(ProjectOverview, { ...open, machines: where, terminals: terms.list(p.name) || [],
-    session: { host: sessionPanel(sessions.body), empty: sessions.empty, count: sessions.count, freshness: sessions.freshness },
-    openTile, openTerminal: terminal => openTerminal(p.name, terminal) });
-  return { body: panelSlot(current.overview) };
+    session: sessionsList(p, running, false), openTile, openTerminal: terminal => openTerminal(p.name, terminal) });
+  return current.overview;
 }
