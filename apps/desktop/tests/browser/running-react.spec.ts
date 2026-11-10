@@ -59,3 +59,35 @@ test("a pending process read cannot update a different session", async ({ page }
   await expect(page.getByText("old process")).toHaveCount(0);
   await expect(page.getByRole("tab", { name: /Running/ })).toHaveCount(0);
 });
+
+test("an older process read cannot replace a newer result in the same session", async ({ page }) => {
+  await openDesktop(page, true);
+  const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
+  await page.evaluate(value => window.__navigation.open({ agent: value }), agent);
+  await page.evaluate(() => window.__navigation.processes([{ pid: 41, command: "initial process", started_at: 1, ports: [], left_group: false }]));
+  await page.getByRole("tab", { name: /Running/ }).click();
+  await expect(page.getByText("initial process")).toBeVisible();
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    let reads = 0;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command !== "agent_processes") return invoke<T>(command, args);
+      const read = ++reads;
+      Reflect.set(window, "orderedProcessReads", read);
+      if (read === 1) {
+        await new Promise<void>(resolve => Reflect.set(window, "releaseOldProcesses", resolve));
+        Reflect.set(window, "oldProcessesDelivered", true);
+      }
+      return { processes: [{ pid: 41, command: read === 1 ? "old process" : "new process", started_at: 1, ports: [], left_group: false }], local: false } as T;
+    };
+    window.dispatchEvent(new Event("agent-pane-shown"));
+  });
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "releaseOldProcesses"))).toBe("function");
+  await page.evaluate(() => window.dispatchEvent(new Event("agent-pane-shown")));
+  await expect(page.getByText("new process")).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, "releaseOldProcesses")());
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "oldProcessesDelivered"))).toBe(true);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  await expect(page.getByText("new process")).toBeVisible();
+  await expect(page.getByText("old process")).toHaveCount(0);
+});
