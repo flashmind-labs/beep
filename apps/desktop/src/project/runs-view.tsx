@@ -1,9 +1,9 @@
-import { useLayoutEffect, useRef } from "react";
+import type { LiveMode } from "./projectlive.ts";
 import { since } from "../ui/format.ts";
 import { going, hostCounts, hostLabel, progressText, runChip, runKey, runsCount, runSpan, type RunDetail, type RunRow, type RunsRow } from "./runs.ts";
 
 export interface RunsViewProps {
-  data: RunsRow | null | undefined; error: string; only: string | null; open: string | null; mode: HTMLElement | null;
+  data: RunsRow | null | undefined; error: string; only: string | null; open: string | null; mode: LiveMode | null;
   refresh(): void; filter(state: string | null): void; toggle(run: RunRow): void; hover(run: RunRow): void; leave(): void; menu(event: MouseEvent, run: RunRow): void;
   detail(run: RunRow): { data: RunDetail | null; error: string }; fix(detail: RunDetail): void; openUrl(url: string): void;
 }
@@ -12,10 +12,10 @@ const marks: Record<string, string> = {
   failed: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>',
   cancelled: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 12h10"/></svg>',
 };
-function Mode({ node }: { node: HTMLElement | null }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => { if (ref.current) ref.current.replaceChildren(...(node ? [node] : [])); }, [node]);
-  return <span ref={ref} style={{ display: "contents" }} />;
+function Mode({ value }: { value: LiveMode | null }) {
+  if (!value) return null;
+  const title = value.live ? "Live: updates through a webhook" : value.why ? `Polling: ${value.why}` : "Polling every few minutes. Live needs admin rights on the repository.";
+  return <small className={value.live ? "sw-mode live" : "sw-mode"} title={title}>{value.live ? "live" : "polling"}</small>;
 }
 function Empty({ children, error = false }: { children: string; error?: boolean }) { return <div className="cc-panel cc-empty"><span className={error ? "cc-err" : undefined}>{children}</span></div>; }
 export function RunsView(p: RunsViewProps) {
@@ -23,7 +23,7 @@ export function RunsView(p: RunsViewProps) {
   const current = d?.runs.filter(r => going(r.state)) ?? [], finished = d?.runs.filter(r => !going(r.state)) ?? [];
   const states = [...new Set(finished.map(r => r.state))].sort(), only = p.only && states.includes(p.only) ? p.only : null;
   const panel = (rows: RunRow[]) => <div className="cc-panel pj-runbox">{rows.map(r => <Run key={runKey(r)} run={r} p={p} />)}</div>;
-  return <><div className="cc-sec"><h4>Actions</h4>{perHost.length ? perHost.map(c => <small key={c.host} className={c.error ? "hosterr" : undefined}>{c.text}</small>) : !!d?.runs.length && <small>{runsCount(d.runs)}</small>}{d?.synced_at ? <small className="sw-age">synced {since(d.synced_at)}</small> : null}<Mode node={p.mode} /><button type="button" className="dbtn quiet small" onClick={p.refresh}>Refresh</button></div>
+  return <><div className="cc-sec"><h4>Actions</h4>{perHost.length ? perHost.map(c => <small key={c.host} className={c.error ? "hosterr" : undefined}>{c.text}</small>) : !!d?.runs.length && <small>{runsCount(d.runs)}</small>}{d?.synced_at ? <small className="sw-age">synced {since(d.synced_at)}</small> : null}<Mode value={p.mode} /><button type="button" className="dbtn quiet small" onClick={p.refresh}>Refresh</button></div>
     {d === undefined ? <Empty>Reading the runs…</Empty> : d === null ? <Empty>The server needs an update before it shows runs.</Empty> : <>
       {d.rate_limited_until && d.rate_limited_until > Date.now() ? <div className="cc-note"><span className="ddot warn" /><span>The host's rate limit for your token is low, so live progress waits until {new Date(d.rate_limited_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</span></div> : null}
       {!d.runs.length ? <Empty error={!!why}>{why || "No workflow runs yet."}</Empty> : <>{why && <div className="cc-err">{why}</div>}<div className="cc-sec"><h4>Running</h4><small>{current.length}</small></div>{current.length ? panel(current) : <Empty>Nothing running.</Empty>}<div className="cc-sec"><h4>Finished</h4><small>{finished.length}</small></div>{states.length > 1 && <div className="pj-labels">{states.map(state => <button type="button" key={state} className={`dbtn pj-tag lab${state === only ? " on" : ""}`} onClick={() => p.filter(state === only ? null : state)}>{runChip(state).text} {finished.filter(r => r.state === state).length}</button>)}</div>}{finished.length ? panel(only ? finished.filter(r => r.state === only) : finished) : <Empty>No finished runs.</Empty>}</>}

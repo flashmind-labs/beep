@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
+import type { LiveMode } from "./projectlive.ts";
 import { RunsView } from "./runs-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
 import { snapshotView } from "../ui/snapshot-state.ts";
@@ -267,7 +268,7 @@ export interface RunDeps {
   openUrl: (url: string) => unknown;
   fix: (detail: RunDetail) => void;
   /// The chip saying whether the project is live or polling.
-  mode?: (id: string) => HTMLElement | null;
+  mode?: (id: string) => LiveMode | null;
   /// Where the runs are kept between windows; in memory only without it.
   kept?: SectionStore<RunsRow | null>;
   /// Called when a read changes the hosts the runs come from.

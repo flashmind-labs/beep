@@ -29,6 +29,17 @@ test("run log updates retain the row, focus and scroll", async () => {
     assert.equal(dom.window.document.activeElement, row);
     assert.equal(log.scrollTop, 24);
     assert.equal(log.textContent, "First line\nNext line");
+    await act(() => root.render(createElement(RunsView, { ...props, mode: { live: true, why: null } })));
+    const mode = host.querySelector(".sw-mode"); assert.ok(mode);
+    assert.equal(mode.textContent, "live");
+    await act(() => root.render(createElement(RunsView, { ...props, mode: { live: false, why: "Webhook unavailable" } })));
+    assert.equal(host.querySelector(".sw-mode"), mode);
+    assert.equal(mode.textContent, "polling");
+    assert.equal(mode.getAttribute("title"), "Polling: Webhook unavailable");
+    assert.equal(dom.window.document.activeElement, row);
+    assert.equal(log.scrollTop, 24);
+    await act(() => root.render(createElement(RunsView, { ...props, mode: null })));
+    assert.equal(host.querySelector(".sw-mode"), null);
   } finally {
     await act(() => root.unmount()); dom.window.close();
     for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
