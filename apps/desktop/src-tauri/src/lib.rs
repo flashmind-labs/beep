@@ -160,9 +160,11 @@ pub fn run() {
                     .app_handle()
                     .state::<projects::live::Followed>()
                     .clear(window.label());
+                center::window::forget(window.app_handle(), window.label());
                 center::closed(window.app_handle(), window.label());
             }
-            _ => {}
+            // Minimizing, covering and backgrounding pause the page.
+            _ => center::window::on_window_event(window, event),
         })
         .invoke_handler(counted(tauri::generate_handler![
             agents::accounts::agent_accounts,
@@ -758,6 +760,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(platform::update::Updates::default());
     app.manage(center::Shown::default());
     app.manage(center::AgentsShown::default());
+    app.manage(center::window::OnScreen::default());
     app.manage(agents::follow::Follows::default());
     app.manage(fleet::events::Events::default());
     app.manage(fleet::event_views::Views::default());

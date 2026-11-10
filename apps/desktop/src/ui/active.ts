@@ -1,7 +1,9 @@
 // Whether this window's page is on screen, and whether the bar's views are,
 // which the command center draws in a pane it mounts and unmounts. Timers
-// and previews stop while either is off. Rust says when the main window or
-// the bar hides and shows: a hidden WKWebView may still call itself visible.
+// and previews stop while either is off. Rust says when a command center
+// window hides, minimizes, is covered or goes to the background and when it
+// shows again, and when the bar hides and shows: a hidden WKWebView may still
+// call itself visible.
 let windowHidden: boolean | null = null;
 let nativeHidden: boolean | null = null;
 let paneOff = false;

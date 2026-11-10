@@ -56,3 +56,45 @@ fn similar_names_get_their_own_windows() {
     assert!(matches!(pick("site2", [site.as_str()]), Pick::Open { .. }));
     assert!(matches!(pick("sit", [site.as_str()]), Pick::Open { .. }));
 }
+
+#[test]
+fn a_page_hears_its_window_state_again_only_when_it_changes() {
+    let told = OnScreen::default();
+
+    assert!(told.record(LABEL, false));
+    assert!(!told.record(LABEL, false));
+    assert!(told.record(LABEL, true));
+    assert!(told.record("project-61", true), "each window keeps its own");
+
+    told.clear(LABEL);
+    assert!(told.record(LABEL, true), "a closed window starts over");
+}
+
+#[cfg(desktop)]
+#[test]
+fn minimizing_and_restoring_reach_the_page_from_resizes_and_focus() {
+    use tauri::{PhysicalPosition, PhysicalSize};
+
+    let minimized = || false;
+    let restored = || true;
+
+    assert_eq!(
+        shown_after(&WindowEvent::Resized(PhysicalSize::new(0, 0)), minimized),
+        Some((false, Tell::Changed))
+    );
+    assert_eq!(
+        shown_after(&WindowEvent::Moved(PhysicalPosition::new(0, 0)), restored),
+        Some((true, Tell::Changed))
+    );
+    assert_eq!(
+        shown_after(&WindowEvent::Focused(false), minimized),
+        Some((false, Tell::Changed))
+    );
+    assert_eq!(
+        shown_after(&WindowEvent::Focused(true), || panic!(
+            "focus alone means it shows"
+        )),
+        Some((true, Tell::Always))
+    );
+    assert_eq!(shown_after(&WindowEvent::Destroyed, restored), None);
+}
