@@ -1,5 +1,6 @@
 // Prompts typed while the open chat's reply runs, sent one by one.
-import { $$, live, queued, S } from "../bar/core.ts";
+import { chatAsk } from "./chat-shell.tsx";
+import { live, queued, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { drawQueue } from "./chat.ts";
 import { grow } from "./ask-height.ts";
@@ -7,7 +8,8 @@ import { send } from "./runs.ts";
 
 /// Empties the prompt, or sets it to `text`, and sizes it to match.
 export function setAsk(text: string) {
-  const ask = $$<HTMLTextAreaElement>("#ask");
+  const ask = chatAsk.current;
+  if (!ask) return;
   ask.value = text;
   grow(ask);
 }

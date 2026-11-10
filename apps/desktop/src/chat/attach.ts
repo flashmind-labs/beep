@@ -1,10 +1,12 @@
+import { chatAsk } from "./chat-shell.tsx";
 import { agentMessage } from "../agents/session-frame.tsx";
+import { showFieldDrop } from "../agents/composer-ui.tsx";
 import { AGENT_IMAGE_TYPES } from "../agents/agents.ts";
 import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { drawQueue, focusAsk } from "./chat.ts";
-import { $, bar, S } from "../bar/core.ts";
+import { bar, S } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
@@ -38,7 +40,7 @@ export const attachedCount = () => attached.pics.length + attached.files.length;
 /// The strip of attached pictures and files above the prompt, or the error
 /// from the last paste, with the placeholder and hints to match.
 export function drawAttached() {
-  const ask = $<HTMLTextAreaElement>("#ask"), input = ask?.closest(".dinput");
+  const ask = chatAsk.current, input = ask?.closest(".dinput");
   if (!ask || !input) return;
   const n = attachedCount();
   drawQueue();
@@ -126,7 +128,7 @@ const agentField = () => S.view === "agent" && !!agentMessage.current;
 
 document.addEventListener("paste", e => {
   const agent = agentField();
-  if (!agent && (S.view !== "chat" || !$("#ask"))) return;
+  if (!agent && (S.view !== "chat" || !chatAsk.current)) return;
   const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter((f): f is File => !!f);
   if (!files.length) return;
   e.preventDefault();
@@ -172,30 +174,34 @@ export async function agentDrop(files: Iterable<File>) {
 const dropOverlay = createDocumentScope<"drop">();
 
 /// A drop handled elsewhere, as on the Files tab's tree, ends the overlay.
-export const hideDropOverlay = () => dropOverlay.remove(["drop"]);
+export const hideDropOverlay = () => { overlaid = false; dropOverlay.remove(["drop"]); };
+let overlaid = false;
 bar.addEventListener("dragover", e => {
   const agent = agentField();
   const types = e.dataTransfer?.types ?? [];
 
   if (agent && types.includes(PATH_TYPE)) {
-    if (!(e.target as HTMLElement).closest?.("#agconv")) return;
+    if (!(e.target instanceof Element && e.target.closest("#agconv"))) return;
     e.preventDefault();
-    e.dataTransfer!.dropEffect = "copy";
-    $("#agfield")?.classList.add("dropping");
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    showFieldDrop(true);
     return;
   }
 
   if ((S.view !== "chat" && !agent) || !types.includes("Files")) return;
   e.preventDefault();
-  if (!$("#ddrop")) dropOverlay.set([{ slot: "drop", host: bar, content: createElement("div", { className: "ddrop", id: "ddrop" }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: ICON.image } }), agent ? "Drop images to send, other files to upload" : "Drop images or files to ask about them") }]);
+  if (overlaid) return;
+  overlaid = true;
+  dropOverlay.set([{ slot: "drop", host: bar, content: createElement("div", { className: "ddrop", id: "ddrop" }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: ICON.image } }), agent ? "Drop images to send, other files to upload" : "Drop images or files to ask about them") }]);
 });
 bar.addEventListener("dragleave", e => {
-  if (!bar.contains(e.relatedTarget as Node | null)) dropOverlay.remove(["drop"]);
-  if (!$("#agconv")?.contains(e.relatedTarget as Node | null)) $("#agfield")?.classList.remove("dropping");
+  const into = e.relatedTarget instanceof Element ? e.relatedTarget : null;
+  if (!into || !bar.contains(into)) hideDropOverlay();
+  if (!into?.closest("#agconv")) showFieldDrop(false);
 });
 bar.addEventListener("drop", e => {
-  dropOverlay.remove(["drop"]);
-  $("#agfield")?.classList.remove("dropping");
+  hideDropOverlay();
+  showFieldDrop(false);
   const path = e.dataTransfer?.getData(PATH_TYPE);
 
   if (agentField() && path) {
