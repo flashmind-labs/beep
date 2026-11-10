@@ -1424,3 +1424,59 @@ async fn observer_phones_stay_members_but_never_become_hosts() {
     assert!(desktop.mesh.is_observer(phone_id));
     assert_eq!(desktop.mesh.code_hosts().len(), 2);
 }
+
+/// How a mesh endpoint was set up before the keep-alive was relaxed.
+fn older_transport() -> iroh::endpoint::QuicTransportConfig {
+    use iroh::endpoint::{IdleTimeout, QuicTransportConfig, VarInt};
+
+    QuicTransportConfig::builder()
+        .enable_segmentation_offload(false)
+        .keep_alive_interval(Duration::from_secs(3))
+        .max_idle_timeout(Some(IdleTimeout::from(VarInt::from_u32(10_000))))
+        .build()
+}
+
+#[derive(Debug, Clone)]
+struct Hold;
+
+impl ProtocolHandler for Hold {
+    async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
+        conn.closed().await;
+        Ok(())
+    }
+}
+
+/// A quiet link between `dialer` and `listener` settings is still up after
+/// the older peers' ten second idle limit.
+async fn stays_up(
+    dialer: iroh::endpoint::QuicTransportConfig,
+    listener: iroh::endpoint::QuicTransportConfig,
+) {
+    const ALPN: &[u8] = b"beep-test/idle";
+    let bind = |transport| async move {
+        Endpoint::builder(presets::Minimal)
+            .transport_config(transport)
+            .bind()
+            .await
+            .expect("endpoint binds")
+    };
+    let server = bind(listener).await;
+    let router = Router::builder(server.clone()).accept(ALPN, Hold).spawn();
+    let client = bind(dialer).await;
+    let conn = client.connect(server.addr(), ALPN).await.expect("connects");
+
+    // The idle limit is real time inside QUIC; tokio's clock cannot skip it.
+    tokio::time::sleep(Duration::from_secs(12)).await;
+
+    assert!(conn.close_reason().is_none(), "the quiet link stayed up");
+    router.shutdown().await.expect("router stops");
+}
+
+#[tokio::test]
+async fn a_quiet_link_stays_up_with_older_and_newer_peers() {
+    tokio::join!(
+        stays_up(transport_config(), transport_config()),
+        stays_up(transport_config(), older_transport()),
+        stays_up(older_transport(), transport_config()),
+    );
+}

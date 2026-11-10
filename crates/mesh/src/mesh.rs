@@ -39,8 +39,14 @@ pub const JOIN_ALPN: &[u8] = b"beep-join/2";
 const CHANGES: usize = 256;
 /// How far ahead of our clock a relayed address counter may be.
 const MAX_AHEAD_MS: u64 = 60_000;
-const KEEP_ALIVE: Duration = Duration::from_secs(3);
-const IDLE_MS: u32 = 10_000;
+/// iroh already pings each path every 5 s, which keeps a link up on its own;
+/// this ping only covers a connection whose paths stopped pinging.
+const KEEP_ALIVE: Duration = Duration::from_secs(10);
+/// A link with no packets this long is dead. QUIC takes the smaller of the
+/// two peers' values, so a link to an older peer still ends after 10 s.
+/// It matches iroh's idle limit for relay paths, so a link rides out a
+/// network handoff instead of redialing and syncing again.
+const IDLE_MS: u32 = 30_000;
 /// Further streams one peer may have open at once.
 pub(crate) const MAX_STREAMS: usize = 64;
 /// Times `open_bi` goes on to a newer connection.
@@ -59,7 +65,7 @@ pub struct PeerStream {
 }
 
 /// The transport settings a mesh endpoint should be built with: idle links
-/// are pinged and a dead one is given up on after ten seconds. Datagrams go
+/// are pinged and a dead one is given up on after thirty seconds. Datagrams go
 /// singly, as `beep_proto::port::transport` has it, because sync shares the
 /// endpoint.
 pub fn transport_config() -> QuicTransportConfig {
