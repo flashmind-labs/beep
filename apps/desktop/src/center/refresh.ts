@@ -174,8 +174,12 @@ setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
 
 /// Hidden windows rejoin their subscriptions when shown.
 export const onScreen = pageShown;
+/// A shown projects page draws again so its live mode and Actions polling start over, since the
+/// reader resumes with only the topics that changed.
 onShownChange(visible => {
-  if (!visible) { clearTimeout(retryTimer); runs.stop(); liveMode.follow(null); }
+  if (!visible) { clearTimeout(retryTimer); runs.stop(); liveMode.follow(null); return; }
+
+  if (state.home && currentLocation()?.view === "projects") { drawProjects(projectsEl()); drawTop(); }
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.
