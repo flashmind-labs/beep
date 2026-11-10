@@ -376,10 +376,12 @@ test("diff tree preserves focused files and scroll when refreshed", async ({ pag
   await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
   const tree = page.locator(".gh-detail .dv-tree");
   const row = tree.locator('.dv-tr[data-path="src/file-70.ts"]');
+  // The list draws only the rows near its viewport.
+  await tree.evaluate(element => { element.scrollTop = element.scrollHeight; });
   await expect(row).toBeVisible();
+  const before = await tree.evaluate(element => { element.scrollTop = element.scrollHeight; return element.scrollTop; });
   await row.focus();
   await row.evaluate(element => { element.dataset.testIdentity = "same"; });
-  const before = await tree.evaluate(element => { element.scrollTop = element.scrollHeight; return element.scrollTop; });
   expect(before).toBeGreaterThan(0);
   await page.evaluate(value => window.__navigation.respond("project_git_diff", value), { ...diff, files: [...files, file("src/new.ts")] });
   await page.locator('.gh-detail .dv-btn[aria-label="Refresh"]').evaluate(button => { if (button instanceof HTMLElement) button.click(); });
@@ -410,7 +412,7 @@ test("diff keyboard navigation reveals a filtered closed folder", async ({ page 
   await diff.focus();
   await page.keyboard.press("j");
   await expect(folder).toHaveAttribute("open", "");
-  await expect(folder.locator(".dv-tr.on")).toBeVisible();
+  await expect(diff.locator(".dv-tree .dv-tr.on")).toBeVisible();
 });
 
 test("diff file header actions do not toggle the file", async ({ page }) => {

@@ -440,3 +440,24 @@ export function contextFile(original: DiffFile, full: DiffFile, above: number, b
   }
   return { ...full, hunks };
 }
+
+/// Heights the file list lays out by before a file is drawn and measured:
+/// its header, and each kind of row in its body.
+const HEAD_HEIGHT = 37, NOTE_HEIGHT = 40, ROW_HEIGHT = 19, GAP_HEIGHT = 22, CONTEXT_HEIGHT = 44;
+
+/// How tall `f`'s section is likely to be: its header, and its unified rows
+/// while it is open.
+export function estimateHeight(f: DiffFile, folded: boolean) {
+  if (folded) return HEAD_HEIGHT;
+  if (leftOutNote(f)) return HEAD_HEIGHT + NOTE_HEIGHT;
+  let rows = 0, gaps = 0, lastOld: number | null = null;
+
+  for (const h of f.hunks) {
+    const old = h.old_lines ? h.old_start : h.old_start + 1;
+    if (lastOld != null && old - lastOld > 1) gaps++;
+    rows += 1 + h.lines.length;
+    lastOld = old + h.old_lines - 1;
+  }
+
+  return HEAD_HEIGHT + CONTEXT_HEIGHT + rows * ROW_HEIGHT + gaps * GAP_HEIGHT;
+}

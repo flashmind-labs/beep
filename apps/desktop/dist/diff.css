@@ -57,7 +57,8 @@
 .dv-dir > summary::-webkit-details-marker { display: none }
 .dv-dir-chevron { display: grid }
 .dv-dir[open] > summary .dv-dir-chevron { transform: rotate(90deg) }
-.dv-dir-children { padding-left: 16px }
+.dv-tree-rows { position: relative }
+.dv-tree-row { position: absolute; top: 0; left: 0; right: 0 }
 .dv-tr .nm { display: flex; min-width: 0; white-space: nowrap }
 .dv-tr .nm i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-style: normal }
 .dv-tr .nm b { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 400 }
@@ -67,6 +68,9 @@
 .dv-files { min-height: 0; min-width: 0; overflow: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; overscroll-behavior: contain }
 .dv-file { flex: none; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--dv-file-bg) }
 .dv-file:first-child { margin-top: 10px }
+/* Only the files near the viewport are drawn, each placed at its offset in a box as tall as the list. */
+.dv-win { flex: none; position: relative }
+.dv-win > .dv-file { position: absolute; left: 0; right: 0; margin: 0 }
 .dv-fh { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 6px 4px 8px; border-radius: 9px 9px 0 0;
   background: var(--dv-head-bg); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none }
 .dv-file.closed .dv-fh { border-radius: var(--radius-sm); border-bottom-color: transparent }
