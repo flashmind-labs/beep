@@ -1,6 +1,6 @@
 import { joinRuns, type Run } from "./older-state.ts";
 
-export interface TranscriptCursor {
+interface TranscriptCursor {
   start: number;
   next: number;
   fingerprint: string;

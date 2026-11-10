@@ -11,7 +11,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, ICON } from "../ui/icons.tsx";
 
 type Dock = "bottom" | "right";
-export interface AgentHintsModel { value: HintViewModel; project: string | null }
+interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
 interface Owner { host: HTMLElement; root: { render(content: ReactNode): void }; revision: number; frame: Frame; portals: Map<HTMLElement, Slot>; children: Map<string, Slot>; next: number; release(): void }
 let current: Owner | null = null;

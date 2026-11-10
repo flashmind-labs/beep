@@ -367,7 +367,7 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
 export const agentOnScreen = paneShown;
 
 /// How long until an older node is asked again. Quiet sessions keep following.
-export function agentDelay() {
+function agentDelay() {
   const s = AG.page?.session;
   if (!s || s.status === "ended") return AGENT_SLOW_MS;
   const still = Date.now() - AG.changed;

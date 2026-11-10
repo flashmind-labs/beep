@@ -13,8 +13,8 @@ export interface AgentCommand {
 
 /// The most rows the menus draw: a command list scrolls, a file list is
 /// cut to its best matches.
-export const MAX_COMMAND_ROWS = 40;
-export const MAX_FILE_ROWS = 12;
+const MAX_COMMAND_ROWS = 40;
+const MAX_FILE_ROWS = 12;
 
 /// What the text before the caret asks a menu for.
 export interface Trigger {
@@ -129,7 +129,7 @@ export type MenuAction = { type: "none" } | { type: "move"; index: number } | { 
 
 /// The modifier keys held with a key, and whether an input method is
 /// composing, which owns every key then.
-export interface KeyState {
+interface KeyState {
   shift: boolean;
   alt: boolean;
   ctrl: boolean;

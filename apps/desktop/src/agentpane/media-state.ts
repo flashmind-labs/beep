@@ -100,11 +100,11 @@ export const DEFAULT_LAYOUT: PaneLayout = { dock: "right", right: null, bottom: 
 export const KEPT_TABS = 40;
 
 /// The narrowest a right pane and the conversation beside it get.
-export const RIGHT_MIN = 280;
-export const CONV_MIN_WIDTH = 360;
+const RIGHT_MIN = 280;
+const CONV_MIN_WIDTH = 360;
 /// The lowest a bottom pane and the conversation above it get.
-export const BOTTOM_MIN = 150;
-export const CONV_MIN_HEIGHT = 200;
+const BOTTOM_MIN = 150;
+const CONV_MIN_HEIGHT = 200;
 /// Narrower than this, the pane goes under the conversation whatever its dock.
 export const SIDE_BY_SIDE_MIN = RIGHT_MIN + CONV_MIN_WIDTH + 60;
 
@@ -176,7 +176,7 @@ export interface Box {
 
 /// The band along an edge that takes a dragged tab: a fifth of the
 /// session, and at least this.
-export const DROP_BAND = 64;
+const DROP_BAND = 64;
 
 /// The dock a tab dragged to `x`, `y` goes to in the session `shell`: the
 /// right edge docks it right (when a right dock fits), the bottom edge at
@@ -193,7 +193,7 @@ export function dropDock(shell: Box, x: number, y: number, sideBySide: boolean):
 
 /// The dock the pane takes in a shell `width` wide: right only when both
 /// it and the conversation fit side by side.
-export function effectiveDock(dock: Dock, width: number): Dock {
+function effectiveDock(dock: Dock, width: number): Dock {
   return dock === "right" && width >= SIDE_BY_SIDE_MIN ? "right" : "bottom";
 }
 

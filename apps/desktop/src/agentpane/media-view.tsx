@@ -37,7 +37,7 @@ export function PdfView({ tab, machine }: { tab: MediaTab; machine: string | nul
   return <><div className="agpstage pdf"><iframe title={tab.name} src={tab.url ?? undefined} /></div><div className="agpacts"><span className="meta">{meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open in Preview" note={setMeta} /></div></>;
 }
 
-export function ModelFooter({ tab, machine }: { tab: MediaTab; machine: string | null }) {
+function ModelFooter({ tab, machine }: { tab: MediaTab; machine: string | null }) {
   const [wire, setWire] = useState(!!tab.wire);
   const [note, setNote] = useState<string | null>(null);
   const model = tab.model, info = model?.info;

@@ -3,10 +3,10 @@
 // that row where it was on screen, wherever the reader is.
 
 /// How near the bottom, in pixels, still counts as at the bottom.
-export const BOTTOM_SLACK = 40;
+const BOTTOM_SLACK = 40;
 
 /// How a scrolled box stands.
-export interface ScrollBox {
+interface ScrollBox {
   scrollTop: number;
   scrollHeight: number;
   clientHeight: number;
@@ -29,7 +29,7 @@ export function followsAfterScroll(stuck: boolean, was: number, b: ScrollBox) {
 /// How long, in ms, after the reader's last wheel event the log is theirs:
 /// macOS sends wheel events through a flick's glide, and a scroll written
 /// then stops the glide and holds back the next scroll.
-export const HANDS_OFF_MS = 150;
+const HANDS_OFF_MS = 150;
 
 /// How long a pin to the end waits at `now` for a wheel last turned at `wheel`.
 export function pinWait(now: number, wheel?: number) {
@@ -38,12 +38,12 @@ export function pinWait(now: number, wheel?: number) {
 
 /// What a redraw does with the scroll: `bottom` follows new entries,
 /// `keep` puts the row the reader saw (or clicked) back where it was.
-export type LogScroll = "bottom" | "keep";
+type LogScroll = "bottom" | "keep";
 
 /// Why the log is drawn again: `news` from a read of the newest entries,
 /// `toggle` for rows the reader opened or folded, `older` for entries read
 /// further back and put above.
-export type Redraw = "news" | "toggle" | "older";
+type Redraw = "news" | "toggle" | "older";
 
 /// How the log scrolls after a redraw: only a toggle holds a log that
 /// follows its end where it is.

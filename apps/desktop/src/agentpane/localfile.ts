@@ -6,7 +6,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// An app macOS says can open a file (OpenApp).
-export interface OpenApp {
+interface OpenApp {
   id: string;
   name: string;
   default: boolean;

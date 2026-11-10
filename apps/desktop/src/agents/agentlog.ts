@@ -7,7 +7,7 @@ const LIVE = new RegExp(`^([\\s\\S]*?) \\[(${STATUSES.join("|")})\\](?:\\n([\\s\
 
 /// The parts of a tool entry: its title, its status (one of `STATUSES`, or
 /// "" when the text does not say) and its output, "" when it has none.
-export interface ToolParts {
+interface ToolParts {
   title: string;
   status: string;
   output: string;
@@ -57,9 +57,9 @@ export function imageLines(text: string) {
 
 /// How many lines of a step's output show when it is opened, before
 /// "Show all", counted as they wrap.
-export const TAIL_LINES = 5;
+const TAIL_LINES = 5;
 /// The characters one output line holds before it wraps, about.
-export const WRAP_AT = 100;
+const WRAP_AT = 100;
 
 /// The visual lines a line of output takes when it wraps at `WRAP_AT`.
 const rows = (line: string) => Math.max(1, Math.ceil(line.length / WRAP_AT));
@@ -91,7 +91,7 @@ export function exitCode(output: string) {
 }
 
 /// A step of a subagent, as the node writes it on the call that started it.
-export interface SubStep {
+interface SubStep {
   status: string;
   title: string;
 }
@@ -135,7 +135,7 @@ export function subagent(output: string): { count: number; steps: SubStep[]; res
 }
 
 /// The session an agent started, as its card in the parent's log names it.
-export interface SubChild {
+interface SubChild {
   /// `<session>@<machine>`.
   id: string;
   /// working, waiting_on_user, idle or ended.

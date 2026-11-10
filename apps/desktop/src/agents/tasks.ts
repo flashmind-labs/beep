@@ -48,7 +48,7 @@ export function drawTasks() {
 }
 
 /// Stop was clicked on task `id`.
-export async function stopTask(id: string) {
+async function stopTask(id: string) {
   if (stopping.has(id)) return;
   stopping.add(id);
   drawTasks();

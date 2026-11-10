@@ -12,7 +12,7 @@ export interface MoveRecord {
   at: number;
 }
 
-export type MovePhase = "waiting" | "conversation" | "files" | "resuming" | "done" | "failed" | "cancelled";
+type MovePhase = "waiting" | "conversation" | "files" | "resuming" | "done" | "failed" | "cancelled";
 
 /// What the target says of a move (MoveProgressView).
 export interface MoveProgress {
@@ -42,7 +42,7 @@ export interface MoveTarget {
 
 /// The harnesses whose sessions move (the others keep theirs in a database,
 /// and wait for later).
-export const MOVABLE = new Set(["claude", "codex", "pi"]);
+const MOVABLE = new Set(["claude", "codex", "pi"]);
 
 const NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi" };
 
@@ -111,7 +111,7 @@ export function moveRows(p: MoveProgress, from: string, to: string, toOnline = t
 
 /// How long a target may take to see a record in the mesh before the
 /// window stops saying it waits for it.
-export const SEEN_WITHIN_MS = 2 * 60_000;
+const SEEN_WITHIN_MS = 2 * 60_000;
 
 /// What the target says of a move, read for the window: a target that has
 /// not heard of a recent move yet still has to take it up, so it waits; one

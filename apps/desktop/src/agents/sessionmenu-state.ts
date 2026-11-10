@@ -7,7 +7,7 @@ const TURN = new Set(["asking", "working", "running", "starting"]);
 /// theirs in a database.
 const DELETABLE = new Set(["claude", "codex", "pi"]);
 
-export interface SessionOffers {
+interface SessionOffers {
   stop: boolean;
   close: boolean;
   resume: boolean;
