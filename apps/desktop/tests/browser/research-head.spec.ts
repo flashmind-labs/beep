@@ -179,3 +179,22 @@ test("Research updates retain the composer node, draft and selection", async ({ 
   await expect(page.locator(".rs .dhead:visible")).toContainText("Updated example");
   expect(await input.evaluate(el => el === Reflect.get(window, "researchDraft") && document.activeElement === el && el instanceof HTMLTextAreaElement && el.value === "A draft message" && el.selectionStart === 2 && el.selectionEnd === 7)).toBe(true);
 });
+
+test("research quote and export notices keep their actions", async ({ page }) => {
+  const completed = { ...research("Paper example"), status: "done", draft: "Paper", draft_html: "<p>A finding to quote.</p>", sources: [] };
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, cached_research: completed, get_research: completed, research_history: [{ role: "assistant", html: "<p>Research complete.</p>" }], research_pending: null, list_researches: [], export_research: "/path/to/paper.pdf" });
+  await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
+  await page.getByRole("button", { name: "Open the paper" }).click();
+  const finding = page.locator(".rs .rdoc p");
+  await expect(finding).toHaveText("A finding to quote.");
+  await finding.evaluate(el => { const range = document.createRange(); range.selectNodeContents(el); const selection = getSelection(); selection?.removeAllRanges(); selection?.addRange(range); document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true })); });
+  await page.getByRole("button", { name: /Quote/ }).click();
+  const ask = page.locator(".rs textarea");
+  await expect(ask).toHaveValue("> A finding to quote.\n\n");
+  await expect(ask).toBeFocused();
+  await page.locator(".rs-pane").getByRole("button", { name: "Export PDF" }).click();
+  const note = page.locator(".rs-pane .dsaved");
+  await expect(note).toContainText("Saved paper.pdf to Downloads");
+  await note.getByRole("button", { name: "Show in Finder" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "reveal_file" && call.args.path === "/path/to/paper.pdf"))).toBe(true);
+});
