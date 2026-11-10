@@ -1,5 +1,13 @@
 //! Bounded timings from the webviews, without page arguments or user data.
 
+use std::{
+    sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Instant,
+};
+
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -117,6 +125,257 @@ pub(crate) fn desktop_timings(samples: Vec<Timing>) {
             log::info!("desktop {kind} {name} took {:.0} ms ({outcome})", sample.ms);
         }
     }
+}
+
+/// A webview's UI samples since its last flush (#571), as fixed-bucket histograms
+/// labelled with a fixed view, so no content, id, path or name can reach the metrics.
+#[derive(Deserialize)]
+pub(crate) struct UiBatch {
+    window: UiWindow,
+    histograms: Vec<UiHistogram>,
+    shown_ms: Vec<UiShown>,
+    hidden_ms: f64,
+    slow: Vec<UiSlow>,
+    supported: Vec<UiEntry>,
+    overhead_ms: f64,
+}
+
+#[derive(Deserialize)]
+struct UiHistogram {
+    kind: UiKind,
+    view: UiView,
+    input: Option<UiInput>,
+    counts: Vec<u32>,
+    sum_ms: f64,
+    max_ms: f64,
+}
+
+#[derive(Deserialize)]
+struct UiShown {
+    view: UiView,
+    ms: f64,
+}
+
+#[derive(Deserialize)]
+struct UiSlow {
+    kind: UiKind,
+    view: UiView,
+    ms: f64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, strum::IntoStaticStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+enum UiWindow {
+    Main,
+    Bar,
+    Phone,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, strum::IntoStaticStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+enum UiKind {
+    Interaction,
+    LongTask,
+    Frame,
+    Open,
+    Fresh,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, strum::IntoStaticStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+enum UiView {
+    Home,
+    Session,
+    New,
+    Project,
+    Diff,
+    Picker,
+    Settings,
+    Bar,
+    Terminals,
+    Research,
+    Sync,
+    List,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, strum::IntoStaticStr)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+enum UiInput {
+    Pointer,
+    Key,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, strum::IntoStaticStr)]
+enum UiEntry {
+    #[serde(rename = "event")]
+    #[strum(serialize = "event")]
+    Event,
+    #[serde(rename = "longtask")]
+    #[strum(serialize = "longtask")]
+    LongTask,
+    #[serde(rename = "long-animation-frame")]
+    #[strum(serialize = "long_animation_frame")]
+    LongAnimationFrame,
+}
+
+/// The webview's bucket bounds in ms, `PERF_BUCKETS_MS` in `ui/perf-state.ts`.
+const UI_BUCKETS_MS: [f64; 10] = [
+    16.0, 33.0, 50.0, 100.0, 200.0, 300.0, 500.0, 1000.0, 2000.0, 5000.0,
+];
+/// More samples than a minute of use can make; a batch beyond it is not real.
+const UI_MAX_COUNT: u32 = 100_000;
+/// The longest a sample or a flush interval's time can be.
+const UI_MAX_MS: f64 = 86_400_000.0;
+/// One slow line per kind at most this often.
+const UI_SLOW_LOG_SECS: u64 = 30;
+const ALL_ENTRIES: [UiEntry; 3] = [
+    UiEntry::Event,
+    UiEntry::LongTask,
+    UiEntry::LongAnimationFrame,
+];
+
+impl UiHistogram {
+    fn valid(&self) -> bool {
+        self.counts.len() == UI_BUCKETS_MS.len() + 1
+            && self.counts.iter().all(|count| *count <= UI_MAX_COUNT)
+            && ui_ms(self.sum_ms)
+            && ui_ms(self.max_ms)
+            && (self.input.is_some() == (self.kind == UiKind::Interaction))
+    }
+
+    /// Each bucket's samples at the middle of its bounds; the open last bucket at the largest sample.
+    fn values(&self) -> impl Iterator<Item = (f64, u32)> + '_ {
+        self.counts
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count > 0)
+            .map(|(index, count)| {
+                let value = match (index.checked_sub(1), UI_BUCKETS_MS.get(index)) {
+                    (None, Some(upper)) => upper / 2.0,
+                    (Some(lower), Some(upper)) => (UI_BUCKETS_MS[lower] + upper) / 2.0,
+                    _ => self.max_ms.max(UI_BUCKETS_MS[UI_BUCKETS_MS.len() - 1]),
+                };
+                (value, *count)
+            })
+    }
+
+    /// Samples above the kind's slow threshold, counted from the buckets.
+    fn slow(&self) -> u64 {
+        let Some(threshold) = slow_ms(self.kind) else {
+            return 0;
+        };
+        // Bucket `i` holds samples above bound `i - 1`.
+        let first = UI_BUCKETS_MS.partition_point(|bound| *bound < threshold) + 1;
+        self.counts
+            .iter()
+            .skip(first.min(self.counts.len()))
+            .map(|count| u64::from(*count))
+            .sum()
+    }
+}
+
+fn ui_ms(ms: f64) -> bool {
+    ms.is_finite() && (0.0..=UI_MAX_MS).contains(&ms)
+}
+
+/// Rounded to whole ms; `ui_ms` bounds it first.
+fn whole_ms(ms: f64) -> u64 {
+    // In 0..=UI_MAX_MS, so the cast neither truncates nor wraps.
+    ms.round() as u64
+}
+
+fn slow_ms(kind: UiKind) -> Option<f64> {
+    match kind {
+        UiKind::Interaction => Some(500.0),
+        UiKind::LongTask => Some(200.0),
+        UiKind::Frame | UiKind::Open | UiKind::Fresh => None,
+    }
+}
+
+/// Merges a webview's UI batch into the app's metrics, the ones `beep_metrics` reads.
+#[tauri::command]
+pub(crate) fn desktop_ui_metrics(batch: UiBatch) {
+    let started = Instant::now();
+    record_ui(&batch);
+
+    for slow in batch.slow.iter().take(8) {
+        if ui_ms(slow.ms) && slow_log_due(slow.kind) {
+            let kind: &'static str = slow.kind.into();
+            let view: &'static str = slow.view.into();
+            log::warn!("slow ui {kind} on {view}: {:.0} ms", slow.ms);
+        }
+    }
+
+    metrics::histogram!("beep_desktop_ui_merge_seconds").record(started.elapsed().as_secs_f64());
+}
+
+fn record_ui(batch: &UiBatch) {
+    let window: &'static str = batch.window.into();
+    metrics::counter!("beep_desktop_ui_batches_total", "window" => window).increment(1);
+
+    for histogram in batch.histograms.iter().take(256) {
+        if !histogram.valid() {
+            continue;
+        }
+
+        let kind: &'static str = histogram.kind.into();
+        let view: &'static str = histogram.view.into();
+        let input: &'static str = histogram.input.map_or("none", Into::into);
+        let recorded = metrics::histogram!("beep_desktop_ui_seconds", "window" => window, "kind" => kind, "view" => view, "input" => input);
+
+        for (ms, count) in histogram.values() {
+            recorded.record_many(ms / 1000.0, usize::try_from(count).unwrap_or(0));
+        }
+
+        let slow = histogram.slow();
+        if slow > 0 {
+            metrics::counter!("beep_desktop_ui_slow_total", "window" => window, "kind" => kind, "view" => view).increment(slow);
+        }
+    }
+
+    for shown in batch.shown_ms.iter().take(64) {
+        if ui_ms(shown.ms) {
+            let view: &'static str = shown.view.into();
+            metrics::counter!("beep_desktop_ui_shown_milliseconds_total", "window" => window, "view" => view).increment(whole_ms(shown.ms));
+        }
+    }
+
+    if ui_ms(batch.hidden_ms) {
+        metrics::counter!("beep_desktop_ui_hidden_milliseconds_total", "window" => window)
+            .increment(whole_ms(batch.hidden_ms));
+    }
+
+    if ui_ms(batch.overhead_ms) {
+        metrics::counter!("beep_desktop_ui_overhead_milliseconds_total", "window" => window)
+            .increment(whole_ms(batch.overhead_ms));
+    }
+
+    for entry in ALL_ENTRIES {
+        let name: &'static str = entry.into();
+        metrics::gauge!("beep_desktop_ui_observed", "window" => window, "entry" => name)
+            .set(f64::from(batch.supported.contains(&entry)));
+    }
+}
+
+/// True at most once per `UI_SLOW_LOG_SECS` for each kind.
+fn slow_log_due(kind: UiKind) -> bool {
+    static START: OnceLock<Instant> = OnceLock::new();
+    static LAST: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+    let start = *START.get_or_init(Instant::now);
+    // Seconds since the first call, plus one so the first line is never held back.
+    let now = start.elapsed().as_secs() + UI_SLOW_LOG_SECS + 1;
+    let last = &LAST[kind as usize];
+    let previous = last.load(Ordering::Relaxed);
+    now.saturating_sub(previous) >= UI_SLOW_LOG_SECS
+        && last
+            .compare_exchange(previous, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
 }
 
 #[cfg(test)]

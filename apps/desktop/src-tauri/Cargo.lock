@@ -494,6 +494,7 @@ dependencies = [
  "log",
  "mac-notification-sys",
  "metrics",
+ "metrics-exporter-prometheus",
  "objc2",
  "objc2-app-kit",
  "objc2-application-services",

@@ -33,6 +33,7 @@ import { openAddToMachine } from "./addmachine.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { syncRepairPrompt, agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { openHandoff } from "./handoff.tsx";
+import { perfFresh } from "../ui/perf.ts";
 
 /// Each project's tasks, workers and chat, read one at a time per project
 /// and kept under the project they were asked for, so an answer for the
@@ -137,7 +138,10 @@ function loadTerms(name: string) {
 /// what changed since it was read, and what no topic follows once it is
 /// old. The drawing asks for the rest as it is due.
 export function revalidate(name: string) {
-  if (pages.due("view", name, UNWATCHED_MS)) loadView(name);
+  // The page drew its kept view or sessions: time until both are read again.
+  const kept = pages.at("view", name) !== undefined || pages.at("sessions", name) !== undefined;
+  const reads: (Promise<unknown> | undefined)[] = [];
+  if (pages.due("view", name, UNWATCHED_MS)) reads.push(loadView(name));
   const agent = pageAgent(state.agents, name, state.subscribed);
 
   if (agent) {
@@ -147,7 +151,9 @@ export function revalidate(name: string) {
 
   loadTerms(name);
   fsync.ensure(name, UNWATCHED_MS);
-  if (sessionsDue.has(name) || !state.sessions.has(name)) loadSessions(name);
+  if (sessionsDue.has(name) || !state.sessions.has(name)) reads.push(loadSessions(name));
+  const fresh = reads.filter(read => read !== undefined);
+  if (kept && fresh.length) void Promise.allSettled(fresh).then(perfFresh("project"));
 }
 
 /// The Projects overview: the found checkouts and the task summaries, read

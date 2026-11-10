@@ -10,7 +10,7 @@ const responses = {
 };
 
 /// Commands that only follow topics, log or keep the cache: everything else reads.
-const QUIET = new Set(["mesh_watch", "mesh_topics", "log_webview", "desktop_timings", "center_keep_pages", "desktop_trace_enabled", "center_pending"]);
+const QUIET = new Set(["mesh_watch", "mesh_topics", "log_webview", "desktop_timings", "desktop_ui_metrics", "center_keep_pages", "desktop_trace_enabled", "center_pending"]);
 const reads = (page: Page, from: number) => page.evaluate(([from, quiet]) => window.__navigation.calls().slice(from).map(call => call.command).filter(command => !quiet.includes(command)), [from, [...QUIET]] as const);
 const mark = (page: Page) => page.evaluate(() => window.__navigation.calls().length);
 

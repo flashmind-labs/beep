@@ -412,6 +412,7 @@ pub fn run() {
             platform::logfile::log_webview,
             platform::metrics::desktop_timings,
             platform::metrics::desktop_trace_enabled,
+            platform::metrics::desktop_ui_metrics,
             projects::branches::add_branch_worktree,
             projects::branches::find_import_fork,
             projects::branches::preview_import,

@@ -11,6 +11,9 @@ Other apps have independent versions and changelogs:
 
 ### Added
 
+- Desktop: records how quickly pages open and respond to clicks and keys,
+  by page only and never with content, in the app's local metrics, so slow
+  pages can be found afterwards.
 - Desktop: Stop all, in a session's menu, ends its turn, subagents, background
   commands and the agents it started. It asks first while any of those
   run, and messages not yet delivered go back in the field.

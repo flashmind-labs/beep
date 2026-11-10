@@ -5,6 +5,7 @@ import { formatAgo } from "../ui/format.ts";
 import { mountSheetFrame, sheetAbove } from "../ui/parts.ts";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
+import { perfLayer, perfOpened } from "../ui/perf.ts";
 import { pane } from "../bar/pane.ts";
 import { instructionsPage } from "./instructions.ts";
 import { providersPage } from "./providers.ts";
@@ -17,7 +18,7 @@ import { boxOf, currentLocation, windowProject, toMain, drawTop } from "../cente
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.
 let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null; render(content: ReactNode): void; dispose(): void } | null = null;
-const settingsTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { if (settingsOpen) recordTiming("page", page, ms); });
+const settingsTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { if (settingsOpen) { recordTiming("page", page, ms); perfOpened("settings", ms); } });
 
 export function openSettings(section?: string) {
   // A project window has no Settings of its own: the main window opens them.
@@ -25,6 +26,7 @@ export function openSettings(section?: string) {
   // Already open: show page `section`, such as "machines".
   if (settingsOpen) return section && showSettingsPage(section);
   const afterMount = settingsTiming.start("settings");
+  perfLayer("settings", true);
   const { root: scrim, sheet, render, dispose } = mountSheetFrame("Settings", "cc-set", {
     host: document.body, scrimClass: "cc-set-scrim", onScrim: closeSettings, ownKeys: true,
   });
@@ -97,6 +99,7 @@ export function closeSettings() {
   if (!settingsOpen) return;
   const { keys, back, dispose } = settingsOpen;
   settingsOpen = null;
+  perfLayer("settings", false);
   settingsClosed();
   unembed();
   window.removeEventListener("keydown", keys, true);
