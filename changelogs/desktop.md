@@ -42,6 +42,10 @@ Other apps have independent versions and changelogs:
 - Desktop: running agents, chats and research show a still dot instead of a
   spinner, and "Thinking" pulses a few times and then holds, so long runs
   no longer redraw the window every frame. Pages also watch fewer changes.
+- Desktop: while agents run, Home, the sidebar, the usage pill and project
+  pages update at most once a second (project sessions every two seconds)
+  and skip redraws when nothing changed. Approvals and questions still show
+  at once.
 
 ## [0.7.0] - 2026-11-09
 

@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { showWindowParts } from "./window-root.ts";
 import { UsageWidget } from "./usage-view.tsx";
 import { subscribeChanges as subscribeTopics, topic } from "../ui/mesh-events.ts";
+import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
 export { creditAmount, creditScope, type ProviderCredits } from "../ui/credits.ts";
 // The pill at the right end of every command center header: how much of each
@@ -204,10 +205,10 @@ function keepInWindow(pop: HTMLElement) {
   pop.style.maxHeight = `${Math.max(160, window.innerHeight - r.top - gap)}px`;
 }
 
-/// Draws the pill into `host` and keeps it current. Gives what reads it again when the
-/// machines sent more, such as a plan read after the last look.
+/// Draws the pill into `host` and keeps it current.
 export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promise<UsageView | null>) {
   let view: UsageView | null = null;
+  let loaded = false;
   let open = false;
   let period: PeriodKey = "today";
   host.classList.add("us");
@@ -221,13 +222,18 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
   };
 
   const load = async (refresh: boolean) => {
+    let next: UsageView | null;
+
     try {
-      view = await read(refresh);
+      next = await read(refresh);
     } catch (e) {
       console.warn("reading usage:", e);
       return;
     }
 
+    if (loaded && JSON.stringify(next) === JSON.stringify(view)) return;
+    loaded = true;
+    view = next;
     draw();
   };
 
@@ -240,8 +246,8 @@ export function mountUsage(host: HTMLElement, read: (refresh: boolean) => Promis
 
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
   document.addEventListener("keydown", e => { if (open && e.key === "Escape") toggle(false); });
-  const reload = () => load(false);
-  subscribeTopics(topic("usage"), reload);
+  // Spending changes with every turn; the pill follows at most once a second.
+  const reload = ambient(() => load(false), AMBIENT_MS);
+  subscribeTopics(topic("usage"), () => reload());
   void load(false);
-  return reload;
 }

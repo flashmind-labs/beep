@@ -64,8 +64,7 @@ initConversationSwitcher({
 
 initSideResize($(".cwin"), $("#side-grip"));
 initMobile();
-const reloadUsage = mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
-listen("usage-changed", reloadUsage);
+mountUsage($("#usage"), refresh => invoke<UsageView | null>("usage_get", { refresh }));
 mountNotices($("#bell"));
 
 initPalette({ go, jump, ask: askBeep, scope: () => windowProject, openChat: id => (RESEARCHES.has(id) ? openResearch(id) : go("pane", { chat: { session: id } })), research: id => RESEARCHES.has(id), settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });

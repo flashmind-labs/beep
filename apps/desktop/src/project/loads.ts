@@ -3,6 +3,7 @@ import { removeWindowPart, removeWindowParts, showWindowParts } from "../center/
 import { ProjectSessions } from "./sessions-view.tsx";
 import { refreshMoves, MV } from "../agents/move-store.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
@@ -303,7 +304,7 @@ export const readingWhere = new Set<string>();
 subscribeChanges([topic("projects"), topic("machines"), topic("sync")], async () => {
   const name = state.picked;
   if (name) { await whereReads.get(name); await loadWhere(name); }
-}, null, () => currentLocation()?.view === "projects" && !!state.picked);
+}, null, () => currentLocation()?.view === "projects" && !!state.picked, AMBIENT_MS);
 /// Projects whose kept places are due another read on the next draw.
 export const whereDue = new Set<string>();
 const whereReads = new Map<string, Promise<void>>();
@@ -481,7 +482,8 @@ async function refreshProjectSessions() {
   const name = state.picked;
   if (name) { sessionsDue.add(name); await loadSessions(name); }
 }
-subscribeChanges([topic("agents"), topic("moves")], refreshProjectSessions, null, projectSessionsShown);
+// Agents report many times a second during turns; the list follows every two seconds.
+subscribeChanges([topic("agents"), topic("moves")], refreshProjectSessions, null, projectSessionsShown, SLOW_MS);
 listen("agent-title-changed", () => {
   if (projectSessionsShown()) void refreshProjectSessions().catch(e => console.warn("project session titles:", e));
 });
