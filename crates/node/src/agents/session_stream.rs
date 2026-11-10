@@ -26,7 +26,7 @@ impl Agents {
             return Ok(session.info());
         }
 
-        let cascade = matches!(request, Request::Cancel {});
+        let cascade = matches!(request, Request::StopAll {});
         let command = match request {
             Request::Prompt { text } => Command::Prompt(text.into()),
             Request::PromptImages { text, images } => {
@@ -38,6 +38,7 @@ impl Agents {
             Request::SetMode { mode } => Command::SetMode(mode),
             Request::StopTask { task } => Command::StopTask(task),
             Request::Cancel {} => Command::Cancel { by_user: true },
+            Request::StopAll {} => Command::StopAll { by_user: true },
             Request::Close {} => Command::Close { by_user: true },
             Request::Configure { model, effort } => Command::Configure { model, effort },
             _ => return Err("this request cannot order an existing session".into()),
@@ -194,11 +195,13 @@ pub async fn serve_session(
                     Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
                     Ok(Some(Request::SetMode { mode })) => Command::SetMode(mode),
                     Ok(Some(Request::StopTask { task })) => Command::StopTask(task),
-                    Ok(Some(Request::Cancel {})) => {
-                        // Stop goes down to what the session started, on
+                    // Stop ends the main turn alone.
+                    Ok(Some(Request::Cancel {})) => Command::Cancel { by_user: true },
+                    Ok(Some(Request::StopAll {})) => {
+                        // Stop all goes down to what the session started, on
                         // other machines too, after its own turn stops.
                         cascade = true;
-                        Command::Cancel { by_user: true }
+                        Command::StopAll { by_user: true }
                     }
                     Ok(Some(Request::Close {})) => Command::Close { by_user: true },
                     Ok(Some(Request::Configure { model, effort })) => Command::Configure { model, effort },

@@ -2323,3 +2323,163 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
         until(&session, |live| live.status() == Status::Ended).await;
     }
 }
+
+/// Claude Code with steering and `asyncTasks`: the prompt launches a
+/// background subagent (its `Agent` call completes at once, launched
+/// `isAsync`), starts a background command, and runs a foreground command
+/// that does not finish. `session/cancel` ends the turn and spares the
+/// subagent, as Claude Code does when the client stops tasks one by one.
+/// With `$2` set to `ended`, the subagent reports at once and Claude Code's
+/// own turn after it ends.
+const BACKGROUND_SUBAGENT_ADAPTER: &str = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentInfo":{"name":"@agentclientprotocol/claude-agent-acp","version":"0.101.0"},"agentCapabilities":{},"_meta":{"steering":{"supported":true}}}'
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":%s}}\n' "$1"; }
+while read -r line; do
+    log "$1"
+    case "$line" in
+    *'"session/new"'*) reply '{"sessionId":"s"}' ;;
+    *'"session/prompt"'*)
+        prompt=$(id)
+        update '{"sessionUpdate":"tool_call","toolCallId":"agent1","title":"Task","kind":"think","status":"pending","rawInput":{"subagent_type":"Explore","prompt":"Look around","run_in_background":true}}'
+        update '{"sessionUpdate":"tool_call_update","toolCallId":"agent1","_meta":{"claudeCode":{"toolResponse":{"status":"async_launched","isAsync":true}}}}'
+        update '{"sessionUpdate":"tool_call_update","toolCallId":"agent1","status":"completed"}'
+        update '{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Run make watch","kind":"execute","status":"in_progress"}'
+        update '{"sessionUpdate":"async_task_spawned","asyncTaskId":"bg1","name":"make watch","taskType":"local_bash","description":"Run make watch","showInTranscript":true,"canStop":true,"toolCallId":"t1"}'
+        update '{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","_meta":{"jetbrains":{"air":{"version":1,"asyncTasks":{"backgrounded":true}}}}}'
+        if [ "$2" = ended ]; then
+            update '{"sessionUpdate":"async_task_spawned","asyncTaskId":"turn1","name":"Claude is working","taskType":"turn","description":"","showInTranscript":false,"canStop":true}'
+            update '{"sessionUpdate":"async_task_state_update","asyncTaskId":"turn1","state":"completed"}'
+        fi
+        update '{"sessionUpdate":"tool_call","toolCallId":"t2","title":"Run cargo test","kind":"execute","status":"in_progress"}'
+        ;;
+    *'"session/cancel"'*)
+        update '{"sessionUpdate":"tool_call_update","toolCallId":"t2","status":"failed"}'
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt"
+        ;;
+    *'"_session/steering"'*)
+        update '{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"use the other port"}}'
+        reply '{"outcome":"injected"}'
+        ;;
+    *'"_session/async_task/stop"'*)
+        reply '{"stopped":true}'
+        update '{"sessionUpdate":"async_task_state_update","asyncTaskId":"bg1","state":"stopped"}'
+        ;;
+    *) reply '{}' ;;
+    esac
+done
+"#;
+
+#[cfg(unix)]
+async fn with_a_background_subagent(dir: &Path, ended: bool) -> (Session, PathBuf) {
+    let log = dir.join("sent.jsonl");
+    let mut kind = script("claude", BACKGROUND_SUBAGENT_ADAPTER, &log);
+    kind.args
+        .push(if ended { "ended" } else { "runs" }.to_owned());
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    until(&session, |live| {
+        live.info.state.summary == "Run cargo test" || live.status() == Status::Ended
+    })
+    .await;
+    let state = session.info().state;
+    assert_eq!(state.status, Status::Working);
+    assert_eq!(state.subagents, u32::from(!ended), "the launched subagent");
+    assert_eq!(state.tasks.len(), 1, "the command runs");
+    (session, log)
+}
+
+#[cfg(unix)]
+fn methods(log: &Path) -> Vec<String> {
+    sent(log)
+        .iter()
+        .filter_map(|line| line["method"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// A steer goes to the main agent at once, while its subagent, a background
+/// command and a foreground command all still run (#566).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_steer_reaches_the_main_agent_while_subagents_and_commands_run() {
+    let temp = tempfile::tempdir().unwrap();
+    let (session, log) = with_a_background_subagent(temp.path(), false).await;
+    session
+        .order(Command::Steer("use the other port".to_owned().into()))
+        .await
+        .unwrap();
+    until(&session, |live| live.info.state.queued == 0).await;
+
+    assert!(methods(&log).contains(&"_session/steering".to_owned()));
+    assert!(!methods(&log).contains(&"session/cancel".to_owned()));
+    let state = session.info().state;
+    assert_eq!(state.status, Status::Working);
+    assert_eq!(state.subagents, 1);
+    session.close().await;
+}
+
+/// Stop ends the main turn only: the subagent and the background command
+/// keep running and the session keeps showing work (#565).
+#[cfg(unix)]
+#[tokio::test]
+async fn stop_ends_the_main_turn_and_leaves_subagents_running() {
+    let temp = tempfile::tempdir().unwrap();
+    let (session, log) = with_a_background_subagent(temp.path(), false).await;
+    session
+        .order(Command::Cancel { by_user: true })
+        .await
+        .unwrap();
+    until(&session, |live| live.info.turns == 1).await;
+
+    let info = session.info();
+    assert_eq!(info.state.status, Status::Idle);
+    assert_eq!(info.state.subagents, 1, "the subagent still runs");
+    assert!(info.state.runs(), "the session still shows work");
+    assert_eq!(info.state.tasks[0].state, TaskState::Running);
+    let methods = methods(&log);
+    assert_eq!(methods.iter().filter(|m| *m == "session/cancel").count(), 1);
+    assert!(!methods.contains(&"_session/async_task/stop".to_owned()));
+    session.close().await;
+}
+
+/// Stop all while a subagent runs stops the agent itself, since Claude Code
+/// stops a subagent only with it; the next message resumes the session.
+#[cfg(unix)]
+#[tokio::test]
+async fn stop_all_with_a_running_subagent_stops_the_agent() {
+    let temp = tempfile::tempdir().unwrap();
+    let (session, _log) = with_a_background_subagent(temp.path(), false).await;
+    session
+        .order(Command::StopAll { by_user: true })
+        .await
+        .unwrap();
+    until(&session, |live| live.status() == Status::Ended).await;
+
+    let state = session.info().state;
+    assert_eq!(state.subagents, 0);
+    assert!(state.tasks.iter().all(|task| task.state.ended()));
+    let error = state.error.unwrap_or_default();
+    assert!(error.contains("stopped with its subagents"), "{error}");
+}
+
+/// Stop all with no subagent left stops the turn and each background
+/// command, and the session stays.
+#[cfg(unix)]
+#[tokio::test]
+async fn stop_all_without_subagents_stops_the_turn_and_background_commands() {
+    let temp = tempfile::tempdir().unwrap();
+    let (session, log) = with_a_background_subagent(temp.path(), true).await;
+    session
+        .order(Command::StopAll { by_user: true })
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns == 1 && live.info.state.tasks.iter().all(|task| task.state.ended())
+    })
+    .await;
+
+    let methods = methods(&log);
+    assert!(methods.contains(&"session/cancel".to_owned()));
+    assert!(methods.contains(&"_session/async_task/stop".to_owned()));
+    assert_eq!(session.info().state.status, Status::Idle);
+    session.close().await;
+}

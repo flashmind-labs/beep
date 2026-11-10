@@ -2,6 +2,7 @@ use super::*;
 use crate::agents::found_sessions::Held;
 use crate::agents::{AgentKind, OpenSession};
 use std::{collections::BTreeMap, path::Path};
+use beep_proto::node::agent::Request;
 use tokio::time::timeout;
 
 /// An ACP adapter in shell: it logs what it reads to `$1`, answers each
@@ -374,6 +375,32 @@ async fn a_parent_that_ends_with_the_node_leaves_its_children_to_resume() {
     rig.agents.shutdown().await;
     let open = rig.agents.open_sessions();
     assert_eq!(open.len(), 2, "{open:?}");
+}
+
+/// Stop ends the parent's own turn and leaves the agents it started
+/// working; Stop all stops them too (#565).
+#[tokio::test]
+async fn stop_leaves_a_parent_s_children_working_and_stop_all_stops_them() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "hang on", rig.dir.path()).await;
+    until(&child, |live| live.status() == Status::Working).await;
+    let id = parent.info().id;
+
+    rig.agents
+        .send_session("top", &id, Request::Cancel {})
+        .await
+        .expect("the parent takes the stop");
+    assert!(!rig.read("kid.log").contains("session/cancel"));
+    assert_eq!(child.info().state.status, Status::Working);
+
+    rig.agents
+        .send_session("top", &id, Request::StopAll {})
+        .await
+        .expect("the parent takes the stop");
+    until(&child, |live| live.status() == Status::Idle).await;
+    assert!(rig.read("kid.log").contains("session/cancel"));
+    rig.agents.shutdown().await;
 }
 
 #[tokio::test]

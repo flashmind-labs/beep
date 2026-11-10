@@ -247,6 +247,8 @@ pub(super) enum End {
     Failed(String),
     /// The agent did not end its turn within `stop_within` of Stop.
     Unstoppable(Duration),
+    /// Stop all, while subagents ran that only stopping the agent ends.
+    StoppedAll,
     /// The node stopped or restarted.
     NodeStopped,
 }
@@ -297,7 +299,11 @@ impl Actor {
         let by_user = self.by_user;
         // Stopped as the user asked, or with the node, so not a failure to
         // alert about.
-        let asked = closed || matches!(end, Ok(End::Unstoppable(_) | End::NodeStopped));
+        let asked = closed
+            || matches!(
+                end,
+                Ok(End::Unstoppable(_) | End::StoppedAll | End::NodeStopped)
+            );
         // What still waits goes with the session when the node resumes it.
         let waiting: Vec<Prompt> = if matches!(end, Ok(End::NodeStopped)) {
             let interrupted = matches!(
@@ -317,6 +323,9 @@ impl Actor {
         let reason = match end {
             Ok(End::NodeStopped) => NODE_STOPPED.to_owned(),
             Ok(End::Closed) => "closed".to_owned(),
+            Ok(End::StoppedAll) => {
+                "stopped with its subagents; send a message to continue".to_owned()
+            }
             Ok(End::Unstoppable(within)) => format!(
                 "the agent did not stop within {} s, so Beep stopped it; send a message to continue",
                 within.as_secs()
@@ -501,6 +510,14 @@ impl Actor {
                         self.live.send_modify(|live| live.closing = by_user);
                         let _ = done.send(Ok(()));
                         return Ok(End::Closed);
+                    }
+
+                    if let Command::StopAll { by_user } = command
+                        && self.live.borrow().info.state.subagents > 0
+                    {
+                        self.by_user = by_user;
+                        let _ = done.send(Ok(()));
+                        return Ok(End::StoppedAll);
                     }
 
                     let result = self.command(cx, command)?;

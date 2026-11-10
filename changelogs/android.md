@@ -24,6 +24,9 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Android: Stop ends only the main agent's turn. Its subagents, background
+  commands and the agents it started keep running, and the session shows
+  as working until they finish.
 - Android: a Claude Code skill that runs in its own subagent shows as
   "Skill: <name> (subagent)" in the session log, so its steps no longer
   look like a plain skill load. Loading an ordinary skill stays a normal step.

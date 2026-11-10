@@ -306,14 +306,19 @@ impl Actor {
                 log::debug!("an open question was not cancelled: {e}");
             }
         }
-        if stop == StopReason::Cancelled {
-            self.live
-                .send_if_modified(|live| {
-                    let before = live.info.state.subagents;
-                    live.close_interrupted_subagents();
-                    live.info.state.subagents != before
-                });
-        }
+        // A stop ends the subagents the turn waited on; Claude Code holds a
+        // turn that ends by itself until its background subagents end too.
+        self.live.send_if_modified(|live| {
+            let before = live.info.state.subagents;
+
+            if stop == StopReason::Cancelled {
+                live.close_interrupted_subagents();
+            } else {
+                live.end_background_subagents();
+            }
+
+            live.info.state.subagents != before
+        });
 
         // Prompts queued behind the turn run first: one alert for the lot.
         if self.waiting() == 0 {

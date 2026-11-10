@@ -299,8 +299,8 @@ impl Agents {
             .map(|parent| parent.live.clone())
     }
 
-    /// Stops the running turns of everything `session` started, here and on
-    /// other machines, to go with the parent's own Stop. They stop at once,
+    /// Stops everything `session` started, here and on other machines, to
+    /// go with the parent's own Stop all. They stop at once,
     /// side by side, so one machine that does not answer holds up none of
     /// the others; what already ended is left alone.
     pub(in crate::agents) async fn cancel_family(&self, session: &Arc<Session>) {
@@ -341,8 +341,8 @@ impl Agents {
             }
         });
         let local = local.iter().map(|kid| async {
-            // Refused when the child has no turn running.
-            let _ = kid.order(Command::Cancel { by_user: false }).await;
+            // Refused when the child has ended.
+            let _ = kid.order(Command::StopAll { by_user: false }).await;
         });
         futures::future::join(
             futures::future::join_all(remote),

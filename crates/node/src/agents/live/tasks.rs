@@ -26,6 +26,7 @@ impl Live {
                 tool_call_id,
             } => {
                 if task_type == TURN {
+                    self.autonomous_turn = Some(async_task_id);
                     return false;
                 }
 
@@ -80,6 +81,21 @@ impl Live {
                 output_file_path,
                 tool_call_id,
             } => {
+                if self.autonomous_turn.as_ref() == Some(&async_task_id) {
+                    let state = state.parse().unwrap_or(TaskState::Unknown);
+
+                    if !state.ended() {
+                        return false;
+                    }
+
+                    // Claude Code works on its own once a background
+                    // subagent reports; that work ended.
+                    self.autonomous_turn = None;
+                    let subagents = self.info.state.subagents;
+                    self.end_background_subagents();
+                    return self.info.state.subagents != subagents;
+                }
+
                 let Some(task) = self.task_mut(&async_task_id) else {
                     return false;
                 };
@@ -170,20 +186,57 @@ impl Live {
 
     /// The update of tool call `tool` marks its command as gone to the
     /// background (the adapter's `backgrounded`), unless its task ended
-    /// before the mark came.
+    /// before the mark came. A Claude Code `Agent` call whose result says
+    /// it launched the subagent in the background (`isAsync`) reads as
+    /// running too, until `end_background_subagents`: Claude Code reports
+    /// no task for a subagent.
     pub(super) fn mark_backgrounded(
         &self,
         tool: &mut ToolCall,
         id: &ToolCallId,
         meta: Option<&Meta>,
     ) {
-        let marked = meta
-            .and_then(|meta| meta.get("jetbrains"))
-            .and_then(|air| air.pointer("/air/asyncTasks/backgrounded"))
-            .and_then(|marked| marked.as_bool())
-            .unwrap_or(false);
-        if marked {
+        let flag = |key: &str, pointer: &str| {
+            meta.and_then(|meta| meta.get(key))
+                .and_then(|value| value.pointer(pointer))
+                .and_then(|flag| flag.as_bool())
+                .unwrap_or(false)
+        };
+
+        if flag("jetbrains", "/air/asyncTasks/backgrounded") {
             tool.backgrounded = !self.task_ended_for(id);
         }
+
+        if tool.subagent.as_ref().is_some_and(|sub| !sub.codex)
+            && flag("claudeCode", "/toolResponse/isAsync")
+        {
+            tool.backgrounded = true;
+        }
+    }
+
+    /// The background subagents Claude Code started have ended: a turn
+    /// ended on its own, which Claude Code holds until they do, or the
+    /// work it did on its own after their reports ended. Those whose task
+    /// still runs keep running.
+    pub(crate) fn end_background_subagents(&mut self) {
+        let ended: Vec<ToolCallId> = self
+            .tools
+            .iter()
+            .filter(|(id, tool)| {
+                tool.backgrounded
+                    && tool.subagent.as_ref().is_some_and(|sub| !sub.codex)
+                    && !self.task_runs_for(id)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in &ended {
+            if let Some(tool) = self.tools.get_mut(id) {
+                tool.backgrounded = false;
+            }
+            self.write_tool(id);
+        }
+
+        self.count_subagents();
     }
 }
