@@ -29,9 +29,11 @@ interface FieldUi {
   menu: Menu | null;
   work: Work;
   stop: Stop;
+  /// A path from the Files tab is dragged over the conversation.
+  dropping: boolean;
 }
 
-const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { running: 0, queued: 0, open: false }, stop: { shown: false, stopping: false } };
+const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { running: 0, queued: 0, open: false }, stop: { shown: false, stopping: false }, dropping: false };
 const fieldUi = createStore<FieldUi>(() => EMPTY);
 /// Callers read the composer right after they change it, as when focusing
 /// what they drew, so the views update at once.
@@ -88,6 +90,13 @@ export function showAgentStop(stop: Stop) {
   const prior = fieldUi.getState().stop;
   if (prior.shown !== stop.shown || prior.stopping !== stop.stopping) set({ stop });
 }
+
+export function showFieldDrop(dropping: boolean) {
+  if (fieldUi.getState().dropping !== dropping) fieldUi.setState({ dropping });
+}
+
+/// Whether the field shows a path drop.
+export const useFieldDrop = () => useStore(fieldUi, state => state.dropping);
 
 function workOf(work: Work, counts: Partial<Pick<Work, "running" | "queued">>) {
   const next = { ...work, ...counts };

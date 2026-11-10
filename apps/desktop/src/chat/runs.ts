@@ -1,10 +1,11 @@
 // A chat's runs: sending a prompt, following what it streams, finishing,
 // watching another device's run and stopping.
+import { chatAsk } from "./chat-shell.tsx";
 import { turnState } from "./turn-state.ts";
 import { invalidateTranscript, shownTurn, turnsOf, viewOf, type Turn } from "./transcript.ts";
 import { attached, attachError, drawAttached } from "./attach.ts";
 import { drawChats, loadChats, touch } from "./chats.ts";
-import { $$, changed, entry, here, live, newId, queued, S, stopping } from "../bar/core.ts";
+import { changed, entry, here, live, newId, queued, S, stopping } from "../bar/core.ts";
 import { refreshHints } from "../bar/hints.ts";
 import { loadTurnAgent, sourceRow } from "./history.ts";
 import type { WebSource } from "./history.ts";
@@ -197,11 +198,14 @@ export async function send(message: string) {
   attached.files = [];
   drawAttached();
   const id = S.session ??= newId();
-  const ask = $$<HTMLTextAreaElement>("#ask");
+  const ask = chatAsk.current;
   removeChatSuggestions(body()!);
-  ask.value = "";
-  ask.placeholder = "Ask a follow-up…";
-  grow(ask);
+  if (ask) {
+    ask.value = "";
+    ask.placeholder = "Ask a follow-up…";
+    grow(ask);
+  }
+
   const turn = newTurn(message, images.map(url => ({ url })), files);
   turnState(turn).user = true;
   // Without Auto every prompt runs on the chosen model; with it, Jev's pick

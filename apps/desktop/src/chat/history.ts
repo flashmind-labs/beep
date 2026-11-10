@@ -1,3 +1,4 @@
+import { chatAsk } from "./chat-shell.tsx";
 import { turnState } from "./turn-state.ts";
 import { batchViews, placeTurns, prependTurns, setView, shownTurn, transcriptRevision, turnsOf, viewOf, type Turn } from "./transcript.ts";
 import { appendChatReply, askText, chatReplyHtml, drawWork, failed, makeTurn, newTurn, ranOn, suggestions, toolOutput } from "./turns.ts";
@@ -8,7 +9,7 @@ import { watchRun } from "./runs.ts";
 import type { Asking } from "./approval-cards.ts";
 import type { ToolOutput } from "./turns.ts";
 import { answerHtml } from "../agents/turnrows.ts";
-import { $$, changed, live, queued, S, windowHooks } from "../bar/core.ts";
+import { changed, live, queued, S, windowHooks } from "../bar/core.ts";
 import type { AskFile } from "./attach.ts";
 import type { ImageRef } from "./media.ts";
 import { replyActs } from "./rerun.ts";
@@ -49,7 +50,7 @@ export async function openSession(id: string) {
   const running = live.get(id)?.run;
   if (!running) forgetChat(id);
   renderChat();
-  $$<HTMLTextAreaElement>("#ask").placeholder = "Ask a follow-up…";
+  if (chatAsk.current) chatAsk.current.placeholder = "Ask a follow-up…";
 
   if (running) {
     drawChatTop();

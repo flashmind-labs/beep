@@ -1,5 +1,6 @@
 // chat/: chats and groups in the bar: the open chat, the list, the composer,
 // attachments and the cards under a reply. Entry: this file, the open chat's shell.
+import { chatAsk } from "./chat-shell.tsx";
 import { flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { updateChatNavigation } from "./navigation-view.tsx";
@@ -7,7 +8,7 @@ import { createChatBody, disposeChatBody, transcriptShown } from "./transcript.t
 import { AG } from "../agents/agents.ts";
 import { attach, attached, drawAttached, unattach } from "./attach.ts";
 import { composeField } from "./compose.ts";
-import { $, $$, bar, here, live, PANE, queued, S } from "../bar/core.ts";
+import { $, bar, here, live, PANE, queued, S } from "../bar/core.ts";
 import { renderAgentNew } from "../agents/agentnew.ts";
 import { currentChatHints, refreshHints } from "../bar/hints.ts";
 import { takeDraft, type LiveView } from "../bar/live.ts";
@@ -15,7 +16,7 @@ import { followsAfterScroll, returnScroll } from "../agents/logscroll.ts";
 import { followEnd, unfollowEnd } from "../ui/followend.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { dragGrip, grow } from "./ask-height.ts";
+import { grow } from "./ask-height.ts";
 import { sendQueued, setAsk } from "./queue.ts";
 
 const retiringBodies = new WeakSet<ChatBody>();
@@ -71,20 +72,21 @@ export function renderChat() {
   drawLatest();
   drawQueue();
   drawAttached();
-  const ask = $$<HTMLTextAreaElement>("#ask");
+  const ask = chatAsk.current;
+  if (!ask) return;
   let multi = false, typed = false;
   ask.addEventListener("input", () => {
     grow(ask);
     if (multi !== ask.value.includes("\n")) { multi = !multi; refreshHints(); }
     if (typed !== !!ask.value.trim()) { typed = !typed; refreshHints(); }
   });
-  dragGrip(ask);
+  grow(ask);
   composeField(ask, { images: attach });
   takeDraft(ask);
   focusAsk();
 }
 
-export function focusAsk() { $("#ask")?.focus(); }
+export function focusAsk() { chatAsk.current?.focus(); }
 export function body() { return $<ChatBody>("#body"); }
 export function scrollDown() { const b = body(); if (b) { b.stuck = true; b.scrollTop = b.scrollHeight; } }
 /// Follows a streaming reply down, unless the user scrolled up to read.
@@ -111,14 +113,14 @@ export function drawQueue() {
     if (!current) return;
     const [text] = current.list.splice(index, 1);
     if (!current.list.length) queued.delete(S.session);
-    if (edit) setAsk([text, $$<HTMLTextAreaElement>("#ask").value].filter(value => value.trim()).join("\n\n"));
+    if (edit) setAsk([text, chatAsk.current?.value ?? ""].filter(value => value.trim()).join("\n\n"));
     drawQueue();
     refreshHints();
     focusAsk();
   };
   flushSync(() => shell.page.show({ view: "chat", props: {
     body: shell.body, hints: currentChatHints(), running: !!here()?.run, dock: shell.dock, queue: q ?? null, attachments: attached,
-    agent: AG.hosts?.length ? () => renderAgentNew($<HTMLTextAreaElement>("#ask")?.value.trim() ?? "") : null,
+    agent: AG.hosts?.length ? () => renderAgentNew(chatAsk.current?.value.trim() ?? "") : null,
     unattach: (index: number) => { unattach(index); focusAsk(); },
     edit: (index: number) => update(index, true), remove: (index: number) => update(index, false), send: () => sendQueued(S.session),
   } }));
