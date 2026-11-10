@@ -50,6 +50,8 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: Stop all asks first when a session that is not open still has
+  subagents running.
 - Desktop: Stop ends only the main agent's turn. Its subagents, background
   commands and the agents it started keep running, and the session shows
   as working until they finish.

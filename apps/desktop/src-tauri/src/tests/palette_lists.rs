@@ -23,6 +23,7 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
         status: beep_proto::AgentStatus::Ended {},
         doing: None,
         question: None,
+        subagents: 0,
         external: false,
         started_at: SystemTime::UNIX_EPOCH,
         last_activity: SystemTime::UNIX_EPOCH,

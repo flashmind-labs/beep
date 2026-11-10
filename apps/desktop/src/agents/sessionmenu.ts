@@ -16,7 +16,7 @@ import { runs } from "./tasks.ts";
 import { stopAllWork } from "./messages.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
-import { forgetTranscript, offScreen, takeHeldSteers } from "./session-follow.ts";
+import { forgetTranscript, offScreen, takeHeldSteers, transcripts } from "./session-follow.ts";
 import { prependDraft } from "../chat/compose.ts";
 
 /// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
@@ -32,7 +32,8 @@ function stopAll(s: AgentRow) {
     if (steers.length) prependDraft(JSON.stringify([s.machine_id, s.agent, s.id]), steers.join("\n"));
   };
   const work: SideWork = {
-    subagents: open ? workingSubagents() : 0,
+    // The node's count reaches sessions that are not open; the open log may show one sooner.
+    subagents: Math.max((open ? AG.page : transcripts.peek(transcriptKey(o))?.page)?.session.subagents ?? s.subagents ?? 0, open ? workingSubagents() : 0),
     tasks: (open ? AG.tasks : offScreen.get(transcriptKey(o))?.tasks ?? []).filter(runs).length,
     started: sessions.filter(row => { const parent = parentSession(row); return AGENT_ACTIVE.has(row.status) && !!parent && parent.machine_id === s.machine_id && parent.id === s.id; }).length,
   };

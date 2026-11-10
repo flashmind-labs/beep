@@ -34,6 +34,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], status: AgentStatus) -
                 last_activity: SystemTime::UNIX_EPOCH,
                 external: false,
                 question: None,
+                subagents: 0,
             },
             plan: Vec::new(),
             files: Vec::new(),

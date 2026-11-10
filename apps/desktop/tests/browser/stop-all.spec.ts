@@ -36,6 +36,19 @@ test("Stop all on a session with nothing else running stops at once", async ({ p
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("Stop all asks first while a session that is not open has subagents running", async ({ page }) => {
+  const sessions = [{ ...running, question: null, subagents: 2 }];
+  await openDesktop(page, false, { agent_steer: [], center_home: { machines: [], projects: [], running: sessions, needs_you: [], coming_up: null, updates: null } });
+
+  await menuOnHome(page);
+  await page.getByRole("menuitem", { name: "Stop all" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet).toContainText("Stop all of this session's work?");
+  expect(await steers(page)).toEqual([]);
+  await sheet.getByRole("button", { name: "Stop all" }).click();
+  await expect.poll(() => steers(page)).toEqual(["stop_all"]);
+});
+
 test("Stop all asks first while background commands run, and the Stop button stops only the main turn", async ({ page }) => {
   await follow(page, { tasks: [task] });
   await expect(page.locator("#agstop")).toHaveAttribute("title", "Stop main turn (subagents keep running)");

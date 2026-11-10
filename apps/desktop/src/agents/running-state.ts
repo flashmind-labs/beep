@@ -18,6 +18,8 @@ export interface RunningAgent {
   started_at: number;
   last_activity: number;
   external: boolean;
+  /// Its subagents that still run.
+  subagents?: number;
 }
 
 /// A research running now.

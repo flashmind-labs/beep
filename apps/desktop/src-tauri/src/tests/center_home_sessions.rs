@@ -15,6 +15,7 @@ fn external(id: &str, status: AgentStatus) -> MachineSession {
         last_activity: UNIX_EPOCH,
         external: true,
         question: None,
+        subagents: 0,
     }
 }
 

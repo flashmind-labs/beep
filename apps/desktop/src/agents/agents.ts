@@ -74,6 +74,8 @@ export interface AgentSession {
   /// Started outside Beep, which only follows it.
   external: boolean;
   question: AgentQuestion | null;
+  /// Its subagents that still run.
+  subagents?: number;
   /// The session whose agent started this one, when an agent did.
   parent?: AgentParent | null;
   /// A temporary reviewer of its parent's changes.
