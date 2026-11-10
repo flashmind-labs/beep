@@ -18,11 +18,15 @@ use std::{
         Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 use tauri::State;
 
 /// Raised whenever the file's own layout changes.
 const FORMAT: u32 = 1;
+/// How long a changed view waits for the file, so a burst of changes, such
+/// as a streaming session's, writes it once.
+const WRITE_AFTER: Duration = Duration::from_secs(2);
 
 /// One view the window draws from the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -69,6 +73,8 @@ pub struct ViewCache {
     views: Mutex<BTreeMap<View, Value>>,
     /// Changes not yet written. A writer runs while it is above zero.
     unsaved: AtomicUsize,
+    /// Held while the file is written, so an older write never lands last.
+    saving: Mutex<()>,
 }
 
 impl ViewCache {
@@ -87,6 +93,7 @@ impl ViewCache {
             app: app.to_owned(),
             views: Mutex::new(views),
             unsaved: AtomicUsize::new(0),
+            saving: Mutex::new(()),
         }
     }
 
@@ -135,9 +142,21 @@ impl ViewCache {
         }
     }
 
+    /// Writes the changes a writer still waits to write, when the app quits.
+    pub fn flush(&self) {
+        if self.unsaved.load(Ordering::Acquire) == 0 {
+            return;
+        }
+
+        if let Err(e) = self.save() {
+            log::warn!("saving the views: {e:#}");
+        }
+    }
+
     /// Writes what is held now, through a partial file so a reader never
     /// sees half of it.
     fn save(&self) -> anyhow::Result<()> {
+        let _saving = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
         let bytes = {
             let views = self.lock();
             serde_json::to_vec(&CacheFileRef {
@@ -228,7 +247,8 @@ pub(crate) fn kept<T: Serialize>(
 }
 
 /// Keeps `value` as the latest `view` for the next window that opens. The
-/// file is written on a blocking thread, one write at a time.
+/// file is written `WRITE_AFTER` later on a blocking thread, one write at a
+/// time, and on quitting.
 pub(crate) fn cache_view<T: Serialize>(cache: &Arc<ViewCache>, view: View, value: &T) {
     let value = match serde_json::to_value(value) {
         Ok(value) => value,
@@ -239,8 +259,16 @@ pub(crate) fn cache_view<T: Serialize>(cache: &Arc<ViewCache>, view: View, value
     };
 
     if cache.put(view, value) {
-        let cache = cache.clone();
-        tauri::async_runtime::spawn_blocking(move || cache.write_unsaved());
+        tauri::async_runtime::spawn(write_later(cache.clone()));
+    }
+}
+
+/// Writes `cache` once `WRITE_AFTER` has passed, with every change made meanwhile.
+async fn write_later(cache: Arc<ViewCache>) {
+    tokio::time::sleep(WRITE_AFTER).await;
+
+    if let Err(e) = tokio::task::spawn_blocking(move || cache.write_unsaved()).await {
+        log::warn!("saving the views stopped: {e}");
     }
 }
 

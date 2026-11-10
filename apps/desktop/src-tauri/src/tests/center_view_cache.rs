@@ -109,3 +109,36 @@ fn a_broken_file_is_dropped() {
     );
     fresh.clear();
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_burst_of_changes_is_written_once_after_the_wait() {
+    let path = path();
+    let cache = Arc::new(ViewCache::load(path.clone(), "1.0.0"));
+    assert!(cache.put(View::Home, json!({"machines": [1]})));
+    let writer = tokio::spawn(write_later(cache.clone()));
+    tokio::task::yield_now().await;
+    tokio::time::advance(WRITE_AFTER / 2).await;
+
+    assert!(!cache.put(View::Home, json!({"machines": [2]})));
+    assert!(!path.exists());
+
+    writer.await.unwrap();
+    let saved = ViewCache::load(path.clone(), "1.0.0");
+    assert_eq!(saved.get(View::Home), Some(json!({"machines": [2]})));
+    assert!(cache.put(View::Home, json!({"machines": [3]})));
+    cache.clear();
+}
+
+#[test]
+fn quitting_writes_what_waits_and_nothing_when_all_is_written() {
+    let path = path();
+    let cache = ViewCache::load(path.clone(), "1.0.0");
+    cache.flush();
+    assert!(!path.exists());
+
+    assert!(cache.put(View::Sync, json!([1])));
+    cache.flush();
+    let saved = ViewCache::load(path.clone(), "1.0.0");
+    assert_eq!(saved.get(View::Sync), Some(json!([1])));
+    cache.clear();
+}
