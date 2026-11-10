@@ -27,9 +27,8 @@ export function openSettings(section?: string) {
   if (settingsOpen) return section && showSettingsPage(section);
   const afterMount = settingsTiming.start("settings");
   const { root: scrim, sheet, render, dispose } = mountSheetFrame("Settings", "cc-set", {
-    host: document.body, scrimClass: "cc-set-scrim", onScrim: closeSettings,
+    host: document.body, scrimClass: "cc-set-scrim", onScrim: closeSettings, ownKeys: true,
   });
-  sheet.tabIndex = -1;
   const back = document.activeElement as HTMLElement | null;
   // While open, keys stay in the sheet: Esc closes it, and nothing reaches
   // the page behind.
@@ -44,7 +43,6 @@ export function openSettings(section?: string) {
 
     e.stopImmediatePropagation();
   };
-  sheet.addEventListener("keydown", e => e.stopPropagation());
   window.addEventListener("keydown", keys, true);
   settingsOpen = { scrim, keys, back, render, dispose };
   sheet.focus();

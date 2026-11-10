@@ -22,7 +22,7 @@ test("Settings navigation survives refresh, supports subpages and cleans up", as
   await expect(nav.getByRole("button", { name: "Agent accounts", exact: true })).toHaveAttribute("aria-current", "true");
   await page.keyboard.press("Escape");
   await expect(settings).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => { const nav: unknown = Reflect.get(window, "settingsNav"); return nav instanceof HTMLElement && nav.parentElement === null; })).toBe(true);
+  await expect.poll(() => page.evaluate(() => { const nav: unknown = Reflect.get(window, "settingsNav"); return nav instanceof HTMLElement && !nav.isConnected; })).toBe(true);
 });
 
 test("Escape returns from a nested page before closing Settings", async ({ page }) => {
