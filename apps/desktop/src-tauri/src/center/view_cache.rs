@@ -1,6 +1,6 @@
-//! The views the window last drew from the server, in one file, so a new
-//! window shows them at once. Only what the server lists goes in, never a
-//! key. A new app version keeps only the typed local search lists.
+//! The views the window last drew, in one file, so a new window shows them
+//! at once. Only what the mesh or the server lists goes in, never a key. A
+//! new app version keeps only the typed local search lists.
 
 use crate::{
     beep::{Service, state::LinkState},
@@ -179,12 +179,20 @@ impl ViewCache {
         Ok(())
     }
 
-    /// Keeps the mesh's search data when server views are hidden. These
-    /// typed lists are also readable across app updates.
+    /// Drops what only the server lists, when server views are hidden: the project agents, the
+    /// overview and Home's server sections. What the mesh gives stays, so a window draws Home,
+    /// the sidebar and project pages from disk at once; the first fresh read replaces each.
+    /// Writes the file only when something went.
     pub fn keep_local(&self) {
-        self.lock()
-            .retain(|view, _| matches!(view, View::Palette | View::AgentSessions));
-        if let Err(e) = self.save() {
+        let changed = {
+            let mut views = self.lock();
+            let agents = views.remove(&View::Agents).is_some();
+            let overview = views.remove(&View::Overview).is_some();
+            let home = views.get_mut(&View::Home).is_some_and(local_home);
+            agents || overview || home
+        };
+
+        if changed && let Err(e) = self.save() {
             log::warn!("saving the local views: {e:#}");
         }
     }
@@ -199,6 +207,36 @@ impl ViewCache {
             Err(e) => log::warn!("removing {}: {e}", self.path.display()),
         }
     }
+}
+
+/// Home without what only the server lists: researches, chat approvals, routines, app updates
+/// and machines the mesh does not hold. True when any went.
+fn local_home(home: &mut Value) -> bool {
+    let Some(home) = home.as_object_mut() else {
+        return false;
+    };
+    let before = home.clone();
+    let kind_is = |row: &Value, kind: &str| row.get("kind").and_then(Value::as_str) == Some(kind);
+
+    if let Some(Value::Array(running)) = home.get_mut("running") {
+        running.retain(|row| !kind_is(row, "research"));
+    }
+
+    if let Some(Value::Array(needs)) = home.get_mut("needs_you") {
+        needs.retain(|row| !kind_is(row, "chat"));
+    }
+
+    if let Some(Value::Array(machines)) = home.get_mut("machines") {
+        machines.retain(|card| card.get("joined").and_then(Value::as_bool) != Some(false));
+    }
+
+    for section in ["coming_up", "updates"] {
+        if let Some(value) = home.get_mut(section) {
+            *value = Value::Null;
+        }
+    }
+
+    *home != before
 }
 
 /// `CacheFile` borrowed, so saving does not copy the views.

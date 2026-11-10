@@ -264,6 +264,14 @@ pub async fn center_home(
     agents: State<'_, Arc<AgentSessions>>,
     session: FleetState<'_>,
 ) -> Result<HomeView> {
+    // The mesh opens from disk in a moment. Reading before it would replace the Home the
+    // window drew from disk with an empty one.
+    if fleet.mesh().is_none()
+        && let Err(e) = fleet.ready().await
+    {
+        log::debug!("Home without the mesh: {e}");
+    }
+
     let (sessions, researches, approvals, chats, crons, updates, listed, imported) = join!(
         agents.list(&app, beep.inner(), cache.inner()),
         beep.call(ListResearches {}),
