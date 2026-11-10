@@ -57,6 +57,11 @@ Other apps have independent versions and changelogs:
 
 ### Performance
 
+- Desktop: spinners stop turning while the window is hidden, sync progress
+  and review and Actions status follow at most once a second, and turning on
+  "Use this Mac" no longer reloads all of Home twice. Chat diagrams and the
+  picture viewer no longer watch every change to the page.
+
 - Desktop: update changed chat rows independently and virtualize long project
   session lists.
 - Desktop: share concurrent machine and chat list reads.

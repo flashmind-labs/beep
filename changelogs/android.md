@@ -42,6 +42,8 @@ Earlier releases predate this changelog.
 
 ### Performance
 
+- Android: the app watches only the page's main area for new tooltips, and
+  spinners stop turning while it is in the background.
 - Android: update changed conversation rows independently during streaming.
 - Android: returning to the app shows what changed while it was in the
   background instead of reloading every view, for up to a minute.
