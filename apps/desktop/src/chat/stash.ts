@@ -1,9 +1,8 @@
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { flushSync } from "react-dom";
-import { createDocumentScope, createDocumentView, type DocumentView } from "../ui/document-root.tsx";
+import { createDocumentScope } from "../ui/document-root.tsx";
 import { StashPanel } from "./stash-view.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
-import { h } from "../ui/dom.ts";
 import { hasStashMessage, type StashEntry, type StashMessage } from "./stash-state.ts";
 
 export interface StashBinding {
@@ -20,9 +19,10 @@ const bindings = new WeakMap<HTMLTextAreaElement, StashBinding>();
 const entries = new Map<string, StashEntry[]>();
 const reads = new Map<string, number>();
 let busy = false;
-let panel: HTMLElement | null = null;
-let panelRoot: DocumentView | null = null;
+const panelScope = createDocumentScope<"panel">();
+const panelRef = createRef<HTMLDivElement>();
 let panelProject: string | null = null;
+let panelOpened = 0;
 
 function active(project?: string) {
   return [...document.querySelectorAll<HTMLTextAreaElement>("textarea[data-prompt-stash]")].find(field => {
@@ -39,7 +39,7 @@ export function bindPromptStash(field: HTMLTextAreaElement, binding: StashBindin
     e.preventDefault(); e.stopPropagation();
     void act(e.key.toLowerCase() === "s" ? "save" : "pop", field);
   });
-  field.addEventListener("input", () => { if (panel) drawPanel(); });
+  field.addEventListener("input", () => { if (panelProject) drawPanel(); });
 }
 
 const subscribers = new Set<() => void>();
@@ -52,7 +52,7 @@ export function ensureStash(project: string) { if (!reads.has(project)) void rel
 function changedIndicators() { revision++; for (const listener of subscribers) listener(); }
 function drawIndicators() {
   flushSync(changedIndicators);
-  if (panel) drawPanel();
+  if (panelProject) drawPanel();
 }
 
 async function reload(project: string) {
@@ -84,29 +84,32 @@ function note(field: HTMLTextAreaElement, text: string) {
   notices.set(root, { key, timer });
 }
 
+function anchorOf(project: string) {
+  return [...document.querySelectorAll<HTMLElement>("[data-stash-open]")].find(el => el.dataset.stashOpen === project) ?? null;
+}
+
 function close() {
-  panelRoot?.unmount(); panelRoot = null;
-  panel?.remove(); panel = null; panelProject = null;
+  panelProject = null;
+  panelScope.remove(["panel"]);
   flushSync(changedIndicators);
 }
 
 function drawPanel() {
-  if (!panel || !panelProject) return;
+  if (!panelProject) return;
   const project = panelProject, list = entries.get(project) ?? [];
-  const anchor = [...document.querySelectorAll<HTMLElement>("[data-stash-open]")].find(el => el.dataset.stashOpen === project);
-  if (!anchor || !list.length) { close(); return; }
+  if (!anchorOf(project) || !list.length) { close(); return; }
   const field = active(project), binding = field && bindings.get(field);
   const swap = !!field?.value.trim() || !!binding?.hasAttachments();
-  const current = panelRoot;
-  if (!current) return;
-  flushSync(() => current.render(createElement(StashPanel, { project, entries: list, busy, canPop: !!field, swap })));
+  const content = createElement(StashPanel, { project, entries: list, busy, canPop: !!field, swap, panelRef, onClose: close, onRemove: id => remove(project, id), onPop: id => pop(id), onOutside: outside });
+  panelScope.set([{ slot: "panel", host: document.body, content, identity: String(panelOpened) }]);
 
   positionPanel();
 }
 
 function positionPanel() {
+  const panel = panelRef.current;
   if (!panel || !panelProject) return;
-  const anchor = [...document.querySelectorAll<HTMLElement>("[data-stash-open]")].find(el => el.dataset.stashOpen === panelProject);
+  const anchor = anchorOf(panelProject);
   if (!anchor) { close(); return; }
   const rect = anchor.getBoundingClientRect();
   panel.style.width = `${Math.min(400, innerWidth - 32)}px`;
@@ -119,12 +122,37 @@ function show(project: string) {
   close();
   if (!entries.get(project)?.length) return;
   panelProject = project;
-  panel = h('<div class="prompt-stash-panel" role="dialog" aria-label="Project stash"></div>');
-  document.body.append(panel);
-  panelRoot = createDocumentView(panel);
+  panelOpened++;
   flushSync(changedIndicators);
   drawPanel();
-  panel?.querySelector<HTMLButtonElement>("[data-stash-close]")?.focus();
+}
+
+/// Opens or closes a project's stash from its indicator.
+export function toggleStash(project: string) {
+  if (panelProject === project) close();
+  else show(project);
+}
+
+/// Runs a stash shortcut from the hints on the visible composer.
+export function stashAction(action: "save" | "pop") {
+  const field = active(panelProject ?? undefined);
+  if (field) void act(action, field);
+}
+
+function pop(id: string) {
+  const field = active(panelProject ?? undefined);
+  if (field) void act("pop", field, id);
+}
+
+function remove(project: string, id: string) {
+  if (busy) return;
+  void invoke("prompt_stash_remove", { project, id }).then(() => reload(project)).catch(error => { const field = active(project); if (field) note(field, String(error)); });
+}
+
+/// The indicators and hint actions toggle or act on the panel themselves.
+function outside(target: EventTarget | null) {
+  if (target instanceof Element && target.closest("[data-stash-open], [data-stash-action]")) return;
+  close();
 }
 
 async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: string) {
@@ -132,7 +160,7 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
   if (!binding || busy) return;
   if (!project) { note(field, "Choose a project before using the stash"); return; }
   const live = () => field.isConnected && binding.project() === project && bindings.get(field) === binding;
-  const openedPanel = panel;
+  const opened = panelProject ? panelOpened : null;
   busy = true;
   const readOnly = field.readOnly;
   const root = field.closest<HTMLElement>(".agconv, form");
@@ -161,7 +189,7 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
       else await invoke("prompt_stash_put", { project, message });
     }
 
-    if (panel === openedPanel) close();
+    if (panelProject && panelOpened === opened) close();
     await reload(project);
   } catch (error) {
     note(field, String(error));
@@ -174,23 +202,7 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
   }
 }
 
-document.addEventListener("click", e => {
-  const button = (e.target as Element).closest<HTMLElement>("[data-stash-open], [data-stash-action], [data-stash-pop], [data-stash-remove], [data-stash-close]");
-  if (!button) { if (panel && !panel.contains(e.target as Node)) close(); return; }
-  if (button instanceof HTMLButtonElement && button.disabled) return;
-  e.preventDefault();
-
-  if (button.dataset.stashOpen) { if (panelProject === button.dataset.stashOpen) close(); else show(button.dataset.stashOpen); }
-  else if (button.hasAttribute("data-stash-close")) close();
-  else if (button.dataset.stashRemove && panelProject && !busy) {
-    const project = panelProject;
-    void invoke("prompt_stash_remove", { project, id: button.dataset.stashRemove }).then(() => reload(project)).catch(error => { const field = active(project); if (field) note(field, String(error)); });
-  } else {
-    const field = active(panelProject ?? undefined);
-    if (field) void act(button.dataset.stashAction === "save" ? "save" : "pop", field, button.dataset.stashPop);
-  }
-});
-document.addEventListener("keydown", e => { if (e.key === "Escape" && panel) { e.preventDefault(); e.stopImmediatePropagation(); close(); active()?.focus(); } }, true);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && panelProject) { e.preventDefault(); e.stopImmediatePropagation(); close(); active()?.focus(); } }, true);
 addEventListener("resize", positionPanel);
-document.addEventListener("scroll", e => { if (panel && !panel.contains(e.target as Node)) positionPanel(); }, true);
+document.addEventListener("scroll", e => { if (panelProject && !panelRef.current?.contains(e.target as Node)) positionPanel(); }, true);
 void listen<string>("prompt-stash-changed", e => { void reload(e.payload); });
