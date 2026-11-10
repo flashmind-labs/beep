@@ -25,31 +25,42 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 use tauri::AppHandle;
-use tokio::time::sleep;
+use tokio::{
+    select,
+    sync::broadcast::error::RecvError,
+    time::{Instant as TokioInstant, sleep_until},
+};
 
-/// How often machines are looked at.
-const TICK: Duration = Duration::from_secs(15);
-/// Sync and moves are read every this many ticks.
-const SLOW: u32 = 4;
+/// Machines are looked at on each change to the mesh, and this often besides.
+const LOOK_EVERY: Duration = Duration::from_secs(600);
+/// Sync conflicts, skill conflicts and moves are read after a change, at
+/// most this often, since each read asks the machines.
+const SLOW_GAP: Duration = Duration::from_secs(60);
+/// They are read this often besides, for what says nothing when it changes.
+const SLOW_EVERY: Duration = Duration::from_secs(300);
 /// How long a machine is offline before the bell says so, so a short drop
 /// says nothing.
 const AWAY: Duration = Duration::from_secs(120);
 /// How old a move may be and still be asked about.
 const MOVES_FOR_MS: u64 = 24 * 3600 * 1000;
 
-/// Looks at the mesh while the app runs.
+/// Looks at the mesh while the app runs: again on each change to it or to
+/// this Mac's sync, and when a machine away is due to be told.
 pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Session>) {
     let mut away = Away::default();
     let mut leftovers = Leftovers::default();
     let mut conflicts = Conflicts::default();
     let mut moves = HashSet::new();
-    let mut tick: u32 = 0;
+    let mut changes = fleet.changes();
+    let mut local = beep_node::events::system().subscribe();
+    let mut slow = Slow::default();
 
     loop {
         machines(&app, &fleet, &mut away);
         temporaries(&app, &fleet, &mut leftovers).await;
+        let now = Instant::now();
 
-        if tick.is_multiple_of(SLOW) {
+        if slow.due(now) {
             match session.desk().await {
                 Ok(desk) => {
                     sync(&app, &desk, &mut conflicts).await;
@@ -58,9 +69,66 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
                 }
                 Err(e) => log::debug!("the bell does not read the mesh: {e}"),
             }
+
+            slow.read(now);
         }
-        tick = tick.wrapping_add(1);
-        sleep(TICK).await;
+
+        let wake = [Some(now + LOOK_EVERY), away.due(), slow.next()]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or(now + LOOK_EVERY);
+
+        select! {
+            changed = changes.changed() => {
+                if !changed {
+                    return;
+                }
+
+                slow.wanted = true;
+            }
+            heard = local.recv() => match heard {
+                Ok(change) if change.topic.name() == "sync" => slow.wanted = true,
+                Ok(_) | Err(RecvError::Closed) => {}
+                Err(RecvError::Lagged(_)) => slow.wanted = true,
+            },
+            () = sleep_until(TokioInstant::from_std(wake)) => {}
+        }
+    }
+}
+
+/// When the reads that ask the machines run: soon after a change, but at
+/// most once per `SLOW_GAP`, and every `SLOW_EVERY` regardless.
+#[derive(Debug)]
+struct Slow {
+    last: Option<Instant>,
+    wanted: bool,
+}
+
+impl Default for Slow {
+    fn default() -> Self {
+        Self {
+            last: None,
+            wanted: true,
+        }
+    }
+}
+
+impl Slow {
+    fn due(&self, now: Instant) -> bool {
+        self.next().is_none_or(|next| next <= now)
+    }
+
+    /// When the next read is due; `None` for at once.
+    fn next(&self) -> Option<Instant> {
+        let last = self.last?;
+        let gap = if self.wanted { SLOW_GAP } else { SLOW_EVERY };
+        Some(last + gap)
+    }
+
+    fn read(&mut self, now: Instant) {
+        self.last = Some(now);
+        self.wanted = false;
     }
 }
 
@@ -335,6 +403,15 @@ impl<K> Default for Away<K> {
 }
 
 impl<K: Eq + Hash + Copy> Away<K> {
+    /// When the next machine away is due to be told.
+    fn due(&self) -> Option<Instant> {
+        self.since
+            .iter()
+            .filter(|(id, _)| !self.told.contains(*id))
+            .map(|(_, since)| *since + AWAY)
+            .min()
+    }
+
     /// The changes as of `now`, given each member and whether it is online.
     fn step(&mut self, online: &HashMap<K, bool>, now: Instant) -> Vec<Change<K>> {
         // A machine that left the mesh is forgotten.
