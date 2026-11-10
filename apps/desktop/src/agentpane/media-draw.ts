@@ -35,8 +35,16 @@ interface PaneArtifacts {
   turnStart: (turn: number) => number | undefined;
 }
 
-/// Draws the pane again: its tabs and the one on screen.
+/// What the log last gave the pane, as JSON, and for which session.
+let given: { session: typeof P.session; key: string } | null = null;
+
+/// Draws the pane again: its tabs and the one on screen. A log draw that
+/// gives it the same subagents and artifacts, as each streamed word does,
+/// leaves it as it is; the pane draws itself when its own state changes.
 export function drawPane(subs?: { rows: SubagentRow[]; count: number }, arts?: PaneArtifacts) {
+  const key = JSON.stringify([subs ?? null, arts?.list ?? null]);
+  if (given?.session === P.session && given.key === key) return;
+  given = { session: P.session, key };
   if (subs) { P.subs = subs.rows; P.subCount = subs.count; }
   if (arts) setArtifacts(arts.list, arts.turnStart);
   draw();
