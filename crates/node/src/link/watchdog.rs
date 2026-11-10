@@ -1,5 +1,5 @@
 //! Says in the log when the node stops making progress. A task on the async
-//! workers beats every few seconds, and the steps that have hung before mark
+//! workers beats every 15 seconds, and the steps that have hung before mark
 //! when they start and end. A plain thread, which needs no async worker,
 //! checks both and logs a warning naming what has waited too long.
 //!
@@ -13,13 +13,14 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tokio::time::interval;
+use tokio::time::{MissedTickBehavior, interval};
 use tokio_util::task::AbortOnDropHandle;
 
 /// How long the workers or a step may go before it is logged.
 const STALL: Duration = Duration::from_secs(30);
-/// How often the workers beat and the thread looks.
-const BEAT: Duration = Duration::from_secs(5);
+/// How often the workers beat and the thread looks: half of `STALL`, so a
+/// healthy runtime never looks stalled, and an idle machine seldom wakes.
+const BEAT: Duration = Duration::from_secs(15);
 /// How often a stall that goes on is logged again.
 const AGAIN: Duration = Duration::from_secs(300);
 
@@ -108,6 +109,8 @@ pub(crate) fn start() -> Watchdog {
     BEATEN_MS.store(now_ms(), Ordering::Relaxed);
     let beat = AbortOnDropHandle::new(tokio::spawn(async {
         let mut beat = interval(BEAT);
+        // After a suspend, one beat, not every missed one.
+        beat.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
             beat.tick().await;
