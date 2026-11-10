@@ -325,9 +325,6 @@ export function drawWork(turn: Turn) {
   renderChatWork(owner, turn, box, value, () => {
     attachLive(box, () => { if (data.thought) data.thought.touched = true; });
     tickTurns();
-
-    // The live wiring just folded the thought; draw it folded so React's view matches.
-    if (thought?.folding) drawWork(turn);
   });
 }
 
