@@ -6,10 +6,9 @@ import { ALL, byMachine, makeTerminals, terminalsCount } from "./terminals.ts";
 import { makeScreen } from "./termview.ts";
 import { type CenterView, keptSection, state } from "../center/state.ts";
 import { draw } from "../center/home.ts";
-import { boxOf, currentLocation, go, drawTop } from "../center/views.ts";
+import { currentLocation, drawPage, go, drawTop } from "../center/views.ts";
 import { drawSide } from "../center/sidebar.ts";
 import { ensureHome } from "../center/refresh.ts";
-import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 
 /// Every terminal on every machine: the Terminals page, and Home's section.
 export const allTerms = makeTerminals({
@@ -48,9 +47,11 @@ export function openTerminals(to: { id: string } | { newOn: string | null } | nu
 
 /// The Terminals page into its view, keeping the list's scroll.
 function drawTerminals() {
-  const el = boxOf("terminals");
-  if (!el) return;
-  showWindowParts([{ part: "terminal-page", host: el, content: createElement("div", { className: "cc-view tl-view" }, allTerms.machinesPanel(termMachines())) }]);
+  drawPage("terminals");
+}
+
+export function TerminalsPage() {
+  return createElement("div", { className: "cc-view tl-view" }, allTerms.machinesPanel(termMachines()));
 }
 
 export const terminalsView: CenterView<"terminals"> = {
@@ -69,6 +70,6 @@ export const terminalsView: CenterView<"terminals"> = {
   unmount() {
     // Detached, not stopped: they keep running on their machines.
     allTerms.stop();
-    removeWindowPart("terminal-page");
+    drawPage("terminals", false);
   },
 };

@@ -1,6 +1,5 @@
 import { commandKey } from "../ui/platform.ts";
 import { createElement, type ReactElement } from "react";
-import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
 import { ResearchLivePane } from "./live-pane-view.tsx";
@@ -20,7 +19,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { onZoomKey, paneSize } from "../agentpane/media-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import { reloadGroup } from "../center/sidebar.ts";
-import { currentLocation } from "../center/views.ts";
+import { currentLocation, drawPage } from "../center/views.ts";
 import type { CenterView } from "../center/state.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
@@ -63,7 +62,8 @@ const fresh = (session: string): Open => ({
 
 let R = fresh("");
 let page: Page | null = null;
-let shellHost: HTMLElement | null = null;
+/// Counts the pages built, so a new research draws a new shell.
+let built = 0;
 let headNode: ReactElement | null = null, tabsNode: ReactElement | null = null, paneNode: ReactElement | null = null, chatNode: ReactElement | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let inflight = false;
@@ -96,12 +96,11 @@ export const researchOpenView: CenterView<"researchopen"> = {
 
 function build(el: HTMLElement, session: string) {
   zoomed = false;
-  if (shellHost) removeWindowPart("research-open");
   headNode = tabsNode = paneNode = chatNode = null;
   R = fresh(session);
   polls = 0;
-  shellHost = el;
-  showWindowParts([{ part: "research-open", host: el, content: createElement(ResearchShell, { head: null, chat: null, tabs: null, pane: null }) }]);
+  built++;
+  drawPage("researchopen");
   const root = el.querySelector<HTMLElement>(".rs")!;
   const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
   page = { root, head: q(".dhead"), shell: q(".agshell"), log: q(".rs-log"), chat: q(".dcoderlog"), ask: q("textarea"), pane: q(".rs-pane"), tabs: q(".agtabs"), view: q(".agpviews") };
@@ -168,8 +167,12 @@ function wireDivider(p: Page) {
 // ---------- Drawing ----------
 
 function drawShell() {
-  if (!shellHost || !page) return;
-  showWindowParts([{ part: "research-open", host: shellHost, content: createElement(ResearchShell, { head: headNode, chat: chatNode, tabs: tabsNode, pane: paneNode }) }]);
+  if (page) drawPage("researchopen");
+}
+
+/// The opened research, with what each part last drew.
+export function ResearchOpenPage() {
+  return createElement(ResearchShell, { key: built, head: headNode, chat: chatNode, tabs: tabsNode, pane: paneNode });
 }
 
 function drawHead() {

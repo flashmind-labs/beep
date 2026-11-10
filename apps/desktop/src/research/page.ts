@@ -5,9 +5,8 @@ import { RESEARCHES } from "./researches.ts";
 import { type CenterView, state } from "../center/state.ts";
 import { groupShown } from "../settings/subscription.ts";
 import { createElement } from "react";
-import { showWindowParts } from "../center/window-root.ts";
 import { ResearchPage } from "./page-view.tsx";
-import { boxOf, currentLocation, go, drawTop, openResearch } from "../center/views.ts";
+import { boxOf, currentLocation, drawPage, go, drawTop, openResearch } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, reloadChats } from "../center/sidebar.ts";
 import { IC } from "../ui/icons.tsx";
 import { failure } from "../ui/format.ts";
@@ -62,9 +61,13 @@ async function startResearch() {
 
 /// Updates the page without replacing the scroll container or input.
 function drawResearch(focus = false) {
-  const el = boxOf("research");
-  if (!el) return;
-  showWindowParts([{ part: "research-list", host: el, content: createElement(ResearchPage, {
+  drawPage("research");
+  if (focus) boxOf("research")?.querySelector<HTMLInputElement>(".cc-rnew input")?.focus();
+}
+
+/// The Research page: the field that starts one, and every research.
+export function ResearchList() {
+  return createElement(ResearchPage, {
     list: research.list,
     error: research.error,
     starting: research.starting,
@@ -72,8 +75,7 @@ function drawResearch(focus = false) {
     onDraft: (value: string) => { research.draft = value; },
     onStart: () => void startResearch(),
     onOpen: openResearch,
-  }) }]);
-  if (focus) el.querySelector<HTMLInputElement>(".cc-rnew input")?.focus();
+  });
 }
 
 export const researchView: CenterView<"research"> = {
