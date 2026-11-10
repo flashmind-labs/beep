@@ -36,3 +36,12 @@ test("a closed move menu ignores its late discovery", async ({ page }) => {
   await expect(button).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".mvm")).toHaveCount(0);
 });
+
+test("a move change reads the sessions without an ambient wait", async ({ page }) => {
+  await openAgent(page);
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_sessions").length);
+  await page.waitForTimeout(300);
+  const before = await reads();
+  await page.evaluate(() => window.__navigation.publish("moves.*", null));
+  await expect.poll(reads, { timeout: 1000 }).toBeGreaterThan(before);
+});
