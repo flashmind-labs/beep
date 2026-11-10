@@ -41,47 +41,20 @@ import { startAttachments } from "../agents/start-attachments.ts";
 let finishCopy: (() => void) | undefined;
 
 export const projectComp = (() => {
-  const composer = makeStartComposer({ presentation: "compact", externalChoices: true });
-  const { form, input, choices, harness, pick } = composer;
-  input.title += ", Shift+Tab switches machines";
+  const composer = makeStartComposer({
+    presentation: "compact", externalChoices: true, title: "Enter starts, Shift+Enter adds a line, Shift+Tab switches machines",
+    actions: { submit: () => void startFromBar(), harness: toggleBarPicker, keyDown: switchMachine, files: files => barAttachments.take(files) },
+  });
+  const { form, harness, pick } = composer;
   const actions = {
     machine: openMachineMenu,
     folder: openFolderMenu,
     branch: (value: string) => { if (pc.target?.kind === "issue") pc.target.branch = value; },
-    clear: () => { pc.target = null; input.value = ""; redrawProjects(); },
+    clear: () => { pc.target = null; composer.setText(""); redrawProjects(); },
   };
   const renderChoices = (value: ComposerChoicesState) => composer.setChoices(createElement(ComposerChoices, { value, actions }));
   renderChoices({ machine: "Machine", adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
-  const machine = choices.querySelector<HTMLButtonElement>('[data-composer="machine"]');
-  const folder = choices.querySelector<HTMLButtonElement>('[data-composer="folder"]');
-  const extra = choices.querySelector<HTMLSpanElement>('[data-composer="extra"]');
-  if (!machine || !folder || !extra) throw new Error("Project composer choices did not mount");
-  form.addEventListener("submit", e => { e.preventDefault(); startFromBar(); });
-  input.addEventListener("keydown", e => {
-    if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing && !pc.adding && !pc.starting) {
-      const p = barProject(), hosts = pc.hosts ?? [];
-      const current = p && barPlace(p.places, hosts, pc.machine);
-      const next = p && current && nextBarMachine(p.places, hosts, current.machine_id);
-
-      if (p && next) {
-        e.preventDefault();
-        pc.machine = next.machine_id;
-        keepMachine(p.name, next.machine_id);
-        redrawProjects();
-        input.focus();
-      }
-
-      return;
-    }
-  });
-  // The start form's picker, here above the bar.
-  harness.addEventListener("click", () => {
-    pc.open = !pc.open;
-    pc.picked.query = "";
-    redrawProjects();
-    if (pc.open) focusSearch(pick);
-  });
-  // Esc or a click outside closes it.
+  // Esc or a click outside closes the picker.
   form.addEventListener("keydown", e => {
     if (e.key !== "Escape" || !pc.open) return;
     e.preventDefault();
@@ -90,10 +63,33 @@ export const projectComp = (() => {
     harness.focus();
   });
   addEventListener("mousedown", e => {
-    if (pc.open && !pick.contains(e.target as Node) && !harness.contains(e.target as Node)) closeBarPicker();
+    if (pc.open && e.target instanceof Node && !pick.contains(e.target) && !harness.contains(e.target)) closeBarPicker();
   }, true);
-  return { ...composer, machine, folder, extra, renderChoices };
+  return { ...composer, renderChoices };
 })();
+
+/// Shift+Tab in the task field moves the bar to the project's next machine.
+function switchMachine(e: KeyboardEvent) {
+  if (e.key !== "Tab" || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || pc.adding || pc.starting) return;
+  const p = barProject(), hosts = pc.hosts ?? [];
+  const current = p && barPlace(p.places, hosts, pc.machine);
+  const next = p && current && nextBarMachine(p.places, hosts, current.machine_id);
+  if (!p || !next) return;
+
+  e.preventDefault();
+  pc.machine = next.machine_id;
+  keepMachine(p.name, next.machine_id);
+  redrawProjects();
+  projectComp.input.focus();
+}
+
+/// The start form's picker, here above the bar.
+function toggleBarPicker() {
+  pc.open = !pc.open;
+  pc.picked.query = "";
+  redrawProjects();
+  if (pc.open) focusSearch(projectComp.pick);
+}
 
 function openMachineMenu(e: MouseEvent) {
   const p = barProject(), hosts = pc.hosts ?? [];
@@ -119,9 +115,9 @@ function openFolderMenu(e: MouseEvent) {
   ]);
 }
 
-const barAttachments = startAttachments(projectComp, text => { projectComp.err.textContent = text; }, () => {
+const barAttachments = startAttachments(projectComp, error => projectComp.update({ error }), () => {
   const p = barProject();
-  projectComp.send.disabled = pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding;
+  projectComp.update({ sendDisabled: pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding });
 });
 
 composeField(projectComp.input, { images: files => barAttachments.add(files) });
@@ -194,9 +190,10 @@ function loadProjectBar(name: string) {
 
 /// Points the bar at project `name`: its field, machine, folder and harness.
 export function drawProjectComp(name: string) {
-  const c = projectComp;
-  c.setFooter(document.querySelector("#agconv") ? null : createElement(StashBar, { project: name }));
-  c.setPresentation(currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name ? "centered" : "compact");
+  const c = projectComp, inDraft = currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name;
+  // The empty agent view shows the stash with its key hints.
+  c.setFooter(inDraft ? null : createElement(StashBar, { project: name }));
+  c.setPresentation(inDraft ? "centered" : "compact");
 
   if (pc.project !== name) {
     finishCopy?.();
@@ -205,7 +202,7 @@ export function drawProjectComp(name: string) {
     pc.adding = null;
     pc.checkout = DEFAULT_CHECKOUT;
     pc.target = null;
-    c.err.textContent = "";
+    c.update({ error: "" });
     loadProjectBar(name);
   }
 
@@ -213,8 +210,7 @@ export function drawProjectComp(name: string) {
   // The machine last picked, while it still has a checkout and an agent,
   // else the first such machine.
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  c.input.placeholder = c.centered() ? "Describe the task." : barPrompt(name, (!!place && !pc.adding) || pc.hosts === null);
-  // Text set or cleared from code (Work on it, a start) fits once drawn.
+  // Text set or cleared from code (Work on it, a start) fits once the page places the form.
   requestAnimationFrame(c.grow);
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
@@ -234,13 +230,14 @@ export function drawProjectComp(name: string) {
     c.setHarness("Coding agent");
   }
 
-  c.harness.disabled = !agent || pc.starting;
   if (!agent) pc.open = false;
-  c.harness.setAttribute("aria-expanded", String(pc.open));
+  c.update({
+    placeholder: c.centered() ? "Describe the task." : barPrompt(name, (!!place && !pc.adding) || pc.hosts === null),
+    harnessDisabled: !agent || pc.starting, open: pc.open ? "pick" : null,
+    sendDisabled: pc.starting || barAttachments.reading || !place || !!pc.adding, busy: pc.starting,
+  });
   drawBarPicker(host, offered);
-  c.send.disabled = pc.starting || barAttachments.reading || !place || !!pc.adding;
   barAttachments.setBusy(pc.starting);
-  c.setBusy(pc.starting);
   draftPlace(place);
 }
 
@@ -260,8 +257,8 @@ function barExisting(name: string, place: { machine_id: string; cwd: string }) {
 export function fillBar(name: string, text: string, target: BarTarget | null) {
   if (pc.project !== name) drawProjectComp(name);
   pc.target = target;
-  projectComp.input.value = text;
-  projectComp.err.textContent = "";
+  projectComp.setText(text);
+  projectComp.update({ error: "" });
   // A session may have started in the worktree since.
   ensureSessions().then(redrawProjects).catch(e => console.warn("agent sessions:", e));
   redrawProjects();
@@ -400,7 +397,7 @@ async function startFromBar() {
   const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
-  if (t?.kind === "issue" && !t.branch.trim()) { c.err.textContent = "Name the branch first."; return; }
+  if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
   if (t?.review?.earlier) return continueReview(p.name, t.review.number, t.review.earlier, text);
   const was = barExisting(p.name, place);
   const { agent } = barHarness(place);
@@ -409,24 +406,24 @@ async function startFromBar() {
   const { cwd, checkout } = was ? { cwd: was.cwd, checkout: null }
     : t ? { cwd: place.cwd, checkout: targetPlan(t) }
     : startPlace(pc.checkout, place.cwd, baseFor(null, pc.branches.get(p.name)));
-  c.err.textContent = "";
+  c.update({ error: "" });
   pc.starting = true;
   pc.open = false;
   redrawProjects();
 
   try {
-    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, text => { c.err.textContent = text; });
+    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, error => c.update({ error }));
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, chat: null, model, effort, checkout, images });
     if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
-    c.input.value = "";
+    c.setText("");
     barAttachments.clear();
     pc.target = null;
     keepMachine(p.name, place.machine_id);
     if (t?.review) keepReview(p.name, t.review.number, started.session);
     go("pane", { agent: started.session, adopt: true });
   } catch (e) {
-    c.err.textContent = reason(e);
+    c.update({ error: reason(e) });
   } finally {
     pc.starting = false;
     redrawProjects();
@@ -452,13 +449,13 @@ async function continueReview(project: string, number: number, earlier: ReviewSe
   const c = projectComp;
   const listed = sessions.find(s => s.machine_id === earlier.machine_id && s.agent === earlier.agent && s.id === earlier.id);
   const at = { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id };
-  c.err.textContent = "";
+  c.update({ error: "" });
   pc.starting = true;
   redrawProjects();
 
   try {
     const root = listed?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
-    const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root, text => { c.err.textContent = text; });
+    const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root, error => c.update({ error }));
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     let session = listed;
 
@@ -469,11 +466,11 @@ async function continueReview(project: string, number: number, earlier: ReviewSe
 
     await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });
     barAttachments.clear();
-    c.input.value = "";
+    c.setText("");
     pc.target = null;
     go("pane", { agent: session });
   } catch (e) {
-    c.err.textContent = reason(e);
+    c.update({ error: reason(e) });
   } finally {
     pc.starting = false;
     redrawProjects();
@@ -484,11 +481,11 @@ async function continueReview(project: string, number: number, earlier: ReviewSe
 /// that sheet offers first, with the copy's progress on the bar's line under
 /// it; then the bar is ready there.
 async function addToMachine(project: string, m: AgentHost) {
-  const err = projectComp.err, here = () => pc.project === project;
+  const say = (error: string) => projectComp.update({ error }), here = () => pc.project === project;
   pc.adding = m;
   pc.machine = m.machine_id;
   keepMachine(project, m.machine_id);
-  err.textContent = `Adding ${shortName(project)} to ${m.machine_name}…`;
+  say(`Adding ${shortName(project)} to ${m.machine_name}…`);
   redrawProjects();
 
   try {
@@ -514,7 +511,7 @@ async function addToMachine(project: string, m: AgentHost) {
           if (done || !here()) { finish(); break; }
           const line = copyLine(detail, m.machine_id, m.machine_name);
           if (line.done) { finish(); break; }
-          err.textContent = line.note ? `${line.text}. ${line.note}` : line.text;
+          say(line.note ? `${line.text}. ${line.note}` : line.text);
         } while (again && !done);
 
         reading = false;
@@ -523,9 +520,9 @@ async function addToMachine(project: string, m: AgentHost) {
       finishCopy = finish;
       void read();
     });
-    if (here()) err.textContent = "";
+    if (here()) say("");
   } catch (e) {
-    if (here()) err.textContent = reason(e);
+    if (here()) say(reason(e));
   } finally {
     if (pc.adding === m) pc.adding = null;
     refresh();

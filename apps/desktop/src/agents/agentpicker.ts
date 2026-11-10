@@ -1,11 +1,11 @@
-import { createElement, type ReactElement } from "react";
+import { createElement, createRef, type ReactElement, type RefObject } from "react";
 import { AgentPicker, AgentPillContent } from "./agentpicker-view.tsx";
 // The harness, model and thinking picker, as the start form and a project's
 // agent bar both show it: the pill that opens it, the popover with its rail,
 // model column and thinking column, and where it goes on screen.
 
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
-import { modelLabel, modelRows, pillDetail, placePopover } from "./agentpick.ts";
+import { modelLabel, modelRows, pillDetail } from "./agentpick.ts";
 import { invoke, logError } from "../ui/tauri.ts";
 
 // ----- Models -----
@@ -128,31 +128,26 @@ export function pillContent(agent: string, model: string, effort: string | null,
   return createElement(AgentPillContent, { agent, detail });
 }
 
-/// The picker open now, for placing it again on resize and scroll.
-let shown: { el: HTMLElement; o: PickerOpts } | null = null;
-let attachmentWatch: MutationObserver | null = null;
-let watchedElement: HTMLElement | null = null;
-
 // The host's owner renders the picker; it must also clear it on close so
 // search state and async model callbacks cannot outlive that host.
 const renderers = new WeakMap<HTMLElement, (view: ReactElement | null) => void>();
+/// The search field of the picker drawn in each host.
+const searches = new WeakMap<HTMLElement, RefObject<HTMLInputElement | null>>();
+/// The options each open picker was last drawn with, for redrawing it when its models arrive.
+const drawn = new WeakMap<HTMLElement, PickerOpts>();
 
 /// Draws the picker into `el` and places it by its pill.
 export function drawPicker(el: HTMLElement, o: PickerOpts) {
-  if (shown?.el !== el) {
-    attachmentWatch?.disconnect();
-    watchedElement = el;
-    attachmentWatch = new MutationObserver(() => { if (!el.isConnected) closedPicker(el); });
-    attachmentWatch.observe(document.documentElement, { childList: true, subtree: true });
-  }
-  shown = { el, o };
+  drawn.set(el, o);
   const p = o.picked;
   renderers.set(el, o.render);
+  let search = searches.get(el);
+  if (!search) searches.set(el, search = createRef<HTMLInputElement>());
   const agent = p.agent;
   const key = o.machine ? `${o.machine.id}/${agent}` : null;
   const list = o.machine ? modelsOn(o.machine.id, agent, () => {
-    if (shown?.el !== el || !el.isConnected || shown.o.picked.agent !== agent) return;
-    const current = shown.o;
+    const current = drawn.get(el);
+    if (!current || !el.isConnected || current.picked.agent !== agent) return;
     drawPicker(el, current);
     current.changed("models");
   }) : null;
@@ -173,46 +168,19 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
     onAgent: (next: string) => { p.agent = next; p.query = ""; p.model = ""; o.changed("agent"); },
     onModel: (next: string) => { p.model = next; p.query = ""; o.changed("model"); },
     onEffort: (next: string | null) => { p.effort = next; o.changed("effort"); },
+    anchor: o.anchor, bounds: o.bounds, search,
   });
   o.render(view);
-  placeOpen();
 }
 
 /// Focuses the picker's search, when it shows in `el`.
 export function focusSearch(el: HTMLElement) {
-  el.querySelector<HTMLInputElement>(".agc-search")?.focus();
+  searches.get(el)?.current?.focus();
 }
 
 /// Unmounts the picker and releases its React root.
 export function closedPicker(el: HTMLElement) {
-  if (shown?.el === el) shown = null;
-  if (watchedElement === el) {
-    attachmentWatch?.disconnect();
-    attachmentWatch = null;
-    watchedElement = null;
-  }
+  drawn.delete(el);
   const render = renderers.get(el);
   if (render) { renderers.delete(el); render(null); }
 }
-
-/// Puts the open picker above its pill, right edges lined up, whole and
-/// inside its bounds: below the pill when it does not fit above, else cut
-/// to the roomier side, where its columns scroll.
-function placeOpen() {
-  if (!shown || !shown.el.isConnected) { shown = null; return; }
-  const pick = shown.el.querySelector<HTMLElement>(".agc-pick"), pill = shown.o.anchor(), area = shown.o.bounds();
-  if (!pick || !pill || !area) return;
-  pick.style.removeProperty("--pick-h");
-  pick.style.width = "";
-  const pane = area.getBoundingClientRect(), a = pill.getBoundingClientRect();
-  const top = Math.max(0, pane.top), left = Math.max(0, pane.left);
-  const view = { width: Math.min(pane.right, innerWidth) - left, height: Math.min(pane.bottom, innerHeight) - top };
-  const at = placePopover({ top: a.top - top, left: a.left - left, width: a.width, height: a.height }, { width: pick.offsetWidth, height: pick.offsetHeight }, view);
-  pick.style.top = `${at.top + top}px`;
-  pick.style.left = `${at.left + left}px`;
-  pick.style.width = `${at.width}px`;
-  pick.style.setProperty("--pick-h", at.maxHeight === null ? "" : `${at.maxHeight}px`);
-}
-
-addEventListener("resize", placeOpen);
-addEventListener("scroll", placeOpen, { capture: true, passive: true });

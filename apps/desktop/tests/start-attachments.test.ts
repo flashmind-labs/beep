@@ -9,8 +9,9 @@ test("both start layouts accept file drops and protect pending files while start
     const { makeStartComposer } = await import("../src/agents/start-composer.ts");
     const { startAttachments } = await import("../src/agents/start-attachments.ts");
     for (const presentation of ["compact", "centered"] as const) {
-      const c = makeStartComposer({ presentation }); env.dom.window.document.body.append(c.form);
-      const errors: string[] = [], attachments = startAttachments(c, error => errors.push(error), () => {});
+      const c = makeStartComposer({ presentation, actions: { submit() {}, harness() {}, files: files => attachments.take(files) } }); env.dom.window.document.body.append(c.form);
+      const errors: string[] = [];
+      const attachments = startAttachments(c, error => errors.push(error), () => {});
       const input = c.form.querySelector<HTMLInputElement>('input[type="file"]'); assert.ok(input);
       assert.equal(input.multiple, true); assert.equal(input.hidden, true);
       const button = c.form.querySelector<HTMLButtonElement>('[aria-label="Attach files"]'); assert.ok(button);
