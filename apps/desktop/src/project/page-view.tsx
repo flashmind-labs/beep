@@ -4,6 +4,7 @@ import type { Freshness } from "../ui/pagecache.ts";
 import type { ChatApproval } from "../agents/running-state.ts";
 import type { ProjectActs } from "./agent.ts";
 import type { ThreadsPanel } from "./threads.ts";
+import { EmptyPanel } from "../ui/kit.tsx";
 
 /// One child of a Projects page container: an element React renders, or a
 /// host its feature owns. A view renders exactly one element.
@@ -46,14 +47,6 @@ function placeParts(box: HTMLElement, parts: readonly PagePart[], before: readon
   });
 
   return hosts;
-}
-
-export function EmptyPanel({ text, bold = false }: { text: string; bold?: boolean }) {
-  return <div className="cc-panel cc-empty">{bold ? <b>{text}</b> : <span>{text}</span>}</div>;
-}
-
-export function ErrorNote({ text }: { text: string }) {
-  return <div className="cc-note"><span className="ddot bad"/><span className="cc-err">{text}</span></div>;
 }
 
 export function NoProjects({ add }: { add: () => void }) {

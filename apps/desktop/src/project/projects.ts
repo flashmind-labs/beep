@@ -20,7 +20,7 @@ import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { addProject } from "../center/sidebar.ts";
 import { splitOn, projectSplit, disposeProjectShell } from "./split.ts";
-import { EmptyPanel, ErrorNote, hostPart, viewPart, type PagePart } from "./page-view.tsx";
+import { hostPart, viewPart, type PagePart } from "./page-view.tsx";
 import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.ts";
@@ -28,6 +28,7 @@ import { terminalNote, terminalWhere } from "../terminals/terminals.ts";
 import { go } from "../center/views.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
 import { single } from "../ui/active.ts";
+import { EmptyPanel, ErrorNote } from "../ui/kit.tsx";
 
 /// Every project as a card, grouped by org: its tasks per state, its
 /// workers, what changed last and where it lives.
