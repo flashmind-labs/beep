@@ -13,7 +13,7 @@ import { conversationHistory } from "./conversation-state.ts";
 import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, type AgentReturn, bar, S, windowHooks, changeListeners } from "../bar/core.ts";
-import { failBanner } from "../ui/failbanner.ts";
+import { showFailure } from "../ui/failbanner-view.tsx";
 import { hintModel, type Hint } from "../bar/hints.ts";
 import { openViewer } from "../chat/media.ts";
 import { readRunning } from "../agentpane/running.ts";
@@ -528,9 +528,7 @@ export async function closeOpenSession() {
       AG.note = readError(e);
       drawAgentBody();
     } else {
-      const banner = failBanner(`Could not close session: ${readError(e)}`, () => banner.remove());
-      Object.assign(banner.style, { position: "fixed", inset: "auto 16px 16px", zIndex: "1000", background: "var(--ink)" });
-      document.body.append(banner);
+      showFailure(`Could not close session: ${readError(e)}`);
     }
   }
 }
