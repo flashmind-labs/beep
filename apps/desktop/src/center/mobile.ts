@@ -77,6 +77,7 @@ function apply() {
   const on = isMobile();
   if (on === document.body.classList.contains("mobile")) return;
   document.body.classList.toggle("mobile", on);
+  watchPage(on);
   syncMobile();
 }
 
@@ -132,16 +133,12 @@ function keyboard() {
   document.addEventListener("focusout", () => requestAnimationFrame(check));
   const dismiss = () => (document.activeElement as HTMLElement | null)?.blur();
 
-  let keyboardHost: Element | null = null;
   document.addEventListener("focusin", e => {
     const field = e.target instanceof Element ? e.target.closest<HTMLElement>(".dinput") : null;
-    if (!field || keyboardHost === field) return;
+    if (!field || keyboardHost === field || !document.body.classList.contains("mobile")) return;
     keyboardHost = field;
     showWindowParts([{ part: "mobile-keyboard", host: field, content: createElement(HideKeyboard, { dismiss }) }]);
   });
-  new MutationObserver(() => {
-    if (keyboardHost && !keyboardHost.isConnected) { keyboardHost = null; removeWindowPart("mobile-keyboard"); }
-  }).observe(document.body, { childList: true, subtree: true });
 
   // A downward drag outside the field, as when scrolling back through the log.
   let startY: number | null = null;
@@ -157,19 +154,49 @@ function keyboard() {
 /// Tooltips that name a shortcut lose it; the key handlers stay for a connected keyboard.
 const SHORTCUT_TIP = /\s*\((?:[⌘⌃⌥⇧]|Ctrl|esc\b|⏎)[^)]*\)/;
 
-function tips(root: ParentNode) {
-  for (const e of root.querySelectorAll<HTMLElement>("[title*='(']")) {
-    const t = e.title.replace(SHORTCUT_TIP, "");
-    if (t !== e.title) e.title = t;
-  }
+function tip(e: Element) {
+  if (!(e instanceof HTMLElement) || !e.title) return;
+  const t = e.title.replace(SHORTCUT_TIP, "");
+  if (t !== e.title) e.title = t;
 }
 
-function plainTips() {
+function tips(root: ParentNode) {
+  for (const e of root.querySelectorAll("[title*='(']")) tip(e);
+}
+
+/// The composer showing the button that puts the keyboard away.
+let keyboardHost: Element | null = null;
+let terminalsQueued = false;
+
+/// One observer, connected only in the phone layout, drops the keyboard button with its
+/// composer, strips shortcuts from new tooltips and follows the Terminals page, which opens
+/// and closes a terminal without a page change.
+const page = new MutationObserver(list => {
+  if (keyboardHost && !keyboardHost.isConnected) dropKeyboard();
+
+  const main = $("#main");
+  let terminals = false;
+  for (const m of list) {
+    terminals ||= main.contains(m.target);
+    for (const n of m.addedNodes) if (n instanceof Element) { tip(n); tips(n); }
+  }
+
+  if (!terminals || terminalsQueued || currentLocation()?.view !== "terminals") return;
+  terminalsQueued = true;
+  requestAnimationFrame(() => { terminalsQueued = false; syncMobile(); });
+});
+
+function watchPage(on: boolean) {
+  if (!on) { page.disconnect(); dropKeyboard(); return; }
+
   tips(document);
-  new MutationObserver(list => {
-    if (!document.body.classList.contains("mobile")) return;
-    for (const m of list) for (const n of m.addedNodes) if (n instanceof Element) tips(n);
-  }).observe(document.body, { childList: true, subtree: true });
+  page.observe(document.body, { childList: true, subtree: true });
+}
+
+function dropKeyboard() {
+  if (!keyboardHost) return;
+  keyboardHost = null;
+  removeWindowPart("mobile-keyboard");
 }
 
 export function initMobile() {
@@ -180,12 +207,4 @@ export function initMobile() {
   document.addEventListener(HOME_TAB_EVENT, syncMobile);
   longPress();
   keyboard();
-  plainTips();
-  // The Terminals page opens and closes a terminal without a page change.
-  let queued = false;
-  new MutationObserver(() => {
-    if (queued || currentLocation()?.view !== "terminals") return;
-    queued = true;
-    requestAnimationFrame(() => { queued = false; syncMobile(); });
-  }).observe($("#main"), { childList: true, subtree: true });
 }
