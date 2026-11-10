@@ -102,12 +102,17 @@ export async function writeClipboard(text: string) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
+    const previous = document.activeElement;
     const t = el("textarea");
     t.value = text;
     document.body.append(t);
-    t.select();
-    document.execCommand("copy");
-    t.remove();
+    try {
+      t.select();
+      if (!document.execCommand("copy")) throw new Error("Copy failed");
+    } finally {
+      t.remove();
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    }
   }
 }
 

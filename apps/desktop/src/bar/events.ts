@@ -2,7 +2,7 @@ import { turnState } from "../chat/turn-state.ts";
 import { discardChatApproval } from "../chat/work-view.tsx";
 import "./keys.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
-import { ANSWER, answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
+import { answeredTurns, openInWindow, renderChat, watchRun } from "../chat/chat.ts";
 import { loadChats } from "../chat/chats.ts";
 import { copy } from "../ui/parts.ts";
 import { bar, G, here, live, type LinkState, PANE, S } from "./core.ts";
@@ -84,13 +84,6 @@ bar.addEventListener("click", e => {
   const menuButton = t.closest<HTMLElement>('[data-act="rerunMenu"]');
   if (menuButton) return rerunMenu(menuButton);
   if (!t.closest(".dmenu")) closeRerunMenu();
-  const copyReply = t.closest<UndoButton>('[data-act="copyReply"]');
-
-  if (copyReply) {
-    copy(copyReply.closest(".turn")!.querySelector<HTMLElement>(ANSWER)?.innerText.trim() ?? "");
-    return flash(copyReply, ICON.check + "Copied", COPY_ICON + "Copy");
-  }
-
   const code = t.closest<HTMLElement>(".dcoderen.agent [data-copy]");
   if (code) return copyCode(code);
   const c = t.closest<UndoButton>("[data-copy]");
