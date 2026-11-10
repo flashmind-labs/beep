@@ -23,6 +23,9 @@ use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_util::task::AbortOnDropHandle;
 
 const WRITE_WAIT: Duration = Duration::from_secs(15);
+/// How often a quiet stream to a desktop or phone says it is alive. Released
+/// apps drop a stream after 35 s of silence, so it stays well under that.
+pub(crate) const HEARTBEAT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
 const MAX_FILE_ROOTS: usize = 512;
 
@@ -64,10 +67,7 @@ pub(crate) async fn serve(
     let mut roots = BTreeMap::new();
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
-    let mut heartbeat = interval_at(
-        Instant::now() + Duration::from_secs(10),
-        Duration::from_secs(10),
-    );
+    let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     send(&mut tx, Reply::Ready).await?;
 

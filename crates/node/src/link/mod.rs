@@ -12,6 +12,7 @@ host! {
     pub mod commands;
     pub mod subscriptions;
     mod events;
+    pub(crate) use events::HEARTBEAT;
     pub(crate) use events::sources::Registry as EventSources;
     pub(crate) mod from_mesh;
     pub(crate) use from_mesh::Membership;

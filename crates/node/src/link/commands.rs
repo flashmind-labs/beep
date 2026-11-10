@@ -1,5 +1,6 @@
 //! Commands on their own authenticated QUIC connection.
 
+use crate::link::events::HEARTBEAT;
 use super::{
     Offers, Session, channels, events,
     peers::{CHANNEL_OPEN_WAIT, Peers},
@@ -84,10 +85,7 @@ pub(super) async fn serve_open(
 async fn serve(mut tx: LinkTx, mut rx: LinkRx, offers: Offers, caller: EndpointId) -> Result<()> {
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
-    let mut heartbeat = interval_at(
-        Instant::now() + Duration::from_secs(10),
-        Duration::from_secs(10),
-    );
+    let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     send(&mut tx, Reply::Ready).await?;
 

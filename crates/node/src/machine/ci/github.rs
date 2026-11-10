@@ -1,6 +1,6 @@
 //! Waiting on a GitHub run. `gh run watch` only redraws a screen, so its
-//! exit says the run finished, and `gh run view` read every 10 seconds
-//! meanwhile says what changed and how it ended.
+//! exit says the run finished, a cancelled one too, and one `gh run view`
+//! after it says how it ended.
 
 use super::forge::{WAIT_LIMIT, command, tail};
 use anyhow::{Context, Result, bail};
@@ -10,11 +10,9 @@ use serde::Deserialize;
 use std::{process::Stdio, time::Duration};
 use tokio::{
     select,
-    time::{MissedTickBehavior, interval, sleep, timeout},
+    time::{sleep, timeout},
 };
 
-/// How often the run is read while the watch goes.
-const EVERY: Duration = Duration::from_secs(10);
 /// How long one read may take.
 const READ_LIMIT: Duration = Duration::from_secs(30);
 /// What `gh run view` is asked for.
@@ -83,33 +81,20 @@ pub(super) async fn wait(repo: &str, id: u64) -> Result<bool> {
     let mut watch = command("gh", &args);
     watch.stdout(Stdio::null()).stderr(Stdio::null());
     let mut watch = watch.spawn().context("starting gh")?;
-    let mut every = interval(EVERY);
-    every.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    let limit = sleep(WAIT_LIMIT);
-    tokio::pin!(limit);
-    let mut seen: Option<View> = None;
-    let exited = loop {
-        select! {
-            status = watch.wait() => break status.context("waiting on gh")?.success(),
-            _ = every.tick() => {
-                let Ok(view) = view(repo, &id).await else { continue };
-
-                for change in changes(seen.as_ref(), &view) {
-                    log::debug!("CI watch: {repo} run {id}: {change}");
-                }
-
-                let cancelled = view.state() == RunState::Cancelled {};
-                seen = Some(view);
-
-                if cancelled {
-                    return Ok(false);
-                }
-            }
-            () = &mut limit => bail!("gh waited too long"),
-        }
+    let exited = select! {
+        status = watch.wait() => status.context("waiting on gh")?.success(),
+        () = sleep(WAIT_LIMIT) => bail!("gh waited too long"),
     };
     // The watch ended: one more read says how.
-    match view(repo, &id).await.map(|view| view.state()) {
+    let view = view(repo, &id).await;
+
+    if let Ok(view) = &view {
+        for change in changes(None, view) {
+            log::debug!("CI watch: {repo} run {id}: {change}");
+        }
+    }
+
+    match view.map(|view| view.state()) {
         Ok(RunState::Passed {}) => Ok(true),
         Ok(RunState::Failed {} | RunState::Cancelled {} | RunState::Skipped {}) => Ok(false),
         _ => Ok(exited),

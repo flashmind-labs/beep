@@ -95,12 +95,16 @@ fn busy(env: &Env) -> bool {
 
 async fn pass(env: &Env) -> Result<()> {
     let projects = projects_of(&env.mesh);
-    let locals = locals(env).await;
-    tidy(env, &locals).await;
 
+    // With no project to copy for, the session stores are not walked; old
+    // copies still go.
     if projects.is_empty() {
+        tidy(env, &Locals(HashMap::new())).await;
         return Ok(());
     }
+
+    let locals = locals(env).await;
+    tidy(env, &locals).await;
 
     let waits = busy(env);
 

@@ -1,5 +1,6 @@
 //! Topic snapshots on the subscription protocol.
 
+use crate::link::events::HEARTBEAT;
 use super::*;
 use beep_proto::node::subscriptions::{Reply, Request};
 
@@ -25,10 +26,7 @@ pub(crate) async fn serve(
     let mut queries = Vec::new();
     let mut subscriptions = Subscriptions::new();
     let mut roots = BTreeMap::new();
-    let mut heartbeat = interval_at(
-        Instant::now() + Duration::from_secs(10),
-        Duration::from_secs(10),
-    );
+    let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     send(&mut tx, Reply::Ready).await?;
 

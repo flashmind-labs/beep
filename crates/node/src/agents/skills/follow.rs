@@ -8,6 +8,7 @@ use super::{
     enabled,
 };
 use anyhow::{Context, Result, bail};
+use crate::events::paths::Paths;
 use beep_mesh::{Key, Mesh, MeshError, PeerClient};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -17,18 +18,20 @@ use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     mem,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 use tokio::{
-    sync::broadcast::error::RecvError,
+    sync::{broadcast::error::RecvError, mpsc},
     task::spawn_blocking,
     time::{Instant, MissedTickBehavior, interval, timeout},
 };
 
-/// How often the skills here are looked at when nothing comes or goes. A
-/// look reads only the files' metadata unless one changed.
-const EVERY: Duration = Duration::from_secs(120);
+/// How often the skills here are looked at when no file under them changed.
+/// A look reads only the files' metadata unless one changed. Without a
+/// file watcher they are looked at every `UNWATCHED_EVERY`.
+const EVERY: Duration = Duration::from_secs(30 * 60);
+const UNWATCHED_EVERY: Duration = Duration::from_secs(120);
 /// How often the other machines' lists are read when none came, went or
 /// said its skills changed: each says so itself, so this only catches a
 /// word that was lost.
@@ -75,7 +78,14 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
         skills,
     };
     let mut updates = mesh.updates();
-    let mut tick = interval(EVERY);
+    // A skill written here is looked at once its files settle in a pass.
+    let (edited, mut edits) = mpsc::channel(1);
+    let watcher = watch(&pass.home, edited).await;
+    let mut tick = interval(if watcher.is_some() {
+        EVERY
+    } else {
+        UNWATCHED_EVERY
+    });
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick.tick().await;
     let mut ask = true;
@@ -106,6 +116,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
         ask = loop {
             tokio::select! {
                 _ = tick.tick() => break false,
+                Some(()) = edits.recv() => break false,
                 () = nudge.notified() => break true,
                 change = changes.recv() => match change {
                     Ok(Key::SkillSync) | Err(RecvError::Lagged(_)) => break true,
@@ -123,6 +134,26 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
                 }
             }
         };
+    }
+}
+
+/// Watches the skills folders under `home`, sending on `edited` when a file
+/// under one changes. None when the watcher could not start.
+async fn watch(home: &Path, edited: mpsc::Sender<()>) -> Option<Paths> {
+    let watcher = Paths::new(move |_| {
+        let _ = edited.try_send(());
+    });
+    let watching = match watcher {
+        Ok(watcher) => watcher.replace(disk::roots(home)).await.map(|()| watcher),
+        Err(e) => Err(e),
+    };
+
+    match watching {
+        Ok(watcher) => Some(watcher),
+        Err(e) => {
+            log::warn!("skills: no file watcher, looking every {UNWATCHED_EVERY:?}: {e:#}");
+            None
+        }
     }
 }
 

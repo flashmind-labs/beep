@@ -327,6 +327,64 @@ impl World for Alone {
     }
 }
 
+/// A mesh with no pinned project, counting how often it is looked at.
+struct Empty(EndpointId, Arc<std::sync::atomic::AtomicUsize>);
+
+impl World for Empty {
+    fn me(&self) -> EndpointId {
+        self.0
+    }
+
+    fn projects(&self) -> Vec<Project> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Vec::new()
+    }
+
+    fn online(&self) -> BTreeSet<EndpointId> {
+        BTreeSet::new()
+    }
+
+    async fn ask(&self, _: EndpointId) -> Result<ForgeReach> {
+        bail!("nobody else")
+    }
+
+    async fn changed(&mut self) -> bool {
+        pending().await
+    }
+
+    async fn pushed(&self, _: &Project) -> Option<SystemTime> {
+        None
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_watcher_holding_nothing_wakes_only_every_quiet_period() {
+    let dir = TempDir::new().expect("a temp dir");
+    let host = Arc::new(StandIn::default());
+    let looks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let world = Empty(ids(1)[0], looks.clone());
+    let watcher = Watcher::start(
+        host.clone(),
+        world,
+        Arc::new(Ci::default()),
+        dir.path().join("ci-runs.json"),
+    )
+    .await;
+    tokio::spawn(watcher.run());
+    let count = || looks.load(std::sync::atomic::Ordering::Relaxed);
+
+    polls(1).await;
+    let first = count();
+    assert!(first > 0);
+
+    tokio::time::sleep(QUIET - POLL * 2).await;
+    assert_eq!(count(), first);
+
+    polls(2).await;
+    assert!(count() > first);
+    assert_eq!(host.lists(), 0);
+}
+
 /// Starts a watcher on `host` keeping `file`, and its hub.
 async fn watcher(host: &Arc<StandIn>, file: &Path) -> Arc<Ci> {
     watcher_on(host, file, forgejo()).await

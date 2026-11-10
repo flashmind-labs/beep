@@ -78,6 +78,11 @@ struct Summary {
     changed: u64,
 }
 
+/// The skills folders under `home` that `scan` reads.
+pub(super) fn roots(home: &Path) -> Vec<PathBuf> {
+    READ.iter().map(|rel| home.join(rel)).collect()
+}
+
 /// Reads every skills folder under `home`; only folders whose files
 /// changed since `hashes` saw them are read and hashed.
 pub(super) fn scan(home: &Path, hashes: &mut Hashes) -> Scan {
