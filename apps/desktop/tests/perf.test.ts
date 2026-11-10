@@ -94,6 +94,24 @@ test("flushes about every minute while shown and once on hide, never while hidde
   assert.equal(sent[2].histograms[0].kind, "long_task");
 });
 
+test("an idle shown window sends nothing on the timer, and its shown time goes with the next batch", () => {
+  const { clock, sent, r } = recorder();
+  clock.advance(3 * PERF_FLUSH_MS);
+  assert.equal(sent.length, 0);
+  assert.equal(clock.timers.size, 1);
+
+  r.record("open", "home", 40);
+  clock.advance(PERF_FLUSH_MS);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].shown_ms, [{ view: "home", ms: 4 * PERF_FLUSH_MS }]);
+
+  clock.advance(PERF_FLUSH_MS / 2);
+  r.visibility(false);
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[1].histograms, []);
+  assert.deepEqual(sent[1].shown_ms, [{ view: "home", ms: PERF_FLUSH_MS / 2 }]);
+});
+
 test("charges time and samples to the view or overlay showing", () => {
   const { clock, sent, r } = recorder();
   clock.advance(1000);
