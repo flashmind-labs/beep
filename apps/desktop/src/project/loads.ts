@@ -7,7 +7,7 @@ import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
 // Reading a project page: its view, agent, machines and sessions, kept
 // fresh while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
-import { formatAgo, reason } from "../ui/format.ts";
+import { failure, formatAgo, reason } from "../ui/format.ts";
 import { copy } from "../ui/parts.ts";
 import { type MenuItem } from "../ui/menu.ts";
 import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
@@ -22,7 +22,6 @@ import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts"
 import { outsideThreads } from "../review/branchwork.ts";
 import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
-import { failure } from "../ui/pieces.ts";
 import { openUrl, refreshGit, replyItem } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";

@@ -82,6 +82,13 @@ export function dayDiff(from: Date, to: Date) {
 /// "1 file", "3 files".
 export function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
 
+/// Why a call failed, cut short; a conflict means another answer won.
+export function failure(e: unknown) {
+  const text = String(e);
+  return conflict(e) ? "Already answered" : text.length > 90 ? text.slice(0, 90) + "..." : text;
+}
+export function conflict(e: unknown) { return /^conflict/i.test(String(e)); }
+
 /// A refusal as the server said it, without what the bridge puts before it.
 export function reason(e: unknown) {
   return String(e).replace(/^(bad request|error):\s*/i, "");

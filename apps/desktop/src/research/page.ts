@@ -4,13 +4,13 @@ import { newestFirst, researchState, researchSummary, STATE_LABEL, type Research
 import { RESEARCHES } from "./researches.ts";
 import { state, views } from "../center/state.ts";
 import { groupShown } from "../settings/subscription.ts";
-import { failure } from "../ui/pieces.ts";
 import { createElement } from "react";
 import { showWindowParts } from "../center/window-root.ts";
 import { ResearchPage } from "./page-view.tsx";
 import { currentLocation, registerView, go, drawTop, openResearch } from "../center/views.ts";
 import { registerSidebarGroup, reloadGroup, reloadChats } from "../center/sidebar.ts";
 import { IC } from "../ui/icons.tsx";
+import { failure } from "../ui/format.ts";
 
 /// Every research on the account, newest first (null before the first
 /// answer), why the last read or start failed, whether one is starting and

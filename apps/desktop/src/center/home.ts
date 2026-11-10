@@ -6,7 +6,6 @@ import { pane } from "../bar/pane.ts";
 import { S } from "../bar/core.ts";
 import { homeForDisplay, type HomeView, type NeedsYou, type UpdateRow } from "./home-state.ts";
 import { type Outcome, $, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
-import { failure, conflict } from "../ui/pieces.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, registerView, go } from "./views.ts";
@@ -26,6 +25,7 @@ import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
 import { HomeGit } from "./openitems-view.tsx";
 import { HomeMachines } from "../machines/home-machines-view.tsx";
+import { conflict, failure } from "../ui/format.ts";
 
 // ---------- Needs you ----------
 
