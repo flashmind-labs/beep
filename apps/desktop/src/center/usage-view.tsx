@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { agentLabel } from "../project/projects-state.ts";
 import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
 import { harnessMark } from "../ui/icons.tsx";
@@ -33,15 +33,24 @@ function Period({ view, periodKey, allProjects, pick, more }: { view: UsageView;
     {(period.total.cost_usd > 0 || !!tokens) && <SpendRow name="Total" cost={paid ? money(period.total.cost_usd) : ""} extra={tokens} strong />}
   </div>;
 }
-export function UsageWidget({ view, open, period, allProjects, toggle, pick, more, position }: { view: UsageView; open: boolean; period: PeriodKey; allProjects: boolean; toggle(): void; pick(key: PeriodKey): void; more(): void; position(element: HTMLElement): void }) {
+export function UsageWidget({ view, open, period, allProjects, toggle, pick, more }: { view: UsageView; open: boolean; period: PeriodKey; allProjects: boolean; toggle(): void; pick(key: PeriodKey): void; more(): void }) {
   const pop = useRef<HTMLDivElement>(null), plans = pillPlans(view.limits), shown = view[period] ?? view.today;
   const label = plans.length ? `Plan usage: ${plans.map(plan => `${agentLabel(plan.agent)} ${plan.used}%`).join(", ")}` : `Cost today: ${todayLine(view.today)}`;
-  useLayoutEffect(() => { if (pop.current) position(pop.current); }, [view, open, period, allProjects, position]);
+  // The pop moves back inside the window when its edge would leave it, and scrolls when taller than the room below.
+  const [place, setPlace] = useState({ shift: 0, maxHeight: 0 });
+  useLayoutEffect(() => {
+    const el = pop.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect(), gap = 8, left = r.left - place.shift, right = r.right - place.shift;
+    const shift = right > innerWidth - gap ? innerWidth - gap - right : left < gap ? gap - left : 0;
+    const maxHeight = Math.max(160, innerHeight - r.top - gap);
+    if (shift !== place.shift || maxHeight !== place.maxHeight) setPlace({ shift, maxHeight });
+  }, [view, open, period, allProjects, place]);
   return <><button type="button" className={`us-pill${plans.length ? " plans" : ""}`} title="Plan usage and cost" aria-label={label} aria-expanded={open} onClick={toggle}>
       {plans.map(plan => <span className="us-plan" key={plan.agent} title={`${agentLabel(plan.agent)}: ${plan.used}% of ${plan.window} used`}><Mark agent={plan.agent} /><b className={plan.used > WARN_USED ? "warn" : ""}>{plan.used}%</b></span>)}
       {view.limits.flatMap(plan => plan.credits ?? []).map((credit, n) => credit.remaining != null && <span className="us-x" key={n}>{providerName(credit.provider)} <b>{creditAmount(credit, credit.remaining)}</b> left</span>)}
       {(!plans.length || view.today.total.cost_usd > 0) && <span className="us-x"><b>{todayLine(view.today)}</b> today</span>}
     </button>
-    {open && <div ref={pop} className="us-pop" role="dialog" aria-label="Plan usage and cost">{view.limits.filter(plan => plan.windows.length || plan.credits?.length).map((plan, i) => <Limits key={i} plan={plan} now={Date.now()} />)}<Period view={view} periodKey={period} allProjects={allProjects} pick={pick} more={more} />{showsDollars(shown) && <div className="us-note">{view.metered ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total." : "Dollars are what the same work would cost at API prices."}</div>}</div>}
+    {open && <div ref={pop} className="us-pop" style={{ transform: place.shift ? `translateX(${place.shift}px)` : undefined, maxHeight: place.maxHeight || undefined }} role="dialog" aria-label="Plan usage and cost">{view.limits.filter(plan => plan.windows.length || plan.credits?.length).map((plan, i) => <Limits key={i} plan={plan} now={Date.now()} />)}<Period view={view} periodKey={period} allProjects={allProjects} pick={pick} more={more} />{showsDollars(shown) && <div className="us-note">{view.metered ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total." : "Dollars are what the same work would cost at API prices."}</div>}</div>}
   </>;
 }

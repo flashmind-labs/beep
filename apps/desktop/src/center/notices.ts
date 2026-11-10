@@ -221,18 +221,6 @@ export function mountNotices() {
   };
 
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(host)) toggle(false); });
-  host.addEventListener("keydown", e => {
-    if (!open || opened || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey ||
-        (e.key !== "ArrowDown" && e.key !== "ArrowUp") || !(e.target instanceof Element) || !e.target.closest(".nt-pop")) return;
-    const rows = [...host.querySelectorAll<HTMLElement>(".nt-row")];
-    if (!rows.length) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const index = rows.indexOf(e.target.closest<HTMLElement>(".nt-row")!);
-    const next = index < 0 ? (e.key === "ArrowDown" ? 0 : rows.length - 1)
-      : (index + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
-    rows[next].focus();
-  });
   document.addEventListener("keydown", e => {
     if (!e.defaultPrevented && commandKey(e) && !(WINDOWS ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b" &&
         !(e.target instanceof Element && e.target.closest("[contenteditable]:not([contenteditable=false]), .tm-xterm"))) {

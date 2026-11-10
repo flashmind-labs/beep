@@ -59,9 +59,9 @@ const ICON_OF: Partial<Record<HitKind | "research", keyof typeof ICONS | keyof t
 const ACTION_VIEWS: Record<string, PaneTarget> = { all_chats: "chats", memories: "memories", routines: "routines", skills: "skills", apps: "apps", settings: "settings" };
 
 let deps: PaletteDeps | null = null;
-/// Whether the palette is open, and its scrim once drawn.
-let open = false, input: HTMLInputElement | null = null;
-const scrim = createRef<HTMLDivElement>();
+/// Whether the palette is open, and its search field once drawn.
+let open = false;
+const field = createRef<HTMLInputElement>();
 let hits: Hit[] = [], sel = 0, drawnQuery = "";
 let searching: PaletteSearch<Entry<AgentRow>> | null = null, back: HTMLElement | null = null;
 /// What the palette finds, as of the app's last word. Empty until the first
@@ -87,7 +87,7 @@ export function initPalette(window_: PaletteDeps) {
 
 export function openPalette() {
   if (!deps) return;
-  if (open) return input?.focus();
+  if (open) return field.current?.focus();
   open = true;
   back = document.activeElement as HTMLElement | null;
   hits = [];
@@ -119,7 +119,6 @@ function close() {
   searching = null;
   placeWindowParts({ palette: null });
   open = false;
-  input = null;
   const to = back;
   back = null;
   // The sidebar is redrawn now and then, so its Search row may be a new element.
@@ -128,9 +127,9 @@ function close() {
 
 function draw(q: string) {
   if (!open) return;
-  placeWindowParts({ palette: createElement("div", { className: "cc-scrim", ref: scrim,
+  placeWindowParts({ palette: createElement("div", { className: "cc-scrim",
     onMouseDown: (e: ReactMouseEvent) => { if (e.target === e.currentTarget) { e.preventDefault(); close(); } } }, createElement(PaletteView, {
-    hits, selected: sel, query: q, subscribed: state.subscribed, searchIcon: IC.find,
+    input: field, hits, selected: sel, query: q, subscribed: state.subscribed, searchIcon: IC.find,
     group: (hit: Hit, query: string) => hit.top ? "Top hit" : hit.kind === "chat" && !query ? "Recent chats" : GROUPS[hit.kind],
     icon: (hit: Hit) => {
       const name = ICON_OF[hit.kind === "chat" && deps?.research(hit.id) ? "research" : hit.kind] ?? hit.kind;
@@ -139,7 +138,6 @@ function draw(q: string) {
     search: (value: string) => searching?.type(value), choose: pick,
     hover: (index: number) => { if (sel !== index) { sel = index; mark(); } }, ask: ask_,
   })) });
-  input = scrim.current?.querySelector<HTMLInputElement>("input") ?? null;
 }
 
 /// Highlights the selected row and keeps it in view.
@@ -186,10 +184,10 @@ window.addEventListener("keydown", e => {
   const stop = () => { e.preventDefault(); e.stopImmediatePropagation(); };
   if (e.key === "Escape") { stop(); return close(); }
   if (commandKey(e) && e.key.toLowerCase() === "k") { stop(); return close(); }
-  if (commandKey(e) && e.key === "Enter") { stop(); return state.subscribed && input ? ask_(input.value) : undefined; }
+  if (commandKey(e) && e.key === "Enter") { stop(); return state.subscribed && field.current ? ask_(field.current.value) : undefined; }
   if (e.isComposing) return;
   if (e.key === "Enter") { stop(); if (hits[sel]) pick(hits[sel]); return; }
-  if (e.key === "Tab") { stop(); return input?.focus(); }
+  if (e.key === "Tab") { stop(); return field.current?.focus(); }
 
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     stop();
