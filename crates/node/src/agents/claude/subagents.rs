@@ -5,6 +5,7 @@
 use super::transcript::{Spawn, read_tail, tool_line};
 use super::{discover::Store, transcript};
 use crate::agents::cut;
+use crate::agents::found::memo::Memo;
 use crate::agents::subagent::Conversation;
 use beep_proto::node::agent::{Entry, ExternalSession, Presence};
 use serde::Deserialize;
@@ -13,7 +14,8 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    sync::{Arc, LazyLock},
+    time::{Duration, Instant, SystemTime},
 };
 
 fn conversation(session: &Path, agent: &str) -> Option<String> {
@@ -79,6 +81,12 @@ const MAX_STEP: usize = 120;
 const MAX_ENTRY: usize = 12 * 1024;
 /// Legacy subagents without lifecycle metadata use recent file activity.
 const RUNNING: Duration = Duration::from_secs(2 * 60);
+/// How many subagent files' reads are kept. A session with many subagents
+/// otherwise reads each one's tail again on every page and update.
+const RUNS_KEPT: usize = 2 * MAX_AGENTS;
+
+/// Each subagent file's run, kept while the file is unchanged.
+static RUNS: LazyLock<Memo<Arc<Run>>> = LazyLock::new(|| Memo::new(RUNS_KEPT));
 
 /// What `agent-<id>.meta.json` says.
 #[derive(Debug, Default, Deserialize)]
@@ -137,7 +145,7 @@ pub(super) fn attach(
 ) {
     let mut shown: Vec<(&String, &Spawn)> = spawns
         .iter()
-        .filter(|(_, spawn)| spawn.entry >= skip)
+        .filter(|(_, spawn)| (skip..skip + entries.len()).contains(&spawn.entry))
         .collect();
     if shown.is_empty() {
         return;
@@ -188,17 +196,36 @@ fn add_conversation(text: &mut String, id: &str) {
 }
 
 /// Refresh ACP spawn calls from the harness's child files.
-pub(super) fn attach_live(session: &Path, calls: &[(usize, String)], entries: &mut [Entry]) {
+pub(super) fn attach_live(
+    session: &Path,
+    calls: &[(usize, String)],
+    entries: &mut [Entry],
+    kept: &transcript::Transcripts,
+) {
+    let started = Instant::now();
+    let attached = kept.with(session, |digest| {
+        attach_calls(session, calls, entries, &digest.spawns)
+    });
+
+    if attached.is_err() {
+        attach_calls(session, calls, entries, &HashMap::new());
+    }
+
+    crate::agents::transcript_stage("subagents", started);
+}
+
+fn attach_calls(
+    session: &Path,
+    calls: &[(usize, String)],
+    entries: &mut [Entry],
+    spawns: &HashMap<String, Spawn>,
+) {
     let found = agents(&session.with_extension("").join("subagents"));
-    let digest = transcript::digest_tail(session, entries.len()).ok();
     let mut taken = HashSet::new();
 
     for (at, call) in calls {
         let fallback = Spawn::default();
-        let spawn = digest
-            .as_ref()
-            .and_then(|digest| digest.spawns.get(call))
-            .unwrap_or(&fallback);
+        let spawn = spawns.get(call).unwrap_or(&fallback);
         let Some(agent) = pick(&found, call, spawn, &taken) else {
             continue;
         };
@@ -278,8 +305,16 @@ fn meta(path: &Path) -> Meta {
 }
 
 /// The end of the subagent's file at `path`: the calls it made and what
-/// it said last. Empty when it does not read.
-fn read(path: &Path) -> Run {
+/// it said last, read again only once the file changes. Empty when it does
+/// not read.
+fn read(path: &Path) -> Arc<Run> {
+    let Ok(run) = RUNS.read(path, || {
+        Ok::<_, std::convert::Infallible>(Arc::new(read_run(path)))
+    });
+    run
+}
+
+fn read_run(path: &Path) -> Run {
     let mut run = Run::default();
     let tail = match read_tail(path, MAX_READ) {
         Ok(tail) => tail,

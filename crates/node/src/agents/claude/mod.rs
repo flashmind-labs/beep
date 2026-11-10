@@ -2,7 +2,7 @@
 //! (`External`): finding them, reading their transcripts and following them.
 //! Taking one over runs it through the ACP adapter.
 
-use crate::agents::found::{Seen as Sighting, memo::Memo};
+use crate::agents::found::Seen as Sighting;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -59,12 +59,13 @@ pub struct External {
     store: OnceLock<discover::Store>,
     hub: watch::Hub,
     live: live::Live,
-    /// The few transcripts read last, parsed.
-    transcripts: Arc<Memo<Arc<transcript::Digest>>>,
+    /// The transcripts read last, parsed.
+    transcripts: Arc<transcript::Transcripts>,
 }
 
-/// How many sessions' parsed transcripts are kept at once.
-const TRANSCRIPTS_KEPT: usize = 4;
+/// How many sessions' parsed transcripts are kept at once: enough for every
+/// session a desktop follows off screen and the ones it shows.
+const TRANSCRIPTS_KEPT: usize = 16;
 
 impl Default for External {
     fn default() -> Self {
@@ -73,7 +74,7 @@ impl Default for External {
             store: OnceLock::new(),
             hub: watch::Hub::default(),
             live: live::Live::default(),
-            transcripts: Arc::new(Memo::new(TRANSCRIPTS_KEPT)),
+            transcripts: Arc::new(transcript::Transcripts::new(TRANSCRIPTS_KEPT)),
         }
     }
 }
@@ -88,8 +89,9 @@ impl External {
         let Some(path) = self.file(id).await? else {
             return Ok(entries);
         };
+        let kept = self.transcripts.clone();
         spawn_blocking(move || {
-            subagents::attach_live(&path, &calls, &mut entries);
+            subagents::attach_live(&path, &calls, &mut entries, &kept);
             entries
         })
         .await
@@ -244,8 +246,96 @@ impl External {
         let Some(store) = self.store() else {
             return Ok(None);
         };
+        let started = std::time::Instant::now();
         let id = id.to_owned();
-        Ok(spawn_blocking(move || store.find(&id)).await?)
+        let found = spawn_blocking(move || store.find(&id)).await?;
+        crate::agents::transcript_stage("find", started);
+        Ok(found)
+    }
+
+    /// Starts following session `id` by its file, found once. `None` when
+    /// it has none of its own here, such as a subagent's conversation.
+    pub(crate) async fn follow(&self, id: &str) -> Result<Option<Followed>> {
+        if !discover::is_session_id(id) {
+            return Ok(None);
+        }
+
+        Ok(self.file(id).await?.map(|path| Followed {
+            id: id.to_owned(),
+            path,
+            machine: None,
+        }))
+    }
+
+    /// The session `followed` reads, as `list` describes it. The processes
+    /// and pid files are read again only when `stale` says they may have
+    /// changed, or while no process is seen to run it.
+    pub(crate) async fn followed(
+        &self,
+        followed: &mut Followed,
+        stale: bool,
+        owned: HashMap<String, String>,
+    ) -> Result<ExternalSession> {
+        let Some(store) = self.store() else {
+            bail!("session is no longer on the machine");
+        };
+
+        let machine = match followed.machine.take() {
+            Some(machine) if !stale => machine,
+            _ => {
+                let processes = procs::claude_processes().await;
+                let pid_files = {
+                    let store = store.clone();
+                    spawn_blocking(move || store.pid_files()).await?
+                };
+                discover::Snapshot {
+                    processes,
+                    pid_files,
+                    ..discover::Snapshot::default()
+                }
+            }
+        };
+        let snapshot = Arc::new(discover::Snapshot {
+            owned,
+            ..machine.clone()
+        });
+        let describe = |path: PathBuf| {
+            let (store, snapshot) = (store.clone(), snapshot.clone());
+            spawn_blocking(move || discover::describe_file(&store, &path, &snapshot))
+        };
+        let mut found = describe(followed.path.clone())
+            .await?
+            .context("reading Claude Code's session")?;
+
+        // Its file moved, as when its folder was renamed.
+        if found.is_none()
+            && let Some(path) = self.file(&followed.id).await?
+            && path != followed.path
+        {
+            followed.path = path;
+            found = describe(followed.path.clone())
+                .await?
+                .context("reading Claude Code's session")?;
+        }
+
+        let found = found.context("session is no longer on the machine")?;
+
+        if found.pid.is_some() {
+            followed.machine = Some(machine);
+        }
+
+        Ok(found)
+    }
+
+    /// The last `last` entries of the transcript `followed` reads.
+    pub(crate) async fn followed_transcript(
+        &self,
+        followed: &Followed,
+        last: usize,
+    ) -> Result<Excerpt> {
+        let path = followed.path.clone();
+        let kept = self.transcripts.clone();
+        Ok(spawn_blocking(move || transcript::entries(&path, last, None, &kept)).await??)
     }
 
     /// Deletes session `id`'s transcript and its side folder; `false` when
@@ -309,6 +399,20 @@ impl External {
     /// Serves one `Watch` stream.
     pub(crate) async fn watch(&self, tx: LinkTx, rx: LinkRx, sessions: Vec<String>) -> Result<()> {
         watch::serve(tx, rx, self.store(), &self.hub, sessions).await
+    }
+}
+
+/// A Claude Code session a reader follows: its file, and the processes and
+/// pid files last read while a process was seen to run it.
+pub(crate) struct Followed {
+    id: String,
+    path: PathBuf,
+    machine: Option<discover::Snapshot>,
+}
+
+impl Followed {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
     }
 }
 

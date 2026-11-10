@@ -1,7 +1,7 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
 use crate::link::HEARTBEAT;
-use super::{Agents, MAX_TRANSCRIPT, found::Agent};
+use super::{Agents, MAX_TRANSCRIPT, claude::Followed, found::Agent, transcript_stage};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -13,7 +13,10 @@ use std::{
     future::pending,
     ops::Range,
     path::PathBuf,
-    sync::{Arc, LazyLock, Mutex, PoisonError},
+    sync::{
+        Arc, LazyLock, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -115,13 +118,26 @@ async fn follow(
     let mut live = agents
         .get(request.session.as_ref())
         .map(|session| session.live.clone());
+    // A Claude Code session started outside Beep is found once, and the
+    // machine's processes are read again only when its presence may change.
+    let mut followed = if live.is_none() && request.agent == "claude" {
+        agents.external.follow(request.session.as_ref()).await?
+    } else {
+        None
+    };
+    let stale = Arc::new(AtomicBool::new(true));
     // Install file notifications before the initial read so a write cannot fall between them.
-    let paths = paths(agents, &request).await?;
+    let paths = paths(agents, &request, followed.as_ref()).await?;
     let (dirty, mut changes) = mpsc::channel(1);
     let _watcher = if paths.is_empty() {
         None
     } else {
-        let watcher = crate::events::paths::Paths::new(move |_| {
+        let presence_path = agents.external.presence_path();
+        let presence_changed = stale.clone();
+        let watcher = crate::events::paths::Paths::new(move |roots| {
+            if presence_path.as_ref().is_some_and(|path| roots.contains(path)) {
+                presence_changed.store(true, Ordering::Release);
+            }
             let _ = dirty.try_send(());
         })?;
         watcher.replace(paths).await?;
@@ -131,6 +147,12 @@ async fn follow(
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut observed_pid = None;
     let mut exit = None;
+    // A newly opened view gets the newest page at once; later updates read
+    // enough to validate and patch what the reader holds.
+    let mut retained = match &request.after {
+        Some(_) => RETAINED_ENTRIES,
+        None => usize::try_from(request.last.clamp(1, MAX_TRANSCRIPT))?,
+    };
 
     loop {
         presence.borrow_and_update();
@@ -139,7 +161,13 @@ async fn follow(
             live.borrow_and_update();
         }
 
-        let snapshot = match snapshot(agents, &request).await {
+        let read = Read {
+            followed: followed.as_mut(),
+            stale: stale.swap(false, Ordering::AcqRel),
+            retained,
+        };
+        retained = RETAINED_ENTRIES;
+        let snapshot = match snapshot(agents, &request, read).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 return send(
@@ -169,6 +197,7 @@ async fn follow(
 
         let prior = reader.take();
         let requested = request.clone();
+        let encoding = Instant::now();
         let (window, update, changed) = spawn_blocking(move || {
             let held = prior
                 .as_ref()
@@ -181,6 +210,7 @@ async fn follow(
         })
         .await
         .context("preparing transcript update")??;
+        transcript_stage("encode", encoding.into_std());
         let deadline = match &window.source {
             SessionSource::External(session) => recent_deadline(session),
             SessionSource::Owned(_) => None,
@@ -188,7 +218,9 @@ async fn follow(
         reader.keep(window);
 
         if changed {
+            let sending = Instant::now();
             send(tx, &update).await?;
+            transcript_stage("send", sending.into_std());
         }
 
         let follow_presence = live.is_none();
@@ -203,20 +235,26 @@ async fn follow(
                 } => if changed.is_err() { return Ok(()); },
                 changed = async {
                     if follow_presence { presence.changed().await } else { pending().await }
-                } => if changed.is_err() { return Ok(()); },
+                } => {
+                    if changed.is_err() { return Ok(()); }
+                    stale.store(true, Ordering::Release);
+                },
                 changed = changes.recv() => if changed.is_none() { return Ok(()); },
                 _ = async {
                     match &exit {
                         Some(exit) => exit.wait().await,
                         None => pending().await,
                     }
-                } => { exit = None; },
+                } => {
+                    exit = None;
+                    stale.store(true, Ordering::Release);
+                },
                 _ = async {
                     match deadline {
                         Some(deadline) => tokio::time::sleep_until(deadline).await,
                         None => pending().await,
                     }
-                } => {},
+                } => stale.store(true, Ordering::Release),
                 _ = heartbeat.tick() => {
                     send(tx, &SessionUpdate::KeepAlive).await?;
                     continue;
@@ -631,7 +669,27 @@ fn next_update(
     Ok((window, SessionUpdate::Snapshot(Box::new(update))))
 }
 
-async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSnapshot> {
+/// How one snapshot reads its session.
+struct Read<'a> {
+    /// The Claude Code session started outside Beep, when it is one.
+    followed: Option<&'a mut Followed>,
+    /// Whether its processes may have changed since the last read.
+    stale: bool,
+    /// How many of the newest entries to read.
+    retained: usize,
+}
+
+async fn snapshot(
+    agents: &Agents,
+    request: &FollowSession,
+    read: Read<'_>,
+) -> Result<SessionSnapshot> {
+    let Read {
+        mut followed,
+        stale,
+        retained,
+    } = read;
+    let started = Instant::now();
     let source = match agents.get(request.session.as_ref()) {
         Some(session) => {
             let info = session.info();
@@ -643,7 +701,14 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
             SessionSource::Owned(Box::new(info))
         }
         None => {
-            let found = if request.agent == "claude" {
+            let found = if let Some(followed) = followed.as_deref_mut() {
+                vec![
+                    agents
+                        .external
+                        .followed(followed, stale, agents.owned())
+                        .await?,
+                ]
+            } else if request.agent == "claude" {
                 agents
                     .external
                     .list(1, Some(request.session.to_string()), agents.owned())
@@ -660,23 +725,33 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
             SessionSource::External(Box::new(found))
         }
     };
+    transcript_stage("source", started.into_std());
+    let started = Instant::now();
     // Source readers already bound their retained transcript and memoize disk parsing.
     // Read enough to validate the cached window, including mutable tools before its tail.
     let (entries, earlier) = if let Some(session) = agents.get(request.session.as_ref()) {
-        agents
-            .live_transcript(&session, RETAINED_ENTRIES, None)
-            .await
+        agents.live_transcript(&session, retained, None).await
     } else {
-        let read = match agents
-            .external
-            .transcript(request.session.as_ref(), RETAINED_ENTRIES, None)
-            .await?
-        {
+        let read = match followed {
+            Some(followed) => Some(
+                agents
+                    .external
+                    .followed_transcript(followed, retained)
+                    .await?,
+            ),
+            None => {
+                agents
+                    .external
+                    .transcript(request.session.as_ref(), retained, None)
+                    .await?
+            }
+        };
+        let read = match read {
             Some(read) => read,
             None => {
                 let stores = agents.stores.clone();
                 let session = request.session.clone();
-                spawn_blocking(move || stores.transcript(session.as_ref(), RETAINED_ENTRIES, None))
+                spawn_blocking(move || stores.transcript(session.as_ref(), retained, None))
                     .await??
                     .context("session transcript is no longer on the machine")?
             }
@@ -687,6 +762,7 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
         }
         (read.entries, read.earlier)
     };
+    transcript_stage("transcript", started.into_std());
     let next = earlier
         .checked_add(u64::try_from(entries.len())?)
         .context("transcript position overflow")?;
@@ -703,7 +779,11 @@ async fn snapshot(agents: &Agents, request: &FollowSession) -> Result<SessionSna
     })
 }
 
-async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>> {
+async fn paths(
+    agents: &Agents,
+    request: &FollowSession,
+    followed: Option<&Followed>,
+) -> Result<Vec<PathBuf>> {
     if agents.get(request.session.as_ref()).is_some() {
         return Ok(if request.agent == "codex" {
             agents.stores.follow_paths(Some(Agent::Codex))
@@ -714,7 +794,12 @@ async fn paths(agents: &Agents, request: &FollowSession) -> Result<Vec<PathBuf>>
 
     let mut paths = Vec::new();
 
-    if let Some(file) = agents.session_file(request.session.as_ref()).await? {
+    let file = match followed {
+        Some(followed) => Some(followed.path().to_owned()),
+        None => agents.session_file(request.session.as_ref()).await?,
+    };
+
+    if let Some(file) = file {
         if request.session.as_ref().starts_with("subagent:claude:") {
             paths.push(file.with_extension("meta.json"));
         }

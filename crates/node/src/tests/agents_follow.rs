@@ -413,7 +413,7 @@ async fn a_resume_window_can_extend_beyond_the_initial_two_hundred_entries() {
         last: 200,
         after: None,
     };
-    let raw = snapshot(&agents, &request).await.unwrap();
+    let raw = snapshot(&agents, &request, read_retained()).await.unwrap();
     assert_eq!(raw.entries.len(), 250);
     let (initial, _) = next_update(raw, None, &request).unwrap();
     assert_eq!(initial.cursor.next - initial.cursor.start, 200);
@@ -421,7 +421,7 @@ async fn a_resume_window_can_extend_beyond_the_initial_two_hundred_entries() {
     text.push_str(&line(250));
     std::fs::write(file, text).unwrap();
     request.after = Some(initial.cursor);
-    let raw = snapshot(&agents, &request).await.unwrap();
+    let raw = snapshot(&agents, &request, read_retained()).await.unwrap();
     let (retained, update) = next_update(raw, None, &request).unwrap();
     assert_eq!(retained.cursor.next - retained.cursor.start, 201);
     let SessionUpdate::Snapshot(update) = update else {
@@ -770,3 +770,12 @@ fn streaming_update_cost() {
     }
 }
 
+
+/// A snapshot read of a session's retained entries, found by listing.
+fn read_retained() -> Read<'static> {
+    Read {
+        followed: None,
+        stale: true,
+        retained: RETAINED_ENTRIES,
+    }
+}

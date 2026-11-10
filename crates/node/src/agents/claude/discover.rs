@@ -95,7 +95,7 @@ pub(super) struct PidFile {
 }
 
 /// The machine as a listing sees it.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(super) struct Snapshot {
     pub(super) processes: Vec<Process>,
     pub(super) pid_files: Vec<PidFile>,
@@ -268,6 +268,48 @@ pub(super) fn list(
     }
 
     Ok(sessions)
+}
+
+/// The session whose transcript is `path`, `None` once the file is gone.
+/// Only its own folder is read, for whether it is that folder's newest.
+pub(super) fn describe_file(
+    store: &Store,
+    path: &Path,
+    snapshot: &Snapshot,
+) -> io::Result<Option<ExternalSession>> {
+    let Some(transcript) = transcript_at(path) else {
+        return Ok(None);
+    };
+    let newest = path
+        .parent()
+        .and_then(|folder| fs::read_dir(folder).ok())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|file| transcript_at(&file.path()))
+        .max_by_key(|other| other.modified)
+        .is_none_or(|other| other.id == transcript.id || other.modified <= transcript.modified);
+    describe(store, &transcript, newest, snapshot).map(Some)
+}
+
+/// The top-level transcript at `path`, when it is one.
+fn transcript_at(path: &Path) -> Option<Transcript> {
+    if path.extension().is_none_or(|ext| ext != "jsonl") {
+        return None;
+    }
+
+    let id = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| is_session_id(stem))?
+        .to_owned();
+    let meta = fs::metadata(path).ok()?;
+    Some(Transcript {
+        id,
+        path: path.to_owned(),
+        modified: meta.modified().unwrap_or(UNIX_EPOCH),
+        created: meta.created().ok(),
+    })
 }
 
 /// The sessions named in `ids`, newest first.
