@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
 import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { overviewGroups, overviewSub, awaitsView, foundFor, mergeProjects, plainPath, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
+import { awaitsView, foundFor, mergeProjects, plainPath, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
+import { overviewGroups, overviewSub } from "../src/project/overview-state.ts";
 import type { RunningAgent, RunningRow } from "../src/agents/running-state.ts";
 
 const imported = [

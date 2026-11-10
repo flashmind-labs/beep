@@ -2,7 +2,8 @@ import { onPhone } from "../ui/platform.ts";
 // project/: the Projects page and one project's page (tasks, threads, runs,
 // file sync, custom agents, the agent bar). Entry: this file's view.
 // The Projects page: drawing it, and the project rows Home lists.
-import { filterProjects, whereRows, forgeLinks, projectLine, overviewGroups, overviewSub, REMOVE_PROJECT, type Project } from "./projects-state.ts";
+import { filterProjects, whereRows, forgeLinks, projectLine, REMOVE_PROJECT, type Project } from "./projects-state.ts";
+import { overviewGroups, overviewSub } from "./overview-state.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { openProjectMenu } from "./syncthing.ts";
 import { editorsFor } from "./editors.ts";
