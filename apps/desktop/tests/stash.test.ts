@@ -1,4 +1,4 @@
-import { answers, calls } from "./bar-env.ts";
+import { answers, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bindPromptStash } from "../src/chat/stash.ts";
@@ -8,11 +8,12 @@ const draft = (): StashMessage => ({ text: "Unsent draft", images: [], paths: ["
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 function composer(project: string, prepare: () => Promise<() => void> = async () => () => {}) {
-  let key: (e: KeyboardEvent) => void = () => {};
-  const root = { inert: false, querySelector: () => null, append() {} };
-  const field = { value: "Unsent draft", dataset: {}, isConnected: true, readOnly: false, closest: () => root, focus() {}, addEventListener(name: string, fn: (e: KeyboardEvent) => void) { if (name === "keydown") key = fn; } };
+  const root = document.createElement("form");
+  const field = document.createElement("textarea");
+  field.value = "Unsent draft";
+  root.inert = false;
+  root.append(field); document.body.append(root);
   let cleared = false;
-  Object.assign(document, { querySelectorAll: () => [], createElement: () => ({ content: { firstElementChild: { remove() {} } } }) });
   bindPromptStash(field as unknown as HTMLTextAreaElement, {
     project: () => project, hasAttachments: () => true, capture: async () => draft(),
     clear: () => { cleared = true; field.value = ""; }, prepare,
@@ -20,7 +21,7 @@ function composer(project: string, prepare: () => Promise<() => void> = async ()
   calls.length = 0;
   return {
     field, root, cleared: () => cleared,
-    async press(letter: string) { key({ key: letter, ctrlKey: true, preventDefault() {}, stopPropagation() {} } as KeyboardEvent); await settle(); await settle(); },
+    async press(letter: string) { field.dispatchEvent(new window.KeyboardEvent("keydown", { key: letter, ctrlKey: true, bubbles: true })); await settle(); await settle(); },
   };
 }
 
