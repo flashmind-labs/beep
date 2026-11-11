@@ -38,6 +38,26 @@ fn telemetry_does_not_invalidate_machine_metadata() {
     assert_eq!(shared.changes.borrow().machines, 2);
 }
 
+#[test]
+fn a_machine_connects_until_it_is_on_or_the_wait_passed() {
+    use super::{CONNECT_WAIT, Peer};
+    use beep_mesh::Device;
+    let mut peer = Peer::new(Device {
+        id: iroh::SecretKey::generate().public(),
+        name: "build-box".into(),
+        kind: DeviceKind::Node,
+        added_at_ms: 0,
+    });
+    assert!(!peer.connecting(), "nothing tried yet");
+    peer.connecting_since = Some(Instant::now());
+    assert!(peer.connecting());
+    peer.online = true;
+    assert!(!peer.connecting(), "on");
+    peer.online = false;
+    peer.connecting_since = Instant::now().checked_sub(CONNECT_WAIT);
+    assert!(!peer.connecting(), "not reached in time: offline");
+}
+
 /// Waits until `ok` holds for what the machines have reported.
 async fn settled(status: &Status, ok: impl Fn(&Status) -> bool) {
     let mut changes = status.changes();

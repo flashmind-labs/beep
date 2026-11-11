@@ -37,7 +37,8 @@ export function seed(state: Seeded, cached: CachedViews | null, dismissed: Set<n
   // Home, the pins, groups and sync come in one answer: none of them is in
   // before Home is.
   if (!state.home && cached.home) {
-    const kept = cached.home;
+    // Nothing kept is live yet: each machine connects until Home is read.
+    const kept = { ...cached.home, machines: cached.home.machines?.map(m => ({ ...m, online: false, connecting: true })) ?? null };
     state.home = kept.updates ? { ...kept, updates: kept.updates.filter((u: UpdateRow) => !dismissed.has(u.id)) } : kept;
     if (cached.top) state.top = cached.top;
     if (state.groups === undefined && cached.groups !== undefined) state.groups = cached.groups;

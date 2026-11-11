@@ -21,7 +21,8 @@ export interface LogShell {
   asking: boolean;
   error: string | null;
   external: boolean;
-  note: { text: string; error: boolean } | null;
+  /// `connecting`: the log is what this device kept, and its machine has not answered yet.
+  note: { text: string; tone: "error" | "muted" | "connecting" } | null;
   retry: boolean;
 }
 
@@ -37,7 +38,7 @@ export function AgentLogShell({ value, log }: { value: LogShell; log: LogWindow 
       {value.plan.length > 0 && <><div className="sec">Plan</div><div className="plan">{value.plan.map((item, index) => <div className="row" key={index}><span className="dmark">{item.status === "completed" ? <span className="dok"><Icon name="check" /></span> : item.status === "in_progress" ? value.asking ? <span className="ddot hot" /> : <Spinner /> : <span className="ddot off" />}</span><span className={item.status === "pending" ? "dmut" : undefined}>{item.content}</span></div>)}</div></>}
     </div>}
     {value.error && (value.external ? <div className="derr" data-log-part="error">{value.error}</div> : <div className="derrcard" data-log-part="error"><b>The turn did not finish</b><span>{value.error}</span></div>)}
-    {value.note && <div className={value.note.error ? "derr" : "dmuted"} data-log-part="note">{value.note.text}</div>}
+    {value.note && <div className={value.note.tone === "error" ? "derr" : value.note.tone === "connecting" ? "dmuted dlate" : "dmuted"} data-log-part="note">{value.note.text}</div>}
     {value.retry && <button className="dbtn quiet" id="agresume" data-log-part="retry">Retry</button>}
   </div><button className="dagjump" id="agjump" hidden>Jump to latest<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M6 13l6 6 6-6" /></svg></button></>;
 }

@@ -138,7 +138,7 @@ function page(home: HomeView) {
   const shownTabs = tabs.filter(t => t.on);
   if (homeTab === "machines" && machines) readSyncDetails();
   const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
-  const offline = machines?.filter(m => m.can_host !== false && !m.online && Date.now() - m.seen_at < OFFLINE_NOTE_MS).map(m => m.name) ?? [];
+  const offline = machines?.filter(m => m.can_host !== false && !m.online && !m.connecting && Date.now() - m.seen_at < OFFLINE_NOTE_MS).map(m => m.name) ?? [];
 
   return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),

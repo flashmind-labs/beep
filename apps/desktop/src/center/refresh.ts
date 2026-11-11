@@ -17,7 +17,7 @@ import { reloadGroup, reloadChats, drawSide } from "./sidebar.ts";
 import { loadOverview } from "../project/projects.ts";
 import { liveMode, runs } from "../project/sections.ts";
 import { drawProjects } from "../project/page.ts";
-import type { MacControl } from "../machines/machine-state.ts";
+import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { followSync, readSync } from "../project/syncpage.ts";
 import { perfFresh } from "../ui/perf.ts";
@@ -73,6 +73,7 @@ async function readHome(): Promise<void> {
         const was = onlineMachines(state.home);
         lastRead = next;
         state.home = shown = telemetry ? applyTelemetry(next, telemetry) : next;
+        keepConnecting(next.machines);
         if (onlineMachines(next) !== was) invoke<AgentHost[]>("agent_hosts").then(preloadModels).catch(e => console.warn("agent hosts:", e));
         const live = new Set(next.needs_you.map(cardKey));
         for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);

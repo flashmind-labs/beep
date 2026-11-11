@@ -151,6 +151,9 @@ struct MachineCard {
     id: String,
     name: String,
     online: bool,
+    /// Not on yet, and the mesh is still trying to reach it after it opened
+    /// or the link went.
+    connecting: bool,
     /// In the mesh, or one only the account lists, reached through the server.
     joined: bool,
     /// In milliseconds since the Unix epoch.
@@ -390,13 +393,13 @@ async fn read_home(app: &AppHandle) -> Result<HomeView> {
         projects,
     })?;
 
+    let connecting = fleet.status().connecting();
+
     for card in view.machines.iter_mut().flatten() {
+        let id = card.id.parse::<EndpointId>().ok();
+        card.connecting = id.is_some_and(|id| connecting.contains(&id));
         card.joined = fleet.member(&card.id).is_some();
-        card.can_host = card
-            .id
-            .parse::<EndpointId>()
-            .ok()
-            .is_none_or(|id| !fleet.mesh().is_some_and(|mesh| mesh.is_observer(id)));
+        card.can_host = id.is_none_or(|id| !fleet.mesh().is_some_and(|mesh| mesh.is_observer(id)));
     }
 
     cache_view(&cache, View::Home, &view);
@@ -549,6 +552,7 @@ fn machine_cards(
                 id: machine.id,
                 name: machine.name,
                 online: machine.online,
+                connecting: false,
                 joined: true,
                 version: machine.version,
                 env: machine.env,

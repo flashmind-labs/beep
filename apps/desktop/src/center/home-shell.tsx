@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { plural } from "../ui/format.ts";
 import { IC } from "../ui/icons.tsx";
-import { machineDisk, type MachineCard, type MacRow } from "../machines/machine-state.ts";
+import { machineDisk, machineDot, type MachineCard, type MacRow } from "../machines/machine-state.ts";
 
 export type HomeTab = "overview" | "git" | "machines";
 
@@ -25,10 +25,9 @@ export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, error
   return <>
     {machines && <div className="cc-mstrip">{machines.map(machine => {
       const disk = machineDisk(machine).text;
-      const now = machine.online ? (machine.can_host === false ? "controller" : machine.agents ? plural(machine.agents, "agent", "agents") : "idle") : "offline";
-      const dot = !machine.online ? " off" : machine.agents ? " busy" : "";
-      const title = !machine.online ? "Offline" : machine.agents ? `Online · ${plural(machine.agents, "agent", "agents")} running` : "Online";
-      return <button key={machine.id} type="button" className={`m${machine.online ? "" : " off"}`} onClick={() => jump(`m-${machine.id}`)} onContextMenu={event => menu(machine, event.nativeEvent)}><span className={`ddot${dot}`} title={title} /><b>{machine.name}</b><span>{disk === "–" ? now : `${now} · ${disk}`}</span></button>;
+      const now = machine.online ? (machine.can_host === false ? "controller" : machine.agents ? plural(machine.agents, "agent", "agents") : "idle") : machine.connecting ? "connecting" : "offline";
+      const dot = machineDot(machine);
+      return <button key={machine.id} type="button" className={`m${machine.online ? "" : " off"}`} onClick={() => jump(`m-${machine.id}`)} onContextMenu={event => menu(machine, event.nativeEvent)}><span className={dot.className} title={dot.title} /><b>{machine.name}</b><span>{disk === "–" || machine.connecting ? now : `${now} · ${disk}`}</span></button>;
     })}{mac && <div className="m off" title={`This computer: ${mac.title}`}><span className="ddot off" /><b>{mac.name}</b><span className={mac.bad ? "bad" : ""}>{mac.state}</span>{mac.action && <button type="button" className="dbtn quiet small" onClick={event => { event.stopPropagation(); useMac(); }}>{mac.action}</button>}</div>}<button type="button" className="dbtn quiet small" onClick={addMachine} dangerouslySetInnerHTML={{ __html: `${IC.plus} Add a machine` }} /></div>}
     <div className="cc-tabs" role="tablist">{tabs.map(tab =>
       <button key={tab.key} type="button" role="tab" aria-selected={tab.key === selected} onClick={() => open(tab.key)}>

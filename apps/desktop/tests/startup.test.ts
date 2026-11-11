@@ -13,7 +13,7 @@ test("serverless startup shows Home before any machine answers", () => {
 
   const cached: HomeView = { machines: [], running: [], needs_you: [], coming_up: null, updates: null, projects: [] };
   assert.equal(seed(state, { home: cached }, new Set()), true);
-  assert.equal(homeForDisplay(state.home, false), cached);
+  assert.deepEqual(homeForDisplay(state.home, false), cached);
 });
 
 test("a configured server keeps its initial connection state", () => {

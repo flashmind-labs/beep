@@ -467,6 +467,8 @@ function agentDelay() {
 function shownFromModel(o: OpenAgent) {
   AG.sig = `pushed ${++AG.polls}`;
   AG.changed = Date.now();
+  // Live: the connecting line under the kept log goes.
+  drawRest(true);
   finishFirstRead(o, "ok");
   if (AG.page) void readUsage(o, AG.page);
 }
