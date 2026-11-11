@@ -71,3 +71,22 @@ fn a_machine_the_server_does_not_list_counts_as_dropped() {
     assert!(!dropped(&Err(DesktopError::Api(ApiError::Internal {}))));
     assert!(!dropped(&Err(DesktopError::NoServer)));
 }
+
+#[test]
+fn one_machines_change_replaces_only_its_rows() {
+    let held = Held::<(String, u32)>::default();
+    held.keep(vec![
+        ("laptop".into(), 1),
+        ("studio".into(), 1),
+        ("studio".into(), 2),
+    ]);
+    assert!(held.was_read());
+
+    held.replace(vec![("studio".into(), 3)], |(machine, _)| {
+        machine == "studio"
+    });
+    assert_eq!(held.last(), [("laptop".into(), 1), ("studio".into(), 3)]);
+
+    held.stale();
+    assert!(!held.was_read());
+}

@@ -174,8 +174,9 @@ impl SubscriptionWorker {
                             if !initial { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
                             if !initial && snapshot.topic.name() == "sync" {
                                 super::super::event_views::sync_changed(app.clone(), super::super::event_views::moving(&snapshot.value));
-                            } else if !initial && (machine == fleet.me || matches!(snapshot.topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves")) {
-                                super::super::event_views::changed(app.clone(), snapshot.topic.clone());
+                            } else if !initial && snapshot.topic.name() != "agents" && (machine == fleet.me || matches!(snapshot.topic.name(), "agent" | "processes" | "terminals" | "moves")) {
+                                // "agents" draws once its machine's rows are listed again, in `invalidate`.
+                                super::super::event_views::sessions_changed(app.clone(), snapshot.topic.clone());
                             }
 
                             if (machine != fleet.me || !controller_topic(&snapshot.topic))

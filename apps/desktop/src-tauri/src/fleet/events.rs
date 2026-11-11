@@ -1420,6 +1420,14 @@ async fn run(
 /// or the processes leave the session lists as they are; a live report updates its session.
 fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
     match topic.name() {
+        // One machine's list changed: its rows alone are listed again, then Home draws.
+        "agents" if value.is_some() => {
+            let (app, topic) = (app.clone(), topic.clone());
+            tauri::async_runtime::spawn(async move {
+                crate::agents::sessions::machine_changed(&app, machine).await;
+                super::event_views::sessions_changed(app, topic);
+            });
+        }
         name if lists_sessions_again(name) => {
             let outside = app.state::<crate::machines::list::Outside>();
             outside.sessions.stale();

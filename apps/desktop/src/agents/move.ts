@@ -1,5 +1,5 @@
 import { moveViews, type MoveStatus, type MoveView } from "./move-view.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { refreshTopicSubscriptions, subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Moving the open session to another machine: the machine name in the head is
 // a menu, a turn that runs waits (or is stopped), steps tick above the
 // composer, and the lists say "laptop to studio". The records are in the
@@ -7,12 +7,12 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 
 import { type AgentHost, type AgentRow, AG } from "./agents.ts";
 import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
-import { machineNames, moveStore, nameOf, stateOf } from "./move-store.ts";
+import { machineNames, moveStore, nameOf, onMoves, stateOf } from "./move-store.ts";
 import { loadSessions } from "./sessions.ts";
 import { S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
-import { latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
+import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
 
 const UI = { targets: [] as MoveTarget[], open: false, loading: false, error: "", errorSession: "" };
@@ -60,7 +60,17 @@ export function drawMove() {
   });
 }
 
-subscribeChanges([topic("moves"), topic("agents")], { deliver: "latest", receive: () => poll() }, { when: () => !!AG.open && S.view === "agent" && paneShown() });
+// The open session follows its move once its new machine lists it. Only while it has one
+// do the session lists matter: any machine's session changes would read every machine.
+const viewing = () => !!AG.open && S.view === "agent" && paneShown();
+const following = () => {
+  const s = AG.page?.session, phase = s ? stateOf(s.id)?.phase : null;
+  return !!s && here(s)?.from === s.machine_id && phase !== "failed" && phase !== "cancelled";
+};
+// A move is rare and reads at once; the sessions' frequent changes matter only while one runs.
+subscribeChanges(topic("moves"), { deliver: "latest", receive: () => poll() }, { when: viewing });
+subscribeChanges(topic("agents"), { deliver: "latest", receive: () => poll() }, { when: () => viewing() && following(), wait: AMBIENT_MS });
+onMoves(refreshTopicSubscriptions);
 async function poll() {
   try { await loadSessions(); } catch (e) { console.warn("sessions not read after a move", e); }
   drawMove();

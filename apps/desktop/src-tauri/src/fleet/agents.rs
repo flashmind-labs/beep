@@ -154,6 +154,27 @@ pub(crate) async fn peer_sessions(fleet: &Fleet) -> Vec<MachineSession> {
     .await
 }
 
+/// Beep's sessions on `machine` alone, for its change to replace only its
+/// rows; `None` when it could not be listed, so the rows held stay.
+pub(crate) async fn sessions_of(fleet: &Fleet, machine: EndpointId) -> Option<Vec<MachineSession>> {
+    let client = fleet.client(machine).await.ok()?;
+    let host = fleet.host_of(machine);
+    let linked = timeout(
+        MACHINE_LIMIT,
+        listing::listed_sessions(&client, &host, true),
+    )
+    .await
+    .ok()??;
+    fleet.parents.note(&host.id, &linked);
+    Some(
+        linked
+            .into_iter()
+            .filter(|linked| !linked.reviewer)
+            .map(|linked| linked.session)
+            .collect(),
+    )
+}
+
 /// Beep's sessions on one machine, noting which an agent started. Its
 /// reviewers are only noted: they list under their parent, not as running.
 async fn listed(fleet: &Fleet, client: &PeerClient, host: &Host) -> Vec<MachineSession> {

@@ -21,6 +21,7 @@ use beep_proto::{
 use iroh::EndpointId;
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     fs,
     future::Future,
     path::PathBuf,
@@ -197,6 +198,28 @@ impl<T: Clone + Send + 'static> Held<T> {
         self.last()
     }
 
+    /// Replaces the rows `of` picks with `rows`, for a change that one machine
+    /// sent; the others stay as held.
+    pub(crate) fn replace(&self, rows: Vec<T>, of: impl Fn(&T) -> bool) {
+        let mut held = self.list.lock().unwrap_or_else(PoisonError::into_inner);
+        held.retain(|row| !of(row));
+        held.extend(rows);
+    }
+
+    /// Whether the list was read since it started or was last made stale.
+    pub(crate) fn was_read(&self) -> bool {
+        self.read_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+    }
+
+    /// Keeps `listed`, read by the caller.
+    pub(crate) fn keep(&self, listed: Vec<T>) {
+        *self.read_at.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+        *self.list.lock().unwrap_or_else(PoisonError::into_inner) = listed;
+    }
+
     /// The next `refreshed_after` reads again, however recent the last read.
     pub(crate) fn stale(&self) {
         *self.read_at.lock().unwrap_or_else(PoisonError::into_inner) = None;
@@ -247,6 +270,8 @@ pub struct Outside {
     traffic: Arc<Held<MachineTraffic>>,
     updatable: Arc<Held<UpdatableMachine>>,
     pub(crate) hosts: Arc<Held<AgentHost>>,
+    /// Beep's sessions on this Mac, from the node in this process.
+    pub(crate) local: Arc<Held<MachineSession>>,
     /// Beep's sessions on the other machines of the mesh, and the server's.
     pub(crate) sessions: Arc<Held<MachineSession>>,
     /// The sessions started outside Beep, found by scanning every machine.
@@ -257,6 +282,9 @@ pub struct Outside {
     pub(crate) server_terminals: Arc<Held<Terminal>>,
     /// The checkouts each machine of the mesh named last.
     pub(crate) found: FoundOn,
+    /// The machines whose sessions are listed again now, and whether another
+    /// change came meanwhile.
+    pub(crate) relisting: Mutex<HashMap<String, bool>>,
 }
 
 /// What each machine named last when asked for its checkouts.

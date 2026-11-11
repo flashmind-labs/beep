@@ -68,6 +68,18 @@ pub async fn linked_sessions<S: Sessions + ?Sized>(
     host: &Host,
     reviewers: bool,
 ) -> Vec<Linked> {
+    listed_sessions(node, host, reviewers)
+        .await
+        .unwrap_or_default()
+}
+
+/// `linked_sessions`, or `None` when the node's list failed, so a caller that
+/// keeps what it listed before can tell a failure from a machine with none.
+pub async fn listed_sessions<S: Sessions + ?Sized>(
+    node: &S,
+    host: &Host,
+    reviewers: bool,
+) -> Option<Vec<Linked>> {
     let listed = async {
         if reviewers {
             sessions::list_all(node).await
@@ -77,21 +89,23 @@ pub async fn linked_sessions<S: Sessions + ?Sized>(
     };
 
     match timeout(NODE_LIMIT, listed).await {
-        Ok(Ok(listed)) => listed
-            .into_iter()
-            .map(|info| Linked {
-                parent: info.parent.clone(),
-                reviewer: info.reviewer,
-                session: beep_session(host, info),
-            })
-            .collect(),
+        Ok(Ok(listed)) => Some(
+            listed
+                .into_iter()
+                .map(|info| Linked {
+                    parent: info.parent.clone(),
+                    reviewer: info.reviewer,
+                    session: beep_session(host, info),
+                })
+                .collect(),
+        ),
         Ok(Err(e)) => {
             tracing::warn!("agent sessions not listed; node={} error={e:#}", host.id);
-            Vec::new()
+            None
         }
         Err(_) => {
             tracing::warn!("agent sessions not listed in time; node={}", host.id);
-            Vec::new()
+            None
         }
     }
 }

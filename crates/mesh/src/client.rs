@@ -43,23 +43,45 @@ struct CallTiming<'a> {
     phase_started: Instant,
     phase: &'static str,
     outcome: &'static str,
+    /// A read served from a subscription: logged only when slow.
+    quiet: bool,
+}
+
+fn next_call() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl<'a> CallTiming<'a> {
     fn new(protocol: &'a str, peer: Option<EndpointId>) -> Self {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let now = Instant::now();
         let timing = Self {
-            id: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            id: next_call(),
             protocol,
             peer,
             started: now,
             phase_started: now,
             phase: "open",
             outcome: "cancelled",
+            quiet: false,
         };
         tracing::info!(call = timing.id, protocol, ?peer, "peer call started");
         timing
+    }
+
+    /// Times a read of a subscription's current value, which usually takes no time.
+    fn snapshot(peer: Option<EndpointId>) -> Self {
+        let now = Instant::now();
+        Self {
+            id: next_call(),
+            protocol: beep_proto::node::events::PROTOCOL,
+            peer,
+            started: now,
+            phase_started: now,
+            phase: "snapshot",
+            outcome: "cancelled",
+            quiet: true,
+        }
     }
 }
 
@@ -70,9 +92,11 @@ impl Drop for CallTiming<'_> {
         metrics::histogram!("beep_peer_call_seconds", "protocol" => self.protocol.to_owned(), "outcome" => self.outcome).record(elapsed.as_secs_f64());
         metrics::histogram!("beep_peer_phase_seconds", "protocol" => self.protocol.to_owned(), "phase" => self.phase, "outcome" => self.outcome)
             .record(self.phase_started.elapsed().as_secs_f64());
-        tracing::info!(call = self.id, protocol = self.protocol, peer = ?self.peer,
-            phase = self.phase, outcome = self.outcome, elapsed_ms = elapsed.as_millis(),
-            phase_ms = self.phase_started.elapsed().as_millis(), "peer call ended");
+        if !self.quiet {
+            tracing::info!(call = self.id, protocol = self.protocol, peer = ?self.peer,
+                phase = self.phase, outcome = self.outcome, elapsed_ms = elapsed.as_millis(),
+                phase_ms = self.phase_started.elapsed().as_millis(), "peer call ended");
+        }
         if elapsed >= Duration::from_secs(1) {
             tracing::warn!(
                 call = self.id,
@@ -297,8 +321,7 @@ impl PeerClient {
     /// Reads from a live subscription when one owns this resource.
     pub async fn snapshot(&self, read: Read) -> Option<Result<Value, MeshError>> {
         let snapshots = self.snapshots.as_ref()?;
-        let mut timing = CallTiming::new("events/1", self.peer);
-        timing.phase = "snapshot";
+        let mut timing = CallTiming::snapshot(self.peer);
         let value = snapshots.snapshot(read).await;
         timing.outcome = match &value {
             Some(Ok(_)) => "ok",
