@@ -9,6 +9,8 @@ Other apps have independent versions and changelogs:
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-11
+
 ### Fixed
 
 - Desktop: Codex installed with its own installer shows its updates and

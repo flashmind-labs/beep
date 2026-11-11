@@ -4,6 +4,8 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-11
+
 ### Fixed
 
 - Node: Codex installed with its own installer shows its updates and
