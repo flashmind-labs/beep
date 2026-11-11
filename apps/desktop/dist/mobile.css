@@ -40,8 +40,10 @@ body.mobile.mb-full:not(.mb-kbd) .cwin { padding-bottom: env(safe-area-inset-bot
 /* With the keyboard up, the window is the part the keyboard leaves visible. */
 body.mobile.mb-kbd .cwin { position: fixed; left: 0; right: 0; top: var(--mb-vv-top, 0); height: var(--mb-vv-height, 100dvh) }
 
-/* Touch targets: 44 px, and a 16 px field so iOS does not zoom in. */
-body.mobile :is(.dbtn, .cc-top button, .cc-menu button, .cc-menu [role="menuitem"], .cc-tabs button, .cc-mstrip > button.m, .cc-si, .pj-li, .tl-it, .tl-m h5 .dbtn, .rp-row) { min-height: 44px }
+/* Rows and menus are 44 px touch targets; buttons stay compact. A 16 px field keeps iOS from zooming in. */
+body.mobile :is(.cc-menu button, .cc-menu [role="menuitem"], .cc-tabs button, .cc-mstrip > button.m, .cc-si, .pj-li, .tl-it, .rp-row) { min-height: 44px }
+body.mobile .dbtn { min-height: 32px; padding: 0 12px; font-size: 14px }
+body.mobile .cc-top button { min-height: 36px }
 body.mobile .cc-row { min-height: 46px }
 body.mobile :is(input, textarea, select) { font-size: 16px }
 body.mobile .cc-comp input { font-size: 16px }
@@ -96,7 +98,7 @@ body.mobile .pj-org h3.gp .pj-fold { display: flex }
 body.mobile .pj-org h3.gp .gp-paths { display: block; margin-top: 2px }
 body.mobile .pj-org h3.gp .gp-acts { display: flex; margin: 4px 0 0 -9px }
 body.mobile #sec-elsewhere .cc-gr.it .r { grid-column: 2 / -1; flex-wrap: wrap }
-body.mobile .cc-top .tools .pj-tool { width: 44px; padding: 0; gap: 0; justify-content: center; font-size: 0 }
+body.mobile .cc-top .tools .pj-tool { width: 36px; padding: 0; gap: 0; justify-content: center; font-size: 0 }
 
 /* Coding agents: the page header has the title and New, so the list's own header goes. */
 body.mobile .dhead:has(> #agNew) { display: none }
