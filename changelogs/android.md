@@ -4,6 +4,8 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-11
+
 ### Added
 
 - Android: a message sent to a session whose machine cannot be reached waits on
@@ -105,3 +107,4 @@ Earlier releases predate this changelog.
 - Android: agent sessions followed in the background send nothing while
   the app is in the background and catch up once when it returns, and the
   palette and notifications check the mesh only when it changes.
+
