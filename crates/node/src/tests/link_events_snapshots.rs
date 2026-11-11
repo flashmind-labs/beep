@@ -303,3 +303,13 @@ fn outside_session_lists_wait_longer_between_reads() {
     assert_eq!(folders.gap(), SCAN_GAP);
     assert_eq!(beep.gap(), READ_GAP);
 }
+
+/// A desktop up to 0.8.3 kept the found checkouts live, and the node looked
+/// at every checkout again after each session write.
+#[test]
+fn found_checkouts_kept_live_wait_a_minute_between_reads() {
+    let found = Source::Read(Read::Sessions(Box::new(SessionsRequest::Folders {
+        limit: 100,
+    })));
+    assert_eq!(found.gap(), FOLDERS_GAP);
+}

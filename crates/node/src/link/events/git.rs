@@ -48,6 +48,7 @@ pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
     )
     .await
     .context("finding Git metadata timed out")?;
+    crate::run::process::finished("git", &output);
     let output = match output {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         other => other?,

@@ -60,6 +60,42 @@ async fn a_subscribed_session_read_uses_its_snapshot_without_opening_an_rpc() {
     );
 }
 
+/// A reader that would keep every read live: found checkouts must not use it.
+struct EveryRead;
+
+impl SnapshotReader for EveryRead {
+    fn snapshot(&self, read: Read) -> SnapshotFuture<'_> {
+        Box::pin(async move { panic!("{read:?} was kept live") })
+    }
+}
+
+#[tokio::test]
+async fn found_checkouts_are_asked_once_and_never_kept_live() {
+    use beep_proto::node::{
+        Open, Opened,
+        agent::{SessionsReply, SessionsRequest},
+    };
+
+    let node: SessionFn = Arc::new(|mut tx, mut rx| {
+        Box::pin(async move {
+            rx.recv::<Open>().await.unwrap().unwrap();
+            tx.send(&Opened::Ready {}).await.unwrap();
+            let asked = rx.recv::<SessionsRequest>().await.unwrap();
+            assert_eq!(asked, Some(SessionsRequest::Folders { limit: 7 }));
+            tx.send(&SessionsReply::Folders {
+                folders: Vec::new(),
+            })
+            .await
+            .unwrap();
+        })
+    });
+    let client = PeerClient::local(node).with_snapshot_reader(Arc::new(EveryRead));
+    let found = crate::machine::sessions::found_folders(&client, 7)
+        .await
+        .unwrap();
+    assert!(found.is_empty());
+}
+
 fn link(e: impl StdError + Send + Sync + 'static) -> MeshError {
     MeshError::Link(anyhow::Error::new(e))
 }

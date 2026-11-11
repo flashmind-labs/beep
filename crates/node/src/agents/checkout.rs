@@ -424,8 +424,9 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
-        .output()
-        .context("running git")?;
+        .output();
+    crate::run::process::finished("git", &out);
+    let out = out.context("running git")?;
     if !out.status.success() {
         let said = String::from_utf8_lossy(&out.stderr);
         bail!(

@@ -574,11 +574,9 @@ impl Repo {
     }
 
     pub(super) fn run(&self, args: &[&str]) -> Result<Output> {
-        let output = self
-            .git()
-            .args(args)
-            .output()
-            .context("running git, which a git repository needs to sync")?;
+        let output = self.git().args(args).output();
+        crate::run::process::finished("git", &output);
+        let output = output.context("running git, which a git repository needs to sync")?;
         if !output.status.success() {
             bail!(
                 "git {} failed: {}",

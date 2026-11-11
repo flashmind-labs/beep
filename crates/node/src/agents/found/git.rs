@@ -1,12 +1,33 @@
 //! The checkout a folder is in, asked of git: its main folder (a worktree's
 //! is the checkout it was added to, a subfolder's the top) and its `origin`
-//! remote.
+//! remote, and when its checked-out commit was made.
+//!
+//! Folder listings ask this of hundreds of folders at a time, so answers are
+//! kept while the files git read for them keep their stamps: a commit, a
+//! branch switch or a new remote rewrites one of them. A folder with no
+//! `.git` above it is in no checkout, and git is not asked at all.
 
 use crate::agents::work_folder::git;
 use crate::files::paths;
+use crate::lock;
 use beep_proto::node::agent::WorkPlace;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant, SystemTime},
+};
+
+/// How long an answer is kept while its files keep their stamps, for what
+/// they do not show, such as a remote set in an included config file.
+const KEPT_FOR: Duration = Duration::from_secs(10 * 60);
+/// The most folders kept for each question; a full cache is emptied.
+const MAX_KEPT: usize = 1024;
+
+static CHECKOUTS: LazyLock<Kept<Option<Checkout>>> = LazyLock::new(Kept::default);
+static COMMITS: LazyLock<Kept<Option<u64>>> = LazyLock::new(Kept::default);
 
 /// A git checkout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,7 +39,15 @@ pub(crate) struct Checkout {
 }
 
 /// The checkout `dir` is in; `None` when it is in none or git is missing.
+/// Kept while the checkout's git folder stays where it is and its config
+/// keeps its stamp.
 pub(crate) fn checkout(dir: &Path) -> Option<Checkout> {
+    let files = GitFiles::above(dir)?;
+    let stamp = files.stamp(&[files.common.join("config")]);
+    CHECKOUTS.get(dir, stamp, || ask_checkout(dir))
+}
+
+fn ask_checkout(dir: &Path) -> Option<Checkout> {
     let said = git(dir, &["rev-parse", "--show-toplevel", "--git-common-dir"])?;
     let mut lines = said.lines();
     let top = PathBuf::from(lines.next()?.trim());
@@ -59,12 +88,17 @@ pub(super) fn origin(root: &Path) -> String {
 }
 
 /// When the commit checked out at `root` was made, Unix seconds; `None`
-/// before the first commit or when git is missing.
+/// before the first commit or when git is missing. Kept while `HEAD` and the
+/// ref it names keep their stamps.
 pub(crate) fn last_commit(root: &Path) -> Option<u64> {
-    git(root, &["log", "-1", "--format=%ct"])?
-        .trim()
-        .parse()
-        .ok()
+    let files = GitFiles::above(root)?;
+    let stamp = files.stamp(&files.head_files());
+    COMMITS.get(root, stamp, || {
+        git(root, &["log", "-1", "--format=%ct"])?
+            .trim()
+            .parse()
+            .ok()
+    })
 }
 
 /// The checkout's main folder: the one holding the shared `.git`, else the
@@ -88,64 +122,150 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
     }
 }
 
-#[cfg(test)]
-pub(super) mod tests {
-    use super::*;
-    use std::fs;
 
-    pub(in crate::agents::found) use crate::agents::checkout::tests::{has_git, run};
+/// Where git keeps a checkout's files, found without running git.
+#[derive(Debug)]
+struct GitFiles {
+    /// This checkout's git folder: `.git`, or the one a `.git` file names.
+    git: PathBuf,
+    /// The folder shared by its worktrees, with the config and refs.
+    common: PathBuf,
+}
 
-    #[test]
-    fn a_main_folder_comes_from_the_shared_git_dir() {
-        let top = Path::new("/home/user/proj/.worktrees/fix");
-        assert_eq!(
-            main_folder(top, top, Path::new("/home/user/proj/.git")),
-            Path::new("/home/user/proj")
-        );
-        assert_eq!(
-            main_folder(top, top, Path::new("/home/user/proj/.git/modules/sub")),
-            top
-        );
+impl GitFiles {
+    /// The files of the nearest `.git` at or above `dir`; `None` when there
+    /// is none, so `dir` is in no checkout.
+    fn above(dir: &Path) -> Option<Self> {
+        let (top, dot) = dir
+            .ancestors()
+            .map(|top| (top, top.join(".git")))
+            .find(|(_, dot)| fs::symlink_metadata(dot).is_ok())?;
+        let git = match fs::read_to_string(&dot) {
+            // A worktree or a submodule: `gitdir: <folder>`.
+            Ok(text) => text
+                .trim()
+                .strip_prefix("gitdir:")
+                .map_or_else(|| dot.clone(), |named| top.join(named.trim())),
+            Err(_) => dot,
+        };
+        let common = match fs::read_to_string(git.join("commondir")) {
+            Ok(text) => git.join(text.trim()),
+            Err(_) => git.clone(),
+        };
+        Some(Self { git, common })
     }
 
-    #[test]
-    fn subfolders_and_worktrees_lead_to_the_checkout() {
-        if !has_git() {
-            eprintln!("skipped: no git");
-            return;
-        }
+    /// `HEAD`, the ref it names and the shared ref stores: a commit, a branch
+    /// switch or a fetch rewrites one of them.
+    fn head_files(&self) -> Vec<PathBuf> {
+        let head = self.git.join("HEAD");
+        let named = fs::read_to_string(&head).ok().and_then(|text| {
+            text.trim()
+                .strip_prefix("ref:")
+                .map(|name| self.common.join(name.trim()))
+        });
+        [
+            Some(head),
+            named,
+            Some(self.common.join("packed-refs")),
+            Some(self.common.join("reftable").join("tables.list")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
 
-        let root = tempfile::tempdir().expect("a temp folder");
-        fs::create_dir_all(root.path().join("proj")).expect("a folder");
-        let repo = paths::canonicalize(root.path().join("proj")).expect("a real path");
-        run(&repo, &["init", "-q"]);
-        run(
-            &repo,
-            &[
-                "remote",
-                "add",
-                "origin",
-                "https://example.com/org/proj.git",
-            ],
-        );
-        run(&repo, &["commit", "-q", "--allow-empty", "-m", "start"]);
-        fs::create_dir_all(repo.join("src/deep")).expect("folders");
-        run(&repo, &["worktree", "add", "-q", ".worktrees/fix"]);
-        for dir in [
-            repo.clone(),
-            repo.join("src/deep"),
-            repo.join(".worktrees/fix"),
-        ] {
-            let found = checkout(&dir).expect("a checkout");
-            assert_eq!(found.root, repo, "from {}", dir.display());
-            assert_eq!(found.origin, "https://example.com/org/proj.git");
-        }
-        let plain = root.path().join("plain");
-        fs::create_dir_all(&plain).expect("a folder");
-        // A temp folder may sit inside a checkout on some machines; only a
-        // folder git calls outside any is checked.
-        if git(&plain, &["rev-parse", "--show-toplevel"]).is_none() {
-            assert_eq!(checkout(&plain), None);
+    fn stamp(&self, files: &[PathBuf]) -> Stamp {
+        Stamp {
+            git: self.git.clone(),
+            files: files.iter().map(|file| FileStamp::of(file)).collect(),
         }
     }
 }
+
+/// Where the git folder an answer came from is, and the state of its files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stamp {
+    git: PathBuf,
+    files: Vec<Option<FileStamp>>,
+}
+
+/// A file's time, size and, where there is one, inode: git writes refs and
+/// `HEAD` by renaming a new file over the old, so the inode changes even
+/// within one tick of a coarse clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    modified: Option<SystemTime>,
+    len: u64,
+    inode: u64,
+}
+
+impl FileStamp {
+    fn of(file: &Path) -> Option<Self> {
+        let meta = fs::metadata(file).ok()?;
+        #[cfg(unix)]
+        let inode = std::os::unix::fs::MetadataExt::ino(&meta);
+        #[cfg(not(unix))]
+        let inode = 0;
+        Some(Self {
+            modified: meta.modified().ok(),
+            len: meta.len(),
+            inode,
+        })
+    }
+}
+
+/// Answers by folder, each with the stamp of the files it came from. A
+/// failed answer is kept too, so a folder git cannot read is asked again
+/// only once its files change.
+struct Kept<T> {
+    entries: Mutex<HashMap<PathBuf, Entry<T>>>,
+}
+
+struct Entry<T> {
+    stamp: Stamp,
+    at: Instant,
+    value: T,
+}
+
+impl<T> Default for Kept<T> {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::default(),
+        }
+    }
+}
+
+impl<T: Clone> Kept<T> {
+    /// The answer kept for `key` while its files still have `stamp`, else
+    /// what `ask` says now, kept. The lock is not held while `ask` runs.
+    fn get(&self, key: &Path, stamp: Stamp, ask: impl FnOnce() -> T) -> T {
+        if let Some(entry) = lock(&self.entries).get(key)
+            && entry.stamp == stamp
+            && entry.at.elapsed() < KEPT_FOR
+        {
+            return entry.value.clone();
+        }
+
+        let value = ask();
+        let mut entries = lock(&self.entries);
+
+        if entries.len() >= MAX_KEPT {
+            entries.clear();
+        }
+
+        entries.insert(
+            key.to_owned(),
+            Entry {
+                stamp,
+                at: Instant::now(),
+                value: value.clone(),
+            },
+        );
+        value
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/agents_found_git.rs"]
+pub(super) mod tests;

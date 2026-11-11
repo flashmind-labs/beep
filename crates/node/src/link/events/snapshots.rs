@@ -16,6 +16,10 @@ const AGENT_GAP: Duration = Duration::from_millis(100);
 /// disk, and change on every line a running agent writes; they only start or
 /// end sessions, so they wait longer between reads.
 const SCAN_GAP: Duration = Duration::from_secs(2);
+/// The checkouts sessions worked in: a whole look runs git for every folder
+/// and only changes when a session starts in a new one. Desktops up to 0.8.3
+/// kept this list live after the Add a project sheet asked once.
+const FOLDERS_GAP: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, PartialEq)]
 enum Source {
@@ -38,6 +42,11 @@ impl Source {
                 ) =>
             {
                 SCAN_GAP
+            }
+            Self::Read(Read::Sessions(request))
+                if matches!(request.as_ref(), SessionsRequest::Folders { .. }) =>
+            {
+                FOLDERS_GAP
             }
             _ => READ_GAP,
         }
