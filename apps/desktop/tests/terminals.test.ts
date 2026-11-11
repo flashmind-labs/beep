@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splice, readTermMessage, describeMessage } from "../src/terminals/terminals.ts";
+import { splice, readTermMessage, describeMessage, lazyScreen, type Screen } from "../src/terminals/terminals.ts";
 
 test("output already on the screen is skipped, and a gap is noted", () => {
   // Fresh: everything from the start.
@@ -33,4 +33,24 @@ test("messages this page does not know are not read as anything", () => {
   assert.equal(readTermMessage("text"), null);
   assert.equal(describeMessage({ kind: "x", data: 1 }), "object with keys kind, data");
   assert.equal(describeMessage([1, 2]), "array of 2");
+});
+
+test("a screen asked to focus while it loads does not take the keyboard from where it went", async t => {
+  const doc = { activeElement: "row" as unknown, createElement: () => ({ className: "" }) };
+  Object.assign(globalThis, { document: doc });
+  t.after(() => { Reflect.deleteProperty(globalThis, "document"); });
+  let focuses = 0;
+  let load!: (make: (el: HTMLElement) => Screen) => void;
+  const screen = lazyScreen(() => new Promise(resolve => { load = resolve; }));
+  const loaded = { focus: () => { focuses++; } } as unknown as Screen;
+
+  screen.focus();
+  doc.activeElement = "other row";
+  load(() => loaded);
+  await Promise.resolve();
+  assert.equal(focuses, 0);
+
+  // Loaded, it focuses when asked.
+  screen.focus();
+  assert.equal(focuses, 1);
 });

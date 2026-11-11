@@ -141,7 +141,7 @@ test("pane refresh preserves composer focus and terminal selection focuses its s
   await page.getByRole("button", { name: "+ Terminal", exact: true }).click();
   const terminalTab = page.locator('[role="tab"][data-mtab^="term:"]');
   await expect(terminalTab).toHaveAttribute("aria-selected", "true");
-  const screen = page.locator(".xterm-screen").first();
+  const screen = page.locator(".tm-term").first();
   await expect(screen).toBeVisible();
   await screen.evaluate(element => { element.dataset.identity = "kept"; });
   const composer = page.locator("#agmsg");
@@ -164,7 +164,7 @@ test("pane refresh preserves composer focus and terminal selection focuses its s
   await expect(screen).toHaveAttribute("data-identity", "kept");
   await page.getByRole("tab", { name: "Files", exact: true }).click();
   await terminalTab.click();
-  await expect(page.locator(".xterm-helper-textarea:focus")).toHaveCount(1);
+  await expect(page.locator(".tm-keys-input:focus")).toHaveCount(1);
   await composer.focus();
   await page.evaluate(() => window.__navigation.processes([]));
   await expect(page.getByRole("tab", { name: /Running/ })).toHaveCount(0);
@@ -178,7 +178,7 @@ test("terminal tab menu and dragging preserve the running screen", async ({ page
   await page.getByRole("button", { name: "+ Terminal", exact: true }).click();
   const tab = page.locator('[role="tab"][data-mtab^="term:"]');
   await expect(tab).toBeVisible();
-  const screen = page.locator(".xterm-screen").first();
+  const screen = page.locator(".tm-term").first();
   await expect(screen).toBeVisible();
   await screen.evaluate(element => { element.dataset.identity = "kept"; });
   await tab.click({ button: "right" });

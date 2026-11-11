@@ -15,7 +15,7 @@ test("word and line keys", () => {
   assert.equal(k("Delete", { altKey: true }), "\x1bd");
 });
 
-test("other keys are left to xterm", () => {
+test("other keys are left to the terminal", () => {
   assert.equal(k("ArrowLeft"), null);
   assert.equal(k("Backspace"), null);
   assert.equal(k("c", { metaKey: true }), null);

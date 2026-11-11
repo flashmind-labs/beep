@@ -6,7 +6,7 @@ import { readError } from "./read.ts";
 import { attach, detachTerm, killTerm, termStatus, type PaneTerm } from "./terminal.ts";
 
 /// A terminal tab: its live screen, and a footer to attach again or stop it.
-/// xterm owns the screen, so its element stays a native child of the view;
+/// The screen draws itself, so its element stays a native child of the view;
 /// moved to the other dock, the same screen goes along.
 export function TermView({ tab, term, hidden }: { tab: MediaTab; term: PaneTerm; hidden: boolean; rev: number }) {
   const host = useRef<HTMLDivElement>(null);

@@ -635,7 +635,11 @@ export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Sc
     note: text => use(screen => screen.note(text)),
     size: () => real?.size() ?? { cols: 80, rows: 24 },
     fit: () => use(screen => screen.fit()),
-    focus: () => use(screen => screen.focus()),
+    // Asked before the terminal loaded: not if the keyboard went elsewhere meanwhile.
+    focus: () => {
+      const from = document.activeElement;
+      use(screen => { if (document.activeElement === from) screen.focus(); });
+    },
     focused: () => el.contains(document.activeElement),
     onData: cb => use(screen => screen.onData(cb)),
     onReply: cb => use(screen => screen.onReply(cb)),
