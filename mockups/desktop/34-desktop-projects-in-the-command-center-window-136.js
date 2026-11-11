@@ -87,6 +87,10 @@
 .mac .pj-org + .pj-org { margin-top: 6px }
 .mac .pj-org h3 { margin: 0; display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600; color: var(--d-fg) }
 .mac .pj-org h3 small { font-size: 11px; font-weight: 400; color: var(--d-muted) }
+/* A group heading folds its cards; the fold is kept on this computer. A search shows every match. */
+.mac .pj-fold { all: unset; display: inline-flex; align-items: baseline; gap: 8px; cursor: default }
+.mac .pj-fold .twist { width: 10px; display: inline-grid; place-items: center; color: var(--d-dim) }
+.mac .pj-fold .twist.open svg { transform: rotate(90deg) }
 .mac .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin-top: 14px }
 @container (max-width: 640px) { .mac .pj-cols, .mac .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) } }
 /* A workflow run in two lines at half width: title and chip, then the meta on one line (the branch
@@ -147,7 +151,7 @@ D.dWinProjects = () => {
   const orgs = PJ_ORGS().map(g => ({ ...g, repos: g.repos.filter(p => p.name.includes(q)) })).filter(g => g.repos.length);
   const body = empty
     ? `<div class="cc-panel cc-empty"><b>No projects yet</b><span>A folder or a repository to clone.</span><button class="dbtn pri" data-dgo="dAddProject">${CC_IC.plus} Add a project</button></div>`
-    : find + (orgs.length ? "" : `<div class="cc-panel cc-empty"><span>No projects match.</span></div>`) + orgs.map(g => `<section class="pj-org"><h3>${g.org}/<small>${g.repos.length} ${g.repos.length === 1 ? "repo" : "repos"}</small></h3><div class="pj-grid">${[...g.repos].sort((x, y) => (!!y.pin - !!x.pin) || (x.at - y.at)).map(card).join("")}</div></section>`).join("") + `
+    : find + (orgs.length ? "" : `<div class="cc-panel cc-empty"><span>No projects match.</span></div>`) + orgs.map(g => { const folded = !q && S.d.pjovfold === g.org; return `<section class="pj-org"><h3><button class="pj-fold" aria-expanded="${!folded}" data-dact="dset:pjovfold:${folded ? "" : g.org}"><span class="twist${folded ? "" : " open"}">${PJ_TWIST}</span>${g.org}/<small>${g.repos.length} ${g.repos.length === 1 ? "repo" : "repos"}</small></button></h3>${folded ? "" : `<div class="pj-grid">${[...g.repos].sort((x, y) => (!!y.pin - !!x.pin) || (x.at - y.at)).map(card).join("")}</div>`}</section>`; }).join("") + `
        <div class="cc-panel cc-row pj-add"><span class="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><button class="dbtn" data-dgo="dAddProject">Add</button></div>`;
   const imp = S.d.pjs === "import";
   const PR_IC = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V9a3 3 0 0 0-3-3h-3"/></svg>';

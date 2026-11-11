@@ -44,6 +44,12 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: on opening or waking, sessions, Home and machines shown from what
+  the app kept now say they are still connecting. A machine not reached yet
+  has a hollow dot and reads "connecting", its sessions are dimmed, and an
+  open conversation says "Connecting to" its machine until the first live
+  update arrives. Before, the kept view looked live until it suddenly
+  changed.
 - iOS: Stop all asks first when a session that is not open still has
   subagents running.
 - iOS: Stop ends only the main agent's turn. Its subagents, background

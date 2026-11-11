@@ -21,6 +21,15 @@ Other apps have independent versions and changelogs:
   running turn to end, closes the session in its terminal and continues it
   here. The wait can be cancelled.
 
+### Fixed
+
+- Desktop: on opening or waking, sessions, Home and machines shown from what
+  the app kept now say they are still connecting. A machine not reached yet
+  has a hollow dot and reads "connecting", its sessions are dimmed, and an
+  open conversation says "Connecting to" its machine until the first live
+  update arrives. Before, the kept view looked live until it suddenly
+  changed.
+
 ## [0.8.2] - 2026-11-11
 
 ### Fixed

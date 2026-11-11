@@ -2,6 +2,7 @@ import { WINDOWS } from "../ui/platform.ts";
 import { flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { AgentListRow } from "./agents-list-view.tsx";
+import { machineConnecting, onConnecting } from "../machines/machine-state.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
 // session's log and messages, and every session. Entry: this file.
@@ -428,11 +429,13 @@ onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 onMoves(() => { if (S.view === "agents") drawAgents(false); });
 copies.subscribe(() => { if (S.view === "agents") drawAgents(false); });
 onClosing(() => { if (S.view === "agents") drawAgents(false); });
+onConnecting(() => { if (S.view === "agents") drawAgents(false); });
 
 function sessionRow({ row, depth }: { row: AgentSession; depth: number }): AgentListRow {
   const s = { ...row, status: shownStatus(row) };
   const k = agentKind(s.agent), folder = folderName(s.cwd), moving = moveLabel(s);
   const tail: AgentListRow["tail"] = s.reviewer ? { kind: "review" }
+    : s.status !== "ended" && machineConnecting(s.machine_id) ? { kind: "connecting" }
     : moving ? { kind: "move", label: moving.chip, why: moving.why ?? null }
     : s.status === "asking" ? { kind: "asking" }
     : s.status === "working" || s.status === "running" || s.status === "starting" ? { kind: "running", doing: s.doing || "Working" }
