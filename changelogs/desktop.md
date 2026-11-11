@@ -17,6 +17,11 @@ Other apps have independent versions and changelogs:
   works; an update redraws only the files that changed and keeps the scroll
   and selection.
 
+### Performance
+
+- Desktop: the Files tab draws only the rows in view, so folders with
+  thousands of files scroll and update without stalling.
+
 ## [0.8.1] - 2026-11-11
 
 ### Performance
