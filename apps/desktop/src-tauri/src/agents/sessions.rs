@@ -33,9 +33,10 @@ use beep_proto::{
         mesh_state::StateValue,
     },
 };
+use iroh::EndpointId;
 use serde::Serialize;
 use std::{
-    sync::Arc,
+    sync::{Arc, PoisonError},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
@@ -45,6 +46,9 @@ use uuid::Uuid;
 /// caller (the tray, Home, the palette) before the next runs: each scan
 /// starts `ps`, `lsof` and git on every machine.
 const SCAN_FRESH: Duration = Duration::from_secs(30);
+/// How long the held session lists stand before a read lists every machine
+/// again. Until then each machine's change replaces only its own rows.
+const SESSIONS_FRESH: Duration = Duration::from_secs(30);
 
 /// A machine that can run a coding agent.
 #[derive(Debug, Serialize)]
@@ -340,6 +344,53 @@ fn same_session(old: &MachineSession, new: &MachineSession) -> bool {
         && old.question.as_ref().map(|q| q.id) == new.question.as_ref().map(|q| q.id)
 }
 
+/// `machine` said its sessions changed: they are listed again, from its
+/// subscription, and replace its rows alone, so the other machines are not
+/// asked. A change that comes while it is listed has it listed once more.
+pub(crate) async fn machine_changed(app: &AppHandle, machine: EndpointId) {
+    let held = app.state::<Outside>();
+    let id = machine.to_string();
+
+    {
+        let mut relisting = held
+            .relisting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(again) = relisting.get_mut(&id) {
+            *again = true;
+            return;
+        }
+        relisting.insert(id.clone(), false);
+    }
+
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    loop {
+        if let Some(rows) = direct::sessions_of(&fleet, machine).await {
+            let list = if machine == fleet.id() {
+                &held.local
+            } else {
+                &held.sessions
+            };
+            list.replace(rows, |row| row.machine_id == id);
+        }
+
+        let mut relisting = held
+            .relisting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if relisting.get(&id) == Some(&true) {
+            relisting.insert(id.clone(), false);
+            continue;
+        }
+        relisting.remove(&id);
+        break;
+    }
+
+    app.state::<Arc<AgentSessions>>().stale();
+    app.state::<crate::palette::lists::PaletteCache>()
+        .sessions_changed();
+}
+
 /// The sessions of every machine, newest activity first, at once: Beep's on
 /// this Mac, read in this process, and the rest as last held. The other
 /// machines of the mesh, the server and the scans of what agents ran
@@ -351,9 +402,21 @@ pub(crate) async fn machine_sessions(
     fleet: &Arc<Fleet>,
     held: &Outside,
 ) -> Vec<MachineSession> {
-    let mut sessions = direct::local_sessions(fleet).await;
+    let mut sessions = if held.local.was_read() {
+        let f = fleet.clone();
+        held.local.refreshed_after(
+            app,
+            async move { Ok(direct::local_sessions(&f).await) },
+            same_session,
+            SESSIONS_FRESH,
+        )
+    } else {
+        let listed = direct::local_sessions(fleet).await;
+        held.local.keep(listed.clone());
+        listed
+    };
     let (b, f) = (beep.clone(), fleet.clone());
-    sessions.extend(held.sessions.refreshed(
+    sessions.extend(held.sessions.refreshed_after(
         app,
         async move {
             let (peers, server) =
@@ -367,6 +430,7 @@ pub(crate) async fn machine_sessions(
             Ok(sessions)
         },
         same_session,
+        SESSIONS_FRESH,
     ));
     let f = fleet.clone();
     sessions.extend(held.scans.refreshed_after(

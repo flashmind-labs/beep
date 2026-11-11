@@ -91,6 +91,11 @@ Other apps have independent versions and changelogs:
 
 ### Performance
 
+- Desktop: while agents work, a change on one machine updates only that
+  machine's sessions instead of listing every machine again, which before
+  could repeat dozens of times a second and fill the log with hundreds of
+  megabytes a day. Home redraws for session changes at most once a second.
+
 - Desktop: a diff of thousands of files opens faster and scrolls without
   dropped frames, a project page opens with less work, and the model picker
   opens and filters quickly with hundreds of models.

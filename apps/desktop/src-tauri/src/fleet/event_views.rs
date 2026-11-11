@@ -17,20 +17,24 @@ use uuid::Uuid;
 /// The least time between two sync views while files move, whose progress
 /// changes twice a second on each machine.
 const SYNC_GAP: Duration = Duration::from_secs(1);
+/// The least time between two Home views for session changes, which come many
+/// times a second while agents work; each draw lists every machine's sessions.
+const HOME_GAP: Duration = Duration::from_secs(1);
 
 #[derive(Default)]
 pub(crate) struct Views {
     pending: Mutex<Pending>,
     /// The draws under way, which end with the app.
     tasks: Mutex<JoinSet<()>>,
-    sync: Mutex<SyncPace>,
+    sync: Mutex<DrawPace>,
+    home: Mutex<DrawPace>,
     /// Views that changed while only hidden windows wanted them, drawn once one shows.
     deferred: Mutex<BTreeSet<&'static str>>,
 }
 
-/// When the sync view was drawn last, and whether a draw waits for `SYNC_GAP`.
+/// When a paced view was drawn last, and whether a draw waits for its gap.
 #[derive(Default)]
-struct SyncPace {
+struct DrawPace {
     drawn: Option<Instant>,
     waiting: bool,
 }
@@ -43,11 +47,11 @@ enum Pace {
     Waiting,
 }
 
-impl SyncPace {
-    /// When to draw for a change; a change while files move waits for `SYNC_GAP`
-    /// after the last draw, and any other change, such as the end of a transfer, draws now.
-    fn next(&mut self, now: Instant, moving: bool) -> Pace {
-        if !moving {
+impl DrawPace {
+    /// When to draw for a change; a frequent change waits for `gap` after the last
+    /// draw, and any other change, such as the end of a transfer, draws now.
+    fn next(&mut self, now: Instant, gap: Duration, frequent: bool) -> Pace {
+        if !frequent {
             return Pace::Now;
         }
 
@@ -55,7 +59,7 @@ impl SyncPace {
             return Pace::Waiting;
         }
 
-        match self.drawn.map(|drawn| drawn + SYNC_GAP) {
+        match self.drawn.map(|drawn| drawn + gap) {
             Some(due) if due > now => {
                 self.waiting = true;
                 Pace::At(due)
@@ -192,27 +196,55 @@ fn defer(views: &Views, name: &'static str) {
 
 /// A sync change; `moving` when it only reports files in transit, which waits for `SYNC_GAP`.
 pub(crate) fn sync_changed(app: AppHandle, moving: bool) {
-    let pace = app
-        .state::<Views>()
-        .sync
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .next(Instant::now(), moving);
+    paced(app, "sync", moving);
+}
 
-    match pace {
-        Pace::Now => changed(app, Topic::new("sync")),
+/// A machine's sessions, one session or the moves changed. Home lists every machine's
+/// sessions for it, so it draws at most once a `HOME_GAP`.
+pub(crate) fn sessions_changed(app: AppHandle, topic: Topic) {
+    if matches!(topic.name(), "agents" | "agent" | "moves") {
+        paced(app, "home", true);
+    } else {
+        changed(app, topic);
+    }
+}
+
+/// Draws `name` now, or once its gap after the last draw when the change is `frequent`.
+fn paced(app: AppHandle, name: &'static str, frequent: bool) {
+    let views = app.state::<Views>();
+    let Some((pace, gap)) = views.pace(name) else {
+        return changed(app.clone(), Topic::new(name));
+    };
+    let next =
+        pace.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next(Instant::now(), gap, frequent);
+
+    match next {
+        Pace::Now => changed(app, Topic::new(name)),
         Pace::At(due) => {
             tokio::spawn(async move {
                 tokio::time::sleep_until(due.into()).await;
-                app.state::<Views>()
-                    .sync
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .waiting = false;
-                changed(app, Topic::new("sync"));
+
+                if let Some((pace, _)) = app.state::<Views>().pace(name) {
+                    pace.lock().unwrap_or_else(PoisonError::into_inner).waiting = false;
+                }
+
+                changed(app, Topic::new(name));
             });
         }
         Pace::Waiting => {}
+    }
+}
+
+impl Views {
+    /// The pace of a view that frequent changes draw, and its gap.
+    fn pace(&self, name: &str) -> Option<(&Mutex<DrawPace>, Duration)> {
+        match name {
+            "sync" => Some((&self.sync, SYNC_GAP)),
+            "home" => Some((&self.home, HOME_GAP)),
+            _ => None,
+        }
     }
 }
 
@@ -314,12 +346,8 @@ async fn draw(app: AppHandle, name: &'static str) {
         let topic = Topic::new(name);
 
         if app.state::<Events>().controller_wanted(&topic) {
-            if name == "sync" {
-                app.state::<Views>()
-                    .sync
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .drawn = Some(Instant::now());
+            if let Some((pace, _)) = app.state::<Views>().pace(name) {
+                pace.lock().unwrap_or_else(PoisonError::into_inner).drawn = Some(Instant::now());
             }
 
             let data = snapshot(&app, name).await;

@@ -34,17 +34,29 @@ fn processes_do_not_draw_home_again() {
 #[test]
 fn progress_draws_at_most_once_a_gap_and_the_end_of_a_transfer_draws_at_once() {
     let start = Instant::now();
-    let mut pace = SyncPace::default();
-    assert_eq!(pace.next(start, true), Pace::Now);
+    let mut pace = DrawPace::default();
+    assert_eq!(pace.next(start, SYNC_GAP, true), Pace::Now);
     pace.drawn = Some(start);
 
     let soon = start + SYNC_GAP / 2;
-    assert_eq!(pace.next(soon, true), Pace::At(start + SYNC_GAP));
-    assert_eq!(pace.next(soon, true), Pace::Waiting);
-    assert_eq!(pace.next(soon, false), Pace::Now);
+    assert_eq!(pace.next(soon, SYNC_GAP, true), Pace::At(start + SYNC_GAP));
+    assert_eq!(pace.next(soon, SYNC_GAP, true), Pace::Waiting);
+    assert_eq!(pace.next(soon, SYNC_GAP, false), Pace::Now);
 
     pace.waiting = false;
-    assert_eq!(pace.next(start + SYNC_GAP, true), Pace::Now);
+    assert_eq!(pace.next(start + SYNC_GAP, SYNC_GAP, true), Pace::Now);
+}
+
+#[test]
+fn session_changes_pace_home_and_other_views_do_not() {
+    let views = Views::default();
+    assert_eq!(views.pace("home").map(|(_, gap)| gap), Some(HOME_GAP));
+    assert_eq!(views.pace("sync").map(|(_, gap)| gap), Some(SYNC_GAP));
+    assert!(views.pace("machines").is_none());
+
+    for topic in ["agents", "agent", "moves"] {
+        assert_eq!(affected(topic), ["home"], "{topic} draws only Home");
+    }
 }
 
 #[test]
