@@ -230,25 +230,26 @@ body
                     input [type="checkbox"] value="on" unchecked
                   button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
                 div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
-                  div#agfile-src.agtr [aria-expanded="false" aria-selected="false" data-ffolder="1" data-fpath="src" draggable="true" role="treeitem" title="src"] style(--d)
-                    span.tw
-                      svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
-                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                    span.nm "src"
-                  div#agfile-README.md.agtr [aria-selected="false" data-fpath="README.md" draggable="true" role="treeitem" title="README.md"] style(--d)
-                    span.tw
-                    svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                    span.nm "README.md"
-                  div#agfile-package.json.agtr [aria-selected="false" data-fpath="package.json" draggable="true" role="treeitem" title="package.json"] style(--d)
-                    span.tw
-                    svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                    span.nm "package.json"
-                    span.gm.modified [title="Changed"] "M"
-                  div#agfile-sample.ts.agtr [aria-selected="false" data-fpath="sample.ts" draggable="true" role="treeitem" title="sample.ts"] style(--d)
-                    span.tw
-                    svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                    span.nm "sample.ts"
-                    span.gm.modified [title="Changed"] "M"
+                  div.agtrows style(height)
+                    div#agfile-src.agtr [aria-expanded="false" aria-selected="false" data-ffolder="1" data-fpath="src" data-index="0" draggable="true" role="treeitem" title="src"] style(--d,transform)
+                      span.tw
+                        svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                      svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+                      span.nm "src"
+                    div#agfile-README.md.agtr [aria-selected="false" data-fpath="README.md" data-index="1" draggable="true" role="treeitem" title="README.md"] style(--d,transform)
+                      span.tw
+                      svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                      span.nm "README.md"
+                    div#agfile-package.json.agtr [aria-selected="false" data-fpath="package.json" data-index="2" draggable="true" role="treeitem" title="package.json"] style(--d,transform)
+                      span.tw
+                      svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                      span.nm "package.json"
+                      span.gm.modified [title="Changed"] "M"
+                    div#agfile-sample.ts.agtr [aria-selected="false" data-fpath="sample.ts" data-index="3" draggable="true" role="treeitem" title="sample.ts"] style(--d,transform)
+                      span.tw
+                      svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                      span.nm "sample.ts"
+                      span.gm.modified [title="Changed"] "M"
                 div.agpacts
                   span.meta.mono [title="/srv/project"] "/srv/project"
                   span [data-fstatus="true" role="status"]

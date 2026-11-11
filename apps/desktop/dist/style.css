@@ -720,6 +720,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agffind:focus { border-color: var(--accent) }
 .agfign { font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer }
 .agtree { flex: 1; min-height: 0; overflow: auto; padding: 4px; outline: 0 }
+.agtrows { position: relative } .agtrows > .agtr { position: absolute; top: 0; left: 0; right: 0 }
 .agtree.dropping { outline: 1px dashed var(--accent); outline-offset: -4px }
 .agtr { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px calc(8px + var(--d) * 16px); border-radius: 5px; font: 12px var(--mono); color: var(--fg); cursor: pointer; user-select: none }
 .agtr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) } .agtr.on { background: color-mix(in srgb, var(--fg) 9%, transparent) }
