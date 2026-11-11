@@ -4,6 +4,12 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+### Performance
+
+- Node: while a Claude Code, Codex or flsh session runs outside Beep,
+  the lists of such sessions are read again at most every 2 seconds instead
+  of 4 times a second each, so the machine scans its agents' files far less.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added

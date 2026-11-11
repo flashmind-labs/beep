@@ -12,6 +12,10 @@ const READ_GAP: Duration = Duration::from_millis(250);
 /// One session's status, question and tasks follow its turn more closely.
 /// Its chat text streams separately and never waits for this gap.
 const AGENT_GAP: Duration = Duration::from_millis(100);
+/// Lists of the sessions agents ran outside Beep scan what each agent keeps on
+/// disk, and change on every line a running agent writes; they only start or
+/// end sessions, so they wait longer between reads.
+const SCAN_GAP: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq)]
 enum Source {
@@ -27,6 +31,14 @@ impl Source {
     fn gap(&self) -> Duration {
         match self {
             Self::Agent(_) => AGENT_GAP,
+            Self::Read(Read::Sessions(request))
+                if matches!(
+                    request.as_ref(),
+                    SessionsRequest::External { .. } | SessionsRequest::InFolders { .. }
+                ) =>
+            {
+                SCAN_GAP
+            }
             _ => READ_GAP,
         }
     }
