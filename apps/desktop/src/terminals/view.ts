@@ -1,7 +1,7 @@
 // The command center's Terminals page, and the terminals Home lists.
 import { formatAgo } from "../ui/format.ts";
 import { createElement } from "react";
-import { invoke, Channel } from "../ui/tauri.ts";
+import { invoke, indexedChannel } from "../ui/tauri.ts";
 import { ALL, byMachine, lazyScreen, makeTerminals, terminalsCount } from "./terminals.ts";
 import { type CenterView, keptSection, state } from "../center/state.ts";
 import { draw } from "../center/home.ts";
@@ -11,7 +11,7 @@ import { ensureHome } from "../center/refresh.ts";
 
 /// Every terminal on every machine: the Terminals page, and Home's section.
 export const allTerms = makeTerminals({
-  invoke, Channel, makeScreen: () => lazyScreen(() => import("./termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), kept: keptSection("terminals"),
+  invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("./termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), kept: keptSection("terminals"),
   redraw: () => {
     if (currentLocation()?.view === "terminals") { drawTerminals(); drawTop(); }
     else if (currentLocation()?.view === "home") draw();

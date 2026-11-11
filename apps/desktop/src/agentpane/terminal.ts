@@ -2,8 +2,8 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { describeMessage, endsForGood, newView, readTermMessage, retryDelay, sizeChanged, splice, type Screen, type TermMessage, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
-import { Channel, invoke, logError, logInfo } from "../ui/tauri.ts";
+import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, retryDelay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
+import { indexedChannel, invoke, logError, logInfo } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 
 /// The size a terminal starts at, before its screen is fitted.
@@ -131,9 +131,8 @@ export function attach(t: PaneTerm) {
   const attempt = ++t.attaches;
   // Whether this is still the tab's stream: one it replaced says nothing.
   const current = () => t.attaches === attempt;
-  const channel = new Channel<TermMessage>();
-  channel.onmessage = message => {
-    if (t.link === "detached" || !current()) return;
+  const show = (message: unknown) => {
+    if (t.link === "detached") return;
     const ev = readTermMessage(message);
     if (ev === null) {
       logError(`terminal ${t.row.id}: a stream message was not understood (${describeMessage(message)})`);
@@ -169,6 +168,10 @@ export function attach(t: PaneTerm) {
 
     t.onLink();
   };
+  const channel = inOrderChannel(indexedChannel, current, show, missing => {
+    logError(`terminal ${t.row.id}: stream message ${missing} was lost in a pane; attaching again`);
+    attach(t);
+  });
   // The attach carries the size, so the node has it from here on.
   const size = t.screen.size();
   t.sent = size;

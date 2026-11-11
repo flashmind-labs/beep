@@ -8,7 +8,7 @@ import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange } from "../ui/active.ts";
-import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
+import type { invoke as Invoke, indexedChannel } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import type { Ago } from "../ui/format.ts";
 import type { TileData } from "../project/board.ts";
@@ -20,7 +20,7 @@ import { newTermLike } from "./newkey-state.ts";
 /// Terminals page drawn from them.
 
 export function makeTerminals(deps: TerminalDeps) {
-  const { invoke, Channel, makeScreen, ago, redraw } = deps;
+  const { invoke, channel: streamChannel, makeScreen, ago, redraw } = deps;
   /// A line in the app's log: how a terminal's stream went.
   const log = (message: string, info: boolean) => { invoke("log_webview", { message, info }).catch(() => {}); };
   const all = new Map<string, ProjectTerminals>();
@@ -175,9 +175,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const attempt = ++live.attaches;
     // Whether this is still the view's stream: one it replaced says nothing.
     const current = () => lives.get(live.id) === live && live.attaches === attempt;
-    const channel = new Channel<TermMessage>();
-    channel.onmessage = message => {
-      if (!current()) return;
+    const show = (message: unknown) => {
       const ev = readTermMessage(message);
       if (ev === null) {
         log(`terminal ${live.id}: a stream message was not understood (${describeMessage(message)})`, false);
@@ -216,6 +214,10 @@ export function makeTerminals(deps: TerminalDeps) {
         redraw();
       }
     };
+    const channel = inOrderChannel(streamChannel, current, show, missing => {
+      log(`terminal ${live.id}: stream message ${missing} was lost; attaching again`, false);
+      attach(name, live);
+    });
     // The attach carries the size, so the node has it from here on.
     const size = live.screen.size();
     live.sent = size;
@@ -692,7 +694,7 @@ export const ALL = "";
 /// What the window hands `makeTerminals`.
 export interface TerminalDeps {
   invoke: typeof Invoke;
-  Channel: typeof ChannelCtor;
+  channel: typeof indexedChannel;
   makeScreen: () => Screen;
   ago: Ago;
   redraw: () => void;
@@ -751,6 +753,9 @@ interface ProjectTerminals {
 const START_SIZE = { cols: 100, rows: 30 };
 /// Attaches tried in a row before giving up until asked again.
 const MAX_TRIES = 6;
+/// How long a stream message may stay missing while later ones came: then
+/// it was lost, and the screen attaches again from what it showed.
+export const LOST_MS = 2000;
 
 /// Every machine with its terminals, in the machines' order; a terminal of
 /// a machine no longer listed goes under its own name at the end, offline.
@@ -838,6 +843,65 @@ export function sizeChanged(sent: TermSize | null, now: TermSize) {
 /// each keep their own stream.
 export function newView(): string {
   return crypto.randomUUID();
+}
+
+/// A stream's messages back in order by their index.
+export class InOrder {
+  private next = 0;
+  private readonly held = new Map<number, unknown>();
+
+  /// Message `index`, and the messages that are now in order.
+  take(message: unknown, index: number): unknown[] {
+    if (index < this.next) return [];
+    this.held.set(index, message);
+    const ready: unknown[] = [];
+
+    while (this.held.has(this.next)) {
+      ready.push(this.held.get(this.next));
+      this.held.delete(this.next);
+      this.next++;
+    }
+
+    return ready;
+  }
+
+  /// The index of the message later ones wait for, or null when none wait.
+  missing(): number | null {
+    return this.held.size > 0 ? this.next : null;
+  }
+}
+
+/// A terminal stream's channel: its messages go to `show` in order while
+/// `current`. One missing for `LOST_MS` while later ones came was lost:
+/// `lost` gets its index, and the screen should follow again from what it
+/// showed, since the rest would never come.
+export function inOrderChannel(
+  open: typeof indexedChannel,
+  current: () => boolean,
+  show: (message: unknown) => void,
+  lost: (index: number) => void,
+) {
+  const order = new InOrder();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let waiting: number | null = null;
+  /// Times the message waited for, from when it was first waited for.
+  const watchGap = () => {
+    const missing = order.missing();
+    if (missing === waiting) return;
+
+    clearTimeout(timer);
+    waiting = missing;
+    if (missing === null) return;
+    timer = setTimeout(() => { if (current()) lost(missing); }, LOST_MS);
+  };
+
+  return open((message, index) => {
+    for (const next of order.take(message, index)) {
+      if (!current()) return;
+      show(next);
+    }
+    watchGap();
+  });
 }
 
 /// How long to wait before attach number `tries` (1 for the first retry).
