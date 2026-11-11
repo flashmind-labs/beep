@@ -6,6 +6,11 @@ Earlier releases predate this changelog.
 
 ### Added
 
+- iOS: a message sent to a session whose machine cannot be reached waits on
+  this device, in the session's queue marked "waiting for connection", and
+  goes in the order typed once the machine is back, even after the app
+  restarts. Edit or remove it like other queued messages; one the machine
+  refuses stays with the reason.
 - iOS: swipe right from the left edge of the screen to go back, as the
   Back button does; the page follows your finger.
 - iOS: how quickly screens open and respond to taps is kept in a

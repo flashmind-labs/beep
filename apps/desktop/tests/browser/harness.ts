@@ -108,7 +108,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     project_machines: [{ id: data.project.machine_id, name: data.project.machine_name, online: true, folder: data.project.folder, checking: false, checked_at: 1 }],
     agent_sessions: data.sessions, project_sessions: data.sessions,
   };
-  const emptyLists = ["list_machines", "list_sessions", "list_groups", "agent_hosts", "agent_reviews", "agent_tasks", "agent_artifacts", "agent_running", "agent_editors", "editors", "project_overview", "project_groups", "projects_on_top", "project_sync", "found_projects", "project_syncthing", "machine_traffic", "tool_updates", "updatable_machines", "notes_list", "list_research", "terminal_list"];
+  const emptyLists = ["list_machines", "list_sessions", "list_groups", "agent_hosts", "agent_reviews", "agent_tasks", "agent_artifacts", "agent_running", "agent_editors", "editors", "project_overview", "project_groups", "projects_on_top", "project_sync", "found_projects", "project_syncthing", "machine_traffic", "tool_updates", "updatable_machines", "notes_list", "list_research", "terminal_list", "outbox_list"];
   for (const command of emptyLists) answers[command] = [];
   Object.assign(answers, data.responses);
   const boundary: NativeBoundary = {

@@ -32,6 +32,32 @@ export interface Waiting {
   after: number;
 }
 
+/// A message waiting on this device for its session's machine, as
+/// `outbox_list` gives it, without its image data.
+export interface OutboxRow {
+  id: number;
+  how: "prompt" | "steer";
+  text: string;
+  /// The names of its images.
+  images: string[];
+  state: "waiting" | "sending" | "failed";
+  /// Why the machine refused a failed one.
+  reason: string | null;
+}
+
+/// What a waiting row says after its text.
+export function outboxNote(row: OutboxRow) {
+  switch (row.state) {
+    case "waiting": return "waiting for connection";
+    case "sending": return "sending";
+    case "failed": return row.reason || "not sent";
+  }
+}
+
+/// A row the outbox sent, as the node now holds it until delivered.
+export const sentFromOutbox = (row: OutboxRow, read: number): Waiting =>
+  ({ how: "steer", typed: row.text, text: row.text, paths: [], images: [], state: "sent", after: read });
+
 /// Marks the steers the node no longer holds as delivered, oldest first.
 export function markDelivered(items: Waiting[], waiting: number, read: number) {
   const held = items.filter(q => q.how === "steer" && q.state === "sent" && q.after < read);

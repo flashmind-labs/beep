@@ -34,7 +34,6 @@ import { drawModes } from "./modepill.ts";
 import { backgroundedEntry, drawTasks } from "./tasks.ts";
 import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
-import { holdNote } from "./reconnect-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { showAgentControl, showAgentStop } from "./composer-ui.tsx";
 import { AgentStatus } from "./mode-view.tsx";
@@ -68,8 +67,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   // The log goes in by turns, and only those near the view are drawn.
   const units = p.entries.length && AG.log
     ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p, news)] : null;
-  const note = AG.held ? { text: holdNote(s.machine_name), error: false }
-    : AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", error: false }
+  const note = AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", error: false }
     : AG.note && AG.note === AG.readError && AG.link.lost ? { text: AG.note, error: false }
     : AG.note ? { text: AG.note, error: true } : null;
   const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");

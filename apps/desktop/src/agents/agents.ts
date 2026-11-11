@@ -15,7 +15,7 @@ import { copies, copiesView, keepCopiesFresh } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import type { Attached, Waiting } from "./agentqueue.ts";
+import type { Attached, OutboxRow, Waiting } from "./agentqueue.ts";
 import { drawQueue, renderChat } from "../chat/chat.ts";
 import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
@@ -292,8 +292,8 @@ interface AgentState {
   all: Set<number>;
   /// Steers sent while a turn runs, shown until the node delivers them.
   queue: Waiting[];
-  /// Messages and steers waiting for the session's machine to come back.
-  held: number;
+  /// Messages waiting on this device for the session's machine.
+  outbox: OutboxRow[];
   /// Reads of the open session so far, which tell a read that left before
   /// a steer was sent from one after.
   polls: number;
@@ -317,7 +317,7 @@ export const AG: AgentState = {
   open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined, noImages: null,
-  opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], held: 0, polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
+  opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));

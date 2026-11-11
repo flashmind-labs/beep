@@ -899,7 +899,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .ag-queue { display: grid; grid-template-columns: minmax(0, 1fr) }
 .ag-queue .it { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim) }
 .ag-queue .it { padding: 7px 16px }
-.ag-queue .it:not(.steer) { border-top: 1px solid var(--border) }
+.ag-queue .it:not(.steer, .out) { border-top: 1px solid var(--border) }
 .ag-queue .lbl { font-size: 11px }
 .ag-queue .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted) }
 .ag-queue button { all: unset; cursor: pointer; display: inline-flex; font-size: 12px; color: var(--muted) } .ag-queue button:hover { color: var(--fg) }
@@ -907,6 +907,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .ag-queue .it.done { opacity: .7 } .ag-queue .it.done .lbl::before { content: "\2713  " }
 .ag-queue { grid-template-columns: minmax(0, 1fr) } .ag-queue .it { min-width: 0 }
 .ag-queue .w { flex: none; font-size: 11px; color: var(--dim) }
+.ag-queue .it.failed .w { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--err) } .ag-queue button:disabled { cursor: default; opacity: .5 }
 .ag-queue .qatt { flex: 0 1 auto; min-width: 40px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; font: 11px/16px var(--mono); color: var(--fg) }
 #agstop[disabled] { opacity: .6; cursor: default }
 /* Enter sends on a desktop; the phone layout shows a button. */
