@@ -70,11 +70,17 @@ interface Engine {
   input: TerminalInput;
 }
 
+/// The canvas the renderer draws on.
+function makeCanvas() {
+  const canvas = document.createElement("canvas");
+  canvas.className = "tm-canvas";
+  return canvas;
+}
+
 /// A screen drawn in `el`, a new element unless one is given.
 export function makeScreen(el: HTMLElement = document.createElement("div")): Screen {
   el.className = "tm-term";
-  const canvas = document.createElement("canvas");
-  canvas.className = "tm-canvas";
+  let canvas = makeCanvas();
   // Keys, IME and the soft keyboard type into this; it is never seen.
   const keys = document.createElement("textarea");
   keys.className = "tm-keys-input";
@@ -91,6 +97,9 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   let parts: Engine | null = null;
   let renderer: GridRenderer | null = null;
   let gpuAttempted = false;
+  /// The canvas held a context: a context dropped stays with its canvas, so
+  /// the next renderer draws on a new one.
+  let canvasUsed = false;
   let grid: Grid = { cols: 80, rows: 24 };
   let cell: CellSize = { width: 8, height: 16 };
   let dpr = 1;
@@ -204,6 +213,12 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     // Try once per shown period; a lost context is tried again when shown.
     if (!renderer && !gpuAttempted) {
       gpuAttempted = true;
+      if (canvasUsed) {
+        const fresh = makeCanvas();
+        canvas.replaceWith(fresh);
+        canvas = fresh;
+      }
+      canvasUsed = true;
       try {
         renderer = new GridRenderer(canvas, font, THEME);
         fullRedraw = true;
@@ -304,6 +319,13 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   keys.addEventListener("focus", () => { if (parts) send(parts.input.focus(true)); schedule(); });
   keys.addEventListener("blur", () => { if (parts) send(parts.input.focus(false)); schedule(); });
 
+  /// Pointer events on the canvas, whichever canvas is current.
+  function onCanvas<K extends "pointerdown" | "pointermove" | "pointerup" | "pointercancel" | "wheel">(
+    type: K, handler: (e: HTMLElementEventMap[K]) => void, options?: AddEventListenerOptions,
+  ) {
+    el.addEventListener(type, e => { if (e.target === canvas) handler(e); }, options);
+  }
+
   /// The pointer over the grid, from a pointer or wheel event.
   const at = (e: MouseEvent) => {
     const r = canvas.getBoundingClientRect();
@@ -316,7 +338,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   // A finger scrolls rather than selects.
   let touchY: number | null = null;
 
-  canvas.addEventListener("pointerdown", e => {
+  onCanvas("pointerdown", e => {
     if (!parts) return;
     keys.focus({ preventScroll: true });
 
@@ -337,7 +359,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     e.preventDefault();
   });
 
-  canvas.addEventListener("pointermove", e => {
+  onCanvas("pointermove", e => {
     if (!parts) return;
 
     if (touchY !== null) {
@@ -375,10 +397,10 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
       send(parts.input.mouse({ action: "release", button: button(e), x: p.x, y: p.y, ...mods(e) }));
     }
   };
-  canvas.addEventListener("pointerup", pointerUp);
-  canvas.addEventListener("pointercancel", pointerUp);
+  onCanvas("pointerup", pointerUp);
+  onCanvas("pointercancel", pointerUp);
 
-  canvas.addEventListener("wheel", e => {
+  onCanvas("wheel", e => {
     if (!parts) return;
     const action = wheelAction(e.deltaY, e.deltaMode === WheelEvent.DOM_DELTA_LINE, tracking(e), parts.input.alternateScreen());
     if (action === null) return;

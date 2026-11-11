@@ -5,6 +5,7 @@ import { registerHooks } from "node:module";
 // termview.ts with the engine and the GPU renderer stubbed: what it does with
 // the GPU as the screen is shown, hidden and loses its context.
 let made = 0;
+let replaced = 0;
 let disposed = 0;
 let draws = 0;
 let unavailable = false;
@@ -38,7 +39,7 @@ const loadGhostty = async () => ({});
 function element(): Record<string, unknown> {
   return {
     isConnected: true, clientWidth: 800, clientHeight: 400, style: {}, className: "",
-    append() {}, setAttribute() {}, addEventListener() {}, contains: () => false,
+    append() {}, setAttribute() {}, addEventListener() {}, contains: () => false, replaceWith() { replaced++; },
     getBoundingClientRect: () => ({ left: 0, top: 0 }),
   };
 }
@@ -100,7 +101,7 @@ function runFrames() {
 }
 
 test.beforeEach(() => {
-  made = disposed = draws = 0;
+  made = disposed = draws = replaced = 0;
   unavailable = lost = false;
   frames.length = 0;
   (globalThis as unknown as { document: { hidden: boolean } }).document.hidden = false;
@@ -128,6 +129,8 @@ test("hidden screens release the GPU and get it back when shown", async () => {
   Object.assign(s.el, { clientWidth: 800 });
   s.fit();
   assert.equal(made, 2);
+  // A released context stays with its canvas: the renderer gets a new one.
+  assert.equal(replaced, 1);
   s.dispose();
 });
 

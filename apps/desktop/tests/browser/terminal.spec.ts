@@ -53,7 +53,7 @@ window.term = {
 declare global {
   interface Window {
     term: {
-      screen: { size(): { cols: number; rows: number }; focus(): void };
+      screen: { el: HTMLElement; size(): { cols: number; rows: number }; focus(): void; fit(): void };
       typed: string[];
       replies: string[];
       write(text: string): void;
@@ -152,6 +152,20 @@ test("the screen fits its element and draws text, colours and images, placeholde
 
   // The theme's foreground draws the text.
   await expect.poll(() => pixels(page, [0xcf, 0xe3, 0xd8])).toBeGreaterThan(20);
+});
+
+test("a screen hidden and shown again draws again", async ({ page }) => {
+  await open(page);
+  const red: [number, number, number] = [200, 30, 30];
+
+  // As when another terminal is opened and this one is opened again.
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(() => { window.term.screen.el.style.display = "none"; window.term.screen.fit(); });
+    await page.evaluate(() => { window.term.screen.el.style.display = ""; window.term.screen.fit(); });
+  }
+  await page.evaluate(() => window.term.write("\x1b[48;2;200;30;30m          \x1b[0m\r\n"));
+
+  await expect.poll(() => pixels(page, red)).toBeGreaterThan(500);
 });
 
 test("keys go out encoded, apart from the terminal's replies", async ({ page }) => {
