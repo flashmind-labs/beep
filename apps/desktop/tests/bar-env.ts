@@ -30,8 +30,15 @@ async function listen(name: string, receive: (event: { payload: unknown }) => vo
   listeners.add(receive);
   return () => listeners.delete(receive);
 }
+/// The callbacks Rust's channel messages call, by id.
+export const callbacks = new Map<number, (call: unknown) => void>();
+let nextCallback = 1;
+g.__TAURI_INTERNALS__ = {
+  transformCallback: (receive: (call: unknown) => void) => { callbacks.set(nextCallback, receive); return nextCallback++; },
+  unregisterCallback: (id: number) => callbacks.delete(id),
+};
 g.__TAURI__ = {
-  core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answers[cmd] ?? (cmd === "mesh_watch" ? new Promise(() => {}) : null); }, Channel: class {} },
+  core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answers[cmd] ?? (cmd === "mesh_watch" ? new Promise(() => {}) : null); }, Channel: class { id = 0; onmessage() {} } },
   event: { listen },
   webviewWindow: { getCurrentWebviewWindow: () => ({ listen }) },
 };

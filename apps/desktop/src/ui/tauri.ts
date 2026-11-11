@@ -3,6 +3,8 @@ import { dropViews, takeSnapshotView, writeScope } from "./snapshot-state.ts";
 
 /// A channel Rust streams events into, passed as an `invoke` argument.
 export interface TauriChannel<T> {
+  /// The callback Rust's messages go to.
+  id: number;
   onmessage: (message: T) => void;
 }
 
@@ -25,14 +27,48 @@ interface TauriGlobal {
   };
 }
 
+/// What Rust's channel messages call: one with its index, then the end
+/// with the count sent.
+type ChannelCall = { message: unknown; index: number } | { end: true; index: number };
+
+interface TauriInternals {
+  transformCallback(callback: (call: ChannelCall) => void, once?: boolean): number;
+  unregisterCallback(id: number): void;
+}
+
 declare global {
   interface Window {
     __TAURI__: TauriGlobal;
+    __TAURI_INTERNALS__: TauriInternals;
   }
 }
 
 const core = window.__TAURI__.core;
 export const { Channel } = core;
+
+/// A channel that hands over each message with its index as it arrives.
+/// Tauri's own holds every later message back until the one before comes,
+/// and loses one for good when its fetch fails, as when its IPC falls back to
+/// postMessage partway: the stream would stop for good.
+export function indexedChannel(deliver: (message: unknown, index: number) => void): TauriChannel<unknown> {
+  const internals = window.__TAURI_INTERNALS__;
+  const channel = new Channel();
+  let received = 0;
+  let total: number | null = null;
+  internals.unregisterCallback(channel.id);
+
+  const id = internals.transformCallback(call => {
+    if ("end" in call) total = call.index;
+    else {
+      received++;
+      deliver(call.message, call.index);
+    }
+
+    if (received === total) internals.unregisterCallback(id);
+  });
+  channel.id = id;
+  return channel;
+}
 
 /// Sends a page's error to the app's log.
 export function logError(message: string) {

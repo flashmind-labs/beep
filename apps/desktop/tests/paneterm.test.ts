@@ -1,9 +1,10 @@
-import { answers, calls, nativeEvent } from "./bar-env.ts";
+import { answers, calls, callbacks, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { attach, dropTerm, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
 import { P, closeTab, closePaneTabs, type MediaTab } from "../src/agentpane/media.ts";
-import { makeTerminals, ALL, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.ts";
+import { makeTerminals, ALL, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.ts";
+import { indexedChannel } from "../src/ui/tauri.ts";
 
 const ROW: TerminalRow = {
   id: "t1", project: "", machine_id: "m1", machine_name: "build-box", name: "shell",
@@ -50,11 +51,15 @@ function output(at: number, text: string): ArrayBuffer {
 function nextAttach() {
   let end!: () => void;
   answers.terminal_attach = new Promise<null>(resolve => { end = () => resolve(null); });
+  let index = 0;
   return {
     end,
-    send(ev: TermMessage) {
+    /// Message `ev`, with the next index or `at` one Tauri gives.
+    send(ev: TermMessage, at = index) {
+      index = at + 1;
       const call = calls.findLast(c => c.cmd === "terminal_attach")!;
-      (call.args as { onEvent: { onmessage(ev: TermMessage): void } }).onEvent.onmessage(ev);
+      const channel = (call.args as { onEvent: { id: number } }).onEvent;
+      callbacks.get(channel.id)?.({ message: ev, index: at });
     },
   };
 }
@@ -162,7 +167,7 @@ test("the Terminals page reconnects without writing to the screen", async t => {
       calls.push({ cmd, args });
       return answers[cmd] ?? null;
     }) as never,
-    Channel: class { onmessage = (_: unknown) => {}; } as never,
+    channel: indexedChannel,
     makeScreen: () => screen,
     ago: () => "",
     redraw() {},
@@ -304,8 +309,14 @@ test("a stop refused after leaving cannot reconnect the disposed terminal", asyn
 /// Sends `ev` down the latest stream of view `view`.
 function sendTo(view: string, ev: TermMessage) {
   const call = calls.findLast(c => c.cmd === "terminal_attach" && (c.args as { view: string }).view === view)!;
-  (call.args as { onEvent: { onmessage(ev: TermMessage): void } }).onEvent.onmessage(ev);
+  const id = (call.args as { onEvent: { id: number } }).onEvent.id;
+  const index = sent.get(id) ?? 0;
+  sent.set(id, index + 1);
+  callbacks.get(id)?.({ message: ev, index });
 }
+
+/// The next message index of each stream sendTo writes to.
+const sent = new Map<number, number>();
 
 test("a terminal hidden then shown again shows the output from meanwhile, in order", () => {
   nativeEvent("bar-shown");
@@ -344,7 +355,7 @@ test("the Terminals page lets go while the window is hidden and picks up after",
       calls.push({ cmd, args });
       return answers[cmd] ?? null;
     }) as never,
-    Channel: class { onmessage = (_: unknown) => {}; } as never,
+    channel: indexedChannel,
     makeScreen: () => screen,
     ago: () => "",
     redraw() {},
@@ -363,4 +374,29 @@ test("the Terminals page lets go while the window is hidden and picks up after",
   sendTo(view, output(0, "ab"));
   assert.deepEqual(screen.shown, ["a", "b"]);
   terms.stop();
+});
+
+test("stream messages show in order, and a lost one attaches again from what showed", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  calls.length = 0;
+  const screen = fakeScreen();
+  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape() {} });
+  const first = nextAttach();
+  attach(term);
+
+  // Tauri fetches large messages, so a later one can come first.
+  first.send({ kind: "attached" }, 0);
+  first.send(output(3, "def"), 2);
+  first.send(output(0, "abc"), 1);
+  assert.deepEqual(screen.shown, ["abc", "def"]);
+
+  // Message 3 never comes: 4 waits for it, and then the stream is lost.
+  first.send(output(9, "jkl"), 4);
+  nextAttach();
+  t.mock.timers.tick(LOST_MS);
+  await settle();
+  assert.deepEqual(screen.shown, ["abc", "def"]);
+  const again = calls.findLast(c => c.cmd === "terminal_attach")!;
+  assert.equal(count("terminal_attach"), 2);
+  assert.equal((again.args as { from: number }).from, 6);
 });
