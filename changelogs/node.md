@@ -4,6 +4,11 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Node: Codex installed with its own installer shows its updates and
+  updates with `codex update`.
+
 ## [0.6.1] - 2026-11-11
 
 ### Performance

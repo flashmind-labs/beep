@@ -74,13 +74,29 @@ pub(super) struct Npm {
     pub(super) global: Option<NpmGlobal>,
 }
 
-/// The arguments that make `agent` update itself, when it can.
-fn own_updater(agent: &str) -> Option<&'static [&'static str]> {
+/// The arguments that make `agent`'s CLI at `cli` update itself, when it can.
+fn own_updater(agent: &str, cli: &Path) -> Option<&'static [&'static str]> {
     match agent {
         "claude" | "hermes" => Some(&["update"]),
+        // Only Codex's standalone install, under `~/.codex/packages`, updates
+        // itself; npm and Homebrew update theirs.
+        "codex" if standalone_codex(cli) => Some(&["update"]),
         "opencode" => Some(&["upgrade"]),
         _ => None,
     }
+}
+
+/// Whether `cli`, with its links followed, is Codex's standalone install.
+fn standalone_codex(cli: &Path) -> bool {
+    let real = paths::canonicalize(cli).unwrap_or_else(|_| cli.to_path_buf());
+    real.components()
+        .collect::<Vec<_>>()
+        .windows(3)
+        .any(|parts| {
+            parts[0].as_os_str() == ".codex"
+                && parts[1].as_os_str() == "packages"
+                && parts[2].as_os_str() == "standalone"
+        })
 }
 
 /// How `agent`'s CLI at `cli` was installed, when the node can tell and
@@ -104,7 +120,7 @@ pub(super) fn method(agent: &str, cli: &Path, npm: &Npm) -> Option<Method> {
         }
     }
 
-    own_updater(agent).map(|_| Method::Own)
+    own_updater(agent, cli).map(|_| Method::Own)
 }
 
 /// The formula or cask `real` (a CLI with its links followed) belongs to,
@@ -186,7 +202,7 @@ pub(super) fn plan(target: &Target<'_>, npm: &Npm) -> Vec<Step> {
             .map(|package| vec![npm_install(&[package])])
             .unwrap_or_default();
     };
-    let own = own_updater(target.agent).map(|args| Step::new(cli.display().to_string(), args));
+    let own = own_updater(target.agent, cli).map(|args| Step::new(cli.display().to_string(), args));
     let first = match method(target.agent, cli, npm) {
         Some(Method::Brew { prefix, name, cask }) => {
             let brew = prefix.join("bin").join("brew").display().to_string();
