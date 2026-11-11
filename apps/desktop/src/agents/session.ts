@@ -28,7 +28,7 @@ import { thinking, drawAgentBody, syncJump, scrolledLog } from "./logview.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { readModes } from "./modepill.ts";
 import { readTasks } from "./tasks.ts";
-import { disposeQueue, interruptAgent, sendAgentMessage, steerMessage } from "./messages.ts";
+import { disposeQueue, interruptAgent, readOutbox, sendAgentMessage, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { perfFresh } from "../ui/perf.ts";
@@ -103,7 +103,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id })) ?? [],
-    held: 0, stopping: null, modelOpen: false, modes: null,
+    outbox: [], stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
   const kept = offScreen.get(transcriptKey(AG.open!));
@@ -117,6 +117,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   firstRead = { open, at: performance.now() };
   drawAgentFrame(inPlace, held && log && held.earlier <= log.page.earlier ? log.body : null);
   watchRead(open);
+  void readOutbox(open);
   if (held) return void pollAgent(true);
   // Not held in this window: the page kept on disk draws at once, and the follow goes on from it.
   readingKept = open;

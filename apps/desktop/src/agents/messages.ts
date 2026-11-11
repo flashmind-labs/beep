@@ -1,6 +1,6 @@
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
-import { type Attached, dropDelivered, type Waiting } from "./agentqueue.ts";
+import { type Attached, dropDelivered, type OutboxRow, sentFromOutbox, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.ts";
 import { sessionPicks } from "./session.ts";
 import { composeMessage } from "../chat/compose.ts";
@@ -8,14 +8,14 @@ import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, takeMentions } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
-import { type AgentPage, type AgentQuestion, type OpenAgent, type Started, type Steer, AG, AGENT_LAST, AGENT_READ_WAIT_MS, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
-import { HOLD_MS, type SendError, sendError, tookIt, viewError } from "./reconnect-state.ts";
+import { type AgentQuestion, type OpenAgent, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
+import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.ts";
 import { redrawAgentHints } from "./session-head.ts";
 import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
 import { sameSession } from "./running-state.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
@@ -27,12 +27,13 @@ export function drawQueue() {
   // Without a field the queue waits, delivered messages included, until one shows.
   if (!agentMessage.current?.isConnected) { if (S.view !== "agent" || !sessionBody()) disposeQueue(); return; }
   dropDelivered(AG.queue);
-  showAgentQueue(AG.queue, editQueued);
+  showAgentQueue(AG.queue, editQueued, AG.outbox, editOutbox);
 }
 
 /// A message as `agent_steer` takes it, its images without what only the
 /// field shows.
-const outgoing = (text: string, images: Attached[]) => images.length ? { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } : { text };
+type Outgoing = { text: string; images?: { name: string; mime: string; data: string }[] };
+const outgoing = (text: string, images: Attached[]): Outgoing => images.length ? { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } : { text };
 
 /// Takes what waits in the field for a message: the words, the paths it
 /// mentions and the images.
@@ -103,20 +104,21 @@ async function sendSteer(q: Waiting, back = true) {
   q.state = "sending";
   drawAgentBody();
   if (q.images.length) keepAgentPics(o, q.images);
-  const ok = await steerAgent({ steer: outgoing(q.text, q.images) });
+  const sent = await sendText({ steer: outgoing(q.text, q.images) });
 
-  if (ok) {
+  if (sent === "sent") {
     q.state = "sent";
     q.after = AG.polls;
   } else {
-    // Nothing went: it waits in the field again, under the note that says why.
+    // It waits on this device, in the outbox's rows; or nothing went, and it
+    // waits in the field again, under the note that says why.
     const at = queue.indexOf(q);
     if (at >= 0) queue.splice(at, 1);
-    if (back && AG.queue === queue && isOpen(AG.open)) backInField(q);
+    if (sent === "failed" && back && AG.queue === queue && isOpen(AG.open)) backInField(q);
   }
 
   if (AG.queue === queue && isOpen(AG.open)) drawAgentBody();
-  return ok;
+  return sent !== "failed";
 }
 
 /// ⌘. while the turn runs: stop it and keep the field, so a correction can be
@@ -137,9 +139,12 @@ export function interruptAgent() {
 /// Stop all on the open session: the turn, its subagents, background commands and the agents
 /// it started. The node drops the steers it holds, so those not yet delivered go back in the field.
 export async function stopAllWork(target: { machine_id: string; agent: string; id: string }) {
-  const s = AG.page?.session;
-  if (!sameSession(AG.open, target) || !s) return;
-  const unsent = AG.queue.filter(q => q.state !== "delivered");
+  const s = AG.page?.session, o = AG.open;
+  if (!sameSession(o, target) || !s) return;
+  // What waits on this device comes back too, after what the node held.
+  const kept = await Promise.all(AG.outbox.filter(row => row.state !== "sending").map(row => takeOutbox(row.id)));
+  if (AG.open !== o) return;
+  const unsent: Draft[] = [...AG.queue.filter(q => q.state !== "delivered"), ...kept.filter(draft => draft !== null)];
   AG.queue.splice(0, AG.queue.length);
   // Each goes in front of what the field holds: the newest first, so the oldest leads.
   for (const q of unsent.reverse()) backInField(q);
@@ -193,38 +198,33 @@ export function answerFirst(allow: boolean) {
   return false;
 }
 
-/// Sends `steer` to the open session; true when the node took it. A message
-/// or steer waits up to `HOLD_MS` for its machine to come back. One that may
-/// have gone before the link dropped is sent again only once a read of the
-/// session shows the node does not have it.
+/// Sends `steer` to the open session; true when the node took it.
 export async function steerAgent(steer: Steer) {
   const o = AG.open;
   if (!o || AG.page?.session.external) return false;
-  const message = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
-  const until = Date.now() + HOLD_MS, queued = AG.page?.queued ?? 0;
-  let failed = await sendOnce(o, steer);
-
-  if (message && failed && failed.kind !== "failed") {
-    AG.held++;
-    if (isOpen(o)) drawAgentBody();
-
-    while (failed && failed.kind !== "failed" && Date.now() < until && AG.open === o) {
-      await new Promise(r => setTimeout(r, HOLD_RETRY_MS));
-      if (failed.kind === "lost") { failed = await sendOnce(o, steer); continue; }
-      const took = await takenAfterDrop(o, queued, message.text);
-      if (took === true) failed = null;
-      else if (took === false) failed = await sendOnce(o, steer);
-      else if (took.kind === "failed") failed = took;
-    }
-
-    if (AG.open === o) AG.held--;
-  }
-
+  const failed = await sendOnce(o, steer);
   if (isOpen(o)) { AG.note = failed?.message ?? ""; drawAgentBody(); resumeAgent(); }
   return !failed;
 }
 
-const HOLD_RETRY_MS = 2000;
+/// Sends a message to the open session: "sent" when the node took it,
+/// "waiting" when it waits on this device until the machine can be reached,
+/// else "failed", with the note saying why.
+async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }): Promise<"sent" | "waiting" | "failed"> {
+  const o = AG.open;
+  if (!o || AG.page?.session.external) return "failed";
+  const failed = await sendOnce(o, steer);
+  const sent = !failed ? "sent" : failed.kind === "waiting" ? "waiting" : "failed";
+
+  if (isOpen(o)) {
+    AG.note = failed && sent === "failed" ? failed.message : "";
+    if (sent === "waiting") void readOutbox(o);
+    drawAgentBody();
+    resumeAgent();
+  }
+
+  return sent;
+}
 
 /// One `agent_steer` call: null when the node took it, else why not.
 async function sendOnce(o: OpenAgent, steer: Steer): Promise<SendError | null> {
@@ -235,17 +235,6 @@ async function sendOnce(o: OpenAgent, steer: Steer): Promise<SendError | null> {
     return null;
   } catch (e) {
     return sendError(e);
-  }
-}
-
-/// After a send the link dropped on: whether the session, read again, shows
-/// the node took `text`, or why it could not be read.
-async function takenAfterDrop(o: OpenAgent, queued: number, text: string): Promise<boolean | SendError> {
-  try {
-    return tookIt(await invoke<AgentPage>("agent_view", { ...where(o), last: AGENT_LAST }, AGENT_READ_WAIT_MS), queued, text);
-  } catch (e) {
-    const v = viewError(e);
-    return v.kind === "lost" ? { kind: "lost", message: "" } : { kind: "failed", message: v.kind === "gone" ? "This session is no longer on the machine." : v.message };
   }
 }
 
@@ -272,14 +261,21 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   const mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
   page.entries.push(mine);
   drawAgentBody();
-  const sent = await steerAgent({ steer: outgoing(text, images) });
-  if (sent || !isOpen(o)) return sent;
-  // Nothing went: the message and its images wait in the field again,
-  // before anything typed since, under the note that says why.
-  if (/does not take images yet/.test(AG.note)) AG.noImages = o.session;
+  const sent = await sendText({ steer: outgoing(text, images) });
+  if (sent === "sent" || !isOpen(o)) return sent !== "failed";
   // A poll may have drawn more since: take out this message, not the last.
   const at = page.entries.indexOf(mine);
   if (at >= 0) page.entries.splice(at, 1);
+
+  if (sent === "waiting") {
+    // It shows in the queue, waiting for the connection; the field stays as it is.
+    drawAgentBody();
+    return true;
+  }
+
+  // Nothing went: the message and its images wait in the field again,
+  // before anything typed since, under the note that says why.
+  if (/does not take images yet/.test(AG.note)) AG.noImages = o.session;
   backInField(draft ?? { typed: text, paths: [], images });
   drawAgentBody();
   drawAgentAttached();
@@ -308,9 +304,10 @@ export async function sendReview(text: string) {
     const mine = { kind: "user", text };
     page.entries.push(mine);
     drawAgentBody();
-    ok = await steerAgent({ prompt: outgoing(text, []) });
+    const sent = await sendText({ prompt: outgoing(text, []) });
+    ok = sent !== "failed";
 
-    if (!ok) {
+    if (sent !== "sent") {
       const at = page.entries.indexOf(mine);
       if (at >= 0) page.entries.splice(at, 1);
       drawAgentBody();
@@ -358,5 +355,60 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
     AG.note = String(e).replace(/^(bad request|error):\s*/i, "");
     drawAgentBody();
     return false;
+  }
+}
+
+// ----- The outbox: messages waiting on this device for their machine -----
+
+/// A waiting message as `outbox_take` gives it back.
+interface Taken { text: string; images: { name: string; mime: string; data: string }[] }
+
+/// What `outbox-changed` tells every window.
+interface OutboxChanged { machine_id: string; agent: string; session: string; rows: OutboxRow[]; sent: OutboxRow[] }
+
+/// Reads what waits on this device for `o`, as it opens.
+export async function readOutbox(o: OpenAgent) {
+  try {
+    const rows = await invoke<OutboxRow[] | null>("outbox_list", where(o));
+    if (AG.open !== o) return;
+    AG.outbox = rows ?? [];
+    drawQueue();
+  } catch (e) {
+    console.warn("reading the outbox:", e);
+  }
+}
+
+listen<OutboxChanged>("outbox-changed", ({ payload }) => {
+  const o = AG.open;
+  if (!sameSession(o, { machine_id: payload.machine_id, agent: payload.agent, id: payload.session })) return;
+  AG.outbox = payload.rows;
+  // What went is the node's now: its row stays until the agent has it.
+  for (const row of payload.sent) AG.queue.push(sentFromOutbox(row, AG.polls));
+  drawQueue();
+  redrawAgentHints();
+});
+
+/// Takes waiting message `id` out; to edit, it goes back in the field.
+export async function editOutbox(id: number, edit: boolean) {
+  const o = AG.open, taken = await takeOutbox(id);
+  if (!taken || !isOpen(o)) return;
+  AG.outbox = AG.outbox.filter(row => row.id !== id);
+  if (edit) backInField(taken);
+  drawQueue();
+  redrawAgentHints();
+}
+
+/// Takes message `id` out of the outbox, as the field takes it back.
+async function takeOutbox(id: number): Promise<Draft | null> {
+  try {
+    const { text, images } = await invoke<Taken>("outbox_take", { id });
+    return {
+      typed: text, paths: [],
+      images: images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}` })),
+    };
+  } catch (e) {
+    AG.note = String(e);
+    drawAgentBody();
+    return null;
   }
 }

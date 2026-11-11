@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { endedPage, hasNews, LINKED, lostNote, noteAfterRead, readFailed, retryDelay, sendError, tookIt, viewError } from "../src/agents/reconnect-state.ts";
+import { endedPage, hasNews, LINKED, lostNote, noteAfterRead, readFailed, retryDelay, sendError, viewError } from "../src/agents/reconnect-state.ts";
 import { joinRuns } from "../src/agents/older-state.ts";
 import type { AgentPage } from "../src/agents/agents.ts";
 
@@ -71,14 +71,7 @@ test("an error, then a new event: no error is shown", () => {
 test("a failed send says whether anything went", () => {
   assert.deepEqual(sendError({ kind: "lost", message: "Lost the connection to build-box." }), { kind: "lost", message: "Lost the connection to build-box." });
   assert.equal(sendError({ kind: "unsure", message: "x" }).kind, "unsure");
+  assert.equal(sendError({ kind: "waiting", message: "x" }).kind, "waiting");
   assert.deepEqual(sendError({ kind: "failed", message: "bad request: The message is empty." }), { kind: "failed", message: "The message is empty." });
   assert.deepEqual(sendError("no answer in 40 s. Try again."), { kind: "failed", message: "no answer in 40 s. Try again." });
-});
-
-test("after a dropped send, the node took it when it holds one more or its last user line is it", () => {
-  const user = (text: string) => ({ kind: "user", text }), agent = (text: string) => ({ kind: "agent", text });
-  assert.equal(tookIt({ queued: 0, entries: [user("run the tests"), agent("done"), user("fix it")] }, 0, "run the tests"), false);
-  assert.equal(tookIt({ queued: 0, entries: [agent("done"), user("run the tests")] }, 0, "run the tests"), true);
-  assert.equal(tookIt({ queued: 1, entries: [] }, 0, "run the tests"), true);
-  assert.equal(tookIt({ queued: 0, entries: [] }, 0, ""), false);
 });

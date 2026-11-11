@@ -261,6 +261,8 @@ pub fn run() {
             agents::follow::agent_unfollow,
             agents::follow::agent_follow_show,
             agents::steer::agent_steer,
+            agents::outbox::outbox_list,
+            agents::outbox::outbox_take,
             bar::app::allow_mac_permission,
             bar::app::link_offer,
             bar::app::mac_control,
@@ -638,6 +640,7 @@ fn quit(app: &AppHandle) {
     });
     // The views a window drew last are kept for the next start.
     app.state::<Arc<center::view_cache::ViewCache>>().flush();
+    app.state::<Arc<agents::outbox::Outbox>>().sync();
     // Background tasks the agent started here end with the app.
     #[cfg(desktop)]
     beep_node::kill_tasks();
@@ -689,6 +692,9 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(views);
     app.manage(Arc::new(agents::kept_transcripts::KeptTranscripts::new(
         dir.join("transcripts"),
+    )));
+    app.manage(Arc::new(agents::outbox::Outbox::load(
+        dir.join("outbox.json"),
     )));
     let endpoint = tauri::async_runtime::block_on(bind_endpoint(
         beep::identity::secret_key(&identity),
@@ -785,6 +791,9 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.state::<machines::this_mac::Machine>().sync(&beep);
     let voice = Voice::new(handle.clone(), beep.clone());
     app.manage(voice.clone());
+
+    // Messages kept from the last run go once their machines answer.
+    agents::outbox::resume(&handle);
 
     let (following, direct) = fleet::alerts::start(fleet.clone());
     tauri::async_runtime::spawn(following);

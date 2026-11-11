@@ -143,7 +143,8 @@ async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) 
 
 /// Waits until `id` is online, at once if it is, so an offline machine is
 /// not asked again until it comes back.
-async fn until_online(fleet: &Fleet, id: EndpointId) {
+/// Returns once `id` is online, or the mesh closed.
+pub(crate) async fn until_online(fleet: &Fleet, id: EndpointId) {
     let mut changes = fleet.changes();
 
     while !fleet.online().contains(&id) {

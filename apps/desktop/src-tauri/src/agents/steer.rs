@@ -2,7 +2,7 @@
 //! message for the running turn, switching model, cancel and close.
 
 use crate::{
-    agents::sessions::closed,
+    agents::{kept_transcripts::SessionKey, outbox, sessions::closed},
     beep::Service,
     error::{DesktopError, Result},
     fleet::{Machines, agents as direct, asked::ORDER_LIMIT},
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 /// What `agent_steer` does to a session, as the page sends it.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Steer {
     Prompt {
@@ -59,7 +59,7 @@ pub enum Steer {
 }
 
 /// Why `agent_steer` failed, as the page tells it apart:
-/// `{ kind: "lost" | "unsure" | "failed", message }`.
+/// `{ kind: "lost" | "unsure" | "waiting" | "failed", message }`.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SteerError {
@@ -68,6 +68,9 @@ pub enum SteerError {
     /// The link dropped or timed out once the order went: the machine may
     /// have taken it, so read the session before sending again.
     Unsure { message: String },
+    /// The machine could not be reached, and the message waits in this
+    /// device's outbox until it can.
+    Waiting { message: String },
     /// What the machine or the app said.
     Failed { message: String },
 }
@@ -86,11 +89,11 @@ impl From<DesktopError> for SteerError {
 }
 
 /// An image as the page sends it: its bytes in base64.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PastedImage {
-    name: String,
-    mime: String,
-    data: String,
+    pub(crate) name: String,
+    pub(crate) mime: String,
+    pub(crate) data: String,
 }
 
 impl TryFrom<Steer> for AgentSteer {
@@ -185,6 +188,20 @@ pub async fn agent_steer(
     session: String,
     steer: Steer,
 ) -> Result<Vec<String>, SteerError> {
+    // A message to a machine of the mesh goes after any waiting for it, and
+    // waits on this device while the machine cannot be reached.
+    if matches!(steer, Steer::Prompt { .. } | Steer::InTurn { .. })
+        && fleet.member(&machine_id).is_some()
+    {
+        AgentSteer::try_from(steer.clone())?;
+        let key = SessionKey {
+            machine_id,
+            agent,
+            session,
+        };
+        return outbox::send(&app, window.label(), key, steer).await;
+    }
+
     Ok(sent(
         app,
         window.label(),
@@ -200,7 +217,7 @@ pub async fn agent_steer(
 
 // The arguments are those of `agent_steer`.
 #[allow(clippy::too_many_arguments)]
-async fn sent(
+pub(crate) async fn sent(
     app: AppHandle,
     window: &str,
     beep: Service<'_>,

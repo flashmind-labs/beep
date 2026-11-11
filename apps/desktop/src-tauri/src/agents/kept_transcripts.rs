@@ -43,7 +43,7 @@ pub struct KeptTranscript {
 }
 
 /// One session, as the commands name it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct SessionKey {
     pub(crate) machine_id: String,
     pub(crate) agent: String,

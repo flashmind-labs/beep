@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { AgentQueue } from "./queue-view.tsx";
 import { AgentStopFace } from "./mode-view.tsx";
-import type { Waiting } from "./agentqueue.ts";
+import type { OutboxRow, Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 
 // What the session's composer shows around its field: the queued steers,
@@ -16,7 +16,14 @@ export type FieldSlot = "state" | "mode" | "model" | "plan" | "tasks" | "pick";
 /// Queued steers fold into one line above the field on a phone; the line opens their
 /// list over the log.
 interface Work { queued: number; open: boolean }
-interface Queue { items: readonly Waiting[]; edit(index: number, keep: boolean): unknown; signature: string }
+interface Queue {
+  items: readonly Waiting[];
+  edit(index: number, keep: boolean): unknown;
+  /// Messages waiting on this device, after those the node holds.
+  outbox: readonly OutboxRow[];
+  editOutbox(id: number, keep: boolean): unknown;
+  signature: string;
+}
 interface Menu { rows: Row[]; index: number; pick(index: number): void }
 /// Only a turn that runs can be stopped; a stop shows at once.
 interface Stop { shown: boolean; stopping: boolean }
@@ -62,17 +69,17 @@ export function showAgentAttachments(view: ReactElement | null) {
   if (fieldUi.getState().attachments !== view) set({ attachments: view });
 }
 
-export function showAgentQueue(items: readonly Waiting[], edit: (index: number, keep: boolean) => unknown) {
-  const state = fieldUi.getState();
+export function showAgentQueue(items: readonly Waiting[], edit: Queue["edit"], outbox: readonly OutboxRow[], editOutbox: Queue["editOutbox"]) {
+  const state = fieldUi.getState(), queued = items.length + outbox.length;
 
-  if (!items.length) {
+  if (!queued) {
     if (state.queue) set({ queue: null, work: workOf(state.work, { queued: 0 }) });
     return;
   }
 
-  const signature = JSON.stringify(items.map(item => [item.typed, item.text, item.images.map(image => image.name), item.paths, item.state]));
+  const signature = JSON.stringify([items.map(item => [item.typed, item.text, item.images.map(image => image.name), item.paths, item.state]), outbox]);
   if (state.queue?.signature === signature) return;
-  set({ queue: { items, edit, signature }, work: workOf(state.work, { queued: items.length }) });
+  set({ queue: { items, edit, outbox, editOutbox, signature }, work: workOf(state.work, { queued }) });
 }
 
 export function showAgentMenu(rows: Row[], index: number, pick: (index: number) => void) {
@@ -115,7 +122,7 @@ export function FieldControl({ slot }: { slot: FieldSlot }) {
 
 export function FieldQueue() {
   const queue = useStore(fieldUi, state => state.queue);
-  return queue && <div className="ag-queue" id="agqueue"><AgentQueue items={queue.items} edit={queue.edit} /></div>;
+  return queue && <div className="ag-queue" id="agqueue"><AgentQueue items={queue.items} edit={queue.edit} outbox={queue.outbox} editOutbox={queue.editOutbox} /></div>;
 }
 
 export function FieldAttachments() {
