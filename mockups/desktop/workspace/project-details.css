@@ -45,6 +45,7 @@
 .mac .pj-org h3 small { font-size: 11px; font-weight: 400; color: var(--d-muted) }
 .mac .pj-org h3.gp { align-items: center }
 .mac .pj-org h3.gp svg { color: var(--d-dim); flex: none }
+.mac .pj-org h3 .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .pj-org h3 .gp-paths { font-weight: 400; font-size: 11px; color: var(--d-dim); font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .pj-org h3 .gp-acts { margin-left: auto; display: inline-flex; gap: 6px; flex: none }
 .mac .pj-org h3 .gp-acts .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }

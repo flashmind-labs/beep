@@ -183,9 +183,10 @@ body.cbody.mobile
               input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value] value=""
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3
-                button.pj-fold [aria-expanded="true" type="button"] "example/"
+                button.pj-fold [aria-expanded="true" type="button"]
                   span.open.twist
                     svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  span.nm [title="example/"] "example/"
                   small "2 repos"
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="example/widget"]
@@ -208,9 +209,10 @@ body.cbody.mobile
                   span.line.sync "on build-box"
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3
-                button.pj-fold [aria-expanded="true" type="button"] "tools/"
+                button.pj-fold [aria-expanded="true" type="button"]
                   span.open.twist
                     svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  span.nm [title="tools/"] "tools/"
                   small "1 repo"
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="tools/delta"]
