@@ -13,6 +13,8 @@ async function setHidden(page: Page, hidden: boolean) {
 }
 
 test("hiding the window sends its UI timings once, with fixed labels and no content", async ({ page }) => {
+  // Page fades under the blocked frames below would report long frames after the flush.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await openDesktop(page);
   await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
   const side = page.locator("#side");

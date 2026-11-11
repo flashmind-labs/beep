@@ -23,7 +23,7 @@ import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { viewHidden } from "../settings/subscription.ts";
 import { G, S } from "../bar/core.ts";
-import { syncMobile } from "./mobile.ts";
+import { canGoBack, syncMobile } from "./mobile.ts";
 import { placeWindowParts } from "./window-root.ts";
 import { shell, windowHost } from "./window-shell.tsx";
 
@@ -135,6 +135,19 @@ export function toMain(target: CenterTarget) {
 const pages = windowHistory;
 /// Set while ⌘[ or ⌘] moves, so the move is not a new visit.
 let moving = false;
+/// Set while a Back moves, so the page comes in from the left on the phone.
+let goingBack = false;
+
+/// Runs `step` as a Back: the phone's Back goes up a level without a history step.
+export function asBack(step: () => void) {
+  goingBack = true;
+
+  try {
+    step();
+  } finally {
+    goingBack = false;
+  }
+}
 const pageTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { recordTiming("page", page, ms); perfOpened(perfViewOf(page), ms); });
 
 /// The page showing, as `go` opens it again.
@@ -159,7 +172,7 @@ export function goHistory(forward: boolean): boolean {
   moving = true;
 
   try {
-    goTo(page);
+    if (forward) goTo(page); else asBack(() => goTo(page));
   } finally {
     moving = false;
   }
@@ -223,9 +236,37 @@ export function goTo(target: Location): boolean {
   shownChanged();
   drawTop();
   drawSide();
+  if (previous && JSON.stringify(previous) !== JSON.stringify(next)) animateIn(box, goingBack);
   if (mounted) void mounted.then(() => afterMount(name === "pane" ? pageName(name, S.view) : undefined)).catch(e => console.warn("mounting page:", e));
   else afterMount();
   return true;
+}
+
+type PageMotion = "fade" | "push" | "pop";
+
+/// How a page comes in: the phone slides a page in over its tab and back out the other
+/// way, and fades between tabs; the desktop fades.
+function pageMotion(phone: boolean, back: boolean, hasBack: boolean): PageMotion {
+  if (!phone) return "fade";
+  if (back) return "pop";
+  return hasBack ? "push" : "fade";
+}
+
+const MOTION: Record<PageMotion, { frames: Keyframe[]; ms: number }> = {
+  // Opacity only, so popovers measured while it plays land where they belong.
+  fade: { frames: [{ opacity: 0 }, { opacity: 1 }], ms: 150 },
+  push: { frames: [{ opacity: .6, transform: "translateX(28%)" }, { opacity: 1, transform: "none" }], ms: 240 },
+  pop: { frames: [{ opacity: .6, transform: "translateX(-22%)" }, { opacity: 1, transform: "none" }], ms: 220 },
+};
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+/// Plays the page's way in on its box; the compositor runs it, so the page draws as usual.
+function animateIn(box: HTMLElement, back: boolean) {
+  if (reduceMotion.matches || document.hidden) return;
+  const phone = document.body.classList.contains("mobile");
+  const { frames, ms } = MOTION[pageMotion(phone, back, phone && canGoBack())];
+  for (const running of box.getAnimations()) running.cancel();
+  box.animate(frames, { duration: ms, easing: "cubic-bezier(.2, .8, .2, 1)" });
 }
 
 function withReturnTarget(page: Location, current: Location | null): Location {

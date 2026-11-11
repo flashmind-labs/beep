@@ -6,6 +6,8 @@ import type { CenterView, ViewArg, ViewName } from "../src/center/state.ts";
 
 // Load the real navigation with the window's DOM and services replaced.
 const dom = new JSDOM("<!doctype html><body><div class='cwin'></div></body>");
+// jsdom has no media queries; Reduce motion keeps page animations out of these tests.
+dom.window.matchMedia = query => ({ matches: query.includes("reduce"), media: query } as MediaQueryList);
 const state = { picked: null as string | null, subscribed: false, agents: [] };
 const views = new Map<ViewName, CenterView>();
 /// The view each page module exports, calling what a test registered for it.
@@ -38,7 +40,7 @@ const stubs = new Map(Object.entries({
   "terminals/view.ts": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
   "settings/subscription.ts": "export const viewHidden = () => false;",
   "bar/core.ts": "export const S = { server: false, view: null, session: null }; export const G = { id: null };",
-  "center/mobile.ts": "export const syncMobile = () => {};",
+  "center/mobile.ts": "export const syncMobile = () => {}; export const canGoBack = () => false;",
   // The window's tree without the router.
   "center/window-root.ts": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
     import { CenterWindow, shell } from "./window-shell.tsx";

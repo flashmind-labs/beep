@@ -4,6 +4,10 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Android: pages slide in from the right, Back slides them in from the left, and tabs fade. Reduce motion turns it off.
+
 ## [0.2.4] - 2026-11-11
 
 ### Added
