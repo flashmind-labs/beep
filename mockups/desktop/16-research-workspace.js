@@ -207,7 +207,7 @@ function rPane() {
 // The head: the question, where it is (with the running round's steps), the facts, and Stop while it works.
 function rHead() {
   const st = S.d.rs;
-  const chip = (cls, label, spin) => `<span class="cc-tag${cls ? ` ${cls}` : ""}">${spin ? '<span class="drun"></span>' : ""}${label}</span>`;
+  const chip = (cls, label, spin) => `<span class="cc-tag${cls ? ` ${cls}` : ""}">${spin ? '<span class="dspin"></span>' : ""}${label}</span>`;
   const steps = now => `<span class="cc-rsteps">${[1, 2, 3].map(i => `<i class="${i < now ? "done" : i === now ? "now" : ""}"></i>`).join("")}</span>`;
   let tag = chip("run", "Researching", true) + steps(1), facts = "11 sources";
   if (st === "plan") [tag, facts] = [chip("wait", "Waiting for your go"), ""];
@@ -239,7 +239,7 @@ const RLIST = [
 ];
 const R_DOC = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4.5 4.5v14.5H6z"/><path d="M14 2.5V7h4.5"/></svg>';
 const R_CHIP = {
-  run: '<span class="cc-tag run"><span class="drun"></span>Running</span>', plan: '<span class="cc-tag wait">Waiting for your go</span>',
+  run: '<span class="cc-tag run"><span class="dspin"></span>Running</span>', plan: '<span class="cc-tag wait">Waiting for your go</span>',
   done: '<span class="cc-tag">Done</span>', stopped: '<span class="cc-tag">Stopped</span>', failed: '<span class="cc-tag bad">Failed</span>',
 };
 const rField = v => `<div class="dinput"><input placeholder="What should the team research?" autocomplete="off" spellcheck="false" aria-label="What should the team research?"${v ? ` value="${v}"` : ""}><kbd>&#8984;R</kbd></div>`;

@@ -122,11 +122,12 @@ test("a stale running-chat read cannot replace a newer status", async ({ page })
   await expect(row.getByRole("button", { name: "Pin to top" })).toBeVisible();
 });
 
-test("Home and the sidebar run no endless animation while agents work", async ({ page }) => {
+
+test("running agents and chats show turning spinners that pause while the window is hidden", async ({ page }) => {
   await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [{ id: "chat-one", title: "Example chat", pinned: false, updated_at: 1 }], list_groups: [], active_runs: ["chat-one"] });
   const row = page.locator("#side .cc-chat").filter({ has: page.getByRole("button", { name: "Example chat" }) });
   await expect(row.locator(".cc-run")).toBeVisible();
-  await expect(page.locator(".cc-running").first()).toBeVisible();
-  const endless = await page.evaluate(() => document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations === Infinity).length);
-  expect(endless).toBe(0);
+  await expect(row.locator(".cc-run")).toHaveCSS("animation-name", "spin");
+  await page.evaluate(() => document.documentElement.setAttribute("data-hidden", ""));
+  await expect(row.locator(".cc-run")).toHaveCSS("animation-play-state", "paused");
 });

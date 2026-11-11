@@ -627,7 +627,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-task.ask { background: color-mix(in srgb, var(--warn) 5%, transparent) }
 .pj-task .t a { color: var(--link); text-decoration: none; font-weight: 600 }
 /* A chat still answering: a spinner where the pin button was. */
-.cc-chat > .cc-run { margin: 0 11px 0 10px }
+.cc-chat > .cc-run { flex: none; width: 10px; height: 10px; margin: 0 10px 0 8px }
 /* Chats about one pull request or issue, under their project. */
 .cc-pjthreads { display: contents }
 .cc-si.cc-chat.cc-thread .open { padding-left: 30px }
@@ -867,7 +867,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .cc-mt.cc-rt > .r { cursor: pointer }
 .cc-mt.cc-rt .nm b button { padding: 0; border: 0; background: none;font: inherit; color: inherit; cursor: pointer; max-width: 100%; text-align: left; min-width: 0; overflow: hidden; display: flex }
 .cc-mt.cc-rt .nm b button:hover { color: var(--accent) }
-.cc-grp.research .cc-si > .dspin { margin-left: auto }
+.cc-grp.research .cc-si > .dspin { flex: none; width: 10px; height: 10px; margin-left: auto }
 
 /* A list as tall as its first rows, the rest scrolls (fitRows). The script sets the exact
    height once the rows are drawn; this is the fallback. */

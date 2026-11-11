@@ -65,13 +65,17 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dstep > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dstep .s { width: 16px; height: 16px; display: grid; place-items: center; flex: none }
 .dstep.run { color: var(--fg) }
-/* Spinners turn only for a wait the user started and for the open transcript. */
+/* Spinners show work in progress, so they still turn; a hidden window pauses them. */
 .dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); display: inline-block; animation: spin .8s linear infinite }
-/* Work that runs for minutes or hours shows a still dot, so it draws nothing while it runs. */
-.drun, .cc-running .dspin, .chip .dspin, .rr-st .dspin, .dchat .run .dspin, .ddock .step .dspin, .ag-tasks .dspin, .dspin.sw-spin, .cc-si > .dspin { display: inline-block; flex: none; width: 7px; height: 7px; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); animation: none }
+.drun { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); border-top-color: var(--accent); display: inline-block; flex: none; animation: spin .8s linear infinite }
+.dspin.sw-spin, .drun.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none }
+.cc-running .dspin, .cc-running .drun { width: 10px; height: 10px; flex: none }
+.chip .dspin, .chip .drun { width: 9px; height: 9px }
+.rr-st .dspin, .rr-st .drun { width: 11px; height: 11px }
+.ag-tasks .dspin, .ag-task .dspin { flex: none; width: 10px; height: 10px }
 @keyframes spin { to { transform: rotate(360deg) } }
 /* A hidden window keeps no spinner turning (ui/active.ts sets data-hidden). */
-:root[data-hidden] .dspin { animation-play-state: paused }
+:root[data-hidden] :is(.dspin, .drun) { animation-play-state: paused }
 /* A Mermaid block not yet drawn announces itself to chat/diagrams.ts as it shows. */
 /* Found even with Reduce motion on, which removes every other animation. */
 pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms !important }
