@@ -197,6 +197,7 @@ pub fn run() {
             agents::diff::agent_commands,
             agents::processes::agent_processes,
             agents::processes::agent_stop_process,
+            agents::processes::agent_close_external,
             agents::moving::session_move,
             agents::moving::session_move_cancel,
             agents::moving::session_copies,
