@@ -124,6 +124,6 @@ export function headText(s: AgentRow) {
   return {
     title: s.title || name,
     folder: project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || name,
-    branch: place?.linked ? ` · ${placeName(place)}` : "",
+    branch: place?.linked ? placeName(place) : "",
   };
 }

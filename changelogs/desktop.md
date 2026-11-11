@@ -20,6 +20,12 @@ Other apps have independent versions and changelogs:
   terminal has a Continue here button. After you confirm, Beep waits for a
   running turn to end, closes the session in its terminal and continues it
   here. The wait can be cancelled.
+- Desktop: fold a group on the Projects page by clicking its name. It
+  stays folded on this computer; a search still shows its matches.
+
+### Changed
+
+- Desktop: each row in the Coding agents list shows its harness icon.
 
 ### Fixed
 
@@ -29,6 +35,8 @@ Other apps have independent versions and changelogs:
   open conversation says "Connecting to" its machine until the first live
   update arrives. Before, the kept view looked live until it suddenly
   changed.
+- Desktop: a long activity line on a running session no longer widens
+  the Coding agents list past the window.
 
 ## [0.8.2] - 2026-11-11
 

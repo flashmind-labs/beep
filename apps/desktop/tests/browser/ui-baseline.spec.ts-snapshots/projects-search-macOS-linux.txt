@@ -182,8 +182,11 @@ body.cbody
             div.pj-find [data-rac]
               input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-focus-visible="true" data-focused="true" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value="gadget"] value="gadget" (focused)
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
-              h3 "example/"
-                small "1 repo"
+              h3
+                button.pj-fold [aria-expanded="true" type="button"] "example/"
+                  span.open.twist
+                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  small "1 repo"
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="example/gadget"]
                   div.h

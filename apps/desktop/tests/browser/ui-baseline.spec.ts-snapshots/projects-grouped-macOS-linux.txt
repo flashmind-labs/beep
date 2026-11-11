@@ -182,9 +182,12 @@ body.cbody
             div.pj-find [data-empty="true" data-rac]
               input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value] value=""
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
-              h3.gp "Client work"
-                svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                small "0 repos"
+              h3.gp
+                button.pj-fold [aria-expanded="true" type="button"] "Client work"
+                  span.open.twist
+                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                  small "0 repos"
                 span.gp-paths [title="Matched on every machine"] "~/srv/example"
                 span.gp-acts
                   button.dbtn.quiet [type="button"] "Rename"
@@ -192,8 +195,11 @@ body.cbody
                   button.dbtn.quiet.warn [type="button"] "Remove"
               span.gp-none "No projects in these folders yet."
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
-              h3 "example/"
-                small "2 repos"
+              h3
+                button.pj-fold [aria-expanded="true" type="button"] "example/"
+                  span.open.twist
+                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  small "2 repos"
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="example/widget"]
                   div.h
@@ -223,8 +229,11 @@ body.cbody
                   span.line "Last activity 10 min ago"
                   span.line.sync "on build-box"
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
-              h3 "tools/"
-                small "1 repo"
+              h3
+                button.pj-fold [aria-expanded="true" type="button"] "tools/"
+                  span.open.twist
+                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  small "1 repo"
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="tools/delta"]
                   div.h

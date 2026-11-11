@@ -9,6 +9,9 @@ body.mobile { overscroll-behavior: none; -webkit-tap-highlight-color: transparen
 body.mobile .cwin { display: flex; flex-direction: column; height: 100vh; height: 100dvh; padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right) }
 body.mobile #side, body.mobile #side-grip { display: none }
 body.mobile .cc-main { flex: 1; min-height: 0 }
+/* Nothing makes the window scroll sideways: the page a swipe back drags right, or a row
+   wider than the screen, would let iOS pan the whole window and leave it shifted. */
+body.mobile .cwin { overflow: clip }
 
 /* Top bar: Back in place of the sidebar. */
 body.mobile .cc-top { min-height: 48px; padding: calc(env(safe-area-inset-top) + 4px) 8px 4px 16px; gap: 6px }
@@ -88,11 +91,16 @@ body.mobile .pj-grid { grid-template-columns: minmax(0, 1fr) }
 body.mobile .pj-find { max-width: none }
 body.mobile .pj-org h3.gp { display: block }
 body.mobile .pj-org h3.gp svg { display: inline; vertical-align: -1px; margin-right: 6px }
-body.mobile .pj-org h3.gp small { margin-left: 8px }
+body.mobile .pj-fold { min-height: 44px; align-items: center }
 body.mobile .pj-org h3.gp .gp-paths { display: block; margin-top: 2px }
 body.mobile .pj-org h3.gp .gp-acts { display: flex; margin: 4px 0 0 -9px }
 body.mobile #sec-elsewhere .cc-gr.it .r { grid-column: 2 / -1; flex-wrap: wrap }
 body.mobile .cc-top .tools .pj-tool { width: 44px; padding: 0; gap: 0; justify-content: center; font-size: 0 }
+
+/* Coding agents: the page header has the title and New, so the list's own header goes. */
+body.mobile .dhead:has(> #agNew) { display: none }
+.ag-new-top { display: none }
+body.mobile .cc-top .tools .ag-new-top { display: inline-flex }
 
 /* Terminals: the machines' list, or the open terminal. */
 body.mobile .tl { grid-template-columns: minmax(0, 1fr) }
@@ -134,9 +142,10 @@ body.mobile:not(.mb-home) #usage { display: none }
 body.mobile .us-pill.plans > .us-x { display: none }
 body.mobile .us-pill { min-height: 0; height: 32px; border-radius: 999px }
 
-/* A session: the composer takes a full line for its text. */
-body.mobile .dinput.small { flex-wrap: wrap; gap: 6px; padding: 6px 10px }
-body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 38px; max-height: 120px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink) }
+/* A session: the composer is one rounded surface, its text on a full line and its controls
+   under it, with no border of its own around the field. */
+body.mobile .dinput.small { flex-wrap: wrap; gap: 6px; margin: 4px 10px 8px; padding: 4px 4px 4px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface) }
+body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 38px; max-height: 120px; padding: 9px 0; border: 0; background: none }
 /* Its attach, mode and model controls show while typing, leaving the log the room. */
 body.mobile #agfield:not(:focus-within) > :not(textarea, #agstop, #agsend, #agnativeparent) { display: none }
 body.mobile #agfield:not(:focus-within) textarea { flex: 1 1 0 }

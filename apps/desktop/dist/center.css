@@ -255,7 +255,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-line .r { grid-auto-flow: column; align-items: center }
 .cc-running { display: inline-flex; align-items: center; gap: 8px }
 .cc-wait { color: var(--muted) }
-.cc-wait { color: var(--muted) }
 .cc-line .ok { font-size: 12px; color: var(--accent) }
 .cc-line .err { font-size: 12px; color: var(--err) }
 /* Home's open PRs and issues by project: counts and chips on one line, the
@@ -469,6 +468,12 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-org { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 14px }
 .pj-org h3 { margin: 0; display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; color: var(--fg) }
 .pj-org h3 small { font-size: 11px; font-weight: 400; color: var(--muted) }
+/* A group's name folds its cards; a search shows every match. */
+.pj-fold { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; overflow-wrap: anywhere }
+.pj-fold .twist { flex: none; align-self: center; width: 10px; display: grid; place-items: center; color: var(--dim) }
+.pj-fold .twist.open svg { transform: rotate(90deg) }
+.pj-fold small { flex: none; white-space: nowrap }
+.pj-org h3.gp .pj-fold { align-items: center }
 /* A folder group's heading: its name, count and folders, then its buttons. */
 .pj-org h3.gp { align-items: center }
 .pj-org h3.gp svg { color: var(--dim); flex: none }
