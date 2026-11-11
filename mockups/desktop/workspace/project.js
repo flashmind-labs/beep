@@ -242,7 +242,7 @@ Error: Process completed with exit code 101.</pre></span>
     const page = skinned(ccWin(side.innerHTML, main));
     if (S.d.igsform === "1") return ccSheetOver(page, `<div class="am-head"><b>Sync gitignored</b><kbd>esc</kbd></div>
       <label class="am-line"><input type="checkbox" checked>Sync selected ignored folders on all machines</label>
-      <label class="am-label" for="ignored-folders">Folders relative to the project, one per line</label><textarea id="ignored-folders" class="ip-path" rows="4">assets/models
+      <label class="am-label" for="ignored-folders">Folders relative to the project, one per line</label><textarea id="ignored-folders" class="ip-path ip-list" rows="4">assets/models
 data/captures</textarea>
       <div class="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>
       <div class="am-line ip-acts"><button class="dbtn quiet" data-dact="dset:igsform:" data-dgo="dWinProject">Cancel</button><button class="dbtn pri" data-dact="dset:igs:1" data-dgo="dWinProject" data-toast="Ignored-folder sync saved for all machines" onclick="S.d.igsform=''">Save</button></div>`);

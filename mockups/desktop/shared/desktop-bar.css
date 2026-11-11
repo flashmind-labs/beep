@@ -145,3 +145,4 @@
 .mac .quote-copy-example + .dcopy:focus-visible { outline: 2px solid currentColor; outline-offset: 2px }
 
 .mac blockquote + .dcopy:hover, .mac blockquote + .dcopy:active { background: transparent; box-shadow: none }
+.ip-path.ip-list { display: block; width: 100%; box-sizing: border-box; resize: vertical; white-space: pre; overflow: auto; text-overflow: clip }
