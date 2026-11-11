@@ -50,6 +50,9 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: project counts in the sidebar line up with the counts above them;
+  the pin shows in the count's place on hover.
+
 - Desktop: right after the app starts, session rows ask each machine once
   for where their sessions work and try again a few seconds later while a
   machine is still starting, instead of failing and waiting half a minute.

@@ -131,3 +131,12 @@ test("running agents and chats show turning spinners that pause while the window
   await page.evaluate(() => document.documentElement.setAttribute("data-hidden", ""));
   await expect(row.locator(".cc-run")).toHaveCSS("animation-play-state", "paused");
 });
+
+test("project counts line up with the counts of the links above", async ({ page }) => {
+  await openDesktop(page);
+  const running = page.locator("#side .cc-si", { hasText: "Running" }).locator(".n");
+  const project = page.locator("#side .cc-chat .n").first();
+  await expect(project).toBeVisible();
+  const right = async (n: typeof running) => Math.round((await n.boundingBox())!.x + (await n.boundingBox())!.width);
+  expect(await right(project)).toBe(await right(running));
+});

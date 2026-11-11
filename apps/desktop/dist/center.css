@@ -146,11 +146,14 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-pal .foot { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--dim) }
 
 /* A chat row: the open button and the pin toggle, side by side. */
-.cc-si.cc-chat { padding: 0 }
-.cc-chat .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 5px 0 5px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; white-space: nowrap }
+.cc-si.cc-chat { padding: 0; position: relative }
+.cc-chat .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; white-space: nowrap }
 .cc-chat:has(.open[aria-current="true"]) { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--fg) }
-.cc-chat .pa { flex: none; display: grid; align-self: stretch; align-items: center; padding: 0 8px; border: 0; background: transparent; color: var(--muted); opacity: 0 }
+/* The pin lies over the row's end, so counts line up with the links above; it takes the count's place on hover. */
+.cc-chat .pa { position: absolute; top: 0; right: 0; bottom: 0; display: grid; align-items: center; padding: 0 8px; border: 0; background: transparent; color: var(--muted); opacity: 0 }
 .cc-chat:hover .pa, .cc-chat .pa:focus-visible { opacity: 1 }
+.cc-chat:is(:hover, :focus-within) .open { padding-right: 30px }
+.cc-chat:is(:hover, :focus-within) .open .n { visibility: hidden }
 .cc-chat .pa:hover { color: var(--hot) }
 .cc-grp.pinned .cc-chat .pa { color: var(--hot) }
 
