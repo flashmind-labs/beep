@@ -86,7 +86,7 @@ test("opening again with warm data reads nothing", async ({ page }) => {
   await openBar(page, rows);
   await shown(page);
   await expect(page.locator("#wtlist [role=option]")).toHaveCount(4);
-  const reads = ["agent_sessions", "notes_list", "agent_place", "list_machines", "agent_hosts"];
+  const reads = ["agent_sessions", "notes_list", "agent_places", "list_machines", "agent_hosts"];
   await page.waitForTimeout(300);
   const before = await calls(page, reads);
   await page.keyboard.press("Escape");

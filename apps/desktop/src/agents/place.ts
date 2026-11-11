@@ -1,7 +1,7 @@
-// The place of each session the rows show, asked of its machine a few at a
-// time and kept a while. Rows read `placeOf` while they draw; what it does
-// not know yet is asked for, and the views that registered redraw once the
-// answers are in.
+// The place of each session the rows show, asked of its machine in one call
+// for all its sessions waiting, and kept a while. Rows read `placeOf` while
+// they draw; what it does not know yet is asked for, and the views that
+// registered redraw once the answers are in.
 
 import { moveLabel } from "./move-store.ts";
 import { type PlaceAsk, type WorkPlace, placeKey, placeSub } from "./place-state.ts";
@@ -11,10 +11,17 @@ import { invoke } from "../ui/tauri.ts";
 /// How long an answer holds before the machine is asked again: the agent may
 /// have moved.
 const STALE_MS = 30_000;
-/// The most asked at once.
-const IN_FLIGHT = 4;
+/// How long a machine that did not answer yet, as while it starts, waits
+/// before it is asked again.
+const UNREACHABLE_MS = 5_000;
+/// The most sessions asked of a machine in one call.
+const BATCH = 50;
 /// The most answers kept.
 const KEPT = 500;
+
+/// What `agent_places` answers: each session's place in order, or that the
+/// machine did not answer yet.
+type PlacesAnswer = { kind: "found"; places: (WorkPlace | null)[] } | { kind: "unreachable" };
 
 interface KnownPlace {
   place: WorkPlace | null;
@@ -25,8 +32,11 @@ interface KnownPlace {
 const known = new Map<string, KnownPlace>();
 const waiting = new Map<string, PlaceAsk>();
 const asking = new Set<string>();
+/// The machines asked now.
+const askingOn = new Set<string>();
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setTimeout> | undefined;
+let pumping = false;
 
 /// `redraw` runs when new places arrive.
 export function onPlaces(redraw: () => void) {
@@ -40,32 +50,72 @@ export function placeOf(r: PlaceAsk, maxAge = STALE_MS) {
   const got = known.get(key);
 
   if (!got || (Date.now() - got.at > maxAge && Date.now() >= got.retryAt)) {
-    if (!asking.has(key) && !waiting.has(key)) { waiting.set(key, r); pump(); }
+    if (!asking.has(key) && !waiting.has(key)) { waiting.set(key, r); pumpSoon(); }
   }
 
   return got?.place ?? null;
 }
 
+/// Asks once the draw that read the places is done, so its rows go together.
+function pumpSoon() {
+  if (pumping) return;
+  pumping = true;
+  queueMicrotask(() => { pumping = false; pump(); });
+}
+
 function pump() {
+  const batches = new Map<string, [string, PlaceAsk][]>();
+
   for (const [key, ask] of waiting) {
-    if (asking.size >= IN_FLIGHT) return;
-    waiting.delete(key);
-    asking.add(key);
-    invoke<WorkPlace | null>("agent_place", { machineId: ask.machine_id, agent: ask.agent, session: ask.id, external: !!ask.external })
-      .then(place => ({ place, failed: false }), () => ({ place: null, failed: true }))
-      .then(({ place: read, failed }) => {
-        asking.delete(key);
-        const before = known.get(key);
-        // A read that failed keeps the place known, so views do not switch away and back.
-        const place = failed ? before?.place ?? null : read;
-        if (known.size >= KEPT) known.clear();
-        const failures = failed ? Math.min((before?.failures ?? 0) + 1, 5) : 0;
-        const retryAt = failed ? Date.now() + Math.min(300_000, STALE_MS * 2 ** (failures - 1)) : 0;
-        known.set(key, { place, at: Date.now(), failures, retryAt });
-        if (JSON.stringify(before?.place ?? null) !== JSON.stringify(place)) changed();
-        pump();
-      });
+    if (askingOn.has(ask.machine_id)) continue;
+    const batch = batches.get(ask.machine_id) ?? [];
+    if (batch.length < BATCH) batch.push([key, ask]);
+    batches.set(ask.machine_id, batch);
   }
+
+  for (const [machine, batch] of batches) ask(machine, batch);
+}
+
+/// Asks `machine` where the sessions of `batch` work, and asks again for
+/// what waited meanwhile.
+function ask(machine: string, batch: [string, PlaceAsk][]) {
+  askingOn.add(machine);
+  for (const [key] of batch) { waiting.delete(key); asking.add(key); }
+  const asks = batch.map(([, r]) => ({ agent: r.agent, session: r.id, external: !!r.external }));
+  invoke<PlacesAnswer>("agent_places", { machineId: machine, asks })
+    .then(answer => answer, () => null)
+    .then(answer => {
+      askingOn.delete(machine);
+      let moved = false;
+      batch.forEach(([key], i) => {
+        asking.delete(key);
+        if (answer?.kind === "found") moved = settle(key, answer.places[i] ?? null, null) || moved;
+        else settle(key, null, answer ? UNREACHABLE_MS : STALE_MS);
+      });
+      if (moved) changed();
+      pump();
+    });
+}
+
+/// Keeps what was read of `key`: `place` when it was answered, else, asked
+/// again after `retry` ms and longer on each failure, the place known before,
+/// so views do not switch away and back. Whether the place changed.
+function settle(key: string, place: WorkPlace | null, retry: number | null) {
+  const before = known.get(key);
+  const now = Date.now();
+
+  if (known.size >= KEPT) known.clear();
+
+  if (retry === null) {
+    known.set(key, { place, at: now, failures: 0, retryAt: 0 });
+    return JSON.stringify(before?.place ?? null) !== JSON.stringify(place);
+  }
+
+  const failures = Math.min((before?.failures ?? 0) + 1, 5);
+  const wait = Math.min(300_000, retry * 2 ** (failures - 1));
+  // Due again at `retryAt`, however old what is kept.
+  known.set(key, { place: before?.place ?? null, at: 0, failures, retryAt: now + wait });
+  return false;
 }
 
 /// Redraws the views once, after a burst of answers.
