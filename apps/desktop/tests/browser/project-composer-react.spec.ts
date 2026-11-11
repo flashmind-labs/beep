@@ -134,3 +134,18 @@ test("newer host availability wins over a delayed initial read", async ({ page }
   await expect(input).toHaveJSProperty("selectionStart", 2);
   await expect(input).toHaveJSProperty("selectionEnd", 5);
 });
+
+test("⌘M in the project task field opens and closes the model picker", async ({ page }, info) => {
+  await openDesktop(page, false, { agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const form = page.locator(".cc-pjc:visible");
+  const harness = form.locator('button[title="Harness, model and thinking"]');
+  await expect(harness).toBeEnabled();
+  await form.getByRole("textbox", { name: "Task for a coding agent" }).click();
+  const key = info.project.name === "Windows" ? "Control+m" : "Meta+m";
+  await page.keyboard.press(key);
+  await expect(harness).toHaveAttribute("aria-expanded", "true");
+  await expect(form.locator(".pick .agc-search")).toBeVisible();
+  await page.keyboard.press(key);
+  await expect(harness).toHaveAttribute("aria-expanded", "false");
+});

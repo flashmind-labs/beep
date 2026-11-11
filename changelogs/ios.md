@@ -4,6 +4,11 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- iOS: Projects no longer scrolls sideways when an open issue or pull request has many labels; the labels wrap under the title.
+- iOS: the project page has no blank band above its task field.
+
 ### Added
 
 - iOS: pages slide in from the right, Back slides them in from the left, and tabs fade. Reduce motion turns it off.

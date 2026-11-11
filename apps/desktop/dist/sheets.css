@@ -67,6 +67,7 @@
 /* Import a project: the folder field and its browser, the branches. */
 .ip-sheet { max-height: calc(100vh - 48px); overflow: auto }
 .ip-path { padding: 7px 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.ip-path.ip-list { display: block; width: 100%; box-sizing: border-box; resize: vertical; white-space: pre; overflow: auto; text-overflow: clip }
 .ip-dir { width: 100% }
 .ip-dir::placeholder { color: var(--muted); font-family: var(--body) }
 .ip-dir:disabled { opacity: 1 }
