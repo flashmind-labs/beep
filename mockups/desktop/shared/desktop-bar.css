@@ -72,10 +72,9 @@
 .dstep .s { width: 16px; height: 16px; display: grid; place-items: center; flex: none }
 .dstep.run { color: var(--d-fg) }
 .dhost { padding: 0 5px; border-radius: 4px; background: var(--d-elev); border: 1px solid var(--d-border); color: var(--d-muted); font-size: 11.5px }
-/* Spinners turn only for a wait the user started and for the open transcript. */
+/* Spinners show work in progress, so they still turn. */
 .dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--d-border); border-top-color: var(--d-emerald); animation: spin .8s linear infinite }
-/* Work that runs for minutes or hours shows a still dot. */
-.drun, .mac :is(.cc-running, .chip, .cc-tag, .pj-st, .rr-st, .cc-si, .dchat .run, .ag-row .r) .dspin { display: inline-block; flex: none; width: 7px; height: 7px; border: 0; border-radius: 50%; background: var(--d-emerald); box-shadow: 0 0 0 2px color-mix(in srgb, var(--d-emerald) 22%, transparent); animation: none }
+.drun { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--d-border); border-top-color: var(--d-emerald); animation: spin .8s linear infinite }
 .dok { color: var(--d-emerald); display: grid }
 .caret { display: inline-block; width: 2px; height: 16px; margin-left: 1px; background: var(--d-emerald); vertical-align: -3px; animation: none}
 @keyframes blink { 50% { opacity: 0 } }
