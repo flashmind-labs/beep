@@ -4,6 +4,8 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-11
+
 ### Added
 
 - Node: a desktop can close a session running in a terminal so it continues

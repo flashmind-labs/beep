@@ -9,6 +9,8 @@ Other apps have independent versions and changelogs:
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-11
+
 ### Added
 
 - Desktop: a message sent to a session whose machine cannot be reached waits on
