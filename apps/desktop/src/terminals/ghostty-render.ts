@@ -269,6 +269,7 @@ export class GridRenderer {
 
       const span = attrs & Attr.WIDE ? 2 : 1;
       const left = x * cw;
+      const cp = row.codepoint[x];
       let cellBg = row.bg[x];
       const selected = (attrs & Attr.SELECTED) !== 0;
       if (selected) cellBg = blend(cellBg, this.theme.selection, this.theme.selectionAlpha);
@@ -276,10 +277,12 @@ export class GridRenderer {
       if (cellBg !== background) rect(bg, x, left, top, cw * span, ch, cellBg, 1, Kind.SOLID);
 
       // A kitty placeholder cell shows its image, drawn apart, and no glyph.
-      const cp = row.codepoint[x];
       const text = cp === KITTY_PLACEHOLDER ? "" : row.graphemes.get(x) ?? (cp > 32 ? String.fromCodePoint(cp) : "");
       if (text !== "") {
-        const g = this.atlas.glyph(text, (attrs & Attr.BOLD) !== 0, (attrs & Attr.ITALIC) !== 0, span, this.cell, this.baseline);
+        // An icon may spread into a blank cell after it, as in Ghostty.
+        const blankNext = x + 1 < n && row.codepoint[x + 1] <= 32 && !row.graphemes.has(x + 1);
+        const room = span === 1 && isIcon(cp) && blankNext ? 2 : span;
+        const g = this.atlas.glyph(text, (attrs & Attr.BOLD) !== 0, (attrs & Attr.ITALIC) !== 0, room, this.cell, this.baseline);
         const alpha = attrs & Attr.FAINT ? 0.5 : 1;
         const o = x * GLYPH_FLOATS;
         glyphs.set([left, top, g.width, ch, g.u, g.v, g.uw, g.vh], o);
@@ -628,18 +631,34 @@ function draw(ctx: CanvasRenderingContext2D, text: string, font: string, width: 
 
   ctx.font = font;
   ctx.textBaseline = "alphabetic";
-  const measured = ctx.measureText(text).width;
-  // A glyph wider than its cells, such as some emoji, is narrowed to fit.
+  const metrics = ctx.measureText(text);
+  const measured = metrics.width;
   const scale = measured > width ? width / measured : 1;
   ctx.save();
-  ctx.translate(0, baseline);
-  ctx.scale(scale, 1);
+
+  // An icon too wide for its cells keeps its shape: shrunk both ways and
+  // centred on the cell's height. Other glyphs, such as some emoji, are
+  // narrowed to fit.
+  if (scale < 1 && isIcon(cp)) {
+    const middle = (metrics.actualBoundingBoxDescent - metrics.actualBoundingBoxAscent) / 2;
+    ctx.translate(0, height / 2 - middle * scale);
+    ctx.scale(scale, scale);
+  } else {
+    ctx.translate(0, baseline);
+    ctx.scale(scale, 1);
+  }
+
   ctx.fillText(text, 0, 0);
   ctx.restore();
   return EMOJI.test(text);
 }
 
 const EMOJI = /\p{Extended_Pictographic}/u;
+
+/// Private use characters: Nerd Font and Powerline icons.
+function isIcon(cp: number): boolean {
+  return (cp >= 0xe000 && cp <= 0xf8ff) || cp >= 0xf0000;
+}
 
 /// Draws block elements and the common box drawing lines; false for other
 /// characters.
