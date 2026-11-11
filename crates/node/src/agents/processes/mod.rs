@@ -302,6 +302,27 @@ impl Processes {
     }
 }
 
+/// Asks `pid`, the process of a session started outside Beep, to end, and
+/// waits up to `wait` for it to go. SIGTERM on Unix, as an idle prompt that
+/// wants Ctrl-C twice still ends on it. Windows cannot ask a console program
+/// it shares no console with, so there it ends at once, like `stop`; an idle
+/// session has written its transcript. It is never killed after `wait`.
+pub(super) async fn close_outside(pid: u32, wait: Duration) -> anyhow::Result<()> {
+    if pid <= 1 || pid == std::process::id() {
+        anyhow::bail!("process {pid} is not a session's");
+    }
+    // Watched before the signal, so its exit cannot come first.
+    let exit = crate::events::exits::Exit::watch(pid)?;
+    let Some(process) = snapshot::read(true).await?.get(&pid).cloned() else {
+        return Ok(());
+    };
+
+    send(Arc::from([process]), false).await?;
+    let ended = tokio::time::timeout(wait, exit.wait()).await;
+    snapshot::invalidate().await;
+    ended.map_err(|_| anyhow::anyhow!("it did not end; close it in its terminal"))
+}
+
 async fn send(processes: Arc<[Process]>, kill: bool) -> anyhow::Result<()> {
     tokio::task::spawn_blocking(move || {
         let mut error = None;

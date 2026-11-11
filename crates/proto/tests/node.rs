@@ -1808,6 +1808,21 @@ mod agent {
         }
 
         #[test]
+        fn closing_an_outside_session_is_new_and_not_retried() {
+            let close = SessionsRequest::CloseExternal {
+                agent: "claude".into(),
+                session: "s1".into(),
+            };
+            assert!(!close.is_read());
+            let bytes = rmp_serde::to_vec(&close).unwrap();
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).unwrap(),
+                close
+            );
+            assert!(beep_proto::lenient::from_slice::<BeforeMoves>(&bytes).is_err());
+        }
+
+        #[test]
         fn running_processes_default_missing_fields_and_skip_newer_fields() {
             let bytes = rmp_serde::to_vec(&(42, "watch", 1_700_000_000_u64)).unwrap();
             let process: RunningProcess = beep_proto::lenient::from_slice(&bytes).unwrap();

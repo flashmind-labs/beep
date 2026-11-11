@@ -183,7 +183,7 @@ pub async fn serve_sessions(
     };
     let started = std::time::Instant::now();
     let _slow = watch_slow(&request, caller);
-    let reply = match request {
+    let mut reply = match request {
         SessionsRequest::List {} => SessionsReply::Sessions {
             sessions: agents.list(),
         },
@@ -420,6 +420,12 @@ pub async fn serve_sessions(
             }
             _ => failed("the session has ended"),
         },
+        SessionsRequest::CloseExternal { agent, session } => {
+            match agents.close_external(&agent, &session).await {
+                Ok(()) => SessionsReply::ProcessStopped {},
+                Err(e) => failed(e),
+            }
+        }
         SessionsRequest::RelocateSession {
             agent,
             session,
@@ -511,7 +517,8 @@ pub async fn serve_sessions(
         },
     };
 
-    if let SessionsReply::External { sessions } = &reply {
+    if let SessionsReply::External { sessions } = &mut reply {
+        agents.settle_closed(sessions);
         agents.observe_external(sessions);
     }
 
