@@ -20,11 +20,11 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use std::{sync::Arc, time::Duration};
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
 };
+use std::{sync::Arc, time::Duration};
 use tauri::{
     AppHandle, Manager, State, WebviewWindow,
     ipc::{Channel, InvokeResponseBody},

@@ -23,8 +23,9 @@ desktop-build:
     cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app
     bash scripts/package-macos-dmg.sh "${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app" target/beep-macos.dmg
 
-# Build the desktop DMG signed with a Developer ID from the keychain.
-desktop-build-signed: desktop-sparkle
+# Build the desktop DMG signed with a Developer ID from the keychain, with
+# the native updater as the release workflow builds it.
+desktop-build-signed:
     #!/usr/bin/env bash
     set -euo pipefail
     export APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:-Developer ID Application}"
@@ -33,9 +34,10 @@ desktop-build-signed: desktop-sparkle
         exit 1
     fi
 
+    bash scripts/download-sparkle.sh
     bash scripts/sign-sparkle.sh
     (cd apps/desktop && npm ci --silent)
-    (cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app)
+    (cd apps/desktop/src-tauri && PATH="/usr/bin:$PATH" cargo tauri build --bundles app --features sparkle --config tauri.sparkle.conf.json)
 
     app="${CARGO_TARGET_DIR:-apps/desktop/src-tauri/target}/release/bundle/macos/Beep.app"
     codesign --verify --deep --strict "$app"
