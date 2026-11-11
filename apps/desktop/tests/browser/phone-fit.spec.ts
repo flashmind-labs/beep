@@ -129,3 +129,14 @@ for (const [layout, width] of [["phone", 402], ["desktop", 1280]] as const) {
     await expect(cards).toHaveCount(projects.length);
   });
 }
+
+test("the phone Agents list shows a session that starts while it is open", async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await openDesktop(page, false, { ...responses, agent_sessions: sessions.slice(2) });
+  await tab(page, "Agents").click();
+  const rows = page.locator("[data-agi]");
+  await expect(rows).toHaveCount(2);
+
+  await page.evaluate(list => { window.__navigation.respond("agent_sessions", list); window.__navigation.emit("sessions-changed", null); }, sessions);
+  await expect(rows).toHaveCount(sessions.length);
+});

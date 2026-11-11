@@ -9,6 +9,10 @@ Other apps have independent versions and changelogs:
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop: the Agents list shows sessions that start, end or change while it is open, without leaving the page and coming back.
+
 ## [0.8.3] - 2026-11-11
 
 ### Added

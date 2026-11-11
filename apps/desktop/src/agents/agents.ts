@@ -11,7 +11,8 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { nest } from "./nesting-state.ts";
-import { parentSession, ensureSessions, reviewers, sessions } from "./sessions.ts";
+import { parentSession, ensureSessions, loadSessions, reviewers, sessions, sessionsChanged } from "./sessions.ts";
+import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import { copies, copiesView, keepCopiesFresh } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
@@ -425,6 +426,13 @@ function sessionSub(s: AgentSession, harness: string, folder: string) {
   return (worktree ? [harness, worktree.replace(s.machine_name, machine)] : [harness, folder, machine]).filter(Boolean).join(" · ");
 }
 
+// The list on screen follows the sessions: a change reads them again at most
+// once a second while it shows.
+const rereadAgents = ambient(async () => {
+  try { await loadSessions(); } catch (e) { console.warn("sessions:", e); return; }
+  if (S.view === "agents") drawAgents(false);
+}, AMBIENT_MS, () => S.view === "agents");
+sessionsChanged.add(() => rereadAgents());
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 onMoves(() => { if (S.view === "agents") drawAgents(false); });
 copies.subscribe(() => { if (S.view === "agents") drawAgents(false); });

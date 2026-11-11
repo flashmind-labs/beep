@@ -50,6 +50,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: the Agents list shows sessions that start, end or change while it is open, without leaving the page and coming back.
+
 - Projects: a long group name stays on one line and ends in "..." instead of wrapping over several lines.
 - iOS: on opening or waking, sessions, Home and machines shown from what
   the app kept now say they are still connecting. A machine not reached yet
