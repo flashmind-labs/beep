@@ -9,6 +9,8 @@ Other apps have independent versions and changelogs:
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-11-11
+
 ### Added
 
 - Desktop: switching pages fades the new page in. Reduce motion turns it off.
