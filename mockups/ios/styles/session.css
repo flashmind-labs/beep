@@ -19,8 +19,9 @@
 .tool .vb{white-space:nowrap}
 .tool .cmd{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tool .rm{font:11px/20px var(--mono);color:var(--dim)}.tool .rm.pl{color:var(--accent)}.tool .rm.mi{color:var(--hot)}
-.comp{flex:none;border-top:1px solid var(--border);background:var(--surface);padding:6px 10px 6px 14px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-.comp .fld{flex:1 1 100%;order:-1;min-height:38px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--ink);font-size:16px;line-height:20px;color:var(--dim)}
+/* The composer is one surface, as on the desktop: a borderless field and its controls in one rounded box. */
+.comp{flex:none;margin:4px 10px 8px;border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:4px 4px 4px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.comp .fld{flex:1 1 100%;order:-1;min-height:38px;padding:9px 0;border:0;background:none;font-size:16px;line-height:20px;color:var(--dim)}
 .comp.one .fld{flex:1 1 0;min-width:0}
 .comp.typ .fld{color:var(--fg);min-height:58px}
 .ib{flex:none;width:38px;height:38px;display:grid;place-items:center;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--muted)}
@@ -49,3 +50,6 @@
 .wq .r.s .t{font-family:inherit}
 .wq .r b{font-weight:400;font-size:11px;color:var(--dim)}
 .wq .r em{font-style:normal;padding:0 8px;line-height:28px;color:var(--muted)}
+
+/* Shown from what the app kept until the machine answers: one muted line, no animation. */
+.log .note{margin:10px 0 0;font-size:12px;color:var(--muted)}
