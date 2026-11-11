@@ -4,7 +4,11 @@
 use crate::{
     beep::Service,
     error::Result,
-    fleet::{Machines, agents as agent_nodes, files as direct},
+    fleet::{
+        Machines,
+        agents::{self as agent_nodes, PlaceAsk},
+        files as direct,
+    },
 };
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetWorkDiff, WorkDiff,
@@ -169,20 +173,38 @@ pub async fn work_diff(
     Ok(view(diff))
 }
 
-/// Where a session works, as its machine worked it out: the checkout, whether
-/// it is a linked worktree, the branch. `None` for a machine only a server
-/// reaches or a node that does not say.
+/// Where sessions of one machine work, as their node gives it.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Places {
+    /// Each asked session's checkout, in order; `None` for a machine only a
+    /// server reaches or a node that does not say.
+    Found { places: Vec<Option<WorkPlace>> },
+    /// The machine did not answer yet, as while it starts or its link comes
+    /// up: ask again later.
+    Unreachable,
+}
+
+/// Where the sessions `asks` on `machine_id` work, each from its machine:
+/// the checkout, whether it is a linked worktree, the branch.
 #[tauri::command]
-pub async fn agent_place(
+pub async fn agent_places(
     fleet: Machines<'_>,
     machine_id: String,
-    agent: String,
-    session: String,
-    external: bool,
-) -> Result<Option<WorkPlace>> {
-    match fleet.member(&machine_id) {
-        Some(machine) => agent_nodes::place(&fleet, machine, &agent, &session, external).await,
-        None => Ok(None),
+    asks: Vec<PlaceAsk>,
+) -> Result<Places> {
+    let Some(machine) = fleet.member(&machine_id) else {
+        let places = asks.iter().map(|_| None).collect();
+        return Ok(Places::Found { places });
+    };
+
+    match agent_nodes::places(&fleet, machine, &asks).await {
+        Ok(places) => Ok(Places::Found { places }),
+        Err(e) if e.is_transport() => {
+            log::debug!("session places not read yet; machine={machine_id} error={e}");
+            Ok(Places::Unreachable)
+        }
+        Err(e) => Err(e),
     }
 }
 

@@ -192,7 +192,7 @@ pub fn run() {
             agents::review::agent_review_start,
             agents::review::agent_review,
             agents::review::agent_reviews,
-            agents::diff::agent_place,
+            agents::diff::agent_places,
             agents::diff::agent_worktrees,
             agents::diff::agent_commands,
             agents::processes::agent_processes,

@@ -19,7 +19,7 @@ const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 
 function setup(id: string, trees: Tree[]) {
   answers.agent_worktrees = trees;
-  answers.agent_place = {folder: main.path, main: main.path, linked: false, branch: "main", origin: ""};
+  answers.agent_places = {kind: "found", places: [{folder: main.path, main: main.path, linked: false, branch: "main", origin: ""}]};
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
