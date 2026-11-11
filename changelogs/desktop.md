@@ -9,6 +9,8 @@ Other apps have independent versions and changelogs:
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-11-11
+
 ### Fixed
 
 - Desktop: a machine that stops taking new reads while still connected is

@@ -4,6 +4,8 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-11-11
+
 ### Performance
 
 - Node: listing the checkouts sessions worked in reads each checkout with git
