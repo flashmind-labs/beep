@@ -29,10 +29,16 @@ export const lostNote = (machine: string) => `Lost the connection to ${machine}.
 
 /// Why `agent_steer` failed: the machine could not be reached ("lost"), the
 /// link dropped once it went ("unsure"), the message waits in this device's
-/// outbox until the machine answers ("waiting"), or a refusal.
-export interface SendError { kind: "lost" | "unsure" | "waiting" | "failed"; message: string }
+/// outbox until the machine answers ("waiting"), the page stopped waiting
+/// for an answer ("timeout"), or a refusal.
+export interface SendError { kind: "lost" | "unsure" | "waiting" | "timeout" | "failed"; message: string }
+
+/// Whether `invoke` gave up on a command after its limit: it rejects with
+/// "no answer in N s. Try again.".
+const timedOut = (e: unknown) => typeof e === "string" && /^no answer in \d+ s\./.test(e);
 
 export function sendError(e: unknown): SendError {
+  if (timedOut(e)) return { kind: "timeout", message: String(e) };
   const o = typeof e === "object" && e ? e as { kind?: unknown; message?: unknown } : null;
   const kind = o?.kind === "lost" || o?.kind === "unsure" || o?.kind === "waiting" ? o.kind : "failed";
   return { kind, message: String(o ? o.message ?? "" : e).replace(/^bad request: /, "") };

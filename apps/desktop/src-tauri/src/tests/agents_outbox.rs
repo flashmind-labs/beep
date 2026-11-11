@@ -11,14 +11,31 @@ fn key(session: &str) -> SessionKey {
 
 fn outbox() -> (tempfile::TempDir, PathBuf, Outbox) {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let file = dir.path().join("outbox.json");
-    let outbox = Outbox::load(file.clone());
-    (dir, file, outbox)
+    let kept = dir.path().join("outbox");
+    let outbox = Outbox::load(kept.clone());
+    (dir, kept, outbox)
+}
+
+fn draft(text: &str) -> Draft {
+    Draft {
+        how: Kind::Steer,
+        text: text.into(),
+        images: Vec::new(),
+        seen: None,
+    }
+}
+
+fn image(name: &str) -> PastedImage {
+    PastedImage {
+        name: name.into(),
+        mime: "image/png".into(),
+        data: "aGVsbG8=".into(),
+    }
 }
 
 fn push(outbox: &Outbox, session: &str, text: &str) -> u64 {
     outbox
-        .with(|held| held.push(&key(session), Kind::Steer, text.into(), Vec::new(), None))
+        .with(|held| held.push(&key(session), draft(text), None))
         .0
 }
 
@@ -135,20 +152,8 @@ async fn the_window_that_sent_is_answered_by_the_first_try() {
     let (reply, answer) = oneshot::channel();
     let (behind, later) = oneshot::channel();
     outbox.with(|held| {
-        held.push(
-            &key("s1"),
-            Kind::Steer,
-            "first".into(),
-            Vec::new(),
-            Some(reply),
-        );
-        held.push(
-            &key("s1"),
-            Kind::Steer,
-            "second".into(),
-            Vec::new(),
-            Some(behind),
-        );
+        held.push(&key("s1"), draft("first"), Some(reply));
+        held.push(&key("s1"), draft("second"), Some(behind));
     });
     // Sent windows show their own rows.
     assert!(texts(&outbox, "s1").is_empty());
@@ -163,15 +168,42 @@ async fn the_window_that_sent_is_answered_by_the_first_try() {
     assert!(matches!(later.await, Ok(Answer::Waiting)));
 }
 
+#[tokio::test]
+async fn a_message_behind_one_waiting_for_the_machine_is_answered_at_once_and_shown() {
+    let (_dir, _, outbox) = outbox();
+    let first = push(&outbox, "s1", "first");
+    outbox.with(|held| {
+        held.begin(&key("s1"));
+        held.wait(first, false)
+    });
+
+    let (reply, answer) = oneshot::channel();
+    outbox.with(|held| held.push(&key("s1"), draft("second"), Some(reply)));
+
+    assert!(matches!(answer.await, Ok(Answer::Waiting)));
+    assert_eq!(texts(&outbox, "s1"), ["first", "second"]);
+}
+
+#[test]
+fn a_window_that_stopped_waiting_hands_its_message_to_the_outbox() {
+    let (_dir, _, outbox) = outbox();
+    let (reply, _answer) = oneshot::channel();
+    let (id, _) = outbox.with(|held| held.push(&key("s1"), draft("slow"), Some(reply)));
+    assert!(texts(&outbox, "s1").is_empty());
+
+    let changed = outbox
+        .with(|held| held.hand_over(id))
+        .expect("the window waited");
+    assert_eq!(changed.rows.len(), 1);
+    assert_eq!(texts(&outbox, "s1"), ["slow"]);
+}
+
 #[test]
 fn a_new_message_waits_behind_one_not_sent_and_one_flusher_runs() {
     let (_dir, _, outbox) = outbox();
-    let (_, first) =
-        outbox.with(|held| held.push(&key("s1"), Kind::Steer, "a".into(), Vec::new(), None));
-    let (_, second) =
-        outbox.with(|held| held.push(&key("s1"), Kind::Steer, "b".into(), Vec::new(), None));
-    let (_, other) =
-        outbox.with(|held| held.push(&key("s2"), Kind::Steer, "c".into(), Vec::new(), None));
+    let (_, first) = outbox.with(|held| held.push(&key("s1"), draft("a"), None));
+    let (_, second) = outbox.with(|held| held.push(&key("s1"), draft("b"), None));
+    let (_, other) = outbox.with(|held| held.push(&key("s2"), draft("c"), None));
     assert!(first);
     assert!(!second);
     assert!(other);
@@ -189,45 +221,156 @@ fn a_new_message_waits_behind_one_not_sent_and_one_flusher_runs() {
 }
 
 #[test]
-fn kept_messages_come_back_after_a_restart_and_a_cut_send_is_checked() {
-    let (_dir, file, outbox) = outbox();
+fn stop_all_drains_what_waits_at_once_and_leaves_the_one_being_sent() {
+    let (_dir, _, outbox) = outbox();
+    push(&outbox, "s1", "a");
+    push(&outbox, "s1", "b");
+    push(&outbox, "s1", "c");
+    push(&outbox, "s2", "other");
+    outbox.with(|held| held.begin(&key("s1")));
+
+    let (taken, changed) = outbox.with(|held| held.drain(&key("s1")));
+
+    let taken: Vec<&str> = taken.iter().map(|m| m.text.as_str()).collect();
+    assert_eq!(taken, ["b", "c"]);
+    assert_eq!(changed.rows.len(), 1);
+    assert_eq!(texts(&outbox, "s2"), ["other"]);
+}
+
+#[test]
+fn every_message_kept_from_before_a_restart_is_checked_before_it_goes_again() {
+    let (_dir, kept, outbox) = outbox();
     push(&outbox, "s1", "first");
     push(&outbox, "s1", "second");
     outbox.with(|held| held.begin(&key("s1")));
     outbox.sync();
     drop(outbox);
 
-    let again = Outbox::load(file);
+    let again = Outbox::load(kept);
     assert_eq!(texts(&again, "s1"), ["first", "second"]);
     assert_eq!(again.read(Held::waiting), [key("s1")]);
     let first = again
         .with(|held| held.begin(&key("s1")))
         .expect("a message to send");
+    let second = again
+        .with(|held| held.begin(&key("s1")))
+        .expect("another message to send");
+    // Waiting on disk does not mean nothing went: the file lags the sends.
     assert!(first.unsure);
+    assert!(second.unsure);
     assert_eq!(push(&again, "s1", "third"), 2);
 }
 
 #[test]
-fn a_dropped_send_counts_as_taken_when_the_session_holds_it() {
-    let entry = |kind, text: &str| AgentEntry {
+fn images_are_kept_in_their_own_files_and_go_with_their_message() {
+    let (_dir, kept, outbox) = outbox();
+    let with_image = Draft {
+        images: vec![image("shot.png")],
+        ..draft("look")
+    };
+    let (id, _) = outbox.with(|held| held.push(&key("s1"), with_image, None));
+    outbox.sync();
+
+    let messages = fs::read_to_string(kept.join(MESSAGES)).expect("the messages' file");
+    assert!(messages.contains("shot.png"));
+    assert!(!messages.contains("aGVsbG8="));
+    let file = kept.join(IMAGES).join(image_file(id, 0));
+    assert_eq!(fs::read_to_string(&file).expect("the image"), "aGVsbG8=");
+
+    let again = Outbox::load(kept.clone());
+    let (message, _) = again.with(|held| held.take(id)).expect("taken");
+    assert_eq!(message.images[0].data, "aGVsbG8=");
+    again.sync();
+    assert!(!file.exists());
+}
+
+fn entry(kind: AgentEntryKind, text: &str) -> AgentEntry {
+    AgentEntry {
         kind,
         text: text.into(),
         tool: None,
-    };
-    let user = |text| entry(AgentEntryKind::User {}, text);
-    let agent = |text| entry(AgentEntryKind::Agent {}, text);
-    let none: [String; 0] = [];
+    }
+}
 
+fn user(text: &str) -> AgentEntry {
+    entry(AgentEntryKind::User {}, text)
+}
+
+fn agent(text: &str) -> AgentEntry {
+    entry(AgentEntryKind::Agent {}, text)
+}
+
+fn kept(text: &str, images: &[&str], seen: Option<Seen>) -> Message {
+    Message {
+        id: 0,
+        machine_id: "build-box".into(),
+        agent: "claude".into(),
+        session: "s1".into(),
+        how: Kind::Steer,
+        text: text.into(),
+        images: images.iter().map(|name| image(name).into()).collect(),
+        state: Stage::Waiting,
+        unsure: true,
+        seen,
+    }
+}
+
+fn log<'a>(queued: &'a [String], earlier: u64, entries: &'a [AgentEntry]) -> Log<'a> {
+    Log {
+        queued,
+        earlier,
+        entries,
+    }
+}
+
+#[test]
+fn a_dropped_send_counts_as_taken_only_for_what_came_after_it() {
+    let seen = |entries, queued: &[&str]| {
+        Some(Seen {
+            entries,
+            queued: queued.iter().map(|q| q.to_string()).collect(),
+        })
+    };
+    let entries = [user("yes"), agent("done")];
+
+    // An older "yes" before the send is not this one.
     assert!(!holds(
-        &none,
-        &[user("run the tests"), agent("done"), user("fix it")],
-        "run the tests"
+        &log(&[], 0, &entries),
+        &kept("yes", &[], seen(2, &[]))
     ));
+    // A "yes" after it is.
+    let after = [user("yes"), agent("done"), user("yes")];
+    assert!(holds(&log(&[], 0, &after), &kept("yes", &[], seen(2, &[]))));
+    // The same words inside a longer message are not it.
+    let longer = [user("yes please")];
+    assert!(!holds(
+        &log(&[], 0, &longer),
+        &kept("yes", &[], seen(0, &[]))
+    ));
+    // One more queued copy than the window saw is it; the same count is not.
+    let one = ["yes".to_string()];
+    assert!(holds(&log(&one, 0, &[]), &kept("yes", &[], seen(0, &[]))));
+    assert!(!holds(
+        &log(&one, 0, &[]),
+        &kept("yes", &[], seen(0, &["yes"]))
+    ));
+    // Without what the window saw, only the newest user entry counts.
     assert!(holds(
-        &none,
-        &[agent("done"), user("run the tests")],
-        "run the tests"
+        &log(&[], 0, &[agent("x"), user("yes")]),
+        &kept("yes", &[], None)
     ));
-    assert!(holds(&["run the tests".to_string()], &[], "run the tests"));
-    assert!(!holds(&none, &[user("x")], ""));
+    assert!(!holds(
+        &log(&[], 0, &[user("yes"), user("no")]),
+        &kept("yes", &[], None)
+    ));
+}
+
+#[test]
+fn an_image_only_message_is_found_by_its_image_lines() {
+    let message = kept("", &["shot.png"], Some(Seen::default()));
+    let queued = ["[Image: shot.png]".to_string()];
+
+    assert!(holds(&log(&queued, 0, &[]), &message));
+    assert!(holds(&log(&[], 5, &[user("[image: image-abc]")]), &message));
+    assert!(!holds(&log(&[], 5, &[user("hello")]), &message));
 }

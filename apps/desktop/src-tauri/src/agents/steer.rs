@@ -187,6 +187,8 @@ pub async fn agent_steer(
     agent: String,
     session: String,
     steer: Steer,
+    // What the window saw of the session when it sent a message.
+    seen: Option<outbox::Seen>,
 ) -> Result<Vec<String>, SteerError> {
     // A message to a machine of the mesh goes after any waiting for it, and
     // waits on this device while the machine cannot be reached.
@@ -199,7 +201,7 @@ pub async fn agent_steer(
             agent,
             session,
         };
-        return outbox::send(&app, window.label(), key, steer).await;
+        return outbox::send(&app, window.label(), key, steer, seen).await;
     }
 
     Ok(sent(
