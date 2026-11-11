@@ -53,6 +53,11 @@ impl Exit {
         Ok(held)
     }
 
+    /// Whether the process has exited, as last heard.
+    pub(crate) fn exited(&self) -> bool {
+        *self.exited.borrow()
+    }
+
     pub(crate) async fn wait(&self) {
         let mut exited = self.exited.clone();
         let _ = exited.wait_for(|exited| *exited).await;

@@ -1,17 +1,14 @@
 //! The Claude Code processes running on the machine, the folders they run
-//! in and the sessions their arguments name, read with `ps`, then `lsof` on
-//! macOS or `/proc` on Linux.
+//! in and the sessions their arguments name, read from the node's shared
+//! process table, then `lsof` on macOS or `/proc` on Linux.
 
 use super::discover::is_session_id;
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
-    process::Stdio,
-    time::Duration,
+    sync::{LazyLock, Mutex},
 };
-use tokio::{process::Command, time::timeout};
 
-/// How long `ps` or `lsof` may take.
-const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// The most processes looked at.
 const MAX_PROCESSES: usize = 256;
 /// The most words a program's path may hold: one that runs from a folder
@@ -34,39 +31,116 @@ pub(super) struct Process {
     pub(super) session: Option<String>,
 }
 
-/// Every running `claude` with its folder. An error reads as none: the
-/// sessions then show as stopped or recently active.
+/// Every running `claude` with its folder, from the process table the
+/// node shares; a folder is looked up once per process. An error reads as
+/// none: the sessions then show as stopped or recently active.
 pub(super) async fn claude_processes() -> Vec<Process> {
-    let Some(listing) = output("ps", &["-axwwo", "pid=,args="]).await else {
-        return Vec::new();
+    let table = match crate::agents::processes::table().await {
+        Ok(table) => table,
+        Err(e) => {
+            log::debug!("could not list processes: {e:#}");
+            return Vec::new();
+        }
     };
-    let found = claude_sessions(&listing, |program| Path::new(program).is_file());
-    let pids: Vec<u32> = found.iter().map(|(pid, _)| *pid).collect();
-    let cwds = folders(&pids).await;
+    let mut listed: Vec<_> = table.values().collect();
+    listed.sort_by_key(|process| process.pid);
+    let found = claude_sessions(
+        listed
+            .iter()
+            .map(|process| (process.pid, process.command.as_ref())),
+        |program| Path::new(program).is_file(),
+    );
+    let running: Vec<(u32, u64)> = found
+        .iter()
+        .filter_map(|(pid, _)| Some((*pid, table.get(pid)?.birth)))
+        .collect();
+    let mut cwds = kept_folders(&running).await;
     found
         .into_iter()
         .map(|(pid, session)| Process {
             pid,
-            cwd: cwds
-                .iter()
-                .find(|(of, _)| *of == pid)
-                .map(|(_, cwd)| cwd.clone()),
+            cwd: cwds.remove(&pid),
             session,
         })
         .collect()
 }
 
-/// The pids in `ps -o pid=,args=` output that run Claude Code, each with
-/// the session its arguments name. Claude Code is the `claude` program, or
-/// the binary its native install keeps under `claude/versions/`, which its
-/// daemon runs by path; a `claude` running one of its `HELPERS` is not a
+/// The folders of `running`, each a pid with its creation time, read for
+/// a process not seen before and kept while it runs: a session's folder
+/// does not change.
+async fn kept_folders(running: &[(u32, u64)]) -> HashMap<u32, PathBuf> {
+    let mut out = HashMap::new();
+    let mut unknown = Vec::new();
+
+    {
+        let mut kept = crate::lock(&FOLDERS);
+        kept.retain(|pid, folder| running.contains(&(*pid, folder.birth)));
+
+        for (pid, _) in running {
+            match kept.get(pid) {
+                Some(folder) => {
+                    if let Some(cwd) = &folder.cwd {
+                        out.insert(*pid, cwd.clone());
+                    }
+                }
+                None => unknown.push(*pid),
+            }
+        }
+    }
+
+    if unknown.is_empty() {
+        return out;
+    }
+
+    // A failed read keeps nothing, so the next one asks again.
+    let Some(read) = folders(&unknown).await else {
+        return out;
+    };
+    let mut kept = crate::lock(&FOLDERS);
+
+    for (pid, birth) in running.iter().filter(|(pid, _)| unknown.contains(pid)) {
+        let cwd = read
+            .iter()
+            .find(|(of, _)| of == pid)
+            .map(|(_, cwd)| cwd.clone());
+        kept.insert(
+            *pid,
+            Folder {
+                birth: *birth,
+                cwd: cwd.clone(),
+            },
+        );
+
+        if let Some(cwd) = cwd {
+            out.insert(*pid, cwd);
+        }
+    }
+
+    out
+}
+
+/// The folders of the Claude Code processes seen, by pid.
+static FOLDERS: LazyLock<Mutex<HashMap<u32, Folder>>> = LazyLock::new(Mutex::default);
+
+/// A Claude Code process's folder, `None` when it could not be read, with
+/// the process's creation time, so a reused pid is not given another's.
+struct Folder {
+    birth: u64,
+    cwd: Option<PathBuf>,
+}
+
+/// The pids among `processes`, each a pid with its command line, that run
+/// Claude Code, each with the session its arguments name. Claude Code is
+/// the `claude` program, or the binary its native install keeps under
+/// `claude/versions/`, which its daemon runs by path; a `claude` running one of its `HELPERS` is not a
 /// session. `is_file` says whether a path with spaces in it is a file here.
-fn claude_sessions(listing: &str, is_file: impl Fn(&str) -> bool) -> Vec<(u32, Option<String>)> {
-    listing
-        .lines()
-        .filter_map(|line| {
-            let (pid, args) = line.trim().split_once(char::is_whitespace)?;
-            let pid = pid.parse().ok()?;
+fn claude_sessions<'a>(
+    processes: impl IntoIterator<Item = (u32, &'a str)>,
+    is_file: impl Fn(&str) -> bool,
+) -> Vec<(u32, Option<String>)> {
+    processes
+        .into_iter()
+        .filter_map(|(pid, args)| {
             let rest = claude_arguments(args.trim(), &is_file)?;
 
             if rest
@@ -170,31 +244,45 @@ fn session_in(word: &str) -> Option<String> {
     is_session_id(id).then(|| id.to_owned())
 }
 
+/// The folders `pids` run in; `None` when they could not be read.
 #[cfg(target_os = "linux")]
-async fn folders(pids: &[u32]) -> Vec<(u32, PathBuf)> {
-    pids.iter()
-        .filter_map(|pid| {
-            let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
-            Some((*pid, cwd))
-        })
-        .collect()
+async fn folders(pids: &[u32]) -> Option<Vec<(u32, PathBuf)>> {
+    Some(
+        pids.iter()
+            .filter_map(|pid| {
+                let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
+                Some((*pid, cwd))
+            })
+            .collect(),
+    )
 }
 
+/// The folders `pids` run in; `None` when they could not be read.
 #[cfg(not(target_os = "linux"))]
-async fn folders(pids: &[u32]) -> Vec<(u32, PathBuf)> {
+async fn folders(pids: &[u32]) -> Option<Vec<(u32, PathBuf)>> {
     if pids.is_empty() {
-        return Vec::new();
+        return Some(Vec::new());
     }
 
+    use std::{process::Stdio, time::Duration};
+    use tokio::{process::Command, time::timeout};
+    /// How long `lsof` may take.
+    const LIMIT: Duration = Duration::from_secs(5);
     let list = pids
         .iter()
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    match output("lsof", &["-a", "-d", "cwd", "-Fpn", "-p", &list]).await {
-        Some(text) => lsof_folders(&text),
-        None => Vec::new(),
-    }
+    crate::run::process::counted("lsof".as_ref());
+    let run = Command::new("lsof")
+        .args(["-a", "-d", "cwd", "-Fpn", "-p", &list])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    // lsof exits 1 when one of the processes is gone; its output still counts.
+    let out = timeout(LIMIT, run).await.ok()?.ok()?;
+    Some(lsof_folders(&String::from_utf8_lossy(&out.stdout)))
 }
 
 /// The folders in `lsof -Fpn` output: a `p<pid>` line, then `n<path>`.
@@ -214,20 +302,6 @@ fn lsof_folders(text: &str) -> Vec<(u32, PathBuf)> {
     }
 
     found
-}
-
-/// What `program` prints, `None` when it fails to run in time. `lsof`
-/// exits 1 when one of the processes is gone, so its output still counts.
-async fn output(program: &str, args: &[&str]) -> Option<String> {
-    crate::run::process::counted(program.as_ref());
-    let run = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let out = timeout(PROBE_TIMEOUT, run).await.ok()?.ok()?;
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 #[cfg(test)]

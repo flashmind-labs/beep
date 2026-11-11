@@ -82,14 +82,20 @@ async fn pace<T>(
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct Process {
-    pid: u32,
+pub(super) struct Process {
+    pub(super) pid: u32,
     parent: u32,
     group: u32,
     /// The OS creation time, kept at its original precision to detect pid reuse.
-    birth: u64,
+    pub(super) birth: u64,
     started_at: u64,
-    command: Arc<str>,
+    pub(super) command: Arc<str>,
+}
+
+/// The machine's processes, by pid, from the table every reader shares: it
+/// is read at most once a second however many ask.
+pub(super) async fn table() -> anyhow::Result<Arc<HashMap<u32, Process>>> {
+    snapshot::read(false).await
 }
 
 /// The coding agents' own programs, never a command they ran.
