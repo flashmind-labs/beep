@@ -16,7 +16,7 @@ test("desktop renders through streamed updates, caches, expands and exports", as
   let loads = 0;
   await page.route("https://diagram.test/**", async route => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><body>
+    if (path === "/") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><style>pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms } @keyframes diagram-found { from { opacity: .99 } }</style></head><body>
       <div id="bar"><div id="reply"><pre><code class="language-mermaid-pending">flowchart LR\n A--&gt;B</code></pre></div></div>
       <script>window.calls=[];window.__TAURI__={core:{invoke:async(name,args)=>{calls.push({name,args});return name==='save_picture'?'/downloads/'+args.name:null},Channel:class{}},event:{listen:async()=>()=>{}}};</script>
       <script type="module">await import('/app.js');window.ready=true;</script></body></html>` });
@@ -36,7 +36,7 @@ test("desktop renders through streamed updates, caches, expands and exports", as
     }
   });
   const preview = page.frameLocator('iframe[title="Mermaid diagram"]').first();
-  await preview.locator("#svg:not(:disabled)").waitFor();
+  await preview.locator("#export:not(:disabled)").waitFor();
   assert.equal(loads, 1);
   // Conversation panes detach their DOM while another session is open.
   await page.evaluate(async () => {
@@ -46,21 +46,21 @@ test("desktop renders through streamed updates, caches, expands and exports", as
     await new Promise(requestAnimationFrame);
     document.getElementById("bar").append(reply);
   });
-  await preview.locator("#svg:not(:disabled)").waitFor({ timeout: 5000 });
+  await preview.locator("#export:not(:disabled)").waitFor({ timeout: 5000 });
   await page.evaluate(async () => {
     const reply = document.getElementById("reply");
     reply.remove();
     await new Promise(requestAnimationFrame);
     document.getElementById("bar").append(reply);
   });
-  await preview.locator("#svg:not(:disabled)").waitFor({ timeout: 5000 });
+  await preview.locator("#export:not(:disabled)").waitFor({ timeout: 5000 });
   assert.equal(await page.locator('iframe[title="Mermaid diagram"]').getAttribute("sandbox"), "allow-scripts");
-  await preview.locator("#svg").click();
+  await preview.locator("#export").click(); await preview.locator("#svg").click();
   await page.waitForFunction(() => calls.some(c => c.name === "save_picture"));
   const saved = await page.evaluate(() => calls.find(c => c.name === "save_picture").args);
   assert.equal(saved.name, "diagram.svg");
   assert.match(saved.url, /^data:image\/svg\+xml;base64,/);
-  await preview.locator("#copy-image").click();
+  await preview.locator("#export").click(); await preview.locator("#copy-image").click();
   await page.waitForFunction(() => calls.some(c => c.name === "copy_diagram_image"));
   const copied = await page.evaluate(() => calls.find(c => c.name === "copy_diagram_image").args);
   assert.equal(Buffer.from(copied.png, "base64").subarray(1, 4).toString(), "PNG");
@@ -69,7 +69,7 @@ test("desktop renders through streamed updates, caches, expands and exports", as
   await page.waitForFunction(() => calls.some(c => c.args?.name === "diagram.png"));
   await preview.locator("#expand").click();
   const expanded = page.frameLocator("dialog iframe");
-  await expanded.locator("#png:not(:disabled)").waitFor();
+  await expanded.locator("#export:not(:disabled)").waitFor();
   const width = await expanded.locator("#picture").evaluate(img => img.clientWidth);
   await expanded.getByRole("button", { name: "Zoom in" }).click();
   assert.ok(await expanded.locator("#picture").evaluate(img => img.clientWidth) > width);
@@ -79,7 +79,7 @@ test("desktop renders through streamed updates, caches, expands and exports", as
   await expanded.locator("#picture").click({ button: "right" });
   await expanded.getByRole("menuitem", { name: "Copy image", exact: true }).click();
   await page.waitForFunction(() => calls.filter(c => c.name === "copy_diagram_image").length === 3);
-  await expanded.locator("#png").click();
+  await expanded.locator("#export").click(); await expanded.locator("#png").click();
   await page.waitForFunction(() => calls.some(c => c.args?.name === "diagram.png"));
   await expanded.locator("#expand").click();
   await page.locator("dialog").waitFor({ state: "detached" });

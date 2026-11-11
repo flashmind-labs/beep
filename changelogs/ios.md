@@ -4,6 +4,10 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- iOS: diagrams in chats use the chat's colors instead of a white card, show at full size, and say what kind of diagram they are. Copy image, PNG and SVG moved into an Export menu next to Source and Copy. Sequence diagrams show each participant once, at the top.
+
 ### Fixed
 
 - iOS: Projects no longer scrolls sideways when an open issue or pull request has many labels; the labels wrap under the title.

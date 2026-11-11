@@ -6,32 +6,46 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' tauri://localhost/diagrams/renderer.js tauri://localhost/diagrams/mermaid.min.js; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Diagram</title>
 <style>
-:root{color-scheme:light dark;font:14px/20px system-ui,sans-serif;background:transparent;color:light-dark(#242b37,#eee)}
-*{box-sizing:border-box}body{margin:0}main{border:1px solid #8885;border-radius:8px;overflow:hidden}
-nav{display:flex;align-items:center;gap:4px;padding:8px;flex-wrap:wrap}button{font:inherit;font-weight:600;border:0;border-radius:4px;padding:8px 12px;background:light-dark(#eee,#272727);color:inherit;cursor:pointer}
-button:hover{background:light-dark(#ddd,#313131)}button:active{transform:scale(.98)}button:focus-visible{outline:2px solid #648ac8;outline-offset:2px}button:disabled{opacity:.5;cursor:default}
-[hidden]{display:none!important}#stage{overflow:auto;background:#fff;touch-action:pan-x pan-y pinch-zoom;cursor:zoom-in}#picture{display:block;width:100%;height:220px;object-fit:scale-down;user-select:none;-webkit-user-drag:none}
-pre{margin:0;padding:16px;overflow:auto;white-space:pre;font:12px/16px ui-monospace,monospace;background:light-dark(#f4f4f4,#1f1f1f);max-height:320px}
-#status{margin:0;padding:8px 16px;font-size:12px;line-height:16px}#status:empty{display:none}.zoom{display:none}
-body.expanded main{height:100dvh;border:0;border-radius:0;display:flex;flex-direction:column}body.expanded #stage{flex:1;cursor:grab;min-height:0}body.expanded #picture{height:auto;max-width:none}body.expanded .zoom{display:inline-block}body.expanded pre{flex:1;max-height:none}
-#menu{position:fixed;z-index:10;min-width:200px;display:grid;padding:4px;border:1px solid #8885;border-radius:8px;background:light-dark(#fff,#181818);box-shadow:0 8px 24px #0004}#menu button{text-align:left;background:transparent}#menu button:hover,#menu button:focus-visible{background:light-dark(#eee,#313131)}
+:root{color-scheme:light dark;--bg:light-dark(#fff,#151617);--fg:light-dark(#242b37,#e3e4e6);--muted:light-dark(#6b6f74,#8a8f98);--box:light-dark(#f0f0ee,#1c1d1f);--line:light-dark(#d0d0cc,#34363c);--accent:#5e6ad2;
+  font:14px/20px system-ui,sans-serif;background:transparent;color:var(--fg)}
+*{box-sizing:border-box}body{margin:0}
+main{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg)}
+nav{display:flex;align-items:center;gap:2px;padding:4px 4px 4px 12px;border-bottom:1px solid var(--line)}
+#kind{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:16px;color:var(--muted)}
+button{display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:12px;line-height:16px;border:0;border-radius:4px;padding:4px 8px;background:transparent;color:var(--muted);cursor:pointer}
+button:hover,button[aria-pressed="true"],button[aria-expanded="true"]{background:var(--box);color:var(--fg)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}button:disabled{opacity:.5;cursor:default;background:transparent;color:var(--muted)}
+[hidden]{display:none!important}
+#stage{overflow:auto;padding:16px;max-height:560px;touch-action:pan-x pan-y pinch-zoom;cursor:zoom-in}
+#picture{display:block;margin:0 auto;max-width:100%;height:auto;user-select:none;-webkit-user-drag:none}
+pre{margin:0;padding:16px;overflow:auto;white-space:pre;font:12px/18px ui-monospace,monospace;color:var(--fg);max-height:320px}
+#status{margin:0;padding:8px 12px;font-size:12px;line-height:16px;color:var(--muted)}#status:empty{display:none}
+.zoom{display:none}.zoom button{min-width:28px;justify-content:center;font-variant-numeric:tabular-nums}
+body.expanded main{height:100dvh;border:0;border-radius:0;display:flex;flex-direction:column}
+body.expanded #stage{flex:1;max-height:none;min-height:0;display:grid;place-items:center;cursor:grab}
+body.expanded #picture{max-width:none;margin:0}body.expanded .zoom{display:inline-flex;margin-right:8px}body.expanded pre{flex:1;max-height:none}
+#menu{position:fixed;z-index:10;min-width:180px;display:grid;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--box);box-shadow:0 8px 24px #0006}
+#menu button{justify-content:flex-start;padding:8px;font-size:13px;color:var(--fg)}#menu button:hover,#menu button:focus-visible{background:var(--bg)}
 </style>
 <script src="renderer.js" defer></script>
 </head>
 <body>
 <main aria-label="Mermaid diagram">
 <nav aria-label="Diagram controls">
-<button id="expand">Expand</button><button id="source" aria-pressed="false">Source</button><button id="copy-image" disabled>Copy image</button><button id="copy">Copy source</button><button id="svg" disabled>SVG</button><button id="png" disabled>PNG</button>
-<button class="zoom" id="out" aria-label="Zoom out">-</button><button class="zoom" id="in" aria-label="Zoom in">+</button><button class="zoom" id="fit">Fit</button>
+<span id="kind">Diagram</span>
+<span class="zoom"><button id="out" aria-label="Zoom out">-</button><button id="fit" aria-label="Fit">100%</button><button id="in" aria-label="Zoom in">+</button></span>
+<button id="source" aria-pressed="false">Source</button><button id="copy">Copy</button>
+<button id="export" aria-haspopup="menu" aria-expanded="false" disabled>Export <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+<button id="expand" aria-label="Expand"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M8 2h4v4M6 12H2V8M12 2L8 6M2 12l4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
 </nav>
 <p id="status" role="status">Loading diagram...</p>
 <div id="stage" hidden><img id="picture" alt="Mermaid diagram" draggable="false"></div>
 <pre id="code" hidden></pre>
 </main>
 <div id="menu" role="menu" aria-label="Image actions" hidden>
-<button role="menuitem" data-image-action="copy">Copy image</button>
-<button role="menuitem" data-image-action="save">Save image</button>
-<button role="menuitem" data-image-action="svg">Save as SVG</button>
+<button role="menuitem" id="copy-image" data-image-action="copy" disabled>Copy image</button>
+<button role="menuitem" id="png" data-image-action="save" disabled>Save image</button>
+<button role="menuitem" id="svg" data-image-action="svg" disabled>Save as SVG</button>
 <button role="menuitem" data-image-action="source">Copy source</button>
 </div>
 </body>
