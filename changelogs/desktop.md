@@ -16,9 +16,9 @@ Other apps have independent versions and changelogs:
 ### Fixed
 
 - Desktop: the Files tab no longer jumps to the top or flashes empty when you
-  come back to a session, fold and unfold its dock, or switch windows; it
-  shows the tree where you left it. A session working in a worktree stays on
-  that worktree instead of briefly showing the session's own folder.
+  come back to a session; it shows the tree where you left it. A session
+  working in a worktree stays on that worktree instead of briefly showing the
+  session's own folder.
 
 ## [0.8.4] - 2026-11-11
 
