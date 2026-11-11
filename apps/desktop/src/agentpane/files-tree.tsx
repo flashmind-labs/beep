@@ -1,10 +1,10 @@
 import { Spinner } from "../ui/kit.tsx";
-import { memo, useCallback, useLayoutEffect, useMemo, type CSSProperties } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { observeElementRect, useVirtualizer, type Rect, type Virtualizer } from "@tanstack/react-virtual";
 import { useStore } from "zustand";
 import type { GitChange, TreeRow } from "./files-state.ts";
 import { FilesMenu } from "./files-menu.tsx";
-import { type TreeView, filesMenuRef, filesModel, filesRef, keepScroll, refreshFiles, restoreScroll, revealed, rowId, setFilter, setIgnored, treeActions, treeRef, WALK_ENTRIES } from "./files.ts";
+import { type TreeView, filesMenuRef, filesModel, filesRef, keepScroll, keptScroll, refreshFiles, scrollAgain, scrolledHere, restoreScroll, revealed, rowId, setFilter, setIgnored, treeActions, treeRef, WALK_ENTRIES } from "./files.ts";
 
 const marks: Record<GitChange, [string, string]> = { untracked: ["U", "Untracked"], added: ["A", "Added"], modified: ["M", "Changed"], conflicted: ["C", "In conflict"] };
 const depth = (value: number): CSSProperties & { "--d": number } => ({ "--d": value });
@@ -13,12 +13,8 @@ const depth = (value: number): CSSProperties & { "--d": number } => ({ "--d": va
 export const FilesView = memo(function FilesView({ hidden }: { hidden: boolean }) {
   const m = useStore(filesModel);
 
-  // A tree that moved to the other dock, or came back with its session, scrolls to where it was.
-  useLayoutEffect(() => {
-    const tree = treeRef.current;
-    if (tree) restoreScroll(tree);
-    return keepScroll;
-  }, []);
+  // A tree drawn again, in the other dock or with its session, goes back where it was left.
+  useLayoutEffect(() => scrollAgain, []);
 
   return <div className="agpview files" hidden={hidden} ref={filesRef}>
     <div className="agfbar"><input className="agffind" value={m.filter} placeholder="Filter files" aria-label="Filter files" spellCheck={false}
@@ -27,7 +23,7 @@ export const FilesView = memo(function FilesView({ hidden }: { hidden: boolean }
       <label className="agfign"><input type="checkbox" checked={m.ignored} onChange={event => setIgnored(event.currentTarget.checked)} /> Show ignored</label>
       <button className="agpbtn" data-frefresh="1" title="Read the folders again" onClick={refreshFiles}>↻</button></div>
     <div ref={treeRef} className={`agtree${m.drop === "" ? " dropping" : ""}`} role="tree" aria-label="Working files" aria-multiselectable="true" aria-busy={m.busy} aria-activedescendant={m.active ?? undefined} tabIndex={0}
-      onClick={treeActions.click} onContextMenu={treeActions.contextMenu} onKeyDown={treeActions.keyDown}
+      onScroll={keepScroll} onWheel={scrolledHere} onPointerDown={scrolledHere} onKeyDownCapture={scrolledHere} onClick={treeActions.click} onContextMenu={treeActions.contextMenu} onKeyDown={treeActions.keyDown}
       onDragStart={treeActions.dragStart} onDragOver={treeActions.dragOver} onDragLeave={treeActions.dragLeave} onDrop={treeActions.drop}>
       {m.tree && <FilesTree tree={m.tree} selected={m.selected} drop={m.drop} reveal={m.reveal} />}
     </div>
@@ -62,15 +58,27 @@ function treeLines(tree: Extract<TreeView, { kind: "rows" }>): Line[] {
 /// The tree's lines, only those in view and a few around them drawn.
 function TreeLines({ tree, selected, drop, reveal }: { tree: Extract<TreeView, { kind: "rows" }>; selected: ReadonlySet<string>; drop: string | null; reveal: string | null }) {
   const lines = useMemo(() => treeLines(tree), [tree]);
+  const rows = useRef<HTMLDivElement>(null);
+
+  // The tree goes back where it was left before it paints: as it draws another
+  // folder, and once a tree drawn hidden has a size and its rows. The
+  // virtualizer hears of the move before the frame paints.
+  useLayoutEffect(restore, [lines]);
+  useLayoutEffect(() => {
+    const watch = new ResizeObserver(restore);
+    for (const element of [treeRef.current, rows.current]) if (element) watch.observe(element);
+    return () => watch.disconnect();
+  }, []);
   // A key function kept while the lines stay, so the virtualizer keeps its measurements.
   const getItemKey = useCallback((index: number) => {
     const line = lines[index];
     return line.kind === "row" ? line.row.path : line.key;
   }, [lines]);
   const virtual = useVirtualizer({
-    count: lines.length, getScrollElement: () => treeRef.current, estimateSize: () => ROW_HEIGHT, overscan: 12, getItemKey, initialRect: { width: 0, height: 600 },
-    // Rows take the size the ResizeObserver reports before they paint.
-    measureElement: (node, entry, instance) => entry?.borderBoxSize?.[0]?.blockSize ?? instance.measurementsCache[instance.indexFromElement(node)]?.size ?? ROW_HEIGHT,
+    count: lines.length, getScrollElement: () => treeRef.current, estimateSize: () => ROW_HEIGHT, overscan: 12, getItemKey, initialRect: shownRect, initialOffset: keptScroll, observeElementRect: shownSize,
+    // Rows take the size the ResizeObserver reports before they paint; a
+    // hidden row reports none and keeps the size it had.
+    measureElement: (node, entry, instance) => entry?.borderBoxSize?.[0]?.blockSize || instance.measurementsCache[instance.indexFromElement(node)]?.size || ROW_HEIGHT,
   });
 
   // A row asked for comes into view once the tree has it.
@@ -82,11 +90,25 @@ function TreeLines({ tree, selected, drop, reveal }: { tree: Extract<TreeView, {
     revealed();
   }, [reveal, lines]);
 
-  return <div className="agtrows" style={{ height: virtual.getTotalSize() }}>{virtual.getVirtualItems().map(item => {
+  return <div ref={rows} className="agtrows" style={{ height: virtual.getTotalSize() }}>{virtual.getVirtualItems().map(item => {
     const line = lines[item.index];
     if (line.kind === "row") return <FileRow key={item.key} row={line.row} index={item.index} start={item.start} on={selected.has(line.row.path)} drop={drop === line.row.path} measure={virtual.measureElement} />;
     return <div key={item.key} ref={virtual.measureElement} data-index={item.index} className={`agtr note${line.error ? " derr" : ""}`} style={place(line.depth, item.start)}>{line.loading && <Spinner />}{line.text}</div>;
   })}</div>;
+}
+
+/// The tree's size when it last showed. A tree drawn hidden keeps drawing
+/// the rows it would show, so they are there the frame it shows.
+let shownRect: Rect = { width: 0, height: 600 };
+const shownSize = (instance: Virtualizer<HTMLDivElement, Element>, report: (rect: Rect) => void) => observeElementRect(instance, rect => {
+  if (!rect.height) return;
+  shownRect = rect;
+  report(rect);
+});
+
+function restore() {
+  const tree = treeRef.current;
+  if (tree && restoreScroll(tree)) queueMicrotask(() => tree.dispatchEvent(new Event("scroll")));
 }
 
 /// The height a line is taken to have until it is measured.

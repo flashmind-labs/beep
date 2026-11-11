@@ -87,3 +87,65 @@ test("a folder of thousands of files draws only the rows in view and reveals one
   await expect(files.locator("[data-fpath]")).toHaveCount(1);
   await expect(files.locator('[data-fpath="file2500.txt"]')).toBeVisible();
 });
+
+test("a session shown again draws its worktree's tree where it was left, from the first frame", async ({ page }) => {
+  await openDesktop(page, false);
+  await page.evaluate(([s, rows]) => {
+    // Each worktree has its own files, so a tree of the wrong one shows.
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+      if (command !== "agent_tree") return invoke<T>(command, args);
+      Reflect.set(window, "treeRoots", [...Reflect.get(window, "treeRoots") ?? [], args?.root]);
+      const tag = args?.root === "/srv/project" ? "main" : "fix";
+      const entries = Array.from({ length: rows }, (_, i) => ({ name: `${tag}${String(i).padStart(2, "0")}.txt`, folder: false, size: 1, ignored: false, change: null }));
+      return structuredClone({ folders: [{ path: "", entries, more: 0, git: true }], truncated: false }) as T;
+    };
+    window.__navigation.worktrees([{ path: "/srv/project", branch: "main", head: "abc1234", own: true }, { path: "/srv/project/.worktrees/fix", branch: "fix", head: "abc1234", own: false }]);
+    // The agent works in the linked worktree.
+    window.__navigation.respond("agent_view", { session: { ...s, question: null }, plan: [], files: [], entries: [{ kind: "user", text: "Fix the login" }, { kind: "tool", text: "Edit /srv/project/.worktrees/fix/login.ts [completed]" }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 });
+    window.__navigation.open({ agent: s });
+  }, [session, 80] as const);
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  const files = page.getByRole("tree", { name: "Working files" });
+  await expect(files.locator('[data-fpath="fix00.txt"]')).toBeVisible();
+  await files.evaluate(element => { element.scrollTop = 400; });
+  await expect(files.locator('[data-fpath="fix20.txt"]')).toBeInViewport();
+
+  // Every frame painted while the tree shows: its first row in view and its
+  // scroll, read after layout and the page's resize observers, before paint.
+  await page.evaluate(() => {
+    const frames: string[] = [];
+    (window as unknown as { __frames: string[] }).__frames = frames;
+    const sample = () => {
+      const tree = document.querySelector<HTMLElement>('[role="tree"][aria-label="Working files"]');
+      if (!tree?.offsetParent) return;
+      const top = tree.getBoundingClientRect().top;
+      const first = [...tree.querySelectorAll<HTMLElement>("[data-fpath]")].filter(row => row.getBoundingClientRect().bottom > top + 1).sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
+      const seen = `${first?.dataset.fpath ?? tree.textContent} at ${Math.round(tree.scrollTop)}`;
+      if (frames.at(-1) !== seen) frames.push(seen);
+    };
+    const frame = () => {
+      // A new observer reports last in this frame's resize observations.
+      const last = new ResizeObserver(() => { last.disconnect(); sample(); });
+      last.observe(document.body);
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  const frames = () => page.evaluate(() => (window as unknown as { __frames: string[] }).__frames);
+  await expect.poll(frames).toEqual(["fix18.txt at 400"]);
+
+  const reads = (command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).length, command);
+  const lists = await reads("agent_worktrees"), views = await reads("agent_view");
+  await page.evaluate(() => { Reflect.set(window, "treeRoots", []); window.__navigation.open("home"); });
+  await expect(files).toBeHidden();
+  await page.evaluate(value => window.__navigation.open({ agent: value }), session);
+  await expect(files).toBeVisible();
+  // The worktree list and the log are read again, and drawn.
+  await expect.poll(() => reads("agent_worktrees")).toBeGreaterThan(lists);
+  await expect.poll(() => reads("agent_view")).toBeGreaterThan(views);
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  expect(await frames()).toEqual(["fix18.txt at 400"]);
+  // It stayed on the worktree: the session's own folder was not read.
+  expect(await page.evaluate(() => Reflect.get(window, "treeRoots"))).toEqual([]);
+});
