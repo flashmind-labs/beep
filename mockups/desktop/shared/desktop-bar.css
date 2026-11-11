@@ -52,7 +52,7 @@
 .ddot { width: 7px; height: 7px; border-radius: 50%; background: var(--d-ok); display: inline-block; flex: none }
 .ddot.off { background: var(--d-dim) } .ddot.bad { background: var(--d-err) }
 /* Connecting: shown from what the app kept, the machine not reached yet. A static ring. */
-.ddot.wait { background: transparent; box-shadow: inset 0 0 0 1.5px var(--d-dim) }
+.ddot.dial { background: transparent; box-shadow: inset 0 0 0 1.5px var(--d-dim) }
 /* The hint row only shows the link when something is wrong; clicking it opens the link window. */
 .dhints button.st { border: 0; background: transparent; padding: 0; font: inherit; color: var(--d-fg) }
 /* Lists and chats fade at an edge that has more to scroll. */

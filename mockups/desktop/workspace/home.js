@@ -15,8 +15,8 @@ const WORKSPACE_MOCK = (() => {
     const offline = S.d.cc === "offline";
     const tm = typeof tmRow === "function" ? tmRow() : null;
     // Connecting: drawn from what the app kept, the machine not reached yet.
-    const cells = MACH.filter(([n]) => subscribed() || n !== "phone").map(([n, s, t]) => offline && n === "studio" ? [n, "off", "offline"] : linking(n) ? [n, "wait", "connecting"] : [n, s, t]).map(([n, s, t]) =>
-      `<button class="m${s === "off" || s === "wait" ? " off" : ""}" data-dact="dset:htab:machines" data-dgo="dHome"><span class="ddot${s ? " " + s : ""}"${s === "wait" ? ' title="Connecting"' : ""}></span><b>${n}</b><span>${t}</span></button>`).join("");
+    const cells = MACH.filter(([n]) => subscribed() || n !== "phone").map(([n, s, t]) => offline && n === "studio" ? [n, "off", "offline"] : linking(n) ? [n, "dial", "connecting"] : [n, s, t]).map(([n, s, t]) =>
+      `<button class="m${s === "off" || s === "dial" ? " off" : ""}" data-dact="dset:htab:machines" data-dgo="dHome"><span class="ddot${s ? " " + s : ""}"${s === "dial" ? ' title="Connecting"' : ""}></span><b>${n}</b><span>${t}</span></button>`).join("");
     const mac = tm ? `<div class="m off" title="This Mac: ${tm.title}"><span class="ddot off"></span><b>This Mac</b><span${tm.bad ? ' class="bad"' : ""}>${tm.state}</span>${S.d.tm === "off" ? `<button class="dbtn quiet small" data-dact="dset:tm:connecting" data-dgo="dHome">Add</button>` : ""}</div>` : "";
     return `<div class="cc-mstrip">${cells}${mac}<button class="dbtn quiet small" data-dgo="dAddMachine">${CC_IC.plus} Add a machine</button></div>`;
   };
@@ -109,11 +109,11 @@ const WORKSPACE_MOCK = (() => {
     // terminals indented under it as sub-rows (command, project and folder, state).
     if (tab === "machines") {
       const offline = S.d.cc === "offline";
-      const rows = MT.filter(([n]) => subscribed() || n !== "phone").map(m => offline && m[0] === "studio" ? [m[0], "off", m[2], "–", "–", "–", m[6], "offline"] : linking(m[0]) ? [m[0], "wait", ...m.slice(2, 7), "connecting"] : m);
-      const live = rows.filter(m => m[1] !== "off" && m[1] !== "wait").length;
+      const rows = MT.filter(([n]) => subscribed() || n !== "phone").map(m => offline && m[0] === "studio" ? [m[0], "off", m[2], "–", "–", "–", m[6], "offline"] : linking(m[0]) ? [m[0], "dial", ...m.slice(2, 7), "connecting"] : m);
+      const live = rows.filter(m => m[1] !== "off" && m[1] !== "dial").length;
       const head = ["Machine", "Agents", "Disk", "Memory", "Sent / received", "Can run", "Now", ""].map((t, i) => `<span class="th${["", " c-ag", " c-disk", " c-mem", " c-net", " c-can", "", ""][i]}">${t}</span>`).join("");
       const body = rows.map(([n, s, os, ag, disk, mem, can, now]) => {
-        const off = s === "off" || s === "wait" ? " off" : "";
+        const off = s === "off" || s === "dial" ? " off" : "";
         const terms = TERMS.filter(x => x[1] === n).map(([t, , where, st, toff]) => `<span class="tr${off}" data-dgo="dTerminals"><span class="ddot${toff}"></span><span class="t"><b>${t}</b><small>${where}</small></span><span class="w">${st}</span></span>`).join("")
           + (MT_SYNC[n] || []).map(([pr, meta, right]) => `<span class="tr" data-dgo="dWinProject" title="${meta}"><span class="ddot"></span><span class="t"><b>${pr}</b><small>${meta}</small></span><span class="w">${right}</span></span>`).join("");
         return `<span class="nm${off}"><b><span class="ddot${s ? " " + s : ""}"></span>${n}</b><small>${os}</small></span><span class="num c-ag${off}">${ag}</span><span class="num c-disk${off}${n === "studio" ? " two" : ""}">${disk}${n === "studio" ? "<small>Scratch 1.2 TB free</small>" : ""}</span><span class="num c-mem${off}"${!off && n !== "phone" ? ` title="Load ${{"build-box": "4.82 on 16 cores", studio: "1.14 on 12 cores", laptop: "2.37 on 8 cores"}[n]}"` : ""}>${mem}</span><span class="num c-net${off}"${MT_TRAFFIC[n] ? ` title="${MT_TRAFFIC[n][0]}"` : ""}>${MT_TRAFFIC[n]?.[1] ?? "–"}</span><span class="num c-can${off}">${can}</span><span class="num${off}"${s === "off" ? ' title="Seen 12 min ago"' : ""}>${now}</span>`
@@ -156,7 +156,7 @@ const WORKSPACE_MOCK = (() => {
     });
     template.content.querySelectorAll('.pinned [data-dgo="dWinChat"]').forEach(node => node.remove());
     const footer = template.content.querySelector(".cc-foot > span");
-    if (footer && !options.bare) footer.innerHTML = S.d.cc === "cached" ? `<span class="ddot wait"></span> Connecting…` : `<span class="ddot"></span> <b>${S.d.cc === "offline" ? 2 : 3}</b> of 3 machines online`;
+    if (footer && !options.bare) footer.innerHTML = S.d.cc === "cached" ? `<span class="ddot dial"></span> <span title="build-box, gpu-box">Connecting to build-box and 1 more…</span>` : `<span class="ddot"></span> <b>${S.d.cc === "offline" ? 2 : 3}</b> of 3 machines online`;
     return template.innerHTML;
   };
   D.dHome = () => {

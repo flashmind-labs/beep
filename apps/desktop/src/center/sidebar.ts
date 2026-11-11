@@ -117,10 +117,11 @@ function footer(machines: MachineCard[] | null | undefined): SideFooter {
   const action = machines ? "add" : null;
   const p = problem();
   if (p) return { dot: p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad", text: p.kind === "unlinked" ? "Not linked" : p.kind === "noserver" ? "No server" : p.kind === "revoked" ? "Removed" : "Refused", action };
-  if (!state.home) return { dot: stuck() ? "bad" : "off", text: stuck() ? "Not connected" : "Connecting…", action };
+  if (!state.home) return { dot: stuck() ? "bad" : "off", text: stuck() ? "Not connected" : "Connecting to your machines…", action };
   if (!machines) return { dot: null, text: "Machines unavailable", action };
   if (!machines.length) return { dot: null, text: "No machines linked", action };
-  if (machines.some(m => m.connecting)) return { dot: "wait", text: "Connecting…", action };
+  const dialing = machines.filter(m => m.connecting).map(m => m.name);
+  if (dialing.length) return { dot: "dial", text: `Connecting to ${dialing[0]}${dialing.length > 1 ? ` and ${dialing.length - 1} more` : ""}…`, title: dialing.join(", "), action };
   return { dot: "on", count: machines.filter(m => m.online).length, text: ` of ${plural(machines.length, "machine", "machines")} online`, action };
 }
 
