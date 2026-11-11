@@ -17,6 +17,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Node: listing one agent's models no longer waits for another agent's
+  slow listing, so Hermes and flsh answer the start form promptly.
 - Node: Stop ends only the main agent's turn. Its subagents, background
   commands and the agents it started keep running, and the session shows
   as working until they finish.
