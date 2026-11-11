@@ -25,6 +25,9 @@ Other apps have independent versions and changelogs:
 
 ### Changed
 
+- Desktop: every window and the bar draw their pages in one consistent way,
+  so lists, drafts, focus, selections and scroll stay where they were while
+  live updates arrive, and pages open without flicker.
 - Desktop: the model picker shows flsh models by name, with their provider
   and full id under each, so a name offered by several providers can be told
   apart. Search matches the name, the id or the provider.
