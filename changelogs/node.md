@@ -4,6 +4,8 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-11
+
 ### Added
 
 - Release pages include versioned release notes.
@@ -77,3 +79,4 @@ Earlier releases predate this changelog.
   Beep runs still update at once.
 - Node: following a Claude Code session lists its project folder only when a
   file comes or goes there, not on every update.
+
