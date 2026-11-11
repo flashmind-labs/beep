@@ -344,8 +344,9 @@ pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Option<String> {
         .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .output()
-        .ok()?;
+        .output();
+    crate::run::process::finished("git", &out);
+    let out = out.ok()?;
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())

@@ -62,9 +62,13 @@ impl Sessions for PeerClient {
         request: SessionsRequest,
         limit: Duration,
     ) -> Result<SessionsReply, MeshError> {
+        // The checkouts found on a node are looked up once when asked: kept
+        // live, the node would look again after every change to any session.
+        let live = !matches!(request, SessionsRequest::Folders { .. });
         let read = beep_proto::node::events::Read::Sessions(Box::new(request.clone()));
 
-        if read.topic().is_some()
+        if live
+            && read.topic().is_some()
             && let Some(value) = tokio::time::timeout(limit, self.snapshot(read))
                 .await
                 .map_err(|e| timed_out(e, "the session subscription did not answer in time"))?

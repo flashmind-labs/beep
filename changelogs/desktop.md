@@ -16,6 +16,14 @@ Other apps have independent versions and changelogs:
   "Lost the connection" until the app restarts.
 - Desktop: the Agents list shows sessions that start, end or change while it is open, without leaving the page and coming back.
 
+### Performance
+
+- Desktop: opening Add a project no longer leaves Beep looking for checkouts
+  again after every session update. On a Mac with active sessions it ran git
+  thousands of times a minute until the app restarted. The list of checkouts
+  is read once when the sheet asks, and a checkout's details are read again
+  only after a commit, branch switch or remote change in it.
+
 ## [0.8.3] - 2026-11-11
 
 ### Added

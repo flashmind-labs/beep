@@ -283,9 +283,9 @@ fn git_command(dir: &Path, args: &[&str]) -> Command {
 
 /// What `git <args>` printed in `dir`; its error when it failed.
 pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = git_command(dir, args)
-        .output()
-        .context("could not run git")?;
+    let out = git_command(dir, args).output();
+    crate::run::process::finished("git", &out);
+    let out = out.context("could not run git")?;
     if !out.status.success() {
         bail!(
             "git {}: {}",
@@ -300,11 +300,12 @@ pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Result<String> {
 /// Hands each line `git <args>` prints in `dir` to `each`, as it comes,
 /// so a long diff is never held whole.
 fn stream_git(dir: &Path, args: &[&str], mut each: impl FnMut(&str)) -> Result<()> {
-    let mut child = git_command(dir, args)
+    let child = git_command(dir, args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()
-        .context("could not run git")?;
+        .spawn();
+    crate::run::process::launched("git", &child);
+    let mut child = child.context("could not run git")?;
     let stderr = child.stderr.take().context("git's error output")?;
     // Drained apart, so a git that writes much there never blocks.
     let errors = thread::spawn(move || {

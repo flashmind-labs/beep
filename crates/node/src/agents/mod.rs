@@ -211,6 +211,9 @@ pub use follow::serve_follow;
         on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
         /// A quick walk for checkouts runs; one at a time.
         rescanning: AtomicBool,
+        /// The last folder listing; held while one runs, so asks that come
+        /// meanwhile share it instead of each running git for every folder.
+        listed: AsyncMutex<Option<found_sessions::Listed>>,
         /// Sessions started outside Beep whose process this node ended
         /// lately, by id, with when.
         closed: Mutex<HashMap<String, Instant>>,
@@ -261,6 +264,7 @@ pub use follow::serve_follow;
                 sighted: AsyncMutex::default(),
                 on_disk: AsyncMutex::default(),
                 rescanning: AtomicBool::new(false),
+                listed: AsyncMutex::default(),
                 closed: Mutex::default(),
                 holders: holders::Holders::default(),
             }

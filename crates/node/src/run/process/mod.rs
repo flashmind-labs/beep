@@ -2,7 +2,7 @@
 //! everything it started: the shell's commands, an agent's tools. On Unix
 //! the group is a process group; on Windows it is a job object.
 
-use std::{ffi::OsStr, time::Duration};
+use std::{ffi::OsStr, process::Output, time::Duration};
 use tokio::{
     process::{Child, Command},
     time::timeout,
@@ -58,18 +58,52 @@ const COUNTED: [&str; 16] = [
     "npx", "claude", "codex", "systemctl", "launchctl",
 ];
 
-/// Counts a program the node is about to start, by its bare name.
+/// Counts a program the node is about to start, by its bare name. This
+/// counts attempts: `launched` and `finished` count how they went.
 pub(crate) fn counted(program: &OsStr) {
+    metrics::counter!("beep_spawn_total", "program" => label(program)).increment(1);
+}
+
+/// Counts how starting `program` went: `beep_spawn_started_total` when it
+/// ran, else `beep_spawn_failed_total` by the kind of error.
+pub(crate) fn launched<T>(program: impl AsRef<OsStr>, started: &std::io::Result<T>) {
+    let program = label(program.as_ref());
+
+    match started {
+        Ok(_) => metrics::counter!("beep_spawn_started_total", "program" => program).increment(1),
+        Err(e) => metrics::counter!(
+            "beep_spawn_failed_total",
+            "program" => program,
+            "kind" => format!("{:?}", e.kind()),
+        )
+        .increment(1),
+    }
+}
+
+/// `launched` for a command run to its end, also counting an exit that was
+/// not a success in `beep_spawn_unsuccessful_total`.
+pub(crate) fn finished(program: impl AsRef<OsStr>, output: &std::io::Result<Output>) {
+    let program = program.as_ref();
+    launched(program, output);
+
+    if let Ok(output) = output
+        && !output.status.success()
+    {
+        metrics::counter!("beep_spawn_unsuccessful_total", "program" => label(program))
+            .increment(1);
+    }
+}
+
+/// The metric label for `program`: its bare name when counted, else `other`.
+fn label(program: &OsStr) -> &'static str {
     let name = std::path::Path::new(program)
         .file_stem()
         .and_then(OsStr::to_str)
         .map(str::to_ascii_lowercase);
-    let program = name
-        .as_deref()
+    name.as_deref()
         .and_then(|name| COUNTED.iter().find(|known| **known == name))
         .copied()
-        .unwrap_or("other");
-    metrics::counter!("beep_spawn_total", "program" => program).increment(1);
+        .unwrap_or("other")
 }
 
 /// Starts a background probe without opening a console on Windows.

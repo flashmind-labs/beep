@@ -29,6 +29,14 @@ const CLOSE_WAIT: Duration = Duration::from_secs(8);
 /// as long as such a write counts.
 const CLOSED_FOR: Duration = Duration::from_secs(3 * 60);
 
+/// The last folder listing, for the asks that waited while it ran.
+pub(super) struct Listed {
+    /// When it ended.
+    at: Instant,
+    limit: usize,
+    folders: Arc<Vec<SessionFolder>>,
+}
+
 /// What a session of this node that ended was held to.
 #[derive(Default)]
 pub(super) struct Held {
@@ -190,23 +198,40 @@ impl Agents {
     }
 
     /// The checkouts coding agents worked in, then the other checkouts
-    /// found on disk, newest session or commit first.
+    /// found on disk, newest session or commit first. One listing runs at a
+    /// time: an ask that came while one ran takes what it found.
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
         let limit = match usize::try_from(limit).unwrap_or(MAX_FOLDERS) {
             0 => DEFAULT_FOLDERS,
             limit => limit.min(MAX_FOLDERS),
         };
+        let asked = Instant::now();
+        let mut listed = self.listed.lock().await;
+
+        if let Some(done) = listed
+            .as_ref()
+            .filter(|done| done.at >= asked && done.limit == limit)
+        {
+            return Ok(done.folders.as_ref().clone());
+        }
+
         let on_disk = self.disk_checkouts()?;
         let seen = self.sightings().await?;
         let home = dirs::home_dir();
-        spawn_blocking(move || {
+        let folders = spawn_blocking(move || {
             let mut out = found::folders(&seen, home.as_deref(), limit, found::checkout);
             found::add_checkouts(&mut out, &on_disk, home.as_deref(), limit);
             found::with_commits(&mut out, found::last_commit);
             out
         })
         .await
-        .context("looking up the folders' checkouts")
+        .context("looking up the folders' checkouts")?;
+        *listed = Some(Listed {
+            at: Instant::now(),
+            limit,
+            folders: Arc::new(folders.clone()),
+        });
+        Ok(folders)
     }
 
     /// The sessions that ran in `folders` or below, newest first.

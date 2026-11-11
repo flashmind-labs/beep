@@ -4,6 +4,14 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+### Performance
+
+- Node: listing the checkouts sessions worked in reads each checkout with git
+  only after a commit, branch switch or remote change in it, skips git for
+  folders outside any checkout, and shares one listing between requests that
+  arrive together. A desktop up to 0.8.3 that keeps this list open gets it at
+  most once a minute instead of after every session update.
+
 ## [0.6.3] - 2026-11-11
 
 ### Added
