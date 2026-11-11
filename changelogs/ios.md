@@ -50,6 +50,7 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: buttons are compact (Import, Reply, Review and the others) instead of full touch-target height; rows and menus keep their larger targets.
 - iOS: an open session no longer stays on "Lost the connection...
   Reconnecting..." until the app restarts. When a machine stops taking new
   reads while still connected, as after switching between mobile data and
