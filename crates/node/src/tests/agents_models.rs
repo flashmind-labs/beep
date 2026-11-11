@@ -24,6 +24,27 @@ async fn an_agent_is_asked_once_while_its_list_is_recent() {
     assert_eq!(asked.load(Ordering::SeqCst), 2);
 }
 
+#[tokio::test]
+async fn a_slow_agent_does_not_hold_back_another() {
+    let cache = ModelCache::default();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let slow = async {
+        released.await.ok();
+        list("slow")
+    };
+    let other = async {
+        let fast = cache.get("codex", async { list("fast") }).await;
+        release.send(()).ok();
+        fast
+    };
+    let both = async { tokio::join!(cache.get("claude", slow), other) };
+    let (claude, codex) = tokio::time::timeout(Duration::from_secs(5), both)
+        .await
+        .expect("codex waited for claude's probe");
+    assert_eq!(claude, list("slow"));
+    assert_eq!(codex, list("fast"));
+}
+
 #[test]
 fn flsh_config_is_found_where_flsh_looks() {
     let dir = tempfile::tempdir().unwrap();

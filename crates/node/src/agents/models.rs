@@ -23,7 +23,7 @@ use std::{
     future::Future,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{io::AsyncReadExt, sync::mpsc, task::spawn_blocking, time::Instant};
@@ -47,9 +47,10 @@ const MAX_CONFIG: u64 = 256 * 1024;
 #[derive(Default)]
 pub(super) struct ModelCache {
     found: Mutex<HashMap<String, Found>>,
-    /// Held while an agent is asked, so one is asked at a time and a second
-    /// request for the same agent waits for the first one's list.
-    finding: AsyncMutex<()>,
+    /// Held while an agent is asked, so a second request for the same agent
+    /// waits for the first one's list. Each agent has its own: a slow probe
+    /// of one does not hold back the others.
+    finding: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
 }
 
 struct Found {
@@ -69,7 +70,11 @@ impl ModelCache {
             return list;
         }
 
-        let _finding = self.finding.lock().await;
+        let finding = lock(&self.finding)
+            .entry(agent.to_owned())
+            .or_default()
+            .clone();
+        let _finding = finding.lock().await;
 
         if let Some(list) = self.recent(agent, Instant::now()) {
             return list;
