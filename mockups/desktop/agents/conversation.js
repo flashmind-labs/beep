@@ -214,10 +214,10 @@ expected 200, got 401</pre></details></span></div>`;
       `<div class="dcoderen user"><b>You</b><span>ok, let's keep going</span></div>`,
       head("Working for 8s", false, false),
     ].join("");
-    // A message sent while the machine is unreachable (a node restarting for an
-    // update) waits up to 2 minutes and goes once it answers; only then does it
-    // fail and go back to the field.
-    const held = `${noChange}<div class="dcoderen user"><b>You</b><span>add one that reviews the diff</span></div><div class="dmuted">Waiting for build-box to come back</div>`;
+    // Messages sent while the machine is unreachable (a node restarting for an
+    // update) wait on this device, in the order typed, and go once it answers.
+    // The field stays empty; Edit puts one back in it. A refused one keeps its reason.
+    const held = noChange;
     const log = v === "fromsession" ? fromSession : v === "nochange" ? noChange : v === "held" ? held : rich ? richTurn : v === "agentchild" ? kidView : v === "agentstopped" ? kidStopped : turn1 + live;
     const pm = x => `<span style="width:16px;display:grid;place-items:center">${x}</span>`;
     const plan = done || child ? "" : `<div class="sec">Plan</div><div class="plan">
@@ -229,7 +229,9 @@ expected 200, got 401</pre></details></span></div>`;
     // The card sits under the log, next to the field: the question, the plan.
     const card = q || plan ? `<div class="dcard dcoder">${q}${plan}<div style="height:12px"></div></div>` : "";
     const qatt = (p) => `<span class="ag-qatt" title="Goes with it as @${p}">${p}</span>`;
-    const steerRow = v === "steer" ? `<div class="ag-queue steer"><span class="lbl">Steer</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">after the current step</span><button data-toast="Edit message">Edit</button><button data-toast="Not sent">&#215;</button></div>` : "";
+    const outRow = (text, why) => `<div class="ag-queue out"><span class="lbl">Queued</span><span class="t">${text}</span><span class="w">${why}</span><button data-toast="Back in the field to edit">Edit</button><button aria-label="Remove" data-toast="Removed">&#215;</button></div>`;
+    const outbox = v === "held" ? outRow("add one that reviews the diff", "waiting for connection") + outRow("and run it on the last commit", "waiting for connection") : "";
+    const steerRow = outbox || (v === "steer" ? `<div class="ag-queue steer"><span class="lbl">Steer</span><span class="t">Use the fixture in tests/data, not a new one</span>${qatt(".beep/uploads/build.log")}<span class="w">after the current step</span><button data-toast="Edit message">Edit</button><button data-toast="Not sent">&#215;</button></div>` : "");
     // The Files tab's icons, the tree and the terminal.
     const FI = {
       files: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
