@@ -101,7 +101,7 @@ const ACCOUNTS: readonly ViewCommand[] = ["agent_accounts", "usage_get"];
 /// Frequent writes and the views they change. Other writes drop every view.
 const WRITES: Readonly<Record<string, readonly ViewCommand[]>> = {
   send_prompt: SESSIONS, agent_steer: SESSIONS, agent_start: SESSIONS, agent_resume: SESSIONS,
-  agent_delete: SESSIONS, agent_title_save: SESSIONS, agent_stop_process: SESSIONS, agent_review_start: SESSIONS,
+  agent_delete: SESSIONS, agent_title_save: SESSIONS, agent_stop_process: SESSIONS, agent_close_external: SESSIONS, agent_review_start: SESSIONS,
   center_answer_agent: SESSIONS, answer_approval: SESSIONS, answer_group_approval: SESSIONS, answer_work: SESSIONS,
   center_dismiss_updates: SESSIONS, center_stop_worker: SESSIONS, center_update_task: SESSIONS,
   cancel_run: SESSIONS, delete_session: SESSIONS, new_chat: SESSIONS, pin_session: SESSIONS,

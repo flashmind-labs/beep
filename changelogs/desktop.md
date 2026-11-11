@@ -16,6 +16,10 @@ Other apps have independent versions and changelogs:
   goes in the order typed once the machine is back, even after the app
   restarts. Edit or remove it like other queued messages; one the machine
   refuses stays with the reason.
+- Desktop: a Claude Code, Codex, pi, flsh or OpenCode session running in a
+  terminal has a Continue here button. After you confirm, Beep waits for a
+  running turn to end, closes the session in its terminal and continues it
+  here. The wait can be cancelled.
 
 ## [0.8.2] - 2026-11-11
 

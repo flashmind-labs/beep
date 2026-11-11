@@ -46,6 +46,7 @@ import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
 import { feed, flushDraw, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
 import { drawAgentHeading, headText, readUsage, redrawAgentHints, agentHints, shownUsage } from "./session-head.ts";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
+import { askContinueHere, continueAfterTurn, continueKey, keepContinuing } from "./continue-here.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
 /// the empty view that started it becomes the session in place: its pane, terminal
@@ -147,7 +148,10 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const b = kept ?? document.createElement("div") as ChatBody;
   if (!kept) { b.className = "dbody"; b.id = "agbody"; }
   const mode = isNativeSession(s.id) ? "native" : followsOnly(s) ? "readonly" : "writable";
-  const banner = canTakeOver(s.agent) ? "Running outside Beep. Beep follows it here. Close it there to continue here." : "Started outside Beep. Beep follows it here.";
+  const takeover = canTakeOver(s.agent) && !isNativeSession(s.id);
+  const banner = takeover ? "Running outside Beep. Beep follows it here." : "Started outside Beep. Beep follows it here.";
+  const continueHere = takeover ? { target: continueKey(s), start: () => askContinueHere(s) } : null;
+  keepContinuing(s);
   const open = AG.open;
   const saveTitle = async (title: string) => {
     await invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title });
@@ -157,7 +161,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     void loadSessions().catch(e => console.warn("session titles:", e));
   };
   const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: shownUsage(s), moveKey: moveKey(s), saveTitle });
-  const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: moveKey(s), attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
+  const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: moveKey(s), continueHere, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   drawAgentHeading();
@@ -419,6 +423,7 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   AG.readError = "";
   AG.link = LINKED;
   AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
+  continueAfterTurn(page.session);
   // The node holds the steers: show those another app sent, drop those it took.
   syncSteers(AG.queue, page, read);
   drawRest(moved, placed);
