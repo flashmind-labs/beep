@@ -203,11 +203,16 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dhead .aguse:empty { display: none }
 .dhead .agedit { flex: none; display: flex; gap: 2px }
 .dhead .agedit:empty { display: none }
-.cc-menu { position: fixed; z-index: 40; min-width: 150px; padding: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 50%, transparent); display: grid }
-.cc-menu :is(button, [role="menuitem"]) { all: unset; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--fg); cursor: default }
-.cc-menu :is(button, [role="menuitem"]):hover, .cc-menu :is(button, [role="menuitem"]):focus-visible { background: color-mix(in srgb, var(--fg) 7%, transparent) }
+.cc-menu { position: fixed; z-index: 40; min-width: 150px; width: max-content; max-width: min(360px, calc(100vw - 8px)); padding: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 50%, transparent); display: grid }
+.cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]) { all: unset; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--fg); cursor: default }
+.cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]):hover, .cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]):focus-visible { background: color-mix(in srgb, var(--fg) 7%, transparent) }
 .cc-menu :is(button, [role="menuitem"]).warn { color: var(--err) }
 .cc-menu [role="menu"] { display: grid }
+.cc-menu [role="menuitemcheckbox"] { display: flex; gap: 12px; justify-content: space-between }
+.cc-menu [role="menuitemcheckbox"][aria-checked="true"]::after { content: "✓"; color: var(--dim) }
+.cc-menu [role="menu"] section { display: grid }
+.cc-menu [aria-disabled="true"] { opacity: .5 }
+.cc-menu [role="separator"] { height: 1px; margin: 4px 2px; border: 0; background: var(--border) }
 .cc-menu .lbl { padding: 4px 10px 3px; font-size: 11px; color: var(--dim); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dtyping { display: inline-flex; gap: 3px } .dtyping i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted) }
 .dmlist { flex: none; margin: 0 12px 8px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); display: grid; gap: 1px }
@@ -739,9 +744,9 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agtr .gm { font-size: 10.5px; font-weight: 600 }
 .gm.modified { color: var(--warn) } .gm.added { color: var(--accent) } .gm.untracked { color: #6FA8DC } .gm.conflicted { color: var(--hot) }
 .agctx { position: absolute; z-index: 5; min-width: 180px; padding: 4px; border-radius: var(--radius-sm); background: var(--elev, var(--elev)); border: 1px solid var(--border); box-shadow: 0 8px 24px color-mix(in srgb, var(--shade) 40%, transparent) }
-.agctx button { all: unset; display: block; box-sizing: border-box; width: 100%; cursor: pointer; padding: 5px 10px; border-radius: 5px; font-size: 12px; color: var(--fg) }
-.agctx button:hover, .agctx button:focus { background: color-mix(in srgb, var(--fg) 8%, transparent) }
-.agctx hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px }
+.agctx :is(button, [role="menuitem"]) { all: unset; display: block; box-sizing: border-box; width: 100%; cursor: pointer; padding: 5px 10px; border-radius: 5px; font-size: 12px; color: var(--fg) }
+.agctx :is(button, [role="menuitem"]):hover, .agctx :is(button, [role="menuitem"]):focus { background: color-mix(in srgb, var(--fg) 8%, transparent) }
+.agctx :is(hr, [role="separator"]) { border: 0; border-top: 1px solid var(--border); margin: 4px 2px }
 /* The Artifacts tab: what the agent published or wrote, newest first, then the picked one rendered. */
 .agtab[data-mtab="artifacts"] { flex: none }
 .agpview.arts [hidden] { display: none !important }
@@ -1390,7 +1395,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 
 .agfbar { flex-wrap: wrap }
 .agtree:focus-visible .agtr[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: -1px }
-.agctx button.warn { color: var(--hot) }
+.agctx :is(button, [role="menuitem"]).warn { color: var(--hot) }
 
 /* Centered new-agent composer, also used with a preset project. */
 .agc-wrap { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; padding: 16px; display: flex; flex-direction: column }

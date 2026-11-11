@@ -1,10 +1,12 @@
 import { Spinner } from "../ui/kit.tsx";
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { observeElementRect, useVirtualizer, type Rect, type Virtualizer } from "@tanstack/react-virtual";
 import { useStore } from "zustand";
 import type { GitChange, TreeRow } from "./files-state.ts";
-import { FilesMenu } from "./files-menu.tsx";
 import { type TreeView, filesMenuRef, filesModel, filesRef, keepScroll, keptScroll, refreshFiles, scrollAgain, scrolledHere, restoreScroll, revealed, rowId, setFilter, setIgnored, treeActions, treeRef, WALK_ENTRIES } from "./files.ts";
+
+// The menu's library loads with the first right-click, as other menus do.
+const FilesMenu = lazy(() => import("./files-menu.tsx").then(module => ({ default: module.FilesMenu })));
 
 const marks: Record<GitChange, [string, string]> = { untracked: ["U", "Untracked"], added: ["A", "Added"], modified: ["M", "Changed"], conflicted: ["C", "In conflict"] };
 const depth = (value: number): CSSProperties & { "--d": number } => ({ "--d": value });
@@ -28,7 +30,7 @@ export const FilesView = memo(function FilesView({ hidden }: { hidden: boolean }
       {m.tree && <FilesTree tree={m.tree} selected={m.selected} drop={m.drop} reveal={m.reveal} />}
     </div>
     <div className="agpacts"><span className="meta mono" title={m.root}>{m.label || m.root}</span><span data-fstatus role="status">{m.status}</span><span className="sp" /><span className="hint">Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting.</span></div>
-    {m.menu && <FilesMenu {...m.menu} menuRef={filesMenuRef} />}
+    {m.menu && <Suspense fallback={null}><FilesMenu {...m.menu} menuRef={filesMenuRef} /></Suspense>}
   </div>;
 });
 

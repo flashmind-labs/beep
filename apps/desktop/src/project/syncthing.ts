@@ -3,7 +3,7 @@ import type { IgnoredSync } from "./ignored-sync-state.ts";
 // A project-wide Syncthing preference, applied by each machine.
 import { createStore } from "zustand/vanilla";
 import { invoke } from "../ui/tauri.ts";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
+import { confirmSheet, openMenu, type MenuAction, type MenuItem, type MenuLine } from "../ui/menu.ts";
 import { reason } from "../ui/format.ts";
 import { latest, STALE } from "../ui/active.ts";
 import type { Project } from "./projects-state.ts";
@@ -45,14 +45,22 @@ export function syncthingImportChoice() {
 }
 export type SyncthingImportChoice = ReturnType<typeof syncthingImportChoice>;
 
-/// The existing project menu holds the project-wide Syncthing toggle.
-export function openProjectMenu(event: MouseEvent, project: Project, items: MenuItem[], onChanged: () => void) {
-  const replace = openMenu(event, project.name, items);
-  const extra = new Map<string, MenuItem>();
-  const insert = (key: string, item: MenuItem) => {
-    extra.set(key, item);
-    replace([...items.slice(0, -1), ...extra.values(), ...items.slice(-1)]);
+/// The project menu: `top` first, then the project-wide sync settings under
+/// a label as each machine answers, then `remove`.
+export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAction[], remove: MenuAction, onChanged: () => void) {
+  const sync = new Map<SyncLine, MenuLine[]>();
+  const entries = (): MenuItem[] => {
+    const lines = SYNC_LINES.flatMap(key => sync.get(key) ?? []);
+    const section: MenuItem[] = lines.length ? [{ kind: "section", label: "Sync on all machines", items: lines }, { kind: "separator" }] : [];
+    return [...top, { kind: "separator" }, ...section, remove];
   };
+  const replace = openMenu(event, project.name, entries());
+  const reopen = () => openProjectMenu(event, project, top, remove, onChanged);
+  const insert = (key: SyncLine, items: MenuLine[]) => {
+    sync.set(key, items);
+    replace(entries());
+  };
+
   invoke<boolean>("project_git_auto_recovery", { project: project.name }).then(enabled => {
     const save = async () => {
       await invoke("project_git_auto_recovery", { project: project.name, enabled: !enabled });
@@ -69,8 +77,9 @@ export function openProjectMenu(event: MouseEvent, project: Project, items: Menu
         catch (e) { openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: change }]); }
       }
     };
-    insert("recovery", { label: `Preserve edits before Git sync: ${enabled ? "On" : "Off"} (all machines)`, on: change });
-  }, e => insert("recovery", { label: `Git recovery: ${reason(e)} (retry)`, on: () => openProjectMenu(event, project, items, onChanged) }));
+    insert("recovery", [{ kind: "toggle", label: "Preserve edits before Git sync", checked: enabled, on: change }]);
+  }, e => insert("recovery", [{ label: `Git recovery: ${reason(e)} (retry)`, on: reopen }]));
+
   invoke<IgnoredSync>("project_ignored_sync", { project: project.name }).then(settings => {
     const change = async () => {
       if (!settings.enabled && !settings.folders.length) {
@@ -85,20 +94,25 @@ export function openProjectMenu(event: MouseEvent, project: Project, items: Menu
         openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: change }]);
       }
     };
-    insert("ignored", { label: `Sync gitignored: ${settings.enabled ? "On" : "Off"} (all machines)`, on: change });
-    insert("ignored-folders", { label: "Choose ignored folders…", on: () => chooseIgnoredFolders(project.name, settings, onChanged) });
-  }, e => insert("ignored", { label: `Sync gitignored: ${reason(e)} (retry)`, on: () => openProjectMenu(event, project, items, onChanged) }));
+    const choose = { label: "Choose ignored folders…", on: () => chooseIgnoredFolders(project.name, settings, onChanged) };
+    insert("ignored", [{ kind: "toggle", label: "Sync ignored folders", checked: settings.enabled, on: change }, ...(settings.enabled ? [choose] : [])]);
+  }, e => insert("ignored", [{ label: `Ignored folders: ${reason(e)} (retry)`, on: reopen }]));
+
+  // Unset keeps each folder's own Syncthing share, so it reads as Syncthing.
   invoke<boolean | null>("project_syncthing_mode", { project: project.name }).then(enabled => {
-    const next = enabled !== false ? false : true;
+    const beep = enabled === false;
     const change = async () => {
       try {
-        await invoke("project_syncthing_mode", { project: project.name, enabled: next });
+        await invoke("project_syncthing_mode", { project: project.name, enabled: beep });
         onChanged();
       } catch (e) {
         openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: change }]);
       }
     };
-    insert("syncthing", { label: enabled === null ? "Use Beep sync (exclude from Syncthing)"
-      : `Syncthing file sync: ${enabled ? "On" : "Off"} (all machines)`, on: change });
-  }, e => insert("syncthing", { label: `Syncthing: ${reason(e)} (retry)`, on: () => openProjectMenu(event, project, items, onChanged) }));
+    insert("syncthing", [{ label: beep ? "Use Syncthing instead of Beep sync" : "Use Beep sync instead of Syncthing", on: change }]);
+  }, e => insert("syncthing", [{ label: `Syncthing: ${reason(e)} (retry)`, on: reopen }]));
 }
+
+/// The sync settings, in the order the menu shows them.
+const SYNC_LINES = ["recovery", "ignored", "syncthing"] as const;
+type SyncLine = typeof SYNC_LINES[number];

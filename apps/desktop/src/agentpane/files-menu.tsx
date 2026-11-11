@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
-import { arrowFocus, type MenuItem } from "../ui/menu.ts";
+import { useEffect, useLayoutEffect, useState, type CSSProperties, type RefObject } from "react";
+import { Menu, MenuItem, Separator } from "react-aria-components";
+import type { MenuAction } from "../ui/menu.ts";
 
 export interface FilesMenuProps {
   items: readonly [string, string][];
-  local: readonly MenuItem[];
+  local: readonly MenuAction[];
   x: number;
   y: number;
   action(value: string): void;
@@ -12,7 +13,6 @@ export interface FilesMenuProps {
 
 /// The right-click menu of the Files tab, at `x`, `y` and kept inside the view.
 export function FilesMenu({ items, local, x, y, action, close, menuRef }: FilesMenuProps & { menuRef: RefObject<HTMLDivElement | null> }) {
-  const first = useRef<HTMLButtonElement>(null);
   const [place, setPlace] = useState<CSSProperties>({});
 
   useLayoutEffect(() => {
@@ -24,7 +24,6 @@ export function FilesMenu({ items, local, x, y, action, close, menuRef }: FilesM
       left: Math.max(0, Math.min(x - box.left, box.width - el.offsetWidth - 4)),
       top: Math.max(0, Math.min(y - box.top, box.height - height - 4)),
     });
-    first.current?.focus();
   }, []);
 
   useEffect(() => {
@@ -33,9 +32,22 @@ export function FilesMenu({ items, local, x, y, action, close, menuRef }: FilesM
     return () => { clearTimeout(timer); document.removeEventListener("pointerdown", away); };
   }, [close, menuRef]);
 
-  const firstItem = items.findIndex(([key]) => key !== "-");
-  return <div ref={menuRef} className="agctx" role="menu" aria-label="File actions" style={{ ...place, overflowY: "auto" }} onKeyDown={event => {
-    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); return; }
-    if (menuRef.current && arrowFocus(menuRef.current, event.key)) event.preventDefault();
-  }} onClick={event => event.stopPropagation()}>{items.map(([key, text], index) => key === "-" ? <hr key={`rule:${index}`} /> : <button key={key} ref={index === firstItem ? first : undefined} role="menuitem" data-fact={key} className={key === "delete" ? "warn" : undefined} onClick={event => { event.stopPropagation(); action(key); }}>{text}</button>)}{!!local.length && <hr />}{local.map((item, index) => <button key={`${item.label}:${index}`} role="menuitem" onClick={event => { event.stopPropagation(); close(); item.on(); }}>{item.label}</button>)}</div>;
+  const choose = (id: string) => {
+    if (id.startsWith("fact:")) { action(id.slice(5)); return; }
+
+    const item = local[Number(id.slice(6))];
+    if (!item) return;
+    close();
+    item.on();
+  };
+  return <div ref={menuRef} className="agctx" style={{ ...place, overflowY: "auto" }} onKeyDownCapture={event => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  }} onClick={event => event.stopPropagation()}><Menu aria-label="File actions" autoFocus="first" onAction={key => choose(String(key))}>
+    {items.map(([key, text], index) => key === "-" ? <Separator key={`rule:${index}`} /> : <MenuItem key={key} id={`fact:${key}`} textValue={text} data-fact={key} className={key === "delete" ? "warn" : undefined}>{text}</MenuItem>)}
+    {!!local.length && <Separator />}
+    {local.map((item, index) => <MenuItem key={`${item.label}:${index}`} id={`local:${index}`} textValue={item.label} isDisabled={!!item.disabled}>{item.label}</MenuItem>)}
+  </Menu></div>;
 }

@@ -18,6 +18,8 @@ const raf = (callback: () => void) => { frames.set(++frameId, callback); return 
 const cancel = (id: number) => { frames.delete(id); };
 const tauri = { core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); if (cmd === "mesh_watch" && !(cmd in answers)) return new Promise(() => {}); return answers[cmd] ?? null; }, Channel: class {} }, event: { listen: async () => () => {} } };
 Object.defineProperty(win, "__TAURI__", { value: tauri });
+// Libraries ask the window, not the global, for frames.
+Object.assign(win, { requestAnimationFrame: raf, cancelAnimationFrame: cancel });
 for (const [key, value] of Object.entries({ addEventListener: win.addEventListener.bind(win), removeEventListener: win.removeEventListener.bind(win), window: win, document: win.document, navigator: win.navigator, Node: win.Node, Element: win.Element, HTMLElement: win.HTMLElement, HTMLInputElement: win.HTMLInputElement, HTMLTextAreaElement: win.HTMLTextAreaElement, MutationObserver: win.MutationObserver, localStorage: win.localStorage, requestAnimationFrame: raf, cancelAnimationFrame: cancel, ResizeObserver: class { observe() {} unobserve() {} disconnect() {} } })) {
   Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
 }
