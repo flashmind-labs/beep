@@ -11,6 +11,9 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: a machine that stops taking new reads while still connected is
+  connected to again, instead of leaving sessions, files and lists on
+  "Lost the connection" until the app restarts.
 - Desktop: the Agents list shows sessions that start, end or change while it is open, without leaving the page and coming back.
 
 ## [0.8.3] - 2026-11-11

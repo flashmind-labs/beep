@@ -125,17 +125,21 @@ impl Inner {
 
 pub(super) type Channels = Mutex<BTreeMap<(EndpointId, &'static [u8]), Arc<ChannelConnection>>>;
 
+/// The command or subscription protocol `connection` speaks, if either.
+fn protocol_alpn(connection: &Connection) -> Option<&'static [u8]> {
+    [
+        beep_proto::node::commands::ALPN,
+        beep_proto::node::subscriptions::ALPN,
+    ]
+    .into_iter()
+    .find(|alpn| *alpn == connection.alpn())
+}
+
 impl Mesh {
     /// Tracks an accepted protocol connection for membership and restart invalidation.
     pub fn track_protocol_connection(&self, connection: &Connection) -> Result<(), MeshError> {
         let peer = connection.remote_id();
-        let alpn = [
-            beep_proto::node::commands::ALPN,
-            beep_proto::node::subscriptions::ALPN,
-        ]
-        .into_iter()
-        .find(|alpn| *alpn == connection.alpn())
-        .ok_or_else(|| wire::net("unknown peer protocol"))?;
+        let alpn = protocol_alpn(connection).ok_or_else(|| wire::net("unknown peer protocol"))?;
         let conns = self.inner.conns();
         let peer_session = conns.get(&peer).map(|live| live.session);
         let mut channels = self
@@ -270,6 +274,41 @@ impl Mesh {
             peer_session,
         });
         Ok(connection)
+    }
+
+    /// Closes a protocol connection that is still open but took no new
+    /// stream, so the next one dials again instead of reusing it until the
+    /// app restarts. A node that is full resets new streams, and a link
+    /// that went quiet after a network change or a suspended app never
+    /// answers them; either way the mesh link may still be up.
+    pub(crate) fn drop_protocol_connection(&self, connection: &Connection) {
+        let slot = protocol_alpn(connection).and_then(|alpn| {
+            self.inner
+                .channels
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&(connection.remote_id(), alpn))
+                .cloned()
+        });
+
+        if let Some(slot) = slot {
+            let mut cached = slot
+                .connection
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+
+            if cached
+                .as_ref()
+                .is_some_and(|held| held.connection.stable_id() == connection.stable_id())
+            {
+                *cached = None;
+            }
+        }
+
+        if connection.close_reason().is_none() {
+            tracing::warn!(peer = ?connection.remote_id(), protocol = %String::from_utf8_lossy(connection.alpn()), "a protocol connection took no new stream; dialing again");
+            connection.close(4u32.into(), b"stalled");
+        }
     }
 
     fn check_channel_member(&self, peer: EndpointId) -> Result<(), MeshError> {

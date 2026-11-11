@@ -665,6 +665,15 @@ impl Fleet {
             .map_err(|_| DesktopError::Offline(self.name_of(machine)))
     }
 
+    /// Tells iroh the network may have changed, so it binds and probes its
+    /// paths again. A phone app calls it when it comes back: iOS may have
+    /// dropped its sockets while it was suspended, and Android does not
+    /// report network changes to native code.
+    #[cfg(mobile)]
+    pub(crate) async fn network_changed(&self) {
+        self.endpoint.network_change().await;
+    }
+
     /// `machine` as a member of the mesh, or this Mac. `None` for a machine
     /// the mesh does not hold, which only a server can reach.
     pub fn member(&self, machine: &str) -> Option<EndpointId> {

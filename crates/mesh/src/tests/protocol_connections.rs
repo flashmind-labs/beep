@@ -166,6 +166,32 @@ async fn rejected_protocol_dials_back_off_until_the_retry_deadline() {
     );
 }
 
+#[tokio::test]
+async fn a_protocol_connection_that_takes_no_new_stream_is_dialed_again() {
+    let pair = pair().await;
+    let peer = pair.node.me();
+    let client = PeerClient::over(pair.controller.clone(), peer);
+    let _first = client.open_commands().await.unwrap();
+    let full = pair.controller.command_connection(peer).await.unwrap();
+
+    let Err(refused) = client.open_commands().await else {
+        panic!("a full connection took a stream");
+    };
+    assert!(refused.is_transport(), "{refused:#}");
+    timeout(Duration::from_secs(2), full.closed())
+        .await
+        .unwrap();
+
+    // The next stream goes on a new connection, over the same mesh link.
+    let _again = timeout(Duration::from_secs(5), client.open_commands())
+        .await
+        .unwrap()
+        .unwrap();
+    let fresh = pair.controller.command_connection(peer).await.unwrap();
+    assert_ne!(fresh.stable_id(), full.stable_id());
+    assert!(pair.controller.peer(peer).is_some());
+}
+
 struct Pair {
     controller: Mesh,
     node: Mesh,
@@ -238,6 +264,15 @@ impl iroh::protocol::ProtocolHandler for Commands {
             Some(commands::Open::Calls)
         );
         tx.send(&commands::Reply::Ready).await.unwrap();
+        // Full from here on: further streams are reset at once, as a node
+        // does past its stream cap, while the connection stays open.
+        let more = connection.clone();
+        tokio::spawn(async move {
+            while let Ok((mut send, mut recv)) = more.accept_bi().await {
+                send.reset(1u32.into()).ok();
+                recv.stop(1u32.into()).ok();
+            }
+        });
         let _ = rx.recv::<u8>().await;
         Ok(())
     }

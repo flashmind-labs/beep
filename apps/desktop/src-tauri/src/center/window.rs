@@ -436,6 +436,17 @@ pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEven
         return;
     }
 
+    // Back from the background: iroh binds and probes its paths again.
+    #[cfg(mobile)]
+    if matches!(event, WindowEvent::Resumed)
+        && let Some(fleet) = window
+            .app_handle()
+            .try_state::<std::sync::Arc<crate::fleet::Fleet>>()
+    {
+        let fleet = fleet.inner().clone();
+        tauri::async_runtime::spawn(async move { fleet.network_changed().await });
+    }
+
     if let Some((shown, when)) = shown_after(event, || on_screen(window)) {
         tell(window.app_handle(), window.label(), shown, when);
     }
