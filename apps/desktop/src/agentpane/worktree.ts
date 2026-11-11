@@ -72,15 +72,37 @@ export const worktreesSettled = () => settled;
 
 const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
 
+/// What is known of a session's worktrees, kept while another session shows.
+type Known = Pick<typeof W, "trees" | "cwd" | "follow" | "placed" | "pick" | "seen" | "last" | "next" | "handled" | "log" | "asked" | "shown" | "finished">;
+
+/// The sessions shown last, by machine and session, most recent last.
+const known = new Map<string, Known>();
+const KNOWN = 8;
+const sessionKey = (p: Place) => p.id ? `${p.machine_id}\n${p.id}\n${bare(p.cwd)}` : "";
+
 /// Starts on session `place`; `changed` hears that the root moved (true)
-/// or that the menu needs drawing again (false).
+/// or that the menu needs drawing again (false). A session shown before
+/// starts on the worktree it showed, so its tabs do not flip to the
+/// session's folder and back while the list is read again.
 export function startWorktrees(place: Place, changed: (root: boolean) => void) {
+  const leaving = W.place && sessionKey(W.place);
+
+  if (leaving) {
+    const { trees, cwd, follow, placed, pick, seen, last, next, handled, log, asked, shown, finished } = W;
+    known.delete(leaving);
+    known.set(leaving, { trees, cwd, follow, placed, pick, seen, last, next, handled, log, asked, shown, finished });
+    for (const key of known.keys()) if (known.size > KNOWN) known.delete(key);
+  }
+
+  const kept = known.get(sessionKey(place)) ?? null;
   Object.assign(W, {
     place, trees: [], reading: false, again: false, follow: true, placed: null, pick: null, seen: null, cwd: bare(place.cwd), last: bare(place.cwd), next: 0, child: null, handled: false,
     log: { entries: [], earlier: 0 }, asked: new Set(), shown: bare(place.cwd), open: false, search: "", finished: new Set<number>(), changed,
+    ...kept,
   });
-  settled = false;
-  firstRead = readTrees().finally(() => { if (W.place === place) settled = true; });
+  settled = !!kept;
+  const read = readTrees().finally(() => { if (W.place === place) settled = true; });
+  firstRead = kept ? Promise.resolve() : read;
   report();
 }
 

@@ -121,6 +121,12 @@ export const treeRef = createRef<HTMLDivElement>();
 /// folder yet leaves them on screen.
 let showingRows = false;
 
+/// The tree shown is not yet back where it was left: one drawn while its
+/// page is hidden, as a session comes back, can scroll only once it has a
+/// size, and one whose rows are not drawn yet only once they are. Its
+/// scroll is not kept meanwhile.
+let restoring = true;
+
 const setModel = (change: Partial<FilesModel>) => filesModel.setState(change);
 
 /// Folder reads run at once, and the entries a filter stops at.
@@ -184,6 +190,7 @@ function showTree(key: string) {
     listings: entry?.listings ?? new Map(), roots: entry?.roots ?? new Set(), flat: entry?.flat ?? false, open: entry?.open ?? new Set(),
     filter: entry?.filter ?? "", picked: entry?.picked ?? null, anchor: entry?.anchor ?? null, selected: entry?.selected ?? new Set(),
   });
+  restoring = true;
   setModel({ label: "", active: null, status: "" });
   filesOnScreen = false;
   trim();
@@ -196,9 +203,6 @@ function showTree(key: string) {
   for (const dir of entry.unread) load(dir);
   entry.unread.clear();
   if (F.filter.trim()) readAll();
-
-  const scroll = entry.scroll;
-  if (scroll) requestAnimationFrame(() => { if (F.kept === entry && treeRef.current) treeRef.current.scrollTop = scroll; });
 }
 
 /// Puts what the tree shows back in what is kept of it.
@@ -210,15 +214,35 @@ function keep() {
   keepScroll();
 }
 
-/// What the tree scrolled to is kept, as it leaves the page or the dock.
+/// What the tree scrolled to is kept, once it is back where it was left.
 export function keepScroll() {
-  if (F.kept && treeRef.current?.isConnected) F.kept.scroll = treeRef.current.scrollTop;
+  const tree = treeRef.current;
+  if (F.kept && !restoring && tree?.isConnected && tree.offsetParent) F.kept.scroll = tree.scrollTop;
 }
 
-/// The tree came back into a dock: it scrolls to where it was.
+/// The reader scrolls, or a row asked for comes into view: that is where the tree is now.
+export function scrolledHere() {
+  restoring = false;
+}
+
+/// The tree may be drawn again from nothing, as its view goes and comes back.
+export function scrollAgain() {
+  restoring = true;
+}
+
+/// Where the tree shown was left, for its first draw.
+export const keptScroll = () => F.kept?.scroll ?? 0;
+
+/// Puts the tree back where it was left, once it can scroll there. True
+/// when this moved it.
 export function restoreScroll(tree: HTMLElement) {
-  const scroll = F.kept?.scroll;
-  if (scroll) tree.scrollTop = scroll;
+  // Hidden, it has no scroll: it goes back once it shows.
+  if (!tree.clientHeight) { restoring = true; return false; }
+  if (!restoring) return false;
+  const scroll = keptScroll(), was = tree.scrollTop;
+  if (was !== scroll) tree.scrollTop = scroll;
+  restoring = Math.abs(tree.scrollTop - scroll) >= 1;
+  return tree.scrollTop !== was;
 }
 
 /// Lets go of the least recent trees past `KEPT`.
@@ -418,6 +442,7 @@ export const rowId = (path: string) => `agfile-${encodeURIComponent(path)}`;
 
 /// The tree drew the row `F.reveal` asked for.
 export function revealed() {
+  restoring = false;
   F.reveal = null;
   setModel({ reveal: null });
 }
