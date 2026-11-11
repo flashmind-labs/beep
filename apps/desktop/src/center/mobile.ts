@@ -10,7 +10,7 @@ import { allTerms } from "../terminals/view.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { HOME_TAB_EVENT, homeTab, jump } from "./home.ts";
-import { currentLocation, go, goHistory } from "./views.ts";
+import { currentLocation, go, goHistory, asBack } from "./views.ts";
 import { openProjects, paneOn } from "./sidebar.ts";
 import { activeTab, backTo, fullScreen, type MobileAt, type MobileTab } from "./mobile-state.ts";
 import { state } from "./state.ts";
@@ -35,7 +35,16 @@ function at(): MobileAt {
   };
 }
 
+/// The page showing has a Back.
+export function canGoBack() {
+  return backTo(at()) !== null;
+}
+
 function back() {
+  asBack(up);
+}
+
+function up() {
   switch (backTo(at())) {
     case "overview": return jump();
     case "tile": return openTile(null);
@@ -142,7 +151,7 @@ function swipeBack() {
   document.addEventListener("touchend", e => {
     if (!start) return;
     const went = dragging && (e.changedTouches[0]?.clientX ?? 0) - start.x >= BACK_PX;
-    reset(true);
+    reset(!went);
     if (went) back();
   }, { passive: true });
   document.addEventListener("touchcancel", () => { if (start) reset(true); }, { passive: true });

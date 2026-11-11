@@ -115,6 +115,8 @@ test("newer search wins over an earlier delayed result", async ({ page }) => {
 
 test("opening a group cancels a pending chat search", async ({ page }) => {
   const group = { id: "group", name: "Example group", members: [], last: null, updated_at: 1, beep_typing: false, pinned: false, apps_shared: false };
+  // A page fading in would hold the click past the search's delay.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [], list_groups: [group], open_group: { group, messages: [] }, group_typing: false });
   await page.evaluate(() => window.__navigation.open("chats"));
   const option = page.getByRole("option", { name: /Example group/ });
