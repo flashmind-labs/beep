@@ -10,6 +10,7 @@ import { makeStartComposer } from "../agents/start-composer.ts";
 import { sessionPicks } from "../agents/session.ts";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
+import { commandKey } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.ts";
 import { pageAgent } from "./agent.ts";
@@ -56,6 +57,14 @@ export const projectComp = (() => {
   renderChoices({ machine: "Machine", adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
   // Esc or a click outside closes the picker.
   form.addEventListener("keydown", e => {
+    // ⌘M opens the model picker, as on the agent start page.
+    if (commandKey(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "m") {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleBarPicker();
+      return;
+    }
+
     if (e.key !== "Escape" || !pc.open) return;
     e.preventDefault();
     e.stopPropagation();

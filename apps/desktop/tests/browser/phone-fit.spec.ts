@@ -140,3 +140,27 @@ test("the phone Agents list shows a session that starts while it is open", async
   await page.evaluate(list => { window.__navigation.respond("agent_sessions", list); window.__navigation.emit("sessions-changed", null); }, sessions);
   await expect(rows).toHaveCount(sessions.length);
 });
+
+test("open issues with many long labels stay inside the phone screen", async ({ page }) => {
+  const labels = ["domain:sinks", "domain:external docs", "sink:websocket", "docs review on hold for the release", "C-core", "C-main"];
+  const items = [1, 2, 3].map(n => ({ host: "example.test", repo: "other/project", number: n, kind: n % 2 ? "issue" : "pull_request", title: `A long issue title that keeps going ${long}`, url: `https://example.test/other/project/issues/${n}`, updated_at: 1, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels }));
+  await page.setViewportSize({ width: 402, height: 874 });
+  await openDesktop(page, false, { ...responses, git_items: { items, hosts: [] } });
+  await tab(page, "Projects").click();
+  await expect(page.locator("#sec-elsewhere .it .pj-tag").first()).toBeVisible();
+  expect(await sideways(page)).toEqual([]);
+  const over = await page.locator("#sec-elsewhere .it").evaluateAll(rows => rows.filter(row => row.scrollWidth > row.clientWidth + 1).length);
+  expect(over).toBe(0);
+});
+
+test("the project page leaves no blank band above its composer on the phone", async ({ page }) => {
+  await openPhone(page);
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projects[0].name);
+  const composer = page.locator(".cc-pjc").first();
+  await expect(composer).toBeVisible();
+  const pad = await composer.evaluate(el => {
+    const view = el.closest(".cc-box")?.querySelector<HTMLElement>(".cc-view");
+    return view ? parseFloat(getComputedStyle(view).paddingBottom) : -1;
+  });
+  expect(pad).toBe(12);
+});

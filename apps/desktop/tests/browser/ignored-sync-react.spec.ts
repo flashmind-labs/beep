@@ -29,3 +29,15 @@ test("ignored sync validates, retries and blocks dismissal while saving", async 
   await page.evaluate(() => window.__navigation.release("project_ignored_sync"));
   await expect(sheet).toHaveCount(0);
 });
+
+test("the ignored folder list takes the sheet's width", async ({ page }) => {
+  await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: ["assets"] }, project_git_auto_recovery: false, project_syncthing_mode: null });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: "example/widget" } }));
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Choose ignored folders…" }).click();
+  const sheet = page.getByRole("dialog", { name: "Sync gitignored" });
+  const paths = sheet.getByRole("textbox", { name: "Folders relative to the project, one per line" });
+  const label = sheet.getByText("Each folder must be wholly ignored by Git");
+  const [field, text] = await Promise.all([paths.boundingBox(), label.boundingBox()]);
+  expect(field && text && Math.abs(field.width - text.width)).toBeLessThan(2);
+});
