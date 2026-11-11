@@ -20,9 +20,19 @@ pub(crate) fn register(registry: &mut ToolRegistry, app: &Arc<App>, user: &Arc<U
     }));
 }
 
-/// A machine's name as one word, such as `build-box`.
+/// A machine's name as one word, such as `build-box`: apostrophes dropped,
+/// other symbols and spaces as single dashes.
 pub(crate) fn command_name(name: &str) -> String {
-    name.trim().to_lowercase().replace(' ', "-")
+    let kept: String = name
+        .chars()
+        .filter(|c| !matches!(c, '\'' | '\u{2019}'))
+        .flat_map(char::to_lowercase)
+        .collect();
+
+    kept.split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 /// Runs a shell command on one of the user's machines, through a desktop.

@@ -4,6 +4,11 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- Node: agents name machines without apostrophes or symbols, so
+  "Alex's Mac Studio" is `alexs-mac-studio` instead of `alex's-mac-studio`.
+
 ## [0.6.4] - 2026-11-11
 
 ### Performance

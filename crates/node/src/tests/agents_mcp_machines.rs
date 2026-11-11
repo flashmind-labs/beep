@@ -18,4 +18,6 @@ fn a_job_id_names_its_machine() {
 #[test]
 fn a_machine_is_named_in_one_word() {
     assert_eq!(command_name(" Mac Studio "), "mac-studio");
+    assert_eq!(command_name("Alex’s Mac Studio"), "alexs-mac-studio");
+    assert_eq!(command_name("Alex's  MacBook (2)"), "alexs-macbook-2");
 }

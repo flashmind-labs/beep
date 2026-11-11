@@ -50,8 +50,9 @@ export function nest(rows: AgentSession[]): Nested[] {
   return out;
 }
 
-/// A machine as agents name it: lower case, one word.
-const machineName = (name: string) => name.trim().toLowerCase().replace(/ /g, "-");
+/// A machine as agents name it: lower case, one word, as `command_name` makes it.
+const machineName = (name: string) =>
+  name.toLowerCase().replace(/['\u2019]/g, "").split(/[^\p{L}\p{N}]+/u).filter(part => part !== "").join("-");
 
 /// The row a card in a parent's log opens: its `[child]` line gives the id
 /// (`<id>@<machine>`) and the id the machine listed it under.
