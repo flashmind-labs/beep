@@ -104,6 +104,50 @@ function longPress() {
   }, true);
 }
 
+/// How near the left edge a swipe back starts, and how far right it must go to count.
+const EDGE_PX = 24, BACK_PX = 80;
+
+/// A swipe right from the left edge goes back, as the Back button does. The page follows the
+/// finger on its own layer; a swipe that turns vertical or stops short springs back.
+function swipeBack() {
+  let start: { x: number; y: number } | null = null, dragging = false;
+  const main = () => document.querySelector<HTMLElement>(".cc-main");
+  const reset = (animate: boolean) => {
+    const page = main();
+    start = null;
+    dragging = false;
+    if (!page) return;
+    page.style.transition = animate ? "transform .18s ease-out" : "";
+    page.style.transform = "";
+    if (animate) page.addEventListener("transitionend", () => { page.style.transition = ""; page.style.willChange = ""; }, { once: true });
+    else page.style.willChange = "";
+  };
+
+  document.addEventListener("touchstart", e => {
+    const t = e.touches[0];
+    start = e.touches.length === 1 && t.clientX <= EDGE_PX && document.body.classList.contains("mobile") && backTo(at()) !== null
+      ? { x: t.clientX, y: t.clientY } : null;
+  }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (!start) return;
+    const t = e.touches[0], dx = t.clientX - start.x, dy = t.clientY - start.y;
+    if (!dragging && Math.abs(dy) > Math.max(10, dx)) { reset(false); return; }
+    if (dx < 10 && !dragging) return;
+    const page = main();
+    if (!page) return;
+    dragging = true;
+    page.style.willChange = "transform";
+    page.style.transform = `translateX(${Math.max(0, dx)}px)`;
+  }, { passive: true });
+  document.addEventListener("touchend", e => {
+    if (!start) return;
+    const went = dragging && (e.changedTouches[0]?.clientX ?? 0) - start.x >= BACK_PX;
+    reset(true);
+    if (went) back();
+  }, { passive: true });
+  document.addEventListener("touchcancel", () => { if (start) reset(true); }, { passive: true });
+}
+
 const TEXT_FIELD = "textarea, input:not([type]), input[type=text], input[type=search], input[type=url], input[type=email], [contenteditable=true]";
 
 /// The soft keyboard takes the tab bar's place instead of squeezing the page, and the window
@@ -235,6 +279,7 @@ export function initMobile() {
   window.matchMedia("(pointer: coarse)").addEventListener("change", apply);
   document.addEventListener(HOME_TAB_EVENT, syncMobile);
   longPress();
+  swipeBack();
   keyboard();
   tips(document);
 }
