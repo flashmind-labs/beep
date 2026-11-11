@@ -104,7 +104,7 @@ async function sendSteer(q: Waiting, back = true) {
   q.state = "sending";
   drawAgentBody();
   if (q.images.length) keepAgentPics(o, q.images);
-  const sent = await sendText({ steer: outgoing(q.text, q.images) });
+  const sent = await sendText({ steer: outgoing(q.text, q.images) }, seenNow());
 
   if (sent === "sent") {
     q.state = "sent";
@@ -140,11 +140,12 @@ export function interruptAgent() {
 /// it started. The node drops the steers it holds, so those not yet delivered go back in the field.
 export async function stopAllWork(target: { machine_id: string; agent: string; id: string }) {
   const s = AG.page?.session, o = AG.open;
-  if (!sameSession(o, target) || !s) return;
-  // What waits on this device comes back too, after what the node held.
-  const kept = await Promise.all(AG.outbox.filter(row => row.state !== "sending").map(row => takeOutbox(row.id)));
+  if (!o || !sameSession(o, target) || !s) return;
+  // What waits on this device comes back too, after what the node held,
+  // taken out in one step so none of it starts going meanwhile.
+  const kept = await drainOutbox(o);
   if (AG.open !== o) return;
-  const unsent: Draft[] = [...AG.queue.filter(q => q.state !== "delivered"), ...kept.filter(draft => draft !== null)];
+  const unsent: Draft[] = [...AG.queue.filter(q => q.state !== "delivered"), ...kept];
   AG.queue.splice(0, AG.queue.length);
   // Each goes in front of what the field holds: the newest first, so the oldest leads.
   for (const q of unsent.reverse()) backInField(q);
@@ -202,19 +203,25 @@ export function answerFirst(allow: boolean) {
 export async function steerAgent(steer: Steer) {
   const o = AG.open;
   if (!o || AG.page?.session.external) return false;
-  const failed = await sendOnce(o, steer);
+  const failed = await sendOnce(o, steer, null);
   if (isOpen(o)) { AG.note = failed?.message ?? ""; drawAgentBody(); resumeAgent(); }
   return !failed;
 }
 
+/// What the open session showed before a message, so a check after a
+/// dropped send counts only what came after it.
+type Seen = { entries: number; queued: string[] };
+const seenNow = (): Seen | null => AG.page ? { entries: AG.page.earlier + AG.page.entries.length, queued: AG.page.queued_messages ?? [] } : null;
+
 /// Sends a message to the open session: "sent" when the node took it,
 /// "waiting" when it waits on this device until the machine can be reached,
-/// else "failed", with the note saying why.
-async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }): Promise<"sent" | "waiting" | "failed"> {
+/// else "failed", with the note saying why. The outbox owns a message once
+/// it has it, so one whose send got no answer in time waits there too.
+async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen: Seen | null): Promise<"sent" | "waiting" | "failed"> {
   const o = AG.open;
   if (!o || AG.page?.session.external) return "failed";
-  const failed = await sendOnce(o, steer);
-  const sent = !failed ? "sent" : failed.kind === "waiting" ? "waiting" : "failed";
+  const failed = await sendOnce(o, steer, seen);
+  const sent = !failed ? "sent" : failed.kind === "waiting" || failed.kind === "timeout" ? "waiting" : "failed";
 
   if (isOpen(o)) {
     AG.note = failed && sent === "failed" ? failed.message : "";
@@ -227,9 +234,9 @@ async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }): Prom
 }
 
 /// One `agent_steer` call: null when the node took it, else why not.
-async function sendOnce(o: OpenAgent, steer: Steer): Promise<SendError | null> {
+async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null): Promise<SendError | null> {
   try {
-    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0] }, AGENT_SEND_WAIT_MS);
+    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0], seen }, AGENT_SEND_WAIT_MS);
     const sent = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
     if (sent?.images) keepSentImages(keys, sent.images);
     return null;
@@ -259,9 +266,10 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   }
 
   const mine = { kind: "user", text: [text, ...images.map(a => `[image: ${a.name}]`)].filter(Boolean).join("\n") };
+  const seen = seenNow();
   page.entries.push(mine);
   drawAgentBody();
-  const sent = await sendText({ steer: outgoing(text, images) });
+  const sent = await sendText({ steer: outgoing(text, images) }, seen);
   if (sent === "sent" || !isOpen(o)) return sent !== "failed";
   // A poll may have drawn more since: take out this message, not the last.
   const at = page.entries.indexOf(mine);
@@ -301,10 +309,10 @@ export async function sendReview(text: string) {
     AG.queue.push(q);
     ok = await sendSteer(q, false);
   } else {
-    const mine = { kind: "user", text };
+    const mine = { kind: "user", text }, seen = seenNow();
     page.entries.push(mine);
     drawAgentBody();
-    const sent = await sendText({ prompt: outgoing(text, []) });
+    const sent = await sendText({ prompt: outgoing(text, []) }, seen);
     ok = sent !== "failed";
 
     if (sent !== "sent") {
@@ -401,14 +409,26 @@ export async function editOutbox(id: number, edit: boolean) {
 /// Takes message `id` out of the outbox, as the field takes it back.
 async function takeOutbox(id: number): Promise<Draft | null> {
   try {
-    const { text, images } = await invoke<Taken>("outbox_take", { id });
-    return {
-      typed: text, paths: [],
-      images: images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}` })),
-    };
+    return draftOf(await invoke<Taken>("outbox_take", { id }));
   } catch (e) {
     AG.note = String(e);
     drawAgentBody();
     return null;
   }
 }
+
+/// Takes every message waiting on this device for `o` out, oldest first.
+export async function drainOutbox(o: OpenAgent): Promise<Draft[]> {
+  try {
+    const taken = await invoke<Taken[] | null>("outbox_drain", where(o));
+    return (taken ?? []).map(draftOf);
+  } catch (e) {
+    console.warn("taking back the outbox:", e);
+    return [];
+  }
+}
+
+const draftOf = ({ text, images }: Taken): Draft => ({
+  typed: text, paths: [],
+  images: images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}` })),
+});

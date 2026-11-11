@@ -13,7 +13,7 @@ import { AG, AGENT_ACTIVE } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
 import { workingSubagents } from "./logview.ts";
 import { runs } from "./tasks.ts";
-import { stopAllWork } from "./messages.ts";
+import { drainOutbox, stopAllWork } from "./messages.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
 import { forgetTranscript, offScreen, takeHeldSteers, transcripts } from "./session-follow.ts";
@@ -28,9 +28,11 @@ function stopAll(s: AgentRow) {
   const run = async () => {
     // Another session may have opened while the sheet asked.
     if (sameSession(AG.open, s) && AG.page) return stopAllWork(s);
+    // What waits on this device comes out first, so none of it goes after the stop.
+    const kept = await drainOutbox(o);
     await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: "stop_all" });
-    // The node drops the steers it holds: they wait in the session's field instead.
-    const steers = takeHeldSteers(o);
+    // The node drops the steers it holds: they wait in the session's field instead, then what waited here.
+    const steers = [...takeHeldSteers(o), ...kept.map(draft => draft.typed).filter(Boolean)];
     if (steers.length) prependDraft(JSON.stringify([s.machine_id, s.agent, s.id]), steers.join("\n"));
   };
   const work: SideWork = {

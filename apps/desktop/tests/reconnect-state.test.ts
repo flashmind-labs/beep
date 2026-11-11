@@ -73,5 +73,6 @@ test("a failed send says whether anything went", () => {
   assert.equal(sendError({ kind: "unsure", message: "x" }).kind, "unsure");
   assert.equal(sendError({ kind: "waiting", message: "x" }).kind, "waiting");
   assert.deepEqual(sendError({ kind: "failed", message: "bad request: The message is empty." }), { kind: "failed", message: "The message is empty." });
-  assert.deepEqual(sendError("no answer in 40 s. Try again."), { kind: "failed", message: "no answer in 40 s. Try again." });
+  // The page stopped waiting: the outbox has the message, so it is not put back in the field.
+  assert.deepEqual(sendError("no answer in 40 s. Try again."), { kind: "timeout", message: "no answer in 40 s. Try again." });
 });

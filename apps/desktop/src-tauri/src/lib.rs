@@ -263,6 +263,7 @@ pub fn run() {
             agents::steer::agent_steer,
             agents::outbox::outbox_list,
             agents::outbox::outbox_take,
+            agents::outbox::outbox_drain,
             bar::app::allow_mac_permission,
             bar::app::link_offer,
             bar::app::mac_control,
@@ -693,9 +694,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     app.manage(Arc::new(agents::kept_transcripts::KeptTranscripts::new(
         dir.join("transcripts"),
     )));
-    app.manage(Arc::new(agents::outbox::Outbox::load(
-        dir.join("outbox.json"),
-    )));
+    app.manage(Arc::new(agents::outbox::Outbox::load(dir.join("outbox"))));
     let endpoint = tauri::async_runtime::block_on(bind_endpoint(
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),
