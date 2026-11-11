@@ -11,6 +11,7 @@ use crate::{
     fleet::{Fleet, Machines, files as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_mesh::machine::sessions::Reading;
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, ApiError, GitChange, ListWorkTree, MAX_AGENT_FILE,
     MAX_TREE_DEPTH, ReadWorkFile, WriteWorkFile,
@@ -123,7 +124,7 @@ pub async fn agent_tree(
     let tree = match cached {
         Some(tree) => tree,
         None => match fleet.member(&ask.machine_id) {
-            Some(machine) => direct::tree(&fleet, machine, &ask).await?,
+            Some(machine) => direct::tree(&fleet, machine, &ask, Reading::Followed).await?,
             None => beep.call(ask).await?,
         },
     };
@@ -389,6 +390,7 @@ pub async fn agent_tree_save_many(
                     ignored: true,
                     depth: 1,
                 },
+                Reading::Once,
             )
             .await?;
             let folder =
@@ -425,6 +427,7 @@ pub async fn agent_tree_save_many(
                     ignored: true,
                     depth: 1,
                 },
+                Reading::Once,
             )
             .await?;
             let folder = tree

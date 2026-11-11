@@ -218,6 +218,9 @@ pub async fn serve_sessions(
             Ok(sessions) => SessionsReply::External { sessions },
             Err(e) => failed(e),
         },
+        SessionsRequest::ExternalNamed { sessions } => SessionsReply::External {
+            sessions: agents.external_named(sessions).await,
+        },
         SessionsRequest::Folders { limit } => match agents.found_folders(limit).await {
             Ok(folders) => SessionsReply::Folders { folders },
             Err(e) => failed(e),

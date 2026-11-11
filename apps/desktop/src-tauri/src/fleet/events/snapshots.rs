@@ -6,18 +6,25 @@ use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, Mutex, PoisonError},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::watch;
 use uuid::Uuid;
 
 type Current = Option<std::result::Result<Value, String>>;
 
+/// How long a live query keeps a changed value nobody read before it is
+/// dropped and the node stops reading it. A view that follows it reads
+/// again on each change; a read again within this reuses it.
+pub(super) const LINGER: Duration = Duration::from_secs(30);
+
 struct Entry {
     query: Query,
     stream: Topic,
     used: u64,
     current: watch::Sender<Current>,
+    /// Since when it has held a value no reader took.
+    unread: Option<Instant>,
 }
 
 struct Machine {
@@ -156,21 +163,26 @@ impl Snapshots {
         generation: Uuid,
         snapshot: &Snapshot,
     ) -> Option<bool> {
-        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let machine = held
             .machines
-            .get(&id)
+            .get_mut(&id)
             .filter(|machine| machine.streams.values().any(|id| *id == generation))?;
         let Some(query) = snapshot.query else {
             return Some(false);
         };
 
-        if let Some(entry) = machine.entries.get(&query)
+        if let Some(entry) = machine.entries.get_mut(&query)
             && machine.streams.get(&entry.stream) == Some(&generation)
             && entry.query.topic == snapshot.topic
         {
             let initial = entry.current.borrow().is_none();
             entry.current.send_replace(Some(Ok(snapshot.value.clone())));
+
+            // A change its followers are told of, and a waiting reader takes now.
+            if !initial && entry.current.receiver_count() == 0 {
+                entry.unread.get_or_insert_with(Instant::now);
+            }
             return Some(initial);
         }
 
@@ -239,6 +251,7 @@ impl Snapshots {
                 machine.entries.remove(&existing);
             } else if let Some(entry) = machine.entries.get_mut(&existing) {
                 entry.used = next;
+                entry.unread = None;
 
                 return Some(Ok(entry.current.subscribe()));
             }
@@ -271,11 +284,39 @@ impl Snapshots {
                 used: next,
                 stream,
                 current,
+                unread: None,
             },
         );
         drop(held);
         self.changed.send_replace(());
         Some(Ok(receiver))
+    }
+}
+
+impl Snapshots {
+    /// Drops the queries of `stream` on machine `id` that changed and were
+    /// not read again within `LINGER` by `now`, so the node stops reading
+    /// them; whether any went.
+    pub(super) fn sweep(&self, id: EndpointId, stream: &Topic, now: Instant) -> bool {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(machine) = held.machines.get_mut(&id) else {
+            return false;
+        };
+        let before = machine.entries.len();
+        machine.entries.retain(|_, entry| {
+            entry.stream != *stream
+                || entry.current.receiver_count() > 0
+                || entry
+                    .unread
+                    .is_none_or(|since| now.saturating_duration_since(since) < LINGER)
+        });
+        let swept = machine.entries.len() != before;
+        drop(held);
+
+        if swept {
+            self.changed.send_replace(());
+        }
+        swept
     }
 }
 

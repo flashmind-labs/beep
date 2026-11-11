@@ -9,6 +9,7 @@ impl Sessions for Node {
     async fn sessions(
         &self,
         request: SessionsRequest,
+        _: Reading,
         _: Duration,
     ) -> std::result::Result<SessionsReply, beep_mesh::MeshError> {
         let SessionsRequest::Transcript {

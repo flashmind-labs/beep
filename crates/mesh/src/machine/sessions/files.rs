@@ -1,5 +1,6 @@
 use super::{
-    IMAGE_TIMEOUT, NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite, ask, hinted,
+    IMAGE_TIMEOUT, NodeFile, NodeImage, NodeWork, READ_TIMEOUT, Reading, Sessions, WorkRead,
+    WorkWrite, ask, hinted, once,
 };
 use crate::{MeshError, machine::unexpected};
 use beep_proto::{
@@ -40,7 +41,7 @@ async fn picture<S: Sessions + ?Sized>(
     node: &S,
     request: SessionsRequest,
 ) -> Result<Option<NodeImage>, MeshError> {
-    match node.sessions(request, IMAGE_TIMEOUT).await? {
+    match node.sessions(request, Reading::Once, IMAGE_TIMEOUT).await? {
         SessionsReply::Image { mime, data } => Ok(Some(NodeImage { mime, data })),
         SessionsReply::Error { .. } => Ok(None),
         other => Err(unexpected(&other)),
@@ -57,7 +58,7 @@ pub async fn media<S: Sessions + ?Sized>(
         path: path.to_owned(),
         offset,
     };
-    file_reply(ask(node, request).await?)
+    file_reply(once(node, request).await?)
 }
 
 /// Part of a file inside a session folder on the node.
@@ -71,7 +72,7 @@ pub async fn read_file<S: Sessions + ?Sized>(
         offset: read.offset,
         len: read.len,
     };
-    file_reply(ask(node, request).await?)
+    file_reply(once(node, request).await?)
 }
 
 fn file_reply(reply: SessionsReply) -> Result<NodeFile, MeshError> {
@@ -89,7 +90,7 @@ pub async fn present<S: Sessions + ?Sized>(
     node: &S,
     paths: Vec<String>,
 ) -> Result<Option<Vec<bool>>, MeshError> {
-    match ask(node, SessionsRequest::Present { paths }).await? {
+    match once(node, SessionsRequest::Present { paths }).await? {
         SessionsReply::Present { present } => Ok(Some(present)),
         SessionsReply::Error { .. } => Ok(None),
         other => Err(unexpected(&other)),
@@ -122,6 +123,7 @@ pub async fn folder<S: Sessions + ?Sized>(
 pub async fn tree<S: Sessions + ?Sized>(
     node: &S,
     list: &ListWorkTree,
+    reading: Reading,
 ) -> Result<NodeWork<WorkTree>, MeshError> {
     let request = SessionsRequest::Folder {
         root: list.root.clone(),
@@ -130,7 +132,7 @@ pub async fn tree<S: Sessions + ?Sized>(
         depth: list.depth.max(1),
     };
 
-    match ask(node, request).await? {
+    match node.sessions(request, reading, READ_TIMEOUT).await? {
         SessionsReply::Tree { tree } => Ok(NodeWork::Done(tree)),
         SessionsReply::Folder { folder } => Ok(NodeWork::Done(WorkTree {
             folders: vec![folder],
@@ -154,7 +156,7 @@ pub async fn write_file<S: Sessions + ?Sized>(
         data: write.data,
     };
 
-    match ask(node, request).await? {
+    match once(node, request).await? {
         SessionsReply::Written { path } => Ok(NodeWork::Done(path)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
@@ -177,7 +179,7 @@ pub async fn upload_file<S: Sessions + ?Sized>(
         size: write.size,
         data: write.data,
     };
-    let reply = hinted(ask(node, request).await, "upload temporary attachments")?;
+    let reply = hinted(once(node, request).await, "upload temporary attachments")?;
 
     match reply {
         SessionsReply::Written { path } => Ok(NodeWork::Done(path)),
@@ -195,6 +197,7 @@ pub async fn edit_files<S: Sessions + ?Sized>(
     let reply = hinted(
         node.sessions(
             SessionsRequest::EditFiles { root, action },
+            Reading::Once,
             Duration::from_secs(300),
         )
         .await,
@@ -217,7 +220,7 @@ pub async fn custom_agents<S: Sessions + ?Sized>(
         folder: folder.to_owned(),
     };
 
-    match ask(node, request).await? {
+    match once(node, request).await? {
         SessionsReply::CustomAgents { agents } => Ok(NodeWork::Done(agents)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),

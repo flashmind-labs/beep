@@ -96,6 +96,89 @@ async fn found_checkouts_are_asked_once_and_never_kept_live() {
     assert!(found.is_empty());
 }
 
+/// Reads asked once go to the node as calls and never become live queries:
+/// a live query is read again on the node after every matching change.
+#[tokio::test]
+async fn one_off_reads_are_calls_and_never_kept_live() {
+    use crate::machine::sessions::{self, NodeFile, NodeWork, Reading, WorkRead};
+    use beep_proto::node::{
+        Open, Opened,
+        agent::{ExternalAsk, SessionsReply, SessionsRequest},
+    };
+
+    let node: SessionFn = Arc::new(|mut tx, mut rx| {
+        Box::pin(async move {
+            rx.recv::<Open>().await.unwrap().unwrap();
+            tx.send(&Opened::Ready {}).await.unwrap();
+            let reply = match rx.recv::<SessionsRequest>().await.unwrap().unwrap() {
+                SessionsRequest::External { .. } | SessionsRequest::ExternalNamed { .. } => {
+                    SessionsReply::External {
+                        sessions: Vec::new(),
+                    }
+                }
+                SessionsRequest::ReadFile { .. } => SessionsReply::NoFile {},
+                SessionsRequest::Worktrees { .. } => SessionsReply::Worktrees {
+                    worktrees: Vec::new(),
+                },
+                SessionsRequest::Folder { .. } => SessionsReply::Tree {
+                    tree: beep_proto::WorkTree {
+                        folders: Vec::new(),
+                        truncated: false,
+                    },
+                },
+                SessionsRequest::Commands { .. } => SessionsReply::Commands {
+                    commands: Vec::new(),
+                },
+                other => panic!("{other:?} was not expected"),
+            };
+            tx.send(&reply).await.unwrap();
+        })
+    });
+    let client = PeerClient::local(node).with_snapshot_reader(Arc::new(EveryRead));
+
+    let one = sessions::external(&client, "claude", 1, Some("example-session".into()));
+    assert!(one.await.unwrap().is_empty());
+    let asks = vec![ExternalAsk {
+        agent: "claude".into(),
+        session: "example-session".into(),
+    }];
+    assert_eq!(
+        sessions::external_named(&client, asks).await.unwrap(),
+        Some(Vec::new())
+    );
+    let read = WorkRead {
+        root: "/srv/project",
+        path: "a.txt",
+        offset: 0,
+        len: 16,
+    };
+    assert!(matches!(
+        sessions::read_file(&client, read).await.unwrap(),
+        NodeFile::Missing
+    ));
+    assert!(matches!(
+        sessions::worktrees(&client, "/srv/project").await.unwrap(),
+        NodeWork::Done(_)
+    ));
+    assert!(matches!(
+        sessions::commands(&client, "example-session")
+            .await
+            .unwrap(),
+        NodeWork::Done(_)
+    ));
+    let list = beep_proto::ListWorkTree {
+        machine_id: String::new(),
+        root: "/srv/project".into(),
+        path: String::new(),
+        ignored: true,
+        depth: 1,
+    };
+    assert!(matches!(
+        sessions::tree(&client, &list, Reading::Once).await.unwrap(),
+        NodeWork::Done(_)
+    ));
+}
+
 fn link(e: impl StdError + Send + Sync + 'static) -> MeshError {
     MeshError::Link(anyhow::Error::new(e))
 }

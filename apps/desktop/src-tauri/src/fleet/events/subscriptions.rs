@@ -104,6 +104,7 @@ impl SubscriptionWorker {
         .await
         .map_err(|_| DesktopError::Lost("the machine".into()))??;
         let mut watches = HashSet::from([1]);
+        let mut sweep = tokio::time::interval(super::snapshots::LINGER / 3);
         let mut next = 1_u64;
         let mut dirty = false;
         let mut revision = 0;
@@ -142,6 +143,9 @@ impl SubscriptionWorker {
             }
 
             tokio::select! {
+                _ = sweep.tick() => {
+                    fleet.snapshots.sweep(machine, topic, Instant::now());
+                },
                 changed = query_changes.changed() => {
                     if changed.is_err() { return Ok(()); }
                     dirty = true;

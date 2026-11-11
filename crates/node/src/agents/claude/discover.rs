@@ -253,15 +253,19 @@ pub(super) fn list(
         return super::subagents::session(store, id).map(|session| session.into_iter().collect());
     }
 
+    // One session is looked up by its file, not by listing them all.
+    if let Some(id) = only {
+        return match store.find(id) {
+            Some(path) => Ok(describe_file(store, &path, snapshot)?.into_iter().collect()),
+            None => Ok(Vec::new()),
+        };
+    }
+
     let all = store.transcripts()?;
     let newest_in_folder = newest_by_folder(&all);
-    let picked: Vec<&Transcript> = match only {
-        Some(id) => all.iter().filter(|t| t.id == id).collect(),
-        None => all.iter().take(limit).collect(),
-    };
     let mut sessions = Vec::new();
 
-    for transcript in picked {
+    for transcript in all.iter().take(limit) {
         let newest = newest_in_folder
             .get(folder_of(transcript))
             .is_some_and(|id| *id == transcript.id);

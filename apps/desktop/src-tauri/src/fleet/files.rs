@@ -12,7 +12,7 @@ use beep_mesh::{
     PeerClient,
     machine::{
         self, Exec, agent_files, listing,
-        sessions::{self, WorkRead, WorkWrite},
+        sessions::{self, Reading, WorkRead, WorkWrite},
     },
 };
 use beep_projects::{
@@ -166,14 +166,16 @@ pub(crate) struct Place {
     pub folder: String,
 }
 
-/// The folders `ask.depth` levels down from `ask.path` in a session's working folder.
+/// The folders `ask.depth` levels down from `ask.path` in a session's
+/// working folder; a pane that follows the folder keeps the read live.
 pub(crate) async fn tree(
     fleet: &Fleet,
     machine: EndpointId,
     ask: &ListWorkTree,
+    reading: Reading,
 ) -> Result<WorkTree> {
     let client = fleet.client(machine).await?;
-    work(fleet, machine, sessions::tree(&client, ask).await?)
+    work(fleet, machine, sessions::tree(&client, ask, reading).await?)
 }
 
 /// One `ReadWorkFile`.

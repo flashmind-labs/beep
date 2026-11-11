@@ -324,7 +324,26 @@ pub enum SessionsRequest {
         agent: String,
         session: String,
     },
+    /// The sessions `sessions` started outside Beep, each looked up by its
+    /// agent and id, answered with `External` holding those found, in no
+    /// order. A node from before it closes the stream: ask `External` for
+    /// each then.
+    ExternalNamed {
+        sessions: Vec<ExternalAsk>,
+    },
 }
+
+/// One session asked for by `SessionsRequest::ExternalNamed`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalAsk {
+    /// Such as `claude` or `codex`.
+    pub agent: String,
+    /// The agent's own id for it.
+    pub session: String,
+}
+
+/// The most sessions one `ExternalNamed` asks for.
+pub const MAX_EXTERNAL_NAMED: usize = 100;
 
 /// File browser operations. Destinations must not already exist.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -351,6 +370,7 @@ impl SessionsRequest {
             | Self::ListAll {}
             | Self::Transcript { .. }
             | Self::External { .. }
+            | Self::ExternalNamed { .. }
             | Self::Folders { .. }
             | Self::InFolders { .. }
             | Self::Image { .. }

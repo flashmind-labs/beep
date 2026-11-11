@@ -11,7 +11,10 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
-    agent::{ExternalSession, ParentLink, Presence, SessionFolder, Status},
+    agent::{
+        ExternalAsk, ExternalSession, MAX_EXTERNAL_NAMED, ParentLink, Presence, SessionFolder,
+        Status,
+    },
     events::Topic,
 };
 use std::{
@@ -359,6 +362,35 @@ impl Agents {
         }
 
         Ok(sessions)
+    }
+
+    /// The sessions `asks` started outside Beep, each looked up by its file
+    /// or record rather than by listing every session; one that is not found
+    /// or cannot be read is left out.
+    pub(super) async fn external_named(&self, asks: Vec<ExternalAsk>) -> Vec<ExternalSession> {
+        let mut found = Vec::new();
+
+        for ask in asks.into_iter().take(MAX_EXTERNAL_NAMED) {
+            let one = if ask.agent == Agent::Claude.as_ref() {
+                self.external
+                    .list(1, Some(ask.session.clone()), self.owned())
+                    .await
+            } else {
+                self.stores_external(&ask.agent, 1, Some(ask.session.clone()))
+                    .await
+            };
+
+            match one {
+                Ok(sessions) => found.extend(sessions),
+                Err(e) => log::debug!(
+                    "outside session not read; agent={} session={}: {e:#}",
+                    ask.agent,
+                    ask.session
+                ),
+            }
+        }
+
+        found
     }
 
     /// The sessions this node runs, by the agent's own id, to the node's id.

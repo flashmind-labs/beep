@@ -145,6 +145,7 @@ async fn recovery_after_a_read_error_resends_identical_state() {
             dirty: false,
             running: true,
             not_before: Instant::now(),
+            idle: 0,
         },
     );
     let failed = key.clone();
@@ -312,4 +313,86 @@ fn found_checkouts_kept_live_wait_a_minute_between_reads() {
         limit: 100,
     })));
     assert_eq!(found.gap(), FOLDERS_GAP);
+}
+
+/// Desktops up to 0.8.4 kept a live lookup of each session row's outside
+/// session; every line any agent wrote made the node look again.
+#[tokio::test(start_paused = true)]
+async fn a_kept_lookup_of_one_outside_session_is_not_read_again_on_every_change() {
+    let offers = Offers::default();
+    let caller = iroh::SecretKey::generate().public();
+    let read = Read::Sessions(Box::new(SessionsRequest::External {
+        agent: "codex".into(),
+        limit: 1,
+        session: Some("example-session".into()),
+    }));
+    let query = Query {
+        id: 1,
+        topic: read.topic().expect("a topic"),
+        read,
+    };
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(
+        &offers,
+        &[Topic::new("agents")],
+        std::slice::from_ref(&query),
+        &BTreeMap::new(),
+    );
+    let key = (query.topic.clone(), Some(1));
+    let started = Instant::now();
+    snapshots.start(&offers, caller);
+    assert!(snapshots.entries[&key].running);
+    while snapshots.entries[&key].running {
+        let _ = stepped_snapshot(&mut snapshots).await;
+    }
+
+    // An agent writes a line every 100 ms for ten seconds.
+    let mut reads = 0;
+    for _ in 0..100 {
+        tokio::time::advance(Duration::from_millis(100)).await;
+        snapshots.changed(&Topic::keyed("agent", "busy"), ChangeKind::Any);
+        snapshots.start(&offers, caller);
+
+        if snapshots.entries[&key].running {
+            reads += 1;
+            while snapshots.entries[&key].running {
+                let _ = stepped_snapshot(&mut snapshots).await;
+            }
+        }
+    }
+
+    assert_eq!(reads, 0, "read again {reads} times");
+    assert_eq!(snapshots.due(), Some(started + SESSION_GAP));
+}
+
+/// A desktop's read of a folder that keeps coming back the same waits
+/// longer each time, up to a bound, and reads promptly again once it changes.
+#[test]
+fn an_unchanged_file_read_backs_off_and_a_topic_projection_does_not() {
+    let source = Source::Read(Read::Sessions(Box::new(SessionsRequest::ReadFile {
+        root: "/srv/project".into(),
+        path: "a.txt".into(),
+        offset: 0,
+        len: 10,
+    })));
+    let projection = |query: Option<u64>, idle: u32| Projection {
+        topic: Topic::keyed("files", "/srv/project"),
+        query,
+        source: source.clone(),
+        previous: None,
+        bytes: 0,
+        dirty: false,
+        running: false,
+        not_before: Instant::now(),
+        idle,
+    };
+    assert_eq!(projection(Some(1), 0).gap(), READ_GAP);
+    assert_eq!(projection(Some(1), 1).gap(), READ_GAP * 2);
+    assert_eq!(projection(Some(1), 50).gap(), READ_GAP * 8);
+    assert_eq!(projection(None, 50).gap(), READ_GAP);
+    let list = Projection {
+        source: Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
+        ..projection(Some(1), 50)
+    };
+    assert_eq!(list.gap(), READ_GAP);
 }

@@ -32,6 +32,7 @@ use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use serde::Deserialize;
 use std::{
+    collections::HashMap,
     future::Future,
     time::{Duration, UNIX_EPOCH},
 };
@@ -752,30 +753,92 @@ pub(crate) async fn places(
     } else {
         Vec::new()
     };
-    let mut places = Vec::with_capacity(asks.len());
+    let outside = outside_places(&client, asks).await?;
 
-    for ask in asks {
-        let place = if ask.external {
-            limited(sessions::external(
-                &client,
-                &ask.agent,
-                1,
-                Some(ask.session.clone()),
-            ))
-            .await?
-            .into_iter()
-            .next()
-            .and_then(|found| found.place)
-        } else {
+    Ok(asks
+        .iter()
+        .map(|ask| {
+            if ask.external {
+                return outside
+                    .get(&(ask.agent.as_str(), ask.session.as_str()))
+                    .cloned()
+                    .flatten();
+            }
+
             listed
                 .iter()
                 .find(|info| info.id == ask.session && info.agent == ask.agent)
                 .and_then(|info| info.place.clone())
-        };
-        places.push(place);
+        })
+        .collect())
+}
+
+/// Where the sessions of `asks` started outside Beep work, by agent and id:
+/// one request for them all, or one each, a few at a time, of a node from
+/// before that.
+async fn outside_places<'a>(
+    client: &PeerClient,
+    asks: &'a [PlaceAsk],
+) -> Result<HashMap<(&'a str, &'a str), Option<WorkPlace>>> {
+    let outside: Vec<&PlaceAsk> = asks.iter().filter(|ask| ask.external).collect();
+
+    if outside.is_empty() {
+        return Ok(HashMap::new());
     }
 
-    Ok(places)
+    let mut found = Vec::new();
+
+    for part in outside.chunks(agent::MAX_EXTERNAL_NAMED) {
+        let named = part
+            .iter()
+            .map(|ask| agent::ExternalAsk {
+                agent: ask.agent.clone(),
+                session: ask.session.clone(),
+            })
+            .collect();
+        let Some(more) = limited(sessions::external_named(client, named)).await? else {
+            return outside_one_by_one(client, outside).await;
+        };
+        found.extend(more);
+    }
+
+    Ok(outside
+        .iter()
+        .map(|ask| {
+            let place = found
+                .iter()
+                .find(|found| found.id == ask.session && found.agent == ask.agent)
+                .and_then(|found| found.place.clone());
+            ((ask.agent.as_str(), ask.session.as_str()), place)
+        })
+        .collect())
+}
+
+/// `outside_places` of a node from before `ExternalNamed`.
+async fn outside_one_by_one<'a>(
+    client: &PeerClient,
+    outside: Vec<&'a PlaceAsk>,
+) -> Result<HashMap<(&'a str, &'a str), Option<WorkPlace>>> {
+    let asks: Vec<_> = outside
+        .into_iter()
+        .map(|ask| async move {
+            let found = limited(sessions::external(
+                client,
+                &ask.agent,
+                1,
+                Some(ask.session.clone()),
+            ))
+            .await?;
+            let place = found.into_iter().next().and_then(|found| found.place);
+            Ok(((ask.agent.as_str(), ask.session.as_str()), place))
+        })
+        .collect();
+    stream::iter(asks)
+        .buffer_unordered(IN_FLIGHT)
+        .collect::<Vec<Result<_>>>()
+        .await
+        .into_iter()
+        .collect()
 }
 
 /// What a node did in a folder, or its refusal as the user reads it.

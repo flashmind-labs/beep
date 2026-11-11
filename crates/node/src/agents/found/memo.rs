@@ -63,6 +63,12 @@ impl<V: Clone> Memo<V> {
         }
     }
 
+    /// How many values are kept.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        lock(&self.kept).entries.len()
+    }
+
     /// The value `read` makes from `path`, kept from the last time while
     /// the file is unchanged. A failed read is not kept.
     pub(crate) fn read<E>(&self, path: &Path, read: impl FnOnce() -> Result<V, E>) -> Result<V, E> {

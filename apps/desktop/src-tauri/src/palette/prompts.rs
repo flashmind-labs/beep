@@ -6,7 +6,7 @@ mod store;
 use super::{index::Entry, lists::PaletteCache, places::Place, projects::session_entry};
 use crate::{beep::AsyncMutex, error::Result, fleet::Fleet};
 use anyhow::{Context, bail};
-use beep_mesh::machine::sessions::Sessions;
+use beep_mesh::machine::sessions::{Reading, Sessions};
 use beep_node::agents::tags::own_words;
 use beep_proto::{
     ImportedProject, MachineSession,
@@ -306,7 +306,10 @@ async fn read_prompts<S: Sessions + ?Sized>(
             thoughts: true,
             before,
         };
-        let (entries, earlier) = match client.sessions(request, Duration::from_secs(10)).await? {
+        let (entries, earlier) = match client
+            .sessions(request, Reading::Once, Duration::from_secs(10))
+            .await?
+        {
             SessionsReply::Transcript { entries, earlier } => (entries, earlier),
             SessionsReply::Error { message } => bail!("{message}"),
             _ => bail!("the machine did not return a transcript"),

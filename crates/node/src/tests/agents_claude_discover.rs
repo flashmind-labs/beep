@@ -425,3 +425,30 @@ fn a_followed_file_lists_its_folder_again_only_once_a_file_comes_or_goes() {
     aged(&third, 1200);
     assert_eq!(presence(), Presence::Running);
 }
+
+/// One session asked for by id is found by its file; the store is not
+/// listed, so no other transcript is looked at.
+#[test]
+fn one_session_is_looked_up_by_its_file_without_listing_the_store() {
+    let root = tempfile::tempdir().expect("a folder");
+    let project = root.path().join("projects").join("-srv-project");
+    let elsewhere = root.path().join("projects").join("-srv-other");
+    fs::create_dir_all(&project).expect("folders");
+    fs::create_dir_all(&elsewhere).expect("folders");
+    fs::write(project.join(format!("{ID}.jsonl")), FIXTURE).expect("a transcript");
+    fs::write(elsewhere.join(format!("{OTHER}.jsonl")), FIXTURE).expect("a transcript");
+    let store = Store::at(root.path());
+
+    let found = list(&store, &Snapshot::default(), 1, Some(ID)).expect("a lookup");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, ID);
+    assert_eq!(found[0].title.as_deref(), Some("Fix the flaky test"));
+    // Only its own folder was read for its newest transcript, and only it was summarized.
+    assert_eq!(store.memos.newest.len(), 1);
+    assert_eq!(store.memos.summaries.len(), 1);
+    assert!(
+        list(&store, &Snapshot::default(), 1, Some("0f3c2a9e-0000-4222-8333-944455556666"))
+            .expect("a lookup")
+            .is_empty()
+    );
+}
