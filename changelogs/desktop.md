@@ -13,6 +13,9 @@ Other apps have independent versions and changelogs:
 
 - Desktop: Codex installed with its own installer shows its updates and
   updates with `codex update`.
+- Desktop: the Files tab of a session no longer flickers while the agent
+  works; an update redraws only the files that changed and keeps the scroll
+  and selection.
 
 ## [0.8.1] - 2026-11-11
 
@@ -21,6 +24,8 @@ Other apps have independent versions and changelogs:
 - Desktop: while a Claude Code, Codex or flsh session runs outside Beep,
   the lists of such sessions are read again at most every 2 seconds instead
   of 4 times a second each, so the machine scans its agents' files far less.
+- Desktop: the Files tab draws only the rows in view, so folders with
+  thousands of files scroll and update without stalling.
 
 ## [0.8.0] - 2026-11-11
 

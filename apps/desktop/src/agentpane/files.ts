@@ -398,7 +398,7 @@ function draw() {
   F.selected = new Set([...F.selected].filter(path => visible.has(path)));
   if (F.picked && !visible.has(F.picked)) F.picked = null;
   const label = F.busy ? filesModel.getState().label : F.selected.size ? `${F.selected.size} selected` : "";
-  const shell = { root: paneRoot(), filter: F.filter, ignored: F.ignored, busy: F.busy, label, selected: F.selected, active: F.picked ? `agfile-${encodeURIComponent(F.picked)}` : null };
+  const shell = { root: paneRoot(), filter: F.filter, ignored: F.ignored, busy: F.busy, label, selected: F.selected, active: F.picked ? rowId(F.picked) : null };
 
   let message: string | null = null, error = false, loading = false;
   if (top?.error && !top.entries) { message = top.error; error = true; }
@@ -412,6 +412,9 @@ function draw() {
     : { kind: "rows", rows, more: top?.more ?? 0, walking: searching && F.walking && !!rows.length, capped: searching && !F.walking && F.capped };
   setModel({ ...shell, tree, reveal: F.reveal });
 }
+
+/// The element id of the row of `path`.
+export const rowId = (path: string) => `agfile-${encodeURIComponent(path)}`;
 
 /// The tree drew the row `F.reveal` asked for.
 export function revealed() {
@@ -485,7 +488,7 @@ export const treeActions = {
     draw();
     menu(path, !!row?.dataset.ffolder, e.clientX, e.clientY);
   },
-  keyDown(e: KeyboardEvent<HTMLElement>, picked: HTMLElement | null) {
+  keyDown(e: KeyboardEvent<HTMLElement>) {
     if (e.nativeEvent.isComposing || (e.target instanceof Element && e.target.closest("input,textarea,[contenteditable=true]"))) return;
     const cmd = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
     let handled = true;
@@ -505,8 +508,10 @@ export const treeActions = {
       const row = rowsNow().find(r => r.path === F.picked);
       if (row?.folder && row.open === (key === "arrowleft")) toggle(row.path);
     } else if (key === "contextmenu" || e.shiftKey && key === "f10") {
-      const box = (picked ?? e.currentTarget).getBoundingClientRect();
-      menu(F.picked ?? "", !!picked?.dataset.ffolder, box.left, box.bottom);
+      // At the first selected row, or the tree's corner while that row is scrolled away.
+      const first = rowsNow().find(row => F.selected.has(row.path)) ?? null;
+      const box = ((first && document.getElementById(rowId(first.path))) ?? e.currentTarget).getBoundingClientRect();
+      menu(F.picked ?? "", !!first?.folder, box.left, box.bottom);
     } else handled = false;
 
     if (handled) { e.preventDefault(); e.stopPropagation(); }
