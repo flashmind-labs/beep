@@ -4,6 +4,8 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-11
+
 ### Performance
 
 - Node: while a Claude Code, Codex or flsh session runs outside Beep,
