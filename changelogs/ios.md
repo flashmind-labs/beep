@@ -6,6 +6,8 @@ Earlier releases predate this changelog.
 
 ### Added
 
+- iOS: swipe right from the left edge of the screen to go back, as the
+  Back button does; the page follows your finger.
 - iOS: how quickly screens open and respond to taps is kept in a
   metrics file in the app's data folder, by screen only and never with
   content.

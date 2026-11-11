@@ -59,3 +59,29 @@ test("on a phone, sheets and menus opened outside the main area lose shortcut hi
   await expect(page.locator("#test-now")).toHaveAttribute("title", "Close");
   await expect(page.locator("#test-later")).toHaveAttribute("title", "Send");
 });
+
+test("a swipe right from the left edge goes back on the phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDesktop(page);
+  const tabs = page.getByRole("navigation", { name: "Sections" });
+  const projects = tabs.getByRole("button", { name: "Projects", exact: true });
+  await projects.click();
+  await page.evaluate(() => window.__navigation.open("instructions"));
+  await expect(page.locator(".mb-back")).toBeVisible();
+  const swipe = (fromX: number, toX: number, dy = 0) => page.evaluate(([fromX, toX, dy]) => {
+    const touch = (x: number, y: number) => new Touch({ identifier: 1, target: document.body, clientX: x, clientY: y });
+    const fire = (type: string, x: number, y: number) => document.body.dispatchEvent(new TouchEvent(type, { bubbles: true, touches: type === "touchend" ? [] : [touch(x, y)], changedTouches: [touch(x, y)] }));
+    fire("touchstart", fromX, 400);
+    for (let i = 1; i <= 5; i++) fire("touchmove", fromX + (toX - fromX) * i / 5, 400 + dy * i / 5);
+    fire("touchend", toX, 400 + dy);
+  }, [fromX, toX, dy] as const);
+
+  // Too short, or from the middle of the screen: nothing happens.
+  await swipe(8, 50);
+  await swipe(200, 360);
+  await expect(page.locator(".mb-back")).toBeVisible();
+  await expect(page.locator(".cc-main")).toHaveCSS("transform", "none");
+
+  await swipe(8, 200);
+  await expect(projects).toHaveAttribute("aria-current", "true");
+});
