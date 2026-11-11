@@ -1,7 +1,7 @@
 (() => {
   const { AGK, AG_ICON, HARNESS, av, tag, pick, variants, hint, HOSTS, SG, step, SUBS, SUBS_DISK, subRow, KIDS, kidRow } = AGENT_MOCK;
   D.dAgentSession = () => {
-    const variant = pick("ags", ["nochange", "editorerror", "held", "fromsession", "warning", "working", "asks", "idle", "stepsopen", "failed", "failedopen", "subagents", "subchild", "agentkids", "agentchild", "agentstopped", "answered", "customdefault", "model", "flshmodel", "flshusage", "flshunknown", "ended", "outside", "outsideconfirm", "outsidewait", "disksubs", "image", "shots", "shotgone", "shotpanel", "paneright", "panegone", "panebottom", "panepdf", "panecollapsed", "files", "filemulti", "filedelete", "filemenu", "filemenuwith", "filetext", "filefilter", "dragpath", "dropchoice", "term", "termsplit", "dragtab", "pasted", "pastepreview", "artifacts", "running", "runstop", "thinking", "thoughts", "thoughtopen", "steer", "steered", "stopping", "rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richjump", "richthink", "richthought"], "nochange");
+    const variant = pick("ags", ["nochange", "editorerror", "held", "connecting", "fromsession", "warning", "working", "asks", "idle", "stepsopen", "failed", "failedopen", "subagents", "subchild", "agentkids", "agentchild", "agentstopped", "answered", "customdefault", "model", "flshmodel", "flshusage", "flshunknown", "ended", "outside", "outsideconfirm", "outsidewait", "disksubs", "image", "shots", "shotgone", "shotpanel", "paneright", "panegone", "panebottom", "panepdf", "panecollapsed", "files", "filemulti", "filedelete", "filemenu", "filemenuwith", "filetext", "filefilter", "dragpath", "dropchoice", "term", "termsplit", "dragtab", "pasted", "pastepreview", "artifacts", "running", "runstop", "thinking", "thoughts", "thoughtopen", "steer", "steered", "stopping", "rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richjump", "richthink", "richthought"], "nochange");
     const v = variant === "flshusage" || variant === "flshunknown" ? "idle" : variant;
     // Enter while a turn runs shows the message in the chat immediately.
     // It stays pending until the agent receives it after its current step.
@@ -51,7 +51,7 @@ note: return type of find is Option&lt;User&gt;</pre></div>` : "";
     const disk = v === "disksubs";
     const image = v === "image", asks = v === "asks", ended = v === "ended", outside = ["outside", "outsideconfirm", "outsidewait"].includes(v) || disk;
     const kids = v === "agentkids", subs = v === "subagents" || disk || kids, child = v === "subchild" || v === "agentchild" || v === "agentstopped", modelOpen = v === "model" || v === "flshmodel";
-    const done = ["nochange", "editorerror", "held", "fromsession", "idle", "stepsopen", "failed", "failedopen", "answered", "ended", "outside", "outsideconfirm", "disksubs", "image", "shots", "shotgone", "shotpanel", "beeptools", "richdone", "richerror", "running", "runstop"].includes(v) || media || fpane || arts;
+    const done = ["nochange", "editorerror", "held", "connecting", "fromsession", "idle", "stepsopen", "failed", "failedopen", "answered", "ended", "outside", "outsideconfirm", "disksubs", "image", "shots", "shotgone", "shotpanel", "beeptools", "richdone", "richerror", "running", "runstop"].includes(v) || media || fpane || arts;
     const state = asks ? tag("ask", "Waiting for you") : ended ? tag("", "Ended") : done ? tag("", "Idle") : stopping ? tag("run", "Stopping") : tag("run", "Working");
     const you = `<div class="dcoderen user"><b>You</b><span>Fix the failing login test<br>Keep the other tests passing<details style="margin:4px 0;border:1px solid var(--d-border);border-radius:6px"><summary style="cursor:pointer;padding:3px 8px;font-size:12px;color:var(--d-muted)">Pasted text · 8 lines</summary><pre style="margin:0;padding:6px 8px;font:11.5px/16px var(--mono,monospace);white-space:pre-wrap;border-top:1px solid var(--d-border)">FAIL auth.spec.ts:42
 expected 200, got 401</pre></details></span></div>`;
@@ -218,7 +218,10 @@ expected 200, got 401</pre></details></span></div>`;
     // update) wait on this device, in the order typed, and go once it answers.
     // The field stays empty; Edit puts one back in it. A refused one keeps its reason.
     const held = noChange;
-    const log = v === "fromsession" ? fromSession : v === "nochange" ? noChange : v === "held" ? held : rich ? richTurn : v === "agentchild" ? kidView : v === "agentstopped" ? kidStopped : turn1 + live;
+    // Opened from what this device kept, before build-box answers: one muted
+    // line under the log, gone once the first live read or event arrives.
+    const connecting = `${noChange}<div class="dmuted">Connecting to build-box...</div>`;
+    const log = v === "fromsession" ? fromSession : v === "nochange" ? noChange : v === "held" ? held : v === "connecting" ? connecting : rich ? richTurn : v === "agentchild" ? kidView : v === "agentstopped" ? kidStopped : turn1 + live;
     const pm = x => `<span style="width:16px;display:grid;place-items:center">${x}</span>`;
     const plan = done || child ? "" : `<div class="sec">Plan</div><div class="plan">
         <div class="row">${pm(`<span class="dok">${DI.check || "&#10003;"}</span>`)}<span>Read the failing output</span></div>
