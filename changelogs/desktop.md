@@ -50,6 +50,11 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: right after the app starts, session rows ask each machine once
+  for where their sessions work and try again a few seconds later while a
+  machine is still starting, instead of failing and waiting half a minute.
+- Desktop: a session on a busy machine opens instead of reporting a lost
+  connection when its log takes more than a few seconds to read.
 - Desktop: Stop all asks first when a session that is not open still has
   subagents running.
 - Desktop: Stop ends only the main agent's turn. Its subagents, background

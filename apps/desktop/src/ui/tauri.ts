@@ -135,11 +135,16 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
   }).catch((e: unknown) => {
     trace("returned", timedOut ? "timeout" : "error");
     if (measure !== null) recordTiming("command", cmd, performance.now() - measure, timedOut ? "timeout" : "error");
+    // A lost link the caller reads again after is not an error; Rust logged why.
+    if (linkLost(e)) throw e;
     const about = [["machine", args?.machineId], ["session", args?.session]].filter(([, v]) => typeof v === "string").map(([k, v]) => `${k} ${v}`).join(", ");
     logError(`${cmd} failed${about ? ` (${about})` : ""}: ${typeof e === "object" && e && !(e instanceof Error) ? JSON.stringify(e) : e}`);
     throw e;
   });
 }
+
+/// A command's `{ kind: "lost" }` failure: the machine's link dropped or was not up yet.
+const linkLost = (e: unknown) => typeof e === "object" && e !== null && "kind" in e && e.kind === "lost";
 
 window.addEventListener("error", e => logError(e.error instanceof Error ? e.error.stack ?? String(e.error) : e.message));
 window.addEventListener("unhandledrejection", e => logError(`unhandled rejection: ${e.reason instanceof Error ? e.reason.stack ?? e.reason : e.reason}`));

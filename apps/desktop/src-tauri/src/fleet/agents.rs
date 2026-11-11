@@ -30,6 +30,7 @@ use beep_proto::{
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
+use serde::Deserialize;
 use std::{
     future::Future,
     time::{Duration, UNIX_EPOCH},
@@ -185,16 +186,12 @@ pub(crate) async fn session(
     let client = fleet.client(machine).await?;
     let host = fleet.host_of(machine);
     // The transcript is asked for alongside the list: one wait, not two.
+    // A long log on a busy node takes longer than a listing, so its read
+    // keeps its own limit, within the caller's.
     let last = get.last.clamp(1, MAX_ENTRIES);
     let (listed, read) = tokio::join!(
         limited(sessions::list_all(&client)),
-        limited(sessions::transcript_before(
-            &client,
-            &get.session,
-            last,
-            true,
-            get.before
-        )),
+        sessions::transcript_before(&client, &get.session, last, true, get.before),
     );
     let mut view = match listed?
         .into_iter()
@@ -243,7 +240,7 @@ pub(crate) async fn session(
             // Beep session's read fails instead: an empty log would replace
             // the one the window holds, and the next read draw it all again.
             if !view.session.external {
-                return Err(e);
+                return Err(e.into());
             }
 
             view.error = Some(format!("{e:#}"));
@@ -711,33 +708,53 @@ pub(crate) async fn commands(
     work(fleet, machine, sessions::commands(&client, session).await?)
 }
 
-/// Where the session `session` of `agent` works, as its node worked it out
-/// from what the agent records; `None` when the node does not say.
-pub(crate) async fn place(
+/// A session whose place is asked for: `external` for one started outside Beep.
+#[derive(Debug, Deserialize)]
+pub struct PlaceAsk {
+    agent: String,
+    session: String,
+    external: bool,
+}
+
+/// Where each session of `asks` works, in order, as its node worked it out
+/// from what the agent records; `None` for one the node does not say. Beep's
+/// sessions come from one listing, however many are asked.
+pub(crate) async fn places(
     fleet: &Fleet,
     machine: EndpointId,
-    agent: &str,
-    session: &str,
-    external: bool,
-) -> Result<Option<WorkPlace>> {
+    asks: &[PlaceAsk],
+) -> Result<Vec<Option<WorkPlace>>> {
     let client = fleet.client(machine).await?;
-
-    if external {
-        let found = limited(sessions::external(
-            &client,
-            agent,
-            1,
-            Some(session.to_owned()),
-        ))
-        .await?;
-        return Ok(found.into_iter().next().and_then(|found| found.place));
-    }
     // Lists may still show a session that just ended or is not named yet.
-    Ok(limited(sessions::list_all(&client))
-        .await?
-        .into_iter()
-        .find(|info| info.id == session && info.agent == agent)
-        .and_then(|info| info.place))
+    let listed = if asks.iter().any(|ask| !ask.external) {
+        limited(sessions::list_all(&client)).await?
+    } else {
+        Vec::new()
+    };
+    let mut places = Vec::with_capacity(asks.len());
+
+    for ask in asks {
+        let place = if ask.external {
+            limited(sessions::external(
+                &client,
+                &ask.agent,
+                1,
+                Some(ask.session.clone()),
+            ))
+            .await?
+            .into_iter()
+            .next()
+            .and_then(|found| found.place)
+        } else {
+            listed
+                .iter()
+                .find(|info| info.id == ask.session && info.agent == ask.agent)
+                .and_then(|info| info.place.clone())
+        };
+        places.push(place);
+    }
+
+    Ok(places)
 }
 
 /// What a node did in a folder, or its refusal as the user reads it.

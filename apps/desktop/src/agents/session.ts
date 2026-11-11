@@ -239,6 +239,8 @@ export async function pollAgent(readNow = false) {
   if (feed.live(o)) {
     flushDraw();
     if (!AG.sig) shownFromModel(o);
+    // Shown again with its log already drawn: it is ready now, not at the next change.
+    else finishFirstRead(o, "ok");
     return;
   }
 
