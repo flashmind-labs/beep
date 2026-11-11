@@ -136,8 +136,8 @@ Other apps have independent versions and changelogs:
 - Desktop: a minimized window, or on macOS one that is fully covered or on
   another Space, pauses its background updates like a closed one.
 - Desktop: running agents, chats and research show a still dot instead of a
-  spinner, and "Thinking" pulses a few times and then holds, so long runs
-  no longer redraw the window every frame. Pages also watch fewer changes.
+  spinner, and "Thinking" sweeps at 15 frames a second, so long runs no
+  longer redraw the window every frame. Pages also watch fewer changes.
 - Desktop: while agents run, Home, the sidebar, the usage pill and project
   pages update at most once a second (project sessions every two seconds)
   and skip redraws when nothing changed. Approvals and questions still show
