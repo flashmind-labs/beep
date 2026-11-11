@@ -92,6 +92,7 @@ body.mobile .pj-find { max-width: none }
 body.mobile .pj-org h3.gp { display: block }
 body.mobile .pj-org h3.gp svg { display: inline; vertical-align: -1px; margin-right: 6px }
 body.mobile .pj-fold { min-height: 44px; align-items: center }
+body.mobile .pj-org h3.gp .pj-fold { display: flex }
 body.mobile .pj-org h3.gp .gp-paths { display: block; margin-top: 2px }
 body.mobile .pj-org h3.gp .gp-acts { display: flex; margin: 4px 0 0 -9px }
 body.mobile #sec-elsewhere .cc-gr.it .r { grid-column: 2 / -1; flex-wrap: wrap }

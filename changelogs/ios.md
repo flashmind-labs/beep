@@ -50,6 +50,7 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Projects: a long group name stays on one line and ends in "..." instead of wrapping over several lines.
 - iOS: on opening or waking, sessions, Home and machines shown from what
   the app kept now say they are still connecting. A machine not reached yet
   has a hollow dot and reads "connecting", its sessions are dimmed, and an
