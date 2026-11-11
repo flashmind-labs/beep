@@ -146,9 +146,12 @@ body.cbody.mobile
             div.pj-find [data-empty="true" data-rac]
               input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value] value=""
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
-              h3.gp "A group with a long name a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
-                svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                small "0 repos"
+              h3.gp
+                button.pj-fold [aria-expanded="true" type="button"] "A group with a long name a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
+                  span.open.twist
+                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                  small "0 repos"
                 span.gp-paths [title="Matched on every machine"] "~/work/deeply/nested/folder"
                 span.gp-acts
                   button.dbtn.quiet [type="button"] "Rename"
@@ -156,8 +159,11 @@ body.cbody.mobile
                   button.dbtn.quiet.warn [type="button"] "Remove"
               span.gp-none "No projects in these folders yet."
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
-              h3 "example/"
-                small "1 repo"
+              h3
+                button.pj-fold [aria-expanded="true" type="button"] "example/"
+                  span.open.twist
+                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  small "1 repo"
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="example/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"]
                   div.h
@@ -169,8 +175,11 @@ body.cbody.mobile
                   span.line "No recent activity"
                   span.line.sync "on build-box-with-a-long-name-0, build-box-with-a-long-name-1, build-box-with-a-long-name-2, build-box-with-a-long-name-3"
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
-              h3 "Other folders"
-                small "1 repo"
+              h3
+                button.pj-fold [aria-expanded="true" type="button"] "Other folders"
+                  span.open.twist
+                    svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                  small "1 repo"
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="plain-folder-without-an-org-and-a-long-name-too"]
                   div.h

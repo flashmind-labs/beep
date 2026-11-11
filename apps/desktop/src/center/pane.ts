@@ -60,6 +60,8 @@ export function paneTitle(): ViewHead {
   }
 
   const [title, sub] = (on.view ? PANE_TITLES[on.view] : null) ?? ["Beep", ""];
+  // The phone hides the list's own header, so New sits in the page header there.
+  if (on.view === "agents") return { title, sub, reactTools: createElement("button", { type: "button", className: "dbtn small ag-new-top", onClick: () => go("pane", { agentnew: { prompt: "" } }) }, "New") };
   if (on.view === "agentnew") return { title, sub, reactTools: createElement("button", { type: "button", className: "dbtn small", onClick: () => go("pane", "agents") }, "All sessions") };
   return { title, sub };
 }

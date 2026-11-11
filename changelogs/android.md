@@ -20,6 +20,8 @@ Earlier releases predate this changelog.
   commands and the agents it started. It asks first while any of those
   run, and messages not yet delivered go back in the field.
 - Android: search the Projects page by project name, folder or remote.
+- Android: fold a group on the Projects page with a tap on its name. It
+  stays folded on this phone; a search still shows its matches.
 
 ### Changed
 
@@ -39,6 +41,10 @@ Earlier releases predate this changelog.
 - Android: a running agent session, or one waiting on a question, stays
   followed after you leave it, and shows what it did at once when opened
   again. Returning to the app catches each one up once.
+- Android: each row on the Coding agents page shows its harness icon, and
+  New sits in the page header instead of a second title under it.
+- Android: a session's message field and its buttons sit in one rounded
+  box, without a border around the field itself.
 
 ### Fixed
 
@@ -63,6 +69,10 @@ Earlier releases predate this changelog.
 - Android: notifications read, dismissed or opened on any desktop or phone
   are read here too, and opening the app no longer replays ones already read.
 - Android: failed model lookups show Retry, preserve loaded models, and retry sooner.
+- Android: the Projects and Coding agents pages no longer scroll
+  sideways or stay shifted left after swiping back, and long session
+  titles end in an ellipsis.
+- Android: a session's branch chip no longer starts with a stray dot.
 
 ### Performance
 

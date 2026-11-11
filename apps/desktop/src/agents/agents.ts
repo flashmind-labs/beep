@@ -440,7 +440,7 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }): Agent
     : s.status === "asking" ? { kind: "asking" }
     : s.status === "working" || s.status === "running" || s.status === "starting" ? { kind: "running", doing: s.doing || "Working" }
     : { kind: "plain", label: s.external && s.status !== "ended" ? "In terminal" : cap(s.status) };
-  return { key: `${s.machine_id}\0${s.agent}\0${s.id}`, depth, title: s.reviewer ? "Review" : s.title || folder || k.name, sub: sessionSub(s, k.name, folder), tail };
+  return { key: `${s.machine_id}\0${s.agent}\0${s.id}`, depth, agent: s.agent, title: s.reviewer ? "Review" : s.title || folder || k.name, sub: sessionSub(s, k.name, folder), tail };
 }
 
 let listPage: BarPageSlot | null = null;
