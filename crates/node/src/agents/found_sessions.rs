@@ -2,7 +2,8 @@
 
 use super::{
     AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
-    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, Session, Sighted, holders,
+    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, Session, Sighted,
+    holders::{self, Holding},
 };
 use crate::{
     agents::claude::{self, External},
@@ -306,11 +307,11 @@ impl Agents {
                 continue;
             }
 
-            let held = held.get(&found.id).copied();
-            found.presence =
-                holders::settle(found.presence, found.pid, held.map(|pid| pid.is_some()));
+            let held = held.get(&found.id).copied().unwrap_or(Holding::Unknown);
+            found.presence = holders::settle(found.presence, found.pid, held);
+
             if found.pid.is_none() {
-                found.pid = held.flatten();
+                found.pid = held.pid();
             }
         }
 
@@ -539,14 +540,13 @@ impl Agents {
         holders::settle(
             found.presence,
             found.pid,
-            held.get(&found.id).map(Option::is_some),
+            held.get(&found.id).copied().unwrap_or(Holding::Unknown),
         )
     }
 
-    /// Whether a process holds the file of each of `found` that no process
-    /// was seen running, by session id, all looked up at once; a session
-    /// missing from it cannot be told.
-    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<String, Option<u32>> {
+    /// What holds the file of each of `found` that no process was seen
+    /// running, by session id, all looked up at once.
+    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<String, Holding> {
         let ids: Vec<String> = found
             .iter()
             .filter(|found| found.pid.is_none())
@@ -555,7 +555,7 @@ impl Agents {
         // Claude Code does not keep its transcript open, but its processes
         // were looked at already and none runs these sessions.
         if agent == Agent::Claude {
-            return ids.into_iter().map(|id| (id, None)).collect();
+            return ids.into_iter().map(|id| (id, Holding::Closed)).collect();
         }
 
         if ids.is_empty() {
@@ -573,12 +573,13 @@ impl Agents {
             log::warn!("could not find the sessions' files: {e}");
             HashMap::new()
         });
-        let Some(open) = holders::held_open(files.keys().cloned().collect()).await else {
-            return HashMap::new();
-        };
+        let open = self.holders.held_open(files.keys().cloned().collect()).await;
         files
             .into_iter()
-            .map(|(file, id)| (id, open.get(&file).copied()))
+            .map(|(file, id)| {
+                let holding = open.get(&file).copied().unwrap_or(Holding::Unknown);
+                (id, holding)
+            })
             .collect()
     }
 

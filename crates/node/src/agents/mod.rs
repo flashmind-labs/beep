@@ -214,6 +214,8 @@ pub use follow::serve_follow;
         /// Sessions started outside Beep whose process this node ended
         /// lately, by id, with when.
         closed: Mutex<HashMap<String, Instant>>,
+        /// Which processes hold the sessions' files, checked once for all.
+        holders: holders::Holders,
     }
 
     /// The folders found in the agents' logs, and when.
@@ -260,6 +262,7 @@ pub use follow::serve_follow;
                 on_disk: AsyncMutex::default(),
                 rescanning: AtomicBool::new(false),
                 closed: Mutex::default(),
+                holders: holders::Holders::default(),
             }
         }
     }

@@ -31,7 +31,7 @@ fn the_versioned_binary_counts_and_the_daemons_helpers_do_not() {
          9702 beep-node run\n"
     );
     assert_eq!(
-        claude_sessions(&listing, |_| false),
+        claude_sessions(listed(&listing), |_| false),
         [(8039, None), (8271, Some(ID.to_owned()))]
     );
 }
@@ -50,10 +50,10 @@ fn a_program_path_with_spaces_is_claude_when_it_is_a_file() {
     );
     let is_file = |program: &str| program.starts_with("/Users/Jane Doe/.local/");
     assert_eq!(
-        claude_sessions(&listing, is_file),
+        claude_sessions(listed(&listing), is_file),
         [(41, Some(OLD.to_owned())), (42, Some(OLD.to_owned()))]
     );
-    assert_eq!(claude_sessions(&listing, |_| false), []);
+    assert_eq!(claude_sessions(listed(&listing), |_| false), []);
 }
 
 #[test]
@@ -86,4 +86,12 @@ fn the_session_named_comes_from_the_arguments() {
         session_named(&format!("--session-id={ID} -p use --resume {OLD}")),
         Some(ID.into())
     );
+}
+
+/// The pids and command lines in `ps -o pid=,args=` style `listing`.
+fn listed(listing: &str) -> impl Iterator<Item = (u32, &str)> {
+    listing.lines().filter_map(|line| {
+        let (pid, args) = line.trim().split_once(char::is_whitespace)?;
+        Some((pid.parse().ok()?, args))
+    })
 }

@@ -39,6 +39,13 @@ Other apps have independent versions and changelogs:
 - Desktop: a long activity line on a running session no longer widens
   the Coding agents list past the window.
 
+### Performance
+
+- Desktop (macOS): Beep checks far less often whether a coding session
+  running in a terminal is still open, which cuts its background CPU use and
+  the `lsof` and `ps` processes it starts. A session that starts, ends or is
+  resumed still shows within seconds.
+
 ## [0.8.2] - 2026-11-11
 
 ### Fixed

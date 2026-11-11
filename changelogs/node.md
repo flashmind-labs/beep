@@ -10,6 +10,14 @@ Earlier releases predate this changelog.
   in Beep. The node ends only the process it found running that session,
   with SIGTERM on Linux and macOS; on Windows the process is ended at once.
 
+### Performance
+
+- Node: checks of which process holds a Codex or flsh session's file are
+  shared by every list and open session view, kept until the file is written
+  or its process exits, and run for many files at once. Finding Claude Code
+  sessions reuses the node's process list and reads each process's folder
+  once. This cuts the `lsof` and `ps` processes started on macOS.
+
 ## [0.6.2] - 2026-11-11
 
 ### Fixed
