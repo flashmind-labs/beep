@@ -286,3 +286,20 @@ fn work_tree_changes_skip_git_projections_but_refresh_folders() {
     snapshots.changed(&topic, ChangeKind::Any);
     assert!(dirty(&snapshots, 1));
 }
+
+#[test]
+fn outside_session_lists_wait_longer_between_reads() {
+    let external = Source::Read(Read::Sessions(Box::new(SessionsRequest::External {
+        agent: "claude".into(),
+        limit: 20,
+        session: None,
+    })));
+    let folders = Source::Read(Read::Sessions(Box::new(SessionsRequest::InFolders {
+        folders: vec!["/srv/project".into()],
+        limit: 20,
+    })));
+    let beep = Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {})));
+    assert_eq!(external.gap(), SCAN_GAP);
+    assert_eq!(folders.gap(), SCAN_GAP);
+    assert_eq!(beep.gap(), READ_GAP);
+}
