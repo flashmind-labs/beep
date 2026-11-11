@@ -9,6 +9,8 @@ Other apps have independent versions and changelogs:
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-11
+
 ### Performance
 
 - Desktop: while a Claude Code, Codex or flsh session runs outside Beep,
