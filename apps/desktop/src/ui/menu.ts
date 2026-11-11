@@ -6,21 +6,46 @@ import { flushSync } from "react-dom";
 import { createDocumentScope } from "./document-root.tsx";
 import { ConfirmView, MenuBox, RenameView } from "./menu-views.tsx";
 
-/// One line of a menu; `warn` reads it in red.
-export interface MenuItem {
+/// A line that does something; `warn` reads it in red. Untagged, as most
+/// menus hold only these.
+export interface MenuAction {
+  kind?: "action";
   label: string;
   warn?: boolean;
+  disabled?: boolean;
   on: () => void;
 }
 
-/// Moves focus to the next or previous button in `box` for ArrowDown or ArrowUp, round the
-/// ends; false for any other key.
-export function arrowFocus(box: HTMLElement, key: string) {
-  if (key !== "ArrowDown" && key !== "ArrowUp") return false;
-  const all = [...box.querySelectorAll<HTMLElement>("button")];
-  const at = all.indexOf(document.activeElement as HTMLElement);
-  all[(at + (key === "ArrowDown" ? 1 : all.length - 1)) % all.length]?.focus();
-  return true;
+/// A line that switches a setting, with a check while `checked`.
+export interface MenuToggle {
+  kind: "toggle";
+  label: string;
+  checked: boolean;
+  on: () => void;
+}
+
+/// Lines under a small label.
+export interface MenuSection {
+  kind: "section";
+  label: string;
+  items: readonly MenuLine[];
+}
+
+/// A rule between groups of lines.
+export interface MenuSeparator { kind: "separator" }
+
+export type MenuLine = MenuAction | MenuToggle;
+export type MenuItem = MenuLine | MenuSection | MenuSeparator;
+
+/// The lines of `items` in order, as the menu numbers them for choosing.
+export function menuLines(items: readonly MenuItem[]): MenuLine[] {
+  return items.flatMap(item => {
+    switch (item.kind) {
+      case "section": return item.items;
+      case "separator": return [];
+      default: return [item];
+    }
+  });
 }
 
 let open: { close: () => void } | null = null;
@@ -38,7 +63,7 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   let MenuView: typeof import("./context-menu-view.tsx").ContextMenu | null = null;
   const mine = { close: () => { owner.dispose(); if (open === mine) open = null; } };
   const choose = (index: number) => {
-    const item = current[index];
+    const item = menuLines(current)[index];
     if (item) { mine.close(); item.on(); }
   };
   const escape = () => { mine.close(); focusBack(back); };

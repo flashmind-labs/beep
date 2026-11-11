@@ -12,9 +12,11 @@ Other apps have independent versions and changelogs:
 ### Changed
 
 - Desktop: diagrams in chats use the chat's colors instead of a white card, show at full size, and say what kind of diagram they are. Copy image, PNG and SVG moved into an Export menu next to Source and Copy. Sequence diagrams show each participant once, at the top.
+- Desktop: the project menu (⋯) groups its sync settings under "Sync on all machines" as checkmarks instead of "On/Off (all machines)" labels. Choose ignored folders shows only while ignored folders sync, the Syncthing switch reads "Use Beep sync instead of Syncthing" (or back), and Remove project comes last after a line. All projects left the menu; Esc or Back goes there.
 
 ### Fixed
 
+- Desktop: a right-click menu whose lines arrive after it opens stays inside the window instead of running off its edge.
 - Desktop: ⌘M (Ctrl+M on Windows) in a project's task field opens the model picker, as its hint says.
 - Desktop: the folder list in Sync gitignored takes the sheet's full width instead of a small box.
 - Desktop: the sidebar says which machine it is connecting to ("Connecting to build-box and 1 more...", all of them on hover), and its connecting dot is a small ring again instead of a wide pill.

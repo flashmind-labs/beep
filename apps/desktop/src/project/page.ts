@@ -4,7 +4,7 @@ import { onPhone } from "../ui/platform.ts";
 // The Projects page: drawing it, and the project rows Home lists.
 import { filterProjects, whereRows, forgeLinks, projectLine, REMOVE_PROJECT, type Project } from "./projects-state.ts";
 import { overviewGroups, overviewSub } from "./overview-state.ts";
-import { openMenu, type MenuItem } from "../ui/menu.ts";
+import { openMenu, type MenuAction } from "../ui/menu.ts";
 import { openProjectMenu } from "./syncthing.ts";
 import { editorsFor } from "./editors.ts";
 import { ProjectEditors } from "./header-view.tsx";
@@ -14,7 +14,7 @@ import { agentFor, pageAgent } from "./agent.ts";
 import { type CenterView, state, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { boxOf, drawPage, windowProject } from "../center/views.ts";
-import { setProjectOnTop, openProjectWindow, removeProject, projectRows, openProjects, addProject } from "../center/sidebar.ts";
+import { setProjectOnTop, openProjectWindow, removeProject, projectRows, addProject } from "../center/sidebar.ts";
 import { editGroup } from "./groups.ts";
 import { disposeOverview, overviewSection, projectDetail } from "./projects.ts";
 import { NoProjects, Parts, viewPart, type PagePart } from "./page-view.tsx";
@@ -141,10 +141,9 @@ export const projectsView: CenterView<"projects"> = {
       tools.push(createElement("button", { key: "more", type: "button", className: "dbtn quiet small", title: "More", "aria-label": "More", onClick: (event: React.MouseEvent) => {
         const project = (projectRows() || []).find(row => row.name === p.name) ?? p;
         const on = state.top.includes(project.name);
-        const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
-        if (!windowProject) items.push(...(onPhone() ? [] : [{ label: NEW_WINDOW, on: () => openProjectWindow(project.name) }]), { label: "All projects", on: () => openProjects() });
-        if (project.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) });
-        if (project.imported) openProjectMenu(event.nativeEvent, project, items, () => { whereDue.add(project.name); revalidate(project.name); });
+        const items: MenuAction[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
+        if (!windowProject && !onPhone()) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(project.name) });
+        if (project.imported) openProjectMenu(event.nativeEvent, project, items, { label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) }, () => { whereDue.add(project.name); revalidate(project.name); });
         else openMenu(event.nativeEvent, project.name, items);
       } }, "⋯"));
     }

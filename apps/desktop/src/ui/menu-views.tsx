@@ -8,13 +8,20 @@ export function MenuBox({ at, close, escape, children }: { at: { x: number; y: n
   const menuBox = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<CSSProperties>({});
   useLayoutEffect(() => {
-    const r = menuBox.current?.getBoundingClientRect();
-    if (!r) return;
-    const left = Math.max(4, Math.min(at.x, innerWidth - r.width - 4)), top = Math.max(4, Math.min(at.y, innerHeight - r.height - 4));
-    setPlace(was => was.left === left && was.top === top ? was : { left, top });
-    // The first item takes focus once the list is drawn; a longer list keeps it where it was.
     const box = menuBox.current;
-    if (box && !box.contains(document.activeElement)) box.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    if (!box) return;
+
+    const fit = () => {
+      const r = box.getBoundingClientRect();
+      const left = Math.max(4, Math.min(at.x, innerWidth - r.width - 4)), top = Math.max(4, Math.min(at.y, innerHeight - r.height - 4));
+      setPlace(was => was.left === left && was.top === top ? was : { left, top });
+    };
+    fit();
+
+    // Lines can land after this pass, and a wider list must still fit.
+    const resized = new ResizeObserver(fit);
+    resized.observe(box);
+    return () => resized.disconnect();
   }, [at, children]);
   useEffect(() => {
     const away = (event: MouseEvent) => { if (!(event.target instanceof Node) || !menuBox.current?.contains(event.target)) close(); };
@@ -27,8 +34,11 @@ export function MenuBox({ at, close, escape, children }: { at: { x: number; y: n
     window.addEventListener("mousedown", away, true);
     window.addEventListener("keydown", keys, true);
     window.addEventListener("blur", close);
-    window.addEventListener("scroll", close, true);
+    // Scrolling closes the menu, but not the scroll that brought the tapped
+    // button into view, which lands in the next frame (the phone header).
+    const frame = requestAnimationFrame(() => window.addEventListener("scroll", close, true));
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("mousedown", away, true);
       window.removeEventListener("keydown", keys, true);
       window.removeEventListener("blur", close);
