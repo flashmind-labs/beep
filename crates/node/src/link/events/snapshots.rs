@@ -20,6 +20,14 @@ const SCAN_GAP: Duration = Duration::from_secs(2);
 /// and only changes when a session starts in a new one. Desktops up to 0.8.3
 /// kept this list live after the Add a project sheet asked once.
 const FOLDERS_GAP: Duration = Duration::from_secs(60);
+/// One outside session looked up by its id. Desktops up to 0.8.4 kept such a
+/// lookup live for every session row they drew, and the node looked again
+/// after every line any agent wrote; where a session works rarely changes.
+const SESSION_GAP: Duration = Duration::from_secs(30);
+/// A desktop's file read that came back unchanged waits twice as long before
+/// the next, up to this many times: desktops up to 0.8.4 kept one-off reads
+/// live, and nothing tells the node whether anyone still reads them.
+const MAX_IDLE_DOUBLINGS: u32 = 3;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Source {
@@ -38,6 +46,17 @@ impl Source {
             Self::Read(Read::Sessions(request))
                 if matches!(
                     request.as_ref(),
+                    SessionsRequest::External {
+                        session: Some(_),
+                        ..
+                    }
+                ) =>
+            {
+                SESSION_GAP
+            }
+            Self::Read(Read::Sessions(request))
+                if matches!(
+                    request.as_ref(),
                     SessionsRequest::External { .. } | SessionsRequest::InFolders { .. }
                 ) =>
             {
@@ -49,6 +68,23 @@ impl Source {
                 FOLDERS_GAP
             }
             _ => READ_GAP,
+        }
+    }
+
+    /// Reads of a folder's files that wait longer while they come back unchanged.
+    fn backs_off(&self) -> bool {
+        match self {
+            Self::Read(Read::Git { .. }) => true,
+            Self::Read(Read::Sessions(request)) => matches!(
+                request.as_ref(),
+                SessionsRequest::Folder { .. }
+                    | SessionsRequest::ReadFile { .. }
+                    | SessionsRequest::Diff { .. }
+                    | SessionsRequest::Worktrees { .. }
+                    | SessionsRequest::Present { .. }
+                    | SessionsRequest::Commands { .. }
+            ),
+            _ => false,
         }
     }
 }
@@ -63,6 +99,22 @@ struct Projection {
     dirty: bool,
     running: bool,
     not_before: Instant,
+    /// Reads in a row that gave the value before.
+    idle: u32,
+}
+
+impl Projection {
+    /// The least time to the next read. A topic's own projection keeps its
+    /// gap; a desktop's file read backs off while it comes back unchanged.
+    fn gap(&self) -> Duration {
+        let gap = self.source.gap();
+
+        if self.query.is_none() || !self.source.backs_off() {
+            return gap;
+        }
+
+        gap * 2_u32.pow(self.idle.min(MAX_IDLE_DOUBLINGS))
+    }
 }
 
 type Key = (Topic, Option<u64>);
@@ -312,6 +364,7 @@ impl Snapshots {
                     dirty: true,
                     running: false,
                     not_before: Instant::now(),
+                    idle: 0,
                 },
             };
             next.insert(key, entry);
@@ -334,6 +387,7 @@ impl Snapshots {
                         dirty: true,
                         running: false,
                         not_before: Instant::now(),
+                        idle: 0,
                     },
                 );
             }
@@ -387,7 +441,7 @@ impl Snapshots {
             self.next_key = Some(key.clone());
             entry.dirty = false;
             entry.running = true;
-            entry.not_before = now + entry.source.gap();
+            entry.not_before = now + entry.gap();
             let source = entry.source.clone();
             let key = key.clone();
             metrics::counter!("beep_snapshot_reads_total", "topic" => key.0.name().to_owned())
@@ -485,8 +539,11 @@ impl Snapshots {
         Ok(Some(match result {
             Ok((value, bytes)) => {
                 if entry.previous.as_ref() == Some(&value) {
+                    entry.idle = entry.idle.saturating_add(1);
                     return Ok(None);
                 }
+
+                entry.idle = 0;
 
                 if retained.saturating_sub(entry.bytes).saturating_add(bytes) > MAX_RETAINED_BYTES {
                     entry.previous = None;

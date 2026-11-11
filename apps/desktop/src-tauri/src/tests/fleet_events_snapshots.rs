@@ -294,3 +294,53 @@ fn removing_one_subscription_keeps_other_stream_generations_and_cached_values() 
     assert!(current.borrow().is_some());
     assert!(!snapshots.connected(id, Topic::new("processes"), other));
 }
+
+#[test]
+fn a_changed_query_nobody_reads_again_is_dropped_after_the_linger() {
+    let snapshots = Snapshots::default();
+    let (id, generation) = demanded_machine(&snapshots, "terminals");
+    let topic = Topic::new("terminals");
+    drop(snapshots.register(id, Read::TerminalList).unwrap().unwrap());
+    let query = snapshots.queries(id).pop().unwrap();
+    let first = terminal_snapshot(&query);
+    let start = Instant::now();
+    assert_eq!(snapshots.install(id, generation, &first), Some(true));
+    // The first value is what the read waited for; it does not count as unread.
+    assert!(!snapshots.sweep(id, &topic, start + LINGER * 2));
+
+    let changed = Snapshot {
+        revision: 2,
+        ..first.clone()
+    };
+    assert_eq!(snapshots.install(id, generation, &changed), Some(false));
+    let changed_at = Instant::now();
+    // A read again within the linger keeps it.
+    drop(snapshots.register(id, Read::TerminalList).unwrap().unwrap());
+    assert!(!snapshots.sweep(id, &topic, changed_at + LINGER * 2));
+    assert_eq!(snapshots.queries(id), std::slice::from_ref(&query));
+
+    // Changed again and never read: gone after the linger, and the
+    // subscription is told to send the node its smaller set.
+    assert_eq!(snapshots.install(id, generation, &changed), Some(false));
+    let unread_at = Instant::now();
+    let mut told = snapshots.changes();
+    told.mark_unchanged();
+    assert!(!snapshots.sweep(id, &topic, unread_at + LINGER / 2));
+    assert_eq!(snapshots.queries(id).len(), 1);
+    assert!(snapshots.sweep(id, &topic, unread_at + LINGER));
+    assert!(snapshots.queries(id).is_empty());
+    assert!(told.has_changed().unwrap());
+}
+
+#[test]
+fn a_waiting_reader_keeps_its_query() {
+    let snapshots = Snapshots::default();
+    let (id, generation) = demanded_machine(&snapshots, "terminals");
+    let waiting = snapshots.register(id, Read::TerminalList).unwrap().unwrap();
+    let query = snapshots.queries(id).pop().unwrap();
+    let snapshot = terminal_snapshot(&query);
+    snapshots.install(id, generation, &snapshot);
+    snapshots.install(id, generation, &snapshot);
+    assert!(!snapshots.sweep(id, &Topic::new("terminals"), Instant::now() + LINGER * 2));
+    drop(waiting);
+}

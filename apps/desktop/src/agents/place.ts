@@ -16,8 +16,10 @@ const STALE_MS = 30_000;
 const UNREACHABLE_MS = 5_000;
 /// The most sessions asked of a machine in one call.
 const BATCH = 50;
-/// The most answers kept.
-const KEPT = 500;
+/// The most answers kept, the least recently read going first. Far more
+/// than any view draws: a view with more rows than this would ask again for
+/// the rows that fell out on every redraw.
+const KEPT = 5000;
 
 /// What `agent_places` answers: each session's place in order, or that the
 /// machine did not answer yet.
@@ -48,6 +50,8 @@ export function onPlaces(redraw: () => void) {
 export function placeOf(r: PlaceAsk, maxAge = STALE_MS) {
   const key = placeKey(r);
   const got = known.get(key);
+  // Read last, so it goes last.
+  if (got) { known.delete(key); known.set(key, got); }
 
   if (!got || (Date.now() - got.at > maxAge && Date.now() >= got.retryAt)) {
     if (!asking.has(key) && !waiting.has(key)) { waiting.set(key, r); pumpSoon(); }
@@ -104,18 +108,29 @@ function settle(key: string, place: WorkPlace | null, retry: number | null) {
   const before = known.get(key);
   const now = Date.now();
 
-  if (known.size >= KEPT) known.clear();
+  known.delete(key);
 
   if (retry === null) {
-    known.set(key, { place, at: now, failures: 0, retryAt: 0 });
+    keep(key, { place, at: now, failures: 0, retryAt: 0 });
     return JSON.stringify(before?.place ?? null) !== JSON.stringify(place);
   }
 
   const failures = Math.min((before?.failures ?? 0) + 1, 5);
   const wait = Math.min(300_000, retry * 2 ** (failures - 1));
   // Due again at `retryAt`, however old what is kept.
-  known.set(key, { place: before?.place ?? null, at: 0, failures, retryAt: now + wait });
+  keep(key, { place: before?.place ?? null, at: 0, failures, retryAt: now + wait });
   return false;
+}
+
+/// Keeps `got` as the most recently read, dropping the least recently read
+/// past `KEPT`. A dropped place is asked for again only when a view reads it.
+function keep(key: string, got: KnownPlace) {
+  known.set(key, got);
+
+  for (const oldest of known.keys()) {
+    if (known.size <= KEPT) break;
+    known.delete(oldest);
+  }
 }
 
 /// Redraws the views once, after a burst of answers.

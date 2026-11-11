@@ -9,6 +9,12 @@ Earlier releases predate this changelog.
 - Node: agents name machines without apostrophes or symbols, so
   "Alex's Mac Studio" is `alexs-mac-studio` instead of `alex's-mac-studio`.
 
+### Performance
+
+- Node: looking up one session started outside Beep reads only that session's file instead of every Claude Code transcript on the machine, and several are answered in one request.
+- Node: lookups that older desktops keep live wait longer between reads when nothing changed, so an older desktop no longer keeps a node busy.
+- Node: a request that ends well within a second no longer writes four lines to the log; only slow, failed or dropped requests are logged.
+
 ## [0.6.4] - 2026-11-11
 
 ### Performance

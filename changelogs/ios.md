@@ -13,10 +13,15 @@ Earlier releases predate this changelog.
 
 - iOS: Projects no longer scrolls sideways when an open issue or pull request has many labels; the labels wrap under the title.
 - iOS: the project page has no blank band above its task field.
+- iOS: with more than 500 sessions in the lists, the app no longer asks every machine where each session works over and over.
 
 ### Added
 
 - iOS: pages slide in from the right, Back slides them in from the left, and tabs fade. Reduce motion turns it off.
+
+### Performance
+
+- iOS: reads asked for once no longer stay live on the machines, and live views no one reads again are dropped after half a minute.
 
 ## [0.2.1] - 2026-11-11
 

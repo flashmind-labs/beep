@@ -223,6 +223,7 @@ mod listing {
             async fn sessions(
                 &self,
                 request: SessionsRequest,
+                _: beep_mesh::machine::sessions::Reading,
                 _: Duration,
             ) -> Result<SessionsReply, MeshError> {
                 Ok(match request {
@@ -306,6 +307,7 @@ mod sessions {
         async fn sessions(
             &self,
             _: SessionsRequest,
+            _: beep_mesh::machine::sessions::Reading,
             _: Duration,
         ) -> Result<SessionsReply, MeshError> {
             Err(MeshError::Link(anyhow!("the node closed the stream")))

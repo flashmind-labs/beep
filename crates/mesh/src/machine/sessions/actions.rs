@@ -1,6 +1,6 @@
 use super::{
-    DIFF_TIMEOUT, NodeWork, READ_TIMEOUT, REPORT_TIMEOUT, REVIEW_TIMEOUT, Sessions, UPDATE_TIMEOUT,
-    ask, hinted,
+    DIFF_TIMEOUT, NodeWork, READ_TIMEOUT, REPORT_TIMEOUT, REVIEW_TIMEOUT, Reading, Sessions,
+    UPDATE_TIMEOUT, ask, hinted, once,
 };
 use crate::{
     MeshError,
@@ -24,7 +24,7 @@ pub async fn commands<S: Sessions + ?Sized>(
         session: session.to_owned(),
     };
 
-    match ask(node, request).await? {
+    match once(node, request).await? {
         SessionsReply::Commands { commands } => Ok(NodeWork::Done(commands)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
@@ -39,7 +39,10 @@ pub async fn start_review<S: Sessions + ?Sized>(
 ) -> Result<NodeWork<ReviewRun>, MeshError> {
     let request = SessionsRequest::StartReview { order };
 
-    match hinted(node.sessions(request, REVIEW_TIMEOUT).await, "review")? {
+    match hinted(
+        node.sessions(request, Reading::Once, REVIEW_TIMEOUT).await,
+        "review",
+    )? {
         SessionsReply::Review { run } => Ok(NodeWork::Done(run)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
@@ -89,7 +92,7 @@ pub async fn delete_session<S: Sessions + ?Sized>(
         session: session.to_owned(),
     };
 
-    match hinted(ask(node, request).await, "delete sessions")? {
+    match hinted(once(node, request).await, "delete sessions")? {
         SessionsReply::Deleted {} => Ok(NodeWork::Done(())),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
@@ -102,7 +105,11 @@ pub async fn diff<S: Sessions + ?Sized>(
     ask_for: DiffAsk,
 ) -> Result<NodeWork<WorkDiff>, MeshError> {
     match node
-        .sessions(SessionsRequest::Diff { ask: ask_for }, DIFF_TIMEOUT)
+        .sessions(
+            SessionsRequest::Diff { ask: ask_for },
+            Reading::Followed,
+            DIFF_TIMEOUT,
+        )
         .await?
     {
         SessionsReply::Diff { diff } => Ok(NodeWork::Done(diff)),
@@ -117,8 +124,12 @@ pub async fn harnesses<S: Sessions + ?Sized>(
     refresh: bool,
 ) -> Result<Option<HarnessReport>, MeshError> {
     harness_reply(
-        node.sessions(SessionsRequest::Harnesses { refresh }, REPORT_TIMEOUT)
-            .await,
+        node.sessions(
+            SessionsRequest::Harnesses { refresh },
+            Reading::Once,
+            REPORT_TIMEOUT,
+        )
+        .await,
     )
 }
 
@@ -130,14 +141,18 @@ pub async fn update_harness<S: Sessions + ?Sized>(
     let request = SessionsRequest::UpdateHarness {
         agent: agent.to_owned(),
     };
-    harness_reply(node.sessions(request, UPDATE_TIMEOUT).await)
+    harness_reply(node.sessions(request, Reading::Once, UPDATE_TIMEOUT).await)
 }
 
 /// Installs the ACP adapters the node's agents lack now; `false` from a
 /// node too old to.
 pub async fn install_adapters<S: Sessions + ?Sized>(node: &S) -> Result<bool, MeshError> {
     match node
-        .sessions(SessionsRequest::InstallAdapters {}, READ_TIMEOUT)
+        .sessions(
+            SessionsRequest::InstallAdapters {},
+            Reading::Once,
+            READ_TIMEOUT,
+        )
         .await
     {
         Ok(SessionsReply::AdaptersInstalling {}) => Ok(true),

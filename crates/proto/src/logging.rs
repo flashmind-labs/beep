@@ -10,7 +10,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tracing::{Event, Subscriber};
 use tracing_log::NormalizeEvent;
@@ -96,8 +96,14 @@ where
     }
 }
 
-/// Logs a request's phases and its end, including when its future is dropped.
-/// Pass operation labels only, never request bodies or credentials.
+/// A request that takes this long is logged at `INFO` however it ends.
+pub const SLOW_REQUEST: Duration = Duration::from_secs(1);
+
+/// Logs a request's phases at `DEBUG`, and its end, including when its
+/// future is dropped: at `INFO` only when it failed, was dropped or took
+/// `SLOW_REQUEST`, as most requests take a few milliseconds and a busy app
+/// makes thousands a minute. Pass operation labels only, never request
+/// bodies or credentials.
 pub struct RequestTrace {
     id: uuid::Uuid,
     operation: String,
@@ -129,15 +135,22 @@ impl RequestTrace {
     }
 
     fn record(&self) {
-        tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
+        tracing::debug!(request = %self.id, operation = self.operation, phase = self.phase,
             elapsed_ms = self.started.elapsed().as_millis(), "request progress");
     }
 }
 
 impl Drop for RequestTrace {
     fn drop(&mut self) {
-        tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
-            outcome = self.outcome, elapsed_ms = self.started.elapsed().as_millis(), "request ended");
+        let elapsed = self.started.elapsed();
+
+        if self.outcome == "ok" && elapsed < SLOW_REQUEST {
+            tracing::debug!(request = %self.id, operation = self.operation, phase = self.phase,
+                outcome = self.outcome, elapsed_ms = elapsed.as_millis(), "request ended");
+        } else {
+            tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
+                outcome = self.outcome, elapsed_ms = elapsed.as_millis(), "request ended");
+        }
     }
 }
 

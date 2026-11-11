@@ -1,4 +1,4 @@
-use super::{NodeWork, READ_TIMEOUT, Sessions, UPDATE_TIMEOUT, ask};
+use super::{NodeWork, READ_TIMEOUT, Reading, Sessions, UPDATE_TIMEOUT, once};
 use crate::{
     MeshError,
     machine::{said, unexpected},
@@ -23,7 +23,10 @@ pub async fn move_progress<S: Sessions + ?Sized>(
         session: session.to_owned(),
     };
 
-    match node.sessions(request, READ_TIMEOUT).await {
+    match node
+        .sessions(request, Reading::Followed, READ_TIMEOUT)
+        .await
+    {
         Ok(SessionsReply::Moving {
             progress: Some(progress),
         }) => Ok(MoveState::Known(progress)),
@@ -64,7 +67,7 @@ pub async fn worktree_move<S: Sessions + ?Sized>(
         branch: branch.to_owned(),
     };
 
-    match node.sessions(request, READ_TIMEOUT).await {
+    match node.sessions(request, Reading::Once, READ_TIMEOUT).await {
         Ok(SessionsReply::MoveChecked { ignored: false }) => Ok(WorktreeMove::Takes),
         Ok(SessionsReply::MoveChecked { ignored: true }) => Ok(WorktreeMove::Ignored),
         Ok(SessionsReply::Error { message }) => Err(said(message)),
@@ -88,7 +91,7 @@ pub enum NodeCopies {
 /// The copies the node keeps, and the versions that lost to another machine's.
 pub async fn copies<S: Sessions + ?Sized>(node: &S) -> Result<NodeCopies, MeshError> {
     match node
-        .sessions(SessionsRequest::Copies {}, READ_TIMEOUT)
+        .sessions(SessionsRequest::Copies {}, Reading::Followed, READ_TIMEOUT)
         .await
     {
         Ok(SessionsReply::Copies { copies }) => Ok(NodeCopies::Listed(copies)),
@@ -116,7 +119,10 @@ pub async fn continue_copy<S: Sessions + ?Sized>(
         lost,
     };
 
-    match node.sessions(request, UPDATE_TIMEOUT).await? {
+    match node
+        .sessions(request, Reading::Once, UPDATE_TIMEOUT)
+        .await?
+    {
         SessionsReply::CopyDone {} => Ok(NodeWork::Done(())),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
@@ -136,7 +142,7 @@ pub async fn discard_copy<S: Sessions + ?Sized>(
         lost,
     };
 
-    match ask(node, request).await? {
+    match once(node, request).await? {
         SessionsReply::CopyDone {} => Ok(()),
         SessionsReply::Error { message } => Err(said(message)),
         other => Err(unexpected(&other)),
@@ -153,7 +159,7 @@ pub async fn worktrees<S: Sessions + ?Sized>(
         folder: folder.to_owned(),
     };
 
-    match ask(node, request).await? {
+    match once(node, request).await? {
         SessionsReply::Worktrees { worktrees } => Ok(NodeWork::Done(worktrees)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),

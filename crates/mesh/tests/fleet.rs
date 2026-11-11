@@ -249,6 +249,7 @@ async fn a_files_diff_tree_and_edits_work_with_no_server() {
             ignored: false,
             depth: 2,
         },
+        sessions::Reading::Once,
     )
     .await
     .expect("the tree reads") else {

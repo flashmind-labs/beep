@@ -1,11 +1,11 @@
-use super::{MODELS_TIMEOUT, Sessions, ask, hinted};
+use super::{MODELS_TIMEOUT, Reading, Sessions, ask, hinted, once};
 use crate::{
     MeshError,
     machine::{said, unexpected},
 };
 use beep_proto::node::agent::{
-    Entry, ExternalSession, LiveStatus, ModelList, SessionFolder, SessionInfo, SessionsReply,
-    SessionsRequest, Steer,
+    Entry, ExternalAsk, ExternalSession, LiveStatus, ModelList, SessionFolder, SessionInfo,
+    SessionsReply, SessionsRequest, Steer,
 };
 
 /// Every agent session on the node.
@@ -56,26 +56,46 @@ pub async fn transcript_before<S: Sessions + ?Sized>(
         before,
     };
 
-    match ask(node, request).await? {
+    match once(node, request).await? {
         SessionsReply::Transcript { entries, earlier } => Ok((entries, earlier)),
         SessionsReply::Error { message } => Err(said(message)),
         other => Err(unexpected(&other)),
     }
 }
 
-/// Sessions of `agent` started outside Beep, newest first: at most `limit`, or only `only`.
+/// Sessions of `agent` started outside Beep, newest first: at most `limit`,
+/// or only `only`. A list is followed; one session is looked up once.
 pub async fn external<S: Sessions + ?Sized>(
     node: &S,
     agent: &str,
     limit: u32,
     only: Option<String>,
 ) -> Result<Vec<ExternalSession>, MeshError> {
+    let reading = match only {
+        Some(_) => Reading::Once,
+        None => Reading::Followed,
+    };
     let request = SessionsRequest::External {
         agent: agent.to_owned(),
         limit,
         session: only,
     };
-    external_reply(hinted(ask(node, request).await, "list them")?)
+    let reply = node.sessions(request, reading, super::READ_TIMEOUT).await;
+    external_reply(hinted(reply, "list them")?)
+}
+
+/// The sessions `asks` started outside Beep, each looked up once; `None`
+/// from a node from before the question, which the caller asks one by one.
+pub async fn external_named<S: Sessions + ?Sized>(
+    node: &S,
+    asks: Vec<ExternalAsk>,
+) -> Result<Option<Vec<ExternalSession>>, MeshError> {
+    match once(node, SessionsRequest::ExternalNamed { sessions: asks }).await {
+        Ok(reply) => external_reply(reply).map(Some),
+        // A node from before it cannot read the request and closes the stream.
+        Err(MeshError::Link(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// The sessions coding agents ran in `folders` or below, newest first.
@@ -124,7 +144,7 @@ pub async fn found_folders<S: Sessions + ?Sized>(
     limit: u32,
 ) -> Result<Vec<SessionFolder>, MeshError> {
     match hinted(
-        ask(node, SessionsRequest::Folders { limit }).await,
+        once(node, SessionsRequest::Folders { limit }).await,
         "find them",
     )? {
         SessionsReply::Folders { folders } => Ok(folders),
@@ -140,7 +160,7 @@ pub async fn models<S: Sessions + ?Sized>(node: &S, agent: &str) -> Result<Model
         agent: agent.to_owned(),
     };
 
-    match node.sessions(request, MODELS_TIMEOUT).await {
+    match node.sessions(request, Reading::Once, MODELS_TIMEOUT).await {
         Ok(SessionsReply::Models { models }) => Ok(models),
         Ok(SessionsReply::Error { message }) => Err(said(message)),
         Ok(other) => Err(unexpected(&other)),

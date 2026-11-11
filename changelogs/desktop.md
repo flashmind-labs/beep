@@ -20,6 +20,12 @@ Other apps have independent versions and changelogs:
 - Desktop: ⌘M (Ctrl+M on Windows) in a project's task field opens the model picker, as its hint says.
 - Desktop: the folder list in Sync gitignored takes the sheet's full width instead of a small box.
 - Desktop: the sidebar says which machine it is connecting to ("Connecting to build-box and 1 more...", all of them on hover), and its connecting dot is a small ring again instead of a wide pill.
+- Desktop: with more than 500 sessions in the lists, the app no longer asks every machine where each session works over and over, which kept a core busy and wrote thousands of log lines a minute.
+
+### Performance
+
+- Desktop: a session's place, a file, a worktree list or a folder listing asked for once no longer stays live on its machine, and live views no one reads again are dropped after half a minute. Machines stop reading them again after every change, which saves CPU on the machines and on the desktop.
+- Desktop: the places of many sessions started outside Beep are asked of each machine in one request.
 
 ## [0.8.5] - 2026-11-11
 

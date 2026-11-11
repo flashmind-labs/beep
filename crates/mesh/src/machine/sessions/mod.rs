@@ -20,7 +20,7 @@ pub use moves::{
     worktree_move, worktrees,
 };
 pub use query::{
-    external, found_folders, in_folders, list, list_all, live, models, transcript,
+    external, external_named, found_folders, in_folders, list, list_all, live, models, transcript,
     transcript_before,
 };
 
@@ -47,11 +47,21 @@ const UPDATE_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 /// the parent on every machine and waits for the agent's id.
 const REVIEW_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// How a read is kept. A view the app follows is served from the live query
+/// that owns it, which the node reads again on every matching change; a read
+/// asked once goes to the node as one call and leaves no live query behind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reading {
+    Followed,
+    Once,
+}
+
 /// Sends one `agents/1` request and gives the node's reply within `limit`.
 pub trait Sessions {
     fn sessions(
         &self,
         request: SessionsRequest,
+        reading: Reading,
         limit: Duration,
     ) -> impl Future<Output = Result<SessionsReply, MeshError>> + Send;
 }
@@ -60,14 +70,12 @@ impl Sessions for PeerClient {
     async fn sessions(
         &self,
         request: SessionsRequest,
+        reading: Reading,
         limit: Duration,
     ) -> Result<SessionsReply, MeshError> {
-        // The checkouts found on a node are looked up once when asked: kept
-        // live, the node would look again after every change to any session.
-        let live = !matches!(request, SessionsRequest::Folders { .. });
         let read = beep_proto::node::events::Read::Sessions(Box::new(request.clone()));
 
-        if live
+        if reading == Reading::Followed
             && read.topic().is_some()
             && let Some(value) = tokio::time::timeout(limit, self.snapshot(read))
                 .await
@@ -102,12 +110,21 @@ fn hinted<T>(reply: Result<T, MeshError>, to: &str) -> Result<T, MeshError> {
     })
 }
 
-/// An ordinary read.
+/// An ordinary read of a view the app follows.
 async fn ask<S: Sessions + ?Sized>(
     node: &S,
     request: SessionsRequest,
 ) -> Result<SessionsReply, MeshError> {
-    node.sessions(request, READ_TIMEOUT).await
+    node.sessions(request, Reading::Followed, READ_TIMEOUT)
+        .await
+}
+
+/// An ordinary read asked once, or a change.
+async fn once<S: Sessions + ?Sized>(
+    node: &S,
+    request: SessionsRequest,
+) -> Result<SessionsReply, MeshError> {
+    node.sessions(request, Reading::Once, READ_TIMEOUT).await
 }
 
 /// A picture of a session's transcript, as the node gave it.
