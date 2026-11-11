@@ -4,6 +4,12 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Node: a desktop can close a session running in a terminal so it continues
+  in Beep. The node ends only the process it found running that session,
+  with SIGTERM on Linux and macOS; on Windows the process is ended at once.
+
 ## [0.6.2] - 2026-11-11
 
 ### Fixed

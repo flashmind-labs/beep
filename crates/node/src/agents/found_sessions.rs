@@ -9,15 +9,24 @@ use crate::{
     agents::found::{self, Agent},
 };
 use anyhow::{Context, Result};
-use beep_proto::node::agent::{ExternalSession, ParentLink, Presence, SessionFolder, Status};
+use beep_proto::node::{
+    agent::{ExternalSession, ParentLink, Presence, SessionFolder, Status},
+    events::Topic,
+};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 use tokio::{task::spawn_blocking, time::Instant};
+
+/// How long `close_external` waits for the process to end.
+const CLOSE_WAIT: Duration = Duration::from_secs(8);
+/// How long a session it closed reads as stopped despite a recent write:
+/// as long as such a write counts.
+const CLOSED_FOR: Duration = Duration::from_secs(3 * 60);
 
 /// What a session of this node that ended was held to.
 #[derive(Default)]
@@ -337,6 +346,67 @@ impl Agents {
             .collect()
     }
 
+    /// Ends the process running `agent`'s session `id`, started outside Beep,
+    /// so it can go on here. The process is the one this node finds running
+    /// that session now, never one a caller names.
+    pub(super) async fn close_external(&self, agent: &str, id: &str) -> Result<()> {
+        anyhow::ensure!(self.get(id).is_none(), "the session already runs in Beep");
+        let found = if agent == Agent::Claude.as_ref() {
+            self.external.list(1, Some(id.to_owned()), self.owned()).await?
+        } else {
+            self.stores_external(agent, 1, Some(id.to_owned())).await?
+        };
+        let session = found
+            .into_iter()
+            .find(|found| found.agent == agent && found.id == id)
+            .with_context(|| format!("there is no {agent} session {id} on this machine"))?;
+
+        anyhow::ensure!(session.taken_over.is_none(), "the session already runs in Beep");
+        anyhow::ensure!(
+            session.presence != Presence::Working,
+            "the session is running a turn"
+        );
+
+        // Noted first: a follow reads the session again as soon as its
+        // process exits, and must find it closed then.
+        {
+            let mut closed = crate::lock(&self.closed);
+            closed.retain(|_, at| at.elapsed() < CLOSED_FOR);
+            closed.insert(id.to_owned(), Instant::now());
+        }
+
+        if let Some(pid) = session.pid {
+            super::processes::close_outside(pid, CLOSE_WAIT)
+                .await
+                .context("the session's process did not end")?;
+        }
+
+        self.events.changed(Topic::keyed("agent", id));
+        self.events.changed(Topic::new("agents"));
+        Ok(())
+    }
+
+    /// A session `close_external` ended lately reads as stopped, not as
+    /// active a moment ago from its last write.
+    pub(super) fn settle_closed(&self, sessions: &mut [ExternalSession]) {
+        let mut closed = crate::lock(&self.closed);
+
+        if closed.is_empty() {
+            return;
+        }
+
+        closed.retain(|_, at| at.elapsed() < CLOSED_FOR);
+
+        for found in sessions {
+            if found.pid.is_none()
+                && found.presence == Presence::Recent
+                && closed.contains_key(&found.id)
+            {
+                found.presence = Presence::Stopped;
+            }
+        }
+    }
+
     /// Takes over the Claude Code session `id` started outside Beep, once
     /// nothing runs it; one this node already runs is returned as it is.
     /// `id` may also be one of this node's sessions that ended: it goes on
@@ -423,6 +493,7 @@ impl Agents {
         .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
         let mut found = found;
         found.presence = self.presence(agent, &found).await;
+        self.settle_closed(std::slice::from_mut(&mut found));
 
         if let Some(reason) = claude::refuse_takeover(&found) {
             anyhow::bail!("{reason}");

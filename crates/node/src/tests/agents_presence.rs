@@ -133,3 +133,79 @@ async fn a_mesh_follow_reports_open_and_close_without_polling() {
         .unwrap()
         .unwrap();
 }
+
+async fn ask(agents: &Arc<Agents>, request: SessionsRequest) -> SessionsReply {
+    let link = beep_proto::node::local_link();
+    let (mut client_tx, mut client_rx) = link.caller;
+    let (server_tx, server_rx) = link.node;
+    let serving = agents.clone();
+    let task = tokio::spawn(async move {
+        super::super::serve_sessions(
+            server_tx,
+            server_rx,
+            serving,
+            iroh::SecretKey::generate().public(),
+        )
+        .await
+    });
+    client_tx.send(&request).await.unwrap();
+    let reply = timeout(Duration::from_secs(15), client_rx.recv::<SessionsReply>())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    drop(client_tx);
+    task.await.unwrap().unwrap();
+    reply
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn continuing_here_ends_only_the_followed_session_s_process() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let agents = Arc::new(Agents {
+        stores: Stores::default(),
+        ..Agents::default()
+    });
+    let mut child = tokio::process::Command::new("sleep")
+        .arg("60")
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut outside = registration("session_a");
+    outside.pid = child.id();
+    agents.presence.register(outside, Uuid::new_v4()).unwrap();
+    let mut node = registration("session_b");
+    node.pid = Some(std::process::id());
+    agents.presence.register(node, Uuid::new_v4()).unwrap();
+
+    // The process is the one the node finds running that harness's session.
+    for (agent, session) in [("codex", "session_a"), ("flsh", "session_c"), ("flsh", "session_b")] {
+        let reply = ask(
+            &agents,
+            SessionsRequest::CloseExternal {
+                agent: agent.into(),
+                session: session.into(),
+            },
+        )
+        .await;
+        assert!(matches!(reply, SessionsReply::Error { .. }), "{reply:?}");
+    }
+    assert!(child.try_wait().unwrap().is_none());
+
+    let reply = ask(
+        &agents,
+        SessionsRequest::CloseExternal {
+            agent: "flsh".into(),
+            session: "session_a".into(),
+        },
+    )
+    .await;
+    assert_eq!(reply, SessionsReply::ProcessStopped {});
+    let status = timeout(Duration::from_secs(5), child.wait())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGTERM));
+}

@@ -211,6 +211,9 @@ pub use follow::serve_follow;
         on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
         /// A quick walk for checkouts runs; one at a time.
         rescanning: AtomicBool,
+        /// Sessions started outside Beep whose process this node ended
+        /// lately, by id, with when.
+        closed: Mutex<HashMap<String, Instant>>,
     }
 
     /// The folders found in the agents' logs, and when.
@@ -256,6 +259,7 @@ pub use follow::serve_follow;
                 sighted: AsyncMutex::default(),
                 on_disk: AsyncMutex::default(),
                 rescanning: AtomicBool::new(false),
+                closed: Mutex::default(),
             }
         }
     }

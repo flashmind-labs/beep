@@ -72,6 +72,7 @@ async fn source_summary(agents: &Agents) -> Result<Vec<Summary>> {
     agents.observe_external(&sessions);
     sessions.extend(others.context("reading agent summary")?);
     agents.presence.merge(&mut sessions);
+    agents.settle_closed(&mut sessions);
     let mut summary: Vec<_> = sessions
         .into_iter()
         .map(|session| Summary {
@@ -730,10 +731,11 @@ async fn snapshot(
                     .stores_external(request.agent.as_ref(), 1, Some(request.session.to_string()))
                     .await?
             };
-            let found = found
+            let mut found = found
                 .into_iter()
                 .find(|session| session.id == request.session.as_ref())
                 .context("session is no longer on the machine")?;
+            agents.settle_closed(std::slice::from_mut(&mut found));
             SessionSource::External(Box::new(found))
         }
     };

@@ -316,6 +316,14 @@ pub enum SessionsRequest {
         session: String,
         folder: String,
     },
+    /// Asks the process of `agent`'s session `session`, started outside Beep,
+    /// to end, so Beep can continue it: the node finds that process itself.
+    /// Answered with `ProcessStopped` once it ended, or `Error` saying why
+    /// not. A node from before it answers `Error` or closes the stream.
+    CloseExternal {
+        agent: String,
+        session: String,
+    },
 }
 
 /// File browser operations. Destinations must not already exist.
@@ -381,6 +389,7 @@ impl SessionsRequest {
             | Self::FollowAlerts {}
             | Self::FollowRuns {}
             | Self::StopProcess { .. }
+            | Self::CloseExternal { .. }
             | Self::InstallAdapters {}
             | Self::StartReview { .. } => false,
         }
@@ -550,6 +559,7 @@ pub enum SessionsReply {
     Processes {
         processes: Vec<RunningProcess>,
     },
+    /// The answer to `StopProcess` and `CloseExternal`.
     ProcessStopped {},
     /// The answer to `InstallAdapters`.
     AdaptersInstalling {},
