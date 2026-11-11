@@ -236,27 +236,27 @@ impl PeerClient {
 
     /// Returns only after the node accepts this stream with Ready.
     pub async fn open_commands(&self) -> Result<(LinkTx, LinkRx), MeshError> {
-        timeout(OPEN_TIMEOUT, async {
-            let (tx, mut rx) = if let (Some(mesh), Some(peer)) = (&self.channels, self.peer) {
-                let connection = mesh
-                    .command_connection(peer)
+        let channel = self.channel(beep_proto::node::commands::ALPN).await?;
+        let opened = timeout(OPEN_TIMEOUT, async {
+            let (tx, mut rx) = match &channel {
+                Some(connection) => {
+                    let (mut tx, rx) = open_connection(connection).await?;
+                    timeout(
+                        OPEN_TIMEOUT,
+                        tx.send(&beep_proto::node::commands::Open::Calls),
+                    )
                     .await
-                    .map_err(|error| MeshError::Link(error.into()))?;
-                let (mut tx, rx) = open_connection(&connection).await?;
-                timeout(
-                    OPEN_TIMEOUT,
-                    tx.send(&beep_proto::node::commands::Open::Calls),
-                )
-                .await
-                .map_err(|error| MeshError::Link(error.into()))?
-                .map_err(MeshError::Link)?;
-                (tx, rx)
-            } else {
-                self.open_sending(
-                    beep_proto::node::commands::PROTOCOL,
-                    &beep_proto::node::commands::Open::Calls,
-                )
-                .await?
+                    .map_err(|error| MeshError::Link(error.into()))?
+                    .map_err(MeshError::Link)?;
+                    (tx, rx)
+                }
+                None => {
+                    self.open_sending(
+                        beep_proto::node::commands::PROTOCOL,
+                        &beep_proto::node::commands::Open::Calls,
+                    )
+                    .await?
+                }
             };
             match rx
                 .recv::<beep_proto::node::commands::Reply>()
@@ -270,32 +270,35 @@ impl PeerClient {
             }
         })
         .await
-        .map_err(|error| MeshError::Link(error.into()))?
+        .map_err(|error| MeshError::Link(error.into()))
+        .and_then(|opened| opened);
+        self.stalled(channel.as_ref(), &opened);
+        opened
     }
 
     /// Returns only after the node accepts this stream with Ready.
     pub async fn open_subscriptions(&self) -> Result<(LinkTx, LinkRx), MeshError> {
-        timeout(OPEN_TIMEOUT, async {
-            let (tx, mut rx) = if let (Some(mesh), Some(peer)) = (&self.channels, self.peer) {
-                let connection = mesh
-                    .subscription_connection(peer)
+        let channel = self.channel(beep_proto::node::subscriptions::ALPN).await?;
+        let opened = timeout(OPEN_TIMEOUT, async {
+            let (tx, mut rx) = match &channel {
+                Some(connection) => {
+                    let (mut tx, rx) = open_connection(connection).await?;
+                    timeout(
+                        OPEN_TIMEOUT,
+                        tx.send(&beep_proto::node::subscriptions::Open {}),
+                    )
                     .await
-                    .map_err(|error| MeshError::Link(error.into()))?;
-                let (mut tx, rx) = open_connection(&connection).await?;
-                timeout(
-                    OPEN_TIMEOUT,
-                    tx.send(&beep_proto::node::subscriptions::Open {}),
-                )
-                .await
-                .map_err(|error| MeshError::Link(error.into()))?
-                .map_err(MeshError::Link)?;
-                (tx, rx)
-            } else {
-                self.open_sending(
-                    beep_proto::node::subscriptions::PROTOCOL,
-                    &beep_proto::node::subscriptions::Open {},
-                )
-                .await?
+                    .map_err(|error| MeshError::Link(error.into()))?
+                    .map_err(MeshError::Link)?;
+                    (tx, rx)
+                }
+                None => {
+                    self.open_sending(
+                        beep_proto::node::subscriptions::PROTOCOL,
+                        &beep_proto::node::subscriptions::Open {},
+                    )
+                    .await?
+                }
             };
             match rx
                 .recv::<beep_proto::node::subscriptions::Reply>()
@@ -309,7 +312,49 @@ impl PeerClient {
             }
         })
         .await
-        .map_err(|error| MeshError::Link(error.into()))?
+        .map_err(|error| MeshError::Link(error.into()))
+        .and_then(|opened| opened);
+        self.stalled(channel.as_ref(), &opened);
+        opened
+    }
+
+    /// The mesh's command or subscription connection to the peer, dialed
+    /// if needed; `None` for a client that opens streams another way.
+    async fn channel(&self, alpn: &'static [u8]) -> Result<Option<Connection>, MeshError> {
+        let (Some(mesh), Some(peer)) = (&self.channels, self.peer) else {
+            return Ok(None);
+        };
+        let connection = if alpn == beep_proto::node::subscriptions::ALPN {
+            mesh.subscription_connection(peer).await
+        } else {
+            mesh.command_connection(peer).await
+        };
+
+        connection
+            .map(Some)
+            .map_err(|error| MeshError::Link(error.into()))
+    }
+
+    /// The connection a stream for `protocol` goes on: the command
+    /// connection for all but events, which ride the mesh link.
+    async fn channel_for(&self, protocol: &str) -> Result<Option<Connection>, MeshError> {
+        if protocol == beep_proto::node::events::PROTOCOL {
+            return Ok(None);
+        }
+
+        self.channel(beep_proto::node::commands::ALPN).await
+    }
+
+    /// A stream on `channel` that could not be opened, or that the node
+    /// reset or never answered, leaves the connection stuck for every
+    /// later stream while it still looks open: it is closed, and the next
+    /// stream dials a new one.
+    fn stalled<T>(&self, channel: Option<&Connection>, opened: &Result<T, MeshError>) {
+        if let (Some(mesh), Some(connection), Err(error)) = (&self.channels, channel, opened)
+            && error.is_transport()
+        {
+            mesh.drop_protocol_connection(connection);
+        }
     }
 
     /// Uses the owner's current snapshots for subscribed reads.
@@ -335,13 +380,17 @@ impl PeerClient {
     /// Over the network the whole exchange, from opening the stream to the
     /// node's answer, gets `OPEN_TIMEOUT`.
     pub async fn open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
-        timeout(OPEN_TIMEOUT, async {
-            let (tx, mut rx) = self.begin(protocol).await?;
+        let channel = self.channel_for(protocol).await?;
+        let opened = timeout(OPEN_TIMEOUT, async {
+            let (tx, mut rx) = self.begin(protocol, channel.as_ref()).await?;
             self.confirmed(&mut rx, protocol).await?;
             Ok((tx, rx))
         })
         .await
-        .map_err(|error| MeshError::Link(error.into()))?
+        .map_err(|error| MeshError::Link(error.into()))
+        .and_then(|opened| opened);
+        self.stalled(channel.as_ref(), &opened);
+        opened
     }
 
     /// Like `open`, with `first` sent right behind `Open`, before the node's
@@ -353,34 +402,37 @@ impl PeerClient {
         protocol: &str,
         first: &Q,
     ) -> Result<(LinkTx, LinkRx), MeshError> {
-        timeout(OPEN_TIMEOUT, async {
-            let (mut tx, mut rx) = self.begin(protocol).await?;
+        let channel = self.channel_for(protocol).await?;
+        let opened = timeout(OPEN_TIMEOUT, async {
+            let (mut tx, mut rx) = self.begin(protocol, channel.as_ref()).await?;
             let sent = tx.send(first).await;
             self.confirmed(&mut rx, protocol).await?;
             sent.map_err(MeshError::Link)?;
             Ok((tx, rx))
         })
         .await
-        .map_err(|error| MeshError::Link(error.into()))?
+        .map_err(|error| MeshError::Link(error.into()))
+        .and_then(|opened| opened);
+        self.stalled(channel.as_ref(), &opened);
+        opened
     }
 
     /// Opens the stream and sends `Open`, without waiting for the node's
     /// answer. What the caller sends next follows `Open` at once, so a call
     /// costs one round trip instead of two. `confirmed` reads the answer.
-    async fn begin(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
-        if protocol != beep_proto::node::events::PROTOCOL
-            && let (Some(mesh), Some(peer)) = (&self.channels, self.peer)
-        {
-            let connection = mesh
-                .command_connection(peer)
-                .await
-                .map_err(|error| MeshError::Link(error.into()))?;
+    /// With `channel` the stream goes on that command connection.
+    async fn begin(
+        &self,
+        protocol: &str,
+        channel: Option<&Connection>,
+    ) -> Result<(LinkTx, LinkRx), MeshError> {
+        if let Some(connection) = channel {
             return timeout(OPEN_TIMEOUT, async {
                 let (send, recv) = connection
                     .open_bi()
                     .await
                     .map_err(|error| MeshError::Link(error.into()))?;
-                let (mut tx, rx) = link_on(&connection, send, recv);
+                let (mut tx, rx) = link_on(connection, send, recv);
                 tx.send(&beep_proto::node::commands::Open::Session {
                     protocol: protocol.to_owned(),
                 })

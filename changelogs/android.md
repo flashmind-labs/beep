@@ -48,6 +48,11 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Android: an open session no longer stays on "Lost the connection...
+  Reconnecting..." until the app restarts. When a machine stops taking new
+  reads while still connected, as after switching between mobile data and
+  Wi-Fi or coming back from the background, the app connects to it again
+  and the session catches up on its own.
 - Android: the Agents list shows sessions that start, end or change while it is open, without leaving the page and coming back.
 
 - Android: Stop all asks first when a session that is not open still has
