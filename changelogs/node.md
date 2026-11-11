@@ -46,8 +46,7 @@ Earlier releases predate this changelog.
 - Node: a Claude Code transcript replaced by a new file is always read again
   in full, even when its size and time match the old one.
 - Node: after a sleep or a Wi-Fi drop, mesh links to other machines are
-  dialed again at once, and a machine still away is tried every 30 seconds
-  instead of every minute.
+  dialed again at once.
 
 ### Performance
 
@@ -62,7 +61,7 @@ Earlier releases predate this changelog.
   and machine reports, the CI watch, skill checks, session copies and mesh
   settings run only when something changed or much less often.
 - Node: a mesh link rides out a network drop of up to 30 seconds instead of
-  reconnecting after 10, and a machine that stays offline is dialed about once
+  reconnecting after 10, and a machine that stays offline is dialed about twice
   a minute instead of every 12 seconds. One that comes back is reached at once.
 - Node: conversations open faster. A newly opened session sends its newest
   page first, a Claude Code transcript parses only the lines added since the

@@ -70,9 +70,11 @@ Other apps have independent versions and changelogs:
   as working until they finish, not idle.
 - Desktop: in a narrow window the Projects page no longer runs off the
   side with long names, folders or group headings.
-- Desktop: preserve panel scroll, drafts and selections during live updates.
-- Desktop: reject stale approvals after their question or session changes.
-- Desktop: retain terminal controls when returning to a cached session.
+- Desktop: panels keep their scroll position, drafts and selections while
+  live updates arrive.
+- Desktop: an approval no longer goes to a question or session that changed
+  since it was shown.
+- Desktop: a session's terminal controls stay when you return to it.
 - Desktop: a notification read, dismissed or opened on any desktop or phone
   is read on all of them, and one read elsewhere no longer pops up again
   after the Mac wakes.
@@ -85,8 +87,7 @@ Other apps have independent versions and changelogs:
   turn, instead of breaking every live view of that machine.
 - Desktop: an agent's question reaches the desktop at once after its node
   restarts, instead of up to a minute later.
-- Desktop: after a sleep or a Wi-Fi drop, machines reconnect at once, and one
-  still away is tried every 30 seconds instead of every minute.
+- Desktop: after a sleep or a Wi-Fi drop, machines reconnect at once.
 
 ### Performance
 
@@ -119,10 +120,10 @@ Other apps have independent versions and changelogs:
   and review and Actions status follow at most once a second, and turning on
   "Use this Mac" no longer reloads all of Home twice. Chat diagrams and the
   picture viewer no longer watch every change to the page.
-
-- Desktop: update changed chat rows independently and virtualize long project
-  session lists.
-- Desktop: share concurrent machine and chat list reads.
+- Desktop: a chat redraws only the rows that changed, and long project
+  session lists draw only the rows on screen.
+- Desktop: windows that ask for the machine or chat list at the same time
+  share one read.
 - Desktop: use less CPU in the background while projects sync: a sync change
   reads only the projects it touched, and machine clock checks are shared.
 - Desktop: Home, File sync and the saved window views do less work while agents
@@ -155,7 +156,8 @@ Other apps have independent versions and changelogs:
   minutes, only what changed meanwhile is sent. Sending a prompt or another
   action reloads only the views it affects.
 - Desktop: mesh links ping every 5 seconds instead of 3 and ride out a
-  network drop of up to 30 seconds. Agent alerts and CI runs are followed
+  network drop of up to 30 seconds. A machine that stays away is tried about
+  twice a minute instead of every 12 seconds. Agent alerts and CI runs are followed
   only from machines that are online, and a machine that keeps refusing is
   tried at most once a minute instead of every 2 seconds.
 - Desktop: an idle or hidden window wakes far less often. Agent sessions
