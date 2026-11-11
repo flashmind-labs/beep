@@ -261,3 +261,22 @@ async fn when_all_fail_the_error_names_each_and_reads_cleanly() {
         "{details}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_standalone_codex_updates_itself() {
+    let home = tempfile::tempdir().unwrap();
+    let real = file(home.path(), ".codex/packages/standalone/current/bin/codex");
+    let cli = home.path().join(".local/bin/codex");
+    link(&real, &cli);
+    assert_eq!(method("codex", &cli, &npm_none()), Some(Method::Own));
+    let target = Target {
+        agent: "codex",
+        cli: Some(&cli),
+        npm_adapter: None,
+    };
+    assert_eq!(
+        plan(&target, &npm_none()),
+        [Step::new(cli.display().to_string(), &["update"])]
+    );
+}
