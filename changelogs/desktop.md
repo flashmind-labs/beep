@@ -9,6 +9,10 @@ Other apps have independent versions and changelogs:
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop: the sidebar says which machine it is connecting to ("Connecting to build-box and 1 more...", all of them on hover), and its connecting dot is a small ring again instead of a wide pill.
+
 ## [0.8.5] - 2026-11-11
 
 ### Added

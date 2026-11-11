@@ -85,7 +85,7 @@ export interface MachineCard extends MachineView {
 /// How a machine's dot reads: on (busy with agents or idle), connecting, or off.
 export function machineDot(m: Pick<MachineCard, "online" | "agents" | "connecting">): { className: string; title: string } {
   if (m.online) return m.agents ? { className: "ddot busy", title: `Online · ${plural(m.agents, "agent", "agents")} running` } : { className: "ddot", title: "Online" };
-  return m.connecting ? { className: "ddot wait", title: "Connecting" } : { className: "ddot off", title: "Offline" };
+  return m.connecting ? { className: "ddot dial", title: "Connecting" } : { className: "ddot off", title: "Offline" };
 }
 
 /// The machines the app is still connecting to, by id, for the session rows on them.

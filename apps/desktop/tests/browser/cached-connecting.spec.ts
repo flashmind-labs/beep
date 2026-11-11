@@ -30,13 +30,16 @@ test("Home kept from before says its machines are connecting until Home is read"
   const row = page.locator("#sec-running .cc-line").filter({ hasText: "Fix the build script" });
 
   await expect(strip).toContainText("connecting");
-  await expect(strip.locator(".ddot.wait")).toHaveCount(1);
+  await expect(strip.locator(".ddot.dial")).toHaveCount(1);
   await expect(row).toContainText("connecting");
-  await expect(page.locator(".cc-foot")).toContainText("Connecting…");
+  await expect(page.locator(".cc-foot")).toContainText("Connecting to build-box…");
+  // A dot, not the pill a bare .wait would draw.
+  const dot = await page.locator(".cc-foot .ddot").boundingBox();
+  expect(dot && Math.round(dot.width)).toBe(7);
 
   await page.evaluate(() => (Reflect.get(window, "release") as () => void)());
   await expect(strip).not.toContainText("connecting");
-  await expect(strip.locator(".ddot.wait")).toHaveCount(0);
+  await expect(strip.locator(".ddot.dial")).toHaveCount(0);
   await expect(row).not.toContainText("connecting");
   await expect(page.locator(".cc-foot")).toContainText("1 of 1 machine online");
 });
