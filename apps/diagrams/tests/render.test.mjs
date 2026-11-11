@@ -23,7 +23,7 @@ for (const [type, source] of Object.entries({
 })) test(`renders ${type} offline and exports SVG`, async t => {
   const page = await pageFor(t, source);
   await assert.doesNotReject(() => page.locator('#picture').waitFor({state:'visible', timeout:10000}));
-  await page.locator('#svg').click();
+  await page.locator('#export').click(); await page.locator('#svg').click();
   const saved = await page.evaluate(() => window.messages.find(m => m.action === 'save'));
   assert.equal(saved.mime, 'image/svg+xml');
   const svg = Buffer.from(saved.data, 'base64').toString();
@@ -33,7 +33,7 @@ for (const [type, source] of Object.entries({
 test('PNG export, expansion, source and copying', async t => {
   const source = 'flowchart LR\n A[Unicode café] --> B[Done]';
   const page = await pageFor(t, source, true);
-  await page.locator('#png').click();
+  await page.locator('#export').click(); await page.locator('#png').click();
   await page.waitForFunction(() => window.messages.some(m => m.action === 'save'));
   const saved = await page.evaluate(() => window.messages.find(m => m.action === 'save'));
   const png = Buffer.from(saved.data, 'base64');
@@ -61,7 +61,7 @@ for (const source of ['not a diagram', '%%{init: {"securityLevel":"loose"}}%%\nf
 
 test('diagram text cannot fetch resources or execute script', async t => {
   const page = await pageFor(t, `flowchart LR\n A["<img src='https://example.invalid/pixel' onerror='alert(1)'>"] --> B[Done]`);
-  await page.locator('#svg').click();
+  await page.locator('#export').click(); await page.locator('#svg').click();
   const svg = await page.evaluate(() => atob(window.messages.find(m => m.action === 'save').data));
   assert.doesNotMatch(svg, /<image|<a\b|\sonerror=/);
   assert.equal(await page.locator('#picture').isVisible(), true);
@@ -69,7 +69,7 @@ test('diagram text cannot fetch resources or execute script', async t => {
 
 test('copies the image with a button, shortcuts and the context menu', async t => {
   const page = await pageFor(t, 'flowchart LR\n A[Copy me] --> B[Done]');
-  await page.locator('#copy-image').click();
+  await page.locator('#export').click(); await page.locator('#copy-image').click();
   await page.keyboard.press('Meta+c');
   await page.keyboard.press('Control+c');
   await page.locator('#picture').click({ button: 'right' });

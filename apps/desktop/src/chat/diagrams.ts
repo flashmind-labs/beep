@@ -46,7 +46,29 @@ function expand(source: string) {
 function render(diagram: Diagram) {
   diagram.frame.contentWindow?.postMessage({ kind: "beep-diagram", action: "render", source: diagram.source,
     expanded: diagram.expanded, desktop: true, dark: getComputedStyle(document.documentElement).colorScheme === "dark",
-    ...(diagram.worker ? {} : cache.get(diagram.source)) }, "*");
+    palette: palette(), ...(diagram.worker ? {} : cache.get(diagram.source)) }, "*");
+}
+/// The skin's colors as hex, since the renderer bakes them into the SVG. Cached drawings
+/// in another skin's colors are dropped when the skin changes.
+interface Palette { bg: string; fg: string; muted: string; box: string; line: string; accent: string }
+let lastPalette = "";
+function palette(): Palette {
+  const probe = document.createElement("i");
+  const context = document.createElement("canvas").getContext("2d");
+  document.documentElement.append(probe);
+  const hex = (name: string) => {
+    probe.style.color = `var(${name})`;
+    if (!context) return "";
+    context.fillStyle = "#000000"; context.fillStyle = getComputedStyle(probe).color;
+    return context.fillStyle;
+  };
+  const colors: Palette = { bg: hex("--surface"), fg: hex("--fg"), muted: hex("--muted"), box: hex("--elev"), line: hex("--border-hi"), accent: hex("--accent") };
+  probe.remove();
+
+  const key = JSON.stringify(colors);
+  if (key !== lastPalette) { lastPalette = key; cache.clear(); }
+
+  return colors;
 }
 function makeFrame(source: string, expanded: boolean, fallback?: HTMLElement, isWorker = false) {
   const frame = document.createElement("iframe");
