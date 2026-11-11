@@ -34,6 +34,10 @@ use tokio::{
 /// How long to wait before following a member whose follow ended without the
 /// mesh changing.
 const RETRY: Duration = Duration::from_secs(15);
+/// How long a member that is not on counts as being connected to, after the
+/// mesh opens or its link goes: the mesh dials it at once, and a dial gives
+/// up after 10 seconds.
+pub(crate) const CONNECT_WAIT: Duration = Duration::from_secs(20);
 
 /// A machine whose clock is off, as the Machines screens read it.
 #[derive(Debug, Serialize)]
@@ -56,6 +60,9 @@ struct Peer {
     online: bool,
     /// When it last reported, or its link went.
     seen_at: Option<SystemTime>,
+    /// Since when the mesh is trying to reach it: from the mesh opening or
+    /// its link going, until it is on again.
+    connecting_since: Option<Instant>,
     /// The beep-node it runs; not known to a node from before `version/1`.
     version: Option<String>,
     /// How far its clock is ahead of this Mac's, in milliseconds, when the
@@ -73,6 +80,7 @@ impl Peer {
             device,
             online: false,
             seen_at: None,
+            connecting_since: None,
             version: None,
             clock_offset_ms: None,
             offers: Vec::new(),
@@ -84,6 +92,15 @@ impl Peer {
 
     fn offers(&self, protocol: &str) -> bool {
         self.offers.iter().any(|offer| offer == protocol)
+    }
+
+    /// Whether the mesh is still trying to reach it for the first time
+    /// since it opened, or since the link went.
+    fn connecting(&self) -> bool {
+        !self.online
+            && self
+                .connecting_since
+                .is_some_and(|since| since.elapsed() < CONNECT_WAIT)
     }
 }
 
@@ -107,9 +124,12 @@ impl Shared {
 
     /// Takes the members and who is on from `mesh`, and drops those that
     /// are not members any more. One whose link just went was seen now.
-    fn refresh(&self, mesh: &Mesh) {
+    /// Whether a member that is not on started connecting: one new to the
+    /// list, or whose link just went.
+    fn refresh(&self, mesh: &Mesh) -> bool {
         let devices = mesh.machines();
         let now = SystemTime::now();
+        let mut connecting = false;
         let mut peers = self.peers();
         let before = peers.len();
         peers.retain(|id, _| devices.iter().any(|status| status.device.id == *id));
@@ -119,20 +139,46 @@ impl Shared {
             changed |= peers
                 .get(&status.device.id)
                 .is_none_or(|peer| peer.device != status.device || peer.online != status.online);
+            let new = !peers.contains_key(&status.device.id);
             let peer = peers
                 .entry(status.device.id)
                 .or_insert_with(|| Peer::new(status.device.clone()));
             if peer.online && !status.online {
                 peer.seen_at = Some(now);
             }
+
+            if status.online {
+                peer.connecting_since = None;
+            } else if new || peer.online {
+                peer.connecting_since = Some(Instant::now());
+                connecting = true;
+            }
+
             peer.device = status.device;
             peer.online = status.online;
         }
 
         drop(peers);
         if changed {
-            self.changes
-                .send_modify(|revision| revision.machines = revision.machines.wrapping_add(1));
+            self.bump_machines();
+        }
+
+        connecting
+    }
+
+    /// Counts the machines as changed, for a reader that redraws them.
+    fn bump_machines(&self) {
+        self.changes
+            .send_modify(|revision| revision.machines = revision.machines.wrapping_add(1));
+    }
+
+    /// Every member that is not on counts as connecting from now, as when
+    /// a new mesh opens.
+    fn connect_all(&self) {
+        let now = Instant::now();
+
+        for peer in self.peers().values_mut().filter(|peer| !peer.online) {
+            peer.connecting_since = Some(now);
         }
     }
 
@@ -227,6 +273,8 @@ impl Status {
         self.stop().await;
         // What the machines reported stays for those that are members still.
         self.shared.refresh(&mesh);
+        self.shared.connect_all();
+        settle_later(self.shared.clone());
         let (stop, stopped) = oneshot::channel();
         let follower = Follower {
             me: self.me,
@@ -279,6 +327,17 @@ impl Status {
                 version: peer.version.clone().unwrap_or_default(),
                 env: peer.env.clone().map(machine_env),
             })
+            .collect()
+    }
+
+    /// The members the mesh is still trying to reach since it opened or
+    /// their link went, for `CONNECT_WAIT` at most.
+    pub fn connecting(&self) -> Vec<EndpointId> {
+        self.shared
+            .peers()
+            .iter()
+            .filter(|(_, peer)| peer.connecting())
+            .map(|(id, _)| *id)
             .collect()
     }
 
@@ -438,7 +497,10 @@ impl Follower {
 
         loop {
             updates.borrow_and_update();
-            self.shared.refresh(&self.mesh);
+            if self.shared.refresh(&self.mesh) {
+                settle_later(self.shared.clone());
+            }
+
             reap(&mut follows);
             running.retain(|id, follow| {
                 let finished = follow.is_finished();
@@ -494,6 +556,15 @@ impl Follower {
 
         follows.shutdown().await;
     }
+}
+
+/// Counts the machines as changed once `CONNECT_WAIT` passed, so a reader
+/// draws a machine that was not reached as offline. Ends on its own.
+fn settle_later(shared: Arc<Shared>) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(CONNECT_WAIT).await;
+        shared.bump_machines();
+    });
 }
 
 /// Collects the follows that have ended, so the set holds only live ones.

@@ -26,6 +26,8 @@ export function viewError(e: unknown): ViewError {
 export const retryDelay = (lost: number) => Math.min(RETRY_FIRST_MS * 2 ** Math.max(0, lost - 1), RETRY_MAX_MS);
 
 export const lostNote = (machine: string) => `Lost the connection to ${machine}. Reconnecting...`;
+/// Under a log drawn from what this device kept, until the first live read or event.
+export const connectingNote = (machine: string) => `Connecting to ${machine}...`;
 
 /// Why `agent_steer` failed: the machine could not be reached ("lost"), the
 /// link dropped once it went ("unsure"), the message waits in this device's

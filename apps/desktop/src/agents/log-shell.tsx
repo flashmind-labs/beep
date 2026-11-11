@@ -25,7 +25,7 @@ function samePlan(a: LogShell["plan"], b: LogShell["plan"]) {
 }
 
 function sameNote(a: LogShell["note"], b: LogShell["note"]) {
-  return a === b || (!!a && !!b && a.text === b.text && a.error === b.error);
+  return a === b || (!!a && !!b && a.text === b.text && a.tone === b.tone);
 }
 
 function sameShell(a: LogShell, b: LogShell) {

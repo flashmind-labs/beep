@@ -47,7 +47,7 @@ import { openReport } from "../report/report.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { guardClicks } from "../ui/clickguard.ts";
 import { reason } from "../ui/format.ts";
-import type { MacControl } from "../machines/machine-state.ts";
+import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { followToolUpdates } from "../machines/machines.ts";
@@ -264,6 +264,7 @@ async function showCached() {
   keepPagesFile(cached?.pages);
   pagesAccount(mac);
   if (!home) return;
+  keepConnecting(state.home?.machines ?? null);
   draw();
   homeCached();
   reloadGroup("projects");

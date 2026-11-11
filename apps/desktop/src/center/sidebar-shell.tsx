@@ -3,7 +3,7 @@ import { IC } from "../ui/icons.tsx";
 import type { GroupSlot } from "./state.ts";
 
 export interface SideLink { label: string; svg: string; count: number; current?: boolean; hot?: boolean; shortcut?: string; className?: string; open(): void }
-export type SideFooter = { text: string; dot: "off" | "bad" | "on" | null; count?: number; action: "signin" | "add" | null };
+export type SideFooter = { text: string; dot: "off" | "bad" | "on" | "wait" | null; count?: number; action: "signin" | "add" | null };
 export function SidebarItem({ label, svg, current, shortcut, open }: { label: string; svg: string; current: boolean; shortcut?: string; open(): void }) {
   return <button type="button" className="cc-si" title={label} aria-label={label} aria-current={current ? "true" : undefined} onClick={open}><span className="sidebar-icon" style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: svg }} /><span className="tt">{label}</span>{shortcut && <kbd>{shortcut}</kbd>}</button>;
 }

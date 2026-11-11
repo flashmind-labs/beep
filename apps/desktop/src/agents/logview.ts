@@ -17,6 +17,8 @@ import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive, trackLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { showLogShell } from "./log-shell.tsx";
+import type { LogShell } from "./log-shell-view.tsx";
+import { connectingNote } from "./reconnect-state.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
 import { answerHtml } from "./turnrows.ts";
 import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
@@ -67,9 +69,10 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   // The log goes in by turns, and only those near the view are drawn.
   const units = p.entries.length && AG.log
     ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p, news)] : null;
-  const note = AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", error: false }
-    : AG.note && AG.note === AG.readError && AG.link.lost ? { text: AG.note, error: false }
-    : AG.note ? { text: AG.note, error: true } : null;
+  const note: LogShell["note"] = AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", tone: "muted" }
+    : AG.note && AG.note === AG.readError && AG.link.lost ? { text: AG.note, tone: "muted" }
+    : AG.note ? { text: AG.note, tone: "error" }
+    : !AG.sig && p.entries.length ? { text: connectingNote(s.machine_name || "the machine"), tone: "connecting" } : null;
   const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");
   const subs = paneSubs(p);
   const shell = { why, starting: s.status === "starting", log: !!units,

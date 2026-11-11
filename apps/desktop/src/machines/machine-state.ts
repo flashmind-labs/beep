@@ -1,7 +1,7 @@
 import { onPhone } from "../ui/platform.ts";
 // What a machine's rows say: its card, abilities, disk, memory and synced
 // projects, apart from the DOM so it can be tested.
-import { bytes } from "../ui/format.ts";
+import { bytes, plural } from "../ui/format.ts";
 import { conflictCount, machineMeta, rowDetail, stateChip, syncPct, type SyncDetail, type SyncRow } from "../project/filesync.ts";
 
 /// A tool found on a machine's `PATH` (MachineTool).
@@ -77,7 +77,31 @@ export interface MachineCard extends MachineView {
   agents: number;
   /// Null while offline or before its first sample.
   stats: CardStats | null;
+  /// Not reached yet: shown from what the app kept, or the mesh is still
+  /// dialing it after opening or losing its link.
+  connecting: boolean;
 }
+
+/// How a machine's dot reads: on (busy with agents or idle), connecting, or off.
+export function machineDot(m: Pick<MachineCard, "online" | "agents" | "connecting">): { className: string; title: string } {
+  if (m.online) return m.agents ? { className: "ddot busy", title: `Online · ${plural(m.agents, "agent", "agents")} running` } : { className: "ddot", title: "Online" };
+  return m.connecting ? { className: "ddot wait", title: "Connecting" } : { className: "ddot off", title: "Offline" };
+}
+
+/// The machines the app is still connecting to, by id, for the session rows on them.
+let connecting: ReadonlySet<string> = new Set();
+const connectingWatchers = new Set<() => void>();
+
+/// Takes which of `machines` are connecting; the watchers hear of a change.
+export function keepConnecting(machines: readonly Pick<MachineCard, "id" | "connecting">[] | null) {
+  const next = new Set((machines ?? []).filter(m => m.connecting).map(m => m.id));
+  if (next.size === connecting.size && [...next].every(id => connecting.has(id))) return;
+  connecting = next;
+  for (const watch of connectingWatchers) watch();
+}
+
+export const machineConnecting = (id: string) => connecting.has(id);
+export function onConnecting(watch: () => void) { connectingWatchers.add(watch); }
 
 /// Where this Mac's own link stands, as `mac_control` gives it.
 export interface MacControl {
@@ -101,8 +125,8 @@ export function machineCaps(m: { gpus: readonly { model: string }[]; capabilitie
 }
 
 /// The machine table's Now column.
-export function machineNow(m: Pick<MachineCard, "online" | "agents" | "can_host">) {
-  return !m.online ? "offline" : m.can_host === false ? "controller" : m.agents ? "working" : "idle";
+export function machineNow(m: Pick<MachineCard, "online" | "agents" | "can_host" | "connecting">) {
+  return !m.online ? m.connecting ? "connecting" : "offline" : m.can_host === false ? "controller" : m.agents ? "working" : "idle";
 }
 
 /// How far machine `id` is with a synced project it fetches or scans now,

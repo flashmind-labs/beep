@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { formatAgo, plural } from "../ui/format.ts";
+import { formatAgo } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { ALL, byMachine, terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.ts";
 import { allTerms, openTerminals, termMachines } from "../terminals/view.ts";
@@ -10,14 +10,13 @@ import { openTile } from "../project/split.ts";
 import { mintJoinLine } from "./notjoined.ts";
 import { copy } from "../ui/parts.ts";
 import { notJoinedSub, splitJoined } from "./notjoined-state.ts";
-import { machineCaps, machineDisk, machineMemory, machineNow, machineOs, machineProjects, thisMacRow, type MachineCard, type MachineProject } from "./machine-state.ts";
+import { machineCaps, machineDisk, machineDot, machineMemory, machineNow, machineOs, machineProjects, thisMacRow, type MachineCard, type MachineProject } from "./machine-state.ts";
 import { showMachineMenu, useThisMac } from "./table.ts";
 import { trafficRows, trafficSummary } from "./traffic-state.ts";
 
 function Dot({ machine }: { machine: MachineCard }) {
-  const status = !machine.online ? " off" : machine.agents ? " busy" : "";
-  const title = !machine.online ? "Offline" : machine.agents ? `Online · ${plural(machine.agents, "agent", "agents")} running` : "Online";
-  return <span className={`ddot${status}`} title={title} />;
+  const { className, title } = machineDot(machine);
+  return <span className={className} title={title} />;
 }
 function AddMachine({ className }: { className: string }) { return <button type="button" className={`dbtn ${className}`} onClick={openAddMachine}><Icon name="plus" /> Add a machine</button>; }
 function Terminal({ terminal, online }: { terminal: TerminalRow; online: boolean }) {
@@ -30,7 +29,7 @@ function Machine({ machine, terminals }: { machine: MachineCard; terminals: Term
   const off = machine.online ? "" : " off", caps = machine.can_host === false ? ["Controller"] : machineCaps(machine);
   const disk = machineDisk(machine), memory = machineMemory(machine), moved = trafficSummary(trafficRows(state.traffic.find(row => row.id === machine.id)));
   const menu = (event: React.MouseEvent) => showMachineMenu(machine, () => [], event.nativeEvent);
-  return <><span id={`m-${machine.id}`} title={machine.name} className={`nm${off}`} onContextMenu={menu}><b><Dot machine={machine} /><span>{machine.name}</span></b><span className="os">{machine.can_host === false ? "Phone" : machineOs(machine)}</span></span><span className={`num${off}`} onContextMenu={menu}>{machine.online && machine.agents ? machine.agents : "–"}</span><span className={`num${off}${disk.low ? " low" : ""}${disk.other ? " two" : ""}`} title={disk.title || undefined} onContextMenu={menu}>{disk.text}{disk.other && <small>{disk.other}</small>}</span><span className={`num${off}`} title={memory.title || undefined} onContextMenu={menu}>{memory.text}</span><span className={`num${off}`} title={moved?.each} onContextMenu={menu}>{moved?.both ?? "–"}</span><span className={`caps${off}`} title={caps.length ? [...caps, ...machine.gpus.map(gpu => gpu.model)].join(", ") : undefined} onContextMenu={menu}>{caps.join(" · ") || "–"}</span><span className={`num${off}`} title={machine.online ? undefined : `Seen ${formatAgo(machine.seen_at, "since")}`} onContextMenu={menu}>{machineNow(machine)}</span><span className="act" onContextMenu={menu}>{machine.can_host !== false && <button type="button" className="dbtn small" disabled={!machine.online} onClick={() => openTerminals({ newOn: machine.id })}>New terminal</button>}</span>{terminals.map(terminal => <Terminal key={terminal.id} terminal={terminal} online={machine.online} />)}{machineProjects(machine.id, state.sync, fsync.detail).map(project => <Project key={project.project} project={project} />)}</>;
+  return <><span id={`m-${machine.id}`} title={machine.name} className={`nm${off}`} onContextMenu={menu}><b><Dot machine={machine} /><span>{machine.name}</span></b><span className="os">{machine.can_host === false ? "Phone" : machineOs(machine)}</span></span><span className={`num${off}`} onContextMenu={menu}>{machine.online && machine.agents ? machine.agents : "–"}</span><span className={`num${off}${disk.low ? " low" : ""}${disk.other ? " two" : ""}`} title={disk.title || undefined} onContextMenu={menu}>{disk.text}{disk.other && <small>{disk.other}</small>}</span><span className={`num${off}`} title={memory.title || undefined} onContextMenu={menu}>{memory.text}</span><span className={`num${off}`} title={moved?.each} onContextMenu={menu}>{moved?.both ?? "–"}</span><span className={`caps${off}`} title={caps.length ? [...caps, ...machine.gpus.map(gpu => gpu.model)].join(", ") : undefined} onContextMenu={menu}>{caps.join(" · ") || "–"}</span><span className={`num${off}`} title={machine.online || machine.connecting ? undefined : `Seen ${formatAgo(machine.seen_at, "since")}`} onContextMenu={menu}>{machineNow(machine)}</span><span className="act" onContextMenu={menu}>{machine.can_host !== false && <button type="button" className="dbtn small" disabled={!machine.online} onClick={() => openTerminals({ newOn: machine.id })}>New terminal</button>}</span>{terminals.map(terminal => <Terminal key={terminal.id} terminal={terminal} online={machine.online} />)}{machineProjects(machine.id, state.sync, fsync.detail).map(project => <Project key={project.project} project={project} />)}</>;
 }
 function NotJoined({ machines }: { machines: MachineCard[] }) {
   return <div id="sec-notjoined"><div className="cc-sec"><h4>Not in the mesh yet<span className="n">{machines.length}</span></h4></div><div className="cc-panel">{machines.map(machine => <div className="cc-row cc-line" key={machine.id}><Dot machine={machine} /><button type="button" className="t" title={machine.name}><b>{machine.name}</b><span>{notJoinedSub(machineOs(machine))}</span></button><span className="r"><span className="chip blocked">Not joined</span><JoinLineButton /></span></div>)}</div></div>;

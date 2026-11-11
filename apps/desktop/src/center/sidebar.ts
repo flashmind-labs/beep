@@ -120,6 +120,7 @@ function footer(machines: MachineCard[] | null | undefined): SideFooter {
   if (!state.home) return { dot: stuck() ? "bad" : "off", text: stuck() ? "Not connected" : "Connecting…", action };
   if (!machines) return { dot: null, text: "Machines unavailable", action };
   if (!machines.length) return { dot: null, text: "No machines linked", action };
+  if (machines.some(m => m.connecting)) return { dot: "wait", text: "Connecting…", action };
   return { dot: "on", count: machines.filter(m => m.online).length, text: ` of ${plural(machines.length, "machine", "machines")} online`, action };
 }
 

@@ -29,7 +29,9 @@ function Running({ row, home }: { row: RunningRow; home: HomeView }) {
   const working = row.kind === "agent" && ["working", "running", "starting"].includes(row.status);
   const status = moving ? <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span> : closing || (row.status === "asking" ? <span className="chip wait">needs you</span> : working ? <span className="cc-running"><span className="dspin" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
   const open = () => row.kind === "research" ? openResearch(row.session) : go("pane", { agent: row });
-  return <LineRow lead={row.kind === "agent" ? <HarnessIcon agent={row.agent} /> : null} title={title} sub={sub} right={status} onOpen={open} rowTitle={moving?.why || undefined} onContext={row.kind === "agent" ? event => { void sessionMenu(event, row, s => go("pane", { agent: s })); } : undefined} />;
+  // Shown as last seen until its machine answers.
+  const waiting = row.kind === "agent" && !!home.machines?.some(m => m.id === row.machine_id && m.connecting);
+  return <LineRow lead={row.kind === "agent" ? <HarnessIcon agent={row.agent} /> : null} title={title} sub={sub} right={waiting ? <span className="cc-wait">connecting</span> : status} dim={waiting} onOpen={open} rowTitle={moving?.why || undefined} onContext={row.kind === "agent" ? event => { void sessionMenu(event, row, s => go("pane", { agent: s })); } : undefined} />;
 }
 
 export function HomeOverview({ home }: { home: HomeView }) {
