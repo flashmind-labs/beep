@@ -38,7 +38,9 @@ export const sessionsRead = new Set<() => void>();
 /// window hears of titles and sessions on other devices: until one of those,
 /// the last read stands.
 const changes = new Changes();
-const changed = () => changes.changed();
+/// Called when the sessions may have changed since the last read.
+export const sessionsChanged = new Set<() => void>();
+const changed = () => { changes.changed(); for (const f of sessionsChanged) f(); };
 subscribeEach(topic("home"), changed);
 for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, changed);
 

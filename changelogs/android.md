@@ -48,6 +48,8 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Android: the Agents list shows sessions that start, end or change while it is open, without leaving the page and coming back.
+
 - Android: Stop all asks first when a session that is not open still has
   subagents running.
 - Android: Stop ends only the main agent's turn. Its subagents, background
