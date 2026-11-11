@@ -34,6 +34,7 @@
      </div>
      <div class="view">
       <input aria-label="Search projects" class="search" placeholder="Search projects" type="search"/>
+      <button class="pj-gh" type="button" aria-expanded="true"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M6 9l6 6 6-6"></path></svg><b>acme/</b><small>3 repos</small></button>
       <div class="panel">
        <div class="pj-li">
         <div class="fi">
@@ -91,25 +92,8 @@
          1 PR
         </div>
        </div>
-       <div class="pj-li">
-        <div class="fi">
-         <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14">
-          <path d="M3 7h7l2 2h9v11H3z">
-          </path>
-         </svg>
-        </div>
-        <div class="t">
-         <b>
-          notes
-         </b>
-         <span>
-          laptop · folder sync
-         </span>
-        </div>
-        <div class="r" style="font-size:12px;color:var(--muted)">
-        </div>
-       </div>
       </div>
+      <button class="pj-gh" type="button" aria-expanded="false"><svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14"><path d="M9 6l6 6-6 6"></path></svg><b>Other folders</b><small>1 folder</small></button>
      </div>
      <div class="tabs">
       <a class="dot" href="../index.html#home" target="_top">
@@ -163,7 +147,7 @@
     </div>
    </div>
    <figcaption>
-    Projects list, most recent activity first, with search. Long names end in an ellipsis.
+    Projects list, most recent activity first, with search. Each group folds with a tap on its heading, and stays folded on this phone; Other folders is folded here. Long names end in an ellipsis. The page never scrolls sideways.
    </figcaption>
   </figure>
  </body>

@@ -59,6 +59,12 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
   border: 1px solid var(--border); color: var(--fg); display: inline-flex; align-items: center; gap: 2px; justify-content: center }
 .ddot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; flex: none }
 .ddot.off { background: var(--dim) } .ddot.bad { background: var(--err) }
+/* Connecting: shown from what the app kept, the machine not reached yet. A static ring. */
+.ddot.wait { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dim) }
+.dchat.wait .t, .dchat.wait .w { opacity: .55 }
+/* Shows only once a read takes longer than a moment, so a quick answer never flashes it. One-shot, no loop. */
+.dlate { animation: dlate .15s ease-out .8s backwards }
+@keyframes dlate { from { opacity: 0 } }
 
 .dsteps { display: grid; gap: 4px }
 .dstep { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); line-height: 20px; min-width: 0 }

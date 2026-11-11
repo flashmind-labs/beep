@@ -6,6 +6,9 @@
 .pj-li{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:center;min-height:56px;padding:8px 11px;border-top:1px solid var(--border)}
 .pj-li:first-child{border-top:0}
 .pj-li .t{min-width:0}.pj-li .t b{display:block;font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pj-li .t span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pj-gh{display:flex;align-items:center;gap:6px;min-height:44px;margin:0 0 -8px;padding:0;border:0;background:none;font:inherit;font-size:13px;color:var(--fg);text-align:left}
+.pj-gh svg{color:var(--dim)}
+.pj-gh small{font-size:11px;color:var(--muted)}
 .fi{width:24px;height:24px;border-radius:6px;background:var(--elev);display:grid;place-items:center;color:var(--muted)}
 
 .machine-scroll { overflow-x: auto; flex: none; border: 1px solid var(--border); border-radius: var(--radius); }
