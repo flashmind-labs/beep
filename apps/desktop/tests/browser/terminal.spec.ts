@@ -201,3 +201,24 @@ test("a flood of output stays responsive and lands whole", async ({ page }) => {
   await expect.poll(() => pixels(page, [0x6f, 0xcf, 0x97]), { timeout: 30_000 }).toBeGreaterThan(50);
   expect(Date.now() - started).toBeLessThan(30_000);
 });
+
+test("quadrants and Powerline glyphs fill their cells as shapes", async ({ page }) => {
+  await open(page);
+  const red: [number, number, number] = [200, 30, 30];
+  /// Red pixels with 20 of `glyph` on an otherwise clear screen.
+  const area = async (glyph: string) => {
+    await page.evaluate(g => window.term.write(`\x1b[2J\x1b[H\x1b[38;2;200;30;30m${g.repeat(20)}\x1b[0m`), glyph);
+    let last = -1;
+    // Settled: two screenshots in a row agree.
+    await expect.poll(async () => { const now = await pixels(page, red); const same = now === last; last = now; return same; }).toBe(true);
+    return last;
+  };
+
+  const full = await area("█");
+  expect(full).toBeGreaterThan(500);
+  // A quarter, and three quarters that meet the next cell's.
+  expect(Math.abs(await area("▘") / full - 0.25)).toBeLessThan(0.05);
+  expect(Math.abs(await area("▛") / full - 0.75)).toBeLessThan(0.05);
+  // A triangle is half its cell, and stays in it though the next is blank.
+  expect(Math.abs(await area(" ") / full - 0.5)).toBeLessThan(0.08);
+});

@@ -655,9 +655,47 @@ function draw(ctx: CanvasRenderingContext2D, text: string, font: string, width: 
 
 const EMOJI = /\p{Extended_Pictographic}/u;
 
-/// Private use characters: Nerd Font and Powerline icons.
+/// The quadrants of ▖ to ▟: upper left 1, upper right 2, lower left 4, lower right 8.
+const QUADRANTS = [4, 8, 1, 1 | 4 | 8, 1 | 8, 1 | 2 | 4, 1 | 2 | 8, 2, 2 | 4, 2 | 4 | 8];
+
+/// Powerline's triangles, half circles and diagonals, drawn to fill the cell.
+function isPowerline(cp: number): boolean {
+  return cp >= 0xe0b0 && cp <= 0xe0bf;
+}
+
+function drawPowerline(ctx: CanvasRenderingContext2D, cp: number, w: number, h: number) {
+  const line = Math.max(1, Math.round(w / 8));
+  const shape = (...points: [number, number][]) => {
+    ctx.beginPath();
+    for (const [x, y] of points) ctx.lineTo(x, y);
+  };
+  const half = (right: boolean) => {
+    ctx.beginPath();
+    ctx.ellipse(right ? 0 : w, h / 2, w, h / 2, 0, right ? -Math.PI / 2 : Math.PI / 2, right ? Math.PI / 2 : Math.PI * 1.5);
+  };
+  ctx.lineWidth = line;
+
+  switch (cp) {
+    case 0xe0b0: shape([0, 0], [w, h / 2], [0, h]); ctx.fill(); break;
+    case 0xe0b1: shape([0, 0], [w, h / 2], [0, h]); ctx.stroke(); break;
+    case 0xe0b2: shape([w, 0], [0, h / 2], [w, h]); ctx.fill(); break;
+    case 0xe0b3: shape([w, 0], [0, h / 2], [w, h]); ctx.stroke(); break;
+    case 0xe0b4: half(true); ctx.fill(); break;
+    case 0xe0b5: half(true); ctx.stroke(); break;
+    case 0xe0b6: half(false); ctx.fill(); break;
+    case 0xe0b7: half(false); ctx.stroke(); break;
+    case 0xe0b8: shape([0, 0], [w, h], [0, h]); ctx.fill(); break;
+    case 0xe0ba: shape([w, 0], [w, h], [0, h]); ctx.fill(); break;
+    case 0xe0bc: shape([0, 0], [w, 0], [0, h]); ctx.fill(); break;
+    case 0xe0be: shape([0, 0], [w, 0], [w, h]); ctx.fill(); break;
+    case 0xe0b9: case 0xe0bf: shape([0, 0], [w, h]); ctx.stroke(); break;
+    default: shape([w, 0], [0, h]); ctx.stroke();
+  }
+}
+
+/// Private use characters: Nerd Font icons. Powerline's shapes fill their own cell.
 function isIcon(cp: number): boolean {
-  return (cp >= 0xe000 && cp <= 0xf8ff) || cp >= 0xf0000;
+  return ((cp >= 0xe000 && cp <= 0xf8ff) || cp >= 0xf0000) && !isPowerline(cp);
 }
 
 /// Draws block elements and the common box drawing lines; false for other
@@ -682,6 +720,26 @@ function drawShape(ctx: CanvasRenderingContext2D, cp: number, w: number, h: numb
   // Lower eighths ▁ to ▇, and left eighths ▉ to ▏.
   if (cp >= 0x2581 && cp <= 0x2587) { const f = (cp - 0x2580) / 8; fill(0, h - h * f, w, h * f); return true; }
   if (cp >= 0x2589 && cp <= 0x258f) { const f = (0x2590 - cp) / 8; fill(0, 0, w * f, h); return true; }
+  // Upper and right eighths ▔ ▕.
+  if (cp === 0x2594) { fill(0, 0, w, h / 8); return true; }
+  if (cp === 0x2595) { fill(w - w / 8, 0, w / 8, h); return true; }
+
+  // Quadrants ▖ to ▟, split where halves meet in the next cell.
+  const quadrants = QUADRANTS[cp - 0x2596];
+  if (cp >= 0x2596 && quadrants !== undefined) {
+    const mx = Math.round(w / 2);
+    const my = Math.round(h / 2);
+    if (quadrants & 1) fill(0, 0, mx, my);
+    if (quadrants & 2) fill(mx, 0, w - mx, my);
+    if (quadrants & 4) fill(0, my, mx, h - my);
+    if (quadrants & 8) fill(mx, my, w - mx, h - my);
+    return true;
+  }
+
+  if (isPowerline(cp)) {
+    drawPowerline(ctx, cp, w, h);
+    return true;
+  }
 
   const lines = BOX[cp];
   if (lines === undefined) return false;
