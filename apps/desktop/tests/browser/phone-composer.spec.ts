@@ -117,3 +117,33 @@ test("moving between fields with the keyboard up undoes the scroll iOS gives a c
   });
   await expect.poll(() => page.locator("#clipped").evaluate(box => box.scrollTop)).toBe(0);
 });
+
+test("a keyboard put away while the field keeps focus lets the field go and the page back", async ({ page }) => {
+  await openBusy(page);
+  const field = page.locator("#agmsg");
+  await field.focus();
+  const viewport = (height: number, top: number) => page.evaluate(([height, top]) => {
+    const vv = window.visualViewport!;
+    Object.defineProperty(vv, "height", { configurable: true, get: () => height });
+    Object.defineProperty(vv, "offsetTop", { configurable: true, get: () => top });
+    vv.dispatchEvent(new Event("resize"));
+  }, [height, top]);
+  await viewport(480, 300);
+  await expect(page.locator("body")).toHaveClass(/mb-kbd/);
+
+  // iOS hides the keyboard without a blur, as when another app takes it.
+  await viewport(844, 0);
+  await expect(page.locator("body")).not.toHaveClass(/mb-kbd/);
+  await expect(field).not.toBeFocused();
+  expect((await page.locator(".cwin").boundingBox())!.y).toBe(0);
+});
+
+test("a tap on Send with the keyboard up sends and keeps the field", async ({ page }) => {
+  await openBusy(page);
+  const field = page.locator("#agmsg");
+  await field.fill("Ship it");
+  await field.focus();
+  await page.locator("#agsend").click();
+  await expect(field).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(c => c.command === "agent_steer"))).toBe(true);
+});

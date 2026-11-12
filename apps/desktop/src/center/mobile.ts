@@ -158,6 +158,8 @@ function swipeBack() {
 }
 
 const TEXT_FIELD = "textarea, input:not([type]), input[type=text], input[type=search], input[type=url], input[type=email], [contenteditable=true]";
+/// The buttons that send or start what a composer's field holds.
+const SEND = "#agsend, .cc-pjc button[type=submit], .cc-comp button[type=submit], .nt-rep .dbtn.pri";
 
 /// The soft keyboard takes the tab bar's place instead of squeezing the page, and the window
 /// shrinks to what the keyboard leaves visible, so the composer sits right on top of it.
@@ -168,8 +170,22 @@ function keyboard() {
   if (!vv) return;
   const touch = window.matchMedia("(pointer: coarse)");
   const typing = () => document.activeElement instanceof Element && document.activeElement.matches(TEXT_FIELD);
+  const dismiss = () => (document.activeElement as HTMLElement | null)?.blur();
+  // iOS shrinks innerHeight with the keyboard but not the layout viewport, so the keyboard shows
+  // as the visual viewport falling short of it. Android resizes both and has only `typing()`.
+  let covered = false;
   const check = () => {
-    const up = window.innerHeight - vv.height > 150 || (touch.matches && typing());
+    const short = document.documentElement.clientHeight - vv.height > 150;
+    // iOS can put the keyboard away and leave the field focused, as when another app or the
+    // system takes it. The page would stay laid out for the keyboard, offset by where the
+    // window had scrolled, so the field lets go and the window scrolls back.
+    if (covered && !short && typing()) {
+      covered = false;
+      dismiss();
+      window.scrollTo(0, 0);
+    }
+    covered = short;
+    const up = short || (touch.matches && typing());
     const top = `${vv.offsetTop}px`, height = `${vv.height}px`, root = document.documentElement.style;
     if (up === document.body.classList.contains("mb-kbd") && root.getPropertyValue("--mb-vv-top") === top && root.getPropertyValue("--mb-vv-height") === height) return;
 
@@ -210,7 +226,13 @@ function keyboard() {
   vv.addEventListener("scroll", check);
   document.addEventListener("focusin", follow);
   document.addEventListener("focusout", follow);
-  const dismiss = () => (document.activeElement as HTMLElement | null)?.blur();
+
+  // A tap on a send button keeps the field focused. Losing focus would put the keyboard away and
+  // move the button before the click lands, so the first tap only hid the keyboard.
+  // WebKit moves focus on mousedown even when pointerdown was prevented.
+  document.addEventListener("mousedown", e => {
+    if (document.body.classList.contains("mobile") && typing() && e.target instanceof Element && e.target.closest(SEND)) e.preventDefault();
+  }, true);
 
   document.addEventListener("focusin", e => {
     const field = e.target instanceof Element ? e.target.closest<HTMLElement>(".dinput") : null;
