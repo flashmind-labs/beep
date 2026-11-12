@@ -71,18 +71,19 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dstep > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .dstep .s { width: 16px; height: 16px; display: grid; place-items: center; flex: none }
 .dstep.run { color: var(--fg) }
-/* Spinners show work in progress, so they still turn; a hidden window pauses them. */
+/* A spinner turns while the user waits on an action; work that runs on its own, such as an
+   agent's turn, shows the still running dot, since a turning ring repaints every frame. */
 /* One turn takes SPIN_MS in ui/kit.tsx, whose Spinner starts each one at the page clock's point in the turn. */
 .dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); display: inline-block; animation: spin .8s linear infinite }
-.drun { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); border-top-color: var(--accent); display: inline-block; flex: none; animation: spin .8s linear infinite }
+.drun { width: 10px; height: 10px; border-radius: 50%; border: 2.5px solid color-mix(in srgb, var(--accent) 30%, transparent); background: var(--accent); background-clip: padding-box; box-sizing: border-box; display: inline-block; flex: none }
 .dspin.sw-spin, .drun.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none }
 .cc-running .dspin, .cc-running .drun { width: 10px; height: 10px; flex: none }
 .chip .dspin, .chip .drun { width: 9px; height: 9px }
 .rr-st .dspin, .rr-st .drun { width: 11px; height: 11px }
-.ag-tasks .dspin, .ag-task .dspin { flex: none; width: 10px; height: 10px }
+.ag-tasks :is(.dspin, .drun), .ag-task .dspin { flex: none; width: 10px; height: 10px }
 @keyframes spin { to { transform: rotate(360deg) } }
-/* A hidden window keeps no spinner turning (ui/active.ts sets data-hidden). */
-:root[data-hidden] :is(.dspin, .drun) { animation-play-state: paused }
+/* A hidden window keeps nothing moving (ui/active.ts sets data-hidden). */
+:root[data-hidden] :is(.dspin, .dthink.live .lb) { animation-play-state: paused }
 /* A Mermaid block not yet drawn announces itself to chat/diagrams.ts as it shows. */
 /* Found even with Reduce motion on, which removes every other animation. */
 pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms !important }
@@ -151,7 +152,7 @@ pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms !
 .dchat .t small, .dappr .tt small, .dlevel .tt small, .dgit .acct { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--muted) }
 .dchat .pin { color: var(--hot); display: grid; flex: none }
 .dchat .run { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--accent); flex: 0 1 auto; min-width: 0; max-width: 45% }
-.dchat .run .dspin { flex: none }
+.dchat .run :is(.dspin, .drun) { flex: none }
 .dchat .run .tx { overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
 .dchat .w { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none }
 .dchat[aria-selected="true"], .dmem[aria-selected="true"], .drt[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 28%, transparent) }

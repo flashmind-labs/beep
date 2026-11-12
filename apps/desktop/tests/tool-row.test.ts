@@ -90,7 +90,7 @@ test("native subagent rows keep spinning after the parent turn ends", () => {
       const en = { kind: "tool", text: `Check the fixtures [${status}]\n[steps] 1\n[session] subagent:${harness}` };
       AG.page!.entries = [en];
       bar.innerHTML = toolRow(en, 0);
-      assert.equal(!!bar.querySelector('.dspin'), status === "in_progress", `${harness}: ${status}`);
+      assert.equal(!!bar.querySelector('.drun'), status === "in_progress", `${harness}: ${status}`);
       assert.ok(bar.querySelector('small')?.textContent.includes(status === "in_progress" ? "working" : status === "failed" ? "failed" : "done"));
     }
   }
@@ -102,6 +102,6 @@ test("started agent rows spin using the child session state", () => {
   const en = { kind: "tool", text: "Check the fixtures [completed]\n[steps] 0\n[child] child@m2 working key-1" };
   AG.page!.entries = [en];
   bar.innerHTML = toolRow(en, 0);
-  assert.ok(bar.querySelector('.dspin'));
+  assert.ok(bar.querySelector('.drun'));
   assert.ok(bar.querySelector('small')?.textContent.includes("working"));
 });

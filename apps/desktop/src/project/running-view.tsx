@@ -15,7 +15,7 @@ export function ProjectRunning({ running }: { running: RunningAgent[] }) {
     const working = ["working", "running", "starting"].includes(row.status) && !moving && !closing;
     const open = () => go("pane", { agent: row });
     const status = moving ? <Chip kind={moving.chip === "Moving" ? "run" : "bad"} text={moving.chip} />
-      : closing || (row.status === "asking" ? <Chip kind="wait" text="needs you" /> : working ? <span className="cc-running"><Spinner label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
+      : closing || (row.status === "asking" ? <Chip kind="wait" text="needs you" /> : working ? <span className="cc-running"><Spinner dot label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
     return <LineRow key={runningKey(row)} dataKey={runningKey(row)} lead={<HarnessIcon agent={row.agent} />} title={title} sub={sub} right={status} rowTitle={moving?.why || undefined} onOpen={open} onContext={event => void sessionMenu(event, row, selected => go("pane", { agent: selected }))} />;
   })}</div> : <EmptyPanel text="No agent is working in this project right now." />}</>;
 }
