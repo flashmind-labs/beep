@@ -14,6 +14,10 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 /// What is known of a copy.
@@ -53,6 +57,8 @@ pub(super) struct Entry {
     pub(super) copy: Option<Meta>,
     /// The times (unix seconds) of versions that lost, oldest first.
     pub(super) lost: Vec<u64>,
+    /// Bytes on disk of the copy's transcript alone.
+    pub(super) copy_len: u64,
     /// Bytes on disk of the copy, and of the versions that lost.
     pub(super) copy_bytes: u64,
     pub(super) lost_bytes: u64,
@@ -61,6 +67,9 @@ pub(super) struct Entry {
 #[derive(Debug, Clone)]
 pub(super) struct Cache {
     dir: PathBuf,
+    /// Counts the changes made through any clone, so a reader can tell the
+    /// cache changed without reading it.
+    changes: Arc<AtomicU64>,
 }
 
 /// A name a folder can carry for an agent.
@@ -72,7 +81,17 @@ impl Cache {
     pub(super) fn new(state_dir: &Path) -> Self {
         Self {
             dir: state_dir.join("sessions"),
+            changes: Arc::default(),
         }
+    }
+
+    /// How many changes were made to the cache since the node started.
+    pub(super) fn changes(&self) -> u64 {
+        self.changes.load(Ordering::Relaxed)
+    }
+
+    fn changed(&self) {
+        self.changes.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The folder of session `id`, when both names are safe in a path.
@@ -91,6 +110,7 @@ impl Cache {
     }
 
     pub(super) fn save_meta(&self, agent: &AgentSlug, id: &str, meta: &Meta) -> io::Result<()> {
+        self.changed();
         let folder = self
             .folder(agent, id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a session name"))?;
@@ -120,49 +140,52 @@ impl Cache {
                     continue;
                 }
 
-                out.push(self.entry(&slug, &id));
+                out.extend(self.entry(&slug, &id));
             }
         }
 
         out
     }
 
-    fn entry(&self, agent: &AgentSlug, id: &str) -> Entry {
+    /// Session `id` in the cache; `None` when it has no folder.
+    pub(super) fn entry(&self, agent: &AgentSlug, id: &str) -> Option<Entry> {
+        let files = fs::read_dir(self.folder(agent, id)?).ok()?;
         let mut lost = Vec::new();
-        let (mut copy_bytes, mut lost_bytes) = (0, 0);
+        let (mut copy_len, mut copy_bytes, mut lost_bytes) = (0, 0, 0);
 
-        if let Some(folder) = self.folder(agent, id)
-            && let Ok(files) = fs::read_dir(folder)
-        {
-            for file in files.flatten() {
-                let len = file.metadata().map_or(0, |meta| meta.len());
-                let name = file.file_name().to_string_lossy().into_owned();
-                if name.starts_with("lost-") {
-                    lost_bytes += len;
-                } else {
-                    copy_bytes += len;
-                }
+        for file in files.flatten() {
+            let len = file.metadata().map_or(0, |meta| meta.len());
+            let name = file.file_name().to_string_lossy().into_owned();
+            if name.starts_with("lost-") {
+                lost_bytes += len;
+            } else {
+                copy_bytes += len;
+            }
 
-                if let Some(at) = name
-                    .strip_prefix("lost-")
-                    .and_then(|rest| rest.strip_suffix(".jsonl"))
-                    .and_then(|at| at.parse().ok())
-                {
-                    lost.push(at);
-                }
+            if name == "copy.jsonl" {
+                copy_len = len;
+            }
+
+            if let Some(at) = name
+                .strip_prefix("lost-")
+                .and_then(|rest| rest.strip_suffix(".jsonl"))
+                .and_then(|at| at.parse().ok())
+            {
+                lost.push(at);
             }
         }
 
         lost.sort_unstable();
         let copy = self.meta(agent, id);
-        Entry {
+        Some(Entry {
             agent: agent.clone(),
             id: id.to_owned(),
             copy,
             lost,
+            copy_len,
             copy_bytes,
             lost_bytes,
-        }
+        })
     }
 
     /// Notes that the user continued the session here at `at` (unix seconds)
@@ -174,6 +197,7 @@ impl Cache {
         base: u64,
         at: u64,
     ) -> io::Result<()> {
+        self.changed();
         let folder = self
             .folder(agent, id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a session name"))?;
@@ -192,6 +216,7 @@ impl Cache {
     }
 
     pub(super) fn clear_continued(&self, agent: &AgentSlug, id: &str) {
+        self.changed();
         if let Some(folder) = self.folder(agent, id) {
             let _ = fs::remove_file(folder.join("continued"));
             let _ = fs::remove_dir(folder);
@@ -207,6 +232,7 @@ impl Cache {
 
     /// Takes away the older copy a restarted pull kept beside the new one.
     pub(super) fn drop_diverged(&self, agent: &AgentSlug, id: &str) {
+        self.changed();
         if let Some(folder) = self.folder(agent, id) {
             let _ = fs::remove_file(folder.join("copy.jsonl.diverged"));
         }
@@ -215,6 +241,7 @@ impl Cache {
     /// Takes the copy of a session away, and with `all` the versions that
     /// lost too.
     pub(super) fn remove(&self, agent: &AgentSlug, id: &str, all: bool) {
+        self.changed();
         let Some(folder) = self.folder(agent, id) else {
             return;
         };
@@ -247,6 +274,7 @@ impl Cache {
         meta: &Meta,
         at: u64,
     ) -> io::Result<u64> {
+        self.changed();
         let folder = self
             .folder(agent, id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a session name"))?;
@@ -305,6 +333,7 @@ impl Cache {
 
     /// Takes the version that lost at `at` away.
     pub(super) fn drop_lost(&self, agent: &AgentSlug, id: &str, at: u64) {
+        self.changed();
         let Some(folder) = self.folder(agent, id) else {
             return;
         };
