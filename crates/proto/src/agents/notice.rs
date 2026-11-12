@@ -107,7 +107,7 @@ impl Alert {
         }
     }
 
-    /// "web: Claude Code on build-box asks", or without the project when the
+    /// "org/web: Claude Code on build-box asks", or without the project when the
     /// session is in none.
     pub fn notice_title(&self, machine_name: &str, project: Option<&str>) -> String {
         let what = match &self.kind {

@@ -192,8 +192,8 @@ fn name_of(mesh: &Mesh, machine: EndpointId) -> String {
         )
 }
 
-/// The short name of the project whose checkout on `machine` holds `cwd`, the deepest when
-/// checkouts nest: `web` for `org/web`.
+/// The name of the project whose checkout on `machine` holds `cwd`, such as `org/web`, the
+/// deepest when checkouts nest.
 fn project_at(mesh: &Mesh, machine: EndpointId, cwd: &str) -> Option<String> {
     let cwd = normal(cwd);
 
@@ -204,7 +204,7 @@ fn project_at(mesh: &Mesh, machine: EndpointId, cwd: &str) -> Option<String> {
             within(&cwd, &folder).then_some((folder.len(), stored.name))
         })
         .max_by_key(|(depth, _)| *depth)
-        .map(|(_, name)| name.rsplit('/').next().unwrap_or(&name).to_owned())
+        .map(|(_, name)| name)
 }
 
 /// Follows one of `id`'s streams, again after each break, until the receiver goes or the machine

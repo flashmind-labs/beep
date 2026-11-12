@@ -479,7 +479,7 @@ async fn a_notice_names_the_project_its_session_is_in() {
     .expect("written");
 
     let at = |cwd| project_at(mesh, desktop.id, cwd);
-    assert_eq!(at("/srv/web/.worktrees/fix").as_deref(), Some("web"));
-    assert_eq!(at("/srv/web/docs").as_deref(), Some("web"));
+    assert_eq!(at("/srv/web/.worktrees/fix").as_deref(), Some("org/web"));
+    assert_eq!(at("/srv/web/docs").as_deref(), Some("org/web"));
     assert_eq!(at("/srv/website"), None);
 }
