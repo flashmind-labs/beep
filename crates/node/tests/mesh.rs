@@ -4091,6 +4091,14 @@ fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
 #[tokio::test]
 async fn a_users_skills_reach_the_other_node_and_differences_change_nothing() {
     let desktop = desktop().await;
+    desktop
+        .mesh
+        .set(
+            Key::SkillSync,
+            Some(SkillSync { enabled: true }.to_bytes().expect("encodes")),
+        )
+        .await
+        .expect("the setting is saved");
     let a = Node::start(Config::default()).await;
     let mut b = Node::start(Config {
         name: Some("box-b"),

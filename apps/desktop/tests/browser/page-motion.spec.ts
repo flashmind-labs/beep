@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, projectName } from "./harness.ts";
 import type { CenterTarget } from "../../src/project/projectwindow.ts";
 
 /// Runs `step` and returns where the page animation it started begins: "fade" when it fades in place.
@@ -34,4 +34,29 @@ test("Reduce motion turns page animations off", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openDesktop(page);
   expect(await motionOf(page, "instructions")).toBeNull();
+});
+
+test("opening a session and going back capture only the card and the head", async ({ page }) => {
+  // A captured page is painted again before the first frame, which stalls a heavy session.
+  await page.addInitScript(() => {
+    const start = document.startViewTransition.bind(document), moves: string[][] = [];
+    Reflect.set(window, "moves", moves);
+    document.startViewTransition = (update?: ViewTransitionUpdateCallback) => {
+      const transition = start(update);
+      void transition.ready.then(() => moves.push(document.getAnimations().flatMap(a => a.effect instanceof KeyframeEffect && a.effect.pseudoElement?.startsWith("::view-transition-group") ? [a.effect.pseudoElement] : [])));
+      return transition;
+    };
+  });
+  await openDesktop(page, true);
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const card = page.locator(".bd-card:visible").filter({ hasText: "First notification" });
+  const moves = () => page.evaluate(() => Reflect.get(window, "moves"));
+
+  await card.click();
+  await expect(page.locator("#agmsg")).toBeVisible();
+  await expect.poll(moves).toEqual([["::view-transition-group(board-hero)"]]);
+  await expect(page.locator("html")).not.toHaveAttribute("data-move");
+  await page.keyboard.press("Escape");
+  await expect(card).toBeVisible();
+  await expect.poll(moves).toEqual([["::view-transition-group(board-hero)"], ["::view-transition-group(board-hero)"]]);
 });

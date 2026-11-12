@@ -20,7 +20,7 @@ use beep_proto::node::{
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use tokio::sync::{Notify, watch};
 
-/// The shared setting, enabled before a desktop changes it.
+/// The shared setting, off until a desktop turns it on.
 fn enabled(mesh: &Mesh) -> bool {
     mesh.get(&Key::SkillSync)
         .and_then(|bytes| SkillSync::from_bytes(&bytes).ok())
