@@ -14,13 +14,15 @@ test("model view sends one command per action and unmounts when another page ope
   let holdAuto = false, releaseAuto: () => void = () => {};
   Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string) => { calls.push(cmd); if (cmd === "set_auto_model" && holdAuto) await new Promise<void>(resolve => { releaseAuto = resolve; }); return models; }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
-  const { MODELS, renderModel, modelKeys } = await import("../src/settings/model.ts");
-  const { S } = await import("../src/bar/core.ts");
-  const { openBarPage } = await import("../src/bar/bar-app.tsx");
-  const bar = dom.window.document.getElementById("bar");
-  assert.ok(bar);
-  MODELS.info = { ...models, thinking: "medium" };
   try {
+    // Inside the try, so a module that fails to load still closes the DOM
+    // instead of leaving its window to keep the run alive.
+    const { MODELS, renderModel, modelKeys } = await import("../src/settings/model.ts");
+    const { S } = await import("../src/bar/core.ts");
+    const { openBarPage } = await import("../src/bar/bar-app.tsx");
+    const bar = dom.window.document.getElementById("bar");
+    assert.ok(bar);
+    MODELS.info = { ...models, thinking: "medium" };
     act(() => renderModel());
     fireEvent.click(screen.getByRole("switch", { name: "Auto" }));
     await waitFor(() => assert.equal(calls.filter(c => c === "set_auto_model").length, 1));
