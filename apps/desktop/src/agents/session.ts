@@ -214,7 +214,8 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
 
   b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, s.id, openLinked);
   drawAgentBody();
-  agentMessage.current?.focus();
+  // On a touch layout a focused composer raises the keyboard and lays the page out for it.
+  if (!document.body.classList.contains("mobile")) agentMessage.current?.focus();
   bar.onclick = agentClick;
 }
 

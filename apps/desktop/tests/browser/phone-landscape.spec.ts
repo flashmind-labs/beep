@@ -8,7 +8,7 @@ const session = {
 };
 const view = {
   session, model: null, plan: [], files: [], earlier: 0, last_message: "", error: null, turns: 2,
-  entries: Array.from({ length: 12 }, (_, i) => ({ kind: i % 2 ? "assistant" : "user", text: `Message ${i}` })),
+  entries: [...Array.from({ length: 11 }, (_, i) => ({ kind: i % 2 ? "assistant" : "user", text: `Message ${i}` })), { kind: "agent", text: "Read `src/upload.rs` first.", html: "<p>Read <code>src/upload.rs</code> first.</p>" }],
   queued: 0, queued_messages: [],
 };
 
@@ -62,4 +62,14 @@ test("a session in landscape keeps its head to one line", async ({ page }) => {
   await page.screenshot({ path: "../../.artifacts/phone-landscape-files.png" });
   await page.locator("#agmnav").getByRole("button", { name: "Log" }).click();
   await page.screenshot({ path: "../../.artifacts/phone-landscape-session.png" });
+});
+
+test("a file opened from the log takes a phone's screen", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDesktop(page, false, { agent_view: view, center_home: home });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  await expect(page.locator("#agmnav [aria-selected=true]")).toHaveText("Log");
+  await page.locator("code.fref", { hasText: "src/upload.rs" }).click();
+  await expect(page.locator(".agconv")).toBeHidden();
+  await expect(page.locator("#agmnav [aria-selected=true]")).toHaveText("upload.rs");
 });
