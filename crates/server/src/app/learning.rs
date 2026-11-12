@@ -209,9 +209,12 @@ pub(super) fn drop_follow_ups(conversation: &mut Conversation) {
             content,
             tool_calls,
             reasoning,
+            reasoning_details,
+            ..
         } => {
             !content.is_empty()
                 || reasoning.as_ref().is_some_and(|text| !text.is_empty())
+                || !reasoning_details.is_empty()
                 || tool_calls.as_ref().is_some_and(|calls| !calls.is_empty())
         }
         _ => true,
