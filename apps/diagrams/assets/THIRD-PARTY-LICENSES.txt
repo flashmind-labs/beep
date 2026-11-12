@@ -1173,7 +1173,7 @@ SOFTWARE.
 
 ----------------
 
-cytoscape@3.34.4 (MIT)
+cytoscape@3.35.0 (MIT)
 
 Copyright (c) 2016-2026, The Cytoscape Consortium.
 
