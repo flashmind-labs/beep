@@ -307,8 +307,9 @@ fn product_rows<'a>(
     out
 }
 
-/// Turns bare `http(s)://` addresses in text into links, as GitHub does.
-/// Text inside links, code and HTML stays as it is.
+/// Turns bare `http(s)://` addresses in text into links, as GitHub does,
+/// and inline code that is one address into a link around that code. Text
+/// inside links, code blocks and HTML stays as it is.
 fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
     let mut out = Vec::new();
     let mut in_link = 0usize;
@@ -320,6 +321,17 @@ fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
             Event::End(TagEnd::Link) => in_link = in_link.saturating_sub(1),
             Event::Start(Tag::CodeBlock(_)) => in_code = true,
             Event::End(TagEnd::CodeBlock) => in_code = false,
+            Event::Code(code) if in_link == 0 && find_url(code) == Some(0..code.len()) => {
+                out.push(Event::Start(Tag::Link {
+                    link_type: LinkType::Autolink,
+                    dest_url: code.clone(),
+                    title: CowStr::Borrowed(""),
+                    id: CowStr::Borrowed(""),
+                }));
+                out.push(event);
+                out.push(Event::End(TagEnd::Link));
+                continue;
+            }
             Event::Text(text) if in_link == 0 && !in_code => {
                 let mut rest = text.as_ref();
 
