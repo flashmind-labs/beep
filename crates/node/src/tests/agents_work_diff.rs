@@ -81,6 +81,23 @@ fn reads_commits_uncommitted_and_untracked_changes() {
 }
 
 #[test]
+fn a_file_moved_without_git_add_shows_as_renamed() {
+    if !has_git() {
+        return;
+    }
+
+    let (_dir, root) = checkout();
+    fs::rename(root.join("old.txt"), root.join("[moved].txt")).unwrap();
+    let diff = read(&root, &ask("", "")).expect("the diff reads");
+    let moved = file(&diff, "[moved].txt");
+    assert_eq!(moved.status, DiffStatus::Renamed {});
+    assert_eq!(moved.old_path.as_deref(), Some("old.txt"));
+    assert!(diff.files.iter().all(|f| f.path != "old.txt"));
+    let status = git(&root, &["status", "--porcelain"]).expect("git status");
+    assert!(status.contains("?? [moved].txt"), "{status}");
+}
+
+#[test]
 fn base_at_gives_only_what_is_uncommitted_even_with_an_origin_head() {
     if !has_git() {
         return;
