@@ -11,7 +11,7 @@ use super::{
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{LinkRx, LinkTx, link};
 use iroh::{
-    Endpoint, EndpointAddr,
+    Endpoint, EndpointAddr, EndpointId,
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
 };
@@ -398,24 +398,28 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
 }
 
 /// Pulls `shared`'s list from `peer` until the project stops, reconnecting
-/// with growing waits.
+/// with growing waits. Only a pull that brought all the peer had starts
+/// the waits over; one that fails later, as on a Git wait, keeps growing
+/// them. Asked to pull again, a waiting pull dials at once.
 pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: EndpointAddr) {
     let mut wait = FIRST_RETRY;
+    let mut again = shared.watch_pull_again();
 
     loop {
+        again.mark_unchanged();
         let pulled = tokio::select! {
             pulled = pull_once(&shared, &endpoint, &peer, &mut wait) => pulled,
             () = shared.stopped() => return,
         };
 
-        match pulled {
-            Ok(()) => wait = FIRST_RETRY,
-            Err(e) => log::debug!("pulling {} from {}: {e:#}", shared.name(), peer.id),
+        if let Err(e) = pulled {
+            log::debug!("pulling {} from {}: {e:#}", shared.name(), peer.id);
         }
 
         shared.heard(&peer.id);
         tokio::select! {
             () = sleep(wait) => {}
+            _ = again.changed() => {}
             () = shared.stopped() => return,
         }
         wait = (wait * 2).min(LAST_RETRY);
@@ -461,8 +465,6 @@ async fn pull_once(
                 has_git,
                 branch,
             } => {
-                // A connection that worked: losing it is no reason to wait long.
-                *wait = FIRST_RETRY;
                 log::debug!(
                     "{}: {} answered {:?} after dialling",
                     shared.name(),
@@ -532,8 +534,7 @@ async fn pull_once(
                 last = behind;
 
                 if last.is_none() {
-                    shared.heard(&peer.id);
-                    shared.caught_up(&peer.id);
+                    caught_up(shared, &peer.id, wait);
                 }
             }
             Reply::Changes {
@@ -557,8 +558,7 @@ async fn pull_once(
 
                 if last.is_some_and(|last| upto >= last) {
                     last = None;
-                    shared.heard(&peer.id);
-                    shared.caught_up(&peer.id);
+                    caught_up(shared, &peer.id, wait);
                 }
             }
             Reply::Refused { message } => bail!("the peer refused: {message}"),
@@ -569,6 +569,14 @@ async fn pull_once(
     }
 
     Ok(())
+}
+
+/// The pull brought all `peer` had: it went through, so losing the
+/// connection now is no reason to wait long.
+fn caught_up(shared: &Shared, peer: &EndpointId, wait: &mut Duration) {
+    shared.heard(peer);
+    shared.caught_up(peer);
+    *wait = FIRST_RETRY;
 }
 
 /// The branch is checked separately from the object ID before moving a checkout.

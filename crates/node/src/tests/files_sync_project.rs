@@ -10,6 +10,7 @@ use super::{
 use crate::files::paths;
 use crate::files::sync::{
     Parts,
+    gitdir::{BranchTip, Checkout, Oid},
     map::{Entry, FileMeta, Map, Order, Version, is_conflict},
     rules::{MARKER, Rules},
     scan::{self, Found, MAX_FILES, Stat},
@@ -998,5 +999,39 @@ async fn scanning_does_not_clear_a_git_alignment_failure() {
     assert_eq!(project.task.error.as_ref(), Some(&error));
     assert_eq!(project.task.shared.status().state, SyncState::Failed);
     assert!(!status.has_changed().unwrap());
+    project.stop().await;
+}
+
+#[tokio::test]
+async fn a_project_waiting_for_git_waits_for_a_change_not_a_timer() {
+    let mut project = Project::new(&["a.txt"]).await;
+    project.task.error = Some("waiting for Git: this checkout is ahead of the peers".into());
+    project.task.pending = 1;
+    assert!(!project.task.retries_on_timer());
+    // A Git operation or a session holding the checkout ends unannounced.
+    project.task.git_held = true;
+    assert!(project.task.retries_on_timer());
+
+    // A peer that reconnects with the same commits wakes nothing.
+    let shared = project.task.shared.clone();
+    let mut commits = shared.peer_commits.subscribe();
+    let peer = SecretKey::from_bytes(&[9; 32]).public();
+    let head = Checkout {
+        commit: Some(Oid::from([1; 32])),
+        present: true,
+    };
+    let tips = vec![BranchTip {
+        name: "refs/heads/main".into(),
+        commit: Oid::from([1; 32]),
+    }];
+
+    for _ in 0..2 {
+        shared.observe_head(&peer, head, Some("refs/heads/main".into()));
+        shared.observe_branches(&peer, tips.clone());
+    }
+
+    assert_eq!(*commits.borrow_and_update(), 2);
+    shared.observe_head(&peer, Checkout { commit: None, ..head }, None);
+    assert!(commits.has_changed().unwrap());
     project.stop().await;
 }

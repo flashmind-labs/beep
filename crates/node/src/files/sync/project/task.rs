@@ -60,6 +60,9 @@ pub(super) struct Task {
     pub(super) fetcher: Arc<Fetcher>,
     pub(super) pending: u64,
     pub(super) error: Option<String>,
+    /// A Git wait is held by something the watcher does not report (a Git
+    /// operation, a recovery, running sessions), so it is checked on a timer.
+    pub(super) git_held: bool,
     /// Repeated blocked states stay visible without logging every retry or scan.
     last_logged_error: Option<(String, Instant)>,
     /// The last scan failed, so nothing on disk is recorded.
@@ -128,6 +131,8 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
         .await;
     let mut task = Task::new(shared.clone(), parts, watcher.clone(), first_mode);
     let mut peers = shared.peers.subscribe();
+    let mut peer_commits = shared.peer_commits.subscribe();
+    let mut list = shared.subscribe();
     let mut paused = shared.paused.subscribe();
     let mut pulls = JoinSet::new();
     // Scanned before anything is pulled, so edits made while the node was
@@ -244,11 +249,31 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 apply = true;
                 forced = true;
             }
+            () = shared.matching.notified() => {
+                settle.clear();
+                let changes = watcher.take_changes(shared.key);
+                let touched = std::mem::take(&mut full);
+
+                if task.scan_for_match(changes, touched).await {
+                    last_scan = Instant::now();
+                    apply = true;
+                }
+
+                forced = true;
+            }
             () = shared.merged.notified() => {
+                // While only a change clears a Git wait, a merge that left
+                // the list as it was cannot.
+                if !task.waits_for_change() || list.has_changed().unwrap_or(true) {
+                    retry = RETRY;
+                    apply = true;
+                }
+            }
+            Ok(()) = peer_commits.changed() => {
                 retry = RETRY;
                 apply = true;
             }
-            () = sleep(retry), if task.pending > 0 => {
+            () = sleep(retry), if task.retries_on_timer() => {
                 retry = (retry * 2).min(MAX_RETRY);
                 apply = true;
             }
@@ -276,10 +301,17 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
         deletes.scanned(!task.held.is_empty(), Instant::now());
 
         if apply && settle.due.is_none() {
+            let waited = task.waits_for_git();
+            list.mark_unchanged();
             task.apply().await;
 
             if task.pending == 0 {
                 retry = RETRY;
+            }
+            // Pulls that failed on the Git wait dial again now, not after
+            // their backoff.
+            if waited && !task.waits_for_git() {
+                shared.pull_again();
             }
         }
 
@@ -322,6 +354,7 @@ impl Task {
             protected: None,
             pending: 0,
             error: None,
+            git_held: false,
             last_logged_error: None,
             scan_failed: false,
             saved_at: Instant::now(),
@@ -348,6 +381,17 @@ impl Task {
             .as_deref()
             .and_then(|error| error.strip_prefix(WAITING_FOR_GIT))
             .is_some_and(|rest| rest.starts_with(": "))
+    }
+
+    /// Whether only a change clears the Git wait: the checkout moving, which
+    /// the watcher reports, or a peer's commits, which the pulls report.
+    pub(super) fn waits_for_change(&self) -> bool {
+        self.waits_for_git() && !self.git_held
+    }
+
+    /// Whether work left undone is tried again on a timer.
+    pub(super) fn retries_on_timer(&self) -> bool {
+        self.pending > 0 && !self.waits_for_change()
     }
 
     /// Keeps what the folder holds in the store, for peers to fetch, under

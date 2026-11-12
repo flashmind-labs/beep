@@ -56,6 +56,10 @@ pub(in crate::files::sync) struct Shared {
     pub(super) touched: Notify,
     /// Wakes the task to scan at once, for `rescan`.
     pub(super) forced: Notify,
+    /// Wakes the task to bring the list in line before a peer is matched.
+    pub(super) matching: Notify,
+    /// Raised when a peer's advertised commits or branch tips change.
+    pub(super) peer_commits: watch::Sender<u64>,
     /// How many scans `forced` asked for are done.
     pub(super) rescans: watch::Sender<u64>,
     /// Paused by the server: no scans, fetches or pulls.
@@ -166,6 +170,8 @@ impl Shared {
             merged: Notify::new(),
             touched: Notify::new(),
             forced: Notify::new(),
+            matching: Notify::new(),
+            peer_commits: watch::Sender::new(0),
             rescans: watch::Sender::new(0),
             paused: watch::Sender::new(start.paused),
             stop: CancellationToken::new(),
@@ -399,13 +405,20 @@ impl Shared {
         checkout: Checkout,
         branch: Option<String>,
     ) {
-        crate::lock(&self.peer_heads).insert(*peer, (checkout, branch));
-        self.merged.notify_one();
+        let head = (checkout, branch);
+        let before = crate::lock(&self.peer_heads).insert(*peer, head.clone());
+
+        if before != Some(head) {
+            self.peer_commits_changed();
+        }
     }
 
     pub(in crate::files::sync) fn observe_branches(&self, peer: &EndpointId, tips: Vec<BranchTip>) {
-        crate::lock(&self.peer_branches).insert(*peer, tips);
-        self.merged.notify_one();
+        let before = crate::lock(&self.peer_branches).insert(*peer, tips.clone());
+
+        if before != Some(tips) {
+            self.peer_commits_changed();
+        }
     }
 
     pub(in crate::files::sync) fn branch_aware(&self, peer: &EndpointId) -> bool {
@@ -413,8 +426,15 @@ impl Shared {
     }
 
     pub(in crate::files::sync) fn forget_branches(&self, peer: &EndpointId) {
-        crate::lock(&self.peer_branches).remove(peer);
-        self.merged.notify_one();
+        if crate::lock(&self.peer_branches).remove(peer).is_some() {
+            self.peer_commits_changed();
+        }
+    }
+
+    /// Wakes the task for a round: only a change in what peers advertise
+    /// does, so a peer that reconnects with the same commits costs nothing.
+    fn peer_commits_changed(&self) {
+        self.peer_commits.send_modify(|count| *count += 1);
     }
 
     /// Checks the checkout before accepting a peer's files. Different
@@ -526,8 +546,11 @@ impl Shared {
 
     /// Brings the list in line with the folder before comparing or sending it.
     /// A list from before the user's last edits would count those as older.
+    /// The task scans what the watcher reported, and the whole folder only
+    /// when the watcher cannot vouch for it, so a peer that reconnects often
+    /// does not cost a full scan each time.
     pub(in crate::files::sync) async fn scan_before_matching(&self) -> Result<()> {
-        self.rescan(MATCH_SCAN).await?;
+        self.wait_for_scan(&self.matching, MATCH_SCAN).await?;
         self.check_ignored().await?;
         Ok(())
     }
@@ -623,13 +646,18 @@ impl Shared {
     /// Scans the folder now and brings it in line with what the peers
     /// sent, then says how the project stands. Waits at most `limit`.
     pub(in crate::files::sync) async fn rescan(&self, limit: Duration) -> Result<ProjectStatus> {
+        self.wait_for_scan(&self.forced, limit).await
+    }
+
+    /// Asks the task through `ask` to scan, and waits at most `limit`.
+    async fn wait_for_scan(&self, ask: &Notify, limit: Duration) -> Result<ProjectStatus> {
         if self.is_paused() {
             bail!("sync of {} is paused; resume it to sync", self.name);
         }
 
         let mut done = self.rescans.subscribe();
         let before = *done.borrow_and_update();
-        self.forced.notify_one();
+        ask.notify_one();
         timeout(limit, done.wait_for(|count| *count > before))
             .await
             .with_context(|| format!("{} did not finish scanning in time", self.name))?

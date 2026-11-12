@@ -10,6 +10,9 @@ use tokio::task::spawn_blocking;
 pub(super) struct Alignment {
     pub(super) checkout_changed: bool,
     pub(super) warning: Option<anyhow::Error>,
+    /// Sessions running in the checkout keep the warning; they end without
+    /// a change the task hears of.
+    pub(super) held: bool,
 }
 
 impl Shared {
@@ -124,6 +127,7 @@ impl Shared {
             return Ok(Alignment {
                 checkout_changed: false,
                 warning,
+                held: false,
             });
         };
         let branch = branch.context("Git checkout changed while aligning its branches")?;
@@ -140,7 +144,16 @@ impl Shared {
             let agents = recovery.context(
                 "Local edits block Git sync; enable automatic recovery or commit or stash them.",
             )?;
-            Some(agents.reserve_repository(self.root()).await?)
+            match agents.reserve_repository(self.root()).await {
+                Ok(hold) => Some(hold),
+                Err(e) => {
+                    return Ok(Alignment {
+                        checkout_changed: false,
+                        warning: Some(e),
+                        held: true,
+                    });
+                }
+            }
         } else {
             None
         };
@@ -175,6 +188,7 @@ impl Shared {
         Ok(Alignment {
             checkout_changed: true,
             warning,
+            held: false,
         })
     }
 }
