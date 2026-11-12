@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../src/bar/bar-app.tsx";
 import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, agentsList, drawAgents, usageLine } from "../src/agents/agents.ts";
+import { AG, type AgentPage, type AgentRow, type AgentTask, agentBack, agentKeys, agentsList, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
 import { closeOpenSession, pollAgent, sessionPicks } from "../src/agents/session.ts";
@@ -19,6 +19,7 @@ import { createDocumentView } from "../src/ui/document-root.tsx";
 import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 import { agentMessage } from "../src/agents/session-frame.tsx";
+import { drawTasks } from "../src/agents/tasks.ts";
 import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
 
 /// Polls follow the session only while the page shows.
@@ -285,7 +286,7 @@ for (const status of ["idle", "working", "ended"]) {
   });
 }
 
-function modelPill(t: TestContext) {
+function fieldControl(t: TestContext, slot: "model" | "tasks" = "model") {
   const dom = new JSDOM("<!doctype html><span id='pill'></span>", { url: "https://app.test" });
   Object.defineProperty(dom.window.document, "visibilityState", { value: "visible", configurable: true, writable: true });
   const previous = new Map<string, PropertyDescriptor | undefined>();
@@ -298,7 +299,7 @@ function modelPill(t: TestContext) {
   // The session field draws the pill from the composer's state.
   disposeComposerUi();
   const view = createDocumentView(pill);
-  flushSync(() => view.render(createElement(FieldControl, { slot: "model" })));
+  flushSync(() => view.render(createElement(FieldControl, { slot })));
   t.after(async () => {
     view.unmount(); disposeComposerUi(); pill.remove(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
     for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
@@ -309,7 +310,7 @@ function modelPill(t: TestContext) {
 test("the model pill does not display the harness default for an unknown session model", t => {
   const page = openSession("idle");
   sessionPicks.delete(page.session.id);
-  const pill = modelPill(t);
+  const pill = fieldControl(t);
   show({});
   drawModelPill();
   assert.match(pill.innerHTML, /Model unknown/);
@@ -321,7 +322,7 @@ test("the model pill does not display the harness default for an unknown session
 
 test("the model pill uses the model reported by the session", t => {
   const page = openSession("idle");
-  const pill = modelPill(t);
+  const pill = fieldControl(t);
   show({});
   sessionPicks.set(page.session.id, { model: "previous-model", effort: null });
   page.model = "current-model";
@@ -336,7 +337,7 @@ test("the model pill uses the model reported by the session", t => {
 
 test("the model pill returns when its composer owner is recreated", t => {
   openSession("idle");
-  const pill = modelPill(t);
+  const pill = fieldControl(t);
   show({});
   drawModelPill();
   const first = pill.querySelector("#agmodelb"); assert.ok(first);
@@ -350,7 +351,7 @@ test("the model pill returns when its composer owner is recreated", t => {
 
 test("a session refresh updates the model pill", async t => {
   const page = openSession("idle");
-  const pill = modelPill(t);
+  const pill = fieldControl(t);
   show({});
   await read({ ...page, model: "reported-model" });
   assert.match(pill.innerHTML, /reported-model/);
@@ -358,7 +359,7 @@ test("a session refresh updates the model pill", async t => {
 
 test("the model pill keeps the model that runs", async t => {
   const page = openSession("idle");
-  const pill = modelPill(t);
+  const pill = fieldControl(t);
   show({});
   const s = page.session;
 
@@ -382,7 +383,7 @@ test("flsh can switch its model and thinking from a working session", async t =>
   const page = openSession("working");
   page.session.agent = "flsh";
   AG.open!.agent = "flsh";
-  const pill = modelPill(t);
+  const pill = fieldControl(t);
   show({});
   drawModelPill();
   assert.equal(pill.querySelector("button")?.disabled, false);
@@ -715,4 +716,33 @@ test("session model choices survive a window reload", async t => {
   assert.deepEqual(new SessionPicks().get("saved-model-session"), { model: "model-sol", effort: "high" });
   choices.delete("saved-model-session");
   assert.equal(new SessionPicks().has("saved-model-session"), false);
+});
+
+test("the running commands line keeps its spinner while the count holds, and a new one goes on in the same turn", t => {
+  openSession("running");
+  const line = fieldControl(t, "tasks");
+  const task = (id: string, state = "running"): AgentTask => ({ id, name: id, description: "", state, can_stop: true, output_file: null, summary: null, entry: null });
+
+  AG.tasks = [task("t1")];
+  drawTasks();
+  const spinner = line.querySelector(".dspin");
+  assert.ok(spinner);
+  assert.match(line.textContent ?? "", /1 command running/);
+
+  // Another read with the same count, or a different command, leaves the spinner turning.
+  AG.tasks = [task("t2"), task("t1", "completed")];
+  drawTasks();
+  assert.equal(line.querySelector(".dspin"), spinner);
+
+  // Gone and back, it starts where the page clock is in the turn, not at the top.
+  AG.tasks = [];
+  drawTasks();
+  assert.equal(line.querySelector(".dspin"), null);
+  AG.tasks = [task("t3")];
+  drawTasks();
+  const again = line.querySelector<HTMLElement>(".dspin");
+  assert.ok(again && again !== spinner);
+  assert.match(again.style.animationDelay, /^(-\d+|0)ms$/);
+  AG.tasks = [];
+  drawTasks();
 });

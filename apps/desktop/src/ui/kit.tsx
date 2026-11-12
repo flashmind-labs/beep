@@ -48,10 +48,19 @@ export function ChipToggle({ label, selected, onToggle }: { label: string; selec
 }
 
 /// A spinner: the ring (`dspin`), or the small running dot (`drun`) with
-/// `dot`. A `label` makes it an image screen readers announce.
+/// `dot`. A `label` makes it an image screen readers announce. It starts at
+/// the page clock's point in the turn, so one drawn again goes on where the
+/// last left off instead of starting over.
 export function Spinner({ dot = false, className, label, title }: { dot?: boolean; className?: string; label?: string; title?: string }) {
-  return <span className={`${dot ? "drun" : "dspin"}${className ? ` ${className}` : ""}`} role={label ? "img" : undefined} aria-label={label} title={title} />;
+  const [style] = useState(spinPhase);
+  return <span className={`${dot ? "drun" : "dspin"}${className ? ` ${className}` : ""}`} style={style} role={label ? "img" : undefined} aria-label={label} title={title} />;
 }
+
+/// One turn of `spin` in style.css.
+const SPIN_MS = 800;
+
+/// How far into the turn every spinner is now, as a delay that starts a new one there.
+const spinPhase = () => ({ animationDelay: `${-Math.round(performance.now() % SPIN_MS)}ms` });
 
 /// Enter or Space on a focusable row that is not itself a button runs `run`,
 /// as a click on it would. Keys from controls inside the row pass by.
