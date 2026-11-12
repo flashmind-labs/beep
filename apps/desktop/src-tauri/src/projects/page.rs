@@ -56,6 +56,29 @@ pub async fn project_sessions(
         .collect())
 }
 
+/// The sessions coding agents ran in every project of the mesh on the
+/// machines online, newest first, each machine asked once: Home's Done today.
+#[tauri::command]
+pub async fn projects_sessions(fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
+    let Some(mesh) = fleet.mesh() else {
+        return Ok(Vec::new());
+    };
+    let online = fleet.online();
+    let places: Vec<direct::Place> = beep_fleet::project_names(&mesh)
+        .iter()
+        .flat_map(|project| beep_fleet::places(&mesh, project))
+        .filter(|(machine, _)| online.contains(machine))
+        .map(|(machine, folder)| direct::Place { machine, folder })
+        .collect();
+    let mut sessions = direct::project_sessions(&fleet, &places).await;
+
+    for session in &mut sessions {
+        beep_fleet::session_titles::apply(&mesh, session);
+    }
+
+    Ok(sessions.into_iter().map(SessionRow::from).collect())
+}
+
 /// One of the user's machines as a project's page lists it.
 #[derive(Debug, Serialize)]
 pub struct ProjectMachineRow {

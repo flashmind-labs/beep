@@ -111,7 +111,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     project_git_state: [{ machine_id: data.project.machine_id, machine_name: data.project.machine_name, branch: "main", upstream: null, ahead: 0, behind: 0, error: null }],
     project_git_history: { machine_id: data.project.machine_id, machine_name: data.project.machine_name, root: data.project.folder, refs: [], worktrees: [], commits: [], next: null },
     project_machines: [{ id: data.project.machine_id, name: data.project.machine_name, online: true, folder: data.project.folder, checking: false, checked_at: 1 }],
-    agent_sessions: data.sessions, project_sessions: data.sessions,
+    agent_sessions: data.sessions, project_sessions: data.sessions, projects_sessions: data.sessions,
   };
   const emptyLists = ["list_machines", "list_sessions", "list_groups", "agent_hosts", "agent_reviews", "agent_tasks", "agent_artifacts", "agent_running", "agent_editors", "editors", "project_overview", "project_groups", "projects_on_top", "project_sync", "found_projects", "project_syncthing", "machine_traffic", "tool_updates", "updatable_machines", "notes_list", "list_research", "terminal_list", "outbox_list"];
   for (const command of emptyLists) answers[command] = [];

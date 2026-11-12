@@ -464,6 +464,7 @@ pub fn run() {
             projects::page::project_copy,
             projects::page::project_machines,
             projects::page::project_sessions,
+            projects::page::projects_sessions,
             projects::page::project_syncthing,
             projects::reviews::project_branches,
             projects::history::project_git_history,

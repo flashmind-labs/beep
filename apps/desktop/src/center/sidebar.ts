@@ -1,7 +1,8 @@
 import { WINDOWS, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, chats, views, projects, machines) and
 // the sheets that add a machine or a project.
-import { onClosing } from "../agents/closing.ts";
+import { onClosing, visibleRunning } from "../agents/closing.ts";
+import { frontLayout, layoutChanged } from "./lanes-view.tsx";
 import { plural, reason } from "../ui/format.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -91,6 +92,8 @@ export function drawSide() {
     { svg: IC.find, label: "Search", count: 0, className: "cc-search", open: openPalette, shortcut: WINDOWS ? "Ctrl+K" : "⌘K" },
     { svg: IC.home, label: "Home", count: home?.needs_you.length ?? 0, current: location === "home", hot: true, open: () => go("home") },
   ];
+  // The board has every session; the list keeps its own page of them.
+  if (home?.running && frontLayout() === "list") links.push({ svg: IC.run, label: "Running", count: visibleRunning(home.running).length, current: paneOn().view === "agents", open: () => go("pane", "agents") });
   const terms = allTerms.list(ALL);
   if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });
   if (syncProjects().length) links.push({ svg: IC.sync, label: "Sync", count: syncConflicts(), current: location === "sync", hot: true, open: () => go("sync") });
@@ -548,3 +551,4 @@ registerSidebarGroup("projects", {
 });
 
 onClosing(() => drawSide());
+layoutChanged.add(() => drawSide());

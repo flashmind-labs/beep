@@ -2,7 +2,7 @@
 // every project's cards and a project page its own.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { onRowKey } from "../ui/kit.tsx";
+import { LineRow, onRowKey } from "../ui/kit.tsx";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
 import { LANES, byLane, travelled, type Lane } from "./lanes-state.ts";
 
@@ -21,6 +21,35 @@ export interface BoardCard {
   hint: string | null;
   open(): void;
   menu: ((event: MouseEvent) => void) | null;
+}
+
+/// How Home and a project's front page lay out: the board, or the sections and rows before it.
+export type FrontLayout = "board" | "list";
+const LAYOUT_KEY = "beep.frontLayout";
+let layout: FrontLayout = "board";
+try { if (localStorage.getItem(LAYOUT_KEY) === "list") layout = "list"; } catch { /* the board */ }
+export const frontLayout = () => layout;
+/// Called when the user switches the layout: every page that shows it draws again.
+export const layoutChanged = new Set<() => void>();
+
+function setLayout(next: FrontLayout) {
+  if (next === layout) return;
+  layout = next;
+  try { localStorage.setItem(LAYOUT_KEY, next); } catch { /* kept for this launch only */ }
+  for (const draw of layoutChanged) draw();
+}
+
+export function LayoutSwitch() {
+  return <span className="bd-switch" role="group" aria-label="Layout">{(["board", "list"] as const).map(key =>
+    <button type="button" key={key} aria-pressed={key === layout} onClick={() => setLayout(key)}>{key === "board" ? "Board" : "List"}</button>)}</span>;
+}
+
+/// A card as a row of a list section. A session's row opens with the page move.
+export function CardRow({ card }: { card: BoardCard }) {
+  const action = card.action;
+  const open = card.session ? () => { setHeroCard(null); withMove("open", card.open); } : card.open;
+  return <LineRow lead={card.lead} title={card.title} sub={card.sub} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
+    right={action ? <button type="button" className={`dbtn ${action.primary ? "pri " : ""}small`} onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</button> : card.foot}/>;
 }
 
 /// `more` makes a lane's title open the full list behind it.
