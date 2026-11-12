@@ -274,11 +274,10 @@ interface AgentState {
   changed: number;
   answering: number | null;
   /// Images pasted or dropped into the session's field, the error from the last
-  /// one and when it goes, and the session the server turned images down for.
+  /// one and when it goes.
   att: Attached[];
   attError: string;
   attTimer: ReturnType<typeof setTimeout> | undefined;
-  noImages: string | null;
   /// The pasted blocks left open ("place:block"), and the module that reads
   /// tool entries, once loaded.
   opened: Set<number | string>;
@@ -314,7 +313,7 @@ export const AG: AgentState = {
   form: { prompt: "", machine: "", agent: null, cwd: "" },
   open: null, draft: null, page: null, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
-  att: [], attError: "", attTimer: undefined, noImages: null,
+  att: [], attError: "", attTimer: undefined,
   opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
 };

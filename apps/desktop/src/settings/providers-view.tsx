@@ -16,7 +16,7 @@ export interface SharedProviderSettings {
 
 interface ProviderProps {
   machines: { id: string; name: string; online: boolean }[] | null | undefined;
-  machine: string | null; machineName: string; view: HarnessesView | null | false | undefined; picked: string | null;
+  machine: string | null; machineName: string; view: HarnessesView | null | undefined; picked: string | null;
   draft: HarnessDraft | null; others: MachineSettings[] | false | undefined; saving: boolean; updating: boolean;
   adapter: AdapterInstall | null | undefined; error: string; inSettings: boolean; savedAll: string; includeProgram: boolean;
   shared: SharedProviderSettings | null;
@@ -44,7 +44,6 @@ function Body(p: ProviderProps) {
   if (p.machines === null) return <div className="cc-err">{p.error || "Could not load your machines."}</div>;
   if (!p.machine) return <EmptyPanel title="No machine online" text="Coding agents show here for machines that are online." />;
   if (p.view === undefined) return <EmptyPanel title={`Asking ${p.machineName}…`} />;
-  if (p.view === false) return <div className="cc-err">The server needs an update before it shows coding agents here.</div>;
   const hv = p.view?.harnesses.find(h => h.agent === p.picked);
   const failure = splitFailure(p.error);
   const error = p.error && <div className="fb-err" role="alert"><div className="fb-line"><span>{failure.line}</span><button type="button" className="fb-x" aria-label="Dismiss" title="Dismiss" onClick={p.dismissError}>×</button></div>{failure.details && <details className="fb-more"><summary>Details</summary><pre>{failure.details}</pre></details>}</div>;

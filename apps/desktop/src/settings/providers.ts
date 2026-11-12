@@ -31,7 +31,7 @@ interface ProvidersDeps {
 interface ProvidersState {
   machines: MachineRow[] | null | undefined;
   machine: string | null;
-  views: Map<string, HarnessesView | null | false>;
+  views: Map<string, HarnessesView | null>;
   errors: Map<string, string>;
   picked: string | null;
   drafts: Map<string, HarnessDraft>;
@@ -39,7 +39,7 @@ interface ProvidersState {
   saving: boolean;
   note: string;
   /// Each machine's saved settings, by agent, to say which fields differ
-  /// (false from a server too old to list them).
+  /// (false when they could not be read).
   others: Map<string, MachineSettings[] | false>;
   /// Each agent's saved auto-compact, the same on every machine.
   compacts: Map<string, Compact>;
@@ -107,8 +107,8 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     draw();
 
     try {
-      const got = await invoke<HarnessesView | null>("agent_harnesses", { machineId: machine, refresh });
-      if (readVersion.get(machine) === version) { st.views.set(machine, got ?? false); st.errors.delete(machine); }
+      const got = await invoke<HarnessesView>("agent_harnesses", { machineId: machine, refresh });
+      if (readVersion.get(machine) === version) { st.views.set(machine, got); st.errors.delete(machine); }
     } catch (e) {
       if (readVersion.get(machine) === version) {
         if (!st.views.get(machine)) st.views.set(machine, null);
@@ -198,7 +198,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
       st.savedAll.delete(`${machine} ${hv.agent}`);
       st.others.delete(hv.agent);
       st.errors.delete(machine);
-      // Read back what the server saved, without asking npm again.
+      // Read back what was saved, without asking npm again.
       await load(false, machine);
     } catch (e) {
       st.errors.set(machine, fail(e));
@@ -215,7 +215,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     reading.add(agent);
 
     try {
-      st.others.set(agent, (await invoke<MachineSettings[] | null>("harness_settings_all", { agent })) ?? false);
+      st.others.set(agent, await invoke<MachineSettings[]>("harness_settings_all", { agent }));
     } catch (e) {
       // The notes are a hint; the page works without them.
       console.warn("harness settings on every machine:", e);

@@ -1,5 +1,5 @@
 // Terminals: commands and shells kept running on the user's machines, apart
-// from any chat, like tmux sessions: the node owns them, so they keep running
+// from any session, like tmux sessions: the node owns them, so they keep running
 // with the window closed and can be attached to again. The window's Terminals
 // page is view.ts; makeTerminals here holds its state.
 import { createElement, Fragment, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
@@ -49,7 +49,7 @@ export function makeTerminals(deps: TerminalDeps) {
     }
   });
 
-  const kept = deps.kept ?? new PageCache(null).section<TerminalRow[] | null>("terminals");
+  const kept = deps.kept ?? new PageCache(null).section<TerminalRow[]>("terminals");
 
   /// A project's terminals, from the cache until they are read.
   const of = (name: string) => {
@@ -72,9 +72,9 @@ export function makeTerminals(deps: TerminalDeps) {
 
     try {
       t.list = name === ALL
-        ? await invoke<TerminalRow[] | null>("terminals_all")
-        : await invoke<TerminalRow[] | null>("terminals_list", { project: name });
-      if (t.open && !t.list?.some(x => x.id === t.open)) t.open = null;
+        ? await invoke<TerminalRow[]>("terminals_all")
+        : await invoke<TerminalRow[]>("terminals_list", { project: name });
+      if (t.open && !t.list.some(x => x.id === t.open)) t.open = null;
       kept.put(name, t.list);
       t.error = "";
     } catch (e) {
@@ -302,14 +302,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const fields = { project: form.project ?? name, machineId: form.machine, name: form.name, command: form.command, cwd: form.cwd };
 
     try {
-      let made = await invoke<TerminalRow | null>("terminal_open", { terminal: { ...fields, ...START_SIZE } });
-
-      // A server from before interactive terminals runs commands view only.
-      if (!made) {
-        if (!form.command.trim()) throw new Error("The server needs an update before it runs a shell.");
-        made = await invoke<TerminalRow>("terminal_start", { terminal: fields });
-      }
-
+      const made = await invoke<TerminalRow>("terminal_open", { terminal: { ...fields, ...START_SIZE } });
       t.list = [...(t.list || []), made];
       t.form = null;
       opened.add(made.id);
@@ -323,7 +316,7 @@ export function makeTerminals(deps: TerminalDeps) {
     redraw();
   }
 
-  /// Drops ended terminal `id` here and on the server.
+  /// Drops ended terminal `id` here and on its machine.
   function forget(name: string, id: string) {
     const live = lives.get(id);
 
@@ -336,7 +329,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const t = of(name);
     t.list = (t.list || []).filter(x => x.id !== id);
     if (t.open === id) { t.open = null; t.output = null; }
-    // Its row on the server; the next listing drops it too when this fails.
+    // Its row on the machine; the next listing drops it too when this fails.
     invoke("terminal_close", { id }).catch(e => console.warn("closing an ended terminal:", e));
     redraw();
   }
@@ -482,11 +475,6 @@ export function makeTerminals(deps: TerminalDeps) {
     if (shown !== ALL) { dropAll(); shown = ALL; }
     const t = of(ALL);
     if (t.list === undefined) load(ALL);
-
-    if (t.list === null) {
-      watch(null);
-      return createElement("div", { className: "cc-panel cc-empty" }, createElement("b", null, "The server needs an update before it lists terminals on every machine."));
-    }
 
     const groups = byMachine(machines, t.list || []);
     const places = machines.filter(m => m.online).map(m => ({ id: m.id, name: m.name, folder: "" }));
@@ -713,7 +701,7 @@ export interface TerminalDeps {
   redraw: () => void;
   /// Where each project's list is kept between windows; in memory only
   /// without it.
-  kept?: SectionStore<TerminalRow[] | null>;
+  kept?: SectionStore<TerminalRow[]>;
 }
 
 /// The New terminal form as typed so far.
@@ -753,10 +741,9 @@ interface Live {
   paused?: boolean;
 }
 
-/// One project's terminals: `list` is undefined while it loads and null
-/// from a server too old to keep terminals.
+/// One project's terminals: `list` is undefined while it loads.
 interface ProjectTerminals {
-  list: TerminalRow[] | null | undefined;
+  list: TerminalRow[] | undefined;
   open: string | null;
   output: OutputView | null;
   form: TerminalForm | null;
@@ -814,13 +801,12 @@ export function stateLabel(t: Pick<TerminalRow, "state"> & Partial<Pick<Terminal
 }
 
 /// The board's Terminals tile from the project's terminals; undefined while
-/// they load, null from a server too old to keep them.
+/// they load.
 export function terminalTile(
-  list: readonly (Pick<TerminalRow, "name" | "state" | "started_at"> & Partial<Pick<TerminalRow, "code" | "machine_name" | "command" | "cwd">>)[] | null | undefined,
+  list: readonly (Pick<TerminalRow, "name" | "state" | "started_at"> & Partial<Pick<TerminalRow, "code" | "machine_name" | "command" | "cwd">>)[] | undefined,
   ago: Ago,
 ): TileData {
   if (list === undefined) return { count: "", rows: [], empty: "Loading…" };
-  if (list === null) return { count: "", rows: [], empty: "The server keeps no terminals" };
   const running = list.filter(t => t.state === "running").length;
   return {
     count: running ? `${running} running` : list.length ? String(list.length) : "",

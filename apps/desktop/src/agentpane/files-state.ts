@@ -92,7 +92,7 @@ export interface Listing {
 export function failedListing(text: string, had?: Listing): Listing {
   const msg = text.replace(/^bad request: /, "");
   if (/: the folder .* is not there/.test(msg)) return { entries: [], more: 0, error: "" };
-  const error = /unknown op|not serve|update/i.test(msg) ? "Update Beep's server and beep-node on that machine to browse its files." : msg;
+  const error = /unknown op|not serve|update/i.test(msg) ? "Update beep-node on that machine to browse its files." : msg;
   return { entries: had?.entries ?? null, more: 0, error };
 }
 

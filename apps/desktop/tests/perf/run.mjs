@@ -11,7 +11,7 @@
 //
 // Options (or env):
 //   --browser webkit|chromium|both   default both
-//   --pages home,chats,...           default all (see PAGES below)
+//   --pages home,machines,...        default all (see PAGES below)
 //   --runs N                         default 3, medians are printed
 //   --dist DIR                       serve DIR instead of ../../dist, to compare builds
 //   --json FILE                    also write the raw results
@@ -49,8 +49,6 @@ const PAGES = {
   "home-git": { click: ".cc-tabs button:nth-child(2)", ready: "#sec-git, .cc-tabs button:nth-child(2)[aria-selected=true]", scroll: "#view", from: "home" },
   "home-projects": { click: ".cc-tabs button:nth-child(3)", ready: "#sec-projects-home", scroll: "#view", from: "home" },
   "home-machines": { click: ".cc-tabs button:nth-child(4)", ready: "#sec-machines", scroll: "#view", from: "home" },
-  chats: { open: "chats", ready: ".dchat", search: "#find", text: "chat 00", keys: "#find" },
-  memories: { open: "memories", ready: ".dmem", search: "#mfind", text: "alpha widget", keys: "#mfind", scroll: "#mlist" },
   machines: { open: "machines", ready: ".dmach", scroll: "auto" },
   projects: { open: { projects: { project: null } }, ready: "#main .cc-view", scroll: "auto" },
   // A fold in the sidebar reloads its projects group; the page behind is cheap.

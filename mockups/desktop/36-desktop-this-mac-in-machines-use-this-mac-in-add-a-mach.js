@@ -1,6 +1,6 @@
 // ---- Desktop: This computer in Machines, Use this computer in Add a machine, the Projects page and Import a project ----
 // Mirrors thisMacRow in home.js and center.js, macOption in addmachine-state.js, projectTable in center.js
-// and importproject.js. This computer shows while the server does not list it; S.d.tm picks its state.
+// and importproject.js. This computer shows while the mesh does not list it; S.d.tm picks its state.
 (() => {
   const st = document.createElement("style");
   st.textContent = `
@@ -128,13 +128,13 @@ D.dProjectsPage = () => {
 };
 VARIANTS.dProjectsPage = [["Projects", "list"], ["One project", "one"], ["None yet", "empty"]].map(([l, k]) => [l, () => { S.d.pp = k; render(); }, () => (S.d.pp || "list") === k]);
 
-// Import a project: a field for org/repo or a URL, a chip per online machine (Auto lets the server pick), then Import.
+// Import a project: a field for org/repo or a URL, a chip per online machine (Auto lets Beep pick), then Import.
 D.dImportProject = () => {
   const v = S.d.ip || "form";
   const typed = v !== "form", repo = "acme/widget", mac = v === "checkout";
   const field = typed ? `<span>${repo}</span>` : `<span class="ph">org/repo or https://github.com/org/repo</span>`;
   const picked = !typed ? 0 : mac ? 2 : 1;
-  const chips = ["Auto", "build-box", "MacBook Air"].map((c, i) => `<button class="dchip" aria-pressed="${i === picked}" data-toast="${c === "Auto" ? "The server picks a machine" : c}">${c}</button>`).join("");
+  const chips = ["Auto", "build-box", "MacBook Air"].map((c, i) => `<button class="dchip" aria-pressed="${i === picked}" data-toast="${c === "Auto" ? "Beep picks a machine" : c}">${c}</button>`).join("");
   // Folder: the parent the clone goes under as <parent>/<org>/<repo>, the machine's Projects in folder
   // until edited or Choose… picks one. This computer opens the macOS folder picker; another machine
   // opens the browser below, listing its folders from its home.

@@ -37,7 +37,7 @@ export interface Spend {
   project: string;
   cost_usd: number;
   unpriced: NamedTokens[];
-  /// Tokens of metered use; 0 from a server that prices everything.
+  /// Tokens of metered use.
   metered_tokens?: number;
   /// Tokens a subscription covered, by agent.
   subscription?: NamedTokens[];
@@ -64,10 +64,10 @@ export interface UsageView {
   limits: PlanLimits[];
   today: Period;
   week: Period;
-  /// Null from a server from before the monthly report.
+  /// Null when the report has no month.
   month: Period | null;
-  /// The dollars are metered API spend only; false from an older server,
-  /// whose dollars price every token at API prices.
+  /// The dollars are metered API spend only, subscription use apart; when
+  /// false, every token is priced at API prices.
   metered?: boolean;
 }
 

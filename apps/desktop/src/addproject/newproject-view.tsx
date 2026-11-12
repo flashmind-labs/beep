@@ -5,7 +5,7 @@ import { FolderField } from "./folderbrowser.tsx";
 
 interface Machine { id: string; name: string; online: boolean }
 interface Props {
-  forges: Forge[] | null | undefined; loadError: string | null; form: NewProjectForm; machines: readonly Machine[]; defaults: ReadonlyMap<string, string>;
+  forges: Forge[] | undefined; loadError: string | null; form: NewProjectForm; machines: readonly Machine[]; defaults: ReadonlyMap<string, string>;
   creating: boolean; error: string | null; created: Created | null; hostError: string | null;
   name(value: string): void; host(value: string | null): void; owner(event: MouseEvent<HTMLButtonElement>): void; privacy(value: boolean): void; machine(id: string): void; folder(id: string, folder: string): void;
   submit(): void; back(): void; close(): void; clone(url: string): void;
@@ -29,5 +29,5 @@ function Done({ made, p }: { made: Created; p: Props }) {
 }
 export function NewProjectView(p: Props) {
   const names = p.form.machines.map(id => p.machines.find(machine => machine.id === id)?.name ?? id);
-  return <><div className="am-head"><b>New project</b><kbd>esc</kbd></div>{p.forges === undefined ? <div className="am-wait"><span className="dspin" /></div> : p.forges === null ? <><div className="am-sub">The server needs an update before it creates projects.</div><div className="am-line ip-foot"><button type="button" className="dbtn quiet" onClick={p.back}>Back</button></div></> : p.creating ? <div className="am-wait"><span className="dspin" />{creatingText(p.form, names)}</div> : p.created ? <Done made={p.created} p={p} /> : <Fields {...p} />}</>;
+  return <><div className="am-head"><b>New project</b><kbd>esc</kbd></div>{p.forges === undefined ? <div className="am-wait"><span className="dspin" /></div> : p.creating ? <div className="am-wait"><span className="dspin" />{creatingText(p.form, names)}</div> : p.created ? <Done made={p.created} p={p} /> : <Fields {...p} />}</>;
 }

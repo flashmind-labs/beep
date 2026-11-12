@@ -37,7 +37,7 @@ function Empty({ reach }: { reach: MachinesReach }) {
   switch (reach) {
     case "connecting": return <div className="dempty"><span className="ddot dial" /><b className="dbig">Connecting to your machines…</b></div>;
     case "offline": return <div className="dempty"><span className="ddot off" /><b className="dbig">No machine is online.</b></div>;
-    case "reached": return <div className="dempty"><span className="dicon"><Icon /></span><b className="dbig">No sessions running.</b><span className="dmuted dblock">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>;
+    case "reached": return <div className="dempty"><span className="dicon"><Icon /></span><b className="dbig">No sessions running.</b><span className="dmuted dblock">Start one here, or run Claude Code in a terminal on a linked machine.</span></div>;
   }
 }
 

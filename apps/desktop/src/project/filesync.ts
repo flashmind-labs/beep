@@ -77,13 +77,12 @@ interface FileSyncDeps {
   changeFolder?: (project: string, m: MachineDetail) => void;
   /// Where each project's sync is kept between windows; in memory only
   /// without it.
-  kept?: SectionStore<SyncDetail | null>;
+  kept?: SectionStore<SyncDetail>;
 }
 
-/// One project's sync: `detail` is undefined while it loads and null from
-/// a server too old to give it.
+/// One project's sync: `detail` is undefined while it loads.
 interface ProjectSyncState {
-  detail: SyncDetail | null | undefined;
+  detail: SyncDetail | undefined;
   error: string;
   busy: string | null;
   /// A read is under way.
@@ -103,7 +102,7 @@ export function makeFileSync(deps: FileSyncDeps) {
   const compareViews = new Map<string, DiffViewHandle>();
   const compareReads = new Map<string, object>();
 
-  const kept = deps.kept ?? new PageCache(null).section<SyncDetail | null>("filesync");
+  const kept = deps.kept ?? new PageCache(null).section<SyncDetail>("filesync");
 
   /// A project's sync, from the cache until it is read; the kept one is as
   /// old as the cache says.
@@ -130,15 +129,14 @@ export function makeFileSync(deps: FileSyncDeps) {
     const wasDetail = JSON.stringify(s.detail);
 
     try {
-      const detail = await invoke<SyncDetail | null>("project_sync_detail", { project: name });
+      const detail = await invoke<SyncDetail>("project_sync_detail", { project: name });
       await loadClocks(invoke);
       s.error = "";
 
       // An unchanged detail keeps its object, so what shows it can skip a draw.
       if (JSON.stringify(detail) !== wasDetail) s.detail = detail;
-      kept.put(name, s.detail ?? null);
+      kept.put(name, detail);
     } catch (e) {
-      s.detail ??= null;
       s.error = reason(e);
     } finally {
       s.loading = false;

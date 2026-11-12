@@ -130,7 +130,7 @@ body.cbody
                   span
                 div.bd-empty "Nothing here"
       div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="waiting"]
+        div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

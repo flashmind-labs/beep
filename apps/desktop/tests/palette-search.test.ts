@@ -105,20 +105,6 @@ test("nothing draws or asks after closing", async t => {
   assert.equal(asks.length, 1);
 });
 
-test("local prompt matches draw while server chat search is still waiting", async t => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const prompts = finder(), chats = finder();
-  const { shown, draw } = drawn();
-  const search = new PaletteSearch([prompts.find, chats.find], draw);
-  search.type("retry");
-  t.mock.timers.tick(DEBOUNCE_MS);
-  await prompts.asks[0].answer(["prompt"]);
-  assert.equal(shown.at(-1), "retry: prompt");
-  await chats.asks[0].answer(["chat"]);
-  assert.equal(shown.at(-1), "retry: prompt,chat");
-  search.stop();
-});
-
 test("an index update reruns the same query and rejects an earlier snapshot", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { asks, find } = finder();

@@ -33,8 +33,8 @@ async function loadCliLogins() {
   redrawCreds();
 }
 
-/// Checks each saved Forgejo token the server could not check when it was
-/// saved, once per token: from the server, else from a machine with teacli.
+/// Checks each saved Forgejo token Beep could not check when it was saved,
+/// once per token: from this device, else from a machine with teacli.
 function checkForgejo(list: Credential[]) {
   const checks = (CRED.checks ??= {});
 
@@ -53,8 +53,8 @@ export async function loadCreds() {
   loadCliLogins();
 
   try {
-    // A server from before several GitHub accounts does not list them:
-    // the credentials list then has the one GitHub token.
+    // When the accounts cannot be read, the credentials list has the one
+    // GitHub token.
     const accounts = invoke<GitHubAccount[]>("list_github_accounts").catch(e => { console.warn(e); return undefined; });
     const [, list, github] = await Promise.all([credModule(), invoke<Credential[]>("list_credentials"), accounts]);
     CRED.list = list;
@@ -169,10 +169,10 @@ export async function loadAgentAccounts() {
   try {
     const [, data, machines] = await Promise.all([
       agModule(),
-      invoke<AgentAccounts | null>("agent_accounts"),
+      invoke<AgentAccounts>("agent_accounts"),
       invoke<Machine[]>("list_machines").catch((): Machine[] => []),
     ]);
-    ACC.data = data ?? false;
+    ACC.data = data;
     // Each machine's own Claude Code sign-in, as it last reported it.
     if (data) data.claude_logins = new Map(machines.flatMap(m => {
       const login = m.env?.logins?.find(l => l.tool === "claude");

@@ -12,8 +12,6 @@
 .mac .pj-card .line { font-size: 12px; color: var(--d-muted); line-height: 17px; overflow-wrap: anywhere }
 .mac .pj-card .line b { color: var(--d-fg); font-weight: 500 }
 .mac .pj-card .line.sync { font-size: 11px; color: var(--d-dim) }
-.mac .pj-bar { display: flex; height: 5px; border-radius: 5px; overflow: hidden; background: var(--d-elev); gap: 2px }
-.mac .pj-bar i { display: block; height: 100% }
 .mac .pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
 .mac .pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 8px 12px; align-items: center }
 .mac .pj-task + .pj-task { border-top: 1px solid var(--d-border) }
@@ -80,10 +78,10 @@
 })();
 
 const PJ = [
-  { name: "acme/widget", color: "var(--d-coral)", tasks: { running: 2, review: 1, blocked: 0, planned: 2, done: 7 }, issues: 3, workers: 2, at: 60, machines: "build-box, mac-box", sync: "Beep sync", last: "Bump the sync crate: its PR waits for your review<small> · 1 h</small>" },
-  { name: "acme/relay", pin: true, color: "#6FA8DC", tasks: { running: 1, review: 0, blocked: 1, planned: 0, done: 3 }, issues: 1, workers: 1, at: 12, machines: "build-box", sync: "Syncthing", last: "fix-clippy is blocked<small> · 12 min</small>" },
-  { name: "northwind/pines", color: "#B18CE0", tasks: { running: 0, review: 0, blocked: 0, planned: 1, done: 2 }, workers: 0, at: 2880, machines: "gpu-box", last: "Next: Rebuild the index on gpu-box<small> · 2 d</small>" },
-  { name: "northwind/a-very-long-project-name-that-needs-more-room-than-a-card", color: "#7BC47F", tasks: { running: 0, review: 0, blocked: 0, planned: 0, done: 0 }, workers: 0, at: 30, machines: "gpu-box", sync: "Beep sync", last: "No tasks yet" },
+  { name: "acme/widget", color: "var(--d-coral)", issues: 3, workers: 2, at: 60, machines: "build-box, mac-box", sync: "Beep sync", last: "Codex: bump the sync crate<small> · 1 h</small>" },
+  { name: "acme/relay", pin: true, color: "#6FA8DC", issues: 1, workers: 1, at: 12, machines: "build-box", sync: "Syncthing", last: "Claude Code on fix-clippy needs you<small> · 12 min</small>" },
+  { name: "northwind/pines", color: "#B18CE0", workers: 0, at: 2880, machines: "gpu-box", last: "Claude Code rebuilt the index on gpu-box<small> · 2 d</small>" },
+  { name: "northwind/a-very-long-project-name-that-needs-more-room-than-a-card", color: "#7BC47F", workers: 0, at: 30, machines: "gpu-box", sync: "Beep sync", last: "No agents yet" },
 ];
 // Projects are grouped by GitHub org (or user); inside a group only the repo name shows.
 const PJ_ORGS = () => [...new Set(PJ.map(p => p.name.split("/")[0]))].map(org => ({ org, repos: PJ.filter(p => p.name.startsWith(org + "/")) }));
@@ -95,29 +93,23 @@ const pjHead = (key, label, cur, repos, cls = "") => {
   return `<button class="cc-org${cls}" aria-expanded="${!folded}"${folded && repos.some(p => p.name === cur) ? ' aria-current="true"' : ""} data-dact="dset:pjfold:${folded ? "" : key}"><span class="twist${folded ? "" : " open"}">${PJ_TWIST}</span>${label}</button>`;
 };
 const pjSideOrgs = cur => PJ_ORGS().map(g => ({ ...g, repos: g.repos.filter(p => !p.pin) })).filter(g => g.repos.length).map(g => pjHead(g.org, `${g.org}/`, cur, g.repos) + (S.d.pjfold === g.org ? "" : g.repos.map(p => pjRow(cur, p)).join(""))).join("");
-const PJ_COLORS = { running: "var(--d-emerald)", review: "#8A9CF0", blocked: "#F2C94C", planned: "#5D6168", done: "#2A2B2E" };
 
-// The sidebar's Projects group lists real projects once the server answers ListProjects.
+// The sidebar's Projects group lists the projects of the mesh.
 const pjRow = (cur, p, full) => `<button class="cc-si${full ? "" : " pj-repo"}"${cur === p.name ? ' aria-current="true"' : ""} data-dgo="dWinProject"><span class="cc-pdot" style="background:${p.color}"></span><span class="tt">${full ? p.name : pjRepo(p)}</span>${p.workers ? `<span class="n">${p.workers}</span>` : ""}<span class="pa" role="button" aria-label="${p.pin ? "Unpin" : "Pin to top"}" data-toast="${p.pin ? "Unpinned " : "Pinned "}${p.name}">${DI.pin}</span></button>`;
 const ccSidePj = (cur, o = {}) => ccSide(cur, o).replace(/<div class="cc-grp"><h3>Projects<\/h3>[\s\S]*?<\/div>/,
-  o.old ? "" : `<div class="cc-grp"><h3><a class="cc-h3l" href="#" data-dgo="dWinProjects" title="All projects">Projects</a><button aria-label="Add a project" data-dgo="dAddProject">${CC_IC.plus}</button></h3>
+  `<div class="cc-grp"><h3><a class="cc-h3l" href="#" data-dgo="dWinProjects" title="All projects">Projects</a><button aria-label="Add a project" data-dgo="dAddProject">${CC_IC.plus}</button></h3>
     ${pjSideOrgs(cur)}
 </div>`);
 
 D.dWinProjects = () => {
   const empty = S.d.pjs === "empty";
-  const local = S.d.pjs === "local";
   const card = p => {
-    const open = p.tasks.running + p.tasks.review + p.tasks.blocked + p.tasks.planned;
-    const total = open + p.tasks.done;
-    return `<button class="pj-card" data-dgo="dWinProject"><div class="h"><span class="cc-pdot" style="background:${p.color}"></span><b title="${p.name}">${pjRepo(p)}</b><span class="pa" role="button" aria-label="${p.pin ? "Unpin" : "Pin to top"}" data-toast="${p.pin ? "Unpinned " : "Pinned "}${p.name}" style="display:grid;color:${p.pin ? "var(--d-coral)" : "var(--d-dim)"}">${DI.pin}</span><small>${p.workers ? p.workers + (local ? (p.workers === 1 ? " agent" : " agents") : (p.workers === 1 ? " worker" : " workers")) : "idle"}</small></div>
-      ${local ? `<span class="line">${p.workers ? "Last activity 12 min ago" : "No recent activity"}</span><span class="line sync">on build-box, mac-box</span>` : `<div class="pj-bar">${Object.entries(p.tasks).filter(([, n]) => n).map(([k, n]) => `<i style="width:${n / total * 100}%;background:${PJ_COLORS[k]}" title="${n} ${k}"></i>`).join("")}</div>
-      <span class="line"><b>${open} open</b>${p.tasks.review ? ` · ${p.tasks.review} in review` : ""}${p.tasks.blocked ? ` · ${p.tasks.blocked} blocked` : ""} · ${p.tasks.done} done</span>
-      <span class="line">${p.last}</span>`}
+    return `<button class="pj-card" data-dgo="dWinProject"><div class="h"><span class="cc-pdot" style="background:${p.color}"></span><b title="${p.name}">${pjRepo(p)}</b><span class="pa" role="button" aria-label="${p.pin ? "Unpin" : "Pin to top"}" data-toast="${p.pin ? "Unpinned " : "Pinned "}${p.name}" style="display:grid;color:${p.pin ? "var(--d-coral)" : "var(--d-dim)"}">${DI.pin}</span><small>${p.workers ? p.workers + (p.workers === 1 ? " agent" : " agents") : "idle"}</small></div>
+      <span class="line">${p.workers ? "Last activity 12 min ago" : "No recent activity"}</span><span class="line sync">on ${p.machines}</span>
       ${p.sync ? `<span class="line sync">${p.sync}</span>` : ""}</button>`;
   };
   // Search filters by name, folder and remote across groups; inside a group,
-  // pinned first, then the most recent activity (agent sessions, visits, tasks).
+  // pinned first, then the most recent activity (agent sessions, visits).
   const q = S.d.pjs === "search" ? "relay" : S.d.pjs === "nomatch" ? "zzz" : "";
   const find = empty ? "" : `<label class="pj-find"><input type="search" placeholder="Search projects" aria-label="Search projects" value="${q}"></label>`;
   const orgs = PJ_ORGS().map(g => ({ ...g, repos: g.repos.filter(p => p.name.includes(q)) })).filter(g => g.repos.length);
@@ -138,6 +130,6 @@ D.dWinProjects = () => {
       ${[["retry-flag", "PR #812 · needs reply", "build-box", ".worktrees/retry-flag", 1], ["fix-windows-paths", "pushed 2 weeks ago, no PR", "", "", 0], ["main", "default branch", "build-box", "/srv/uploader", 1]].map(([b, meta, m, wt, has]) =>
         `<div class="pj-task" style="padding:6px 0"><span class="t"><code>${b}</code></span>${has ? `<span class="pj-st running" style="color:var(--d-muted);border-color:var(--d-border)">${m}</span>` : ""}<span class="m"><span>${meta}</span>${has ? `<span>${wt}</span>` : ""}</span>${has ? "" : `<span class="pj-start"><span class="lbl">Worktree</span><span class="seg"><button aria-pressed="true">build-box</button><button>mac-box</button><button>Skip</button></span></span>`}</div>`).join("")}
       <span class="acts" style="display:flex;gap:6px"><button class="dbtn pri" data-toast="Imported; worktree for fix-windows-paths created on build-box">Import<kbd>⌘${DI.ret}</kbd></button><button class="dbtn quiet" data-toast="Cancelled">Cancel</button></span></div>`;
-  return ccWin(ccSidePj("projects"), `<div class="cc-top"><h2>Projects</h2><small>${empty ? "" : (local ? "4 projects in 2 orgs, 3 agents running" : "4 projects in 2 orgs, 3 workers running")}</small></div><div class="cc-view">${imp ? importCard : ""}${body}${empty ? "" : apFoundSection()}${outside}</div>`);
+  return ccWin(ccSidePj("projects"), `<div class="cc-top"><h2>Projects</h2><small>${empty ? "" : "4 projects in 2 orgs, 3 agents running"}</small></div><div class="cc-view">${imp ? importCard : ""}${body}${empty ? "" : apFoundSection()}${outside}</div>`);
 };
-VARIANTS.dWinProjects = [["Projects", "list"], ["Without task summaries", "local"], ["None yet", "empty"], ["Import with branches", "import"], ["Search", "search"], ["Search without a match", "nomatch"]].map(([l, k]) => [l, () => { S.d.pjs = k; render(); }, () => (S.d.pjs || "list") === k]);
+VARIANTS.dWinProjects = [["Projects", "list"], ["None yet", "empty"], ["Import with branches", "import"], ["Search", "search"], ["Search without a match", "nomatch"]].map(([l, k]) => [l, () => { S.d.pjs = k; render(); }, () => (S.d.pjs || "list") === k]);

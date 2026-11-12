@@ -98,22 +98,4 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 .thoughts code { font-family: var(--mono); font-size: 12px; background: var(--m-t1); color: var(--m-ink); border-radius: 4px; padding: 0 3px }
 .banner { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--m-t2); border: 1.5px solid var(--m-ledge); font-size: 13px }
 
-/* ---------- Linking (App) ---------- */
-.sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 9; background: var(--m-surface); border-top: 1.5px solid var(--m-ledge);
-  border-radius: 24px 24px 0 0; padding: 10px 20px 20px; display: flex; flex-direction: column; gap: 14px; animation: sheetUp .3s var(--ease) }
-.sheet h3 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 24px; letter-spacing: -0.03em }
-@keyframes sheetUp { from { transform: translateY(100%) } }
-
-/* ---------- Group chat ---------- */
-.gm { display: flex; max-width: 300px; align-self: flex-start }
-.gm.beep { max-width: none; align-self: stretch; flex-direction: column }
-.gm.beep .who { margin-bottom: 4px }
-.gm .av, .av { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--m-ledge); display: grid; place-items: center; font-size: 11px; font-weight: 600; flex: none }
-.gm .b { background: var(--m-surface); border: 1.5px solid var(--m-ledge); border-radius: 18px 18px 18px 4px; padding: 7px 12px 9px; font-size: 15px; line-height: 21px }
-.gm .who { display: block; font-size: 12px; font-weight: 600; line-height: 16px; margin-bottom: 2px }
-.gm.beep .b { background: none; border: 0; padding: 0; font-size: 15px; line-height: 22px }
-.card .row > svg { flex: none; margin-top: 1px }
-.mention { color: var(--m-brand); font-weight: 600 }
 .screen .caret { display: inline-block; width: 2px; height: 16px; background: var(--m-brand); vertical-align: -3px; animation: none}
-.typing { display: inline-flex; gap: 3px; margin-left: 2px } .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--m-muted); animation: none} .typing i:nth-child(2) { animation-delay: .15s } .typing i:nth-child(3) { animation-delay: .3s }
-@keyframes tdot { 0%,60%,100% { opacity: .3; transform: none } 30% { opacity: 1; transform: translateY(-3px) } }

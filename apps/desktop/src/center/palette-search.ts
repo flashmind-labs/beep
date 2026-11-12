@@ -1,5 +1,4 @@
-// Local lists draw immediately. Independent text indexes answer after
-// typing stops, so a slow source cannot hold back another source's hits.
+// Local lists draw immediately. The text index answers after typing stops.
 
 export const DEBOUNCE_MS = 120;
 const MIN_TEXT_QUERY = 2;
@@ -7,19 +6,18 @@ const MIN_TEXT_QUERY = 2;
 export type TextFinder<T> = (query: string) => Promise<T[]>;
 export type Drawer<T> = (query: string, text: T[]) => void;
 
-type Source<T> = { find: TextFinder<T>; text: T[]; asking: boolean };
-
 export class PaletteSearch<T> {
   private query = "";
   private version = 0;
-  private sources: Source<T>[];
+  private find: TextFinder<T>;
+  private text: T[] = [];
+  private asking = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
   private draw: Drawer<T>;
 
-  constructor(finders: TextFinder<T> | TextFinder<T>[], draw: Drawer<T>) {
-    this.sources = (Array.isArray(finders) ? finders : [finders])
-      .map(find => ({ find, text: [], asking: false }));
+  constructor(find: TextFinder<T>, draw: Drawer<T>) {
+    this.find = find;
     this.draw = draw;
   }
 
@@ -27,21 +25,21 @@ export class PaletteSearch<T> {
     if (this.stopped) return;
     this.query = query;
     this.version++;
-    for (const source of this.sources) source.text = [];
+    this.text = [];
     this.refresh();
     clearTimeout(this.timer);
     this.timer = undefined;
     if (query.trim().length >= MIN_TEXT_QUERY) {
       this.timer = setTimeout(() => {
         this.timer = undefined;
-        for (const source of this.sources) this.ask(source);
+        void this.ask();
       }, DEBOUNCE_MS);
     }
   }
 
   /// The lists changed; keep the text matches already found.
   refresh() {
-    if (!this.stopped) this.draw(this.query, this.sources.flatMap(source => source.text));
+    if (!this.stopped) this.draw(this.query, this.text);
   }
 
   /// A background index changed, even if the query did not.
@@ -52,7 +50,7 @@ export class PaletteSearch<T> {
     this.version++;
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      for (const source of this.sources) this.ask(source);
+      void this.ask();
     }, DEBOUNCE_MS);
   }
 
@@ -61,25 +59,25 @@ export class PaletteSearch<T> {
     clearTimeout(this.timer);
   }
 
-  private async ask(source: Source<T>) {
-    if (this.stopped || source.asking) return;
+  private async ask() {
+    if (this.stopped || this.asking) return;
     const { query, version } = this;
-    source.asking = true;
+    this.asking = true;
     let text: T[] | null = null;
 
     try {
-      text = await source.find(query);
+      text = await this.find(query);
     } catch (e) {
       console.warn("searching palette text:", e);
     }
 
-    source.asking = false;
+    this.asking = false;
     if (this.stopped) return;
 
     if (version === this.version) {
-      if (text) { source.text = text; this.refresh(); }
+      if (text) { this.text = text; this.refresh(); }
     } else if (this.timer === undefined && this.query.trim().length >= MIN_TEXT_QUERY) {
-      this.ask(source);
+      void this.ask();
     }
   }
 }

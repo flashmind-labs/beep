@@ -84,7 +84,7 @@ export function openPalette() {
   sel = 0;
   drawnQuery = "";
   searching = new PaletteSearch<Entry<AgentRow>>(
-    [query => invoke<Entry<AgentRow>[]>("center_find_prompts", { query })],
+    query => invoke<Entry<AgentRow>[]>("center_find_prompts", { query }),
     (q, text) => {
       // A redraw of the same query keeps the row the user is on.
       const on = q === drawnQuery ? hits[sel] : undefined;

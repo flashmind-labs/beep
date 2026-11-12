@@ -109,7 +109,7 @@ body.cbody.mobile
             span "Start an agent on this computer, or add a machine to run it there."
             button.dbtn.small [type="button"] "Start an agent"
       div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="waiting"]
+        div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box
         div.cc-view [data-project]
           div style(display)

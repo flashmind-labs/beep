@@ -46,7 +46,7 @@ test("a remote's path drops the host, the port and .git", () => {
   assert.equal(remotePath(null), null);
 });
 
-test("This computer gets a row until the server lists it", () => {
+test("This computer gets a row until the mesh lists it", () => {
   const mac = (over: Partial<MacControl> = {}): Omit<MacControl, "permissions"> => ({ id: "mac-key", name: "Studio", enabled: true, status: "connecting", error: null, ...over });
   assert.equal(thisMacRow(mac(), [{ id: "mac-key" }]), null);
   assert.equal(thisMacRow(mac(), null), null);

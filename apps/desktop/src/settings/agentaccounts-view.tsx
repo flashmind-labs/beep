@@ -18,7 +18,6 @@ function timeLeft(expires: number, now: number) { const s = Math.floor((expires 
 export function AgentAccountsView({ state, ago, now, actions }: { state: AgentAccountsState; ago: (ms: number) => string; now: number; actions: Actions }) {
   const data = state.data;
   if (data === null) return <div className="dmuted">Could not load your agent accounts.</div>;
-  if (data === false) return <div className="dmuted">The server needs an update before it keeps agent accounts.</div>;
   if (!data) return <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /><div className="dskel" style={{ width: "56%" }} /></div>;
   const claude = data.claude, claudeMachines = data.machines.filter(m => m.claude), key = data.codex_key, codexMachines = data.machines.filter(m => m.codex);
   return <><div className="dlead">How your coding agents sign in on your machines.</div><div className="dbox">

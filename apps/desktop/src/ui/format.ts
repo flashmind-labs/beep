@@ -92,7 +92,7 @@ export function failure(e: unknown) {
 }
 export function conflict(e: unknown) { return /^conflict/i.test(String(e)); }
 
-/// A refusal as the server said it, without what the bridge puts before it.
+/// A refusal as the desktop said it, without what the bridge puts before it.
 export function reason(e: unknown) {
   return String(e).replace(/^(bad request|error):\s*/i, "");
 }

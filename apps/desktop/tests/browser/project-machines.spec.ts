@@ -113,15 +113,6 @@ test("sync and terminal events refresh the combined machine sections", async ({ 
   await expect(page.getByRole("article", { name: "build-box", exact: true })).not.toContainText("cargo watch");
 });
 
-test("machine actions and terminals remain available without detailed sync support", async ({ page }) => {
-  await openDesktop(page, false, { ...responses, project_sync_detail: null });
-  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
-  await expect(page.locator(".pm-machine")).toHaveCount(4);
-  await expect(page.getByRole("article", { name: "build-box", exact: true })).toContainText("cargo watch");
-  await expect(page.getByRole("button", { name: "Remove from studio", exact: true })).toBeEnabled();
-  await expect(page.locator(".pm-section")).toContainText("The server needs an update before it shows file sync in detail.");
-});
-
 test("handoff retries errors and keeps its native request after closing", async ({ page }) => {
   const projects = machines.slice(0, 2).map(machine => ({ name: projectName, url: "https://example.test/example/widget", machine_id: machine.id, machine_name: machine.name, folder: machine.folder, cloned: true, imported_at: 1 }));
   const git = machines.slice(0, 2).map(machine => ({ machine_id: machine.id, machine_name: machine.name, branch: "main", upstream: null, ahead: 0, behind: 0, error: null }));

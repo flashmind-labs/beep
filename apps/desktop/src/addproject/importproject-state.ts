@@ -4,7 +4,7 @@ import type { ProjectRow, MachineFolder } from "../project/projects-state.ts";
 import { reason } from "../ui/format.ts";
 
 /// "org/repo", a GitHub URL, a Forgejo URL or `git@host:org/repo`: what the
-/// server takes. It says why when it is none of these.
+/// Beep takes. It says why when it is none of these.
 export function looksLikeRepo(text: string | null | undefined) {
   const t = String(text || "").trim();
   if (!t) return false;
@@ -99,7 +99,7 @@ export interface ImportState {
   chosen: MachineFolder | null;
   /// The folder the browser shows while it is open.
   browsing: MachineFolder | null;
-  /// What the server made, once `step` is "done".
+  /// What Beep made, once `step` is "done".
   project?: ProjectRow;
 }
 
@@ -126,7 +126,7 @@ export const START: ImportState = { step: "form", repo: "", machine: null, error
 /// - `unchoose` goes back to the default folder, and closes the browser
 /// - `oops` when reading a folder failed
 /// - `submit` from Import or Enter
-/// - `done` when the server answered
+/// - `done` when Beep answered
 /// - `failed` when it refused
 export function next(state: ImportState, event: ImportEvent): ImportState {
   switch (event.type) {
@@ -166,7 +166,7 @@ export function next(state: ImportState, event: ImportEvent): ImportState {
   }
 }
 
-/// The server's sentence, without what the bridge puts before it.
+/// The refusal, without what the bridge puts before it.
 export function cleanError(message: string | null | undefined) {
   return reason(message || "").trim() || "The import failed.";
 }

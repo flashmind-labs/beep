@@ -283,7 +283,6 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
 
   // Nothing went: the message and its images wait in the field again,
   // before anything typed since, under the note that says why.
-  if (/does not take images yet/.test(AG.note)) AG.noImages = o.session;
   backInField(draft ?? { typed: text, paths: [], images });
   drawAgentBody();
   drawAgentAttached();

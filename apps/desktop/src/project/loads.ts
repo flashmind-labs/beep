@@ -276,7 +276,7 @@ async function readWhere(name: string) {
 
   try {
     const [machines, places] = await Promise.all([
-      invoke<ProjectMachineRow[] | null>("project_machines", { project: name }),
+      invoke<ProjectMachineRow[]>("project_machines", { project: name }),
       invoke<SyncthingPlace[]>("project_syncthing", { project: name }).catch(e => { console.warn("project syncthing:", e); return []; }),
     ]);
     got = withSyncthing(machines, places);

@@ -4,7 +4,7 @@ import { openDesktop, projectName } from "./harness.ts";
 test("issue selection, controls and scroll survive project redraws", async ({ page }) => {
   const now = Date.now();
   const issues = Array.from({ length: 25 }, (_, index) => ({ number: index + 1, title: `Issue ${index + 1}`, url: `https://example.test/issues/${index + 1}`, author: "Example", opened_at: now - index * 1000, comments: 0, labels: [index % 2 ? "feature" : "bug"] }));
-  await openDesktop(page, false, { center_project_lists: { issues, prs: [], issues_error: null, prs_error: null, synced_at: now }, center_project_threads: [], center_thread_chats: [] });
+  await openDesktop(page, false, { center_project_lists: { issues, prs: [], issues_error: null, prs_error: null, synced_at: now } });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "25 issues" }).click();
   await expect(page.locator('.pj-list .pj-li[title="Issues"]')).toHaveAttribute("aria-current", "true");

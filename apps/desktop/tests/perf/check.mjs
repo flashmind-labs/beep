@@ -61,32 +61,6 @@ async function drain(page, scroller, sel) {
 
 {
   const { page, errors } = await fresh();
-  await open(page, "memories", ".dmem");
-  const first = await count(page, ".dmem");
-  check("memories start small", first > 0 && first <= 30, `${first} rows`);
-  check("memories scroll to every row", await drain(page, "#mlist", ".dmem") === SIZES.memories);
-  check("memories end with Forget all", await page.evaluate(() => !!document.querySelector("#mlist > .dpad button")));
-  await open(page, "memories", ".dmem");
-  check("memories start small again", await count(page, ".dmem") <= 30);
-  await page.focus("#mfind");
-  for (let i = 0; i < 45; i++) await page.keyboard.press("ArrowDown");
-  await sleep(200);
-  const sel = await page.evaluate(() => {
-    const row = document.querySelector('.dmem[aria-selected="true"]');
-    const box = row?.getBoundingClientRect(), list = document.querySelector("#mlist").getBoundingClientRect();
-    return { i: row?.dataset.i, inView: !!box && box.bottom > list.top && box.top < list.bottom, acts: !!row?.querySelector(".acts"), rows: document.querySelectorAll('.dmem[aria-selected="true"]').length };
-  });
-  check("memories arrow keys select row 45, in view, one selected", sel.i === "45" && sel.inView && sel.acts && sel.rows === 1, JSON.stringify(sel));
-  await page.fill("#mfind", "alpha");
-  await sleep(300);
-  const shown = await page.evaluate(() => document.querySelector("#mcount").textContent);
-  check("memories search counts every match", /^\d+ of 2000$/.test(shown) && Number(shown.split(" ")[0]) === SIZES.memories / 10, shown);
-  check("memories no page errors", errors.length === 0, errors.join("; "));
-  await page.close();
-}
-
-{
-  const { page, errors } = await fresh();
   await page.click(".cc-tabs button:nth-child(2)");
   await page.waitForSelector("#sec-git");
   await sleep(500);

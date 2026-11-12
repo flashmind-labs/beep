@@ -159,8 +159,8 @@ export function projectWindowProps(name: string): ProjectWindowProps {
 }
 
 /// The right-click menu of project `name`: a window of its own, and
-/// removing it once it is imported (one from running agents only is not
-/// the server's to remove).
+/// removing it once it is imported (one from running agents only has
+/// nothing to remove).
 function openProjectMenu(e: MouseEvent, name: string) {
   const p = projectRows()?.find(x => x.name === name);
   const on = state.top.includes(name);

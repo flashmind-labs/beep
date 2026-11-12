@@ -42,6 +42,6 @@ test("a tool updated this session keeps its version and loses its button", async
 test("a container is tagged, other machines are not", () => {
   assert.equal(machineTag({ temporary: true }), "container");
   assert.equal(machineTag({ temporary: false }), null);
-  // A server's list says nothing of it.
+  // A list that says nothing of it.
   assert.equal(machineTag({}), null);
 });

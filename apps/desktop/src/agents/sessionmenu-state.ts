@@ -19,8 +19,8 @@ export const TAKEOVER = new Set(["claude", "codex", "pi", "flsh", "opencode"]);
 
 /// The items for a session in `status`. A session started outside Beep can
 /// be continued here, and once it ended its conversation can still be deleted.
-/// A running one must be closed first. `reachable` is whether this Mac can ask
-/// the machine to delete: not one only a server reaches.
+/// A running one must be closed first. `reachable` is whether this device can
+/// ask the machine to delete.
 export function sessionOffers(s: { status: string; external: boolean; agent: string; id?: string }, reachable = true): SessionOffers {
   if (s.id?.startsWith("subagent:")) return { stop: false, close: false, resume: false, delete: false };
   const ended = s.status === "ended";

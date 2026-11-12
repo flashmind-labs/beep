@@ -55,11 +55,11 @@ export function showMachineMenu(m: Removable, first: () => MenuItem[], e: MouseE
   if (items.length) openMenu(e, m.name, items);
 }
 
-/// Asks, then unlinks `m` from the account.
+/// Asks, then removes `m` from the mesh.
 function removeMachine(m: Removable) {
   confirmSheet({
     title: `Remove ${m.name}?`,
-    text: m.can_host === false || m.online === false ? "It is unlinked from your account." : "It is unlinked and agents running there stop.",
+    text: m.can_host === false || m.online === false ? "It leaves the mesh." : "It leaves the mesh and agents running there stop.",
     note: m.can_host === false ? "Pair it again to reconnect." : "Its files stay on the machine.",
     action: "Remove",
     run: async () => {

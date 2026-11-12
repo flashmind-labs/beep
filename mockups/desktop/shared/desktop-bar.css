@@ -48,11 +48,9 @@
 .ddot.off { background: var(--d-dim) } .ddot.bad { background: var(--d-err) }
 /* Connecting: shown from what the app kept, the machine not reached yet. A static ring. */
 .ddot.dial { background: transparent; box-shadow: inset 0 0 0 1.5px var(--d-dim) }
-/* The hint row only shows the link when something is wrong; clicking it opens the link window. */
-.dhints button.st { border: 0; background: transparent; padding: 0; font: inherit; color: var(--d-fg) }
-/* Lists and chats fade at an edge that has more to scroll. */
+/* Lists fade at an edge that has more to scroll. */
 .dfade { mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft, 0px), #000 calc(100% - var(--fb, 0px)), transparent 100%) }
-/* Chat turns in the bar use the coding agent session's log (.dcoderlog): the reply's blocks keep their spacing, the map jumps to each "You". */
+/* The coding agent session's log (.dcoderlog): the reply's blocks keep their spacing, the map jumps to each "You". */
 .dcoderlog .dcoderen.agent { display: grid; gap: 10px }
 .dcoderlog .agwarn { color: var(--d-warn) }
 .dcoderlog .dcoderen.user[id] { scroll-margin-top: 6px }
@@ -89,7 +87,7 @@
 .dchat mark { background: rgba(242,153,74,.3); color: inherit; border-radius: 3px; padding: 0 1px }
 .dcopy { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--d-muted); font-size: 12px; padding: 3px 6px; border-radius: 6px }
 .dcopy:hover { color: var(--d-fg); background: var(--d-elev) }
-/* Desktop rerun: a menu off the reply's actions, admins only. */
+/* A menu of choices under a button. */
 .dmenu { position: absolute; left: 0; top: 30px; z-index: 3; width: 290px; padding: 5px; border-radius: 8px; background: var(--d-elev); border: 1px solid var(--d-border); box-shadow: 0 14px 40px rgba(0,0,0,.5) }
 .dmenu .mi { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; width: 100%; padding: 6px 9px; border: 0; background: transparent; border-radius: 7px; text-align: left; color: var(--d-fg); font-size: 13px; line-height: 18px }
 .dmenu .mi small { grid-column: 1; font-size: 11.5px; color: var(--d-muted) }

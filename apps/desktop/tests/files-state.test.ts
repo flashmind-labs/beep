@@ -92,7 +92,7 @@ test("a session folder the machine no longer has reads as empty, not as an error
   const gone = "bad request: build-box: the folder /tmp/agent/scratchpad is not there: No such file or directory (os error 2)";
   assert.deepEqual(failedListing(gone), { entries: [], more: 0, error: "" });
   assert.equal(failedListing("bad request: build-box: permission denied").error, "build-box: permission denied");
-  assert.match(failedListing("unknown op 812").error, /Update Beep/);
+  assert.match(failedListing("unknown op 812").error, /Update beep-node/);
 });
 
 test("mergeTree reports whether a read changed anything", () => {

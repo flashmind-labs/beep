@@ -5,8 +5,7 @@ import { join } from "node:path";
 import { makeData } from "./data.mjs";
 import { playwright, stubInit } from "./stub.mjs";
 
-const data = makeData({ chats: 0, memories: 0, machines: 1, projects: 1, items: 0, sessions: 1 });
-data.status = { link: "unlinked", signed_out: true, server: false };
+const data = makeData({ machines: 1, projects: 1, items: 0, sessions: 1 });
 const session = { ...data.center_home.running[0], status: "idle", question: null };
 const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
 const origin = "https://app.test";

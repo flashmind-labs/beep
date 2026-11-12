@@ -46,7 +46,6 @@
 .mac .cc-pal .none { padding: 22px 14px; text-align: center; font-size: 13px; color: var(--d-muted) }
 .mac .cc-pal .foot { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--d-border); font-size: 11px; color: var(--d-dim) }
 @media (max-width: 600px) {
-  .mac .cc-grp.chats .cc-si:not([aria-current="true"]) { display: none }
   .mac .cc-hints { display: none }
 }`;
   document.head.append(st);
@@ -60,26 +59,26 @@ CC_IC.gear = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke
 function ccSide(cur, o = {}) {
   const si = (ic, label, n, on, hot, go) => `<button class="cc-si"${on ? ' aria-current="true"' : ""}${go ? ` data-dgo="${go}"` : ` data-toast="${label}"`}>${ic}<span class="tt">${label}</span>${n ? `<span class="n${hot ? " hot" : ""}">${n}</span>` : ""}</button>`;
   // Pinned projects sit above everything else, in the order they were pinned.
-  const pinned = o.old || o.bare ? "" : PJ.filter(p => p.pin).map(p => pjRow(cur, p, true)).join("");
+  const pinned = o.bare ? "" : PJ.filter(p => p.pin).map(p => pjRow(cur, p, true)).join("");
   return `<aside class="cc-side">
       <div class="cc-lights"><i></i><i></i><i></i></div>
       <div class="cc-brand"><b>Beep</b></div>
       <div class="cc-grp">
         ${si(CC_IC.search, "Search", "", false, false, "dWinPalette").replace("</button>", "<kbd>⌘K</kbd></button>")}
-        ${si(CC_IC.home, "Home", o.old || o.bare ? "" : 3, cur === "home", true, "dHome")}
-        ${o.old ? "" : si(CC_IC.run, "Running", o.bare ? "" : 4, cur === "agents", false, "dAgents")}
-        ${o.old ? "" : si(CC_IC.term, "Terminals", o.bare ? "" : 3, cur === "terminals", false, "dTerminals")}
-        ${o.old || o.bare || o.noSync ? "" : si(CC_IC.sync, "Sync", o.sync ?? 3, cur === "sync", true, "dSync")}
+        ${si(CC_IC.home, "Home", o.bare ? "" : 3, cur === "home", true, "dHome")}
+        ${si(CC_IC.run, "Running", o.bare ? "" : 4, cur === "agents", false, "dAgents")}
+        ${si(CC_IC.term, "Terminals", o.bare ? "" : 3, cur === "terminals", false, "dTerminals")}
+        ${o.bare || o.noSync ? "" : si(CC_IC.sync, "Sync", o.sync ?? 3, cur === "sync", true, "dSync")}
       </div>
       ${pinned ? `<div class="cc-grp pinned"><h3>Pinned</h3>${pinned}</div>` : ""}
-      ${o.old ? "" : o.bare ? `<div class="cc-grp"><h3><a class="cc-h3l" href="#" data-dgo="dWinProjects" title="All projects">Projects</a><button aria-label="Add project" data-dgo="dWinProjects">${CC_IC.plus}</button></h3>
+      ${o.bare ? `<div class="cc-grp"><h3><a class="cc-h3l" href="#" data-dgo="dWinProjects" title="All projects">Projects</a><button aria-label="Add project" data-dgo="dWinProjects">${CC_IC.plus}</button></h3>
         <div class="cc-si none">No projects yet</div></div>` : `<div class="cc-grp"><h3><a class="cc-h3l" href="#" data-dgo="dWinProjects" title="All projects">Projects</a><button aria-label="Add a project" data-dgo="dAddProject">${CC_IC.plus}</button></h3>
         ${pjSideOrgs(cur)}
       </div>`}
       <div class="cc-grp"><h3>Beep</h3>
         <button class="cc-si" data-dgo="dWinSettings">${CC_IC.gear}<span class="tt">Settings</span><kbd style="margin-left:auto;font-size:10.5px;opacity:.7">⌘,</kbd></button>
       </div>
-      <div class="cc-foot">${o.old ? "<span>Machines unavailable</span>" : o.bare ? `<span>No machines linked</span><button class="dbtn quiet" style="margin-left:auto;padding:2px 6px" aria-label="Add a machine" title="Add a machine" data-dgo="dAddMachine">${CC_IC.plus}</button>` : `<span><span class="ddot"></span> <b>3</b> of 4 machines online</span><button class="dbtn quiet" style="margin-left:auto;padding:2px 6px" aria-label="Add a machine" title="Add a machine" data-dgo="dAddMachine">${CC_IC.plus}</button>`}</div>
+      <div class="cc-foot">${o.bare ? `<span>No machines linked</span><button class="dbtn quiet" style="margin-left:auto;padding:2px 6px" aria-label="Add a machine" title="Add a machine" data-dgo="dAddMachine">${CC_IC.plus}</button>` : `<span><span class="ddot"></span> <b>3</b> of 4 machines online</span><button class="dbtn quiet" style="margin-left:auto;padding:2px 6px" aria-label="Add a machine" title="Add a machine" data-dgo="dAddMachine">${CC_IC.plus}</button>`}</div>
     </aside>`;
 }
 let ccWin = (side, main) => mbar() + `<div class="cc-win" role="main" aria-label="Beep">${side}<div class="cc-main">${main}</div></div>`;

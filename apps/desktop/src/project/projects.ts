@@ -151,7 +151,7 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
     const terminals = m.folder ? all?.filter(t => t.machine_id === m.id) ?? [] : [];
     items.push({ id: m.id, name: m.name, online, folder: m.folder ? plainPath(m.folder) : null, change, remove, missing, git, menu,
       terminals: terminals.map(t => ({ id: t.id, name: t.name, title: `${t.machine_name}: ${t.command} in ${t.cwd}`, sub: `${t.machine_name} · ${terminalWhere(t)}`, note: terminalNote(t, ms => formatAgo(ms, "short")), running: t.state === "running", open: () => { go("pane", { draft: { project: p.name, machine: t.machine_id, terminal: t } }); } })),
-      terminalSummary: all === undefined ? "Reading…" : all === null ? "Unavailable" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
+      terminalSummary: all === undefined ? "Reading…" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
   }
   const note = pageFresh("where", p.name, readingWhere.has(p.name));
   return createElement("section", { key: p.name, className: "pm-section" }, createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,

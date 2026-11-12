@@ -8,7 +8,7 @@ import { PageCache } from "../src/ui/pagecache.ts";
 import { invoke } from "../src/ui/tauri.ts";
 
 test("unchanged Actions redraws keep the visible run rows", () => {
-  const kept = new PageCache(null).section<RunsRow | null>("runs");
+  const kept = new PageCache(null).section<RunsRow>("runs");
   kept.put("project", {
     runs: [{ id: 1, number: 1, workflow: "CI", title: "Build", branch: "main",
       event: "push", actor: "", state: "passed", url: "", started_at: null,

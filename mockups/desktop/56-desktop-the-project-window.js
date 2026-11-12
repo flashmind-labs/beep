@@ -3,7 +3,7 @@
 // project opens a window with that project only: no sidebar, the project's name as the title and a row
 // of tabs for its sections (the board's tiles). What opens from the project, an agent session, a
 // terminal, a PR thread or a run, opens in this window with a back button to the project (Esc too).
-// Home, other projects, chats outside the project and Settings open in the main window. Cmd-K lists
+// Home, other projects, sessions outside the project and Settings open in the main window. Cmd-K lists
 // the project's hits first; Cmd-W closes the window.
 (() => {
   const st = document.createElement("style");

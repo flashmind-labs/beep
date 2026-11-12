@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { NewProjectView } from "./newproject-view.tsx";
 // The "New project" sheet: a name, where the repository goes (each host with
 // a token, or Local only), its owner and visibility, and the machines that
-// get a checkout. The server creates it, and each machine clones it.
+// get a checkout. Beep creates it, and each machine clones it.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { openMenu } from "../ui/menu.ts";
@@ -27,8 +27,8 @@ interface NewProjectOptions {
 }
 
 let root: HTMLDivElement | null = null, opts: NewProjectOptions = {}, close: (() => void) | null = null;
-/// undefined while read, null from a server too old to make projects.
-let forges: Forge[] | null | undefined;
+/// undefined while read.
+let forges: Forge[] | undefined;
 let loadError: string | null = null;
 let form: NewProjectForm = startForm([], undefined);
 let creating = false, error: string | null = null, created: Created | null = null;
@@ -62,11 +62,11 @@ export function openNewProject(options: NewProjectOptions = {}) {
       draw();
     });
   }
-  invoke<Forge[] | null>("project_forges")
+  invoke<Forge[]>("project_forges")
     .then(got => {
       if (mine !== opening || !root) return;
       forges = got;
-      form = { ...startForm(got || [], form.machines[0]), name: form.name };
+      form = { ...startForm(got, form.machines[0]), name: form.name };
     }, e => { if (mine === opening && root) { forges = []; loadError = cleanError(String(e)); } })
     .finally(() => { if (mine === opening && root) draw(); });
 }
@@ -113,7 +113,7 @@ async function submit() {
   if (root) draw();
 }
 
-const hostError = () => (forges || []).find(f => f.host === form.host && !f.owners.length)?.error ?? null;
+const hostError = () => (forges ?? []).find(f => f.host === form.host && !f.owners.length)?.error ?? null;
 function setForm(next: NewProjectForm) { form = next; error = null; draw(); }
 function draw() {
   if (!view) return;

@@ -116,7 +116,7 @@ const UNTIMED = new Set([
   "gh_sign_in", "harness_compact", "import_project", "machine_sign_in", "mesh_join", "pick_folder",
   "project_add_to_machine", "project_git_move", "report_collect", "report_issue", "report_send", "rescan_found",
   "save_machine_log", "save_picture", "session_move", "terminal_attach", "terminal_open", "terminal_output",
-  "terminal_start", "update_machine", "update_machine_tool", "use_cli_login",
+  "update_machine", "update_machine_tool", "use_cli_login",
 ]);
 
 /// Calls a Rust command, logging it with its machine and session when it

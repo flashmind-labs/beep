@@ -91,8 +91,7 @@ export interface SyncthingPlace {
 }
 
 /// `machines` with each folder Syncthing keeps in step marked.
-export function withSyncthing(machines: ProjectMachineRow[] | null, places: readonly SyncthingPlace[]): ProjectMachineRow[] | null {
-  if (!machines) return machines;
+export function withSyncthing(machines: ProjectMachineRow[], places: readonly SyncthingPlace[]): ProjectMachineRow[] {
   return machines.map(m => {
     const place = places.find(p => p.machine_id === m.id && p.folder === m.folder);
     return place ? { ...m, syncthing: place.label } : m;
@@ -266,7 +265,7 @@ export const REMOVE_PROJECT = "Remove project…";
 export function removeProjectSheet(name: string) {
   return {
     title: `Remove ${name}?`,
-    text: "Beep stops syncing it and its workers, and deletes its chat and tasks.",
+    text: "Beep forgets it and stops syncing it.",
     note: "Files on your machines stay.",
     action: "Remove project",
   };
@@ -344,7 +343,7 @@ export function homeShort(path: string) {
   return rest ? `~/${rest.replace(/\/+$/, "")}` : "~";
 }
 
-/// A folder as groups compare it, as the server's `project_group_path` keeps
+/// A folder as groups compare it, as `project_group_path` keeps
 /// them: `\` read as `/`, the home folder and then a leading `Projects/` (any
 /// case) left out, with no trailing `/`.
 export function groupPath(path: string | null | undefined) {
@@ -486,7 +485,7 @@ export function syncedBy(name: string, rows: readonly { project: string; error?:
 
 /// A row of a project's "Where it lives". `kind` is:
 /// - "here": a checkout in `folder`; `mac` when it is this Mac
-/// - "checking": the server is looking through it now
+/// - "checking": Beep is looking through it now
 /// - "none": online without a checkout, so it can be added or cloned there
 /// - "offline": offline without a checkout; it is looked through once it
 ///   connects
@@ -508,8 +507,7 @@ export interface WhereRow {
 }
 
 /// The rows of a project's "Where it lives": every machine, as
-/// `project_machines` gives them (null from a server too old to say, when
-/// the imported folders are listed).
+/// `project_machines` gives them; until they are read, the imported folders.
 export function whereRows(project: { machines?: readonly ProjectPlace[] } | null | undefined, machines: readonly ProjectMachineRow[] | null | undefined, macId: string | null | undefined): WhereRow[] {
   const here = (id: string, name: string, folder: string): WhereRow => ({ kind: "here", id, name, folder, mac: !!macId && id === macId });
   if (!machines) return sortWhere((project?.machines || []).map(m => here(m.id, m.name, m.folder)));

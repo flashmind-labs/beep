@@ -5,11 +5,9 @@ export function pageName(name: string, arg: unknown): string {
   if (arg && typeof arg === "object") {
     if ("agent" in arg || "draft" in arg) return "agent";
     if ("agentnew" in arg) return "agentnew";
-    if ("chat" in arg) return "chat";
-    if ("group" in arg) return "group";
   }
 
-  if (typeof arg === "string" && ["agent", "agentnew", "agents", "chat", "chats", "group", "ginfo", "gnew", "invite", "memories", "routines", "rnew", "grants", "skills", "apps", "appperms", "mcp", "machines", "settings", "model", "link", "login", "starting", "joincode", "joining", "invite-phone", "revoked", "research"].includes(arg)) return arg;
+  if (typeof arg === "string" && ["agent", "agentnew", "agents", "machines", "settings"].includes(arg)) return arg;
   return "pane";
 }
 

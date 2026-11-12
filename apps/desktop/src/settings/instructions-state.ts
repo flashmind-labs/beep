@@ -10,7 +10,7 @@ export interface VersionRow {
   saved_at: number;
 }
 
-/// The longest instructions the server takes, in bytes.
+/// The longest instructions Beep takes, in bytes.
 export const MAX_BYTES = 16 * 1024;
 
 /// Bytes of `text` as UTF-8.

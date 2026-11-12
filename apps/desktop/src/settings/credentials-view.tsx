@@ -36,10 +36,10 @@ function Use({ label, busy, action }: { label: string; busy: boolean; action: ()
 function GitRow({ icon, name, account, tag, usable, acts, chips, children }: { icon: IconName; name: string; account?: string; tag?: ReactNode; usable: boolean; acts: ReactNode; chips?: ReactNode; children?: ReactNode }) { return <div className={`dgit${usable ? "" : " off"}`}><span className="ic"><span><Icon name={icon} /></span></span><div className="l1"><b>{name}</b>{account && <span className="acct">{account}</span>}{tag}<span className="acts">{acts}</span></div>{chips && <div className="l2">{chips}</div>}{children}</div>; }
 function CheckChip({ check, name, known }: { check: CredCheck | undefined; name: string; known: boolean }) {
   if (check?.state === "checking") return <Chip>checking from your machines…</Chip>;
-  if (check?.state === "valid") return check.machine ? <Chip title={`The server cannot reach ${name}; ${check.machine} can`}>checked from {check.machine}</Chip> : null;
+  if (check?.state === "valid") return check.machine ? <Chip title={`This device cannot reach ${name}; ${check.machine} can`}>checked from {check.machine}</Chip> : null;
   if (check?.state === "refused") return <Chip kind="err" title={check.message}>token refused</Chip>;
-  if (check?.state === "unreachable") return <Chip kind="warn" title={check.message}>not reachable from the server or your machines</Chip>;
-  return known ? null : <Chip kind="warn">not checked: the server could not reach it</Chip>;
+  if (check?.state === "unreachable") return <Chip kind="warn" title={check.message}>not reachable from any of your machines</Chip>;
+  return known ? null : <Chip kind="warn">not checked: Beep could not reach it</Chip>;
 }
 function EditRemove({ actions, name, keyName, id }: { actions: CredentialActions; name: string; keyName: string; id: string }) { return <><Button icon="edit" label={`Replace the token for ${name}`} onClick={() => actions.edit(keyName)} /><Button icon="remove" label={`Remove ${name}`} onClick={() => actions.remove(id)} /></>; }
 function Account({ account, state, machines, actions }: { account: GitHubAccount; state: CredState; machines: Machines; actions: CredentialActions }) {

@@ -1,7 +1,6 @@
 // ---- Desktop: Command center (CommandCenterWindow, Home) ----
-// The full window behind the bar: every linked machine, the sessions running on them, what needs an answer
-// and the runs Beep starts on its own. Variants: no machines, one machine offline, and a server too old to
-// report machines and sessions (only chats, approvals and Coming up show).
+// The full window behind the bar: every linked machine, the sessions running on them and what needs an
+// answer. Variants: no machines and one machine offline.
 (() => {
   const st = document.createElement("style");
   st.textContent = `.mac .cc-win { position: absolute; top: 34px; left: 12px; right: 12px; bottom: 12px; z-index: 3; display: grid; grid-template-columns: 184px minmax(0, 1fr);

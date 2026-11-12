@@ -1,4 +1,4 @@
-/* ---------- Chat list home, places, group runs ---------- */
+/* ---------- Headers, forms and switches ---------- */
 .dhead { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--d-border) }
 .dhead .tt { flex: 1; min-width: 0; display: grid; line-height: 19px }
 .dhead .tt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -17,10 +17,7 @@
 .dchat .acts .dbtn { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
 .dchat input { flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--d-fg); background: var(--d-surface); border: 1px solid var(--d-emerald); border-radius: 6px; padding: 2px 6px }
 
-/* Desktop images, memories and routines */
-.dthumbs.sent { padding: 0; gap: 6px }
-/* An attached file: name and size beside a document icon, removed like a picture. */
-.dmem .acts { display: flex; gap: 4px; flex: none }
+/* Chips */
 .dchips { display: flex; flex-wrap: wrap; gap: 6px }
 .dchip { min-height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--d-border); background: var(--d-surface); color: var(--d-fg); font-size: 12.5px }
 .dchip[aria-pressed="true"] { background: rgba(94,106,210,.28); border-color: var(--d-emerald) }

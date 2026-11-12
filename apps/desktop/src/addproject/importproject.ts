@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { ImportProjectView } from "./importproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
-// online machine (Auto lets the server pick), the parent folder a clone goes
+// online machine (Auto lets Beep pick), the parent folder a clone goes
 // under as <parent>/<org>/<repo> (the machine's Projects in folder), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
@@ -55,11 +55,11 @@ let syncthing = syncthingImportChoice();
 let root: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
 let macId: string | null = null, close: (() => void) | null = null, onDone: ((project: ProjectRow) => void) | null = null;
 /// The repository's checkouts and branches with work, once read: for the repo
-/// text `previewFor`, null from a server too old to say.
+/// text `previewFor`, null when it could not be read.
 let preview: PreviewView | null | undefined = undefined, previewFor = "", previewError = "", picks: BranchPicks = {};
 let previewTimer: ReturnType<typeof setTimeout> | undefined;
 /// The user's fork the import would clone, for the repo text `previewFor`:
-/// undefined while it is read, null for none or a server too old to say.
+/// undefined while it is read, null when it could not be read.
 let fork: ImportFork | null | undefined = undefined;
 /// The folder each machine starts in, its home, by id, once read.
 const bases = new Map<string, string>();
@@ -114,14 +114,14 @@ function schedulePreview() {
     picks = {};
     fork = undefined;
     if (root) draw();
-    invoke<ImportFork | null>("find_import_fork", { repo }).then(got => got, () => null).then(got => {
+    invoke<ImportFork>("find_import_fork", { repo }).then(got => got, () => null).then(got => {
       if (mine !== opening || !root || previewFor !== repo) return;
       fork = got;
       if (root && state.step === "form") draw();
     });
 
     try {
-      const got = await invoke<PreviewView | null>("preview_import", { repo });
+      const got = await invoke<PreviewView>("preview_import", { repo });
       if (mine !== opening || !root || previewFor !== repo) return;
       preview = got;
       picks = defaultPlaces(got);

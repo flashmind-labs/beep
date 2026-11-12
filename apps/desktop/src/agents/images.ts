@@ -8,7 +8,6 @@ import { MN } from "./workdrop.ts";
 import { AgentAttachments } from "./attachments-view.tsx";
 import { showAgentAttachments } from "./composer-ui.tsx";
 import { type OpenAgent, AG, AGENT_IMAGE_TYPES, AGENT_MAX_IMAGES, AGENT_MAX_IMAGE, AGENT_MAX_IMAGES_TOTAL, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
-import { noAgentImages } from "./session.ts";
 import { redrawAgentHints } from "./session-head.ts";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -38,7 +37,6 @@ export function agentAttachError(text: string) {
 /// Adds pasted or dropped images to the session's next message, refusing
 /// what the agent cannot take rather than shrinking or dropping it.
 export async function agentAttach(files: Iterable<File>) {
-  if (noAgentImages()) return agentAttachError("This Beep server does not take images yet.");
   imagesReading++;
 
   try { await attachImages(AG.att, files, agentAttachError); }

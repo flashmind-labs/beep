@@ -87,7 +87,7 @@ test("Machines retains a focused terminal action when another machine changes", 
 test("Home shows unavailable and recently offline notices", async ({ page }) => {
   const home = { machines: null, projects: [], running: null, needs_you: [] };
   await openDesktop(page, false, { center_home: home });
-  await expect(page.getByText("Machines and running sessions aren't available for this account or server.")).toBeVisible();
+  await expect(page.getByText("Machines and running sessions could not be read.")).toBeVisible();
   const machine = { id: "one", name: "Build box", online: false, can_host: true, seen_at: Date.now(), version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [machine], running: [] });
   await expect(page.getByText("Build box is offline.")).toBeVisible();

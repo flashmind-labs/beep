@@ -53,7 +53,7 @@ function calls() {
 }
 
 /// Every quoted lowercase word in src. Commands also reach `invoke` through
-/// helpers (`loadList("list_skills")`, a `cmd` parameter), so a registered name
+/// helpers (`snapshotView("center_project_run")`, a `cmd` parameter), so a registered name
 /// that appears quoted anywhere counts as called.
 function quoted() {
   return new Set(sources("src").flatMap(f => [...readFileSync(f, "utf8").matchAll(/["']([a-z][a-z0-9_]*)["']/g)].map(m => m[1])));

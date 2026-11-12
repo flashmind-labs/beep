@@ -44,7 +44,7 @@ function ConflictRow({ sync, project, conflict, machines, busy, paused }: { sync
 }
 export function SyncProject({ sync, project, model, machines = null, heading = project }: { sync: Sync; project: string; model: ReturnType<Sync["page"]>; machines?: ReactNode; heading?: string }) {
   const { detail, error, busy } = model;
-  if (!detail) return <>{error && <div className="cc-err">{error}</div>}{machines}{detail === null ? <EmptyPanel title="The server needs an update before it shows file sync in detail." /> : <EmptyPanel text="Loading…" />}</>;
+  if (!detail) return <>{error && <div className="cc-err">{error}</div>}{machines}<EmptyPanel text="Loading…" /></>;
   const conflicts = conflictList(detail), waiting = waitingList(detail);
   return <>{error && <div className="cc-err">{error}</div>}<SectionHead title={heading}><span className="fs-tools"><small>{syncSummary(detail)}</small><button type="button" className={`dbtn${detail.paused ? " pri" : ""}`} disabled={!!busy || detail.pinned || !detail.machines.length} hidden={!detail.paused && detail.machines.every(syncedBySyncthing)} title={detail.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are"} onClick={() => void sync.pause(project, !detail.paused)}>{busy === "pause" ? (detail.paused ? "Resuming…" : "Pausing…") : detail.paused ? "Resume" : "Pause"}</button></span></SectionHead>
     {machines ?? <div className="cc-panel fs-list">{detail.machines.length ? detail.machines.map(machine => <SyncMachine key={machine.machine_id} sync={sync} project={project} machine={machine} />) : <div className="cc-empty"><span>{detail.pinned ? "Pinned: never syncs." : "No machine syncs this project."}</span></div>}</div>}

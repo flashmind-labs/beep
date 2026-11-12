@@ -142,7 +142,7 @@ test("a project's sessions redraw only when a read brings a different list", () 
   assert.deepEqual(nextSessions(undefined, null), { list: [], changed: true });
 });
 
-test("an old server's page lists the imported folders", () => {
+test("a page whose machines are not read yet lists the imported folders", () => {
   const rows = whereRows({ machines: [{ id: "m1", name: "build-box", folder: "/srv/app" }] }, null, null);
   assert.deepEqual(rows, [{ kind: "here", id: "m1", name: "build-box", folder: "/srv/app", mac: false }]);
   assert.equal(whereCount(rows, false), "1 machine");

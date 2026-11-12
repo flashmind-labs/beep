@@ -1,5 +1,5 @@
-// Parts a turn's rows share in a Beep chat and a coding agent's log: the
-// heading, a step's mark and a running clock.
+// Parts a turn's rows share in a coding agent's log: the heading, a step's
+// mark and a running clock.
 import { memo, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { clock, duration, heading, type TurnState } from "./agentturns.ts";
 import { Icon } from "../ui/icons.tsx";

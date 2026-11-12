@@ -72,7 +72,7 @@ export function projectFolders(form: NewProjectForm, defaults: ReadonlyMap<strin
   return form.machines.map(machine_id => ({ machine_id, folder: folderOn(form, machine_id, defaults).trim() }));
 }
 
-/// What hosts take as a name. The server checks again.
+/// What hosts take as a name. Beep checks again.
 export function validName(name: string) {
   const t = name.trim();
   return t.length <= 100 && /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(t) && !t.endsWith(".git");

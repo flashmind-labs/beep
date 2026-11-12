@@ -124,7 +124,7 @@ body.cbody
                   span
                 div.bd-empty "Nothing here"
       div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="waiting"]
+        div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
@@ -187,7 +187,7 @@ body.cbody
           section#set-agents-sec [data-sec="agents"]
             div.dsec.flat.top "Agent accounts"
             div#set-agents
-              div.dmuted "The server needs an update before it keeps agent accounts."
+              div.dmuted "Could not load your agent accounts."
             div#set-agent-overview style(display)
               div.dset-h "Coding agents"
               div.dset-box

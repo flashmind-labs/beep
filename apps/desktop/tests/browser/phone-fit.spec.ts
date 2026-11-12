@@ -12,7 +12,7 @@ const sessions = ["claude", "codex", "claude", "codex"].map((agent, i) => ({
 }));
 const responses = {
   center_home: { machines: machines.map(m => ({ ...m, online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null })), projects, running: sessions, needs_you: [] },
-  agent_sessions: sessions, project_sessions: sessions, list_sessions: sessions, mobile_paired: true,
+  agent_sessions: sessions, project_sessions: sessions, mobile_paired: true,
 };
 
 async function openPhone(page: Page) {

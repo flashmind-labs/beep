@@ -35,7 +35,7 @@ test("project pull request controls keep keyboard focus and row menus work", asy
     { number: 2, title: "Second PR", url: "https://example.test/pull/2", author: "Example", draft: false, mine: false, created_at: now, updated_at: now, labels: ["feature"] },
   ];
   const issues = [{ number: 3, title: "Example issue", url: "https://example.test/issues/3", author: "Example", opened_at: now, comments: 0, labels: ["bug"] }];
-  await openDesktop(page, false, { center_project_lists: { issues, prs, issues_error: null, prs_error: null, synced_at: now }, center_project_threads: [], center_thread_chats: [] });
+  await openDesktop(page, false, { center_project_lists: { issues, prs, issues_error: null, prs_error: null, synced_at: now } });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "2 PRs" }).click();
   const nav = page.locator(".pj-split:not(.gh-layout) > .pj-list");
