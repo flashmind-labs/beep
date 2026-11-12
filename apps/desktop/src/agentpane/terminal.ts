@@ -2,7 +2,7 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, retryDelay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
+import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, retryDelay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
 import { indexedChannel, invoke, logError, logInfo } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 
@@ -32,6 +32,8 @@ export interface PaneTerm {
   paused?: boolean;
   /// The size the node last got from this tab.
   sent: TermSize | null;
+  /// Which output replays what the node kept.
+  replay: Replay;
   /// Its shell exited, or its machine no longer has it.
   onEnd: () => void;
   /// How it stands changed.
@@ -58,21 +60,22 @@ export async function openTerm(place: TermPlace, hooks: TermHooks): Promise<Pane
     terminal: { project: place.project, machineId: place.machine_id, name: place.name, command: "", cwd: place.cwd, ...START_SIZE },
   });
   if (!row) throw new Error("The server is too old for terminals here.");
-  return followTerm(row, hooks);
+  return followTerm(row, hooks, true);
 }
 
-/// Follows terminal `row`, one that already runs, in a tab.
-export async function followTerm(row: TerminalRow, hooks: TermHooks): Promise<PaneTerm> {
+/// Follows terminal `row`, one that already runs, in a tab; `opened` when
+/// this tab just started it.
+export async function followTerm(row: TerminalRow, hooks: TermHooks, opened = false): Promise<PaneTerm> {
   const { makeScreen } = await import("../terminals/termview.ts");
-  const t = paneTerm(row, makeScreen(), hooks);
+  const t = paneTerm(row, makeScreen(), hooks, opened);
   attach(t);
   return t;
 }
 
 /// Terminal `row` on `screen`, with typing and resizes wired to it; not
 /// attached yet.
-export function paneTerm(row: TerminalRow, screen: Screen, hooks: TermHooks): PaneTerm {
-  const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, view: newView(), attaches: 0, sent: null, ...hooks };
+export function paneTerm(row: TerminalRow, screen: Screen, hooks: TermHooks, opened = false): PaneTerm {
+  const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, view: newView(), attaches: 0, sent: null, replay: new Replay(opened), ...hooks };
   const input = (data: string) => {
     if (t.link === "attached") invoke("terminal_input", { id: row.id, view: t.view, data }).catch(() => {});
   };
@@ -141,6 +144,7 @@ export function attach(t: PaneTerm) {
 
     if (ev.kind === "attached") {
       logInfo(`terminal ${t.row.id}: attached in a pane`);
+      t.replay.start(performance.now());
       t.link = "attached";
       t.tries = 0;
       t.screen.setInput(true);
@@ -150,7 +154,8 @@ export function attach(t: PaneTerm) {
       const bytes = ev.data;
       const { skip, gap } = splice(t.next, ev.at, bytes.length);
       if (gap) t.screen.note("… earlier output was not kept");
-      t.screen.write(bytes.subarray(skip));
+      if (t.replay.is(performance.now())) t.screen.replay(bytes.subarray(skip));
+      else t.screen.write(bytes.subarray(skip));
       t.next = Math.max(t.next, ev.at + bytes.length);
       return;
     } else if (ev.kind === "ended") {

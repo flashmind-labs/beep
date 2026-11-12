@@ -41,10 +41,18 @@ import {
   GhosttyTerminalScrollViewportTag,
 } from "./ghostty-abi.ts";
 
-/// The most kitty image data a terminal keeps, as Ghostty's own default.
-const IMAGE_STORAGE_LIMIT = 320_000_000n;
-/// Scrollback kept per terminal, in bytes.
-const SCROLLBACK_BYTES = 10_000_000;
+/// What one terminal may keep, in bytes. Every terminal of a window shares
+/// one wasm memory, which never shrinks, so these stay well under what a
+/// webview allows even with several terminals at their limits.
+export interface TerminalLimits {
+  /// Kitty image data; Ghostty's own default is 320 MB.
+  images: number;
+  scrollback: number;
+}
+
+export const DESKTOP_LIMITS: TerminalLimits = { images: 64_000_000, scrollback: 10_000_000 };
+/// A phone's webview allows much less memory.
+export const PHONE_LIMITS: TerminalLimits = { images: 16_000_000, scrollback: 2_000_000 };
 /// The most codepoints read for one cell; a longer grapheme is cut.
 const GRAPHEME_CAP = 16;
 /// DEC private mode 2027: a grapheme cluster, such as an emoji with a skin
@@ -371,7 +379,7 @@ export class Terminal {
   private readonly g: Ghostty;
   readonly effects: TerminalEffects;
 
-  constructor(g: Ghostty, cols: number, rows: number, effects: TerminalEffects) {
+  constructor(g: Ghostty, cols: number, rows: number, effects: TerminalEffects, limits: TerminalLimits = DESKTOP_LIMITS) {
     this.g = g;
     this.effects = effects;
     this.grid = { cols, rows, cell: null };
@@ -390,11 +398,11 @@ export class Terminal {
     check(x.ghostty_terminal_set(this.handle, GhosttyTerminalOption.SIZE, g.callbacks.size), "setting size");
 
     const limit = g.out(8);
-    g.view().setBigUint64(limit, IMAGE_STORAGE_LIMIT, true);
+    g.view().setBigUint64(limit, BigInt(limits.images), true);
     check(x.ghostty_terminal_set(this.handle, GhosttyTerminalOption.KITTY_IMAGE_STORAGE_LIMIT, limit), "setting the image limit");
 
     const scrollback = g.out(4);
-    g.view().setUint32(scrollback, SCROLLBACK_BYTES, true);
+    g.view().setUint32(scrollback, limits.scrollback, true);
     check(x.ghostty_terminal_set(this.handle, GhosttyTerminalOption.SCROLLBACK_MAX_BYTES, scrollback), "setting the scrollback");
 
     // The default as well as the current value, so a reset keeps it.

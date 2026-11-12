@@ -258,6 +258,17 @@ test("kitty images, PNG included, are placed and read back", async () => {
   state.free();
 });
 
+test("a terminal keeps images only up to its limit", async () => {
+  const g = await engine;
+  const term = new Terminal(g, 20, 5, { reply() {}, bell() {}, titleChanged() {} }, { images: 40, scrollback: 100_000 });
+  term.resize(20, 5, CELL);
+  // Each is 4 by 2 pixels, 32 bytes: the second pushes the first out.
+  for (const id of [1, 2]) write(term, `\x1b_Ga=T,f=100,i=${id},c=2,r=1,q=2;${png(4, 2, [255, 0, 0, 255]).toString("base64")}\x1b\\`);
+  assert.equal(term.imagePixels(1), null);
+  assert.ok(term.imagePixels(2));
+  term.free();
+});
+
 test("theme colours become the terminal's defaults", async () => {
   const { term, state } = await open();
   term.setColors({ foreground: 0xcfe3d8, background: 0x0b0f0d, cursor: 0x6fcf97, palette: new Map([[2, 0x6fcf97]]) });

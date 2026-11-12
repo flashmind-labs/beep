@@ -5,13 +5,13 @@
 //
 // Output is parsed in frames, at most a few milliseconds each, so a flood of
 // output never stalls the window; the rest waits for the next frame.
-import { Ghostty, loadGhostty, RenderState, Terminal, type CellSize } from "./ghostty.ts";
+import { DESKTOP_LIMITS, Ghostty, loadGhostty, PHONE_LIMITS, RenderState, Terminal, type CellSize } from "./ghostty.ts";
 import { GridRenderer, type FontSpec } from "./ghostty-render.ts";
 import { TerminalInput, type KeyInput, type MouseButton } from "./ghostty-input.ts";
 import { cellAt, fitGrid, routeKey, SYMBOLS_FONT, wheelAction, withSymbols, type Grid } from "./screen-state.ts";
 import { isTouchDevice, makeTouchBar } from "./touchbar.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
-import { APPLE } from "../ui/platform.ts";
+import { APPLE, onPhone } from "../ui/platform.ts";
 import { logError } from "../ui/tauri.ts";
 import type { Screen } from "./terminals.ts";
 
@@ -103,8 +103,12 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   let grid: Grid = { cols: 80, rows: 24 };
   let cell: CellSize = { width: 8, height: 16 };
   let dpr = 1;
-  const pending: Uint8Array[] = [];
+  /// Output not yet parsed; `quiet` for output replayed from before the view
+  /// attached, whose queries were asked of someone else long ago.
+  const pending: { data: Uint8Array; quiet: boolean }[] = [];
+  let quiet = false;
   let frame = 0;
+  let parseTimer: ReturnType<typeof setTimeout> | undefined;
   let animation: ReturnType<typeof setTimeout> | undefined;
   let fullRedraw = true;
   let inputOn = false;
@@ -143,36 +147,45 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   void ghostty(font.family).then(g => {
     if (disposed) return;
     const term = new Terminal(g, grid.cols, grid.rows, {
-      reply: bytes => { if (inputOn) onReply(decoder.decode(bytes)); },
+      reply: bytes => { if (inputOn && !quiet) onReply(decoder.decode(bytes)); },
       bell: () => {},
       titleChanged: () => {},
-    });
+    }, onPhone() ? PHONE_LIMITS : DESKTOP_LIMITS);
     term.setColors(THEME);
     parts = { term, state: new RenderState(g), input: new TerminalInput(g, term) };
     fitNow();
     schedule();
   }).catch(e => logError(`terminal engine unavailable: ${e instanceof Error ? e.stack ?? e.message : e}`));
 
-  /// Draws on the next animation frame, once.
+  /// Draws on the next animation frame, once. A hidden page has no frames,
+  /// so there output is still parsed, on a timer: queries get their replies
+  /// and what waits stays small.
   const schedule = () => {
-    if (frame === 0 && !disposed) frame = requestAnimationFrame(draw);
+    if (disposed) return;
+    if (document.hidden) parseTimer ??= setTimeout(draw, 0);
+    else if (frame === 0) frame = requestAnimationFrame(draw);
   };
 
   const draw = () => {
+    cancelAnimationFrame(frame);
+    clearTimeout(parseTimer);
     frame = 0;
-    if (!parts) return;
+    parseTimer = undefined;
+    if (!parts || disposed) return;
 
     // Output first, within the frame's budget.
     const start = performance.now();
     while (pending.length > 0 && performance.now() - start < PARSE_BUDGET_MS) {
       const next = pending[0];
-      if (next.length <= PARSE_CHUNK) {
-        parts.term.write(next);
+      quiet = next.quiet;
+      if (next.data.length <= PARSE_CHUNK) {
+        parts.term.write(next.data);
         pending.shift();
       } else {
-        parts.term.write(next.subarray(0, PARSE_CHUNK));
-        pending[0] = next.subarray(PARSE_CHUNK);
+        parts.term.write(next.data.subarray(0, PARSE_CHUNK));
+        next.data = next.data.subarray(PARSE_CHUNK);
       }
+      quiet = false;
     }
     if (pending.length > 0) schedule();
 
@@ -435,7 +448,8 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   resized.observe(el);
   // A zoom changes the size of a cell, not always of the element.
   window.addEventListener(ZOOMED, fitNow);
-  document.addEventListener("visibilitychange", fitNow);
+  const visibility = () => { fitNow(); schedule(); };
+  document.addEventListener("visibilitychange", visibility);
 
   if (bar) {
     window.visualViewport?.addEventListener("resize", fitNow);
@@ -445,11 +459,15 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
   return {
     el,
     write: data => {
-      pending.push(data);
+      pending.push({ data, quiet: false });
+      schedule();
+    },
+    replay: data => {
+      pending.push({ data, quiet: true });
       schedule();
     },
     note: text => {
-      pending.push(encoder.encode(`\r\n\x1b[2m${text}\x1b[0m\r\n`));
+      pending.push({ data: encoder.encode(`\r\n\x1b[2m${text}\x1b[0m\r\n`), quiet: true });
       schedule();
     },
     size: () => grid,
@@ -470,11 +488,12 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     dispose: () => {
       disposed = true;
       cancelAnimationFrame(frame);
+      clearTimeout(parseTimer);
       clearTimeout(animation);
       clearInterval(blink);
       resized.disconnect();
       window.removeEventListener(ZOOMED, fitNow);
-      document.removeEventListener("visibilitychange", fitNow);
+      document.removeEventListener("visibilitychange", visibility);
       window.visualViewport?.removeEventListener("resize", fitNow);
       window.visualViewport?.removeEventListener("scroll", fitNow);
       bar?.dispose();

@@ -199,23 +199,25 @@ export class GridRenderer {
     const colors = state.currentColors();
     const cols = this.cols;
 
-    if (this.atlas.reset) {
+    const cursor = look.visible ? state.cursor() : null;
+    const build = (all: boolean) => {
       this.atlas.reset = false;
-      full = true;
-    }
+      state.forEachRow(all, this.row, (y, row) => {
+        if (y >= this.rows) return;
+        this.buildRow(y, row, colors.background);
+      });
+      this.buildCursor(cursor, look.focused, colors.cursor ?? colors.foreground, colors.background);
+    };
 
-    state.forEachRow(full, this.row, (y, row) => {
-      if (y >= this.rows) return;
-      this.buildRow(y, row, colors.background);
-    });
+    // A full atlas clears while rows are built, and the rows built before
+    // point at slots now reused: every row is built again, once.
+    build(full || this.atlas.reset);
+    if (this.atlas.reset) build(true);
     state.clean();
 
     this.bg.upload();
     this.glyphs.upload();
     this.decorations.upload();
-
-    const cursor = look.visible ? state.cursor() : null;
-    this.buildCursor(cursor, look.focused, colors.cursor ?? colors.foreground, colors.background);
 
     const placements = state.placements();
     this.images.sync(gl, term, placements);
