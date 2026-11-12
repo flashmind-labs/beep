@@ -1,53 +1,45 @@
 //! Pictures and media files a coding-agent session refers to, read from
-//! its machine through the server: shown, opened or saved here.
+//! its machine: shown, opened or saved here.
 
 use crate::{
     agents::work_copy,
-    beep::{Beep, Service},
     chat::files::{GONE, file_name, free_name, image_mime},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, agents as direct},
-    projects::unknown_op,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 #[cfg(desktop)]
 use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, ApiError, GetAgentFile, GetAgentImage,
-    GetAgentThumb, MAX_AGENT_FILE, image_key,
+    MAX_AGENT_FILE, image_key,
 };
 use serde::Serialize;
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
 
 /// The picture of the `[image: image-<key>]` line of `session`, read from
-/// its machine through the server, as a data URL the bar can draw.
+/// its machine, as a data URL the bar can draw.
 #[tauri::command]
 pub async fn agent_image(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     session: String,
     key: String,
 ) -> Result<String> {
+    let machine = fleet.machine(&machine_id)?;
     let request = GetAgentImage {
         machine_id,
         session,
         key,
     };
-    let image = match fleet.member(&request.machine_id) {
-        Some(machine) => direct::image(&fleet, machine, &request).await,
-        None => beep.call(request).await,
-    };
-    picture_url(image)
+    picture_url(direct::image(&fleet, machine, &request).await)
 }
 
 /// `agent_image`'s picture made small, for the log to draw. Never for opening
-/// or saving: a server from before thumbnails gives it whole, but a newer
-/// one gives a small JPEG.
+/// or saving.
 #[tauri::command]
 pub async fn agent_thumb(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     session: String,
@@ -55,40 +47,19 @@ pub async fn agent_thumb(
 ) -> Result<String> {
     // The machine makes it small; one from before that sends it whole, and
     // it is made small here.
-    if let Some(machine) = fleet.member(&machine_id) {
-        let request = GetAgentImage {
-            machine_id,
-            session,
-            key,
-        };
-        let image = match direct::thumb(&fleet, machine, &request).await {
-            Ok(None) => match direct::image(&fleet, machine, &request).await {
-                Ok(image) => Ok(small(image).await),
-                Err(e) => Err(e),
-            },
-            Ok(Some(thumb)) => Ok(thumb),
+    let machine = fleet.machine(&machine_id)?;
+    let request = GetAgentImage {
+        machine_id,
+        session,
+        key,
+    };
+    let image = match direct::thumb(&fleet, machine, &request).await {
+        Ok(None) => match direct::image(&fleet, machine, &request).await {
+            Ok(image) => Ok(small(image).await),
             Err(e) => Err(e),
-        };
-        return picture_url(image);
-    }
-
-    let thumb = beep
-        .call(GetAgentThumb {
-            machine_id: machine_id.clone(),
-            session: session.clone(),
-            key: key.clone(),
-        })
-        .await;
-    let image = match thumb {
-        Err(e) if unknown_op(&e) => {
-            beep.call(GetAgentImage {
-                machine_id,
-                session,
-                key,
-            })
-            .await
-        }
-        other => other,
+        },
+        Ok(Some(thumb)) => Ok(thumb),
+        Err(e) => Err(e),
     };
     picture_url(image)
 }
@@ -114,7 +85,7 @@ async fn small(image: AgentImageData) -> AgentImageData {
     image
 }
 
-/// A data URL the bar can draw, with a picture the server no longer has as
+/// A data URL the bar can draw, with a picture the machine no longer has as
 /// `GONE`.
 fn picture_url(image: Result<AgentImageData>) -> Result<String> {
     let image = match image {
@@ -146,16 +117,15 @@ pub struct AgentFilePart {
 }
 
 /// Up to `AGENT_FILE_CHUNK` bytes of the media file `path` on `machine_id`
-/// from `offset`, read from its machine through the server.
+/// from `offset`, read from its machine.
 #[tauri::command]
 pub async fn agent_file(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     path: String,
     offset: u64,
 ) -> Result<AgentFilePart> {
-    let chunk = file_chunk(&beep, &fleet, machine_id, path, offset).await?;
+    let chunk = file_chunk(&fleet, machine_id, path, offset).await?;
     Ok(AgentFilePart {
         size: chunk.size,
         mime: chunk.mime,
@@ -168,12 +138,11 @@ pub async fn agent_file(
 #[tauri::command]
 pub async fn agent_file_open(
     app: AppHandle,
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     path: String,
 ) -> Result<()> {
-    let data = whole_file(&beep, &fleet, &machine_id, &path).await?;
+    let data = whole_file(&fleet, &machine_id, &path).await?;
     let dir = app.path().app_cache_dir()?.join("agent-files");
     fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
     let of = image_key(format!("{machine_id}\n{path}").as_bytes());
@@ -188,12 +157,11 @@ pub async fn agent_file_open(
 #[tauri::command]
 pub async fn agent_file_save(
     app: AppHandle,
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     path: String,
 ) -> Result<PathBuf> {
-    let data = whole_file(&beep, &fleet, &machine_id, &path).await?;
+    let data = whole_file(&fleet, &machine_id, &path).await?;
     let to = free_name(&app.path().download_dir()?, &file_name(&path));
     fs::write(&to, &data).map_err(anyhow::Error::from)?;
     Ok(to)
@@ -201,7 +169,6 @@ pub async fn agent_file_save(
 
 /// One `GetAgentFile`, with a file the machine no longer has as `GONE`.
 async fn file_chunk(
-    beep: &Beep,
     fleet: &Fleet,
     machine_id: String,
     path: String,
@@ -209,19 +176,17 @@ async fn file_chunk(
 ) -> Result<AgentFileChunk> {
     let len = u32::try_from(AGENT_FILE_CHUNK).map_err(anyhow::Error::from)?;
 
-    if let Some(chunk) = work_copy::read(beep, fleet, &machine_id, &path, offset, len).await {
+    if let Some(chunk) = work_copy::read(fleet, &machine_id, &path, offset, len).await {
         return Ok(chunk);
     }
 
+    let machine = fleet.machine(&machine_id)?;
     let request = GetAgentFile {
         machine_id,
         path,
         offset,
     };
-    let chunk = match fleet.member(&request.machine_id) {
-        Some(machine) => direct::file(fleet, machine, &request).await,
-        None => beep.call(request).await,
-    };
+    let chunk = direct::file(fleet, machine, &request).await;
 
     match chunk {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
@@ -230,12 +195,12 @@ async fn file_chunk(
 }
 
 /// The whole media file `path` on `machine_id`, read a chunk at a time.
-async fn whole_file(beep: &Beep, fleet: &Fleet, machine_id: &str, path: &str) -> Result<Vec<u8>> {
+async fn whole_file(fleet: &Fleet, machine_id: &str, path: &str) -> Result<Vec<u8>> {
     let mut data = Vec::new();
 
     loop {
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
-        let chunk = file_chunk(beep, fleet, machine_id.to_owned(), path.to_owned(), offset).await?;
+        let chunk = file_chunk(fleet, machine_id.to_owned(), path.to_owned(), offset).await?;
 
         if chunk.size > MAX_AGENT_FILE || chunk.data.len() > AGENT_FILE_CHUNK {
             return Err(DesktopError::BadRequest("file too large".into()));

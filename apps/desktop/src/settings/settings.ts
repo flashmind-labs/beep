@@ -1,34 +1,22 @@
-// settings/: the Settings pages (apps, accounts, credentials, coding agents,
-// instructions, model) and the window's sheet (sheet.ts). Entry: this file.
+// settings/: the Settings pages (credentials, coding agents, instructions,
+// machines) and the window's sheet (sheet.ts). Entry: this file.
 import { createElement, createRef, type ReactNode, type ReactElement } from "react";
 import { flushSync } from "react-dom";
-import { AgentsOverview, AppsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
-import { ModelSettingsView } from "./model-settings-view.tsx";
-import { ServerView } from "./server-view.tsx";
+import { AgentsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading, Mounted } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import type { PanePage } from "../bar/pane.ts";
 import { agentAccountsContent, credentialsContent, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
-import { A, type App, appsIn, appsOut, type AppsView, loadApps, renderAppPermissions, renderApps, renderMcpServer } from "./apps.ts";
-import { toWindow } from "../chat/chat.ts";
-import { bar, type LinkState, S, windowHooks } from "../bar/core.ts";
+import { bar, S, toWindow, windowHooks } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
-import { hintModel, refreshHints } from "../bar/hints.ts";
-import { renderInvitePhone } from "../bar/link.ts";
+import { hintModel } from "../bar/hints.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
 import { harnessName } from "./providers-state.ts";
 import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
-import { canPickModel, type Models, type Thinking, MODELS } from "./model.ts";
-import { show } from "../bar/views.ts";
-import { type Reach } from "./server-state.ts";
-import { invoke, listen } from "../ui/tauri.ts";
+import { invoke } from "../ui/tauri.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
-import { latest, STALE } from "../ui/active.ts";
-
-/// What a new notice does while you are at this Mac (NoticeVoice).
-export type NoticeVoice = "ask" | "aloud" | "off";
 
 /// This Mac's own settings (`settings`).
 export interface MacSettings {
@@ -36,9 +24,6 @@ export interface MacSettings {
   name: string;
   version: string;
   autostart: boolean;
-  notice_voice: NoticeVoice;
-  /// In live mode a pause sends, rather than only "send".
-  send_on_pause: boolean;
   /// Coding agents notify when they ask something or finish a turn.
   agent_notices: boolean;
 }
@@ -55,43 +40,20 @@ export interface MacControl {
   permissions: { screen_recording: boolean; accessibility: boolean };
 }
 
-/// A device on the account (DeviceView).
-export interface Device {
-  id: string;
-  name: string;
-  kind: "phone" | "desktop";
-  /// The device that made the account, which links and removes others.
-  primary: boolean;
-  this_device: boolean;
-}
-
-/// The devices Settings lists, and whether the server they came from answered (`list_devices`).
-interface DeviceList {
-  devices: Device[];
-  server: Reach;
-}
-
 /// Settings: drawn at once from what this Mac knows (its own settings and the
-/// last devices, apps and machines seen), then each server-backed section fills
-/// in on its own as its call answers.
+/// last machines seen), then the machines and credentials fill in as they answer.
 export const SET: {
   root: HTMLElement | null;
   token: number;
-  devices: Device[] | null;
   machines: Machine[] | null | undefined;
-  /// The question the section asks before it acts.
-  confirm: false | "unlink" | "signout";
-  /// Whether the server answered the last list of devices; null before it did.
-  reach: Reach | null;
-  modelsError?: boolean;
   path: SettingsPath | null;
-  local: { set: MacSettings; mac: MacControl | null; linked: boolean } | null;
+  local: { set: MacSettings; mac: MacControl | null } | null;
   unembed: (() => void) | null;
-} = { root: null, token: 0, devices: null, machines: undefined, confirm: false, reach: null, path: null, local: null, unembed: null };
+} = { root: null, token: 0, machines: undefined, path: null, local: null, unembed: null };
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
 /// The sheet opens on `page` when given, else on the page picked last.
-export async function renderSettings(confirm: false | "unlink" | "signout" = false, root?: HTMLElement, page?: string) {
+export async function renderSettings(root?: HTMLElement, page?: string) {
   // A new sheet starts on `page`, or where the last one was left.
   if (root !== undefined && root !== SET.root) SET.path = isPage(page) ? selectPage(page) : recallPath(store());
   if (root !== undefined) SET.root = root;
@@ -100,10 +62,8 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
   if (!SET.root && windowHooks) return windowHooks.openSettings();
   if (!SET.root) S.view = "settings";
   if (root && shownSheet !== root) showSheet(root, createElement(SettingsLoading));
-  SET.confirm = confirm;
   const token = ++SET.token;
   const alive = () => SET.token === token && setShown();
-  // Local: answered by this Mac, never the server.
   const [got, mac] = await Promise.all([
     invoke<MacSettings>("settings"),
     invoke<MacControl>("mac_control").catch(e => { console.warn(e); return null; }),
@@ -121,8 +81,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
 
   // What `settings` answered: an object that is not an Error.
   const set = got as MacSettings;
-  const linked = S.link === "linked";
-  SET.local = { set, mac, linked };
+  SET.local = { set, mac };
 
   if (SET.root) {
     drawSheet();
@@ -131,8 +90,6 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
     drawBarSettings();
   }
 
-  // The server's parts, side by side; each fills its section as it answers.
-  if (linked) loadServerParts(alive);
   invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
     .then(() => {
       if (!alive()) return;
@@ -141,29 +98,7 @@ export async function renderSettings(confirm: false | "unlink" | "signout" = fal
       if (CRED.list) renderCreds();
     });
   loadCreds();
-  if (linked) loadAgentAccounts();
-}
-
-/// The subscription's parts of Settings, which fill their sections as each answers.
-function loadServerParts(alive: () => boolean) {
-  invoke<DeviceList>("list_devices").then(d => { SET.devices = d.devices; SET.reach = d.server; }, e => { console.warn(e); SET.devices ??= []; SET.reach = "unreachable"; })
-    .then(() => { if (alive()) redrawSettings(); });
-  modelRead.run(invoke<Models>("get_models")).then(m => {
-    if (m === STALE) return false;
-    MODELS.info = m;
-    SET.modelsError = false;
-    return true;
-  }, e => { console.warn(e); SET.modelsError = !MODELS.info; return true; })
-    .then(current => {
-      if (!alive() || !current) return;
-      // A server with no choices to offer leaves the section out.
-      if (SET.root && SET.path?.page === "models") return drawSheet();
-      redrawSettings();
-    });
-  invoke<App[]>("list_apps").then(a => { A.apps = a; }, () => { A.apps ??= []; })
-    .then(() => {
-      if (alive()) redrawSettings();
-    });
+  loadAgentAccounts();
 }
 
 /// Draws Settings again where it is shown, the sheet or the bar.
@@ -177,19 +112,8 @@ export const setRoot = () => SET.root ?? bar;
 /// The sheet is open, or the bar still shows Settings.
 export const setShown = () => SET.root ? SET.root.isConnected : S.view === "settings";
 
-/// Apps in the sheet renders here through its owner, as the host's children.
-export interface SettingsContentOwner {
-  show(content: ReactElement): void;
-  remove(): void;
-}
-let appsContent: ReactElement | null = null;
-const contentOwner: SettingsContentOwner = {
-  show(content) { appsContent = content; drawChrome(); },
-  remove() { if (!appsContent) return; appsContent = null; drawChrome(); },
-};
-
 /// The pages the sheet lists now.
-const sheetPages = () => SET.local ? settingsSections(SET.local.mac, SET.local.linked, true).map(([id]) => id) : [];
+const sheetPages = () => SET.local ? settingsSections(SET.local.mac, true).map(([id]) => id) : [];
 
 /// The box of the page whose own code draws it (Machines, the embedded views).
 const pageHost = createRef<HTMLDivElement>();
@@ -210,9 +134,9 @@ function showSheet(sheet: HTMLElement, content: ReactNode) {
 function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPath, version: string) {
   const openPage = (page: SettingsPage) => goTo(selectPage(page));
   showSheet(sheet, createElement(SettingsShell, {
-    navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: settingsPageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
-    breadcrumb: createElement(SettingsBreadcrumb, { path, page: settingsPageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
-    children: settingsSections(SET.local?.mac ?? null, SET.local?.linked ?? false, true).find(([page]) => page === path.page)?.[1] ?? null,
+    navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: pageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
+    breadcrumb: createElement(SettingsBreadcrumb, { path, page: pageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
+    children: settingsSections(SET.local?.mac ?? null, true).find(([page]) => page === path.page)?.[1] ?? null,
   }));
 }
 
@@ -227,7 +151,7 @@ export function settingsClosed() {
 function drawSheet() {
   const el = SET.root, local = SET.local;
   if (!el || !local) return;
-  const sections = settingsSections(local.mac, local.linked, true);
+  const sections = settingsSections(local.mac, true);
   const shown = sections.map(([id]) => id);
   const path = SET.path = fitPath(SET.path ?? recallPath(store()), shown, subExists);
   rememberPath(store(), path);
@@ -282,27 +206,15 @@ export function settingsBack() {
 
 /// Stops the pages that draw themselves from drawing into the sheet.
 function leavePage() {
-  appsWaiting = false;
-  appsRead.cancel();
-  appsOut();
   machinesOut();
   const unembed = SET.unembed;
   SET.unembed = null;
   unembed?.();
 }
 
-const followApps = (view: AppsView, id: string | null) =>
-  follow("apps", view === "apps" || !id ? null : { kind: view === "mcp" ? "mcp" : "app", id });
-
 /// Draws the page of `path` that its own code draws, into its box.
 function mountPage(path: SettingsPath) {
   const sub = path.sub;
-
-  if (path.page === "apps") {
-    appsIn(followApps, contentOwner);
-    return openApps(sub);
-  }
-
   const box = pageHost.current;
   if (!box) return;
 
@@ -322,60 +234,34 @@ function mountPage(path: SettingsPath) {
   }
 }
 
-/// Apps, or one connected app or server of it. A remembered one waits for
-/// the list; one gone since shows the list.
-let appsWaiting = false;
-const appsRead = latest();
-async function openApps(sub: SettingsSub | null) {
-  if (!sub || (sub.kind !== "app" && sub.kind !== "mcp")) return renderApps();
-  const app = () => A.apps?.find(a => a.slug === sub.id && a.connected);
-  const server = () => A.servers?.find(s => s.id === sub.id && s.connected);
-
-  if (!(sub.kind === "app" ? app() : server())) {
-    appsWaiting = true;
-    drawChrome();
-    if (await appsRead.run(loadApps()) === STALE || !SET.path?.sub || !samePath(SET.path, openSub(sub))) return;
-    appsWaiting = false;
-    drawChrome();
-  }
-
-  const picked = sub.kind === "app" ? app() : server();
-  if (!picked) return goTo(selectPage("apps"));
-  return "slug" in picked ? renderAppPermissions(picked) : renderMcpServer(picked);
-}
-
 let barSettings: BarPageSlot | null = null;
 function drawBarSettings() {
   const current = barSettings, local = SET.local;
   if (!current || !local) return;
-  const sections = settingsSections(local.mac, local.linked, false).map(([, content]) => content);
+  const sections = settingsSections(local.mac, false).map(([, content]) => content);
   flushSync(() => current.show({ view: "settings", props: { version: local.set.version, sections, hints: hintModel([["esc", "close"]]) } }));
 }
 
 /// The sections of Settings, in order, each with the page it is.
-function settingsSections(mac: MacControl | null, linked: boolean, sheet: boolean): [SettingsPage, ReactElement][] {
+function settingsSections(mac: MacControl | null, sheet: boolean): [SettingsPage, ReactElement][] {
   const sec = (page: LocalView & SettingsPage, title: string) => createElement(SettingsSection, { key: page, page, title, children: localView(page) });
-  const host = (page: SettingsPage) => createElement(SettingsHost, { key: page, page, loading: page === "apps" && appsWaiting, hostRef: pageHost, children: page === "apps" ? appsContent : null });
-  const out: [SettingsPage, ReactElement][] = [["general", sec("general", "General")], ["appearance", sec("appearance", "Appearance")]];
-  const machines: [SettingsPage, ReactElement] = ["machines", sheet ? host("machines") : sec("machines", "Machines")];
-  const creds: [SettingsPage, ReactElement] = ["creds", sec("creds", "Credentials")];
-  const instr: [SettingsPage, ReactElement] = ["instr", sheet ? host("instr") : sec("instr", "Instructions")];
+  const host = (page: SettingsPage) => createElement(SettingsHost, { key: page, page, hostRef: pageHost });
   const sub = SET.path?.sub;
-  const agents: [SettingsPage, ReactElement] = ["agents", sheet && sub?.kind === "agent" ? host("agents")
-    : createElement(AgentSettingsSection, { key: "agents", linked,
-      bar: sheet ? null : localView("agent-bar"), accounts: linked ? agentAccountsContent() : null, overview: sheet ? localView("agent-overview") : null })];
-  const computer: [SettingsPage, ReactElement][] = mac && !onPhone() ? [["mac", sec("mac", "This computer")]] : [];
-  if (!linked) return [...out, ...computer, machines, agents, creds, instr, ...(S.server ? [["devices", sec("devices", "Beep server")] as [SettingsPage, ReactElement]] : [])];
-  if (!MODELS.info || canPickModel()) out.push(["models", sec("models", "Models")]);
-  out.push(["apps", sheet ? host("apps") : sec("apps", "Apps")]);
-  out.push(...computer, machines, agents, creds, instr, ["devices", sec("devices", "Beep server")]);
-  return out;
+  const agents = sheet && sub?.kind === "agent" ? host("agents")
+    : createElement(AgentSettingsSection, { key: "agents", bar: sheet ? null : localView("agent-bar"), accounts: agentAccountsContent(), overview: sheet ? localView("agent-overview") : null });
+  return [
+    ["general", sec("general", "General")],
+    ["appearance", sec("appearance", "Appearance")],
+    ...(mac && !onPhone() ? [["mac", sec("mac", "This computer")] as [SettingsPage, ReactElement]] : []),
+    ["machines", sheet ? host("machines") : sec("machines", "Machines")],
+    ["agents", agents],
+    ["creds", sec("creds", "Credentials")],
+    ["instr", sheet ? host("instr") : sec("instr", "Instructions")],
+  ];
 }
 
 /// What a subpage is called in the breadcrumb and the left pane.
 function subLabel(sub: SettingsSub) {
-  if (sub.kind === "app") return A.apps?.find(a => a.slug === sub.id)?.name ?? sub.id;
-  if (sub.kind === "mcp") return A.servers?.find(s => s.id === sub.id)?.name ?? "MCP server";
   if (sub.kind === "machine") return (SET.machines ?? MC.list)?.find(m => m.id === sub.id)?.name ?? "Machine";
   return harnessName(sub.id);
 }
@@ -383,9 +269,6 @@ function subLabel(sub: SettingsSub) {
 /// Whether a remembered subpage still has something to show. Lists not
 /// read yet say yes; the page itself checks once they come.
 function subExists(sub: SettingsSub) {
-  if (sub.kind === "app") return !A.apps || A.apps.some(a => a.slug === sub.id && a.connected);
-  if (sub.kind === "mcp") return !A.servers || A.servers.some(s => s.id === sub.id && s.connected);
-
   if (sub.kind === "machine") {
     const list = SET.machines ?? MC.list;
     return !list || list.some(m => m.id === sub.id);
@@ -396,18 +279,14 @@ function subExists(sub: SettingsSub) {
 
 /// The subpages a page lists under it in the left pane, once picked.
 function subEntries(page: SettingsPage): SettingsSub[] {
-  if (page === "apps") return (A.apps ?? []).filter(a => a.connected).map(a => ({ kind: "app", id: a.slug }));
   if (page === "machines") return (SET.machines ?? MC.list ?? []).map(m => ({ kind: "machine", id: m.id }));
   if (page === "agents") return CODING_AGENTS.map(id => ({ kind: "agent", id }));
   return [];
 }
 
-/// A count beside a page in the left pane, such as connected apps.
+/// A count beside a page in the left pane: the machines.
 function navCount(page: SettingsPage) {
-  return (page === "apps" ? A.apps?.filter(app => app.connected).length : page === "machines" ? (SET.machines ?? MC.list)?.length : 0) ?? 0;
-}
-function settingsPageLabel(page: SettingsPage) {
-  return page === "agents" && !SET.local?.linked ? "Coding agents" : pageLabel(page);
+  return (page === "machines" ? (SET.machines ?? MC.list)?.length : 0) ?? 0;
 }
 
 /// localStorage, or null where it cannot be reached.
@@ -430,15 +309,13 @@ const generalPending = new Set<string>();
 let macControlBusy = false;
 
 /// What a Settings section shows, drawn fresh from the module state on each render.
-type LocalView = "general" | "appearance" | "mac" | "devices" | "models" | "apps" | "machines" | "instr" | "creds" | "agent-overview" | "agent-bar";
+type LocalView = "general" | "appearance" | "mac" | "machines" | "instr" | "creds" | "agent-overview" | "agent-bar";
 function localView(kind: LocalView): ReactNode {
   const local = SET.local;
   switch (kind) {
     case "general": return local ? createElement(GeneralView, {
-      settings: local.set, phone: onPhone(), server: S.server, busy: generalPending,
+      settings: local.set, phone: onPhone(), busy: generalPending,
       autostart: (enabled: boolean) => void changeGeneral("autostart", "set_autostart", { enabled }),
-      voice: (choice: NoticeVoice) => void changeGeneral("voice", "set_notice_voice", { choice }),
-      pause: (enabled: boolean) => void changeGeneral("pause", "set_send_on_pause", { enabled }),
       notices: (enabled: boolean) => void changeGeneral("notices", "set_agent_notices", { enabled }),
       shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
       report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
@@ -449,18 +326,6 @@ function localView(kind: LocalView): ReactNode {
       setEnabled: (enabled: boolean) => void setMacEnabled(enabled),
       allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
     }) : null;
-    case "devices": return local ? createElement(ServerView, {
-      settings: local.set, devices: SET.devices, link: S.link, signedOut: S.signedOut, reach: SET.reach,
-      refresh: () => void renderSettings(), invite: () => setAway("invite", renderInvitePhone),
-      away: () => { if (SET.root) windowHooks?.settingsAway(null); show(null); },
-    }) : null;
-    case "models": return createElement(Mounted, { entered: modelsEntered, left: modelsLeft, children: createElement(ModelSettingsView, {
-      model: MODELS.info, failed: !!SET.modelsError, busy: modelSettingsBusy, error: modelSettingsError,
-      pick: (id: string) => void setModelChange("set_model", { id }),
-      auto: (enabled: boolean) => void setModelChange("set_auto_model", { enabled }),
-      thinking: (level: Thinking) => void setModelChange("set_thinking", { level }),
-    }) });
-    case "apps": return createElement(AppsOverview, { apps: A.apps, open: () => setAway("apps", renderApps) });
     case "machines": return createElement(MachinesOverview, { machines: SET.machines, open: () => setAway("machines", renderMachines) });
     case "instr": return createElement(InstructionsOverview, { open: () => windowHooks ? windowHooks.openInstructions() : toWindow("instructions") });
     case "creds": return credentialsContent();
@@ -495,28 +360,8 @@ async function setMacEnabled(enabled: boolean) {
   }
 }
 
-// `modelsMount` counts each time the Models section comes or goes, so an
-// error answered after it left is dropped with it. A change makes a list of
-// models read before or during it stale.
-let modelSettingsBusy = false, modelSettingsError = "", modelsMount = 0;
-const modelRead = latest();
-const modelsEntered = () => { modelsMount++; };
-const modelsLeft = () => { modelsMount++; modelSettingsError = ""; };
-async function setModelChange(command: string, args: Record<string, unknown>) {
-  if (modelSettingsBusy) return;
-  const mount = modelsMount;
-  modelSettingsBusy = true; modelSettingsError = ""; modelRead.cancel();
-  redrawSettings();
-  try {
-    MODELS.info = await invoke<Models>(command, args);
-    SET.modelsError = false;
-    refreshHints();
-  } catch (error) { if (mount === modelsMount) modelSettingsError = String(error); }
-  finally { modelRead.cancel(); modelSettingsBusy = false; redrawSettings(); }
-}
-
 // The data attributes that name a Settings control when it has no id.
-const FOCUS_KEYS = ["remove", "vn", "pause", "allow", "goto", "sub", "setlevel"];
+const FOCUS_KEYS = ["remove", "allow", "goto", "sub"];
 
 /// What has focus inside `box`, as a selector that finds it again after
 /// a redraw; null when focus is elsewhere.
@@ -546,10 +391,5 @@ function refocus(box: HTMLElement, key: string) {
 // In the window the fields are in the sheet, not the pane.
 window.addEventListener("focus", () => {
   const $set = (sel: string) => setRoot().querySelector<HTMLInputElement>(sel);
-  if (setShown() && !$set("#unlinkYes") && !$set("#signOutYes") && !$set("#credSecret")?.value && !$set("#agSecret")?.value) renderSettings();
+  if (setShown() && !$set("#credSecret")?.value && !$set("#agSecret")?.value) renderSettings();
 });
-
-// Signing in or out changes which pages Settings has. The state is taken here too, so the
-// redraw never reads what the bar's own listener has not stored yet.
-listen<boolean>("signed-out", e => { S.signedOut = e.payload; });
-listen<LinkState>("link-state", e => { S.link = e.payload; if (setShown()) renderSettings(); });

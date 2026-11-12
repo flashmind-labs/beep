@@ -2,14 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { newChatTarget } from "../src/project/agent.ts";
 
-test("new chat starts in the project on screen or of the shown session, else general", () => {
-  const agents = [{ name: "acme/widget", chat_id: "c1" }];
+test("a new agent starts in the project on screen or of the shown session, else the start form", () => {
   const projects = [
     { name: "acme/widget", machine_id: "box", folder: "/srv/widget" },
     { name: "acme/widget", machine_id: "mac", folder: "/w/widget" },
     { name: "acme/other", machine_id: "mac", folder: "/w/other" },
   ];
-  const to = (at: Parameters<typeof newChatTarget>[0]) => newChatTarget(at, agents, projects);
+  const to = (at: Parameters<typeof newChatTarget>[0]) => newChatTarget(at, projects);
   // The project's page: this machine when it has a checkout, else the first.
   assert.deepEqual(to({ shown: "projects", picked: "acme/widget", mac: "mac" }), { project: "acme/widget", machine: "mac" });
   assert.deepEqual(to({ shown: "projects", picked: "acme/widget", mac: "laptop" }), { project: "acme/widget", machine: "box" });
@@ -21,11 +20,8 @@ test("new chat starts in the project on screen or of the shown session, else gen
   assert.deepEqual(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget/" } }), { project: "acme/widget", machine: "mac" });
   assert.deepEqual(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget-fix", main: "/w/widget" } }), { project: "acme/widget", machine: "mac" });
   assert.equal(to({ shown: "pane", view: "agent", agent: { machine_id: "mac", cwd: "/w/widget-fix" } }), null);
-  assert.deepEqual(to({ shown: "pane", view: "chat", session: "c1" }), { project: "acme/widget", machine: "box" });
-  // A session outside every project, a general chat, other pages and Home.
+  // A session outside every project, other pages and Home.
   assert.equal(to({ shown: "pane", view: "agent", agent: { machine_id: "box", cwd: "/tmp/x" } }), null);
-  assert.equal(to({ shown: "pane", view: "chat", session: "c9" }), null);
-  assert.equal(to({ shown: "pane", view: "chat", session: null }), null);
   assert.equal(to({ shown: "projects", picked: null }), null);
   assert.equal(to({ shown: "home", picked: "acme/widget" }), null);
 });

@@ -24,7 +24,6 @@
 .mac .dcoderlog .dtrun .in .dcoderen.tool.row { margin: 0 }
 .mac .dcoderlog .errc { display: grid; gap: 4px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(242,153,74,.45); background: rgba(242,153,74,.07) }
 .mac .dcoderlog .errc b { color: var(--d-coral); font-weight: 600; font-size: 13px } .mac .dcoderlog .errc span { font-size: 12.5px; color: var(--d-muted) }
-.mac .dcoderlog .errc .btns { display: flex; gap: 6px; margin-top: 4px }
 .mac .dcoderlog .dcoderen.agent.md p { margin: 0 0 8px } .mac .dcoderlog .dcoderen.agent.md ul { margin: 0 0 8px }
 .mac .dcoderlog .dcoderen.agent.md pre.code { position: relative; margin: 0 0 8px; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--d-border); background: var(--d-surface); font: 12px/18px var(--mono); white-space: pre; overflow: auto }
 .mac .dcoderlog .dcoderen.agent.md pre.code code { padding: 0; border: 0; background: none }

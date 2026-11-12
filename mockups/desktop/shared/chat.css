@@ -2,7 +2,6 @@
 .bar { height: 60px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px }
 .title { font-family: var(--display); font-weight: 600; font-size: 24px; letter-spacing: -0.03em; line-height: 1 }
 .big { font-family: var(--display); font-weight: 600; font-size: 36px; letter-spacing: -0.03em; line-height: 40px }
-.ib { width: 44px; height: 44px; flex: none; border: 0; background: transparent; display: grid; place-items: center; color: var(--m-ink); border-radius: 12px }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--m-ok); display: inline-block }
 .dot.off { background: var(--m-error) }
 .sub { font-size: 12px; color: var(--m-muted); display: flex; align-items: center; gap: 6px; font-weight: 500 }
@@ -33,7 +32,6 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 .tw.up { transform: translateY(-10px) scale(.9) }
 .tw.on { max-height: 44px; opacity: 1; margin-top: 6px; transform: none }
 .chip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 5px; border: 1.5px solid var(--m-ledge); border-radius: 999px; font-size: 13px; font-weight: 500 }
-.chip .ini { width: 26px; height: 26px; border-radius: 50%; background: var(--m-surface); display: grid; place-items: center; font-size: 11px; font-weight: 600 }
 .chip .st { width: 18px; height: 18px; display: grid; place-items: center }
 .stamp { animation: stamp .4s cubic-bezier(.3,1.6,.5,1) }
 .answer { transition: opacity .5s, transform .5s; opacity: 0; transform: translateY(8px) }
@@ -43,9 +41,6 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 .screen { --ease: cubic-bezier(.2,.8,.2,1) }
 
 .scrim { position: absolute; inset: 0; background: rgba(29,31,46,.45); z-index: 5 }
-.drawer { position: absolute; top: 0; bottom: 0; left: 0; width: min(480px, 90%); background: var(--m-page); border-right: 1.5px solid var(--m-ledge); z-index: 6;
-  display: flex; flex-direction: column; animation: slide .3s var(--ease) }
-@keyframes slide { from { transform: translateX(-100%) } }
 .tile { flex: 1; display: grid; justify-items: center; gap: 6px; padding: 12px 4px; border-radius: 14px; font-size: 12px; font-weight: 500 }
 .hr { height: 1px; background: var(--m-soft); margin: 4px 4px }
 .dialog { width: 100%; background: var(--m-surface); border: 1.5px solid var(--m-ledge); border-radius: 24px; padding: 22px; display: flex; flex-direction: column; gap: 14px; animation: pop .3s cubic-bezier(.3,1.4,.5,1) }
@@ -64,12 +59,6 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 .swipe.to-del .under.del, .swipe.to-run .under.run { display: flex }
 .swipe > .card { position: relative; transition: transform .32s cubic-bezier(.2,1.3,.4,1); user-select: none }
 .swipe.dragging > .card { transition: none }
-.swipe.leaving > .card { transition: transform .2s ease-in }
-.snack { position: absolute; left: 12px; right: 12px; bottom: 28px; z-index: 20; display: flex; align-items: center;
-  justify-content: space-between; background: var(--m-ink); color: var(--m-page); border-radius: 12px;
-  padding: 6px 6px 6px 14px; font-size: 13px; animation: snackIn .2s ease-out }
-.snack button { background: none; border: 0; color: var(--m-ok); font: inherit; font-weight: 600; padding: 8px 12px; cursor: pointer }
-@keyframes snackIn { from { transform: translateY(16px); opacity: 0 } }
 .hint { font-size: 12px; color: var(--m-dim); text-align: center; padding: 6px 0 }
 .switch { width: 40px; height: 24px; border-radius: 999px; border: 1.5px solid var(--m-ledge); background: var(--m-soft); position: relative; flex: none; padding: 0 }
 .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%; background: var(--m-surface); border: 1.5px solid var(--m-ledge); transition: transform .2s var(--ease) }
@@ -84,17 +73,6 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 .map { position: relative; height: 150px; background: #E3ECE6; overflow: hidden; border-bottom: 1.5px solid var(--m-ledge);
   background-image: linear-gradient(90deg, transparent 46%, #fff 46%, #fff 50%, transparent 50%), linear-gradient(0deg, transparent 58%, #fff 58%, #fff 61%, transparent 61%),
     linear-gradient(28deg, transparent 70%, #F2F6F3 70%, #F2F6F3 73%, transparent 73%), linear-gradient(0deg, #D6D8DC 0 22%, transparent 22%) }
-.rmap { position: relative; overflow: hidden; background-color: #EEF1EE;
-  background-image: linear-gradient(90deg, transparent 31%, #fff 31%, #fff 33%, transparent 33%), linear-gradient(90deg, transparent 72%, #fff 72%, #fff 73.5%, transparent 73.5%),
-    linear-gradient(0deg, transparent 38%, #fff 38%, #fff 41%, transparent 41%), linear-gradient(152deg, transparent 58%, #F8FAF8 58%, #F8FAF8 60%, transparent 60%),
-    linear-gradient(0deg, #D5E4F0 0 14%, transparent 14%), radial-gradient(40% 50% at 82% 30%, #DDEBDD 0 60%, transparent 61%) }
-.rmap.dark { background-color: #1B1F1E;
-  background-image: linear-gradient(90deg, transparent 31%, #2A302E 31%, #2A302E 33%, transparent 33%), linear-gradient(90deg, transparent 72%, #2A302E 72%, #2A302E 73.5%, transparent 73.5%),
-    linear-gradient(0deg, transparent 38%, #2A302E 38%, #2A302E 41%, transparent 41%), linear-gradient(152deg, transparent 58%, #252A28 58%, #252A28 60%, transparent 60%),
-    linear-gradient(0deg, #141A1E 0 14%, transparent 14%) }
-.rmap svg { position: relative }
-.rmap small { position: absolute; right: 0; bottom: 0; font-size: 8px; line-height: 12px; color: var(--m-muted); background: rgba(240,241,243,.7); padding: 0 4px; border-top-left-radius: 4px }
-.rmap.dark small { color: #8A8F98; background: rgba(21,22,23,.7) }
 .map small { position: absolute; right: 0; bottom: 0; font-size: 8px; color: var(--m-muted); background: rgba(240,241,243,.7); padding: 1px 4px }
 .ask { background: var(--m-surface); border: 1.5px solid var(--m-ledge); border-radius: 16px; box-shadow: 0 3px 0 var(--m-ledge); overflow: hidden }
 .ask .head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--m-t2); border-bottom: 1.5px solid var(--m-ledge) }
@@ -103,19 +81,7 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 /* Many records: the fields scroll inside the card so Deny and Allow stay in view. */
 .ask .kv.scroll { max-height: 220px; overflow-y: auto; margin: 12px 14px 0; padding: 10px; border-radius: 8px; background: var(--m-page); scrollbar-width: thin }
 /* A call that names several records: one small card per record, side by side, swiped through. */
-.ask .rec { flex: none; width: 78%; scroll-snap-align: start; scroll-margin-left: 14px; padding: 10px 12px; border-radius: 12px; background: var(--m-page); display: grid; gap: 2px; font-size: 13px; line-height: 18px }
-.ask .rec b { font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
-.ask .rec span { color: var(--m-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .ask .draft { margin: 10px 14px 0; padding: 10px 12px; border-radius: 8px; background: var(--m-page); font-size: 13px; line-height: 19px }
-.shade { position: absolute; inset: 0; background: linear-gradient(160deg,#DCE6F2,#C9D6E8); padding: 14px 10px; display: flex; flex-direction: column; gap: 8px }
-.notif { background: #FBFCFB; border-radius: 22px; padding: 14px 16px 6px; box-shadow: 0 2px 10px rgba(29,31,46,.12); color: #1B1F1D; animation: pop .3s cubic-bezier(.3,1.4,.5,1) }
-.notif .app { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5F6662 }
-.notif .app i { width: 18px; height: 18px; border-radius: 50%; background: var(--m-ok); color: #fff; display: grid; place-items: center; font-size: 10px; font-weight: 700; font-style: normal }
-.notif .t { font-size: 14px; font-weight: 600; margin-top: 6px }
-.notif .b { font-size: 13px; line-height: 19px; margin-top: 2px; white-space: pre-line; color: #393B40 }
-.notif .b b { font-weight: 600; color: #1B1F1D }
-.notif .a { display: flex; gap: 4px; margin-top: 6px }
-.notif .a button { border: 0; background: none; color: var(--m-ok); font-weight: 600; font-size: 13px; padding: 10px 12px; border-radius: 999px }
 .ask .acts { display: flex; align-items: center; gap: 8px; padding: 12px 14px 14px }
 .tick { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--m-muted); border: 0; background: none; padding: 0; flex: 1; text-align: left }
 .tick i { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--m-ledge); display: grid; place-items: center; flex: none; font-style: normal }
@@ -125,21 +91,6 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 .radio .o { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--m-ledge); flex: none; margin-top: 1px; display: grid; place-items: center }
 .radio[aria-checked="true"] .o::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--m-ledge) }
 .tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1.5px solid var(--m-ledge); flex: none }
-.callout { position: absolute; top: 262px; max-width: 250px; z-index: 3; background: var(--m-surface); border: 1.5px solid var(--m-ledge);
-  border-radius: 16px; box-shadow: 0 3px 0 var(--m-ledge); padding: 10px 12px; text-align: left; display: grid; gap: 3px; cursor: pointer;
-  touch-action: pan-y; user-select: none; animation: calloutIn .32s cubic-bezier(.3,1.4,.5,1) both }
-.callout.right { right: 74px; transform-origin: right center }
-.callout.left { left: 74px; transform-origin: left center }
-.callout::after { content: ""; position: absolute; top: 18px; width: 10px; height: 10px; background: var(--m-surface); border: 1.5px solid var(--m-ledge) }
-.callout.right::after { right: -7px; border-left: 0; border-bottom: 0; transform: rotate(45deg) }
-.callout.left::after { left: -7px; border-right: 0; border-top: 0; transform: rotate(45deg) }
-.callout .who { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--m-muted) }
-.callout .txt { font-size: 13px; line-height: 18px; color: var(--m-ink); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden }
-.callout .life { height: 2px; border-radius: 2px; background: var(--m-soft); overflow: hidden; margin-top: 4px }
-.callout .life i { display: block; width: 100%; height: 100%; background: var(--m-brand); transform-origin: left; animation: life 6s linear forwards }
-.callout.leaving { transition: transform .2s ease-in, opacity .2s; opacity: 0 }
-@keyframes calloutIn { from { transform: scale(.6); opacity: 0 } }
-@keyframes life { from { transform: scaleX(1) } to { transform: scaleX(0) } }
 /* A reply sits close under its own prompt; turns keep the full gap. */
 .body > .user + *, .body > .prompt + * { margin-top: -6px }
 .thoughts { margin-bottom: 6px; padding: 10px 12px; border-radius: 8px; background: var(--m-surface); color: var(--m-muted); font-size: 13px; line-height: 19px }
@@ -166,8 +117,3 @@ textarea.field { padding: 10px 14px; resize: none; min-height: 80px }
 .screen .caret { display: inline-block; width: 2px; height: 16px; background: var(--m-brand); vertical-align: -3px; animation: none}
 .typing { display: inline-flex; gap: 3px; margin-left: 2px } .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--m-muted); animation: none} .typing i:nth-child(2) { animation-delay: .15s } .typing i:nth-child(3) { animation-delay: .3s }
 @keyframes tdot { 0%,60%,100% { opacity: .3; transform: none } 30% { opacity: 1; transform: translateY(-3px) } }
-.notif { position: absolute; top: 8px; left: 10px; right: 10px; z-index: 10; background: var(--m-surface); border: 1.5px solid var(--m-ledge); border-radius: 18px; box-shadow: 0 4px 0 var(--m-ledge); padding: 10px 12px; display: flex; gap: 10px; animation: notifIn .35s var(--ease) }
-.shade .notif { position: static; display: block; background: #FBFCFB; border: 0; border-radius: 22px; box-shadow: 0 2px 10px rgba(29,31,46,.12); padding: 14px 16px 6px; color: #1B1F1D }
-@keyframes notifIn { from { transform: translateY(-120%) } }
-
-/* ---------- Top-level switch ---------- */

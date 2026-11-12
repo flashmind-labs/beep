@@ -26,7 +26,7 @@
     const list = `<div class="dlist" role="listbox">${live.length ? live.map((r, i) => row(r, i)).join("") : quiet}${fold}${open ? ended.map((r, i) => row(r, live.length + i, " gone")).join("") : ""}</div>`;
     const visible = live;
     const none = `<div style="padding:28px 24px 32px;display:grid;justify-items:center;gap:8px;text-align:center"><span style="color:var(--d-dim);display:grid">${AG_ICON}</span><b style="font-size:14px">No sessions running.</b>
-        <span class="dmuted" style="display:block">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>`;
+        <span class="dmuted" style="display:block">Start one here, or run Claude Code in a terminal on one of your machines.</span></div>`;
     return ccWin(ccSidePj("agents"), `<div class="cc-top"><h2>Coding agents</h2><small>On your machines</small></div>
       <div class="ag-sess"><div class="dhead"><span class="tt"><b>Coding agents</b><small>${empty || !visible.length ? "Nothing running" : `${visible.length} live on 3 machines, 1 started by an agent`}</small></span><button class="dbtn" data-dgo="dAgentNew">${AG_ICON}New<kbd>⌘⇧A</kbd></button></div>
       ${empty ? none : `<div style="position:relative">${list}${agl === "menurun" ? agMenu("Fix the failing login test", 40, ["Open", "Stop turn", "Stop all", "Open in editor", "Open folder", "Copy id", "!Close session"]) : agl === "menukid" ? agMenu("Build the iOS target", 74, ["Open", "Open parent", "Stop turn", "Stop all", "Open folder", "Copy id", "!Close session"]) : agl === "menuended" ? agMenu("Update the changelog", 290, ["Open", "Resume", "Move to project…", "Open in editor", "Open folder", "Copy id"]) : ""}</div>`}</div>

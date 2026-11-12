@@ -9,7 +9,7 @@ import { snapshotView } from "../ui/snapshot-state.ts";
 // current job and step; a run opened shows its jobs and steps and, when it
 // failed, the end of its failing step's log with Fix this.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { ProjectAgent } from "./agent.ts";
+import type { ProjectRef } from "./localid.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { reason } from "../ui/format.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
@@ -285,8 +285,6 @@ interface ProjectRuns {
   only?: string | null;
 }
 
-type Agent = Pick<ProjectAgent, "project_id" | "name">;
-
 /// The latest a rate limit of any host the runs come from lifts.
 function limitOf(d: RunsRow | null | undefined) {
   const all = [d?.rate_limited_until ?? null, ...(d?.hosts ?? []).map(x => x.rate_limited_until)].filter((t): t is number => !!t);
@@ -473,7 +471,7 @@ export function makeRuns(deps: RunDeps) {
   }
 
   /// The Actions section. Its key is the project, so its rows stay while live updates arrive.
-  function section(agent: Agent) {
+  function section(agent: ProjectRef) {
     const id = agent.project_id, s = of(id);
     ensure(id);
     schedule(id);

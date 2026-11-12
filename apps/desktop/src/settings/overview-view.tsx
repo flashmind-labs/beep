@@ -1,7 +1,6 @@
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { CODING_AGENTS, subKey, type SettingsSub } from "./settings-nav.ts";
 import { harnessName } from "./providers-state.ts";
-import type { App } from "./apps.ts";
 import type { Machine } from "../machines/machines.ts";
 
 export function CodingAgentOverview({ open }: { open(sub: SettingsSub): void }) {
@@ -11,11 +10,6 @@ export function CodingAgentOverview({ open }: { open(sub: SettingsSub): void }) 
   })}</div></>;
 }
 function Placeholder() { return <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /></div>; }
-export function AppsOverview({ apps, open }: { apps: App[] | null; open(): void }) {
-  if (!apps) return <Placeholder />;
-  const connected = apps.filter(app => app.connected).map(app => app.name);
-  return <div className="dtoggle"><span><b>Connected apps</b><small>{connected.length ? `${connected.length} connected: ${connected.join(", ")}` : "Gmail, Calendar, Notion and more"}</small></span><button className="dbtn" id="apps" onClick={open}>Manage…</button></div>;
-}
 export function MachinesOverview({ machines, open }: { machines: Machine[] | null | undefined; open(): void }) {
   if (machines === undefined) return <Placeholder />;
   if (!machines) return null;

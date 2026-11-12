@@ -1,27 +1,23 @@
-//! Home: machines, what runs, what needs the user, routines coming up,
-//! app updates and projects, gathered from the server in one go. Entry
-//! point: `center_home`; `section` and `is_unsupported` read any list.
+//! Home: machines, what runs, what needs the user and projects, gathered
+//! from the mesh in one go. Entry point: `center_home`; `section` and
+//! `is_unsupported` read any list.
 
 use super::{
     home_sessions::AgentSessions,
     view_cache::{View, ViewCache, cache_view},
 };
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Fleet, alerts,
         projects::{FleetState, desk},
     },
-    machines::list::{self as machine_list, Outside},
-    projects::{ProjectRow, known},
+    projects::ProjectRow,
 };
 use beep_proto::{
-    AgentNoticeKey, AgentQuestion, AgentStatus, AnswerAgentQuestion, ApiError, AppUpdate,
-    ChatApproval, Cron, DismissUpdates, ImportedProject, ListCrons, ListImportedProjects,
-    ListPendingApprovals, ListResearches, ListUpdates, Machine, MachineApp, MachineDetails,
-    MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats, OpenUpdateChat,
-    PendingApproval, ResearchStatus, ResearchSummary, Session,
+    AgentNoticeKey, AgentQuestion, AgentStatus, ApiError, ImportedProject, Machine, MachineApp,
+    MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
 };
 use futures::{
     FutureExt,
@@ -36,7 +32,6 @@ use std::{
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tokio::join;
-use uuid::Uuid;
 
 /// Answers a question an agent session asks.
 #[tauri::command]
@@ -44,7 +39,6 @@ use uuid::Uuid;
 pub async fn center_answer_agent(
     window: WebviewWindow,
     events: State<'_, crate::fleet::events::Events>,
-    beep: Service<'_>,
     fleet: State<'_, Arc<Fleet>>,
     machine_id: String,
     agent: String,
@@ -52,96 +46,47 @@ pub async fn center_answer_agent(
     question: u32,
     reply: String,
 ) -> Result<()> {
-    // A machine of the mesh is asked directly; any other through the server.
-    if alerts::reaches(&fleet, &machine_id) {
-        if let Some(machine) = fleet.member(&machine_id) {
-            let operation = beep_proto::node::events::Operation::Agent {
-                agent: agent.clone(),
-                session: session.clone(),
-                request: beep_proto::node::agent::Request::Answer {
-                    question,
-                    reply: reply.clone(),
-                },
-            };
-
-            if events
-                .call(window.label(), machine, operation)
-                .await?
-                .is_some()
-            {
-                return Ok(());
-            }
-        }
-
-        let key = AgentNoticeKey {
-            machine_id,
-            agent,
-            session,
-            question: Some(question),
-            machine_name: String::new(),
-        };
-        return alerts::answer(&fleet, &key, &reply).await;
+    if !alerts::reaches(&fleet, &machine_id) {
+        return Err(DesktopError::NotInMesh);
     }
 
-    beep.call(AnswerAgentQuestion {
+    if let Some(machine) = fleet.member(&machine_id) {
+        let operation = beep_proto::node::events::Operation::Agent {
+            agent: agent.clone(),
+            session: session.clone(),
+            request: beep_proto::node::agent::Request::Answer {
+                question,
+                reply: reply.clone(),
+            },
+        };
+
+        if events
+            .call(window.label(), machine, operation)
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+    }
+
+    let key = AgentNoticeKey {
         machine_id,
         agent,
         session,
-        question,
-        reply,
-    })
-    .await
+        question: Some(question),
+        machine_name: String::new(),
+    };
+    alerts::answer(&fleet, &key, &reply).await
 }
 
-/// Dismisses updates from the user's apps, by `AppUpdate::id`.
-#[tauri::command]
-pub async fn center_dismiss_updates(beep: Service<'_>, ids: Vec<i64>) -> Result<()> {
-    beep.call(DismissUpdates { ids }).await
-}
-
-/// The chat about an update, which opens with Beep telling it; made on the
-/// first ask. `None` from a server too old to make one.
-#[tauri::command]
-pub async fn center_open_update_chat(beep: Service<'_>, id: i64) -> Result<Option<String>> {
-    Ok(known(beep.call(OpenUpdateChat { id }).await)?.map(|session| session.id))
-}
-
-/// What Home shows. A section is `None` when the server cannot list it for
-/// this account.
+/// What Home shows. A section is `None` when it cannot be listed.
 #[derive(Debug, Serialize)]
 pub struct HomeView {
     machines: Option<Vec<MachineCard>>,
     running: Option<Vec<RunningRow>>,
     needs_you: Vec<NeedsYou>,
-    coming_up: Option<Vec<CronRow>>,
-    updates: Option<Vec<UpdateRow>>,
     /// The projects imported onto the user's machines.
     projects: Option<Vec<ProjectRow>>,
-}
-
-/// Something the event triage agent found in one of the user's apps.
-#[derive(Debug, Serialize)]
-struct UpdateRow {
-    id: i64,
-    summary: String,
-    /// The app's slug, such as `gmail`; empty when unknown.
-    app: String,
-    /// How the user knows the app, such as "Gmail"; empty when unknown.
-    app_name: String,
-    /// In milliseconds since the Unix epoch.
-    at: u64,
-}
-
-impl From<AppUpdate> for UpdateRow {
-    fn from(update: AppUpdate) -> Self {
-        Self {
-            id: update.id,
-            summary: update.summary,
-            app: update.app,
-            app_name: update.app_name,
-            at: epoch_ms(update.at),
-        }
-    }
 }
 
 /// A machine with what it reported and what runs on it.
@@ -154,7 +99,7 @@ struct MachineCard {
     /// Not on yet, and the mesh is still trying to reach it after it opened
     /// or the link went.
     connecting: bool,
-    /// In the mesh, or one only the account lists, reached through the server.
+    /// In the mesh.
     joined: bool,
     /// In milliseconds since the Unix epoch.
     seen_at: u64,
@@ -166,7 +111,7 @@ struct MachineCard {
     /// Agent sessions on it that have not ended.
     agents: u32,
     /// Its live resources; `None` while offline, before its first sample,
-    /// or from a server or node from before them.
+    /// or from a node from before them.
     stats: Option<CardStats>,
 }
 
@@ -212,24 +157,11 @@ enum RunningRow {
         /// Its subagents that still run.
         subagents: u32,
     },
-    Research {
-        session: Uuid,
-        topic: String,
-        status: &'static str,
-        round: u32,
-        sources: u32,
-        started_at: i64,
-    },
 }
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum NeedsYou {
-    Chat {
-        session_id: Uuid,
-        session_title: String,
-        pending: PendingApproval,
-    },
     Agent {
         machine_id: String,
         machine_name: String,
@@ -240,34 +172,17 @@ pub(crate) enum NeedsYou {
     },
 }
 
-#[derive(Debug, Serialize)]
-struct CronRow {
-    id: String,
-    label: String,
-    /// What it asks Beep, the title when it has no label.
-    prompt: String,
-    schedule: String,
-    /// RFC 3339, in UTC.
-    next_run_at: String,
-}
-
-/// The server's answers, as they came back.
+/// What Home is made of, as the mesh answered.
 struct HomeParts {
     machines: Result<Vec<Machine>>,
     details: Result<Vec<MachineDetails>>,
     stats: Result<Vec<MachineStats>>,
     sessions: Result<Vec<MachineSession>>,
-    researches: Result<Vec<ResearchSummary>>,
-    approvals: Result<Vec<ChatApproval>>,
-    chats: Result<Vec<Session>>,
-    crons: Result<Vec<Cron>>,
-    updates: Result<Vec<AppUpdate>>,
     projects: Result<Vec<ImportedProject>>,
 }
 
-/// Home: the machines from the mesh, the rest from the server. Every section
-/// but the machines and their agent sessions waits for the server; those wait only as long as
-/// `AgentSessions` allows. A call while a read runs shares it.
+/// Home, from the mesh. The agent sessions wait only as long as `AgentSessions` allows. A call
+/// while a read runs shares it.
 #[tauri::command]
 pub async fn center_home(app: AppHandle, reads: State<'_, HomeReads>) -> Result<SharedHome> {
     reads.read(&app).await
@@ -354,9 +269,7 @@ impl Serialize for SharedHome {
 }
 
 async fn read_home(app: &AppHandle) -> Result<HomeView> {
-    let beep = app.state::<Arc<crate::beep::Beep>>();
     let fleet = app.state::<Arc<Fleet>>();
-    let held = app.state::<Outside>();
     let cache = app.state::<Arc<ViewCache>>();
     let agents = app.state::<Arc<AgentSessions>>();
     let session: FleetState<'_> = app.state();
@@ -369,31 +282,20 @@ async fn read_home(app: &AppHandle) -> Result<HomeView> {
         log::debug!("Home without the mesh: {e}");
     }
 
-    let (sessions, researches, approvals, chats, crons, updates, listed, imported) = join!(
-        agents.list(app, beep.inner(), cache.inner()),
-        beep.call(ListResearches {}),
-        beep.call(ListPendingApprovals {}),
-        beep.sessions(),
-        beep.call(ListCrons {}),
-        beep.call(ListUpdates {}),
-        beep.call(ListImportedProjects {}),
+    let (sessions, projects) = join!(
+        agents.list(app, cache.inner()),
         mesh_imports(&fleet, &session),
     );
-    let projects = with_server(imported, listed);
+    let status = fleet.status();
     let mut view = home_view(HomeParts {
-        machines: Ok(machine_list::machines(app, &fleet, &held)),
-        details: Ok(machine_list::details(app, &fleet, &held)),
-        stats: Ok(machine_list::stats(app, &fleet, &held)),
+        machines: Ok(status.machines()),
+        details: Ok(status.details()),
+        stats: Ok(status.stats()),
         sessions,
-        researches,
-        approvals,
-        chats,
-        crons,
-        updates,
-        projects,
+        projects: Ok(projects),
     })?;
 
-    let connecting = fleet.status().connecting();
+    let connecting = status.connecting();
 
     for card in view.machines.iter_mut().flatten() {
         let id = card.id.parse::<EndpointId>().ok();
@@ -422,38 +324,11 @@ pub(crate) async fn mesh_imports(fleet: &Fleet, session: &FleetState<'_>) -> Vec
     }
 }
 
-/// The mesh's projects, then the server's on machines the mesh does not hold. With no server, or
-/// one that does not answer, the mesh's alone; the server's failure shows only when the mesh has
-/// nothing, so a cached Home is kept rather than shown empty.
-pub(crate) fn with_server(
-    mut mesh: Vec<ImportedProject>,
-    server: Result<Vec<ImportedProject>>,
-) -> Result<Vec<ImportedProject>> {
-    match server {
-        Ok(listed) => {
-            let more: Vec<ImportedProject> = listed
-                .into_iter()
-                .filter(|row| {
-                    !mesh.iter().any(|held| {
-                        held.project == row.project && held.machine_id == row.machine_id
-                    })
-                })
-                .collect();
-            mesh.extend(more);
-            Ok(mesh)
-        }
-        Err(DesktopError::NoServer | DesktopError::Unlinked) => Ok(mesh),
-        Err(e) if mesh.is_empty() => Err(e),
-        Err(_) => Ok(mesh),
-    }
-}
-
-/// `None` for a request the server does not know or this account may not
-/// make; any other failure goes to the log. A server that is not there is no failure.
+/// `None` for a request a machine does not know; any other failure goes to
+/// the log.
 pub(crate) fn section<T>(what: &str, result: Result<T>) -> Option<T> {
     match result {
         Ok(listed) => Some(listed),
-        Err(DesktopError::NoServer | DesktopError::Unlinked) => None,
         Err(e) if is_unsupported(&e) => None,
         Err(e) => {
             log::warn!("listing {what} for the command center: {e}");
@@ -462,9 +337,9 @@ pub(crate) fn section<T>(what: &str, result: Result<T>) -> Option<T> {
     }
 }
 
-/// Home from the server's answers. A failed machine list that is not a
-/// plain "not here" means the link itself is down, so the whole Home is
-/// stale and the caller keeps what it showed.
+/// Home from the mesh's answers. A failed machine list that is not a plain
+/// "not here" means the link itself is down, so the whole Home is stale and
+/// the caller keeps what it showed.
 fn home_view(parts: HomeParts) -> Result<HomeView> {
     let machines = match parts.machines {
         Err(e) if !is_unsupported(&e) => return Err(e),
@@ -476,17 +351,9 @@ fn home_view(parts: HomeParts) -> Result<HomeView> {
         .flatten()
         .filter(|s| !matches!(s.status, AgentStatus::Ended {}))
         .collect();
-    let researches = section("researches", parts.researches);
-    let running = sessions.as_ref().map(|_| {
-        let agents = live.iter().map(|s| RunningRow::from(*s));
-        let researching = researches
-            .iter()
-            .flatten()
-            .filter(|r| is_running(r.status))
-            .map(RunningRow::from);
-        agents.chain(researching).collect()
-    });
-    let chats = section("chats", parts.chats).unwrap_or_default();
+    let running = sessions
+        .as_ref()
+        .map(|_| live.iter().map(|s| RunningRow::from(*s)).collect());
     Ok(HomeView {
         machines: section("machines", machines).map(|machines| {
             let details = section("machine details", parts.details).unwrap_or_default();
@@ -494,21 +361,14 @@ fn home_view(parts: HomeParts) -> Result<HomeView> {
             machine_cards(machines, details, stats, &live)
         }),
         running,
-        needs_you: needs_you(
-            sessions.iter().flatten(),
-            section("approvals", parts.approvals).unwrap_or_default(),
-            &chats,
-        ),
-        coming_up: section("routines", parts.crons).map(coming_up),
-        updates: section("updates", parts.updates)
-            .map(|updates| updates.into_iter().map(UpdateRow::from).collect()),
+        needs_you: needs_you(sessions.iter().flatten()),
         projects: section("projects", parts.projects)
             .map(|projects| projects.into_iter().map(ProjectRow::from).collect()),
     })
 }
 
-/// Whether the server does not know the request or this account may not
-/// make it, as opposed to a failure on the way.
+/// Whether a machine does not know the request or may not take it, as
+/// opposed to a failure on the way.
 pub(crate) fn is_unsupported(e: &DesktopError) -> bool {
     matches!(
         e,
@@ -588,37 +448,13 @@ impl From<&MachineSession> for RunningRow {
     }
 }
 
-impl From<&ResearchSummary> for RunningRow {
-    fn from(research: &ResearchSummary) -> Self {
-        Self::Research {
-            session: research.session_id,
-            topic: research.topic.clone(),
-            status: Into::<&'static str>::into(research.status),
-            round: research.round,
-            sources: research.sources,
-            started_at: research.started_at,
-        }
-    }
-}
-
-/// Everything waiting on an answer, oldest first. An agent question counts
-/// from its session's last activity. A chat approval carries no time of its
-/// own, so it counts from its chat's last change; a chat the list lacks
-/// counts as the newest, so it comes last.
-pub(crate) fn needs_you<'a>(
-    sessions: impl Iterator<Item = &'a MachineSession>,
-    approvals: Vec<ChatApproval>,
-    chats: &[Session],
-) -> Vec<NeedsYou> {
-    let changed: HashMap<&str, i64> = chats
-        .iter()
-        .map(|c| (c.id.as_str(), c.updated_at))
-        .collect();
-    let mut waiting: Vec<(u64, NeedsYou)> = Vec::new();
-
-    for session in sessions {
-        if let Some(question) = &session.question {
-            waiting.push((
+/// Every question an agent session waits on, oldest first, counted from
+/// its session's last activity.
+pub(crate) fn needs_you<'a>(sessions: impl Iterator<Item = &'a MachineSession>) -> Vec<NeedsYou> {
+    let mut waiting: Vec<(u64, NeedsYou)> = sessions
+        .filter_map(|session| {
+            let question = session.question.as_ref()?;
+            Some((
                 epoch_ms(session.last_activity),
                 NeedsYou::Agent {
                     machine_id: session.machine_id.clone(),
@@ -628,56 +464,11 @@ pub(crate) fn needs_you<'a>(
                     title: session.title.clone(),
                     question: question.clone(),
                 },
-            ));
-        }
-    }
-
-    for approval in approvals {
-        let since = changed
-            .get(approval.session_id.to_string().as_str())
-            .map_or(u64::MAX, |&at| u64::try_from(at).unwrap_or(0));
-        waiting.push((
-            since,
-            NeedsYou::Chat {
-                session_id: approval.session_id,
-                session_title: approval.session_title,
-                pending: approval.pending,
-            },
-        ));
-    }
-
-    waiting.sort_by_key(|(since, _)| *since);
-    waiting.into_iter().map(|(_, item)| item).collect()
-}
-
-/// Whether a research is still at work.
-fn is_running(status: ResearchStatus) -> bool {
-    matches!(
-        status,
-        ResearchStatus::Planning {}
-            | ResearchStatus::Researching {}
-            | ResearchStatus::Reviewing {}
-            | ResearchStatus::Writing {}
-    )
-}
-
-/// Enabled routines by when they run next.
-fn coming_up(crons: Vec<Cron>) -> Vec<CronRow> {
-    let mut rows: Vec<CronRow> = crons
-        .into_iter()
-        .filter(|c| c.enabled)
-        .filter_map(|c| {
-            Some(CronRow {
-                next_run_at: c.next_run_at?,
-                id: c.id,
-                label: c.label,
-                prompt: c.prompt,
-                schedule: c.schedule,
-            })
+            ))
         })
         .collect();
-    rows.sort_by(|a, b| a.next_run_at.cmp(&b.next_run_at));
-    rows
+    waiting.sort_by_key(|(since, _)| *since);
+    waiting.into_iter().map(|(_, item)| item).collect()
 }
 
 #[cfg(test)]

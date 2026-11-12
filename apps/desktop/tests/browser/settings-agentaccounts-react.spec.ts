@@ -3,8 +3,7 @@ import { openDesktop } from "./harness.ts";
 
 test("settings redraw preserves the agent account input and closes its root", async ({ page }) => {
   await openDesktop(page, false, {
-    status: { link: "linked", signed_out: false, server: true, live: false, session: null },
-    settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false },
+    settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
     agent_accounts: { claude: null, codex_key: null, machines: [] },
     list_machines: [], list_credentials: [], list_github_accounts: [],
   });
@@ -13,12 +12,13 @@ test("settings redraw preserves the agent account input and closes its root", as
   await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
   await settings.getByRole("button", { name: "Paste a token" }).click();
   const input = settings.getByRole("textbox", { name: "Claude Code token" });
-  await input.fill("example-secret");
-  await input.evaluate(el => { if (el instanceof HTMLInputElement) { el.setSelectionRange(2, 5); Reflect.set(window, "agentInput", el); Reflect.set(window, "agentHost", el.closest("#set-agents")); } });
-  await page.evaluate(() => window.__navigation.emit("link-state", "linked"));
+  await input.focus();
+  await input.evaluate(el => { Reflect.set(window, "agentInput", el); Reflect.set(window, "agentHost", el.closest("#set-agents")); });
+  // Coming back to the window redraws Settings while no token is typed.
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(1);
-  await expect(input).toHaveValue("example-secret");
-  expect(await input.evaluate(el => el === Reflect.get(window, "agentInput") && document.activeElement === el && el instanceof HTMLInputElement && el.selectionStart === 2 && el.selectionEnd === 5)).toBe(true);
+  expect(await input.evaluate(el => el === Reflect.get(window, "agentInput") && document.activeElement === el)).toBe(true);
+  await input.fill("example-secret");
   await input.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "save_agent_token" && call.args.agentSlug === "claude" && call.args.secret === "example-secret"))).toBe(true);
   const edges = await settings.evaluate(sheet => {
@@ -36,8 +36,7 @@ test("settings redraw preserves the agent account input and closes its root", as
 
 test("a completed save does not discard a newer token draft", async ({ page }) => {
   await openDesktop(page, false, {
-    status: { link: "linked", signed_out: false, server: true, live: false, session: null },
-    settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false },
+    settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
     agent_accounts: { claude: null, codex_key: null, machines: [] },
     list_machines: [], list_credentials: [], list_github_accounts: [],
   });

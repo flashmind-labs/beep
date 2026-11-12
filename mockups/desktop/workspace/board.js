@@ -56,7 +56,7 @@ const BOARD_MOCK = (() => {
       const asks = S.d.bdasks && rest.title === ASKS;
       cards.push({ ...rest, sub: sub.innerHTML.trim(), lane: asks ? "needs" : "working", foot: asks ? "" : chip ? chip.outerHTML : rest.dim ? right.innerHTML : working(right.innerHTML), action: asks ? button("Answer", rest.go, true) : "" });
     }
-    if (!running || S.d.cc === "old") return cards;
+    if (!running) return cards;
 
     const open = 'data-dact="dset:ags:done" data-dgo="dAgentSession"';
     cards.push({ lane: "review", lead: mark("codex"), title: "Rewrite the pricing page copy", sub: "you/site · studio", foot: "12m ago", go: open },

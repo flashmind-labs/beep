@@ -9,7 +9,7 @@ use secrecy::{ExposeSecret, SecretBox};
 use std::process::Command;
 use std::{
     fs::{self, OpenOptions},
-    io::{ErrorKind, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager};
@@ -85,42 +85,6 @@ pub fn computer_name() -> String {
     name
 }
 
-/// Deletes this computer's key and state, so the next launch makes new ones.
-pub fn forget(app: &AppHandle) -> Result<()> {
-    let dir = data_dir(app)?;
-    // The mesh was made with the old key, which is no member of a new one.
-    // `mesh` is from before the compact format; it holds credentials in plain text.
-    for mesh in ["mesh2", "mesh"] {
-        match fs::remove_dir_all(dir.join("node").join(mesh)) {
-            Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    // A phone keeps its mesh here.
-    match fs::remove_dir_all(dir.join("workspace")) {
-        Ok(()) => {}
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
-    }
-    #[cfg(target_os = "ios")]
-    keychain::delete()?;
-    for file in [
-        "identity.key",
-        "state.json",
-        "search.sqlite",
-        "search.sqlite-wal",
-        "search.sqlite-shm",
-    ] {
-        match fs::remove_file(dir.join(file)) {
-            Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Ok(())
-}
-
 /// The iPhone's key in the Keychain. It is readable after the first unlock,
 /// so background work can use it, and backups and a new iPhone carry it.
 #[cfg(target_os = "ios")]
@@ -132,7 +96,7 @@ mod keychain {
     use secrecy::{ExposeSecret, SecretBox};
     use security_framework::{
         access_control::{ProtectionMode, SecAccessControl},
-        passwords::{delete_generic_password, generic_password, set_generic_password_options},
+        passwords::{generic_password, set_generic_password_options},
         passwords_options::PasswordOptions,
     };
     use std::{
@@ -204,13 +168,6 @@ mod keychain {
         )?);
         set_generic_password_options(key.expose_secret(), options)
             .context("saving the key in the Keychain")
-    }
-
-    pub(super) fn delete() -> Result<()> {
-        match delete_generic_password(SERVICE, ACCOUNT) {
-            Err(e) if e.code() != NOT_FOUND => Err(e).context("deleting the key from the Keychain"),
-            _ => Ok(()),
-        }
     }
 
     /// The native app's mesh key: Keychain item `workspace-<name>`, named

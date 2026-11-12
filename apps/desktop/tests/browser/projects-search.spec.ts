@@ -9,7 +9,7 @@ const projects = [
   project("acme/gamma", "/srv/acme/gamma"),
   project("tools/delta", "/srv/tools/delta", "https://forge.test/team/delta-remote"),
 ];
-const home = { machines: [], projects, running: [agent("old", "/srv/acme/alpha", 1_000), agent("new", "/srv/acme/gamma", 5_000)], needs_you: [], coming_up: null, updates: null };
+const home = { machines: [], projects, running: [agent("old", "/srv/acme/alpha", 1_000), agent("new", "/srv/acme/gamma", 5_000)], needs_you: [] };
 
 async function openOverview(page: Page) {
   await openDesktop(page, false, { center_home: home });

@@ -1,20 +1,15 @@
-import { drawHomeComposer } from "./home-composer.tsx";
-// Home: its tabs, the board, the Updates and Coming up sections, and the Connecting page before Home first loads.
-import { invoke, Channel } from "../ui/tauri.ts";
-import { connectProblem } from "./connect.ts";
-import { pane } from "../bar/pane.ts";
-import { S } from "../bar/core.ts";
-import { homeForDisplay, type HomeView, type NeedsYou, type UpdateRow } from "./home-state.ts";
-import { type CenterView, type Outcome, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
+// Home: its tabs and the board.
+import { invoke } from "../ui/tauri.ts";
+import { homeForDisplay, type HomeView, type NeedsYou } from "./home-state.ts";
+import { type CenterView, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, go } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
-import { loading, refresh, fresh, ensureHome } from "./refresh.ts";
+import { ensureHome } from "./refresh.ts";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { ensureAllTerms } from "../terminals/view.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
-import { type RunningAgent } from "../agents/running-state.ts";
 import { onPlaces } from "../agents/place.ts";
 import { sessionsChanged } from "../agents/sessions.ts";
 import type { SessionRow } from "../project/projects-state.ts";
@@ -25,86 +20,17 @@ import { onClosing } from "../agents/closing.ts";
 import { createElement } from "react";
 import { placeWindowParts } from "./window-root.ts";
 import { windowHost } from "./window-shell.tsx";
-import { ConnectingView } from "./connecting-view.tsx";
 import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
 import { HomeGit } from "./openitems-view.tsx";
 import { HomeMachines } from "../machines/home-machines-view.tsx";
-import { conflict, failure } from "../ui/format.ts";
 
 // ---------- Needs you ----------
 
-type ChatNeed = Extract<NeedsYou, { kind: "chat" }>;
-type AgentNeed = Extract<NeedsYou, { kind: "agent" }>;
-
-export function cardKey(n: NeedsYou) { return n.kind === "chat" ? `chat:${n.pending.query_id}` : `agent:${n.machine_id}:${n.session}:${n.question.id}`; }
-
-function setOutcome(key: string, outcome: Outcome) { state.outcomes.set(key, outcome); draw(); }
-
-export function answerChat(n: ChatNeed, decision: string, said: string) {
-  const key = cardKey(n);
-  setOutcome(key, { said });
-  // The call returns when the run it resumes ends, so the outcome shows now.
-  invoke("answer_approval", { session: n.session_id, queryId: n.pending.query_id, decision, onEvent: new Channel() })
-    .then(() => refresh())
-    .catch(e => setOutcome(key, { error: failure(e), final: conflict(e) }));
-}
-
 /// Opens the session an agent's question came from, where it is answered.
-export function openAsking(n: AgentNeed) {
-  const r = state.home?.running?.find((r): r is RunningAgent => r.kind === "agent" && r.machine_id === n.machine_id && r.id === n.session);
+export function openAsking(n: NeedsYou) {
+  const r = state.home?.running?.find(r => r.machine_id === n.machine_id && r.id === n.session);
   go("pane", { agent: r || { kind: "agent", machine_id: n.machine_id, machine_name: n.machine_name, id: n.session, agent: n.agent, title: n.title, cwd: "", status: "asking", external: false } });
-}
-
-// ---------- Coming up ----------
-
-export function whenOf(iso: string) {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return { time: "", day: "" };
-  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  const days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
-  const day = days <= 0 ? "today" : days === 1 ? "tomorrow" : at.toLocaleDateString([], { weekday: "short" });
-  return { time, day };
-}
-/// A routine's schedule in words. The row already shows when it runs next,
-/// so a one-off is just "Once".
-export function scheduleText(s: string) {
-  if (/^\d{4}-\d\d-\d\dT/.test(s)) return "Once";
-  return pane.when(s) ?? s;
-}
-
-// ---------- Updates ----------
-
-/// Updates dismissed here that a list may still carry, by id.
-export const dismissedUpdates = new Set<number>();
-
-/// Takes updates off Home at once and tells the server; a failed dismiss
-/// brings them back on the next refresh.
-export function dismissUpdates(ids: number[]) {
-  if (!ids.length) return;
-  for (const id of ids) dismissedUpdates.add(id);
-  if (state.home?.updates) state.home.updates = state.home.updates.filter(u => !ids.includes(u.id));
-  draw();
-  invoke("center_dismiss_updates", { ids }).catch(e => {
-    console.warn("dismissing updates:", e);
-    for (const id of ids) dismissedUpdates.delete(id);
-    refresh();
-  });
-}
-
-/// Opens the update's chat, where Beep's first message tells it and the user
-/// replies; the same chat each time.
-export async function openUpdate(u: UpdateRow) {
-  dismissUpdates([u.id]);
-
-  try {
-    const session = await invoke<string | null>("center_open_update_chat", { id: u.id });
-    if (session) return go("pane", { chat: { session } });
-    go("pane", { chat: { session: null } });
-    await pane.draft(u.summary);
-  } catch (e) {
-    console.warn("opening an update:", e);
-  }
 }
 
 // ---------- Home ----------
@@ -113,7 +39,7 @@ export async function openUpdate(u: UpdateRow) {
 export let homeTab: HomeTab = "overview";
 /// The tab each section Home can jump to sits on.
 export const TAB_OF: Record<string, HomeTab> = {
-  "sec-needs": "overview", "sec-running": "overview", "sec-updates": "overview", "sec-coming": "overview",
+  "sec-needs": "overview", "sec-running": "overview",
   "sec-git": "git", "sec-machines": "machines",
 };
 
@@ -150,44 +76,18 @@ function page(home: HomeView) {
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 
-// ---------- Connecting ----------
-
 /// True once the first Home has been waited for too long.
 export function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
-
-/// Before Home first loads, a failure waiting will not fix, or null.
-export function problem() {
-  const p = fresh ? null : connectProblem(state.error);
-  // With no server, its errors are not shown: Home reads the mesh.
-  return p && !S.server && p.kind !== "revoked" && p.kind !== "refused" ? null : p;
-}
-
-/// What "Still connecting" says, with how long the server has been silent.
-function waitText() {
-  const secs = Math.round((Date.now() - state.since) / 1000);
-  return `No answer from ${S.server ? "the server" : "your machines"} for ${secs} seconds. Still trying.`;
-}
-
-/// What Home shows before the server first answers: pulsing dots, never a blank
-/// page.
-function drawConnecting() {
-  const p = problem();
-  placeWindowParts({ home: createElement(ConnectingView, { problem: p, stuck: stuck(), text: waitText(), loading,
-    open: () => { if (p?.view) go("pane", p.view); }, retry: () => { void refresh(); drawConnecting(); },
-    log: () => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); } }) });
-}
 
 export function draw() {
   // A hidden Home draws when it is shown: its mount refreshes.
   if (currentLocation()?.view && currentLocation()?.view !== "home") return;
-  const home = homeForDisplay(state.home, S.server), view = windowHost("view");
-  if (!home || S.server && problem()) return drawConnecting();
+  const home = homeForDisplay(state.home), view = windowHost("view");
   const top = view.scrollTop;
   placeWindowParts({ home: createElement(HomeShell, page(home)) });
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
-  drawHomeComposer();
 }
 
 // The Done today lane: the sessions of every project, ended ones included, which the

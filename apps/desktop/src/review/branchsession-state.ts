@@ -28,8 +28,3 @@ export function branchSessions<S extends Session>(sessions: readonly S[], machin
     })
     .sort((a, b) => b.last_activity - a.last_activity);
 }
-
-/// The latest session in a branch's current worktree, if any.
-export function branchSession<S extends Session>(sessions: readonly S[], machineId: string | undefined, worktree: string | null | undefined, worktrees: readonly (string | null)[] = []) {
-  return branchSessions(sessions, machineId, worktree, worktrees)[0];
-}

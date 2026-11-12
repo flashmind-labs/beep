@@ -3,19 +3,18 @@
 //! an interactive one live while typing into it.
 
 use crate::{
-    beep::{Beep, SERVER_ENABLED, Service, epoch_ms},
+    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
         terminals::{self as direct, Opened},
     },
-    machines::list::Outside,
-    projects::{needs_update, unknown_op},
+    machines::list::MachineLists,
 };
 use beep_mesh::machine::terminals::{Heard, heard};
 use beep_proto::{
-    AttachTerminal, CloseTerminal, GetTerminal, ListAllTerminals, MAX_TERMINAL_INPUT, OpenTerminal,
-    StartTerminal, Terminal, TerminalEvent, TerminalInput, TerminalOutput, TerminalState,
+    MAX_TERMINAL_INPUT, OpenTerminal, StartTerminal, Terminal, TerminalEvent, TerminalInput,
+    TerminalOutput, TerminalState,
     node::terminal::{Reply as PtyReply, Request as PtyRequest, Size},
 };
 use serde::{Deserialize, Serialize};
@@ -88,39 +87,21 @@ pub struct OutputView {
     earlier: bool,
 }
 
-fn outdated(e: DesktopError) -> DesktopError {
-    needs_update(e, "before it keeps terminals")
-}
-
 /// Whether two listings of a terminal differ in what the window draws.
 fn same_terminal(old: &Terminal, new: &Terminal) -> bool {
     old.id == new.id && old.state == new.state
 }
 
 /// Every terminal, at once: those on this Mac as they stand, the rest as
-/// last held. The other machines of the mesh and the server refresh in the
-/// background, and the windows redraw when one changes. The server's
-/// terminals on the mesh's machines show too, so one it kept can be stopped.
-async fn every(
-    app: &AppHandle,
-    beep: &Arc<Beep>,
-    fleet: &Arc<Fleet>,
-    held: &Outside,
-) -> Result<Vec<Terminal>> {
+/// last held. The other machines of the mesh refresh in the background, and
+/// the windows redraw when one changes.
+async fn every(app: &AppHandle, fleet: &Arc<Fleet>, held: &MachineLists) -> Result<Vec<Terminal>> {
     let f = fleet.clone();
     let remote =
         held.terminals
             .refreshed(app, async move { direct::remote(&f).await }, same_terminal);
     let mut rows = direct::local(fleet).await?;
     rows.extend(direct::remote_now(fleet, &remote));
-    let b = beep.clone();
-    let server = held.server_terminals.refreshed(
-        app,
-        async move { b.call(ListAllTerminals {}).await },
-        same_terminal,
-    );
-    let mine: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
-    rows.extend(server.into_iter().filter(|row| !mine.contains(&row.id)));
     Ok(rows)
 }
 
@@ -128,12 +109,11 @@ async fn every(
 #[tauri::command]
 pub async fn terminals_list(
     app: AppHandle,
-    beep: Service<'_>,
     fleet: Machines<'_>,
-    held: State<'_, Outside>,
+    held: State<'_, MachineLists>,
     project: String,
 ) -> Result<Option<Vec<TerminalRow>>> {
-    let rows = every(&app, &beep, &fleet, &held).await?;
+    let rows = every(&app, &fleet, &held).await?;
     Ok(Some(
         rows.into_iter()
             .filter(|t| t.project == project)
@@ -146,11 +126,10 @@ pub async fn terminals_list(
 #[tauri::command]
 pub async fn terminals_all(
     app: AppHandle,
-    beep: Service<'_>,
     fleet: Machines<'_>,
-    held: State<'_, Outside>,
+    held: State<'_, MachineLists>,
 ) -> Result<Option<Vec<TerminalRow>>> {
-    let rows = every(&app, &beep, &fleet, &held).await?;
+    let rows = every(&app, &fleet, &held).await?;
     Ok(Some(rows.into_iter().map(Into::into).collect()))
 }
 
@@ -166,11 +145,7 @@ pub struct NewTerminal {
 }
 
 #[tauri::command]
-pub async fn terminal_start(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    terminal: NewTerminal,
-) -> Result<TerminalRow> {
+pub async fn terminal_start(fleet: Machines<'_>, terminal: NewTerminal) -> Result<TerminalRow> {
     let NewTerminal {
         project,
         machine_id,
@@ -185,11 +160,8 @@ pub async fn terminal_start(
         command,
         cwd,
     };
-    let started = match fleet.member(&request.machine_id) {
-        Some(_) => direct::start(&fleet, request).await?,
-        None => beep.call(request).await.map_err(outdated)?,
-    };
-    Ok(started.into())
+    fleet.machine(&request.machine_id)?;
+    Ok(direct::start(&fleet, request).await?.into())
 }
 
 /// The fields of a new interactive terminal, as the form gives them. An
@@ -206,14 +178,9 @@ pub struct NewShell {
     rows: u32,
 }
 
-/// Starts an interactive terminal; `None` from a server too old for them,
-/// which still starts view-only ones with `terminal_start`.
+/// Starts an interactive terminal.
 #[tauri::command]
-pub async fn terminal_open(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    terminal: NewShell,
-) -> Result<Option<TerminalRow>> {
+pub async fn terminal_open(fleet: Machines<'_>, terminal: NewShell) -> Result<Option<TerminalRow>> {
     let NewShell {
         project,
         machine_id,
@@ -232,33 +199,17 @@ pub async fn terminal_open(
         cols,
         rows,
     };
-    let opened = match fleet.member(&request.machine_id) {
-        Some(_) => direct::open(&fleet, request).await,
-        None => beep.call(request).await,
-    };
-
-    match opened {
-        Ok(row) => Ok(Some(row.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
+    fleet.machine(&request.machine_id)?;
+    Ok(Some(direct::open(&fleet, request).await?.into()))
 }
 
 #[tauri::command]
-pub async fn terminal_output(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    id: Uuid,
-) -> Result<OutputView> {
+pub async fn terminal_output(fleet: Machines<'_>, id: Uuid) -> Result<OutputView> {
     let TerminalOutput {
         terminal,
         lines,
         earlier,
-    } = if direct::has(&fleet, id) {
-        direct::get(&fleet, id).await?
-    } else {
-        beep.call(GetTerminal { id }).await.map_err(outdated)?
-    };
+    } = direct::get(&fleet, id).await?;
     Ok(OutputView {
         terminal: terminal.into(),
         lines,
@@ -267,12 +218,8 @@ pub async fn terminal_output(
 }
 
 #[tauri::command]
-pub async fn terminal_close(beep: Service<'_>, fleet: Machines<'_>, id: Uuid) -> Result<()> {
-    if !SERVER_ENABLED || direct::has(&fleet, id) {
-        return direct::close(&fleet, id).await;
-    }
-
-    beep.call(CloseTerminal { id }).await.map_err(outdated)
+pub async fn terminal_close(fleet: Machines<'_>, id: Uuid) -> Result<()> {
+    direct::close(&fleet, id).await
 }
 
 /// What an attached terminal tells the window. Output goes as raw bytes,
@@ -540,7 +487,6 @@ impl Drop for Unfollow<'_> {
 #[allow(clippy::too_many_arguments)]
 pub async fn terminal_attach(
     window: WebviewWindow,
-    beep: Service<'_>,
     fleet: Machines<'_>,
     attached: State<'_, Attached>,
     id: Uuid,
@@ -550,81 +496,13 @@ pub async fn terminal_attach(
     rows: u32,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<()> {
-    if !SERVER_ENABLED || direct::has(&fleet, id) {
-        let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
-            Opened::Live { tx, rx } => (tx, rx),
-            Opened::Over(event) => {
-                on_event.send(TermEvent::from(event).body()?)?;
-                return Ok(());
-            }
-        };
-        let (input_tx, mut input) = mpsc::channel(INPUT_QUEUE);
-        let viewer = Viewer { terminal: id, view };
-        let serial = attached.follow(viewer, window.label(), input_tx);
-        let _unfollow = Unfollow {
-            attached: &attached,
-            viewer,
-            serial,
-        };
-
-        // A window closed before the follow was recorded is not cleared.
-        if window
-            .app_handle()
-            .get_webview_window(window.label())
-            .is_none()
-        {
+    let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
+        Opened::Live { tx, rx } => (tx, rx),
+        Opened::Over(event) => {
+            on_event.send(TermEvent::from(event).body()?)?;
             return Ok(());
         }
-
-        on_event.send(TermEvent::Attached.body()?)?;
-        let ended = |state| TerminalEvent::Ended { state };
-        let mut batch = OutputBatch::default();
-
-        loop {
-            tokio::select! {
-                () = batch_due(&batch) => batch.flush(&on_event)?,
-                heard_from_node = rx.recv::<PtyReply>() => match heard_from_node {
-                    Ok(Some(reply)) => match heard(reply) {
-                        Heard::Show(event) => batch.send(&on_event, event)?,
-                        Heard::End(state) => {
-                            batch.send(&on_event, ended(state))?;
-                            return Ok(());
-                        }
-                        Heard::Ignore => {}
-                    },
-                    Ok(None) | Err(_) => {
-                        batch.send(&on_event, ended(TerminalState::Offline {}))?;
-                        return Ok(());
-                    }
-                },
-                typed = input.recv() => {
-                    let request = match typed {
-                        Some(TerminalInput::Keys { data }) => PtyRequest::Input { data },
-                        Some(TerminalInput::Resize { cols, rows }) => PtyRequest::Resize {
-                            size: Size::clamped(cols, rows),
-                        },
-                        // Detached: closing the node's stream detaches there too.
-                        None => return Ok(()),
-                    };
-
-                    if tx.send(&request).await.is_err() {
-                        batch.send(&on_event, ended(TerminalState::Offline {}))?;
-                        return Ok(());
-                    }
-                }
-            }
-        }
-    }
-
-    let (mut uplink, mut replies) = beep
-        .duplex(AttachTerminal {
-            id,
-            from,
-            cols,
-            rows,
-        })
-        .await
-        .map_err(outdated)?;
+    };
     let (input_tx, mut input) = mpsc::channel(INPUT_QUEUE);
     let viewer = Viewer { terminal: id, view };
     let serial = attached.follow(viewer, window.label(), input_tx);
@@ -633,39 +511,57 @@ pub async fn terminal_attach(
         viewer,
         serial,
     };
+
+    // A window closed before the follow was recorded is not cleared.
+    if window
+        .app_handle()
+        .get_webview_window(window.label())
+        .is_none()
+    {
+        return Ok(());
+    }
+
     on_event.send(TermEvent::Attached.body()?)?;
+    let ended = |state| TerminalEvent::Ended { state };
     let mut batch = OutputBatch::default();
 
     loop {
         tokio::select! {
             () = batch_due(&batch) => batch.flush(&on_event)?,
-            reply = replies.next() => match reply.map_err(DesktopError::from).map_err(outdated)? {
-                Some(event) => {
-                    let last = !matches!(event, TerminalEvent::Output { .. });
-                    batch.send(&on_event, event)?;
-
-                    if last {
+            heard_from_node = rx.recv::<PtyReply>() => match heard_from_node {
+                Ok(Some(reply)) => match heard(reply) {
+                    Heard::Show(event) => batch.send(&on_event, event)?,
+                    Heard::End(state) => {
+                        batch.send(&on_event, ended(state))?;
                         return Ok(());
                     }
-                }
-                None => {
-                    batch.flush(&on_event)?;
+                    Heard::Ignore => {}
+                },
+                Ok(None) | Err(_) => {
+                    batch.send(&on_event, ended(TerminalState::Offline {}))?;
                     return Ok(());
                 }
             },
-            typed = input.recv() => match typed {
-                Some(up) => uplink.send(&up).await?,
-                // Detached: finishing our side ends the stream.
-                None => {
-                    uplink.finish()?;
+            typed = input.recv() => {
+                let request = match typed {
+                    Some(TerminalInput::Keys { data }) => PtyRequest::Input { data },
+                    Some(TerminalInput::Resize { cols, rows }) => PtyRequest::Resize {
+                        size: Size::clamped(cols, rows),
+                    },
+                    // Detached: closing the node's stream detaches there too.
+                    None => return Ok(()),
+                };
+
+                if tx.send(&request).await.is_err() {
+                    batch.send(&on_event, ended(TerminalState::Offline {}))?;
                     return Ok(());
                 }
-            },
+            }
         }
     }
 }
 
-/// Keys typed into attached terminal `id`, in pieces the server takes.
+/// Keys typed into attached terminal `id`, in pieces the machine takes.
 #[tauri::command]
 pub async fn terminal_input(
     attached: State<'_, Attached>,

@@ -268,45 +268,6 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(["dAddProject", 
   };
   VARIANTS.dAddProject.push(["Looking again on two machines", () => { S.d.ap = "rescan"; S.d.pp = "list"; render(); }, () => S.d.ap === "rescan"]);
 }
-// A chat about one PR or issue: the project agent with the thread loaded. It can draft a reply (asks first),
-// start a worker on it, or just talk it through. Listed under its project.
-(() => {
-  const st = document.createElement("style");
-  st.textContent = `.mac .th-card { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--d-border); border-radius: 8px; background: var(--d-elev); font-size: 12.5px; line-height: 18px }
-.mac .th-card .who { color: var(--d-muted); font-size: 11.5px }
-.mac .th-card .c + .c { border-top: 1px solid var(--d-border); padding-top: 6px }
-.mac .th-card .tx { white-space: pre-wrap; overflow-wrap: anywhere }
-.mac .th-scope { display: inline-flex; align-items: center; gap: 6px }
-.mac .cc-tag.pj-scope { background: none; cursor: pointer }
-.mac .cc-tag.pj-scope:hover { color: var(--d-fg) }
-.mac .cc-tag .cc-pdot { width: 6px; height: 6px; border-radius: 2px }
-.mac .th-turns { display: grid; gap: 12px; font-size: 13px; line-height: 19px }
-.mac .th-turns .dask { justify-self: end; max-width: 80%; padding: 6px 10px; border-radius: 12px 12px 4px 12px; background: rgba(94,106,210,.22) }`;
-  document.head.append(st);
-})();
-D.dWinThread = () => {
-  const v = S.d.th || "talk";
-  const draft = v === "draft";
-  const side = ccSidePj("acme/widget").replace('<button class="cc-si pj-repo" aria-current="true" data-dgo="dWinProject"><span class="cc-pdot" style="background:var(--d-coral)"></span><span class="tt">widget</span><span class="n">2</span>' + `<span class="pa" role="button" aria-label="Pin to top" data-toast="Pinned acme/widget">${DI.pin}</span>` + '</button>',
-    '<button class="cc-si pj-repo" data-dgo="dWinProject"><span class="cc-pdot" style="background:var(--d-coral)"></span><span class="tt">widget</span><span class="n">2</span>' + `<span class="pa" role="button" aria-label="Pin to top" data-toast="Pinned acme/widget">${DI.pin}</span>` + '</button><button class="cc-si pj-repo" aria-current="true" style="padding-left:30px"><span class="tt">Login screen copy</span></button>');
-  const head = `<div class="cc-top"><h2>PR #41 Login screen copy</h2><span class="th-scope"><button class="cc-tag pj-scope" data-dgo="dWinProject" title="acme/widget: open the project"><span class="cc-pdot" style="background:var(--d-coral)"></span>widget</button><span class="pj-st blocked">needs reply</span></span>
-      <span class="tools"><button class="dbtn" data-toast="Opens PR #41 on GitHub">Open on GitHub</button><button class="dbtn" data-toast="Pinned">Pin</button></span></div>`;
-  const thread = `<div class="th-card"><span class="who">On GitHub · 2 comments · waits on your reply</span>
-      <div class="c"><b>you</b> <span class="who">opened it</span><div class="tx">Shorter error copy for the login screen, closes #39.</div></div>
-      <div class="c"><b>a reviewer</b> <span class="who">1 h ago</span><div class="tx">&ldquo;The password is incorrect, please try again&rdquo; is long on small phones. Can we cut it down? Also, should it say which field is wrong?</div></div>
-      <div class="c"><b>you</b> <span class="who">20 min ago</span><div class="tx">Looking at it now.</div></div></div>`;
-  const turns = `<div class="th-turns">
-      <div class="dask">Do they have a point about saying which field is wrong?</div>
-      <div>Partly. Saying &ldquo;wrong password&rdquo; tells someone the email exists, which helps account guessing. Most apps say &ldquo;Email or password is wrong&rdquo;. I'd shorten the copy and keep it vague, and explain that in the reply.</div>
-      <div class="dask">Ok, do that</div>
-      ${draft ? `<div>I changed the copy in the PR's branch on build-box (3f2c1a0, tests pass). Here's the reply:</div>
-      <div class="pj-draft"><small>Reply on PR #41, not posted yet</small><span class="q">Shortened it to &ldquo;Email or password is wrong&rdquo; in 3f2c1a0. I kept it vague on purpose: naming the field tells someone the email exists.</span><span class="acts"><button class="dbtn pri" data-toast="Posted on GitHub as you">Post reply<kbd>⌘${DI.ret}</kbd></button><button class="dbtn" data-toast="Tell the agent what to change">Change</button><button class="dbtn warn" data-toast="Not posted">Deny</button></span></div>`
-        : `<div class="cc-note"><span class="dspin"></span><span>Changing the copy on <b>beep/login-copy</b> on build-box…</span></div>`}</div>`;
-  return ccWin(side, `${head}<div class="cc-view">${thread}${turns}</div>
-    <div class="cc-comp"><span class="in"><span class="caret"></span><span class="ph">Talk about PR #41</span></span><button class="dbtn pri" data-toast="Sent">Send<kbd>${DI.ret}</kbd></button></div>`);
-};
-VARIANTS.dWinThread = [["Talking", "talk"], ["Reply drafted", "draft"]].map(([l, k]) => [l, () => { S.d.th = k; render(); }, () => (S.d.th || "talk") === k]);
-DESK_SCREENS.find(g => g.group === "Command center").items.push(["dWinThread", "Chat about a PR or issue", "CommandCenterWindow, ThreadChat"]);
 // Persistent terminals per project: a PTY on the node that outlives the window and the app; any device can reattach or watch.
 (() => {
   const st = document.createElement("style");
@@ -366,9 +327,8 @@ const tmPane = () => {
   const v = S.d.ptm || "pick", act = k => `data-dact="dset:ptm:${k === "close" ? "none" : k}"`;
   const T = { n: "cargo watch", m: "build-box", cwd: "~/code/widget", st: "running", age: "3 h" };
   const open = ["open", "watching", "attached", "detached"].includes(v);
-  const has = v !== "none" && v !== "old" && v !== "noplace";
+  const has = v !== "none" && v !== "noplace";
   const tabs = `<div class="in-tabs tm-tabs">${has ? `<button class="tm-tab" ${act("attached")}${open ? ' aria-current="true"' : ""}><span class="ddot"></span>${T.n}</button>` : ""}<button class="tm-tab" aria-label="New terminal" title="New terminal" ${act("form")}>+</button></div>`;
-  if (v === "old") return `${tabs}<div class="cc-panel cc-empty"><b>The server needs an update before it keeps terminals.</b></div>`;
   if (v === "form" || v === "noplace") {
     const none = v === "noplace", m = S.d.ptmm || "build-box";
     return `${tabs}<form class="cc-panel tm-form" onsubmit="return false">${tmField("Command", "Empty for a shell, or npm run dev")}${tmField("Name", "The command, or shell, when empty")}

@@ -3,17 +3,15 @@
 //! view, which also pauses sync and settles conflicts.
 
 use crate::{
-    beep::Service,
     center::kept,
     center::view_cache::{View, ViewCache},
     error::Result,
-    fleet::projects::{FleetState, desk, desk_or_server},
-    projects::known,
+    fleet::projects::{FleetState, desk},
 };
 use beep_projects::model::plain_path;
 use beep_proto::{
-    ConflictKeep, GetProjectSyncDetail, ListProjectSync, MachineSync, MachineSyncDetail,
-    PauseProjectSync, ProjectSync, ProjectSyncDetail, SyncProgress, SyncStatus,
+    ConflictKeep, MachineSync, MachineSyncDetail, ProjectSync, ProjectSyncDetail, SyncProgress,
+    SyncStatus,
     node::sync::{FOLDER_MISSING, PARENT_MISSING},
 };
 use serde::Serialize;
@@ -130,37 +128,14 @@ fn shown(status: SyncStatus, error: Option<&str>) -> &'static str {
 /// How a node says Syncthing keeps the folder, so Beep's sync waits.
 const SYNCTHING: &str = "Already synced by Syncthing";
 
-/// Every machine's sync of every project, one row each. Empty from a
-/// server too old to sync projects.
+/// Every machine's sync of every project, one row each.
 #[tauri::command]
 pub async fn project_sync(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     cache: State<'_, Arc<ViewCache>>,
 ) -> Result<Vec<SyncRow>> {
-    let rows = match desk_or_server(&fleet, &beep).await {
-        Ok(desk) => {
-            let mut ours = match desk {
-                Some(desk) => desk.sync().await,
-                None => Vec::new(),
-            };
-            // The projects only the server syncs, until they are moved into the mesh.
-            if beep.has_server() {
-                match known(beep.call(ListProjectSync {}).await) {
-                    Ok(theirs) => {
-                        let theirs: Vec<ProjectSync> = theirs
-                            .into_iter()
-                            .flatten()
-                            .filter(|one| !ours.iter().any(|ours| ours.project == one.project))
-                            .collect();
-                        ours.extend(theirs);
-                    }
-                    Err(e) => log::info!("the server's sync did not read: {e}"),
-                }
-            }
-
-            Ok(rows(ours))
-        }
+    let rows = match desk(&fleet).await {
+        Ok(desk) => Ok(rows(desk.sync().await)),
         Err(e) => Err(e),
     };
     kept(&cache, View::Sync, rows)
@@ -259,16 +234,13 @@ impl From<ProjectSyncDetail> for SyncDetailView {
 }
 
 /// `project`'s sync in detail, with no machines for a project none of them
-/// sync; `None` from a server too old to say.
+/// sync.
 #[tauri::command]
 pub async fn project_sync_detail(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project: String,
 ) -> Result<Option<SyncDetailView>> {
-    let Some(desk) = desk_or_server(&fleet, &beep).await? else {
-        return Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into));
-    };
+    let desk = desk(&fleet).await?;
 
     match desk.sync_detail(&project).await {
         Ok(detail) => {
@@ -281,10 +253,6 @@ pub async fn project_sync_detail(
             }
 
             Ok(Some(view))
-        }
-        // Synced by the server alone, until the project is moved into the mesh.
-        Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {
-            Ok(known(beep.call(GetProjectSyncDetail { project }).await)?.map(Into::into))
         }
         Err(beep_fleet::FleetError::NotFound) => Ok(Some(SyncDetailView {
             ignored_folders: Vec::new(),
@@ -301,23 +269,11 @@ pub async fn project_sync_detail(
 #[tauri::command]
 pub async fn project_sync_pause(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project: String,
     paused: bool,
 ) -> Result<SyncDetailView> {
-    let Some(desk) = desk_or_server(&fleet, &beep).await? else {
-        let detail = beep.call(PauseProjectSync { project, paused }).await?;
-        return Ok(detail.into());
-    };
-
-    match desk.pause_sync(&project, paused).await {
-        Ok(detail) => Ok(detail.into()),
-        Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {
-            let detail = beep.call(PauseProjectSync { project, paused }).await?;
-            Ok(detail.into())
-        }
-        Err(e) => Err(e.into()),
-    }
+    let detail = desk(&fleet).await?.pause_sync(&project, paused).await?;
+    Ok(detail.into())
 }
 
 /// Settles the conflict copy at `path` on `machine_id`: keeps the copy in

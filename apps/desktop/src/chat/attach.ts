@@ -1,88 +1,18 @@
-import { chatAsk } from "./chat-shell.tsx";
 import { agentMessage } from "../agents/session-frame.tsx";
 import { showFieldDrop } from "../agents/composer-ui.tsx";
 import { AGENT_IMAGE_TYPES } from "../agents/agents.ts";
 import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
-import { drawQueue, focusAsk } from "./chat.ts";
 import { bar, S } from "../bar/core.ts";
-import { refreshHints } from "../bar/hints.ts";
 import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { ICON } from "../ui/icons.tsx";
 
-// ---------- Attached images and files ----------
+// ---------- Images and files dropped or pasted on a session ----------
 
-/// A file a prompt carried: one just sent, or one the server keeps
-/// (`FileRef`), which has an id to open it by.
-export interface AskFile {
-  name: string;
-  mime: string;
-  size: number;
-  id?: string;
-}
-
-/// A file waiting in the prompt, its bytes in base64 (`FileUpload`, and
-/// its size).
-export type Attachment = Omit<AskFile, "id"> & { data: string };
-
-// Pictures and files pasted or dropped into the prompt, sent with the next
-// message. Each picture is shrunk and sent as JPEG, as the phone does; other
-// files go as they are, up to MAX_UPLOAD in all.
-export const attached: { pics: string[]; files: Attachment[]; error: string; timer?: ReturnType<typeof setTimeout> } = { pics: [], files: [], error: "" };
-export const MAX_IMAGES = 8;
-export const MAX_UPLOAD = 5 * 1024 * 1024;
-export const PIC_SIDE = 1024;
-
-export const attachedCount = () => attached.pics.length + attached.files.length;
-
-/// The strip of attached pictures and files above the prompt, or the error
-/// from the last paste, with the placeholder and hints to match.
-export function drawAttached() {
-  if (!chatAsk.current) return;
-  drawQueue();
-  refreshHints();
-}
-
-/// Removes the `i`th attachment, counting pictures first.
-export function unattach(i: number) {
-  if (i < attached.pics.length) attached.pics.splice(i, 1);
-  else attached.files.splice(i - attached.pics.length, 1);
-  attached.error = "";
-  drawAttached();
-}
-
-export function attachError(text: string) {
-  attached.error = text;
-  drawAttached();
-  clearTimeout(attached.timer);
-  attached.timer = setTimeout(() => { attached.error = ""; drawAttached(); }, 4000);
-}
-
-/// Adds files from a paste or a drop: pictures shrunk, up to `MAX_IMAGES`;
-/// other files, or pictures that cannot be drawn, as they are.
-export async function attach(files: Iterable<File>) {
-  const all = [...files];
-  if (!all.length) return false;
-
-  for (const f of all) {
-    if (attachedCount() >= MAX_IMAGES) { attachError(`Up to ${MAX_IMAGES} attachments in one message`); break; }
-
-    if (f.type.startsWith("image/")) {
-      try { attached.pics.push(await shrinkPic(f)); continue; } catch { /* sent as a file, such as a HEIC */ }
-    }
-
-    const used = attached.files.reduce((n, x) => n + x.size, 0);
-    if (used + f.size > MAX_UPLOAD) { attachError(`Files up to ${MAX_UPLOAD >> 20} MB in one message`); continue; }
-
-    try { attached.files.push({ name: f.name || "file", mime: f.type, size: f.size, data: await fileBase64(f) }); }
-    catch { attachError(`${f.name || "That file"} could not be read`); }
-  }
-
-  drawAttached();
-  return true;
-}
+/// The longest side of a picture a coding agent gets converted.
+const PIC_SIDE = 1024;
 
 /// `file`'s bytes in base64. A folder fails to read.
 export function fileBase64(file: Blob) {
@@ -95,7 +25,7 @@ export function fileBase64(file: Blob) {
 }
 
 /// `file` as a JPEG data URI no longer than `PIC_SIDE` on its longest side.
-export async function shrinkPic(file: Blob) {
+async function shrinkPic(file: Blob) {
   const img = await createImageBitmap(file);
   const scale = Math.min(1, PIC_SIDE / Math.max(img.width, img.height, 1));
   const canvas = document.createElement("canvas");
@@ -115,12 +45,11 @@ export async function shrinkPic(file: Blob) {
 const agentField = () => S.view === "agent" && !!agentMessage.current;
 
 document.addEventListener("paste", e => {
-  const agent = agentField();
-  if (!agent && (S.view !== "chat" || !chatAsk.current)) return;
+  if (!agentField()) return;
   const files = [...(e.clipboardData?.items ?? [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter((f): f is File => !!f);
   if (!files.length) return;
   e.preventDefault();
-  agent ? agentDrop(files) : attach(files);
+  agentDrop(files);
 });
 
 /// The largest image a coding agent gets as it is; a larger one is converted.
@@ -157,8 +86,8 @@ export async function agentDrop(files: Iterable<File>) {
   if (pics.length) await agentAttach(pics);
 }
 
-// Dropping images and files on the chat attaches them too; a path dragged
-// from a session's Files tab onto its conversation is mentioned.
+// Dropping images and files on a session attaches them too; a path dragged
+// from its Files tab onto its conversation is mentioned.
 const dropOverlay = createDocumentScope<"drop">();
 
 /// A drop handled elsewhere, as on the Files tab's tree, ends the overlay.
@@ -176,11 +105,11 @@ bar.addEventListener("dragover", e => {
     return;
   }
 
-  if ((S.view !== "chat" && !agent) || !types.includes("Files")) return;
+  if (!agent || !types.includes("Files")) return;
   e.preventDefault();
   if (overlaid) return;
   overlaid = true;
-  dropOverlay.set([{ slot: "drop", host: bar, content: createElement("div", { className: "ddrop", id: "ddrop" }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: ICON.image } }), agent ? "Drop images to send, other files to upload" : "Drop images or files to ask about them") }]);
+  dropOverlay.set([{ slot: "drop", host: bar, content: createElement("div", { className: "ddrop", id: "ddrop" }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: ICON.image } }), "Drop images to send, other files to upload") }]);
 });
 bar.addEventListener("dragleave", e => {
   const into = e.relatedTarget instanceof Element ? e.relatedTarget : null;
@@ -201,10 +130,5 @@ bar.addEventListener("drop", e => {
   if (agentField() && e.dataTransfer?.files.length) {
     e.preventDefault();
     agentDrop(e.dataTransfer.files).then(() => agentMessage.current?.focus());
-    return;
   }
-
-  if (S.view !== "chat" || !e.dataTransfer?.files.length) return;
-  e.preventDefault();
-  attach(e.dataTransfer.files).then(() => focusAsk());
 });

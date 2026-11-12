@@ -1,12 +1,12 @@
 // What a project's page last read, section by section, so an opened project
 // draws at once from it and then reads again quietly.
 
-/// A project page section the cache keeps: the project chat's view, where
-/// the project lives, its agent sessions, its pull requests and issues, its
-/// branches, its workflow runs, its terminals, its file sync and its checkouts' git branches.
-export type PageSection = "view" | "where" | "sessions" | "threads" | "branches" | "runs" | "terminals" | "filesync" | "gitsync";
+/// A project page section the cache keeps: where the project lives, its agent
+/// sessions, its pull requests and issues, its workflow runs, its terminals,
+/// its file sync and its checkouts' git branches.
+export type PageSection = "where" | "sessions" | "threads" | "runs" | "terminals" | "filesync" | "gitsync";
 
-const SECTIONS: readonly PageSection[] = ["view", "where", "sessions", "threads", "branches", "runs", "terminals", "filesync", "gitsync"];
+const SECTIONS: readonly PageSection[] = ["where", "sessions", "threads", "runs", "terminals", "filesync", "gitsync"];
 
 /// One kept answer: the data, when it was read, and when it was last read
 /// or used, which decides what goes first once the cache is too big.
@@ -32,7 +32,7 @@ export const REFRESH_MS = 3 * 60_000;
 /// the code host, and change as agents start, so they read sooner.
 export const MACHINE_REFRESH_MS = 60_000;
 
-/// Opening a project reads what the server keeps of its code host (pull
+/// Opening a project reads what the mesh keeps of its code host (pull
 /// requests, issues, runs) again once it is this old, so an issue closed or a
 /// run started since shows.
 export const SWITCH_MS = 20_000;
@@ -53,14 +53,11 @@ export class Changes {
   dirty(id: string) { return this.reads.get(id) !== this.seen; }
 }
 
-/// Each section's `REFRESH_MS` or `MACHINE_REFRESH_MS`. The project
-/// chat's view follows the window's own refresh, so it is never due here.
+/// Each section's `REFRESH_MS` or `MACHINE_REFRESH_MS`.
 export const REFRESH: Record<PageSection, number> = {
-  view: REFRESH_MS,
   where: MACHINE_REFRESH_MS,
   sessions: MACHINE_REFRESH_MS,
   threads: REFRESH_MS,
-  branches: REFRESH_MS,
   runs: MACHINE_REFRESH_MS,
   terminals: MACHINE_REFRESH_MS,
   filesync: MACHINE_REFRESH_MS,
@@ -206,7 +203,7 @@ export class PageCache {
     this.slots.clear();
   }
 
-  /// Moves to `account`. Another account, or none (signed out), starts
+  /// Moves to `account`. Another account, or none, starts
   /// empty; learning the account of what was read without one keeps it.
   setAccount(account: string | null) {
     if (account === this.account) return;
@@ -247,7 +244,7 @@ export class PageCache {
 /// What a background tick of the hidden window does: `run` reads, `woke`
 /// skips one that came far too late because the Mac slept (the reconnect
 /// that follows reads anyway), `offline` skips while the connection is down.
-export type Tick = "run" | "woke" | "offline";
+type Tick = "run" | "woke" | "offline";
 
 export function backgroundTick(last: number, now: number, every: number, online: boolean): Tick {
   if (now - last > every * 2) return "woke";

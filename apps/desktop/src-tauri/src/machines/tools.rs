@@ -2,12 +2,11 @@
 //! machines, and installing them.
 
 use crate::{
-    beep::Service,
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, agents, files as direct},
 };
 use beep_proto::{
-    Machine, ToolUpdate, UpdateMachineTool,
+    Machine, ToolUpdate,
     node::{
         harness::{harness, is_newer, parse_version},
         tool_update::Tool,
@@ -22,8 +21,6 @@ use std::{
 };
 use tauri::State;
 
-/// How long a machine has to download and install a release.
-const UPDATE_LIMIT: Duration = Duration::from_secs(11 * 60);
 /// How long the newest coding agent releases found are kept.
 const RELEASES_FOR: Duration = Duration::from_secs(55 * 60);
 /// How long one npm registry lookup may take.
@@ -184,16 +181,11 @@ async fn agent_releases(packages: &BTreeSet<&'static str>) -> HashMap<&'static s
 /// Installs the newest `tool` on `machine_id`; gives the version installed.
 #[tauri::command]
 pub async fn update_machine_tool(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     tool: String,
 ) -> Result<String> {
-    let Some(machine) = fleet.member(&machine_id) else {
-        return beep
-            .call_within(UpdateMachineTool { machine_id, tool }, UPDATE_LIMIT)
-            .await;
-    };
+    let machine = fleet.machine(&machine_id)?;
     let Ok(named) = tool.parse::<Tool>() else {
         return update_agent(&fleet, machine, &tool).await;
     };

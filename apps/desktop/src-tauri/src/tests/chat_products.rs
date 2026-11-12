@@ -38,52 +38,6 @@ fn card_shows_what_it_has() {
 }
 
 #[test]
-fn price_formats_by_currency() {
-    assert_eq!(price(249.0, Some("EUR")), "€249");
-    assert_eq!(price(249.99, Some("EUR")), "€249.99");
-    assert_eq!(price(249.5, Some("USD")), "$249.50");
-    assert_eq!(price(1234567.0, Some("GBP")), "£1,234,567");
-    assert_eq!(price(12345.6, Some("JPY")), "¥12,346");
-    assert_eq!(price(1249.0, Some("CHF")), "1,249 CHF");
-    assert_eq!(price(19.999, Some("USD")), "$20");
-    assert_eq!(price(5.0, None), "5");
-}
-
-#[test]
-fn shown_builds_a_row_from_the_tool_result() {
-    let output = r#"{"action":"show_products","products":[
-            {"title":"Dreame <Z30>","url":"https://shop.example/item","store":"shop.example","price":249,"was":329,"currency":"EUR","image":"https://shop.example/img.jpg","rating":4.6,"reviews":1204,"note":"Quietest \"one\""},
-            {"title":"Kettle","url":"https://other.example/k","store":"other.example"},
-            {"title":"Bad","url":"javascript:alert(1)","store":"x"},
-            {"title":"","url":"https://shop.example/e","store":"x"},
-            {"url":"https://shop.example/no-title"},
-            "not an object"
-        ],"dropped":["x"]}"#;
-    let cards = shown(output).expect("two valid entries");
-    assert_eq!(cards.len(), 2);
-    assert_eq!(
-        cards[0],
-        ProductCard {
-            title: "Dreame <Z30>".into(),
-            url: "https://shop.example/item".into(),
-            store: "shop.example".into(),
-            image: Some("https://shop.example/img.jpg".into()),
-            price: Some("\u{20ac}249".into()),
-            was: Some("\u{20ac}329".into()),
-            meta: Some("4.6 \u{2605} (1,204) \u{b7} Quietest \"one\"".into()),
-            label: "Dreame <Z30>, \u{20ac}249, opens shop.example".into(),
-        }
-    );
-    assert_eq!(cards[1].store, "other.example");
-    assert_eq!(cards[1].price, None);
-    assert_eq!(cards[1].meta, None);
-
-    assert!(shown(r#"{"products":[]}"#).is_none());
-    assert!(shown(r#"{"products":[{"title":"Bad","url":"ftp://x"}]}"#).is_none());
-    assert!(shown("failed").is_none());
-}
-
-#[test]
 fn host_drops_scheme_www_port_and_path() {
     assert_eq!(host("https://www.shop.example:8443/a?b#c"), "shop.example");
     assert_eq!(host("http://shop.example"), "shop.example");

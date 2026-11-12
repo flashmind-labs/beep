@@ -15,7 +15,6 @@
 .mac .pw-tabs button { font: inherit; font-size: 12px; color: var(--d-muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px 7px; white-space: nowrap; cursor: pointer }
 .mac .pw-tabs button:hover { color: var(--d-fg) }
 .mac .pw-tabs button[aria-current="true"] { color: var(--d-fg); border-bottom-color: var(--d-emerald) }
-.mac .cc-win.pw .pb-back { display: none }
 .mac .pw-back { padding: 2px 8px }`;
   document.head.append(st);
 })();

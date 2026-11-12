@@ -1,6 +1,6 @@
 //! Signing a machine's coding agent in from here (`sign-in/1`): the
 //! machine runs the agent's own sign-in, this Mac shows its link and code
-//! and passes back the code the user pastes. Over the mesh, no server.
+//! and passes back the code the user pastes. Over the mesh.
 
 use crate::{
     error::{DesktopError, Result},

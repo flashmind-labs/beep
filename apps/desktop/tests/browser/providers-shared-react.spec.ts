@@ -10,8 +10,7 @@ const harness: HarnessView = {
 
 test("shared compaction retains its draft on refresh and permits retry after failure", async ({ page }) => {
   await openDesktop(page, false, {
-    status: { link: "unlinked", signed_out: true, server: false, live: false, session: null },
-    settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false },
+    settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
     list_machines: [{ id: "build", name: "build-box", online: true }],
     agent_harnesses: { machine_id: "build", machine_name: "build-box", checked_at: null, harnesses: [harness] },
     harness_settings_all: [], harness_compact: null, harness_model_compacts: [], harness_default_model: null, agent_models: null,
@@ -19,7 +18,7 @@ test("shared compaction retains its draft on refresh and permits retry after fai
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   const navigation = settings.getByRole("navigation", { name: "Settings pages" });
-  await navigation.getByRole("button", { name: "Coding agents", exact: true }).click();
+  await navigation.getByRole("button", { name: "Agent accounts", exact: true }).click();
   await navigation.getByRole("button", { name: /^Claude/ }).click();
   const field = settings.getByRole("textbox", { name: "Auto-compact threshold" });
   await field.fill("70%");
@@ -28,7 +27,7 @@ test("shared compaction retains its draft on refresh and permits retry after fai
     if (element instanceof HTMLInputElement) element.setSelectionRange(1, 2);
   });
   const before = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length);
-  await page.evaluate(() => window.__navigation.emit("link-state", "unlinked"));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(before);
   await expect(field).toHaveValue("70%");
   await expect(field).toBeFocused();

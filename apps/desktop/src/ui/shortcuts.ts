@@ -1,16 +1,11 @@
 // Every keyboard shortcut of the app, by where it works. The Keyboard shortcuts
 // sheet (⌘/ and Settings) draws this list and nothing else does.
 
-/// What a row needs to be shown: the Beep server, or live mode. Rows whose
-/// feature is off are left out.
-export type Needs = "server" | "live";
-
 /// One shortcut: its key caps ("/" between alternatives, a space between keys
 /// pressed in turn) and what it does.
 export interface Shortcut {
   keys: string;
   does: string;
-  needs?: Needs;
 }
 
 export interface ShortcutSection {
@@ -18,17 +13,9 @@ export interface ShortcutSection {
   rows: readonly Shortcut[];
 }
 
-/// What is on: the server rows show when `server`, the live rows when `live`.
-export interface Features {
-  server: boolean;
-  live: boolean;
-}
-
 export const SHORTCUTS: readonly ShortcutSection[] = [
   { title: "Anywhere", rows: [
     { keys: "⌥ ⌥", does: "Open or hide Beep" },
-    { keys: "tap ⌥", does: "Start live mode, in the open bar", needs: "live" },
-    { keys: "hold ⌥", does: "Talk while held", needs: "live" },
   ] },
   { title: "General", rows: [
     { keys: "⌘= ⌘-", does: "Zoom in, out" },
@@ -46,10 +33,6 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌘]", does: "Forward" },
     { keys: "⌘W", does: "Close tab, else hide" },
     { keys: "esc", does: "Up one page" },
-    { keys: "⌘M", does: "Memories", needs: "server" },
-    { keys: "⌘J", does: "Routines", needs: "server" },
-    { keys: "⌘L", does: "Skills", needs: "server" },
-    { keys: "⌘R", does: "Research", needs: "server" },
   ] },
   { title: "Projects", rows: [
     { keys: "⇧⌘N", does: "Open project in a window" },
@@ -114,15 +97,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "↑ ↓", does: "Move" },
     { keys: "↩", does: "Open" },
     { keys: "tab", does: "Back to the input" },
-    { keys: "⌘↩", does: "Ask Beep", needs: "server" },
     { keys: "esc", does: "Close" },
-  ] },
-  { title: "Lists", rows: [
-    { keys: "↑ ↓", does: "Move", needs: "server" },
-    { keys: "tab", does: "Actions", needs: "server" },
-    { keys: "⌘R", does: "Rename", needs: "server" },
-    { keys: "⌘P", does: "Pin", needs: "server" },
-    { keys: "⌘⌫", does: "Delete or forget", needs: "server" },
   ] },
   { title: "Sheets and menus", rows: [
     { keys: "esc", does: "Close" },
@@ -130,13 +105,6 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌘↩", does: "Confirm a sheet" },
   ] },
 ];
-
-/// The sections whose features are on; a section left with no rows goes.
-export function visibleShortcuts(on: Features, sections: readonly ShortcutSection[] = SHORTCUTS): ShortcutSection[] {
-  return sections
-    .map(s => ({ title: s.title, rows: s.rows.filter(r => !r.needs || on[r.needs]) }))
-    .filter(s => s.rows.length);
-}
 
 /// Case and spaces ignored: "⌘k" finds ⌘K.
 const squash = (s: string) => s.toLowerCase().replace(/\s+/g, "");

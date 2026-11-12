@@ -25,8 +25,6 @@ interface HistoryDeps {
   back: () => void;
   sessions: (project: string) => readonly BranchSessionRow[] | undefined;
   openSession: (session: SessionRow) => void;
-  reviewBranch: (project: string, branch: string) => void;
-  canReview: (project: string, branch: string) => boolean;
 }
 interface CommitList {
   revision: string | null;
@@ -326,7 +324,6 @@ export function makeGitHistory(deps: HistoryDeps) {
     const header = createElement(HistoryHeader, {
       key: selectionKey(selected), breadcrumb: shown.breadcrumb, title: shown.title, metadata: shown.metadata,
       copyValue: shown.id, copyLabel: shown.copyLabel,
-      review: ref && deps.canReview(p.name, ref.name) ? () => deps.reviewBranch(p.name, ref.name) : null,
       tab: p.tab, onTab: (tab: ProjectHistory["tab"]) => { p.tab = tab; renderDetail(p); },
     });
     let body: ReactNode = null, diff: HTMLElement | null = null;

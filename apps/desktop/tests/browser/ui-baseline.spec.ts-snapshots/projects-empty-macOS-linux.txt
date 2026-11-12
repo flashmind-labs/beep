@@ -88,39 +88,12 @@ body.cbody
           div.cc-tabs [role="tablist"]
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-            span.bd-switch [aria-label="Layout" role="group"]
-              button [aria-pressed="true" type="button"] "Board"
-              button [aria-pressed="false" type="button"] "List"
-          div#sec-updates
-            div.cc-sec
-              h4 "Updates"
-                span.n "2"
-              button.dbtn.quiet.small [type="button"] "Clear"
-            div.cc-panel
-              div.cc-line.cc-row
-                span.beep.cc-ag "A"
-                button.t [title="Ask Beep about this" type="button"]
-                  b "Release 0.9.0 is out"
-                  span "App · 11:00"
-                span.r
-                  button.dbtn.quiet [aria-label="Dismiss" type="button"] style(padding-bottom,padding-left,padding-right,padding-top)
-                    svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-              div.cc-line.cc-row
-                span.beep.cc-ag "C"
-                button.t [title="Ask Beep about this" type="button"]
-                  b "Nightly build passed"
-                  span "CI · 10:00"
-                span.r
-                  button.dbtn.quiet [aria-label="Dismiss" type="button"] style(padding-bottom,padding-left,padding-right,padding-top)
-                    svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-        form#home-comp.cc-comp style(display;display:none)
-          input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep, or start an agent on a machine" spellcheck="false" type="text" value] value=""
-          span#home-err.cc-err [role="status"]
-          button#home-agent.dbtn [title="Start a coding agent on a machine" type="button"] "Agent"
-          button.dbtn.pri [type="submit"] "Send"
-            kbd "⏎"
+          div.cc-empty.cc-panel
+            b "Nothing running"
+            span "Start an agent on this computer, or add a machine to run it there."
+            button.dbtn.small [type="button"] "Start an agent"
       div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="chat"]
+        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="waiting"]
       div.cc-box
         div.cc-view [data-project]
           div.cc-empty.cc-panel
@@ -128,8 +101,6 @@ body.cbody
             span "A folder or a repository to clone."
             button.pri [type="button"] "Add a project"
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-      div.cc-box [hidden]
-      div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

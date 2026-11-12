@@ -3,10 +3,9 @@
 // and importproject.js. This computer shows while the server does not list it; S.d.tm picks its state.
 (() => {
   const st = document.createElement("style");
-  st.textContent = `.mac .cc-mt .mac-state { grid-column: span 5 }
+  st.textContent = `
 .mac .cc-mt .mac-state.bad, .mac .cc-si .mac-state.bad { color: #f2a65f }
 .mac .cc-si .mac-state { max-width: 45%; overflow: hidden; text-overflow: ellipsis }
-.mac .cc-si .mac-add { margin-left: auto; min-height: 18px; padding: 0 6px; font-size: 11px }
 .mac .cc-sec .pl-filter { margin-left: auto; height: 26px; width: 220px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--d-border); background: transparent; color: var(--d-fg); font: inherit; font-size: 12.5px }
 .mac .pl { border: 1px solid var(--d-border); border-radius: 8px; overflow: hidden }
 .mac .pl-row { all: unset; box-sizing: border-box; display: grid; grid-template-columns: minmax(180px, 1.4fr) 110px minmax(0, 2fr) 60px 36px 70px; gap: 12px; align-items: center; width: 100%; min-height: 40px; padding: 0 14px; border-top: 1px solid var(--d-border); font-size: 13px; cursor: pointer }
@@ -26,10 +25,6 @@
 .mac .pl-ci { width: 8px; height: 8px; border-radius: 50%; justify-self: center }
 .mac .pl-ci.ok { background: var(--d-emerald) } .mac .pl-ci.bad { background: var(--d-err) } .mac .pl-ci.busy { background: #e0a43a } .mac .pl-ci.none { border: 1px solid var(--d-border) }
 .mac .pl-last { color: var(--d-muted); text-align: right; font-size: 12px }
-.mac .cc-mt.cc-pt { grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) 60px 100px }
-.mac .cc-mt.cc-pt .nm b button { all: unset; cursor: pointer; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .cc-mt.cc-pt .nm b button:hover { color: var(--d-emerald) }
-.mac .cc-mt.cc-pt .nm .os b { font-weight: 500; color: var(--d-fg); font-size: 10.5px }
 .mac .cc-top .tools { margin-left: auto; display: flex; gap: 8px }
 .ip-field { flex: 1; min-width: 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--d-border); background: #0f1011; font-size: 13px; display: flex; align-items: center; white-space: nowrap; overflow: hidden }
 .ip-field.focus { border-color: var(--d-emerald) }
@@ -67,11 +62,9 @@
 const TM = {
   off: { state: "Off", title: "Let Beep use this computer is off. Add turns it on." },
   connecting: { state: "Connecting", title: "Joining your machines" },
-  notallowed: { state: "This account can't add machines on this server", title: "This account can't add machines on this server. Beep tries again on its own.", bad: true },
-  failed: { state: "Could not reach the server", title: "Could not reach the server. Beep tries again on its own.", bad: true },
 };
-// Only on Home with machines listed, and while the server does not list this computer.
-const tmRow = () => S.d.cc === "empty" || S.d.cc === "old" ? null : TM[S.d.tm] || null;
+// Only on Home with machines listed, and while this computer is not one of them.
+const tmRow = () => S.d.cc === "empty" ? null : TM[S.d.tm] || null;
 const tmCells = () => {
   const r = tmRow();
   if (!r) return "";
@@ -79,14 +72,7 @@ const tmCells = () => {
       <span class="caps mac-state${r.bad ? " bad" : ""}" title="${r.title}">${r.state}</span>
       <span class="num">${S.d.tm === "off" ? `<button class="dbtn pri" style="padding:2px 10px;font-size:12px;min-height:0" data-dact="dset:tm:connecting">Add</button>` : "–"}</span>`;
 };
-const tmItem = () => {
-  const r = tmRow();
-  if (!r) return "";
-  return S.d.tm === "off"
-    ? `<div class="cc-si" title="This computer: ${r.title}"><span class="ddot off"></span><span class="tt">This computer</span><button class="dbtn quiet mac-add" data-dact="dset:tm:connecting">Add</button></div>`
-    : `<button class="cc-si" title="This computer: ${r.title}"><span class="ddot off"></span><span class="tt">This computer</span><span class="n mac-state${r.bad ? " bad" : ""}">${r.state}</span></button>`;
-};
-VARIANTS.dHome.push(...[["This computer off", "off"], ["This computer connecting", "connecting"], ["This computer not allowed", "notallowed"], ["This computer failed", "failed"]]
+VARIANTS.dHome.push(...[["This computer off", "off"], ["This computer connecting", "connecting"]]
   .map(([l, k]) => [l, () => { S.d.tm = k; S.d.mrm = ""; S.d.cc = "default"; S.d.htab = "machines"; render(); }, () => S.d.tm === k]));
 
 // Add a machine, first option: this computer in one click, then the steps for another machine.
@@ -97,11 +83,9 @@ const amMac = () => {
       <div style="font-size:13px;font-weight:500;margin-bottom:8px">Another machine</div>`;
   if (k === "connecting") return wrap(`<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--d-muted)"><span class="dspin"></span>Connecting MacBook Air</div>`);
   if (k === "linked") return wrap(`<div style="display:flex;gap:8px;align-items:center;font-size:13px"><span class="ddot"></span>MacBook Air is linked. It shows under Machines.</div>`);
-  if (k === "notallowed") return wrap(`<div style="font-size:13px;color:var(--d-err)">Couldn't connect: this account can't add machines on this server. Beep tries again on its own.</div>`);
-  if (k === "failed") return wrap(`<div style="font-size:13px;color:var(--d-err)">Couldn't connect: could not reach the server. Beep tries again on its own.</div>`);
   return wrap(`<div style="display:flex;gap:8px;align-items:center"><div style="flex:1;min-width:0;font-size:13px">Let Beep run commands and use the screen on MacBook Air.</div><button class="dbtn pri" data-dact="dset:amm:connecting">Use this computer</button></div>`);
 };
-VARIANTS.dAddMachine.push(...[["This computer: Use this computer", "off"], ["This computer: connecting", "connecting"], ["This computer: linked", "linked"], ["This computer: not allowed", "notallowed"], ["This computer: failed", "failed"], ["This computer: already a machine", "none"]]
+VARIANTS.dAddMachine.push(...[["This computer: Use this computer", "off"], ["This computer: connecting", "connecting"], ["This computer: linked", "linked"], ["This computer: already a machine", "none"]]
   .map(([l, k]) => [l, () => { S.d.amm = k; S.d.am = "waiting"; render(); }, () => (S.d.amm || "off") === k]));
 
 // Projects page: imported repositories and the folders agents run in, one row per project.

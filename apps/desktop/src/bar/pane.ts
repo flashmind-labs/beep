@@ -7,113 +7,46 @@ import { openAgent } from "../agents/session.ts";
 import { closePaneTabs, newTerminal, openTerminal } from "../agentpane/media.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { sessions } from "../agents/sessions.ts";
-import { renderApps } from "../settings/apps.ts";
-import { body, focusAsk, newChat, renderChat } from "../chat/chat.ts";
-import { grow } from "../chat/ask-height.ts";
-import { send } from "../chat/runs.ts";
-import { renderChats, rows, type SessionSummary } from "../chat/chats.ts";
-import { type BackTo, changeListeners, type ChatRow, connectWindow, current, G, GROUP_VIEWS, live, type PaneNow, S } from "./core.ts";
-import { type GroupSummary, renderGroup } from "../chat/groups.ts";
-import { refreshHints } from "./hints.ts";
-import { drawChatTop, openSession } from "../chat/history.ts";
+import { type BackTo, changeListeners, connectWindow, current, type PaneNow } from "./core.ts";
 import { mountPane } from "./keys.ts";
-import { renderInvitePhone, renderLink, renderRevoked } from "./link.ts";
 import { renderMachines } from "../machines/machines.ts";
-import { renderMemories } from "../lists/memories.ts";
-import { loadModels } from "../settings/model.ts";
-import { loadResearches, RESEARCHES } from "../research/researches.ts";
-import { renderRoutines, routineWhen } from "../lists/routines.ts";
 import { renderSettings, settingsBack } from "../settings/settings.ts";
-import { renderSkills } from "../lists/skills.ts";
-import type { Status } from "./views.ts";
-import { invoke } from "../ui/tauri.ts";
 import { setPaneShown } from "../ui/active.ts";
-import { chatAsk } from "../chat/chat-shell.tsx";
 
-/// What the window can open in the pane: a CenterTarget in its JSON form,
-/// a group, or an agent view.
-export type PanePage = "agents" | "chats" | "memories" | "routines" | "skills"
-  | "apps" | "settings" | "machines" | "link" | "invite" | "revoked";
+/// What the window can open in the pane by name.
+export type PanePage = "agents" | "settings" | "machines";
 
+/// What the window can open in the pane: a page, or an agent view.
 export type PaneTarget =
   | PanePage
   | null
-  | { chat: { session: string | null } }
-  | { group: { id: string } }
   | { agent: AgentRow & { kind?: string }; from?: BackTo; adopt?: boolean }
   | { draft: { project: string; machine: string | null; terminal?: true | TerminalRow } }
   | { agentnew: { prompt?: string; at?: AgentPlace | null }; from?: BackTo };
 
-/// Pages the window opens in the pane by name.
-const VIEWS: Record<Exclude<PanePage, "agents">, () => unknown> = {
-  chats: renderChats,
-  memories: renderMemories,
-  routines: renderRoutines,
-  skills: renderSkills,
-  apps: renderApps,
-  settings: renderSettings,
-  // Pages Settings leads to, which the window shows in the pane.
-  machines: renderMachines,
-  link: renderLink,
-  invite: renderInvitePhone,
-  // The command center leads here when the server says this Mac was removed.
-  revoked: renderRevoked,
-};
-
-let started: Promise<void> | null = null;
-/// Once per page: what the bar loads each time it shows, less live mode.
-const start = () => started ??= refreshPaneStatus().catch(() => {});
-async function refreshPaneStatus() {
-  const st = await invoke<Status>("status");
-  S.link = st.link;
-  S.signedOut = st.signed_out;
-  S.server = st.server;
-  const researches = loadResearches();
-  if (S.link === "linked") {
-    loadModels();
-    if (!AG.hosts || hostChanges.dirty("")) loadAgentHosts();
-  }
-  await researches;
-}
-
-/// Back on the chat or group the pane still shows, made current again
-/// after `leave`.
-function backOn() {
-  if (S.view === "group") return renderGroup(G.id!);
-  if (S.session) invoke("open_session", { id: S.session }).catch(() => {});
-  focusAsk();
+/// Hosts stand until machines or accounts change.
+function loadHosts() {
+  if (!AG.hosts || hostChanges.dirty("")) loadAgentHosts();
 }
 
 export const pane = {
-  /// A routine's schedule in words, as Routines shows it.
-  when: routineWhen,
   /// Hands the pane what the window does for it.
   connect: connectWindow,
   /// Draws Settings into `el`, the window's sheet, leaving the pane as it
   /// is. It opens on `page` when given, else on the page picked last.
-  async settings(el: HTMLElement, page?: string) {
-    await start();
-    return renderSettings(false, el, page);
+  settings(el: HTMLElement, page?: string) {
+    loadHosts();
+    return renderSettings(el, page);
   },
   /// Esc in the sheet: back from a subpage to its page. False when the
   /// sheet shows a page, so Esc closes it.
   settingsBack,
   /// Shows `target`.
-  async open(target: PaneTarget) {
-    await start();
+  open(target: PaneTarget) {
+    loadHosts();
 
     if (target && typeof target === "object") {
-      if ("chat" in target) {
-        const id = target.chat?.session ?? null;
-        if (!id) return newChat();
-        if (id === S.session && S.view === "chat" && chatAsk.current) return backOn();
-        return openSession(id);
-      }
-
-      // Groups are not a CenterTarget: only the window's sidebar opens them.
-      if ("group" in target) return renderGroup(target.group.id);
-
-      // Agent views are not a CenterTarget either: Home and the sidebar open them.
+      // Agent views are not a CenterTarget: Home and the sidebar open them.
       // A notice names a session with no folder: the loaded list has the row, when it has one.
       if ("agent" in target) {
         const { machine_id, agent, id } = target.agent;
@@ -130,77 +63,21 @@ export const pane = {
         });
       }
 
-      if ("agentnew" in target) return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
+      return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null);
     }
 
-    if (target === "agents") return renderAgents();
-    if (typeof target === "string" && VIEWS[target]) return VIEWS[target]();
-    if ((S.view === "chat" && chatAsk.current) || (S.view === "group" && G.id)) return backOn();
-    return S.session ? openSession(S.session) : renderChat();
+    if (target === "settings") return renderSettings();
+    if (target === "machines") return renderMachines();
+    return renderAgents();
   },
-  /// The pane goes off screen: the window stops showing its chat or group,
-  /// so their notices show again.
+  /// The pane goes off screen.
   leave() {
     closePaneTabs();
-    if (S.view === "chat") invoke("new_chat").catch(() => {});
-    else if (GROUP_VIEWS.has(S.view)) invoke("close_group").catch(() => {});
   },
-  /// Starts a new chat with `text` and streams it here.
-  async compose(text: string) {
-    await start();
-    // With no server the text goes to the agent's start form instead.
-    if (S.link !== "linked") return renderAgentNew(text, "agents");
-    await newChat();
-    return send(text);
-  },
-  /// Opens chat `session` with its history and sends `text` in it,
-  /// streaming the reply here.
-  async ask(session: string, text: string) {
-    await start();
-    await openSession(session);
-    if (S.session !== session || S.view !== "chat") return;
-    return send(text);
-  },
-  /// Starts a new chat with `text` in the composer, not sent, for the
-  /// user to send or change.
-  async draft(text: string) {
-    await start();
-    if (S.link !== "linked") return renderAgentNew(text, "agents");
-    await newChat();
-    const ask = chatAsk.current;
-    if (!ask) return;
-    ask.value = text;
-    grow(ask);
-    refreshHints();
-    focusAsk();
-  },
-  /// Chats and groups, newest first, pinned ones as the bar lists them.
-  async chatRows(): Promise<(ChatRow & { research: boolean })[]> {
-    // The research set loads with the pane, so rows know which open their own window.
-    await start();
-    const [sessions, groups] = await Promise.all([
-      invoke<SessionSummary[]>("list_sessions"),
-      invoke<GroupSummary[]>("list_groups").catch((): GroupSummary[] => []),
-    ]);
-    return rows(sessions, groups).map(c => ({ ...c, research: RESEARCHES.has(c.id) }));
-  },
-  /// The chats a reply streams into here.
-  running(): string[] {
-    return [...live].filter(([id, e]) => id && e.run).map(([id]) => id!);
-  },
-  /// The chats with a run going on, started from any device; empty from a
-  /// server too old to say.
-  activeRuns(): Promise<string[]> {
-    return invoke<string[]>("active_runs").catch((): string[] => []);
-  },
-  /// Draws what the window shows atop the open chat again, once it knows.
-  chatTop: drawChatTop,
-  /// When the open chat's first message was sent, in milliseconds, or
-  /// null before its history has loaded.
-  startedAt(): number | null {
-    if (S.view !== "chat") return null;
-    const at = Number(body()?.querySelector<HTMLElement>("[data-at]")?.dataset.at);
-    return at > 0 ? at : null;
+  /// Opens the agent's start form with `text` in its prompt.
+  compose(text: string) {
+    loadHosts();
+    return renderAgentNew(text, "agents");
   },
   current,
   onChange(fn: (now: PaneNow) => void) { changeListeners.push(fn); },
@@ -208,6 +85,5 @@ export const pane = {
   mounted(on: boolean) {
     mountPane(on);
     setPaneShown(on);
-    if (on && S.view === "chat") focusAsk();
   },
 };

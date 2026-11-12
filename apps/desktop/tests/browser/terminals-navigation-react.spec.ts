@@ -83,7 +83,7 @@ test("new terminal form retains draft and caret through refresh and starts once"
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   const machine = { id: "build-box", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
   const terminal = { id: "new-terminal", project: "", machine_id: "build-box", machine_name: "Build box", name: "my shell", command: "printf test", cwd: "/srv/project", state: "running", code: null, started_at: 1 };
-  await openDesktop(page, false, { center_home: { machines: [machine], projects: [], running: [], needs_you: [], coming_up: null, updates: null }, terminals_all: [], terminal_open: terminal });
+  await openDesktop(page, false, { center_home: { machines: [machine], projects: [], running: [], needs_you: [] }, terminals_all: [], terminal_open: terminal });
   await page.evaluate(() => window.__navigation.open("terminals"));
   await page.getByRole("button", { name: "New terminal", exact: true }).first().click();
   const form = page.locator(".tm-form"), command = form.getByRole("textbox", { name: "Command" });
@@ -116,7 +116,7 @@ test("new terminal form retains draft and caret through refresh and starts once"
 
 test("new terminal cannot submit after its machine goes offline", async ({ page }) => {
   const machine = { id: "build-box", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
-  const home = { machines: [machine], projects: [], running: [], needs_you: [], coming_up: null, updates: null };
+  const home = { machines: [machine], projects: [], running: [], needs_you: [] };
   await openDesktop(page, false, { center_home: home, terminals_all: [] });
   await page.evaluate(() => window.__navigation.open("terminals"));
   await page.getByRole("button", { name: "New terminal", exact: true }).first().click();
@@ -134,7 +134,7 @@ test("new terminal cannot submit after its machine goes offline", async ({ page 
 
 test("opening a new terminal again resets the previous form", async ({ page }) => {
   const machine = { id: "build-box", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
-  await openDesktop(page, false, { center_home: { machines: [machine], projects: [], running: [], needs_you: [], coming_up: null, updates: null }, terminals_all: [] });
+  await openDesktop(page, false, { center_home: { machines: [machine], projects: [], running: [], needs_you: [] }, terminals_all: [] });
   await page.evaluate(() => window.__navigation.open("terminals"));
   const create = page.getByRole("button", { name: "New terminal", exact: true }).first();
   await create.click();

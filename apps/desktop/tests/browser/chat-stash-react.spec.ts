@@ -62,7 +62,7 @@ test("a pending pop does not close another project's stash", async ({ page }) =>
   const first = { name: projectName, url: 'https://example.test/example/widget', machine_id: 'build-box', machine_name: 'build-box', folder: '/srv/project', cloned: true, imported_at: 1 };
   const second = { ...first, name: 'example/other', folder: '/srv/other' };
   const entries = [{ id: 'entry', text: 'Saved message', images: [], files: [] }];
-  await openDesktop(page, false, { center_home: { machines: [], projects: [first, second], running: [], needs_you: [], coming_up: null, updates: null }, agent_hosts: [{ machine_id: 'build-box', machine_name: 'build-box', agents: ['codex'], workspace: null, home: '/srv', capabilities: [] }], prompt_stash_list: entries, prompt_stash_read: { text: 'Restored draft', images: [], files: [], paths: [] } });
+  await openDesktop(page, false, { center_home: { machines: [], projects: [first, second], running: [], needs_you: [] }, agent_hosts: [{ machine_id: 'build-box', machine_name: 'build-box', agents: ['codex'], workspace: null, home: '/srv', capabilities: [] }], prompt_stash_list: entries, prompt_stash_read: { text: 'Restored draft', images: [], files: [], paths: [] } });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), first.name);
   await page.getByRole('textbox', { name: 'Task for a coding agent' }).fill('Original draft');
   await page.getByRole('button', { name: 'Stash 1' }).click();

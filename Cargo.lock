@@ -374,14 +374,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "beep-live"
-version = "0.1.0"
-dependencies = [
- "beep-proto",
- "strum",
-]
-
-[[package]]
 name = "beep-mesh"
 version = "0.1.0"
 dependencies = [

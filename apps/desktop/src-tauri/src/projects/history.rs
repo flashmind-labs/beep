@@ -1,9 +1,8 @@
 //! History of an imported project, read over its existing mesh shell.
 
-use super::branches::{Placed, placed};
+use super::branches::placed;
 use crate::{
     agents::diff::{DiffView, view},
-    beep::Service,
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
@@ -23,18 +22,8 @@ pub struct HistoryView {
     history: History,
 }
 
-async fn location(
-    beep: &crate::beep::Beep,
-    fleet: &Fleet,
-    project: &str,
-    machine: Option<&str>,
-) -> Result<Place> {
-    let Placed::Mesh(places) = placed(beep, fleet, project).await? else {
-        return Err(DesktopError::BadRequest(
-            "Git history needs an online mesh checkout of this project.".to_owned(),
-        ));
-    };
-    places
+fn location(fleet: &Fleet, project: &str, machine: Option<&str>) -> Result<Place> {
+    placed(fleet, project)?
         .into_iter()
         .find(|p| machine.is_none_or(|id| p.machine.to_string() == id))
         .ok_or_else(|| {
@@ -44,7 +33,6 @@ async fn location(
 
 #[tauri::command]
 pub async fn project_git_history(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     project: String,
     machine_id: Option<String>,
@@ -52,7 +40,7 @@ pub async fn project_git_history(
     offset: u32,
     search: String,
 ) -> Result<HistoryView> {
-    let place = location(&beep, &fleet, &project, machine_id.as_deref()).await?;
+    let place = location(&fleet, &project, machine_id.as_deref())?;
     let shell = PeerShell::on(&fleet, place.machine)
         .await?
         .snapshot_git(
@@ -85,13 +73,12 @@ pub async fn project_git_history(
 
 #[tauri::command]
 pub async fn project_git_files(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     project: String,
     machine_id: String,
     commit: String,
 ) -> Result<Vec<ChangedFile>> {
-    let place = location(&beep, &fleet, &project, Some(&machine_id)).await?;
+    let place = location(&fleet, &project, Some(&machine_id))?;
     let shell = PeerShell::on(&fleet, place.machine)
         .await?
         .snapshot_git(
@@ -113,7 +100,6 @@ pub async fn project_git_files(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri exposes each argument to the web view.
 pub async fn project_git_diff(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     project: String,
     machine_id: String,
@@ -122,7 +108,7 @@ pub async fn project_git_diff(
     lockfiles: bool,
     context: Option<u32>,
 ) -> Result<DiffView> {
-    let place = location(&beep, &fleet, &project, Some(&machine_id)).await?;
+    let place = location(&fleet, &project, Some(&machine_id))?;
     let shell = PeerShell::on(&fleet, place.machine)
         .await?
         .complete_output();

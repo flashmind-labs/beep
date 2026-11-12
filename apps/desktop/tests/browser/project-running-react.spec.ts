@@ -24,7 +24,7 @@ test("project running agents retain their rows and open by keyboard", async ({ p
 test("project running rows show status, metadata and recent order", async ({ page }) => {
   const project = { name: projectName, url: 'https://example.test/example/widget', machine_id: 'build-box', machine_name: 'build-box', folder: '/srv/project', cloned: true, imported_at: 1 };
   const agent = (id: string, status: string, last: number) => ({ kind: 'agent', machine_id: 'build-box', machine_name: 'build-box', id, agent: 'codex', title: id, cwd: '/srv/project', status, doing: null, started_at: 1, last_activity: last, external: false, question: null });
-  await openDesktop(page, false, { project_sessions: [], agent_sessions: [], center_home: { machines: [], projects: [project], running: [agent('Idle', 'idle', 1), agent('Waiting', 'asking', 2), agent('Starting', 'starting', 3)], needs_you: [], coming_up: null, updates: null } });
+  await openDesktop(page, false, { project_sessions: [], agent_sessions: [], center_home: { machines: [], projects: [project], running: [agent('Idle', 'idle', 1), agent('Waiting', 'asking', 2), agent('Starting', 'starting', 3)], needs_you: [] } });
   await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
   const lane = (title: string) => page.locator('.pj-board .bd-lane').filter({ has: page.getByRole('heading', { name: title }) });
   const starting = lane('Working').locator('.bd-card').filter({ hasText: 'Starting' });

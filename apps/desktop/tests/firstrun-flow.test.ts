@@ -14,7 +14,7 @@ test("first run remembers Start and closes the screen when another machine is li
   const { act, fireEvent, screen, cleanup } = await import("@testing-library/react");
   const { firstRun } = await import("../src/center/firstrun.ts");
   try {
-    await act(async () => { await firstRun(false); });
+    await act(async () => { await firstRun(); });
     const start = screen.getByRole("button", { name: /^Start/ });
     assert.equal(dom.window.document.activeElement, start);
     fireEvent.click(start);
@@ -23,7 +23,7 @@ test("first run remembers Start and closes the screen when another machine is li
     // Linked, with the mesh still opening: the screen never shows.
     dom.window.localStorage.clear();
     machines = [];
-    const linked = act(async () => { await firstRun(false); });
+    const linked = act(async () => { await firstRun(); });
     await new Promise(done => setTimeout(done, 150));
     assert.equal(dom.window.document.querySelector(".fr-scrim"), null);
     machines = ["local", "other"];

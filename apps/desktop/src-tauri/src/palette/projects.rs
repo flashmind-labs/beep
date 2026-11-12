@@ -1,5 +1,5 @@
-//! Projects and coding-agent sessions for the palette: imported projects,
-//! the board's, and the folders agents worked in, listed once each.
+//! Projects and coding-agent sessions for the palette: imported projects and
+//! the folders agents worked in, listed once each.
 
 use super::{
     index::{Entry, HitKind},
@@ -54,8 +54,8 @@ struct FolderRow<'a> {
     machines: Vec<&'a str>,
 }
 
-/// Projects by name, once each: imported ones, then the board's, then the
-/// folders coding agents worked in. A folder named like a listed
+/// Projects by name, once each: imported ones, then the folders coding
+/// agents worked in. A folder named like a listed
 /// project's repo is that project.
 pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]) -> Vec<Entry> {
     let mut entries = Vec::new();
@@ -76,23 +76,6 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
             name,
             machine,
             &[&p.project],
-        ));
-    }
-
-    for b in lists.boards.iter().flatten() {
-        if !names.insert(b.name.as_str()) {
-            continue;
-        }
-
-        repos.insert(last_part(&b.name).unwrap_or(&b.name).to_lowercase());
-        let detail = "Project chat · not imported".to_owned();
-        let (id, name) = (b.chat_id.to_string(), b.name.clone());
-        entries.push(Entry::new(
-            HitKind::ProjectChat,
-            id,
-            name,
-            detail,
-            &[&b.name],
         ));
     }
 

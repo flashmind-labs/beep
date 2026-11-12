@@ -75,7 +75,9 @@
 .mac .dhead { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--d-border) }
 .mac .dhead .tt { flex: 1; min-width: 0; display: grid; line-height: 19px }
 .mac .dhead .tt b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .dhead .tt small { font-size: 12px; color: var(--d-muted) }
+.mac .dhead .tt small { font-size: 12px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .dinput input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--d-fg); font: inherit; padding: 0 }
+.mac .dinput input::placeholder { color: var(--d-dim) }
 .mac .dhead .aguse { flex: 0 1 auto; min-width: 0; max-width: 48%; margin: 0; font-size: 11px; line-height: 16px; color: var(--d-muted); font-variant-numeric: tabular-nums; text-align: right; text-wrap: balance; overflow-wrap: anywhere }
 .mac .dhead .aguse:empty { display: none }
 .mac .dapp.dcoderav { width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--d-elev); padding: 0 }
@@ -125,3 +127,8 @@
 .mac .ag-ffind { flex: 1; min-width: 0; background: rgba(227,228,230,.05); border: 1px solid var(--d-border); border-radius: 6px; padding: 4px 8px; color: var(--d-fg); font-size: 12px }
 .mac .ag-fign { font-size: 11.5px; color: var(--d-muted); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap }
 .mac .ag-tree { position: relative; gap: 0 }
+.mac .dsaved { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 5; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 32px); padding: 5px 6px 5px 14px; border-radius: var(--radius); background: var(--d-fg); color: var(--d-ink); font-size: 13px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.45) }
+.mac .dsaved > span { overflow: hidden; text-overflow: ellipsis }
+.mac .dsaved .dbtn { min-height: 24px; background: var(--d-ink); border-color: transparent; color: var(--d-fg) }
+.mac .dsaved.bad { background: var(--d-err) }
+.mac .dsaved:not(:has(button)) { padding-right: 14px }

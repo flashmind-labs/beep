@@ -1,8 +1,7 @@
 // ---- Settings, as settings/ in the app draws them ----
 // One set of sections: the window's sheet shows one page at a time (settingsSections with
-// sheet=true), the bar shows them in a column. Apps, an app, an MCP server, Agent accounts,
-// Credentials, Instructions and a coding agent are the same markup in the sheet, the bar and
-// the window's own views.
+// sheet=true), the bar shows them in a column. Credentials, Instructions and a coding agent
+// are the same markup in the sheet, the bar and the window's own views.
 const SETTINGS_ACCOUNTS = (() => {
   document.head.insertAdjacentHTML("beforeend", '<link rel="stylesheet" href="settings/base.css">');
 
@@ -17,12 +16,8 @@ const SETTINGS_ACCOUNTS = (() => {
 
   // General
   const generalBody = () => {
-    const cur = S.d.vn || "ask", word = S.d.vsend === "word", agn = !S.d.agnoff;
+    const agn = !S.d.agnoff;
     return dt("Launch at login", "Keep Beep in the menu bar after a restart", swi(S.d.login !== false, "Launch at login", 'data-dact="login"'))
-      + dt("Voice notes", VN_SAYS[cur])
-      + `<div class="dchips" role="radiogroup" aria-label="Voice notes" style="margin:6px 0 10px">${VN_CHOICES.map(([k, label]) => `<button class="dchip" role="radio" aria-checked="${cur === k}" aria-pressed="${cur === k}" data-dact="dset:vn:${k}">${label}</button>`).join("")}</div>`
-      + dt("When I stop talking", word ? "Pauses never send. Say “send” or “stop” when you are done." : "Sends after a short pause. Saying “send” sends at once.")
-      + `<div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:6px 0 10px"><button class="dchip" role="radio" aria-checked="${!word}" aria-pressed="${!word}" data-dact="dset:vsend:pause">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${word}" aria-pressed="${word}" data-dact="dset:vsend:word">Wait until I say “send”</button></div>`
       + dt("Coding agent notifications", agn ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting", swi(agn, "Coding agent notifications", `data-dact="dset:agnoff:${S.d.agnoff ? "" : "1"}"`))
       + dt("Project sync", S.d.projectSyncOff ? "Paused for every project on all machines. Turn on to reconcile your projects." : "Sync projects across all your machines. Turning off keeps existing files in place.", swi(!S.d.projectSyncOff, "Project sync", `data-dact="dset:projectSyncOff:${S.d.projectSyncOff ? "" : "1"}"`))
       + dt("Keyboard shortcuts", "Every shortcut, by where it works", '<button class="dbtn" data-dgo="dShortcuts">Show…</button>')
@@ -43,82 +38,8 @@ const SETTINGS_ACCOUNTS = (() => {
     return group("Dark", SK) + group("Light", SKL) + layoutPick("frontHome", "Home", "Lanes of cards, or sections of rows") + layoutPick("frontProject", "Projects", "A project's front page");
   };
 
-  // Models
-  const CHOICES = [["Claude Haiku 5.5", "$1 in, $5 out per M tokens"], ["GPT-6 Luna", "$1.25 in, $10 out per M tokens"], ["GLM 5.3 Flash", "$0.2 in, $0.8 out per M tokens, text only"]];
-  const modelsBody = () => {
-    const auto = S.d.setAuto !== "off";
-    const pick = CHOICES[1];
-    return dt("Model", pick[1], `<select aria-label="Model">${CHOICES.map(([n], i) => `<option${i === 1 ? " selected" : ""}>${n}</option>`).join("")}</select>`)
-      + dt("Auto thinking", auto ? "Beep picks the thinking for each prompt" : "Every prompt thinks as set below", swi(auto, "Auto thinking", `data-dact="dset:setAuto:${auto ? "off" : "on"}"`))
-      + `<div class="dfield"><span>Thinking${auto ? " (Auto picks it per prompt)" : ""}</span><div class="dchips">${["Off", "Low", "Medium", "High"].map(l => `<button class="dchip" aria-pressed="${!auto && l === "Medium"}"${auto ? " disabled" : ""} data-toast="Thinking: ${l}">${l}</button>`).join("")}</div></div>`;
-  };
-
-  // Apps
+  // A letter tile, for a host without a logo.
   const letter = n => `<span class="dalogo">${n.slice(0, 1).toUpperCase()}</span>`;
-  const waiting = act => `<span class="dmuted"><span class="dspin"></span> Waiting for browser…</span><button class="dbtn quiet" data-dact="${act}">Cancel</button>`;
-  const appsList = sheet => {
-    const s = S.d.apps || "list", wait = S.d.appWait || "Notion";
-    const open = n => sheet ? `data-dact="dset:set:app-gmail" data-dgo="dWinSettings"` : `data-dgo="dAppPerm" aria-label="${n} permissions"`;
-    const row = ([n, l, c, desc], end, attrs = "") => `<div class="dappr${attrs ? " on" : ""}" ${attrs}${attrs ? ' role="button" tabindex="0"' : ""}>${dLogo(l, c)}<span class="tt"><b>${n}</b><small>${desc}</small></span>${end}</div>`;
-    const none = s === "none";
-    const connected = none ? "" : D_APPS.slice(0, 2).map(a => row(a, `<span class="dtag">Connected</span><span class="dmuted">${chev}</span>`, open(a[0]))).join("");
-    const more = (none ? D_APPS : D_APPS.slice(2)).map(a => row(a, s === "nokey" ? `<span class="dmuted">Unavailable</span>`
-      : s === "waiting" && a[0] === wait ? waiting("appCancel")
-      : `<button class="dbtn pri" data-dact="appConnect:${a[0]}" data-toast="Opening ${a[0]} sign-in in the browser"${s === "waiting" ? " disabled" : ""}>Connect</button>`)).join("");
-    const server = ([n, l, host, tools]) => {
-      const end = s === "mcpWait" && !tools ? waiting("appCancel")
-        : tools ? `<span class="dtag ok">${tools} tools</span><span class="dmuted">${chev}</span>`
-        : `<span class="dtag ask">Sign-in expired</span><button class="dbtn pri" data-toast="Opening ${n} sign-in in the browser">Sign in</button><button class="dbtn quiet warn" data-toast="${n} removed">Remove</button>`;
-      const go = tools && s !== "mcpWait" ? (sheet ? `data-dact="dset:set:mcp-wiki" data-dgo="dWinSettings"` : `data-dgo="dMcp" aria-label="${n} tools"`) : "";
-      return `<div class="dappr${go ? " on" : ""}" ${go}${go ? ' role="button" tabindex="0"' : ""}>${letter(n)}<span class="tt"><b>${n}</b><small>${host}</small></span>${end}</div>`;
-    };
-    const down = s === "mcpDown" ? `<div class="dappr">${letter("Docs")}<span class="tt"><b>Docs</b><small>docs.example.org</small></span><span class="dtag ask">Not connected</span><button class="dbtn pri" data-toast="Connecting to Docs">Retry</button><button class="dbtn quiet warn" data-toast="Docs removed">Remove</button></div>` : "";
-    const add = s === "mcpAdd" || s === "mcpBad"
-      ? `<div class="dform dmcp"><label class="dfield"><span>Name</span><input maxlength="60" placeholder="Team notes" autocomplete="off" spellcheck="false" value="Team notes"></label>
-        <label class="dfield${s === "mcpBad" ? " err" : ""}"><span>${s === "mcpBad" ? "Use an https address on the public internet" : "Server URL"}</span><input class="url" maxlength="2000" placeholder="https://example.com/mcp" autocomplete="off" spellcheck="false"${s === "mcpBad" ? ' value="http://example.com/mcp"' : ""}></label>
-        <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" data-toast="Connecting to Team notes">Add server<kbd>${DI.ret}</kbd></button><button class="dbtn quiet" data-dact="mcpCancel">Cancel</button></div></div>`
-      : `<div style="padding:4px 10px"><button class="dbtn" data-dact="mcpAdd">Add MCP server</button></div>`;
-    return `<div class="dlist dapps">${connected ? `<div class="dsec">Connected</div>${connected}` : ""}<div class="dsec">${connected ? "More apps" : "Available"}</div>${more}
-      <div class="dsec">Your MCP servers</div>${MCP_SERVERS.map(server).join("")}${down}${add}
-      <div class="dmuted" style="padding:6px 10px;display:block">Beep asks before every tool on a server you add.</div></div>`;
-  };
-  const appPerm = (fm, back) => {
-    const lvl = S.d.appLevel || "ask";
-    const allowed = S.d.appAllowed || (S.d.appAllowed = { "Send email": false, "Reply to email": true, "Move to trash": false, "Save a draft": true });
-    const levels = [["ask", "Ask first", "Beep shows what it is about to do and waits for you."], ["allow", "Always allow", "Beep sends, changes and deletes without asking."], ["read", "Read only", "Beep can search and read, never change anything."]];
-    const [an, al, ac] = fm ? ["Fastmail", FM_LOGO, "#fff"] : ["Gmail", "G", "#F28B7D"];
-    const accts = fm === "one" || fm === "removeone" ? ["alex@example.com"] : ["alex@example.com", "alex@work.example"];
-    const accounts = !fm ? "" : fm === "failed"
-      ? `<div class="dsec">Accounts</div><div class="daction"><span class="derr">Fastmail accounts did not load: the server took too long</span></div><div style="padding:4px 10px"><button class="dbtn" data-dact="fm:two">Retry</button></div>`
-      : `<div class="dsec">Accounts</div>${accts.map((a, i) => {
-          const asking = (fm === "remove" && i === 1) || fm === "removeone";
-          return `<div class="daction"><span>${a}${i === 0 && accts.length > 1 ? ' <small class="dmuted" style="display:inline">Default</small>' : ""}</span>${asking
-            ? `<span class="dmuted">${accts.length === 1 ? "Disconnects Fastmail" : "Beep stops using this account"}</span><button class="dbtn quiet" data-dact="fm:${accts.length === 1 ? "one" : "two"}">Cancel</button><button class="dbtn warn" ${accts.length === 1 ? `data-dgo="dApps" data-toast="Fastmail disconnected"` : `data-dact="fm:one" data-toast="alex@work.example removed"`}>Remove</button>`
-            : `<button class="dbtn quiet warn" data-dact="fm:${accts.length === 1 ? "removeone" : "remove"}">Remove</button>`}</div>`;
-        }).join("")}${fm === "adding" ? `<div style="padding:4px 10px;display:flex;gap:8px;align-items:center">${waiting("fm:two")}</div>` : `<div style="padding:4px 10px"><button class="dbtn" data-dact="fm:adding" data-toast="Opening Fastmail sign-in in the browser">Add another account</button></div>`}
-        <div class="dmuted" style="padding:6px 10px;display:block">Beep uses the first account unless you name another, like "check my work inbox". To add a different account, sign out of Fastmail in the browser first.</div>`;
-    const tag = a => lvl === "read" ? `<span class="dtag">Off</span>` : lvl === "allow" || allowed[a] ? `<span class="dtag ok">Allowed</span>` : `<span class="dtag ask">Asks</span>`;
-    const acts = Object.keys(allowed).map(a => `<div class="daction"><span>${a}</span>${tag(a)}${lvl === "ask" ? swi(allowed[a], `Always allow ${a}`, `data-dact="appAllow:${a}"`) : ""}</div>`).join("");
-    return `<div class="dhead">${dLogo(al, ac)}<span class="tt"><b>${an}</b><small>What Beep may do here</small></span></div>
-      <div class="dlist dapps">${accounts}<div class="dsec">When Beep acts in ${an}</div>${levels.map(([k, t, d]) => `<button class="dlevel" role="radio" aria-checked="${lvl === k}" data-dact="appLevel:${k}"><span class="dlradio"></span><span class="tt"><b>${t}</b><small>${d}</small></span></button>`).join("")}
-      <div class="dsec">Actions</div>${acts}
-      <div class="dmuted" style="padding:8px 10px;display:block">Searching and reading is always allowed.</div>
-      <div style="padding:6px 10px 2px"><button class="dbtn warn" ${back} data-toast="${an} disconnected">Disconnect ${an}${fm && accts.length > 1 ? " (all accounts)" : ""}</button></div></div>`;
-  };
-  const mcpPage = back => {
-    const tools = S.d.mcpMany ? MCP_MANY : MCP_FEW;
-    if (!S.d.mcpOn) { S.d.mcpOn = {}; tools.filter(t => !MCP_TOO_LARGE.includes(t)).slice(0, MCP_LIMIT).forEach(t => S.d.mcpOn[t] = true); }
-    const on = S.d.mcpOn, count = tools.filter(t => on[t]).length;
-    const rows = tools.map(t => {
-      if (S.d.mcpAsk === t) return `<div class="daction"><span>${t}<small>More than ${MCP_LIMIT} tools makes replies slower and tool picks worse</small></span><button class="dbtn quiet" data-dact="mcpNo">Cancel</button><button class="dbtn pri" data-dact="mcpYes">Turn on</button></div>`;
-      if (MCP_TOO_LARGE.includes(t)) return `<div class="daction off"><span>${t}<small>Too large for Beep to use</small></span>${swi(false, `Use ${t}`, "disabled")}</div>`;
-      return `<div class="daction"><span>${t}</span>${swi(!!on[t], `Use ${t}`, `data-dact="mcpTool:${t}"`)}</div>`;
-    }).join("");
-    return `<div class="dhead">${letter("Team wiki")}<span class="tt"><b>Team wiki</b><small class="dmono">https://wiki.example.com/mcp</small></span></div>
-      <div class="dlist dapps"><div class="dsec dsplit"><span>Tools</span><span${count > MCP_LIMIT ? ' class="over"' : ""}>${count} of ${MCP_LIMIT} on</span></div>${rows}
-      <div class="dmuted" style="padding:8px 10px;display:block">Beep uses up to ${MCP_LIMIT} tools from a server, so turn on the ones you need. It asks before every tool on a server you add.</div>
-      <div style="padding:6px 10px 2px;display:flex;gap:8px;align-items:center">${S.d.mcpRm ? `<span class="dmuted">Beep stops using this server</span><button class="dbtn quiet" data-dact="dset:mcpRm:">Cancel</button><button class="dbtn warn" ${back} data-toast="Team wiki removed">Remove</button>` : `<button class="dbtn warn" data-dact="dset:mcpRm:1">Remove server</button>`}</div></div>`;
-  };
 
   // This computer: thisMac(mac) in settings.ts.
   const macBody = () => dThisMac();
@@ -160,12 +81,11 @@ const SETTINGS_ACCOUNTS = (() => {
       ${form ? agentForm("codex") : ""}<div style="margin-top:6px">${mrow("build-box", false, "signed in")}${mrow("This computer", false, "signed in")}${work}${mrow("gpu-box", true, "offline")}</div>`);
   };
   const acctBody = v => v === "acct-fail" ? `<div class="dmuted">Could not load your agent accounts.</div>`
-    : v === "acct-old" ? `<div class="dmuted">The server needs an update before it keeps agent accounts.</div>`
     : v === "acct-load" ? skel(2)
     : `<div style="font-size:12.5px;color:var(--d-muted);margin-top:4px">How your coding agents sign in on your machines.</div>${claudeBox(v)}${codexBox(v)}`;
   const CODING = [["claude", "Claude Code"], ["codex", "Codex"], ["gemini", "Gemini CLI"], ["pi", "pi"], ["opencode", "OpenCode"], ["flsh", "flsh"], ["hermes", "Hermes"]];
   const codingAgents = () => `<div class="dset-h">Coding agents</div><div class="dset-box">${CODING.map(([a, n]) => `<div class="dset-row" role="button" tabindex="0" ${dsetGo(`acct-${a}`)}>${tile(a)}<span class="tt"><b>${n}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span>${chev}</div>`).join("")}</div>`;
 
   // Credentials: credentials.ts.
-  return { chev, tile, sm, dt, swi, sec, skel, dsetGo, generalBody, SK, SKL, skinsHtml, CHOICES, modelsBody, letter, waiting, appsList, appPerm, mcpPage, macBody, box, mrow, agentForm, claudeBox, codexBox, acctBody, CODING, codingAgents };
+  return { chev, tile, sm, dt, swi, sec, skel, dsetGo, generalBody, skinsHtml, letter, macBody, box, mrow, agentForm, claudeBox, codexBox, acctBody, CODING, codingAgents };
 })();

@@ -174,8 +174,7 @@ pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
         log::warn!("hiding the window: {e}");
         return false;
     }
-    // Its chat stays in `Shown`: only the focused window holds notices back,
-    // and it comes back on the same chat.
+    // Only the focused window holds notices back.
     tell(app, LABEL, false, Tell::Always);
     closed(app, LABEL);
     true

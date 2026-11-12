@@ -6,15 +6,13 @@ declare module "@tanstack/history" {
 }
 
 const MAX_PAGES = 100;
-const paths = { home: "/", pane: "/pane", projects: "/projects", providers: "/providers", research: "/research", researchopen: "/research-open", sync: "/sync", instructions: "/instructions", terminals: "/terminals" } satisfies Record<ViewName, string>;
+const paths = { home: "/", pane: "/pane", projects: "/projects", providers: "/providers", sync: "/sync", instructions: "/instructions", terminals: "/terminals" } satisfies Record<ViewName, string>;
 const root = createRootRoute();
 const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: paths.home }),
   createRoute({ getParentRoute: () => root, path: paths.pane }),
   createRoute({ getParentRoute: () => root, path: paths.projects }),
   createRoute({ getParentRoute: () => root, path: paths.providers }),
-  createRoute({ getParentRoute: () => root, path: paths.research }),
-  createRoute({ getParentRoute: () => root, path: paths.researchopen }),
   createRoute({ getParentRoute: () => root, path: paths.sync }),
   createRoute({ getParentRoute: () => root, path: paths.instructions }),
   createRoute({ getParentRoute: () => root, path: paths.terminals }),

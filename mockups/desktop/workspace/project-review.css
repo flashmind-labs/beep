@@ -18,9 +18,6 @@
 .mac .rr-chev { width: 7px; height: 7px; border-right: 1.5px solid var(--d-muted); border-bottom: 1.5px solid var(--d-muted); transform: rotate(-45deg); transition: transform .15s }
 .mac .rr-chev.on { transform: rotate(45deg) }
 .mac .pj-runrow .pj-run { margin: 10px 14px 14px 46px; padding: 10px 12px }
-.mac .pj-chk.bad, .mac .pj-task .m a.pj-chk.bad { color: #f2c94c }
-.mac .pj-host { display: inline-block; font-size: 10.5px; line-height: 15px; padding: 0 5px; margin-right: 6px; border: 1px solid var(--d-border); border-radius: 4px; color: var(--d-muted); vertical-align: 1px; font-weight: 500 }
-.mac .cc-sec small.hosterr { color: #f2c94c }
 .mac .pj-run { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 6px; padding: 9px 10px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: var(--d-elev) }
 .mac .pj-jobs { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12px; align-items: baseline }
 .mac .pj-jobs b { font-weight: 500 }
@@ -36,9 +33,6 @@
 .mac .pj-run .acts { display: flex; gap: 6px }
 .mac .pj-task.ca-row > .t, .mac .pj-task.ca-row > .m { grid-column: 1 }
 .mac .pj-task.ca-row > .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding-left: 12px }
-.mac .pj-post.nf-on { border-color: var(--d-emerald); box-shadow: inset 2px 0 var(--d-emerald); padding-left: 10px }
-.mac .pj-post.nf-on .by { display: flex; gap: 6px; align-items: center }
-.mac .pj-post.nf-on .by .dbtn { margin-left: auto }
 .mac .pj-list .pj-labels { border-bottom: 0; padding: 2px 14px 6px }
 .mac .pj-det .pj-labels { border-bottom: 0; padding: 0 }
 .mac .pj-rows { margin: 0 -18px }
@@ -68,57 +62,10 @@
 .mac .pj-dh h3, .mac .pj-md, .mac .pj-post { color: var(--d-fg) }
 .mac .cc-win.sk-paper .cc-ag.codex { background-color: #1d1f21 }
 .mac .dv-sheet .top .dv-btn { color: var(--d-fg); border-color: var(--d-border) }
-.mac .cc-note.rv-cfl { display: flex; align-items: flex-start; gap: 10px }
-.mac .cc-note.rv-cfl > .ddot { margin-top: 6px; flex: none }
-.mac .rv-cfl-t { display: grid; gap: 2px }
 .mac .cc-line > .num { font-family: var(--mono); font-size: 11px; color: var(--d-muted); justify-self: center }
 .mac .cc-line:has(> .num) { grid-template-columns: minmax(28px, max-content) minmax(0, 1fr) auto }
-.mac .rv-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
-.mac .rv-head h3 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.02em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.mac .rv-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 0 9px; line-height: 21px; border-radius: 999px; border: 1px solid; white-space: nowrap }
-.mac .rv-pill.changes { color: #f2c94c; border-color: color-mix(in srgb, #f2c94c 50%, transparent); background: color-mix(in srgb, #f2c94c 8%, transparent) }
-.mac .rv-pill.ready { color: var(--d-emerald); border-color: color-mix(in srgb, var(--d-emerald) 55%, transparent); background: color-mix(in srgb, var(--d-emerald) 10%, transparent) }
-.mac .rv-pill.blocked { color: var(--d-err); border-color: color-mix(in srgb, var(--d-err) 50%, transparent); background: color-mix(in srgb, var(--d-err) 8%, transparent) }
-.mac .rv-pill.running { color: var(--d-muted); border-color: var(--d-border) }
-.mac .rv-pill .dspin, .mac .rv-fact .dspin, .mac .rv-ver .dspin { width: 9px; height: 9px }
-.mac .rv-facts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px }
-.mac .rv-fact { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--d-border); background: var(--d-elev); font-size: 12px; white-space: nowrap }
-.mac .rv-fact b { font-weight: 600 }
-.mac .rv-fact code { font-family: var(--mono); font-size: 11.5px }
-.mac .rv-fact.bad { border-color: color-mix(in srgb, var(--d-err) 50%, transparent); color: var(--d-err) }
-.mac .rv-fact .ddot.bad { background: var(--d-err) }
-.mac .rv-tools { margin-left: auto; display: flex; gap: 6px }
-.mac .rv-cfl { align-items: flex-start; margin-bottom: 12px }
-.mac .rv-cfl .ddot { margin-top: 6px; background: var(--d-err) }
-.mac .rv-cfl-t { display: grid; gap: 2px }
-.mac .rv-cfl-t span { color: var(--d-muted) }
-.mac .rv-cfl-t code { font-family: var(--mono); font-size: 11.5px }
-.mac .rv-find { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 3px 10px; padding: 10px 12px; align-items: start }
-.mac .rv-find + .rv-find { border-top: 1px solid var(--d-border) }
-.mac .rv-find.gone { opacity: .7 }
-.mac .rv-sev { justify-self: start; font-size: 10.5px; font-weight: 600; line-height: 17px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--d-border); color: var(--d-muted) }
-.mac .rv-sev.high { color: var(--d-err); border-color: color-mix(in srgb, var(--d-err) 50%, transparent) }
-.mac .rv-sev.medium { color: #f2c94c; border-color: color-mix(in srgb, #f2c94c 45%, transparent) }
-.mac .rv-find .t { display: grid; gap: 2px; min-width: 0 }
-.mac .rv-find .t b { font-size: 13px; font-weight: 500; line-height: 18px }
-.mac .rv-find .t code { font-family: var(--mono); font-size: 11.5px; color: #8a9cf0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .rv-find .t span { font-size: 11.5px; color: var(--d-muted) }
-.mac .rv-side { display: grid; justify-items: end; gap: 4px }
-.mac .rv-side .dbtn { min-height: 22px; padding: 0 7px; font-size: 11.5px }
-.mac .rv-ver { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--d-emerald); white-space: nowrap }
-.mac .rv-ver.wait { color: var(--d-muted) }
-.mac .rv-more { padding: 14px; border-top: 1px solid var(--d-border) }
-.mac .rv-sum { max-width: 50ch }
 .mac .rv-sum-row { padding: 8px 12px; border-top: 1px solid var(--d-border); font-size: 11.5px; color: var(--d-muted) }
-.mac .rv-shard { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 12px; align-items: center }
-.mac .rv-shard + .rv-shard { border-top: 1px solid var(--d-border) }
-.mac .rv-shard .t { display: grid; line-height: 17px; min-width: 0 }
-.mac .rv-shard .t b { font-size: 12.5px; font-weight: 500; font-family: var(--mono) }
-.mac .rv-shard .t span { font-size: 11.5px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .rv-shard .pj-st { max-width: 180px; overflow: hidden; text-overflow: ellipsis }
 .mac .pj-task .acts.rv-acts .dbtn { margin-left: 0 }
-.mac .rv-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 10px 0 12px; border-top: 1px solid var(--d-border); background: var(--d-ink) }
-.mac .rv-bar small { flex-basis: 100%; font-size: 12px; color: var(--d-muted) }
 .mac .dv-sheet { position: absolute; inset: 0; z-index: 60; display: grid; padding: 18px; background: color-mix(in srgb, #000 62%, transparent) }
 .mac .dv-sheet > .box { min-height: 0; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--d-border); border-radius: var(--radius); background: var(--d-surface); box-shadow: 0 18px 50px color-mix(in srgb, #000 50%, transparent); overflow: hidden }
 .mac .dv-sheet .top { flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 16px; border-bottom: 1px solid var(--d-border) }

@@ -181,7 +181,6 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .np-folder .np-m { width: 88px; flex: none; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .np-folder .np-to { flex: none; max-width: 40%; font-family: var(--mono); font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 
-
 .ap-sheet .am-head { margin-bottom: 12px }
 .ap-sheet .ap-bar { margin: 8px 0; min-height: 28px }
 .ap-results { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--elev) }

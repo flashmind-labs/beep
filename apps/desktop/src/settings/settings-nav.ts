@@ -1,36 +1,30 @@
 // Where the window's Settings sheet stands: the page picked in its left pane
-// and the subpage open under it, such as Apps then Gmail.
+// and the subpage open under it, such as Machines then one machine.
 
 /// The pages of Settings, in the order the left pane lists them.
 const SETTINGS_PAGES = [
   ["general", "General"],
   ["appearance", "Appearance"],
-  ["models", "Models"],
-  ["apps", "Apps"],
   ["mac", "This computer"],
   ["machines", "Machines"],
   ["agents", "Agent accounts"],
   ["creds", "Credentials"],
   ["instr", "Instructions"],
-  ["devices", "Beep server"],
 ] as const;
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number][0];
 
-/// A subpage, by what it shows: an app's permissions, an MCP server's
-/// tools, a machine, or a coding agent's settings.
+/// A subpage, by what it shows: a machine, or a coding agent's settings.
 export type SettingsSub =
-  | { kind: "app"; id: string }
-  | { kind: "mcp"; id: string }
   | { kind: "machine"; id: string }
   | { kind: "agent"; id: string };
 
 /// The coding agents Settings lists under Agent accounts, in order. Each
-/// opens its own subpage, nested in the left pane like Apps and Machines.
+/// opens its own subpage, nested in the left pane like Machines.
 export const CODING_AGENTS = ["claude", "codex", "gemini", "pi", "opencode", "flsh"] as const;
 
 /// Which page each kind of subpage sits under.
-const SUB_PAGE: Record<SettingsSub["kind"], SettingsPage> = { app: "apps", mcp: "apps", machine: "machines", agent: "agents" };
+const SUB_PAGE: Record<SettingsSub["kind"], SettingsPage> = { machine: "machines", agent: "agents" };
 
 export interface SettingsPath {
   page: SettingsPage;
@@ -67,14 +61,14 @@ export function samePath(a: SettingsPath, b: SettingsPath) {
 }
 
 /// `path`, or its page when the subpage is gone, or the first page shown when
-/// its page is not (such as Models on a server that offers none).
+/// its page is not (such as This computer on a phone).
 export function fitPath(path: SettingsPath, shown: readonly SettingsPage[], subExists: (sub: SettingsSub) => boolean = () => true): SettingsPath {
   if (!shown.includes(path.page)) return { page: shown[0] ?? "general", sub: null };
   if (path.sub && !subExists(path.sub)) return { page: path.page, sub: null };
   return path;
 }
 
-/// A subpage as one string: `app:gmail`.
+/// A subpage as one string: `machine:abc`.
 export function subKey(sub: SettingsSub) {
   return `${sub.kind}:${sub.id}`;
 }
@@ -88,7 +82,7 @@ export function parseSub(key: string | null | undefined): SettingsSub | null {
   return { kind, id } as SettingsSub;
 }
 
-/// The path as one string, for storage: `apps/app:gmail`.
+/// The path as one string, for storage: `machines/machine:abc`.
 export function pathKey(path: SettingsPath) {
   return path.sub ? `${path.page}/${subKey(path.sub)}` : path.page;
 }
@@ -129,7 +123,7 @@ export function rememberPath(store: Store | null | undefined, path: SettingsPath
 }
 
 /// The breadcrumb atop the right pane: the page, then the subpage when one
-/// is open. `subLabel` names a subpage, such as an app's name.
+/// is open. `subLabel` names a subpage, such as a machine's name.
 export function crumbs(path: SettingsPath, subLabel: (sub: SettingsSub) => string): string[] {
   const page = pageLabel(path.page);
   return path.sub ? [page, subLabel(path.sub)] : [page];

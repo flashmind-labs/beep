@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { filterShortcuts, SHORTCUTS, visibleShortcuts } from "../src/ui/shortcuts.ts";
+import { filterShortcuts, SHORTCUTS } from "../src/ui/shortcuts.ts";
 
 const rows = (q: string) => filterShortcuts(SHORTCUTS, q).flatMap(s => s.rows.map(r => r.does));
 
@@ -14,14 +14,6 @@ test("the filter matches words and keys", () => {
 test("a section title keeps all its rows", () => {
   const review = filterShortcuts(SHORTCUTS, "review");
   assert.equal(review[0].rows.length, SHORTCUTS.find(s => s.title === "Review")!.rows.length);
-});
-
-test("rows for features that are off are left out", () => {
-  const off = visibleShortcuts({ server: false, live: false });
-  const all = off.flatMap(s => s.rows.map(r => r.does));
-  assert.ok(!all.includes("Memories") && !all.includes("Talk while held"));
-  assert.ok(!off.some(s => s.title === "Lists"));
-  assert.ok(visibleShortcuts({ server: true, live: true }).some(s => s.title === "Lists"));
 });
 
 test("zoom is under General", () => {

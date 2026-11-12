@@ -1,6 +1,5 @@
-// The id a project has with no server to make one: a version 5 UUID of its
-// name, as the desktop's mesh computes it, so Actions and pull requests are
-// asked for by the same id.
+// A project's id: a version 5 UUID of its name, as the desktop's mesh
+// computes it, so Actions and pull requests are asked for by the same id.
 
 const URL_NAMESPACE = "6ba7b811-9dad-11d1-80b4-00c04fd430c8";
 
@@ -54,3 +53,12 @@ export function localProjectId(name: string) {
   ids.set(name, id);
   return id;
 }
+
+/// A project as its lists ask for it: its name and its id.
+export interface ProjectRef {
+  project_id: string;
+  /// `org/repo`.
+  name: string;
+}
+
+export const projectRef = (name: string): ProjectRef => ({ project_id: localProjectId(name), name });

@@ -1,20 +1,19 @@
 //! The Add a project sheet: checkouts and host repositories to pick from,
 //! the folder choice, and importing a project onto a machine.
 
-use super::{list::ProjectRow, needs_update};
+use super::list::ProjectRow;
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
-        Machines, extra, files as direct,
-        projects::{FleetState, desk, mirror_import},
+        Machines, files as direct,
+        projects::{FleetState, desk},
     },
-    machines::list::Outside,
+    machines::list::MachineLists,
 };
 use beep_fleet::ImportJob;
 use beep_proto::{
-    ApiError, BranchPlace, FoundAgent, FoundPlace, FoundProject, GitHostKind, HostRepos,
-    ListFoundFolders, ListMachineFolder, MachineFolder,
+    BranchPlace, FoundAgent, FoundPlace, FoundProject, GitHostKind, HostRepos, MachineFolder,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -64,12 +63,10 @@ impl From<FoundProject> for FoundRow {
 /// named them last: at once, for `rescan_found` to bring up to date.
 #[tauri::command]
 pub async fn found_projects(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
     session: FleetState<'_>,
-    held: State<'_, Outside>,
+    held: State<'_, MachineLists>,
 ) -> Result<Vec<FoundRow>> {
-    Ok(grouped(&beep, &fleet, &session, &held).await)
+    Ok(grouped(&session, &held).await)
 }
 
 /// A machine of the mesh to ask for its checkouts.
@@ -104,15 +101,12 @@ pub struct FoundAfter {
 /// checkouts; gives the found list with what it named.
 #[tauri::command]
 pub async fn rescan_found(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     session: FleetState<'_>,
-    held: State<'_, Outside>,
+    held: State<'_, MachineLists>,
     machine_id: String,
 ) -> Result<FoundAfter> {
-    let machine = fleet
-        .member(&machine_id)
-        .ok_or_else(|| DesktopError::BadRequest("That machine is not in the mesh.".into()))?;
+    let machine = fleet.machine(&machine_id)?;
     let problem = match direct::found_on(&fleet, machine).await {
         Ok(found) => {
             held.found.keep(found);
@@ -121,31 +115,19 @@ pub async fn rescan_found(
         Err(why) => Some(why),
     };
     Ok(FoundAfter {
-        rows: grouped(&beep, &fleet, &session, &held).await,
+        rows: grouped(&session, &held).await,
         problem,
     })
 }
 
 /// What the machines named last, without what the mesh already has as a
-/// project, and what the server found on machines outside the mesh.
-async fn grouped(
-    beep: &Service<'_>,
-    fleet: &Machines<'_>,
-    session: &FleetState<'_>,
-    held: &Outside,
-) -> Vec<FoundRow> {
+/// project.
+async fn grouped(session: &FleetState<'_>, held: &MachineLists) -> Vec<FoundRow> {
     let here = held.found.last();
-    let mut found = match desk(session).await {
+    let found = match desk(session).await {
         Ok(desk) => desk.group_found(here),
         Err(_) => beep_projects::imports::found::group(here, &[], &[]),
     };
-    let others = extra(beep.call(ListFoundFolders {}).await);
-    found.extend(others.into_iter().filter(|project| {
-        project
-            .places
-            .iter()
-            .all(|place| fleet.member(&place.machine_id).is_none())
-    }));
     found.into_iter().map(FoundRow::from).collect()
 }
 
@@ -220,7 +202,6 @@ fn openable(path: &Path) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub async fn import_project(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     repo: String,
     machine_id: Option<String>,
     folder: Option<String>,
@@ -254,7 +235,6 @@ pub async fn import_project(
             .await?;
     }
 
-    mirror_import(&beep, &imported).await;
     Ok(imported.into())
 }
 
@@ -263,18 +243,11 @@ pub async fn import_project(
 /// machine's workspace, else its home.
 #[tauri::command]
 pub async fn list_machine_folder(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     path: Option<String>,
 ) -> Result<MachineFolder> {
-    if let Some(machine) = fleet.member(&machine_id) {
-        return direct::folder(&fleet, machine, path.as_deref()).await;
-    }
-
-    beep.call(ListMachineFolder { machine_id, path })
-        .await
-        .map_err(outdated)
+    direct::folder(&fleet, fleet.machine(&machine_id)?, path.as_deref()).await
 }
 
 /// The branch the checkout at `path` on `machine_id` is on; `None` when it
@@ -325,7 +298,7 @@ pub async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option
     folder.map(folder_text).transpose()
 }
 
-/// A picked folder as the path the server takes.
+/// A picked folder as the path the machines take.
 #[cfg(desktop)]
 fn folder_text(folder: FilePath) -> Result<String> {
     let path = folder
@@ -334,15 +307,6 @@ fn folder_text(folder: FilePath) -> Result<String> {
     path.into_os_string()
         .into_string()
         .map_err(|_| DesktopError::BadRequest("That folder's name is not valid text.".into()))
-}
-
-/// An old server's refusal, in words the sheet shows; any other refusal
-/// is the server's own sentence.
-pub(super) fn outdated(e: DesktopError) -> DesktopError {
-    match needs_update(e, "before projects can be imported") {
-        DesktopError::Api(ApiError::BadRequest { message }) => DesktopError::BadRequest(message),
-        other => other,
-    }
 }
 
 #[cfg(test)]

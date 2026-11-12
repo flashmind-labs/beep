@@ -1,46 +1,35 @@
 import { WINDOWS, onPhone } from "../ui/platform.ts";
-// The sidebar: its groups (pinned, chats, views, projects, machines) and
-// the sheets that add a machine or a project.
+// The sidebar: its groups (pinned, views, projects, machines) and the
+// sheets that add a machine or a project.
 import { onClosing, visibleRunning } from "../agents/closing.ts";
 import { frontLayout, layoutChanged } from "../ui/skin.ts";
 import { plural, reason } from "../ui/format.ts";
-import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openPalette } from "./palette.ts";
 import { pane } from "../bar/pane.ts";
-import { live, S, type View } from "../bar/core.ts";
+import type { PaneNow } from "../bar/core.ts";
 import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.ts";
 import { openImportProject } from "../addproject/importproject.ts";
 import { openAddProject, importFound, rescanAll } from "../addproject/addproject.ts";
 import { openAddFolder } from "../addproject/addfolder.ts";
 import { openNewProject } from "../addproject/newproject.ts";
 import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
-import { confirmSheet, openMenu, renameSheet, type MenuItem } from "../ui/menu.ts";
-import { openInWindow } from "../chat/chat.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { openInEditor } from "../project/editors.ts";
 import { whereRows, openOnLabel } from "../project/projects-state.ts";
 import { openUrl } from "./openitems.ts";
-import { renderGroup, renderInvite } from "../chat/groups.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
 import { ALL } from "../terminals/terminals.ts";
-import { runningChats, sideThreads } from "./sidechats.ts";
-import { withoutResearch } from "../research/research-list.ts";
-import { RESEARCHES } from "../research/researches.ts";
-import { type ChatItem, type ProjectPin, type SideChat, state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
-import { stuck, problem, draw, jump } from "./home.ts";
+import { state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
+import { stuck, draw } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
-import { currentLocation, go, drawTop, openResearch } from "./views.ts";
+import { currentLocation, go, drawTop } from "./views.ts";
 import { groupMenu } from "../project/groups.ts";
-import { loadOverview } from "../project/projects.ts";
 import { redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { prefetchOnHover, sessionsDue } from "../project/loads.ts";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
-import { threadChats } from "./threadcard.ts";
-import { beepViews, groupShown } from "../settings/subscription.ts";
-import { signedOutFooter } from "../settings/server-state.ts";
-import { openSettings } from "../settings/sheet.ts";
 import { IC } from "../ui/icons.tsx";
 import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
@@ -49,7 +38,7 @@ import { createElement, type MouseEvent as ReactMouseEvent, type ReactNode } fro
 import { placeWindowParts } from "./window-root.ts";
 import { windowHost } from "./window-shell.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
-import { SidebarChatRow, SidebarProjectRow } from "./sidebar-rows.tsx";
+import { SidebarProjectRow } from "./sidebar-rows.tsx";
 import { single } from "../ui/active.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
@@ -81,9 +70,9 @@ export async function reloadGroup(name: string, redraw = true) {
   if (g.again) { g.again = false; reloadGroup(name); }
 }
 
-/// What the pane shows, for the sidebar's highlight.
-export function paneOn(): { view: View | null; session: string | null; group: string | null } {
-  return currentLocation()?.view === "pane" ? pane.current() : { view: null, session: null, group: null };
+/// What the pane shows, for the sidebar's highlight; null off the pane.
+export function paneOn(): { view: PaneNow["view"] | null } {
+  return currentLocation()?.view === "pane" ? pane.current() : { view: null };
 }
 
 export function drawSide() {
@@ -97,28 +86,19 @@ export function drawSide() {
   const terms = allTerms.list(ALL);
   if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });
   if (syncProjects().length) links.push({ svg: IC.sync, label: "Sync", count: syncConflicts(), current: location === "sync", hot: true, open: () => go("sync") });
-  if (home?.coming_up) links.push({ svg: IC.cal, label: "Coming up", count: home.coming_up.length, open: () => jump("sec-coming") });
   const side: ReactNode[] = [];
 
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
-    // Rows that fill in once the server answers, never an empty sidebar.
-    if (name === "chats" && g.items == null && !home && groupShown("chats", state.subscribed)) {
-      side.push(createElement("div", { className: "cc-grp", key: name }, createElement("h3", null, "Chats"), ...[70, 55, 62].map((width, index) => createElement("div", { className: "cc-skel", style: { width: `${width}%` }, key: index }))));
-    }
     if (g.items != null) side.push(createElement(SidebarGroupView, { key: name, name, group: g }));
   }
 
   const host = windowHost("side");
-  placeWindowParts({ sidebar: createElement(SidebarShell, { host, phone: onPhone(), links, groups: side, footer: footer(home?.machines), signIn: () => openSettings("devices"), addMachine: openAddMachine }) });
+  placeWindowParts({ sidebar: createElement(SidebarShell, { host, phone: onPhone(), links, groups: side, footer: footer(home?.machines), addMachine: openAddMachine }) });
   if (currentLocation()?.view === "pane") drawTop();
 }
 
 function footer(machines: MachineCard[] | null | undefined): SideFooter {
-  const out = signedOutFooter(S.server, S.signedOut);
-  if (out) return { dot: "off", text: out.text, action: "signin" };
   const action = machines ? "add" : null;
-  const p = problem();
-  if (p) return { dot: p.kind === "unlinked" || p.kind === "noserver" ? "off" : "bad", text: p.kind === "unlinked" ? "Not linked" : p.kind === "noserver" ? "No server" : p.kind === "revoked" ? "Removed" : "Refused", action };
   if (!state.home) return { dot: stuck() ? "bad" : "off", text: stuck() ? "Not connected" : "Connecting to your machines…", action };
   if (!machines) return { dot: null, text: "Machines unavailable", action };
   if (!machines.length) return { dot: null, text: "No machines linked", action };
@@ -127,47 +107,11 @@ function footer(machines: MachineCard[] | null | undefined): SideFooter {
   return { dot: "on", count: machines.filter(m => m.online).length, text: ` of ${plural(machines.length, "machine", "machines")} online`, action };
 }
 
-/// Pinned chats and groups, then the newest of the rest, the open one
-/// highlighted.
-const SIDE_CHATS = 5;
-export let chatList: ChatItem[] = [];
-let chatFetch: Promise<ChatItem[]> | null = null;
-/// The chats the server last said have a run going on, from any device.
-let serverRunning: string[] = [];
-let runningReadVersion = 0;
-
-/// One fetch feeds both groups, even when both ask at once.
-function fetchChats() {
-  if (chatFetch) return chatFetch;
-  // The rows come from this Mac's copy; which run elsewhere is the
-  // server's to say, so the rows never wait for it.
-  const version = ++runningReadVersion;
-  pane.activeRuns().then(runs => { if (version === runningReadVersion) { serverRunning = runs; drawSide(); } });
-  const mine: Promise<ChatItem[]> = pane.chatRows().then(rows => {
-    if (chatFetch === mine) chatList = rows;
-    return rows;
-  }).finally(() => { if (chatFetch === mine) chatFetch = null; });
-  return chatFetch = mine;
-}
-
-/// The chats with a reply coming: run here, or on another device.
-export function running() {
-  return runningChats(pane.running(), serverRunning);
-}
-
-export function reloadChats() {
-  runningReadVersion++;
-  // A fetch that started before this change may miss it: the next one is new.
-  chatFetch = null;
-  return Promise.all([reloadGroup("pinned"), reloadGroup("chats")]);
-}
-
-/// The projects pinned to the top, as rows of the Pinned group shaped like
-/// chat rows.
-function pinnedProjects(): ProjectPin[] {
+/// The projects pinned to the top, the rows of the Pinned group.
+function pinnedProjects(): Placed<Project>[] {
   const rows = projectRows();
   if (!rows) return [];
-  return splitOnTop(rows, state.top).onTop.map(p => ({ kind: "project", id: p.name, title: p.name, pinned: true, project: p }));
+  return splitOnTop(rows, state.top).onTop;
 }
 
 /// Pins project `name` to the top of the sidebar, or unpins it. Not the
@@ -190,86 +134,6 @@ function redrawProjectPins() {
   reloadGroup("pinned");
   reloadGroup("projects");
   redrawProjectsPage();
-}
-
-/// The pin button of a sidebar row: pins it to the top, or unpins it.
-/// Gives the pin button of chat `id` the focus again, unless focus has gone
-/// elsewhere meanwhile (a redraw leaves it on the page body).
-function restorePinFocus(id: string) {
-  const on = document.activeElement;
-  if (on && on !== document.body) return;
-  document.querySelector<HTMLElement>(`.cc-chat .pa[data-id="${CSS.escape(id)}"]`)?.focus();
-}
-
-export async function setPinned(c: SideChat, pinned: boolean) {
-  if (c.kind === "project") return setProjectOnTop(c.id, pinned);
-  const active = document.activeElement as HTMLElement | null;
-  const hadFocus = active?.classList.contains("pa") && active.dataset.id === c.id;
-
-  try {
-    await invoke(c.kind === "group" ? "pin_group" : "pin_session", { id: c.id, pinned });
-  } catch (e) {
-    console.warn("pinning a chat:", e);
-  }
-
-  await reloadChats();
-  if (hadFocus) restorePinFocus(c.id);
-}
-
-function chatMenu(e: MouseEvent, c: ChatItem) {
-  openMenu(e, c.title, [
-    { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
-    ...(onPhone() ? [] : [{ label: "Open in window", on: () => void openInWindow(c.id) }]),
-    { label: "Rename…", on: () => renameSheet({ title: "Rename chat", value: c.title, run: async title => { await invoke("rename_session", { id: c.id, title }); await reloadChats(); } }) },
-    { label: "Copy share link", on: () => void invoke<{ url: string }>("share_session", { id: c.id }).then(link => writeClipboard(link.url), err => console.warn("sharing a chat:", err)) },
-    { label: "Stop sharing", on: () => void invoke("unshare_session", { id: c.id }).catch(err => console.warn("unsharing a chat:", err)) },
-    { label: "Delete…", warn: true, on: () => deleteChat(c) },
-  ]);
-}
-
-function groupChatMenu(e: MouseEvent, c: ChatItem) {
-  openMenu(e, c.title, [
-    { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
-    { label: "Invite…", on: () => { go("pane", { group: { id: c.id } }); void renderInvite(c.id, c.title); } },
-    { label: "Leave group…", warn: true, on: () => { go("pane", { group: { id: c.id } }); void renderGroup(c.id, "leave"); } },
-  ]);
-}
-
-function researchMenu(e: MouseEvent, c: ChatItem) {
-  const items: MenuItem[] = [
-    { label: "Open", on: () => openResearch(c.id) },
-    { label: c.pinned ? "Unpin" : "Pin to top", on: () => setPinned(c, !c.pinned) },
-    { label: "Export PDF", on: () => void invoke<string>("export_research", { session: c.id }).then(path => invoke("reveal_file", { path }), err => console.warn("exporting a research:", err)) },
-  ];
-  if (running().has(c.id)) items.push({ label: "Stop", warn: true, on: () => void invoke("stop_research", { session: c.id }).catch(err => console.warn("stopping a research:", err)) });
-  openMenu(e, c.title, items);
-}
-
-/// Asks, then deletes chat `c` as the All chats list does. The open chat
-/// sends the pane to that list.
-function deleteChat(c: SideChat) {
-  confirmSheet({
-    title: `Delete ${c.title}?`,
-    text: "Its messages are deleted for good.",
-    action: "Delete",
-    run: async () => {
-      await invoke("delete_session", { id: c.id });
-      live.delete(c.id);
-      const wasOpen = paneOn().session === c.id;
-      if (S.session === c.id) S.session = null;
-      await reloadChats();
-      if (wasOpen) go("pane", "chats");
-    },
-  });
-}
-
-/// The chats about one pull request or issue each project lists under
-/// it: the open one, the running ones, then the newest.
-const SIDE_THREADS = 3;
-function nestedThreads() {
-  const on = paneOn();
-  const open = on.view === "chat" ? on.session : null;
-  return sideThreads(threadChats?.values() ?? [], chatList.map(c => c.id), open, running(), SIDE_THREADS);
 }
 
 /// Opens project `name` in a window of its own, or brings up the one it
@@ -319,88 +183,36 @@ export function removeProject(name: string) {
       state.top = state.top.filter(n => n !== name);
       if (state.home?.projects) state.home = { ...state.home, projects: state.home.projects.filter(p => p.name !== name) };
       state.where.delete(name);
-      state.pview.delete(name);
 
       if (currentLocation()?.view === "projects" && state.picked === name) openProjects();
       else { draw(); redrawProjectsPage(); }
 
       loadFound();
-      loadOverview();
       refresh();
     },
   });
 }
 
 function projectReact(project: Placed<Project>, label: string, pinned: boolean, indented: boolean) {
-  const on = paneOn();
   return createElement(SidebarProjectRow, { project, label, pinned, indented,
     current: currentLocation()?.view === "projects" && state.picked === project.name,
-    threads: nestedThreads().get(project.name) ?? [], activeChat: on.view === "chat" ? on.session : null,
-    running: running(), open: () => openProjects(project.name), pin: () => { void setProjectOnTop(project.name, !pinned); },
-    windowProps: projectWindowProps(project.name), openThread: id => { go("pane", { chat: { session: id } }); } });
+    open: () => openProjects(project.name), pin: () => { void setProjectOnTop(project.name, !pinned); },
+    windowProps: projectWindowProps(project.name) });
 }
-function chatReact(c: SideChat) {
-  if (c.kind === "project") return projectReact(c.project, c.title, true, false);
-  const on = paneOn(), current = c.kind === "group" ? on.group === c.id : on.view === "chat" && on.session === c.id;
-  return createElement(SidebarChatRow, { chat: c, current, answering: c.kind === "chat" && running().has(c.id),
-    open: () => pickChat(c), pin: () => { void setPinned(c, !c.pinned); },
-    menu: event => c.kind === "group" ? groupChatMenu(event, c) : c.research ? researchMenu(event, c) : chatMenu(event, c) });
-}
-
-function pickChat(c: SideChat) {
-  if (c.kind === "project") return openProjects(c.id);
-  if (c.kind === "group") return go("pane", { group: { id: c.id } });
-  if (c.research) return openResearch(c.id);
-  go("pane", { chat: { session: c.id } });
-}
-
-/// Pinned chats and groups go to the Pinned group; the newest of the rest stay
-/// under Chats. `rows` are newest first, as the pane lists them.
-function splitPinned<T extends { pinned: boolean }>(rows: T[], limit: number) {
-  return {
-    pinned: rows.filter(c => c.pinned),
-    recent: rows.filter(c => !c.pinned).slice(0, limit),
-  };
-}
-
-registerSidebarGroup<SideChat>("pinned", {
+registerSidebarGroup<Placed<Project>>("pinned", {
   order: 2,
   title: "Pinned",
-  async load() {
-    const chats = state.subscribed ? splitPinned(await fetchChats(), SIDE_CHATS).pinned : [];
-    return [...chats, ...pinnedProjects()];
-  },
-  render: chatReact,
-  key: c => `${c.kind}:${c.id}`,
-});
-
-registerSidebarGroup<SideChat>("chats", {
-  order: 3,
-  title: "Chats",
-  onTitle: () => go("pane", "chats"),
-  empty: () => (chatList.length ? "" : "No chats yet"),
-  action: { label: "New chat", title: false, run: () => { go("pane", { chat: { session: null } }); } },
-  async load() {
-    if (!groupShown("chats", state.subscribed)) return null;
-    // Chats about one thread are listed under their project, researches
-    // under Research.
-    const rows = withoutResearch(await fetchChats(), RESEARCHES).filter(c => c.pinned || !threadChats?.has(c.id));
-    return splitPinned(rows, SIDE_CHATS).recent;
-  },
-  render: chatReact,
-  key: c => `${c.kind}:${c.id}`,
+  load: async () => pinnedProjects(),
+  render: p => projectReact(p, p.name, true, false),
+  key: p => `project:${p.name}`,
 });
 
 registerSidebarGroup("views", {
   order: 6,
   title: "Beep",
-  load: async () => beepViews([
-    { view: "memories" as const, label: "Memories", svg: IC.mem },
-    { view: "routines" as const, label: "Routines", svg: IC.loop },
-    { view: "settings" as const, label: "Settings", svg: IC.gear },
-  ], state.subscribed),
-  key: v => v.view,
-  render: v => createElement(SidebarItem, { svg: v.svg, label: v.label, current: v.view !== "settings" && paneOn().view === v.view, shortcut: v.view === "settings" ? (WINDOWS ? "Ctrl+," : "⌘,") : "", open: () => go("pane", v.view) }),
+  load: async () => ["settings" as const],
+  key: v => v,
+  render: v => createElement(SidebarItem, { svg: IC.gear, label: "Settings", current: false, shortcut: WINDOWS ? "Ctrl+," : "⌘,", open: () => go("pane", v) }),
 });
 
 /// Imported projects merged with the folders agents run in.

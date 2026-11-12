@@ -745,7 +745,6 @@ impl Link for MeshLink {
             app.clone(),
             &self.window,
             app.state(),
-            app.state(),
             message.machine_id.clone(),
             message.agent.clone(),
             message.session.clone(),

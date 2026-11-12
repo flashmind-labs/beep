@@ -36,30 +36,3 @@
   };
   VARIANTS.dImportProject.splice(3, 0, ["Typing a folder on build-box", () => { S.d.ip = "complete"; S.d.pp = "list"; render(); }, () => S.d.ip === "complete"]);
 })();
-// A project folder Syncthing already keeps in step: Beep's own file sync leaves it alone.
-// "Where it lives" marks that machine's row "Synced by Syncthing" (from ListProjectSyncthing),
-// and turning Beep sync on there is refused with the server's BadRequest text.
-// Mirrors whereRow in apps/desktop/src/center.ts.
-{
-  const base = D.dWinProject;
-  const note = `<small style="color:var(--d-muted);margin-left:6px" title='Syncthing folder "Work". Beep does not sync it here.'>Synced by Syncthing</small>`;
-  D.dWinProject = (...a) => {
-    if (S.d.pjst === "where") {
-      const v = S.d.pj;
-      S.d.pj = "imported";
-      const html = base(...a);
-      S.d.pj = v;
-      return html.replace("<code>/path/to/code/widget</code></span>", `<code>/path/to/code/widget</code>${note}</span>`);
-    }
-    if (S.d.pjst === "refused") {
-      const html = base(...a);
-      const refused = `<div class="cc-panel fs-list" style="margin-top:8px">
-        <div class="fs-row"><div class="fs-h"><span class="ddot"></span><b>gpu-box</b><span class="pb-chip" title="Already synced by Syncthing (Work)">Synced by Syncthing</span></div><div class="fs-m"><code>/path/to/code/widget</code></div></div></div>`;
-      return html.replace(/(<div class="dmuted" style="font-size:12px;margin-top:8px">All file sync)/, `${refused}$1`);
-    }
-    return base(...a);
-  };
-  VARIANTS.dWinProject = [...VARIANTS.dWinProject.map(([l, f, on]) => [l, () => { S.d.pjst = ""; f(); }, () => !S.d.pjst && on()]),
-    ["Where it lives: Synced by Syncthing", () => { S.d.pjst = "where"; render(); }, () => S.d.pjst === "where"],
-    ["File sync: Syncthing has the folder", () => { S.d.pjst = "refused"; S.d.pj = "default"; S.d.pjv = "board"; S.d.pbo = "sync"; render(); }, () => S.d.pjst === "refused"]];
-}

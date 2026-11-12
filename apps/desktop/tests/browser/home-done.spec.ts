@@ -5,7 +5,7 @@ test("Home lists the sessions that ended today under Done today", async ({ page 
   const now = Date.now();
   const session = (id: string, status: string, last_activity: number) => ({ machine_id: "m1", machine_name: "build-box", id, agent: "claude", title: `Session ${id}`,
     cwd: "/srv/project", status, doing: null, started_at: last_activity - 1000, last_activity, external: false, reviewer: false, parent: null });
-  const home = { machines: [], projects: [], running: [], needs_you: [], coming_up: null, updates: [] };
+  const home = { machines: [], projects: [], running: [], needs_you: [] };
   await openDesktop(page, false, { center_home: home, session_moves: [], session_copies: [],
     projects_sessions: [session("today", "ended", now), session("old", "ended", now - 3 * 86_400_000)] });
   const done = page.locator(".bd-lane", { hasText: "Done today" });
@@ -24,8 +24,8 @@ async function pickLayout(page: Page, name: string, layout: string) {
 }
 
 test("Appearance picks the board or the list for Home and for projects, each on its own", async ({ page }) => {
-  await openDesktop(page, false, { settings: { name: "build-box", version: "0.9.0", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false },
-    list_credentials: [], list_github_accounts: [], agent_accounts: { claude: null, codex_key: null, machines: [] } });
+  await openDesktop(page, false, { settings: { name: "build-box", version: "0.9.0", autostart: false, agent_notices: false },
+    list_credentials: [], list_github_accounts: [] });
   await expect(page.locator("#sec-needs .bd-lanes")).toBeVisible();
 
   await pickLayout(page, "Home", "List");

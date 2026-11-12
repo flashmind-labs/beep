@@ -35,18 +35,15 @@
       { id: "is92", lead: pnum(92), t: "Auto-sync the SDK docs", sub: "opened by contributor-a · 32 d", tags: ["docs", "ci"] },
       { id: "is53", lead: pnum(53), t: "Publish the CLI like the SDK", sub: "opened by contributor-b · 173 d · 1 comment", tags: ["release"] }];
   const ISSUE_LABELS = ["ci", "docs", "release"];
-  const serverPreview = () => S.d.projectAccount === "server";
   // Keep the rows and order aligned with project/split.ts.
   const LIST = [
     { title: "", items: [{ id: "overview", t: "Overview", sub: "" },
-      { id: "card", t: "Needs you", sub: "1", server: true },
       { id: "running", t: "Running", sub: "2" }] },
     { title: "", items: [
       { id: "actions", t: "Actions", sub: "1 running · 1 failed" },
       { id: "machines", t: "Machines", sub: "2 of 3 · 1 terminal" },
       { id: "issues", t: "Issues", sub: `${PJ_ISSUES.length} open` }] },
     { title: "", items: [
-      { id: "tasks", t: "Tasks", sub: "2 running", server: true },
       { id: "agents", t: "Sessions", sub: "2 past" },
       { id: "branches", t: "Git", sub: "History and worktrees" }] },
     { title: "Pull requests", labels: ["cache", "deps", "perf"], items: [
@@ -62,7 +59,6 @@
   const post = (who, when, body, cls = "", extra = "") => `<div class="pj-post${cls}"><div class="by"><b>${who}</b> · ${when}${extra}</div>${md(body)}</div>`;
   const hostName = forgejo => forgejo ? "Forgejo" : "GitHub";
   const prHead = (title, n, by, when, tags, extra, acts) => `<div class="pj-dh"><h3>${title}</h3><div class="meta">${chip("running", "open")}<span>#${n} opened by <b>${by}</b> ${when}</span>${tags.map(l => `<i class="pj-tag">${l}</i>`).join("")}${extra}</div><div class="acts">${acts}</div></div>`;
-  // Plan and Discuss need a server, so the issue details hide them without one.
   const foot = forgejo => `<div class="pj-cbox"><textarea class="field" rows="3" aria-label="Comment" placeholder="Comment"></textarea><div class="row"><button class="dbtn pri" data-toast="Comment posted to ${hostName(forgejo)}">Comment</button></div></div>`;
   // One machine owns its folder, sync details and terminals.
   const projectMachines = () => {
@@ -100,7 +96,7 @@ ${S.d.pmnotice ? `<p class="pm-footnote" role="status">${S.d.pmnotice}</p>` : ""
       + `<div class="pj-db">${md("<p>The warm-up reads every entry twice. This reads the index once and fills the rest on demand.</p><ul><li>Cold start: 2.4 s to 1.1 s</li><li>No change to the on-disk format</li></ul><p>Run <code>cargo bench -p cache</code> to compare.</p>")}
         ${post("kim", "4 days ago", "<p>The lazy path skips the checksum. Can we keep it on first read?</p>")}${post("sam", "3 days ago", "<p>Good catch, fixed in the last push.</p>")}
         ${post("kim", "2 days ago", "<p>Cold start looks right here. The bench job still fails on main, unrelated?</p>")}${post("sam", "1 day ago", "<p>Unrelated, it fails without this branch too.</p>")}
-        ${post("kim", "38 min ago", "<p>This changes when the index file is opened. Does the watcher still see a rename during warm-up?</p>", S.d.nfc ? " nf-on" : "", S.d.nfc ? pb("Open on GitHub") : "")}${foot(false)}</div>`,
+        ${post("kim", "38 min ago", "<p>This changes when the index file is opened. Does the watcher still see a rename during warm-up?</p>")}${foot(false)}</div>`,
     pr38: () => prHead("Bump the sync crate", 38, "you", "9 days ago", ["deps"], chip("running", "approved") + chip("done", "checks passing"),
         `<span class="acts">${pb("Continue", "pri")}${openReview("Review")}</span>${pb("Open on GitHub")}`)
       + `<div class="pj-db">${md("<p>Picks up the fix for the watcher on rename.</p>")}${foot(false)}</div>`,
@@ -113,16 +109,6 @@ ${S.d.pmnotice ? `<p class="pm-footnote" role="status">${S.d.pmnotice}</p>` : ""
     // Reached from a notification: approved, and not in the list.
     pr36: () => `<div class="pj-dh"><h3>Drop the v1 cache reader</h3><div class="meta">${chip("", "merged")}<span>#36 opened by <b>sam</b> 2 days ago</span>${chip("done", "checks passing")}</div><div class="acts">${pb("Open on GitHub")}</div></div>
       <div class="pj-db">${md("<p>Nothing reads the v1 format since 0.12. This removes the reader and its tests.</p>")}${post("kim", "3 h", "<p>Approved.</p>")}${foot(false)}</div>`,
-    card: () => csec("Needs you", "the project chat waits on these", `<div class="pj-needs"><div class="pj-plan"><b>Plan 3 tasks</b><small>Tasks</small><ol><li>Split the warm-up from the index read</li><li>Keep the checksum on first read</li><li>Add a bench for cold start</li></ol><div class="row">${pb("Approve", "pri small")}${pb("Allow for this session", "small")}${pb("Deny", "warn small")}</div></div></div>`),
-    tasks: () => `<div class="pj-cols">${csec("Tasks", "2 running · 1 in review · 1 done", `<div class="cc-panel">
-        <div class="pj-task"><span class="t">Swipeable approval strip</span>${chip("running", "running", true)}<span class="m"><code>fix-approval</code><span>Claude Code on build-box</span></span><span class="acts">${openDiff("small")}${pb("Pause", "quiet small")}</span></div>
-        <div class="pj-task"><span class="t">Fix the device build script</span>${chip("running", "running", true)}<span class="m"><code>main</code><span>Codex on studio</span></span><span class="acts">${pb("Pause", "quiet small")}</span></div>
-        <div class="pj-task"><span class="t">Bump the sync crate</span>${chip("review", "review")}<span class="m"><a href="#">PR #38</a><code>bump-sync</code></span><span class="acts">${openReview("Review", "pri small")}${pb("Merge…", "small")}${pb("Open PR", "small")}${openDiff("small")}${pb("Back to open", "quiet small")}</span></div>
-        <div class="pj-task"><span class="t">Add a bench for cold start</span>${chip("done", "done")}<span class="m"><code>bench-cold</code></span><span class="acts">${openDiff("small")}${pb("Reopen", "quiet small")}</span></div></div>`)}
-      ${csec("Workers", "2 running", `<div class="cc-panel pj-tree">
-        <div class="pj-node"><span class="cc-ag beep">${DI.tray}</span><span class="t"><b>Project agent</b><span>Plans tasks, files issues, places workers</span></span></div>
-        <div class="pj-node child link">${hc("claude")}<span class="t"><b>Swipeable approval strip</b><span>Claude Code on build-box · running 1 min</span></span><span class="acts">${pb("Stop", "quiet small")}</span><span class="out">Wired the strip to the approval card.</span></div>
-        <div class="pj-node child link">${hc("codex")}<span class="t"><b>Fix the device build script</b><span>Codex on studio · running 4 min</span></span><span class="acts">${pb("Stop", "quiet small")}</span></div></div>`)}</div>`,
     branches: () => window.gitTreeMock(),
     machines: () => projectMachines(),
     sync: () => projectMachines(),
@@ -179,10 +165,8 @@ Error: Process completed with exit code 101.</pre></span>
   const LIT = { ci351: "actions", ci349: "actions", review: "branches", is92: "issues", is53: "issues", terminals: "machines" };
   // Machines and their terminals are one pane, as on Home.
   details.terminals = details.machines;
-  details.review = () => window.__rvPane();
-  window.__pjReviewPage = () => { const keep = S.d.psel; S.d.psel = "review"; try { return D.dWinProject(); } finally { S.d.psel = keep; } };
   const openDiff = (cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-dact="dset:ags:diffzoom" data-dgo="dAgentSession">View diff</button>`;
-  const openReview = (l, cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-dact="dset:psel:review" data-dgo="dWinProject">${l}</button>`;
+  const openReview = (l, cls = "") => `<button class="dbtn${cls ? " " + cls : ""}" data-dact="dset:ags:diffzoom" data-dgo="dAgentSession">${l}</button>`;
   const CHEV = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
   // Top actions, then the project-wide sync toggles under a label, then Remove after a line.
   // Choose ignored folders shows while ignored-folder sync is on; the Syncthing switch reads by who syncs now.
@@ -221,7 +205,7 @@ Error: Process completed with exit code 101.</pre></span>
     const list = LIST.map((g, at) => (g.title ? `<h4>${g.title}<span class="n">${g.items.length}</span></h4>` : at ? "<hr>" : "")
       + (g.title === "Pull requests" ? __listCtl("pjp") : "")
       + (g.labels ? `<div class="pj-labels">${g.labels.map(l => `<button class="pj-tag lab" data-toast="Filter: ${l}">${l}</button>`).join("")}</div>` : "")
-      + g.items.filter(i => !i.server || serverPreview()).map(i => pjRow(i, lit, !g.title)).join("")).join("");
+      + g.items.map(i => pjRow(i, lit, !g.title)).join("")).join("");
     const strip = `<div class="cc-mstrip pj-strip" aria-label="Project status">${[
       ["main", "branch", "branches"], ["Actions", "1 running · 1 failed", "actions"], ["2 agents", "running", "running"],
       ["Machines", "2 of 3", "machines"], ["2 PRs", "1 needs a reply", "pr41"], ["2 issues", "open", "issues"], ["Sessions", "2 past", "agents"],
@@ -233,12 +217,7 @@ Error: Process completed with exit code 101.</pre></span>
       ${pjComp()}${S.d.pmenu ? pjMenu() : ""}</div>`;
     const side = document.createElement("template");
     side.innerHTML = ccSidePj("acme/widget");
-    if (!serverPreview()) {
-      side.content.querySelectorAll(".chats, .research").forEach(node => node.remove());
-      side.content.querySelectorAll(".cc-si").forEach(node => {
-        if (["Coming up", "Memories", "Routines"].includes(node.querySelector(".tt")?.textContent)) node.remove();
-      });
-      side.content.querySelectorAll('.pinned [data-dgo="dWinChat"]').forEach(node => node.remove());
+    {
       const machines = document.createElement("div");
       machines.className = "cc-grp";
       machines.innerHTML = `<h3>Machines</h3>${["build-box", "studio", "mini-box"].map(name => `<button class="cc-si" data-dact="dset:htab:machines" data-dgo="dHome"><span class="ddot${name === "mini-box" ? " off" : ""}"></span><span class="tt">${name}</span></button>`).join("")}`;
@@ -278,8 +257,6 @@ data/captures</textarea>
       <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:pwr:" data-dgo="${back}">Cancel</button><button class="dbtn warn" data-dact="dset:pwr:" data-dgo="${back}" data-toast="${del ? `Project removed from ${target}. Folder deleted there.` : `Project removed from ${target}. Its folder stays.`}">${del ? "Remove and delete" : "Remove"}</button></div>`);
   };
   VARIANTS.dWinProject = [
-    ["Current: mesh only", () => { S.d.projectAccount = "mesh"; S.d.psel = "overview"; render(); }, () => !serverPreview()],
-    ["Server preview", () => { S.d.projectAccount = "server"; render(); }, serverPreview],
     ["Running", () => { S.d.psel = "running"; render(); }, () => S.d.psel === "running"],
     ["Custom agents", () => { S.d.psel = "agents"; S.d.projectSessionTab = "agents"; render(); }, () => S.d.psel === "agents" && S.d.projectSessionTab === "agents"],
     ["Overview", () => { S.d.psel = "overview"; S.d.pmenu = ""; S.d.pjadd = ""; S.d.pjimg = false; S.d.pjfile = false; render(); }, () => (S.d.psel || "overview") === "overview" && !S.d.pmenu && !S.d.pjadd && !S.d.pjimg && !S.d.pjfile],
@@ -287,15 +264,12 @@ data/captures</textarea>
     ["Composer: adding to a machine", () => { S.d.psel = "overview"; S.d.pjadd = "adding"; render(); }, () => S.d.pjadd === "adding"],
     ["Composer: a video attached", () => { S.d.psel = "overview"; S.d.pjadd = ""; S.d.pjimg = false; S.d.pjfile = true; render(); }, () => !!S.d.pjfile],
     ["Composer: an image attached", () => { S.d.psel = "overview"; S.d.pjadd = ""; S.d.pjimg = true; S.d.pjfile = false; render(); }, () => !!S.d.pjimg],
-    ["Pull request", () => { S.d.psel = "pr41"; S.d.nfc = ""; render(); }, () => S.d.psel === "pr41" && !S.d.nfc],
+    ["Pull request", () => { S.d.psel = "pr41"; render(); }, () => S.d.psel === "pr41"],
     ["Issues", () => { S.d.psel = "issues"; render(); }, () => S.d.psel === "issues"],
     ["Issue", () => { S.d.psel = "is92"; S.d.pjf = false; render(); }, () => S.d.psel === "is92" && !S.d.pjf],
     ["Issue on Forgejo", () => { S.d.psel = "is92"; S.d.pjf = true; render(); }, () => S.d.psel === "is92" && !!S.d.pjf],
-    ["Needs you", () => { S.d.projectAccount = "server"; S.d.psel = "card"; render(); }, () => S.d.psel === "card"],
-    ["Tasks", () => { S.d.projectAccount = "server"; S.d.psel = "tasks"; render(); }, () => S.d.psel === "tasks"],
     ["Sessions", () => { S.d.psel = "agents"; S.d.projectSessionTab = "sessions"; render(); }, () => S.d.psel === "agents"],
     ["Git", () => { S.d.psel = "branches"; render(); }, () => S.d.psel === "branches"],
-    ["Review", () => { S.d.psel = "review"; render(); }, () => S.d.psel === "review"],
     ["Actions", () => { S.d.psel = "actions"; render(); }, () => S.d.psel === "actions"],
     ["Machines", () => { S.d.psel = "machines"; S.d.pwr = ""; render(); }, () => S.d.psel === "machines" && !S.d.pwr],
     ["Machines: remove from one", () => { S.d.psel = "machines"; S.d.pwr = "confirm"; render(); }, () => S.d.psel === "machines" && S.d.pwr === "confirm"],
@@ -315,7 +289,7 @@ data/captures</textarea>
   };
   DESK_SCREENS.find(g => g.group === "Command center").items.push(["dProjectMachines", "Project: machines and sync", "ProjectMachines"]);
   if (location.hash === "#dProjectMachines") { S.screen = "dProjectMachines"; render(); }
-  // A project with no project agent: its sessions, where it lives, what runs there.
+  // A project: its sessions, where it lives, what runs there.
   window.__pjOne = () => `<div class="pj-cols pj-half">${csec("Past sessions", 2, `<div class="cc-panel"><div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Retry uploads when the token expires</span><span class="m" style="align-items:center">${pvMark("claude")}<span>ended</span><span>build-box</span><span>widget</span><span>2 h</span></span></div><div class="pv-row" style="cursor:pointer" data-dgo="dAgentSession"><span class="t">Bump the toolchain</span><span class="m" style="align-items:center">${pvMark("codex")}<span>ended</span><span>studio</span><span>widget</span><span>1 d</span></span></div></div>`)}<div class="ca-col">${details.machines()}${csec("Agents", "", '<div class="cc-panel cc-empty"><span>No agent is working in this project right now.</span></div>')}${csec("Custom agents", "", '<div class="cc-panel cc-empty"><span>No custom agents in .claude/agents, .opencode/agent, .codex/agents, .pi/agents or .agents yet.</span></div>', pb("Reload", "quiet small"))}</div></div>`;
 
 })();

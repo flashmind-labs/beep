@@ -34,12 +34,12 @@ export function renderWaiting() {
   S.view = "waiting";
   W.sel = 0;
   W.query = "";
-  if (known && !pick().length) return renderAgentNew("", "chat");
+  if (known && !pick().length) return renderAgentNew("", "waiting");
   drawWaiting(true);
 
   ensureSessions()
-    .then(() => { if (S.view === "waiting" && !W.query && !W.rows.length) renderAgentNew("", "chat"); })
-    .catch(() => { if (S.view === "waiting" && !W.rows.length) renderAgentNew("", "chat"); });
+    .then(() => { if (S.view === "waiting" && !W.query && !W.rows.length) renderAgentNew("", "waiting"); })
+    .catch(() => { if (S.view === "waiting" && !W.rows.length) renderAgentNew("", "waiting"); });
 }
 
 /// The project a session works in: its repository once its machine said, else its folder.

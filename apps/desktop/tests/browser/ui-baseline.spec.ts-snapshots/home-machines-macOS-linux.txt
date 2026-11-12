@@ -32,33 +32,30 @@ body.cbody
               span.open.twist
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "example/"
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="example/gadget" title="example/gadget build-box: /srv/example/gadget" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "gadget"
-                  span.n "1"
-                button.pa [aria-label="Pin to top" data-id="example/gadget" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="example/widget" title="example/widget build-box: /srv/example/widget" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "widget"
-                  span.n "1"
-                button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/gadget" title="example/gadget build-box: /srv/example/gadget" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "gadget"
+                span.n "1"
+              button.pa [aria-label="Pin to top" data-id="example/gadget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/widget" title="example/widget build-box: /srv/example/widget" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "widget"
+                span.n "1"
+              button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
             button.cc-org [aria-expanded="true" aria-label="tools/" title="tools/" type="button"]
               span.open.twist
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "tools/"
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="tools/delta" title="tools/delta build-box: /srv/tools/delta" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "delta"
-                button.pa [aria-label="Pin to top" data-id="tools/delta" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="tools/delta" title="tools/delta build-box: /srv/tools/delta" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "delta"
+              button.pa [aria-label="Pin to top" data-id="tools/delta" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
         div.cc-grp.machines
           h3
             button.cc-gt [type="button"] "Machines"
@@ -158,16 +155,8 @@ body.cbody
               span.num.off [title="Seen 1 h ago"] "offline"
               span.act
                 button.dbtn.small [disabled type="button"] "New terminal"
-        form#home-comp.cc-comp style(display;display:none)
-          input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep, or start an agent on a machine" spellcheck="false" type="text" value] value=""
-          span#home-err.cc-err [role="status"]
-          button#home-agent.dbtn [title="Start a coding agent on a machine" type="button"] "Agent"
-          button.dbtn.pri [type="submit"] "Send"
-            kbd "⏎"
       div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="chat"]
-      div.cc-box [hidden]
-      div.cc-box [hidden]
+        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

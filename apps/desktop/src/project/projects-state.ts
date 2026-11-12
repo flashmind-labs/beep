@@ -1,7 +1,7 @@
 import { dedupe, type MoveRecord } from "../agents/move-state.ts";
 import { plural } from "../ui/format.ts";
 import { syncedBySyncthing } from "./filesync.ts";
-import type { AgentQuestion, RunningAgent, RunningRow } from "../agents/running-state.ts";
+import type { AgentQuestion, RunningAgent } from "../agents/running-state.ts";
 import type { HostRow } from "./runs.ts";
 // Projects as the window lists them, their sessions, machines and groups,
 // as pure functions so they can be tested without Tauri.
@@ -72,10 +72,10 @@ export interface ProjectMachineRow {
   online: boolean;
   /// The project's folder there; null without a checkout.
   folder: string | null;
-  /// The server is looking through it for a checkout now.
+  /// The machine is looking through it for a checkout now.
   checking: boolean;
   checked_at: number | null;
-  /// The mesh holds the project, so Add reaches the machine with no server.
+  /// The mesh holds the project, so Add reaches the machine.
   mesh?: boolean;
   /// The Syncthing folder that keeps it in step there, by label; Beep
   /// does not sync such a folder (from `project_syncthing`).
@@ -115,48 +115,17 @@ export interface SessionRow {
   question: AgentQuestion | null;
 }
 
-/// Tasks by state (TaskCounts).
-export interface TaskCounts {
-  planned: number;
-  running: number;
-  blocked: number;
-  review: number;
-  done: number;
-}
-
-/// The task that changed last in a project (LatestTask).
-export interface LatestTask {
-  slug: string;
-  title: string;
-  /// `planned`, `running`, `blocked`, `review` or `done`.
-  state: string;
-  pr_url: string | null;
-  updated_at: number;
-}
-
-/// The server's overview of one project with an agent (OverviewCard).
-export interface OverviewCard {
-  project_id: string;
-  name: string;
-  tasks: TaskCounts;
-  /// Workers that have not ended.
-  workers: number;
-  latest: LatestTask | null;
-}
-
 /// Whether `cwd` is `folder` or inside it.
 function within(cwd: string, folder: string) {
   const f = String(folder || "").replace(/[\\/]+$/, "");
   return !!f && (cwd === f || String(cwd || "").startsWith(f + "/"));
 }
 
-const isAgent = (r: RunningRow): r is RunningAgent => r.kind === "agent";
-
 /// The imported projects, one row each, with the agents running in their
 /// folders counted.
 export function mergeProjects(
   imported: readonly Pick<ProjectRow, "name" | "url" | "machine_id" | "machine_name" | "folder">[] | null | undefined,
-  running: readonly RunningRow[] | null | undefined,
+  running: readonly RunningAgent[] | null | undefined,
 ): Project[] {
   const rows = new Map<string, Project>();
 
@@ -166,7 +135,7 @@ export function mergeProjects(
     rows.set(p.name, row);
   }
 
-  for (const r of (running || []).filter(isAgent)) {
+  for (const r of (running || [])) {
     let row: Project | undefined;
 
     for (const p of rows.values()) {
@@ -222,9 +191,9 @@ export function lookingText(machines: readonly { online: boolean }[] | null | un
 
 /// The project's running sessions, including live rows read from its history
 /// before Home has refreshed. Home supplies the full state when both have a row.
-export function projectRunning(project: Pick<Project, "machines">, running: readonly RunningRow[] | null | undefined, sessions: readonly SessionRow[] | null | undefined, moves: readonly MoveRecord[] = []): RunningAgent[] {
+export function projectRunning(project: Pick<Project, "machines">, running: readonly RunningAgent[] | null | undefined, sessions: readonly SessionRow[] | null | undefined, moves: readonly MoveRecord[] = []): RunningAgent[] {
   const inside = (r: RunningAgent) => project.machines.some(m => r.machine_id === m.id && (r.cwd === m.folder || r.cwd.startsWith(m.folder + "/")));
-  const live = (running || []).filter(isAgent).filter(inside);
+  const live = (running || []).filter(inside);
   const known = new Set(live.map(r => `${r.machine_id} ${r.id}`));
 
   for (const s of sessions || []) {
@@ -307,12 +276,6 @@ export function removeProjectSheet(name: string) {
 export function foundFor(found: readonly FoundRow[] | null | undefined, repo: string) {
   const name = repo.toLowerCase();
   return found?.find(f => f.name.toLowerCase() === name) ?? null;
-}
-
-/// Whether a project's page waits for its agent's view: the project has an
-/// agent, or `agents` (undefined until first read) cannot say yet.
-export function awaitsView(project: { name: string; imported: boolean }, agents: readonly { name: string }[] | null | undefined) {
-  return project.imported && (agents === undefined || !!agents?.some(a => a.name === project.name));
 }
 
 /// The line under a project's name: its host, or where it came from.
@@ -524,7 +487,7 @@ export function syncedBy(name: string, rows: readonly { project: string; error?:
 /// A row of a project's "Where it lives". `kind` is:
 /// - "here": a checkout in `folder`; `mac` when it is this Mac
 /// - "checking": the server is looking through it now
-/// - "none": online without a checkout, so it can be copied or cloned there
+/// - "none": online without a checkout, so it can be added or cloned there
 /// - "offline": offline without a checkout; it is looked through once it
 ///   connects
 export interface WhereRow {
@@ -536,10 +499,8 @@ export interface WhereRow {
   checked_at?: number | null;
   /// What the row says when there is no checkout.
   text?: string;
-  /// Another machine online can give it: the server has Beep's sync copy it
-  /// from there.
-  copy?: boolean;
-  /// As `copy`, for a project the mesh holds: the Add sheet makes the folder.
+  /// Another machine online can give it, for a project the mesh holds: the
+  /// Add sheet makes the folder.
   add?: boolean;
   /// The Syncthing folder's label when Syncthing keeps the folder in step; on
   /// a machine without it, when that holds every copy online to give it.
@@ -560,7 +521,7 @@ export function whereRows(project: { machines?: readonly ProjectPlace[] } | null
     if (m.online) {
       const copies = machines.filter(o => o.folder && o.online);
       const free = copies.some(o => !o.syncthing);
-      return { ...one, kind: "none", text: `Not on ${m.name}`, copy: free && !m.mesh, add: free && !!m.mesh, syncthing: free ? null : copies[0]?.syncthing || null };
+      return { ...one, kind: "none", text: `Not on ${m.name}`, add: free && !!m.mesh, syncthing: free ? null : copies[0]?.syncthing || null };
     }
 
     return { ...one, kind: "offline", text: `Checks when ${m.name} is online` };

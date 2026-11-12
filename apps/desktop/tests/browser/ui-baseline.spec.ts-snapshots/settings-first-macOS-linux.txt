@@ -18,13 +18,6 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
-        div.cc-grp.chats
-          h3
-            button.cc-gt [type="button"] "Chats"
-            button [aria-label="New chat" type="button"]
-              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-          span.cc-si.none "No chats yet"
-          div style(display)
         div.cc-grp.projects
           h3
             button.cc-gt [type="button"] "Projects"
@@ -35,14 +28,13 @@ body.cbody
               span.open.twist
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "example/"
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="example/widget" title="example/widget build-box: /srv/project" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "widget"
-                  span.n "2"
-                button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/widget" title="example/widget build-box: /srv/project" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "widget"
+                span.n "2"
+              button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
         div.cc-grp.machines
           h3
             button.cc-gt [type="button"] "Machines"
@@ -92,9 +84,6 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-            span.bd-switch [aria-label="Layout" role="group"]
-              button [aria-pressed="true" type="button"] "Board"
-              button [aria-pressed="false" type="button"] "List"
           div#sec-needs
             div.bd-lanes
               div.bd-lane
@@ -134,16 +123,8 @@ body.cbody
                   button [type="button"] "Done today"
                   span
                 div.bd-empty "Nothing here"
-        form#home-comp.cc-comp
-          input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep anything" spellcheck="false" type="text" value] value=""
-          span#home-err.cc-err [role="status"]
-          button#home-agent.dbtn [title="Start a coding agent on a machine" type="button"] style(display;display:none) "Agent"
-          button.dbtn.pri [type="submit"] "Send"
-            kbd "⏎"
       div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="chat"]
-      div.cc-box [hidden]
-      div.cc-box [hidden]
+        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
@@ -174,10 +155,6 @@ body.cbody
             span.tt "General"
           button.cc-si [data-goto="appearance"]
             span.tt "Appearance"
-          button.cc-si [data-goto="models"]
-            span.tt "Models"
-          button.cc-si [data-goto="apps"]
-            span.tt "Apps"
           button.cc-si [data-goto="mac"]
             span.tt "This computer"
           button.cc-si [data-goto="machines"]
@@ -188,8 +165,6 @@ body.cbody
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]
             span.tt "Instructions"
-          button.cc-si [data-goto="devices"]
-            span.tt "Beep server"
         small.dset-ver "Beep desktop 0.9.0"
       div.dset-body
         div.dset-top
@@ -205,21 +180,6 @@ body.cbody
                   b "Launch at login"
                   small "Keep Beep in the tray after a restart"
                 button#autostart.dswitch [aria-checked="false" aria-label="Launch at login" role="switch" type="button"]
-              div.dtoggle
-                span
-                  b "Voice notes"
-                  small "Notification only"
-              div.dchips.dgap [aria-label="Voice notes" role="radiogroup"]
-                button.dchip [aria-checked="false" aria-pressed="false" data-vn="ask" role="radio"] "Ask first"
-                button.dchip [aria-checked="false" aria-pressed="false" data-vn="aloud" role="radio"] "Read aloud right away"
-                button.dchip [aria-checked="true" aria-pressed="true" data-vn="off" role="radio"] "Off"
-              div.dtoggle
-                span
-                  b "When I stop talking"
-                  small "Pauses never send. Say “send” or “stop” when you are done."
-              div.dchips.dgap [aria-label="When I stop talking" role="radiogroup"]
-                button.dchip [aria-checked="false" aria-pressed="false" data-pause="1" role="radio"] "Send when I stop talking"
-                button.dchip [aria-checked="true" aria-pressed="true" data-pause="0" role="radio"] "Wait until I say “send”"
               div.dtoggle
                 span
                   b "Coding agent notifications"

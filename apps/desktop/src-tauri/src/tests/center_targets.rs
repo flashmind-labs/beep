@@ -40,41 +40,12 @@ fn a_project_window_hands_its_targets_to_the_main_window() {
         })
     );
     assert_eq!(read(r#""terminals""#), Some(CenterTarget::Terminals));
-    assert_eq!(read(r#""research""#), Some(CenterTarget::Research));
     assert_eq!(read(r#""report""#), Some(CenterTarget::Report));
-    let session = Uuid::new_v4();
-    assert_eq!(
-        read(&format!(r#"{{"open_research":{{"session":"{session}"}}}}"#)),
-        Some(CenterTarget::OpenResearch { session })
-    );
-    assert_eq!(
-        read(r#"{"ask":{"prompt":"hi"}}"#),
-        Some(CenterTarget::Ask {
-            prompt: "hi".into()
-        })
-    );
+    assert_eq!(read(r#""research""#), None);
 }
 
 #[test]
-fn target_reads_from_js() {
-    let new_chat: CenterTarget =
-        serde_json::from_str(r#"{"chat":{"session":null}}"#).expect("a new chat parses");
-    assert_eq!(new_chat, CenterTarget::Chat { session: None });
-    let memories: CenterTarget = serde_json::from_str(r#""memories""#).expect("parses");
-    assert_eq!(memories, CenterTarget::Memories);
-    let id = Uuid::new_v4();
-    let chat: CenterTarget =
-        serde_json::from_str(&format!(r#"{{"chat":{{"session":"{id}"}}}}"#)).expect("parses");
-    assert_eq!(chat, CenterTarget::Chat { session: Some(id) });
-}
-
-#[test]
-fn group_and_agent_targets_read_as_the_pane_takes_them() {
-    let group = CenterTarget::Group { id: "g1".into() };
-    assert_eq!(
-        serde_json::to_value(&group).expect("serializes"),
-        serde_json::json!({ "group": { "id": "g1" } })
-    );
+fn agent_targets_read_as_the_pane_takes_them() {
     let agent = CenterTarget::Agent(AgentTarget::asking("m1", "Studio", "claude", "s1", None));
     let json = serde_json::to_value(&agent).expect("serializes");
     assert_eq!(json["agent"]["kind"], "agent");
@@ -87,7 +58,7 @@ fn group_and_agent_targets_read_as_the_pane_takes_them() {
 #[test]
 fn pending_is_taken_once() {
     let pending = Pending::default();
-    pending.put(CenterTarget::Chats);
-    assert_eq!(pending.take(), Some(CenterTarget::Chats));
+    pending.put(CenterTarget::Settings);
+    assert_eq!(pending.take(), Some(CenterTarget::Settings));
     assert_eq!(pending.take(), None);
 }

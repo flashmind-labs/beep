@@ -70,7 +70,6 @@ body.mobile .cc-tabs.pj-tabs { margin: 0; padding: 2px }
 body.mobile .cc-cols { grid-template-columns: minmax(0, 1fr) }
 body.mobile .cc-panel { background: var(--surface) }
 body.mobile .cc-row { padding: 9px 11px; grid-template-columns: 24px minmax(0, 1fr) auto }
-body.mobile .cc-row:has(.cc-when) { grid-template-columns: 52px minmax(0, 1fr) auto }
 body.mobile .cc-ag { width: 24px; height: 24px; border-radius: 6px; font-size: 9px; border: 0 }
 body.mobile .cc-sec h4 { font-size: 12px }
 
@@ -86,7 +85,7 @@ body.mobile .pj-split.picked:not(.gh-layout) > .pj-list { display: none }
 body.mobile .pj-split.gh-layout { grid-template-rows: auto minmax(0, 1fr) }
 body.mobile .pj-split > .pj-det { padding-bottom: 12px }
 body.mobile .pj-strip { margin: 8px 12px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none }
-body.mobile .pj-cols, body.mobile .pj-cols.pj-half, body.mobile .pj-ov, body.mobile .in-cols, body.mobile .dtwo { grid-template-columns: minmax(0, 1fr) }
+body.mobile .pj-cols, body.mobile .pj-cols.pj-half, body.mobile .pj-ov, body.mobile .in-cols { grid-template-columns: minmax(0, 1fr) }
 body.mobile .pj-grid { grid-template-columns: minmax(0, 1fr) }
 /* The Projects overview stays inside the screen: headings and outside items wrap, the
    header's buttons are icons and the search takes the full width. */
@@ -116,7 +115,6 @@ body.mobile .tl-m h5 { min-height: 44px }
 
 /* No hover on a touch screen: what hover reveals is always there. */
 body.mobile .agtab em, body.mobile .dsubrow .x { opacity: .7; visibility: visible }
-body.mobile .drpic .save { opacity: 1 }
 body.mobile .rr-acts { display: flex; opacity: 1; grid-column: 2 / -1; grid-row: 2; justify-self: start }
 body.mobile .pj-runrow .rr-head:hover .rr-side { opacity: 1 }
 

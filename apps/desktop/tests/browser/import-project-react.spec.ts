@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 const machine = { id: "one", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
-const home = { machines: [machine], projects: [], running: [], needs_you: [], coming_up: null, updates: null };
+const home = { machines: [machine], projects: [], running: [], needs_you: [] };
 const folder = { path: "/srv", parent: "/", exists: true, folders: ["projects", "public"], more: 0, empty: false, origin: null };
 async function openImport(page: Page) {
   await openDesktop(page, false, { center_home: home, list_machine_folder: folder, preview_import: null, find_import_fork: null });

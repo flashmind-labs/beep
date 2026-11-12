@@ -1,38 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
-test("project without a project agent retains its session and machine sections", async ({ page }) => {
-  const sessions = [{ machine_id: 'build-box', machine_name: 'Build box', id: 'past-one', agent: 'codex', title: 'Past session', cwd: '/srv/project', status: 'ended', doing: null, started_at: 1, last_activity: 1, external: false, question: null }];
-  await openDesktop(page, false, { status: { link: 'linked', signed_out: false, server: true, live: false, session: null }, center_projects: [], project_sessions: sessions });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  const layout = page.locator('.pj-cols.pj-half'), row = layout.locator('#sec-sessions .pv-row');
-  await expect(row).toHaveText(/Past session/);
-  await expect(layout.locator('.pm-section')).toBeVisible();
-  await expect(layout.locator('#sec-project-agents')).toBeVisible();
-  await expect(layout.locator('#sec-custom-agents')).toBeVisible();
-  await row.focus();
-  await row.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
-  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length);
-  await page.evaluate(() => window.__navigation.notify('projects'));
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length)).toBeGreaterThan(reads);
-  await expect(row).toHaveAttribute('data-identity', 'kept');
-  await expect(row).toBeFocused();
-  await expect(layout.locator('#sec-custom-agents')).toHaveCSS('margin-top', '14px');
-  await page.evaluate(() => { window.__navigation.emit('link-state', 'unlinked'); window.__navigation.notify('projects'); });
-  const sessionsCell = page.locator('.pj-strip button').filter({ hasText: 'Sessions' });
-  await expect(page.locator('.pj-board .bd-lanes')).toBeVisible();
-  await expect(sessionsCell).toContainText('1 past');
-  const agentReads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'center_projects').length);
-  await page.evaluate(() => window.__navigation.emit('link-state', 'linked'));
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'center_projects').length)).toBeGreaterThan(agentReads);
-  await page.evaluate(() => window.__navigation.notify('projects'));
-  await expect(layout.locator('#sec-sessions .pv-row')).toContainText('Past session');
-  await page.evaluate(() => { window.__navigation.emit('link-state', 'unlinked'); window.__navigation.notify('projects'); });
-  await expect(page.locator('.pj-board .bd-lanes')).toBeVisible();
-  await sessionsCell.click();
-  await expect(page.locator('.pj-split > .pj-det .pv-row')).toContainText('Past session');
-});
-
 test("project navigation keeps scroll and focus while the selected section changes", async ({ page }) => {
   await openDesktop(page);
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "running" } }), projectName);
@@ -99,7 +67,7 @@ test("project pull request controls keep keyboard focus and row menus work", asy
 test("switching projects creates navigation for the active project", async ({ page }) => {
   const first = { name: projectName, url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 };
   const second = { ...first, name: "example/other", url: "https://example.test/example/other", folder: "/srv/other" };
-  await openDesktop(page, false, { center_home: { machines: [], projects: [first, second], running: [], needs_you: [], coming_up: null, updates: null } });
+  await openDesktop(page, false, { center_home: { machines: [], projects: [first, second], running: [], needs_you: [] } });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "machines" } }), first.name);
   const nav = page.locator(".pj-split:not(.gh-layout) > .pj-list");
   const firstRow = nav.locator('.pj-li[title="Machines"]');

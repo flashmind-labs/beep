@@ -28,14 +28,13 @@ body.cbody.mb-full.mobile
               span.open.twist
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "example/"
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="example/widget" title="example/widget build-box: /srv/project" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "widget"
-                  span.n "2"
-                button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/widget" title="example/widget build-box: /srv/project" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "widget"
+                span.n "2"
+              button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
         div.cc-grp.machines
           h3
             button.cc-gt [type="button"] "Machines"
@@ -85,9 +84,6 @@ body.cbody.mb-full.mobile
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-            span.bd-switch [aria-label="Layout" role="group"]
-              button [aria-pressed="true" type="button"] "Board"
-              button [aria-pressed="false" type="button"] "List"
           div#sec-needs
             div.bd-lanes
               div.bd-lane
@@ -127,12 +123,6 @@ body.cbody.mb-full.mobile
                   button [type="button"] "Done today"
                   span
                 div.bd-empty "Nothing here"
-        form#home-comp.cc-comp style(display;display:none)
-          input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep anything" spellcheck="false" type="text" value] value=""
-          span#home-err.cc-err [role="status"]
-          button#home-agent.dbtn [title="Start a coding agent on a machine" type="button"] style(display;display:none) "Agent"
-          button.dbtn.pri [type="submit"] "Send"
-            kbd "⏎"
       div#pane-box.cc-box
         div#bar.dbar [aria-label="Chat" data-mode="window" data-view="agent"]
           div [data-bar-page] style(display)
@@ -161,7 +151,7 @@ body.cbody.mb-full.mobile
                   button [aria-selected="false" data-mnav="changes" type="button"] "Changes"
                   button [aria-selected="false" data-mnav="running" type="button"] "Running"
                 div#agconv.agconv
-                  div style(display)
+                  div.agbodyw
                     div#agbody.dbody
                       div.dagmain
                         div.dcoderlog
@@ -200,13 +190,17 @@ body.cbody.mb-full.mobile
                           div.agspace [hidden] style(height)
                       button#agjump.dagjump [hidden] "Jump to latest"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                    div.agrail
+                      div.th style(height,top)
+                      button.tk [aria-label="Jump to your message: The login page redirects to a blank page after sign in. Find out why and fix it." type="button"] style(top)
+                      button.tk [aria-label="Jump to your message: Also keep the query string." type="button"] style(top)
                   div#agmovebox
                   div#agplan
                   div.ag-work
                     div.ag-worklist
                       div#agtasks
                         button.ag-tasks [title="Show them in the Running tab" type="button"]
-                          span.dspin
+                          span.dspin style(animation-delay)
                           span "3 commands running"
                       div [data-agent-queue-slot="true"] style(display)
                         div#agqueue.ag-queue
@@ -424,8 +418,6 @@ body.cbody.mb-full.mobile
                 span "Files"
                 small "0"
               div#agdropzone.agdropzone [hidden]
-      div.cc-box [hidden]
-      div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

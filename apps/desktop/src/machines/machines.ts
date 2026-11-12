@@ -15,7 +15,6 @@ import { type BarPage, type BarPageSlot, openBarPage } from "../bar/bar-app.tsx"
 import type { MachineTraffic } from "./traffic-state.ts";
 import { hintModel } from "../bar/hints.ts";
 import { notice } from "../chat/media.ts";
-import { span } from "../lists/routines.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { loadClocks } from "./clock.ts";
 import { openSignIn } from "./signin.ts";
@@ -136,7 +135,6 @@ export async function renderMachines(id: string | null = null) {
     at.machine = id;
   } else {
     S.view = "machines";
-    invoke("close_group").catch(() => {});
   }
 
   MC.asking = null;
@@ -498,4 +496,10 @@ function stopEditing() {
   search.draft = null;
   search.error = "";
   drawMachines();
+}
+
+/// How long `ms` is, roughly: "5 min", "3 h", "2 d".
+function span(ms: number) {
+  const min = Math.max(1, Math.round(Math.abs(ms) / 60000));
+  return min < 60 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} d`;
 }

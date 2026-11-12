@@ -11,7 +11,6 @@ const wired = new WeakSet<HTMLElement>();
 
 /// Registers a thought before its view is rendered.
 export function trackLive(key: string) { if (!follows.has(key)) follows.set(key, true); }
-export function endLive(key: string) { follows.delete(key); }
 
 /// Wires the live thoughts just drawn under `root`: each follows its
 /// newest line until the reader scrolls it, which `touched` hears of.

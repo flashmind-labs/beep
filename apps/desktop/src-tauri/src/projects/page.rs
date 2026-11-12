@@ -1,59 +1,34 @@
-//! A project's page: its machines and sessions, and the project agent's
-//! tasks, workers and chat.
+//! A project's page: its machines, folders and sessions.
 
-use super::{import::outdated, known};
 use crate::{
     agents::sessions::SessionRow,
-    beep::{BarEvent, Pick, Sent, Service, Turn, epoch_ms},
-    center::{self, Chat},
+    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Machines, files as direct,
-        projects::{FleetState, desk, desk_or_server, mirror_import},
+        projects::{FleetState, desk},
     },
 };
 use beep_fleet::project_id;
-use beep_proto::{
-    AgentStatus, ChatApproval, CopyProject, GetProjectAgent, ListPendingApprovals,
-    ListProjectMachines, ListProjectSessions, ListProjectSyncthing, ListProjectTasks,
-    ListProjectWorkers, PendingApproval, ProjectAgent, ProjectCopy, ProjectMachine, ProjectTask,
-    ProjectTaskState, ProjectWorker, ProjectWorkerState, StopProjectWorker, SyncthingPlace,
-    UpdateProjectTask,
-};
-use serde::{Deserialize, Serialize};
-use std::{cmp::Reverse, sync::Arc};
-use tauri::{AppHandle, Manager, WebviewWindow, ipc::Channel};
-use tokio::join;
+use beep_proto::{AgentStatus, ProjectAgent, ProjectMachine, SyncthingPlace};
+use serde::Serialize;
+use std::sync::Arc;
+use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
-/// The sessions coding agents ran in `project`'s folders, newest first;
-/// none from a server too old to list them.
+/// The sessions coding agents ran in `project`'s folders, newest first.
 #[tauri::command]
-pub async fn project_sessions(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    project: String,
-) -> Result<Vec<SessionRow>> {
-    if let super::branches::Placed::Mesh(places) =
-        super::branches::placed(&beep, &fleet, &project).await?
-    {
-        let mut sessions = direct::project_sessions(&fleet, &places).await;
+pub async fn project_sessions(fleet: Machines<'_>, project: String) -> Result<Vec<SessionRow>> {
+    let places = super::branches::placed(&fleet, &project)?;
+    let mut sessions = direct::project_sessions(&fleet, &places).await;
 
-        if let Some(mesh) = fleet.mesh() {
-            for session in &mut sessions {
-                beep_fleet::session_titles::apply(&mesh, session);
-            }
+    if let Some(mesh) = fleet.mesh() {
+        for session in &mut sessions {
+            beep_fleet::session_titles::apply(&mesh, session);
         }
-
-        return Ok(sessions.into_iter().map(SessionRow::from).collect());
     }
 
-    let sessions = known(beep.call(ListProjectSessions { project }).await)?;
-    Ok(sessions
-        .into_iter()
-        .flatten()
-        .map(SessionRow::from)
-        .collect())
+    Ok(sessions.into_iter().map(SessionRow::from).collect())
 }
 
 /// The sessions coding agents ran in every project of the mesh on the
@@ -87,11 +62,11 @@ pub struct ProjectMachineRow {
     online: bool,
     /// The project's folder there; `None` without a checkout.
     folder: Option<String>,
-    /// The server is looking through it for a checkout now.
+    /// The machine is looking through it for a checkout now.
     checking: bool,
     /// In milliseconds since the Unix epoch.
     checked_at: Option<u64>,
-    /// The mesh holds the project, so Add reaches this machine with no server.
+    /// The mesh holds the project, so Add reaches this machine.
     mesh: bool,
 }
 
@@ -104,38 +79,21 @@ impl From<ProjectMachine> for ProjectMachineRow {
             folder: m.folder,
             checking: m.checking,
             checked_at: m.checked_at.map(epoch_ms),
-            mesh: false,
+            mesh: true,
         }
     }
 }
 
 /// Every machine of the user's for `project`'s page: its folder there, or
-/// whether the server is looking for one. `None` from a server too old to
-/// say, and the page lists the imported folders as before.
+/// whether the machine is looking for one.
 #[tauri::command]
 pub async fn project_machines(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project: String,
 ) -> Result<Option<Vec<ProjectMachineRow>>> {
-    // A project only the server has: until it is moved into the mesh, the server answers.
-    let desk = match desk_or_server(&fleet, &beep).await? {
-        Some(desk) if desk.has_project(&project) || !beep.has_server() => desk,
-        _ => {
-            let machines = known(beep.call(ListProjectMachines { project }).await)?;
-            return Ok(machines
-                .map(|machines| machines.into_iter().map(ProjectMachineRow::from).collect()));
-        }
-    };
-    let machines = desk.project_machines(&project).await?;
+    let machines = desk(&fleet).await?.project_machines(&project).await?;
     Ok(Some(
-        machines
-            .into_iter()
-            .map(|machine| ProjectMachineRow {
-                mesh: true,
-                ..machine.into()
-            })
-            .collect(),
+        machines.into_iter().map(ProjectMachineRow::from).collect(),
     ))
 }
 
@@ -144,7 +102,6 @@ pub async fn project_machines(
 #[tauri::command]
 pub async fn project_add_to_machine(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project: String,
     machine_id: String,
     folder: String,
@@ -153,7 +110,6 @@ pub async fn project_add_to_machine(
         .await?
         .add_to_machine(&project, &machine_id, &folder)
         .await?;
-    mirror_import(&beep, &added).await;
     Ok(added.folder)
 }
 
@@ -163,7 +119,6 @@ pub async fn project_add_to_machine(
 #[tauri::command]
 pub async fn project_change_folder(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project: String,
     machine_id: String,
     folder: String,
@@ -172,7 +127,6 @@ pub async fn project_change_folder(
         .await?
         .change_folder(&project, &machine_id, &folder)
         .await?;
-    mirror_import(&beep, &changed).await;
     Ok(changed.folder)
 }
 
@@ -225,312 +179,25 @@ pub async fn project_remove_from_machine(
     Ok(removed)
 }
 
-/// Copies `project` onto `machine_id` through the server, which brings it
-/// over sync. `None` from a server too old to, or with no server, and the
-/// page clones instead.
-#[tauri::command]
-pub async fn project_copy(
-    beep: Service<'_>,
-    project: String,
-    machine_id: String,
-) -> Result<Option<ProjectCopy>> {
-    match known(
-        beep.call(CopyProject {
-            project,
-            machine_id,
-        })
-        .await,
-    ) {
-        Err(DesktopError::NoServer) => Ok(None),
-        copied => copied,
-    }
-}
-
-/// The machines on which Syncthing keeps `project`'s folder in step. Empty
-/// from a server too old to say.
+/// The machines on which Syncthing keeps `project`'s folder in step.
 #[tauri::command]
 pub async fn project_syncthing(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project: String,
 ) -> Result<Vec<SyncthingPlace>> {
-    match desk_or_server(&fleet, &beep).await? {
-        Some(desk) if desk.has_project(&project) || !beep.has_server() => {
-            Ok(desk.syncthing(&project).await)
-        }
-        _ => Ok(known(beep.call(ListProjectSyncthing { project }).await)?.unwrap_or_default()),
-    }
+    Ok(desk(&fleet).await?.syncthing(&project).await)
 }
 
-/// The project agent of `name` (`org/repo`), made with its chat on the
-/// first ask.
+/// The page of the mesh project `name` (`org/repo`), on the id its name
+/// makes. There is no project agent, so it has no chat.
 #[tauri::command]
-pub async fn center_open_project(
-    fleet: FleetState<'_>,
-    beep: Service<'_>,
-    name: String,
-) -> Result<ProjectAgent> {
-    // With no server there is no project agent: the page still opens, on an id the name makes,
-    // with no chat.
-    if !beep.has_server() {
-        let found = desk(&fleet).await?.project_machines(&name).await;
-        return found
-            .map(|_| ProjectAgent {
-                project_id: project_id(&name),
-                name,
-                chat_id: Uuid::nil(),
-                open_tasks: 0,
-                open_workers: 0,
-            })
-            .map_err(Into::into);
-    }
-
-    beep.call(GetProjectAgent { project: name })
-        .await
-        .map_err(outdated)
-}
-
-/// One task as a project's page lists it.
-#[derive(Debug, Serialize)]
-pub struct TaskRow {
-    id: Uuid,
-    title: String,
-    state: &'static str,
-    /// The task that must finish first.
-    depends_on: Option<Uuid>,
-    issue_number: Option<u64>,
-    issue_url: Option<String>,
-    branch: Option<String>,
-    pr_url: Option<String>,
-    /// The worker on it now, if one is.
-    worker: Option<Uuid>,
-    /// In milliseconds since the Unix epoch.
-    updated_at: u64,
-}
-
-/// One worker as a project's page lists it.
-#[derive(Debug, Serialize)]
-pub struct WorkerRow {
-    id: Uuid,
-    task_id: Uuid,
-    /// The `Machine::id` it runs on.
-    machine_id: String,
-    machine_name: String,
-    agent: String,
-    /// The node's id for its coding-agent session, once it has started.
-    session: Option<String>,
-    folder: String,
-    state: &'static str,
-    /// Not ended or failed, so it can be stopped.
-    live: bool,
-    last_output: Option<String>,
-    persona: Option<String>,
-    /// In milliseconds since the Unix epoch.
-    started_at: u64,
-    ended_at: Option<u64>,
-}
-
-/// A project's page below its folders: the agent's tasks, its workers,
-/// its chat and the approvals that chat waits on.
-#[derive(Debug, Serialize)]
-pub struct ProjectView {
-    tasks: Vec<TaskRow>,
-    workers: Vec<WorkerRow>,
-    turns: Vec<Turn>,
-    cards: Vec<PendingApproval>,
-}
-
-/// The server's answers for one project's page.
-struct ProjectParts {
-    chat_id: Uuid,
-    tasks: Vec<ProjectTask>,
-    workers: Vec<ProjectWorker>,
-    turns: Vec<Turn>,
-    approvals: Vec<ChatApproval>,
-}
-
-/// The tasks, workers, chat and cards of the project agent `project_id`,
-/// whose chat is `chat_id`.
-#[tauri::command]
-pub async fn center_project(
-    beep: Service<'_>,
-    project_id: Uuid,
-    chat_id: Uuid,
-) -> Result<ProjectView> {
-    // No server, no project agent: nothing planned, nothing running, no chat.
-    if !beep.has_server() {
-        return Ok(project_view(ProjectParts {
-            chat_id,
-            tasks: Vec::new(),
-            workers: Vec::new(),
-            turns: Vec::new(),
-            approvals: Vec::new(),
-        }));
-    }
-
-    let (tasks, workers, turns, approvals) = join!(
-        beep.call(ListProjectTasks {
-            project: project_id
-        }),
-        beep.call(ListProjectWorkers {
-            project: project_id
-        }),
-        beep.history(chat_id.to_string()),
-        beep.call(ListPendingApprovals {}),
-    );
-    Ok(project_view(ProjectParts {
-        chat_id,
-        tasks: tasks?,
-        workers: workers?,
-        turns: turns?,
-        approvals: approvals?,
-    }))
-}
-
-/// Sends `text` to the project chat `chat_id`, as the bar sends a prompt,
-/// and returns once the agent's turn ends.
-#[tauri::command]
-pub async fn center_project_send(
-    window: WebviewWindow,
-    beep: Service<'_>,
-    chat_id: Uuid,
-    text: String,
-    on_event: Channel<BarEvent>,
-) -> Result<()> {
-    let sent = Sent {
-        message: text,
-        images: Vec::new(),
-        files: Vec::new(),
-        research: false,
-        voice: None,
-        spoken: false,
-    };
-    // Made current before the run, so its own notices stay quiet.
-    center::remember_for(&window, &beep, Chat::Session(Some(chat_id.to_string())));
-    beep.post(chat_id, sent, Pick::default(), on_event).await?;
-    Ok(())
-}
-
-/// What the user may do to a task from its row.
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskChange {
-    Drop,
-    Reopen,
-}
-
-impl From<TaskChange> for ProjectTaskState {
-    fn from(change: TaskChange) -> Self {
-        match change {
-            TaskChange::Drop => Self::Dropped {},
-            TaskChange::Reopen => Self::Planned {},
-        }
-    }
-}
-
-/// Drops a task, or reopens a dropped or finished one.
-#[tauri::command]
-pub async fn center_update_task(beep: Service<'_>, task: Uuid, change: TaskChange) -> Result<()> {
-    beep.call(UpdateProjectTask {
-        task,
-        state: change.into(),
+pub async fn center_open_project(fleet: FleetState<'_>, name: String) -> Result<ProjectAgent> {
+    desk(&fleet).await?.project_machines(&name).await?;
+    Ok(ProjectAgent {
+        project_id: project_id(&name),
+        name,
+        chat_id: Uuid::nil(),
+        open_tasks: 0,
+        open_workers: 0,
     })
-    .await
-    .map_err(outdated)?;
-    Ok(())
 }
-
-/// Stops a live worker.
-#[tauri::command]
-pub async fn center_stop_worker(beep: Service<'_>, worker: Uuid) -> Result<()> {
-    beep.call(StopProjectWorker { worker })
-        .await
-        .map_err(outdated)
-}
-
-/// Where a task sorts: work in hand first, then what waits, then what is
-/// over.
-fn task_rank(state: ProjectTaskState) -> u8 {
-    match state {
-        ProjectTaskState::Running {} => 0,
-        ProjectTaskState::Review {} => 1,
-        ProjectTaskState::Blocked {} => 2,
-        ProjectTaskState::Planned {} => 3,
-        ProjectTaskState::Done {} => 4,
-        ProjectTaskState::Dropped {} => 5,
-    }
-}
-
-/// Whether a worker still runs, or may.
-fn is_live(state: ProjectWorkerState) -> bool {
-    !matches!(
-        state,
-        ProjectWorkerState::Ended {} | ProjectWorkerState::Failed {}
-    )
-}
-
-/// The page from the server's answers: tasks by state, then oldest first,
-/// each with its live worker; live workers before ended ones, each newest
-/// first; and only the cards of this project's chat.
-fn project_view(parts: ProjectParts) -> ProjectView {
-    let ProjectParts {
-        chat_id,
-        mut tasks,
-        mut workers,
-        turns,
-        approvals,
-    } = parts;
-    tasks.sort_by_key(|t| (task_rank(t.state), t.created_at));
-    workers.sort_by_key(|w| (!is_live(w.state), Reverse(w.started_at)));
-    let tasks = tasks
-        .into_iter()
-        .map(|t| TaskRow {
-            worker: workers
-                .iter()
-                .find(|w| w.task_id == t.id && is_live(w.state))
-                .map(|w| w.id),
-            id: t.id,
-            title: t.title,
-            state: t.state.into(),
-            depends_on: t.depends_on,
-            issue_number: t.issue_number,
-            issue_url: t.issue_url,
-            branch: t.branch,
-            pr_url: t.pr_url,
-            updated_at: epoch_ms(t.updated_at),
-        })
-        .collect();
-    let workers = workers
-        .into_iter()
-        .map(|w| WorkerRow {
-            live: is_live(w.state),
-            id: w.id,
-            task_id: w.task_id,
-            machine_id: w.machine_id,
-            machine_name: w.machine_name,
-            agent: w.agent,
-            session: w.session,
-            folder: w.folder,
-            state: w.state.into(),
-            last_output: w.last_output,
-            persona: w.persona,
-            started_at: epoch_ms(w.started_at),
-            ended_at: w.ended_at.map(epoch_ms),
-        })
-        .collect();
-    let cards = approvals
-        .into_iter()
-        .filter(|a| a.session_id == chat_id)
-        .map(|a| a.pending)
-        .collect();
-    ProjectView {
-        tasks,
-        workers,
-        turns,
-        cards,
-    }
-}
-
-#[cfg(test)]
-#[path = "../tests/projects_page.rs"]
-mod tests;

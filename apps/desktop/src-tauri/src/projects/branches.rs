@@ -1,84 +1,42 @@
 //! Branches with work before an import, and giving a branch a worktree.
 
 use crate::{
-    beep::{Beep, Service, epoch_ms},
-    error::Result,
+    beep::epoch_ms,
+    error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
         files::{self as direct, FALLBACK_DEFAULT, Place},
         projects::{FleetState, desk},
     },
-    projects::needs_update,
-    projects::reviews::BranchRow,
 };
 use beep_proto::{
-    AddBranchWorktree, ImportCheckout, ImportFork, ImportPreview, ListProjectMachines, WorkBranch,
+    ImportCheckout, ImportFork, ImportPreview, ProjectBranch, ProjectBranches, WorkBranch,
 };
 use serde::Serialize;
-use std::time::Duration;
 
-/// Where a project's checkouts are.
-pub(crate) enum Placed {
-    /// On these machines of the mesh, which are online.
-    Mesh(Vec<Place>),
-    /// Only the server knows the project.
-    Server,
-}
-
-/// Where `project` has a checkout on a machine of the mesh that is online, nearest first.
-/// A project the mesh records is never the server's: with no checkout of it
-/// online that is an error. A project only the server records, as the server
-/// places it on the mesh's machines, or else it stays the server's.
-pub(crate) async fn placed(beep: &Beep, fleet: &Fleet, project: &str) -> Result<Placed> {
+/// Where `project` has a checkout on a machine of the mesh that is online, nearest first. With
+/// none online, or a project the mesh does not record, that is an error.
+pub(crate) fn placed(fleet: &Fleet, project: &str) -> Result<Vec<Place>> {
     let online = fleet.online();
-
-    if let Some(mesh) = fleet.mesh()
-        && beep_fleet::has_project(&mesh, project)
-    {
-        let mut recorded: Vec<Place> = beep_fleet::places(&mesh, project)
-            .into_iter()
-            .filter(|(machine, _)| online.contains(machine))
-            .map(|(machine, folder)| Place { machine, folder })
-            .collect();
-        beep_fleet::nearest_first(&mesh, &mut recorded, |place| place.machine);
-
-        if recorded.is_empty() {
-            return Err(crate::error::DesktopError::BadRequest(
-                "No machine with a checkout of the project is online.".into(),
-            ));
-        }
-
-        return Ok(Placed::Mesh(recorded));
-    }
-
-    let machines = beep
-        .call(ListProjectMachines {
-            project: project.to_owned(),
-        })
-        .await;
-    let mut places: Vec<Place> = crate::fleet::extra(machines)
+    let mesh = fleet
+        .mesh()
+        .filter(|mesh| beep_fleet::has_project(mesh, project))
+        .ok_or_else(|| DesktopError::BadRequest("The project is not in the mesh.".into()))?;
+    let mut recorded: Vec<Place> = beep_fleet::places(&mesh, project)
         .into_iter()
-        .filter(|machine| machine.online)
-        .filter_map(|machine| {
-            Some(Place {
-                machine: fleet.member(&machine.machine_id)?,
-                folder: machine.folder?,
-            })
-        })
+        .filter(|(machine, _)| online.contains(machine))
+        .map(|(machine, folder)| Place { machine, folder })
         .collect();
-    if let Some(mesh) = fleet.mesh() {
-        beep_fleet::nearest_first(&mesh, &mut places, |place| place.machine);
+    beep_fleet::nearest_first(&mesh, &mut recorded, |place| place.machine);
+
+    if recorded.is_empty() {
+        return Err(DesktopError::BadRequest(
+            "No machine with a checkout of the project is online.".into(),
+        ));
     }
 
-    Ok(if places.is_empty() {
-        Placed::Server
-    } else {
-        Placed::Mesh(places)
-    })
+    Ok(recorded)
 }
-
-/// Adding a worktree may fetch the branch first.
-const ADD_TIMEOUT: Duration = Duration::from_secs(150);
 
 #[derive(Debug, Serialize)]
 pub struct CheckoutRow {
@@ -158,38 +116,101 @@ pub async fn find_import_fork(fleet: FleetState<'_>, repo: String) -> Result<Opt
     Ok(Some(desk(&fleet).await?.find_fork(&repo).await?))
 }
 
+/// One branch as the window shows it.
+#[derive(Debug, Serialize)]
+pub struct BranchRow {
+    name: String,
+    worktree: Option<String>,
+    ahead: u32,
+    behind: u32,
+    head: String,
+    subject: String,
+    /// In milliseconds since the Unix epoch.
+    committed_at: u64,
+    local: bool,
+    pushed: bool,
+}
+
+impl From<ProjectBranch> for BranchRow {
+    fn from(b: ProjectBranch) -> Self {
+        Self {
+            name: b.name,
+            worktree: b.worktree,
+            ahead: b.ahead,
+            behind: b.behind,
+            head: b.head,
+            subject: b.subject,
+            committed_at: epoch_ms(b.committed_at),
+            local: b.local,
+            pushed: b.pushed,
+        }
+    }
+}
+
+/// A project's branches on the machine that read them.
+#[derive(Debug, Serialize)]
+pub struct BranchesView {
+    machine_id: String,
+    machine_name: String,
+    default_branch: String,
+    branches: Vec<BranchRow>,
+}
+
+impl From<ProjectBranches> for BranchesView {
+    fn from(b: ProjectBranches) -> Self {
+        Self {
+            machine_id: b.machine_id,
+            machine_name: b.machine_name,
+            default_branch: b.default_branch,
+            branches: b.branches.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// `project`'s branches, read at its nearest online checkout on a machine of the mesh.
+pub(crate) async fn read_branches(fleet: &Fleet, project: String) -> Result<ProjectBranches> {
+    // `placed` lists one at least.
+    let Some(place) = placed(fleet, &project)?.into_iter().next() else {
+        return Err(DesktopError::BadRequest(
+            "No machine with a checkout of the project is online.".into(),
+        ));
+    };
+    let (default_branch, branches) = direct::branches(fleet, &place, FALLBACK_DEFAULT).await?;
+    Ok(ProjectBranches {
+        machine_id: place.machine.to_string(),
+        machine_name: fleet.name_of(place.machine),
+        default_branch,
+        branches,
+    })
+}
+
+/// `project`'s branches.
+#[tauri::command]
+pub async fn project_branches(
+    fleet: Machines<'_>,
+    project: String,
+) -> Result<Option<BranchesView>> {
+    Ok(Some(read_branches(&fleet, project).await?.into()))
+}
+
 /// Gives `branch` of `project` a worktree on `machine_id`.
 #[tauri::command]
 pub async fn add_branch_worktree(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     project: String,
     branch: String,
     machine_id: String,
 ) -> Result<BranchRow> {
-    if let Some(machine) = fleet.member(&machine_id)
-        && let Placed::Mesh(places) = placed(&beep, &fleet, &project).await?
-    {
-        let place = places
-            .into_iter()
-            .find(|place| place.machine == machine)
-            .ok_or_else(|| {
-                crate::error::DesktopError::BadRequest(format!(
-                    "{} has no checkout of {project}.",
-                    fleet.name_of(machine)
-                ))
-            })?;
-        let added = direct::add_worktree(&fleet, &place, &branch, FALLBACK_DEFAULT).await?;
-        return Ok(added.into());
-    }
-
-    let request = AddBranchWorktree {
-        project,
-        branch,
-        machine_id,
-    };
-    let branch = beep.call_within(request, ADD_TIMEOUT).await;
-    Ok(branch
-        .map_err(|e| needs_update(e, "before it adds worktrees"))?
-        .into())
+    let machine = fleet.machine(&machine_id)?;
+    let place = placed(&fleet, &project)?
+        .into_iter()
+        .find(|place| place.machine == machine)
+        .ok_or_else(|| {
+            DesktopError::BadRequest(format!(
+                "{} has no checkout of {project}.",
+                fleet.name_of(machine)
+            ))
+        })?;
+    let added = direct::add_worktree(&fleet, &place, &branch, FALLBACK_DEFAULT).await?;
+    Ok(added.into())
 }

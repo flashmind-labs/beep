@@ -21,14 +21,14 @@ test("a machine's synced projects: only its own, the detail while it agrees, wha
 });
 
 test("Running now puts the session that moved last first", () => {
-  const agent = (id: string, started_at: number, last_activity: number) => ({ kind: "agent" as const, machine_id: "m", id, started_at, last_activity });
-  const rows = [agent("old", 10, 20), { kind: "research" as const, session: "r", started_at: 30 }, agent("new", 5, 40), agent("quiet", 25, 0)];
-  assert.deepEqual(byRecent(rows).map(runningKey), ["agent:m:new", "research:r", "agent:m:quiet", "agent:m:old"]);
+  const agent = (id: string, started_at: number, last_activity: number) => ({ machine_id: "m", id, started_at, last_activity });
+  const rows = [agent("old", 10, 20), agent("new", 5, 40), agent("quiet", 25, 0)];
+  assert.deepEqual(byRecent(rows).map(runningKey), ["agent:m:new", "agent:m:quiet", "agent:m:old"]);
   assert.equal(runningKey(rows[0]), "agent:m:old", "the list it was given stays as it was");
 });
 
 test("a running agent shows its title, then agent, repo and machine", () => {
-  const r = { kind: "agent" as const, agent: "claude", title: "Fix the build", cwd: "/srv/project/widget-fix/src", machine_id: "m1", machine_name: "build-box" };
+  const r = { agent: "claude", title: "Fix the build", cwd: "/srv/project/widget-fix/src", machine_id: "m1", machine_name: "build-box" };
   assert.deepEqual(runningLine(r), { title: "Fix the build", sub: "src · build-box" });
   const projects = [
     { name: "org/widget", machine_id: "m1", folder: "/srv/project/widget-fix" },
@@ -66,7 +66,7 @@ test("This computer gets a row until the server lists it", () => {
 test("a Running row shows time since last activity between turns", t => {
   const now = 1_800_000_000_000;
   t.mock.method(Date, "now", () => now);
-  const agent = { kind: "agent" as const, status: "idle", started_at: now - 86_400_000, last_activity: now - 180_000 };
+  const agent = { status: "idle", started_at: now - 86_400_000, last_activity: now - 180_000 };
   assert.equal(runningWhen({ ...agent, status: "working" }), "now");
   assert.equal(runningWhen(agent), "3m ago");
   assert.equal(runningWhen({ ...agent, last_activity: now - 7_200_000 }), "2h ago");

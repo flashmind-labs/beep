@@ -16,26 +16,26 @@ function Marked({ text, query }: { text: string; query: string }) {
   return <>{parts}</>;
 }
 
-export function PaletteView({ input, hits, selected, query, subscribed, searchIcon, group, icon, search, choose, hover, ask }: {
-  input: RefObject<HTMLInputElement | null>; hits: Hit[]; selected: number; query: string; subscribed: boolean;
+export function PaletteView({ input, hits, selected, query, searchIcon, group, icon, search, choose, hover }: {
+  input: RefObject<HTMLInputElement | null>; hits: Hit[]; selected: number; query: string;
   searchIcon: string;
-  group(hit: Hit, query: string): string; icon(hit: Hit): string | null;
-  search(value: string): void; choose(hit: Hit): void; hover(index: number): void; ask(value: string): void;
+  group(hit: Hit): string; icon(hit: Hit): string | null;
+  search(value: string): void; choose(hit: Hit): void; hover(index: number): void;
 }) {
   const active = useRef<HTMLButtonElement>(null), dialog = useDialogRef();
   useLayoutEffect(() => { input.current?.focus(); }, []);
   useLayoutEffect(() => { active.current?.scrollIntoView({ block: "nearest" }); }, [selected, query]);
-  return <div ref={dialog} className="cc-pal" role="dialog" aria-label="Search"><div className="q"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: searchIcon }} /><input ref={input} type="text" placeholder={`Search anything: ${subscribed ? "chats, " : ""}projects, coding agents, machines, settings, PRs…`} autoComplete="off" spellCheck={false} aria-label="Search" role="combobox" aria-controls="pal-list" aria-expanded="true" aria-activedescendant={hits[selected] ? `pal-opt-${selected}` : undefined} onChange={e => search(e.currentTarget.value)} /></div>
+  return <div ref={dialog} className="cc-pal" role="dialog" aria-label="Search"><div className="q"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: searchIcon }} /><input ref={input} type="text" placeholder="Search anything: projects, coding agents, machines, settings, PRs…" autoComplete="off" spellCheck={false} aria-label="Search" role="combobox" aria-controls="pal-list" aria-expanded="true" aria-activedescendant={hits[selected] ? `pal-opt-${selected}` : undefined} onChange={e => search(e.currentTarget.value)} /></div>
     <div className="res" role="listbox" id="pal-list">{hits.map((hit, i) => {
-      const title = group(hit, query), previous = i ? group(hits[i - 1], query) : null;
-      const detail = hit.detail && ["chat", "routine", "setting", "project", "project_chat", "folder", "agent_session", "code", "branch"].includes(hit.kind) ? hit.detail : null;
-      const side = hit.detail && (hit.kind === "memory" || hit.kind === "machine") ? hit.detail : null;
+      const title = group(hit), previous = i ? group(hits[i - 1]) : null;
+      const detail = hit.detail && hit.kind !== "action" && hit.kind !== "machine" ? hit.detail : null;
+      const side = hit.detail && hit.kind === "machine" ? hit.detail : null;
       const multi = query.trim().split(/\s+/u).length > 1;
       return <Fragment key={`${hit.kind}:${hit.id}`}>{title !== previous && <h5>{title}</h5>}<button ref={i === selected ? active : null} type="button" className="it" tabIndex={-1} role="option" aria-selected={i === selected} id={`pal-opt-${i}`} onMouseMove={e => { if (e.movementX || e.movementY) hover(i); }} onClick={() => choose(hit)}>
         {hit.kind === "machine" ? <span className={`ddot${hit.detail === "online" ? "" : " off"}`} /> : <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: icon(hit) ?? "" }} />}
         <span className="t"><span><Marked text={hit.title} query={query} /></span>{detail && <small style={multi ? { whiteSpace: "normal" } : undefined}><Marked text={detail} query={query} /></small>}{hit.snippet && <small style={multi ? { whiteSpace: "normal" } : undefined}><Marked text={hit.snippet} query={query} /></small>}</span>{side && <span className="w">{side}</span>}
       </button></Fragment>;
-    })}{!hits.length && <div className="none">Nothing matches “{query}”.{query && subscribed && <><br /><button type="button" className="dbtn" onClick={() => ask(query)}>Ask Beep “{query}”<kbd>⌘↵</kbd></button></>}</div>}</div>
-    <div className="foot">{[["↑↓", "move"], ["↵", "open"], ...(subscribed ? [["⌘↵", "ask Beep"]] : []), ["esc", "close"]].map(([key, label]) => <span key={key}><kbd>{key}</kbd>{label}</span>)}</div>
+    })}{!hits.length && <div className="none">Nothing matches “{query}”.</div>}</div>
+    <div className="foot">{[["↑↓", "move"], ["↵", "open"], ["esc", "close"]].map(([key, label]) => <span key={key}><kbd>{key}</kbd>{label}</span>)}</div>
   </div>;
 }

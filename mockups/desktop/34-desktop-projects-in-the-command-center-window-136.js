@@ -1,7 +1,5 @@
 // ---- Desktop: projects in the command center window (#136) ----
-// One Beep agent per project acts as its project manager: it plans tasks, mirrors them as issues and runs each
-// as a Claude Code or Codex worker in its own worktree on a machine that fits. The overview lists projects;
-// a project shows its tasks, its workers and the project chat.
+// The overview lists projects; a project shows its coding agents, machines, PRs and issues.
 (() => {
   const st = document.createElement("style");
   st.textContent = `.mac .pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px }
@@ -17,9 +15,6 @@
 .mac .pj-bar { display: flex; height: 5px; border-radius: 5px; overflow: hidden; background: var(--d-elev); gap: 2px }
 .mac .pj-bar i { display: block; height: 100% }
 .mac .pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
-.mac .pj-machs { display: flex; flex-wrap: wrap; gap: 6px }
-.mac .pj-mach { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 999px; border: 1px solid var(--d-border); background: var(--d-elev); font-size: 12px; color: var(--d-fg) }
-.mac .pj-mach small { color: var(--d-muted); font-size: 11px }
 .mac .pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 8px 12px; align-items: center }
 .mac .pj-task + .pj-task { border-top: 1px solid var(--d-border) }
 .mac .pj-task .t { font-size: 13px; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -27,8 +22,6 @@
 .mac .pj-task .m a { color: #8A9CF0; text-decoration: none }
 .mac .pj-task .acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap }
 .mac .pj-task.ask { background: rgba(242,201,76,.06) }
-.mac .pj-label { font: inherit; font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--d-border); background: none; color: var(--d-muted); cursor: pointer; margin-left: 4px }
-.mac .pj-label.on { color: var(--d-text); border-color: #8A9CF0; background: rgba(138,156,240,.12) }
 .mac .pj-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 7px 11px; border-bottom: 1px solid var(--d-border) }
 .mac .pj-labels .lbl, .mac .pj-labels small { font-size: 11px; color: var(--d-muted) }
 .mac .pj-st { font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--d-border); color: var(--d-muted); white-space: nowrap; display: inline-flex; gap: 6px; align-items: center }
@@ -38,18 +31,6 @@
 .mac .pj-st.done { color: var(--d-dim) }
 .mac .pj-st.dropped { color: var(--d-dim); text-decoration: line-through }
 .mac .pj-st .dspin { width: 9px; height: 9px }
-.mac .pj-tree { padding: 6px 0 }
-.mac .pj-node { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 9px; padding: 6px 10px; align-items: start }
-.mac .pj-node.child { margin-left: 18px; padding-left: 14px; border-left: 1px solid var(--d-border) }
-.mac .pj-node .t { display: grid; line-height: 17px; min-width: 0 }
-.mac .pj-node .t b { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-node .t span { font-size: 11.5px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-node .out { grid-column: 2; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: rgba(227,228,230,.75); background: var(--d-ink); border: 1px solid var(--d-border); border-radius: 6px; padding: 4px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-plan { display: grid; gap: 6px; padding: 10px; border-radius: 8px; border: 1px solid var(--d-border); background: var(--d-elev) }
-.mac .pj-plan b { font-size: 13px }
-.mac .pj-plan ol { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 12.5px }
-.mac .pj-plan ol small { color: var(--d-muted) }
-.mac .pj-issue .t a { color: #8A9CF0; text-decoration: none; margin-right: 2px }
 .mac .pj-start { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: center; margin-top: 4px; font-size: 12px }
 .mac .pj-start .lbl { color: var(--d-muted) }
 .mac .pj-start .seg { display: flex; flex-wrap: wrap; gap: 4px }
@@ -57,11 +38,6 @@
 .mac .pj-start .seg button[aria-pressed="true"] { background: rgba(94,106,210,.26); border-color: rgba(94,106,210,.55) }
 .mac .pj-start code { justify-self: start }
 .mac .pj-start .acts { grid-column: 1 / -1 }
-.mac .pj-chk { color: var(--d-muted) }
-.mac .pj-chk.run { color: var(--d-emerald); display: inline-flex; gap: 6px; align-items: center }
-.mac .pj-chk.bad, .mac .pj-task .m a.pj-chk.bad { color: #F2C94C }
-.mac .pj-host { display: inline-block; font-size: 10.5px; line-height: 15px; padding: 0 5px; margin-right: 6px; border: 1px solid var(--d-line, rgba(255,255,255,.14)); border-radius: 4px; color: var(--d-muted); vertical-align: 1px; font-weight: 500 }
-.mac .cc-sec small.hosterr { color: #F2C94C }
 .mac .pj-run { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 6px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--d-border); background: var(--d-elev) }
 .mac .pj-jobs { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12px; align-items: baseline }
 .mac .pj-jobs b { font-weight: 500 } .mac .pj-jobs b.bad { color: #F2C94C } .mac .pj-jobs small { color: var(--d-muted) }
@@ -70,10 +46,6 @@
 .mac .pj-step small { color: var(--d-muted) } .mac .pj-step.bad { color: #F2C94C } .mac .pj-step.skip { color: var(--d-dim) }
 .mac .pj-log small { color: var(--d-muted); font-size: 11px }
 .mac .pj-log pre { margin: 4px 0 0; padding: 8px; border-radius: 7px; background: rgba(0,0,0,.25); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; max-height: 220px; overflow: auto }
-.mac .pj-draft { grid-column: 1 / -1; display: grid; gap: 6px; margin-top: 4px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--d-border); background: var(--d-elev) }
-.mac .pj-draft small { color: var(--d-muted); font-size: 11px }
-.mac .pj-draft .q { font-size: 12.5px; line-height: 18px; border-left: 2px solid rgba(94,106,210,.6); padding-left: 9px }
-.mac .pj-draft .acts { display: flex; gap: 6px }
 .mac .cc-org { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px; padding: 3px 8px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 11.5px; text-align: left; color: var(--d-muted); cursor: pointer }
 .mac .cc-org:hover { color: var(--d-fg) }
 .mac .cc-org .twist { flex: none; width: 10px; display: grid; place-items: center; color: var(--d-dim) }

@@ -1,5 +1,4 @@
 use super::*;
-use beep_proto::Approval;
 use std::time::{Duration, SystemTime};
 
 fn at(ms: u64) -> SystemTime {
@@ -47,22 +46,6 @@ fn asking(machine: &str, id: &str, last_activity: u64) -> MachineSession {
     }
 }
 
-fn approval(session: Uuid) -> ChatApproval {
-    ChatApproval {
-        session_id: session,
-        session_title: "Chat".into(),
-        pending: PendingApproval {
-            run_id: "run".into(),
-            query_id: "query".into(),
-            approval: Approval {
-                app: "Fastmail".into(),
-                action: "send email".into(),
-                fields: Vec::new(),
-            },
-        },
-    }
-}
-
 fn view(parts: HomeParts) -> HomeView {
     home_view(parts).expect("home built")
 }
@@ -73,59 +56,13 @@ fn parts() -> HomeParts {
         details: Ok(Vec::new()),
         stats: Ok(Vec::new()),
         sessions: Ok(Vec::new()),
-        researches: Ok(Vec::new()),
-        approvals: Ok(Vec::new()),
-        chats: Ok(Vec::new()),
-        crons: Ok(Vec::new()),
-        updates: Ok(Vec::new()),
         projects: Ok(Vec::new()),
     }
 }
 
-fn imported(project: &str, machine: &str) -> ImportedProject {
-    ImportedProject {
-        project: project.into(),
-        url: format!("https://github.com/{project}"),
-        machine_id: machine.into(),
-        machine_name: "box".into(),
-        folder: format!("/srv/{project}"),
-        cloned: false,
-        imported_at: at(9000),
-    }
-}
-
+#[allow(dead_code)]
 #[test]
-fn projects_come_from_the_mesh_and_the_server_adds_machines_outside_it() {
-    let mesh = vec![imported("org/repo", "m1")];
-    let both = with_server(
-        mesh.clone(),
-        Ok(vec![imported("org/repo", "m1"), imported("org/repo", "m2")]),
-    )
-    .expect("listed");
-    assert_eq!(both.len(), 2);
-    assert_eq!(both[1].machine_id, "m2");
-    // No server, or one that is down, leaves the mesh's own.
-    for failed in [
-        DesktopError::NoServer,
-        DesktopError::Unlinked,
-        DesktopError::BadRequest("the server took too long".into()),
-    ] {
-        assert_eq!(
-            with_server(mesh.clone(), Err(failed)).expect("kept").len(),
-            1
-        );
-    }
-    // With nothing in the mesh the failure shows, so Home keeps what it had.
-    assert!(with_server(Vec::new(), Err(DesktopError::BadRequest("down".into()))).is_err());
-    assert!(
-        with_server(Vec::new(), Err(DesktopError::NoServer))
-            .expect("none")
-            .is_empty()
-    );
-}
-
-#[test]
-fn imported_projects_list_and_an_old_server_hides_them() {
+fn imported_projects_list_and_an_old_machine_hides_them() {
     let listed = view(HomeParts {
         projects: Ok(vec![ImportedProject {
             project: "org/repo".into(),
@@ -145,29 +82,6 @@ fn imported_projects_list_and_an_old_server_hides_them() {
         ..parts()
     });
     assert!(old.projects.is_none());
-}
-
-#[test]
-fn updates_come_with_their_app_and_time() {
-    let listed = view(HomeParts {
-        updates: Ok(vec![AppUpdate {
-            id: 7,
-            summary: "The build is ready.".into(),
-            app: "gmail".into(),
-            app_name: "Gmail".into(),
-            at: at(5000),
-        }]),
-        ..parts()
-    });
-    let updates = listed.updates.expect("updates were listed");
-    assert_eq!(updates.len(), 1);
-    assert_eq!((updates[0].id, updates[0].at), (7, 5000));
-    assert_eq!(updates[0].app_name, "Gmail");
-    let old = view(HomeParts {
-        updates: Err(DesktopError::Api(ApiError::bad_request("unknown op 160"))),
-        ..parts()
-    });
-    assert!(old.updates.is_none(), "a server without updates hides them");
 }
 
 #[test]
@@ -227,7 +141,6 @@ fn unsupported_section_is_none() {
     });
     assert!(view.running.is_none());
     assert!(view.machines.is_some());
-    assert!(view.coming_up.is_some());
 }
 
 #[test]
@@ -241,7 +154,7 @@ fn machine_list_failure_fails_home() {
         machines: Err(DesktopError::Api(ApiError::bad_request("unknown op 130"))),
         ..parts()
     })
-    .expect("an old server is not a failure");
+    .expect("an old machine is not a failure");
     assert!(unsupported.machines.is_none());
 }
 
@@ -272,39 +185,17 @@ fn machines_sort_online_then_by_agents() {
 
 #[test]
 fn needs_you_puts_oldest_first() {
-    let chat = Uuid::new_v4();
     let view = view(HomeParts {
         sessions: Ok(vec![
             asking("build-box", "late", 3000),
             asking("build-box", "early", 1000),
         ]),
-        approvals: Ok(vec![approval(chat)]),
-        chats: Ok(vec![Session {
-            id: chat.to_string(),
-            title: "Chat".into(),
-            pinned: false,
-            updated_at: 2000,
-        }]),
         ..parts()
     });
     let order: Vec<String> = view
         .needs_you
         .iter()
-        .map(|item| match item {
-            NeedsYou::Chat { .. } => "chat".into(),
-            NeedsYou::Agent { session, .. } => session.clone(),
-        })
+        .map(|NeedsYou::Agent { session, .. }| session.clone())
         .collect();
-    assert_eq!(order, ["early", "chat", "late"]);
-}
-
-#[test]
-fn approval_of_a_missing_chat_comes_last() {
-    let view = view(HomeParts {
-        sessions: Ok(vec![asking("build-box", "agent", 5000)]),
-        approvals: Ok(vec![approval(Uuid::new_v4())]),
-        ..parts()
-    });
-    assert!(matches!(view.needs_you[0], NeedsYou::Agent { .. }));
-    assert!(matches!(view.needs_you[1], NeedsYou::Chat { .. }));
+    assert_eq!(order, ["early", "late"]);
 }

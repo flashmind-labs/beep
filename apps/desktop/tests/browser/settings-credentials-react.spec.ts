@@ -2,8 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 const responses = {
-  status: { link: "linked", signed_out: false, server: true, live: false, session: null },
-  settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false },
+  settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
   list_machines: [], list_credentials: [], list_github_accounts: [], cli_logins: { github: { state: "missing" }, forgejo: [] },
 };
 async function credentials(page: import("@playwright/test").Page) {
@@ -16,15 +15,16 @@ async function credentials(page: import("@playwright/test").Page) {
 }
 test("credentials draft survives settings redraw and saves via Enter", async ({ page }) => {
   const settings = await credentials(page);
-  await settings.getByLabel("Server URL").fill("https://git.example.test");
+  const url = settings.getByLabel("Server URL");
+  await url.fill("https://git.example.test");
+  await url.evaluate(el => { if (el instanceof HTMLInputElement) { el.setSelectionRange(2, 5); Reflect.set(window, "credInput", el); Reflect.set(window, "credHost", el.closest("#set-creds")); } });
+  // Coming back to the window redraws Settings while no token is typed.
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(1);
+  await expect(url).toHaveValue("https://git.example.test");
+  expect(await url.evaluate(el => el === Reflect.get(window, "credInput") && document.activeElement === el && el instanceof HTMLInputElement && el.selectionStart === 2 && el.selectionEnd === 5)).toBe(true);
   const secret = settings.getByLabel("Token");
   await secret.fill("example-secret");
-  await secret.evaluate(el => { if (el instanceof HTMLInputElement) { el.setSelectionRange(2, 5); Reflect.set(window, "credInput", el); Reflect.set(window, "credHost", el.closest("#set-creds")); } });
-  await page.evaluate(() => window.__navigation.emit("link-state", "linked"));
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(1);
-  await expect(secret).toHaveValue("example-secret");
-  await expect(settings.getByLabel("Server URL")).toHaveValue("https://git.example.test");
-  expect(await secret.evaluate(el => el === Reflect.get(window, "credInput") && document.activeElement === el && el instanceof HTMLInputElement && el.selectionStart === 2 && el.selectionEnd === 5)).toBe(true);
   await secret.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "save_credential" && JSON.stringify(call.args.credential) === JSON.stringify({ kind: "forgejo", url: "https://git.example.test", secret: "example-secret" })))).toBe(true);
   await page.keyboard.press("Escape");

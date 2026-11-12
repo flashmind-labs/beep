@@ -641,7 +641,7 @@ fn write_seen(path: PathBuf, seen: &BTreeMap<String, u64>) {
         Err(e) => return log::warn!("could not encode when machines were seen: {e}"),
     };
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(e) = crate::beep::sync::write(&path, &bytes) {
+        if let Err(e) = crate::beep::state::write(&path, &bytes) {
             log::warn!("could not save when machines were seen: {e:#}");
         }
     });

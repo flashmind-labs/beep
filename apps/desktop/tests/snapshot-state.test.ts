@@ -31,7 +31,7 @@ test("only read views are accepted and cache size stays bounded", t => {
   assert.equal(viewWrite("agent_tree_edit"), true);
   assert.equal(viewWrite("center_project_runs"), false);
   assert.equal(viewWrite("session_move_progress"), false, "move progress is a read");
-  assert.deepEqual(writeScope("send_prompt"), { kind: "views", commands: ["center_home"] });
+  assert.deepEqual(writeScope("agent_steer"), { kind: "views", commands: ["center_home"] });
   assert.deepEqual(writeScope("set_zoom_level"), { kind: "none" });
   assert.deepEqual(writeScope("save_credential"), { kind: "all" });
 });

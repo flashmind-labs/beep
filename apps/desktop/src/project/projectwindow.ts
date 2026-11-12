@@ -38,15 +38,12 @@ export function windowTitle(project: string | null): string {
 /// What a project window knows to tell its own targets from the rest.
 export interface ProjectScope {
   project: string;
-  /// The project chat `session` belongs to, its project chat or a PR or
-  /// issue thread there; null for any other chat.
-  chatProject(session: string): string | null;
   /// The project's folder on each machine; empty until they are known.
   folders: readonly { id: string; folder: string }[];
 }
 
 /// Where a target opens: in this window, or in the main one.
-export type Route = "here" | "main";
+type Route = "here" | "main";
 
 /// A coding agent session, as far as routing needs it.
 interface AgentLike {
@@ -72,20 +69,12 @@ export function route(scope: ProjectScope | null, page: Location): Route {
   if (!target || typeof target !== "object") return "main";
   if ("agentnew" in target) return "here";
   if ("draft" in target) return target.draft.project === scope.project ? "here" : "main";
-  if ("agent" in target) return agentInProject(target.agent, scope.folders) ? "here" : "main";
-
-  if ("chat" in target) {
-    const session = target.chat.session;
-    return session && scope.chatProject(session) === scope.project ? "here" : "main";
-  }
-
-  return "main";
+  return agentInProject(target.agent, scope.folders) ? "here" : "main";
 }
 
 /// What the main window is asked to show (`CenterTarget` in center.rs).
-export type CenterTarget = "home" | "chats" | "memories" | "routines" | "skills" | "apps" | "settings" | "instructions" | "providers" | "terminals" | "research" | "report"
-  | { chat: { session: string | null } } | { group: { id: string } } | { agent: AgentTarget }
-  | { projects: { project: string | null; run?: { id: number; host: string } | null } } | { ask: { prompt: string } } | { open_research: { session: string } } | { notice: { session: string | null } };
+export type CenterTarget = "home" | "settings" | "instructions" | "providers" | "terminals" | "report"
+  | { agent: AgentTarget } | { projects: { project: string | null; run?: { id: number; host: string } | null } } | { notice: { session: string | null } };
 
 /// A coding agent session for the main window, every field filled as
 /// `AgentTarget` in center.rs reads it.
@@ -108,8 +97,7 @@ interface AgentTarget {
 /// fall back to Home, as the native window protocol cannot represent them.
 export function mainTarget(page: Location): CenterTarget {
   switch (page.view) {
-    case "home": case "instructions": case "providers": case "terminals": case "research": return page.view;
-    case "researchopen": return { open_research: { session: page.arg.session } };
+    case "home": case "instructions": case "providers": case "terminals": return page.view;
     case "projects": return { projects: { project: page.arg?.project ?? null, run: page.arg?.run ?? null } };
     case "sync": return "home";
     case "pane": return paneTarget(page.arg);
@@ -117,16 +105,8 @@ export function mainTarget(page: Location): CenterTarget {
 }
 
 function paneTarget(target: PaneTarget): CenterTarget {
-  if (typeof target === "string") {
-    switch (target) {
-      case "chats": case "memories": case "routines": case "skills": case "apps": case "settings": return target;
-      default: return "home";
-    }
-  }
-
-  if (!target) return "home";
-  if ("chat" in target) return { chat: { session: target.chat.session } };
-  if ("group" in target) return { group: { id: target.group.id } };
+  if (target === "settings") return target;
+  if (!target || typeof target === "string") return "home";
 
   if ("agent" in target) {
     const agent = target.agent;

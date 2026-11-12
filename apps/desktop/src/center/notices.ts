@@ -3,69 +3,48 @@ import { placeWindowParts } from "./window-root.ts";
 import { windowHost } from "./window-shell.tsx";
 import { NoticesView } from "./notices-view.tsx";
 // The bell at the right end of every command center header, beside the usage
-// pill, and the notifications pane it opens: what the assistant told the user
-// on its own (a mail digest, an arrival, a review request), and what the mesh
-// told this Mac (a coding agent finished or asks, sync conflicts, a failed
-// move, a machine that went offline). Alerts are notifications, not chats,
-// until the user replies in one.
-import { type PaneTarget, pane } from "../bar/pane.ts";
+// pill, and the notifications pane it opens: what the mesh told this Mac (a
+// coding agent finished or asks, sync conflicts, a failed move, a machine that
+// went offline).
+import type { PaneTarget } from "../bar/pane.ts";
 import type { ProjectsArg } from "./state.ts";
 import { reason } from "../ui/format.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
-import { type Alerts, type Held, type Item, type Note, bySide, find, fromAlert, fromNote, markRead, merge, opens, skillName, unreadIds, without } from "./notices-state.ts";
+import { type Held, type Note, find, fromNote, markRead, opens, skillName, unreadIds, without } from "./notices-state.ts";
 import { go } from "./views.ts";
 
-/// Opens the pane, on alert `session` when one is named. Set by `mountNotices`.
-let show: (session: string | null) => void = () => {};
+/// Opens the pane. Set by `mountNotices`.
+let show: () => void = () => {};
 
-/// A notification's click: the pane with that alert opened.
-export function showNotices(session: string | null) {
-  show(session);
+/// A notification's click: the pane opened.
+export function showNotices() {
+  show();
 }
 
 /// Draws the header's bell and keeps it current.
 export function mountNotices() {
   const host = windowHost("bell");
-  /// The server's alerts, `null` with no server, and the mesh's notes.
-  let alerts: Item[] | null = null;
-  let notes: Item[] = [];
+  let notes: Note[] = [];
   let open = false;
   let opened: string | null = null;
   let returnFocus: HTMLElement | null = null;
-  /// An alert a click asked for before the list had come.
-  let wanted: string | null = null;
   /// Asks being answered, and why an answer failed, by id.
   const answering = new Set<string>();
   const failed = new Map<string, string>();
   /// Skill conflicts with a copy being kept, by id: the copy's hash and the note as it was.
   const keeping = new Map<string, { hash: string; was: string }>();
   /// What a note says, read or not.
-  const told = (i: Item | null) => JSON.stringify(i && { ...i, read: true });
-
-  const items = () => merge(alerts, notes);
-
-  const setAlerts = (next: Alerts) => {
-    const list = next && next.map(fromAlert);
-    // An opened alert that did not change keeps its view, and the reply typed in it.
-    const same = open && opened && JSON.stringify(find(alerts ?? [], opened)) === JSON.stringify(find(list ?? [], opened));
-    alerts = list;
-    if (same) return drawBell();
-    if (wanted && find(alerts ?? [], wanted)) opened = wanted;
-    wanted = null;
-    // An opened alert that is gone, dismissed or a chat now, shows the list.
-    if (opened && !find(items(), opened)) opened = null;
-    if (opened) read([opened]);
-    draw();
-  };
+  const told = (i: Note | null) => JSON.stringify(i && { ...i, read: true });
 
   const setNotes = (next: Note[]) => {
-    notes = next.map(fromNote);
+    notes = next.map(fromNote).sort((a, b) => b.at - a.at);
     // A conflict being kept waits until the node tells it again.
     for (const [id, k] of keeping) if (told(find(notes, id)) !== k.was) keeping.delete(id);
-    // The list is redrawn unless an alert is open, with a reply maybe typed in it.
-    if (open && opened && find(alerts ?? [], opened)) drawBell(); else draw();
+    // A skill conflict that is gone shows the list.
+    if (opened && !find(notes, opened)) opened = null;
+    draw();
   };
 
   const focusList = (id?: string | null) => {
@@ -86,7 +65,7 @@ export function mountNotices() {
     if (!to) opened = null;
     draw();
     // Opening the pane reads what it shows; the rows keep their dots until it closes.
-    if (to) read(unreadIds(items()), false);
+    if (to) read(unreadIds(notes), false);
 
     if (keyboard) {
       if (to) focusList();
@@ -94,17 +73,16 @@ export function mountNotices() {
     }
   };
 
-  const drawBell = () => draw();
   const draw = () => {
     const active = document.activeElement;
     const inPop = active instanceof HTMLElement && host.contains(active) && !!active.closest(".nt-pop");
     const focused = inPop ? active.closest<HTMLElement>(".nt-row") : null;
     const index = focused ? [...host.querySelectorAll(".nt-row")].indexOf(focused) : -1;
     const action = focused ? [...focused.querySelectorAll("button")].indexOf(active as HTMLButtonElement) : -1;
-    const all = items(), shown = opened ? find(all, opened) : null;
+    const shown = opened ? find(notes, opened) : null;
     placeWindowParts({ notices: createElement(NoticesView, {
-      items: all, open, shown, answering, failed, keeping, toggle: () => toggle(!open), back: backToList,
-      dismiss, openItem, answer, keep: keepCopy, reply,
+      items: notes, open, shown, answering, failed, keeping, toggle: () => toggle(!open), back: backToList,
+      dismiss, openItem, answer, keep: keepCopy,
     }) });
     if (focused && !focused.isConnected && open) {
       const rows = [...host.querySelectorAll<HTMLElement>(".nt-row")];
@@ -114,41 +92,32 @@ export function mountNotices() {
     } else if (inPop && open && !shown && active === host.querySelector(".nt-pop")) focusList();
   };
 
-  /// Marks `list` read, here and where it is kept; `redraw` false leaves the pane as drawn.
+  /// Marks `list` read, here and where it is kept.
   const read = (list: string[], redraw = true) => {
-    const fresh = list.filter(id => find(items(), id)?.read === false);
+    const fresh = list.filter(id => find(notes, id)?.read === false);
     if (!fresh.length) return;
-    const { server, mesh } = bySide(items(), fresh);
-    if (alerts) alerts = markRead(alerts, server);
-    notes = markRead(notes, mesh);
-    if (redraw) draw(); else drawBell();
-    if (server.length) invoke("alerts_read", { ids: server }).catch(e => console.warn("reading alerts:", e));
-    if (mesh.length) invoke("notes_read", { ids: mesh }).catch(e => console.warn("reading notifications:", e));
+    notes = markRead(notes, fresh);
+    if (redraw) draw();
+    invoke("notes_read", { ids: fresh }).catch(e => console.warn("reading notifications:", e));
   };
 
   const dismiss = (list: string[]) => {
     if (!list.length) return;
-    const { server, mesh } = bySide(items(), list);
-    if (alerts) alerts = without(alerts, server);
-    notes = without(notes, mesh);
+    notes = without(notes, list);
     if (opened && list.includes(opened)) opened = null;
     draw();
-    if (server.length) invoke("alerts_dismiss", { ids: server }).catch(e => {
-      console.warn("dismissing alerts:", e);
-      void loadAlerts();
-    });
-    if (mesh.length) invoke("notes_dismiss", { ids: mesh }).catch(e => {
+    invoke("notes_dismiss", { ids: list }).catch(e => {
       console.warn("dismissing notifications:", e);
       void loadNotes();
     });
   };
 
-  /// A row's click: an alert opens in the pane, the rest open what they are about.
-  const openItem = (i: Item) => {
+  /// A row's click: a skill conflict opens in the pane, the rest open what they are about.
+  const openItem = (i: Note) => {
     const to = opens(i);
-    read([i.id], to === "alert");
+    read([i.id], false);
 
-    if (to === "alert" || to === "skill") {
+    if (to === "skill") {
       opened = i.id;
       draw();
       return;
@@ -163,7 +132,7 @@ export function mountNotices() {
     else openSettings("machines");
   };
 
-  const answer = (i: Item, allow: boolean) => {
+  const answer = (i: Note, allow: boolean) => {
     answering.add(i.id);
     failed.delete(i.id);
     draw();
@@ -172,18 +141,8 @@ export function mountNotices() {
       .finally(() => { answering.delete(i.id); draw(); });
   };
 
-  /// A reply turns the alert into a chat: it leaves the pane and the chat opens with the reply sent.
-  const reply = (i: Item, text: string) => {
-    const message = text.trim();
-    if (!message) return;
-    if (alerts) alerts = without(alerts, [i.id]);
-    toggle(false);
-    go("pane", { chat: { session: i.id } });
-    pane.ask(i.id, message).catch(e => console.warn("replying to an alert:", e));
-  };
-
   /// Asks the machine holding `held` to keep it; the row waits until the conflict is told again.
-  const keepCopy = (i: Item, held: Held) => {
+  const keepCopy = (i: Note, held: Held) => {
     keeping.set(i.id, { hash: held.hash, was: told(i) });
     failed.delete(i.id);
     draw();
@@ -194,22 +153,12 @@ export function mountNotices() {
     });
   };
 
-  show = session => {
+  show = () => {
     const already = open;
     open = true;
-    opened = session && find(alerts ?? [], session) ? session : null;
-    wanted = opened ? null : session;
+    opened = null;
     draw();
-    if (opened) read([opened]);
-    else if (!already) read(unreadIds(items()), false);
-  };
-
-  const loadAlerts = async () => {
-    try {
-      setAlerts(await invoke<Alerts>("alerts_list"));
-    } catch (e) {
-      console.warn("reading alerts:", e);
-    }
+    if (!already) read(unreadIds(notes), false);
   };
 
   const loadNotes = async () => {
@@ -234,10 +183,7 @@ export function mountNotices() {
     // Esc goes back to the list first, then closes the pane.
     if (opened) backToList(); else toggle(false, true);
   });
-  listen<Alerts>("alerts", e => setAlerts(e.payload));
   listen<Note[]>("notes", e => setNotes(e.payload));
-  for (const name of ["link-state", "reconnected"]) listen(name, () => void loadAlerts());
   draw();
-  void loadAlerts();
   void loadNotes();
 }

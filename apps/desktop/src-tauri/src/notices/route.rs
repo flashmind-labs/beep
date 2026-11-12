@@ -1,20 +1,15 @@
-//! What each notice the server pushes does to the tray, the windows and
-//! live mode, and when it shows as a macOS notification.
+//! What each notice a machine of the mesh sends does to the tray and the
+//! windows, and when it shows as a macOS notification.
 
-use super::{alerts, history, notify, work};
+use super::{history, notify};
 use crate::{
     bar,
-    beep::{
-        Beep, Field, Notices,
-        state::{LinkState, NoticeVoice},
-    },
+    beep::state::Prefs,
     center,
     center::home_sessions::{AgentSessions, HOME_CHANGED},
-    chat::groups::GroupApproval,
     fleet::Fleet,
-    fleet::alerts::{Direct, Heard, Via},
-    tray::{self, waiting::WaitingList},
-    voice::Voice,
+    fleet::alerts::Direct,
+    tray::waiting::WaitingList,
 };
 use beep_fleet::Read;
 use beep_proto::{AgentNoticeKey, Notice};
@@ -23,231 +18,58 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::{select, sync::mpsc, time::sleep_until};
-use uuid::Uuid;
+use tokio::{sync::mpsc, time::sleep_until};
 
 /// How long after a machine's stream opens its news waits for the reads of the other apps. What
 /// a machine sends first may be news it held while this app was away, such as a phone in the
 /// background, and another app may have read it meanwhile.
 const SETTLE: Duration = Duration::from_secs(5);
 
-/// Routes what the server pushes and what machines in the mesh send
-/// directly. The server pushes notices to every key on the account; the
-/// first one this key gets means the phone linked it. A coding-agent notice
-/// that comes both ways shows once.
-pub(crate) async fn serve(
-    app: AppHandle,
-    beep: Arc<Beep>,
-    voice: Arc<Voice>,
-    mut notices: Notices,
-    mut direct: mpsc::Receiver<Direct>,
-) {
-    let mut heard = Heard::default();
+/// Routes what the machines of the mesh send.
+pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
     let mut settle = Instant::now();
 
-    loop {
-        let (notice, via) = select! {
-            Some(notice) = notices.recv() => (notice, Via::Server),
-            Some(direct) = direct.recv() => match direct {
-                Direct::Notice(notice) => (*notice, Via::Machine),
-                Direct::Presence { machine, sessions } => {
-                    app.state::<Arc<Fleet>>().note_presence(machine, sessions);
-                    app.state::<Arc<AgentSessions>>().stale();
-                    let _ = app.emit("sessions-changed", "");
-                    let _ = app.emit(HOME_CHANGED, ());
-                    tauri::async_runtime::spawn(tray::refresh_recent(app.clone()));
-                    continue;
-                }
-                // A build: the bell keeps it, and the first machine to tell
-                // it shows it.
-                Direct::Run(news) => {
-                    if let Some(note) = history::run_ended(&app, &news)
-                        && !note.read
-                        && let Some(target) = note.target.clone()
-                    {
-                        let read = (note.id.clone(), note.digest());
-                        show_unread(&app, read, settle, move |app| {
-                            let body = format!("{}: {}", note.source, note.text);
-                            notify::opening(app, &note.title, &body, target);
-                        });
-                    }
-                    continue;
-                }
-                // Connected again: what the bar shows from outside the log,
-                // such as questions from background work, may have changed
-                // meanwhile, and so may what waits on the user.
-                Direct::Connected => {
-                    settle = Instant::now() + SETTLE;
-                    let _ = app.emit("reconnected", ());
-                    app.state::<WaitingList>().poke();
-                    continue;
-                }
+    while let Some(direct) = direct.recv().await {
+        match direct {
+            Direct::Notice(notice) => match notice.session_id.parse::<AgentNoticeKey>() {
+                Ok(key) => agent_notice(&app, &key, *notice, settle),
+                Err(_) => log::debug!("a machine sent a notice for no agent session"),
             },
-            else => return,
-        };
-        // Signed out, the server's notices are not heard; only machines' are.
-        if matches!(via, Via::Server) && beep.signed_out() {
-            continue;
+            Direct::Presence { machine, sessions } => {
+                app.state::<Arc<Fleet>>().note_presence(machine, sessions);
+                app.state::<Arc<AgentSessions>>().stale();
+                let _ = app.emit("sessions-changed", "");
+                let _ = app.emit(HOME_CHANGED, ());
+            }
+            // A build: the bell keeps it, and the first machine to tell
+            // it shows it.
+            Direct::Run(news) => {
+                if let Some(note) = history::run_ended(&app, &news)
+                    && !note.read
+                    && let Some(target) = note.target.clone()
+                {
+                    let read = (note.id.clone(), note.digest());
+                    show_unread(&app, read, settle, move |app| {
+                        let body = format!("{}: {}", note.source, note.text);
+                        notify::opening(app, &note.title, &body, target);
+                    });
+                }
+            }
+            // Connected again: what waits on the user may have changed
+            // meanwhile.
+            Direct::Connected => {
+                settle = Instant::now() + SETTLE;
+                let _ = app.emit("reconnected", ());
+                app.state::<WaitingList>().poke();
+            }
         }
-
-        if matches!(via, Via::Server) && beep.link_state() == LinkState::Unlinked {
-            beep.set_link_state(LinkState::Linked);
-            tray::became_linked(&app);
-        }
-
-        if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>()
-            && !heard.first(&key, via, Instant::now())
-        {
-            continue;
-        }
-
-        route(&app, &beep, &voice, notice, settle);
     }
-}
-
-/// What `notice` does to the tray, the windows and live mode. A notification
-/// for a note waits until `settle` for the other apps' reads.
-fn route(app: &AppHandle, beep: &Arc<Beep>, voice: &Arc<Voice>, notice: Notice, settle: Instant) {
-    // What waits on the user may have changed; the tray looks again.
-    if notice.approval.is_some() || (notice.changed && !notice.group) {
-        app.state::<WaitingList>().poke();
-    }
-    // Checked before `changed`, which a resolved question also sets.
-    if let Some(query_id) = notice.resolved_question() {
-        let resolved = work::Resolved {
-            session_id: notice.session_id.clone(),
-            query_id: query_id.to_owned(),
-        };
-        let _ = app.emit("work-resolved", resolved);
-        voice.withdrawn(query_id);
-        return;
-    }
-
-    if notice.group {
-        group_notice(app, beep, notice);
-        return;
-    }
-
-    if notice.changed {
-        // The assistant started or ended an alert if the session is empty.
-        if notice.session_id.is_empty() {
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move { alerts::refresh(&app).await });
-        }
-
-        let _ = app.emit("sessions-changed", notice.session_id);
-        tauri::async_runtime::spawn(tray::refresh_recent(app.clone()));
-        return;
-    }
-
-    if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
-        agent_notice(app, beep, &key, notice, settle);
-        return;
-    }
-    // Background work asks only through a notice, so its chat keeps a
-    // card for the question.
-    if let Some(question) =
-        work::WorkQuestion::from_notice(&notice.session_id, notice.approval.as_ref())
-    {
-        let _ = app.emit("work-question", question);
-    }
-    // A chat finished on its own may be an alert, which is a notification
-    // and never a chat opening by itself: the server says. A question
-    // waiting on an approval is a chat's, and goes to every device as ever.
-    if notice.approval.is_none() && Uuid::parse_str(&notice.session_id).is_ok() {
-        tauri::async_runtime::spawn(alerts::arrived(
-            app.clone(),
-            beep.clone(),
-            voice.clone(),
-            notice,
-        ));
-        return;
-    }
-
-    chat_notice(app, beep, voice, notice, false);
-}
-
-/// A notice for a chat: nothing while it is on screen, else the macOS
-/// notification, or the offer of a voice note. An `alert` opens in the
-/// notifications pane when clicked.
-pub(super) fn chat_notice(
-    app: &AppHandle,
-    beep: &Beep,
-    voice: &Arc<Voice>,
-    notice: Notice,
-    alert: bool,
-) {
-    let showing = focused_center(app);
-    if center::on_screen(
-        &seen(app, beep.session(), showing.session),
-        &notice.session_id,
-    ) {
-        return;
-    }
-    // While live mode is on in the orb, an approval asks there.
-    let Some(notice) = voice.approval_notice(notice) else {
-        return;
-    };
-
-    match voice.wants(&notice) {
-        NoticeVoice::Aloud => {
-            tauri::async_runtime::spawn(voice.clone().speak_notice(notice));
-        }
-        NoticeVoice::Ask => voice.offer(notice),
-        NoticeVoice::Off if alert => notify::alert(app, &notice),
-        NoticeVoice::Off => notify::notice(app, &notice),
-    }
-}
-
-/// A message or change in a group. The bar refreshes it, and a message
-/// notifies unless the bar shows that group.
-fn group_notice(app: &AppHandle, beep: &Beep, notice: Notice) {
-    let id = notice.session_id.clone();
-    let _ = app.emit("group-changed", &id);
-
-    if let Some(pending) = &notice.approval {
-        let _ = app.emit(
-            "group-approval",
-            GroupApproval {
-                group_id: id.clone(),
-                query_id: pending.query_id.clone(),
-                app: pending.approval.app.clone(),
-                action: pending.approval.action.clone(),
-                fields: pending
-                    .approval
-                    .fields
-                    .iter()
-                    .cloned()
-                    .map(Field::from)
-                    .collect(),
-            },
-        );
-    }
-
-    if notice.changed || notice.title.is_empty() {
-        return;
-    }
-    // An approval still notifies: the bar may be on another chat by then.
-    let showing = focused_center(app);
-
-    if center::on_screen(&seen(app, beep.group(), showing.group), &id) && notice.approval.is_none()
-    {
-        return;
-    }
-
-    notify::notice(app, &notice);
 }
 
 /// A coding agent asked something or finished a turn. The tray looks at
 /// what waits again, the bell keeps it, and the notice shows unless agent
 /// notices are off, the session is on screen or any app read it.
-fn agent_notice(
-    app: &AppHandle,
-    beep: &Beep,
-    key: &AgentNoticeKey,
-    notice: Notice,
-    settle: Instant,
-) {
+fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: Notice, settle: Instant) {
     app.state::<WaitingList>().poke();
     let focused = focused_center_label(app);
     let mut on_screen: Vec<&str> = focused.iter().map(String::as_str).collect();
@@ -260,7 +82,7 @@ fn agent_notice(
         .shows(&on_screen, key, Instant::now());
     let unread = history::agent_notice(app, key, &notice, shown);
 
-    if !beep.agent_notices() || shown {
+    if !app.state::<Prefs>().agent_notices() || shown {
         return;
     }
 
@@ -298,22 +120,4 @@ fn focused_center_label(app: &AppHandle) -> Option<String> {
         .into_iter()
         .find(|(label, w)| center::is_center(label) && w.is_focused().unwrap_or(false))
         .map(|(label, _)| label)
-}
-
-/// What the command center window with focus shows, the main one or a
-/// project's; nothing while none has focus.
-fn focused_center(app: &AppHandle) -> center::Showing {
-    match focused_center_label(app) {
-        Some(label) => app.state::<center::Shown>().get(&label),
-        None => center::Showing::default(),
-    }
-}
-
-/// What is on screen: the bar's chat while the bar is open, and `window`,
-/// what the focused command center window shows.
-fn seen(app: &AppHandle, bar: Option<String>, window: Option<String>) -> center::Seen {
-    center::Seen {
-        bar: bar.filter(|_| bar::is_open(app)),
-        window,
-    }
 }

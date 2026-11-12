@@ -450,12 +450,12 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             append(
                 &mut views,
                 "list_machines",
-                crate::machines::list::list_machines(app.clone(), app.state(), app.state()).await,
+                crate::machines::list::list_machines(app.state()).await,
             );
             views.extend(View::new(
                 "mac_control",
                 json!({}),
-                crate::bar::app::mac_control(app.state(), app.state()),
+                crate::bar::app::mac_control(app.state(), app.state(), app.state()),
             ));
         }
         "projects" => {
@@ -467,14 +467,13 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             append(
                 &mut views,
                 "project_groups",
-                crate::projects::groups::project_groups(app.state(), app.state(), app.state())
-                    .await,
+                crate::projects::groups::project_groups(app.state(), app.state()).await,
             );
         }
         "sync" => append(
             &mut views,
             "project_sync",
-            crate::projects::file_sync::project_sync(app.state(), app.state(), app.state()).await,
+            crate::projects::file_sync::project_sync(app.state(), app.state()).await,
         ),
         "usage" => append(
             &mut views,

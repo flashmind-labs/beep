@@ -24,9 +24,6 @@ pub enum FleetError {
     Conflict(String),
     #[error("not found")]
     NotFound,
-    /// A call only a server answers, made with none.
-    #[error("no server")]
-    NeedsServer,
     #[error("{0:#}")]
     Other(#[from] anyhow::Error),
 }

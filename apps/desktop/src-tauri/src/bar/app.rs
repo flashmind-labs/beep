@@ -1,92 +1,31 @@
-//! App-wide commands: link state, this Mac's settings and control, opening
-//! links and the log, starting over and quitting.
+//! App-wide commands: this Mac's settings and control, opening links and
+//! the log, and quitting.
 
 use crate::{
-    beep::{LinkView, SERVER_ENABLED, Service, identity, state::LinkState, state::NoticeVoice},
-    center::view_cache::ViewCache,
+    beep::{identity, state::Prefs},
     error::{DesktopError, Result},
+    fleet::Machines,
     machines::this_mac::{self, Machine},
     platform::logfile,
-    tray,
-    voice::LIVE_ENABLED,
 };
 use beep_proto::node::desktop::Permission;
 use serde::Serialize;
-use std::{path::Path, sync::Arc};
-use tauri::{AppHandle, Emitter, Manager, State};
+use std::path::Path;
+use tauri::{AppHandle, State};
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
-
-#[derive(Serialize)]
-pub struct Status {
-    link: LinkState,
-    session: Option<String>,
-    /// Signed out of the server in Settings: `link` reads unlinked meanwhile.
-    signed_out: bool,
-    /// Whether the desktop talks to a server at all (`SERVER_ENABLED`). Off, the window shows
-    /// nothing of one: no account, sign in, subscription or assistant.
-    server: bool,
-    /// Whether live mode can start: the server and `LIVE_ENABLED` are both on. Off, no hint or
-    /// shortcut mentions live mode or the orb.
-    live: bool,
-}
-
-#[tauri::command]
-pub fn status(beep: Service<'_>) -> Status {
-    Status {
-        link: beep.link_state(),
-        session: beep.session(),
-        signed_out: SERVER_ENABLED && beep.signed_out(),
-        server: SERVER_ENABLED,
-        live: SERVER_ENABLED && LIVE_ENABLED,
-    }
-}
-
-#[tauri::command]
-pub async fn link_offer(beep: Service<'_>) -> Result<LinkView> {
-    beep.link_offer(&identity::computer_name()).await
-}
-
-#[tauri::command]
-pub async fn unlink(app: AppHandle, beep: Service<'_>) -> Result<()> {
-    beep.unlink().await?;
-    app.state::<Machine>().sync(&beep);
-    // Only the open webviews listen; there is nothing to do if none does.
-    let _ = app.emit("link-state", beep.link_state());
-    tray::refresh(&app);
-    Ok(())
-}
-
-/// Forgets this computer's key and starts again with a new one, the only
-/// way back after the phone removed it.
-#[tauri::command]
-pub fn start_over(
-    app: AppHandle,
-    beep: Service<'_>,
-    views: State<'_, Arc<ViewCache>>,
-) -> Result<()> {
-    beep.chats().clear();
-    views.clear();
-    app.state::<Arc<crate::agents::kept_transcripts::KeptTranscripts>>()
-        .clear();
-    identity::forget(&app)?;
-    app.restart()
-}
 
 #[derive(Serialize)]
 pub struct Settings {
     name: String,
     version: String,
     autostart: bool,
-    notice_voice: NoticeVoice,
-    /// In live mode a pause sends, rather than only "send".
-    send_on_pause: bool,
     /// Coding agents notify when they ask or finish a turn.
     agent_notices: bool,
 }
 
 #[tauri::command]
-pub fn settings(app: AppHandle, beep: Service<'_>) -> Settings {
+pub fn settings(app: AppHandle, prefs: State<'_, Prefs>) -> Settings {
     Settings {
         name: identity::computer_name(),
         version: app.package_info().version.to_string(),
@@ -94,22 +33,14 @@ pub fn settings(app: AppHandle, beep: Service<'_>) -> Settings {
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         #[cfg(mobile)]
         autostart: false,
-        notice_voice: beep.notice_voice(),
-        send_on_pause: beep.send_on_pause(),
-        agent_notices: beep.agent_notices(),
+        agent_notices: prefs.agent_notices(),
     }
-}
-
-/// Voice notes: ask first, read aloud right away, or off.
-#[tauri::command]
-pub fn set_notice_voice(beep: Service<'_>, choice: NoticeVoice) {
-    beep.set_notice_voice(choice);
 }
 
 /// Whether coding agents notify when they ask or finish a turn.
 #[tauri::command]
-pub fn set_agent_notices(beep: Service<'_>, enabled: bool) {
-    beep.set_agent_notices(enabled);
+pub fn set_agent_notices(prefs: State<'_, Prefs>, enabled: bool) {
+    prefs.set_agent_notices(enabled);
 }
 
 #[cfg(mobile)]
@@ -133,19 +64,24 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<()> {
 }
 
 #[tauri::command]
-pub fn mac_control(beep: Service<'_>, machine: State<'_, Machine>) -> this_mac::View {
-    machine.view(&beep)
+pub fn mac_control(
+    prefs: State<'_, Prefs>,
+    machine: State<'_, Machine>,
+    fleet: Machines<'_>,
+) -> this_mac::View {
+    machine.view(&prefs, fleet.id())
 }
 
 #[tauri::command]
 pub fn set_mac_control(
-    beep: Service<'_>,
+    prefs: State<'_, Prefs>,
     machine: State<'_, Machine>,
+    fleet: Machines<'_>,
     enabled: bool,
 ) -> this_mac::View {
-    beep.set_use_mac(enabled);
-    machine.sync(&beep);
-    machine.view(&beep)
+    prefs.set_use_mac(enabled);
+    machine.sync(&prefs);
+    machine.view(&prefs, fleet.id())
 }
 
 #[tauri::command]
@@ -169,8 +105,7 @@ pub fn open_url(url: String) -> Result<()> {
     open(&url)
 }
 
-/// Shows the app's log folder in Finder, for the window's Show log.
-#[tauri::command]
+/// Shows the app's log folder in Finder, for the tray's Show log.
 pub fn open_log() -> Result<()> {
     let dir = logfile::dir().ok_or_else(|| DesktopError::BadRequest("no home folder".into()))?;
     open(&dir)

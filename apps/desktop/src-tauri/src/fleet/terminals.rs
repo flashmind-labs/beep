@@ -81,11 +81,6 @@ fn find(fleet: &Fleet, id: Uuid) -> Option<Row> {
     rows(fleet).into_iter().find(|row| row.id == id)
 }
 
-/// Whether the mesh keeps terminal `id`, rather than a server.
-pub(crate) fn has(fleet: &Fleet, id: Uuid) -> bool {
-    find(fleet, id).is_some()
-}
-
 /// Writes the terminal to the mesh, where every desktop reads it.
 async fn save(fleet: &Fleet, row: &Row) -> Result<()> {
     let bytes = row.record.to_bytes().map_err(anyhow::Error::from)?;

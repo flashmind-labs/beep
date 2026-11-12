@@ -4,8 +4,6 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Beep listens in live mode, after you tap Option three times or while you hold it, so you can talk to it.</string>
 	<key>SUFeedURL</key>
 	<string>https://releases.flashmind.com/beep/macos/appcast.xml</string>
 	<key>SUPublicEDKey</key>

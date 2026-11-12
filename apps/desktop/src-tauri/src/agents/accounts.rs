@@ -3,24 +3,21 @@
 //! setup-token`, which opens the browser and prints a long-lived token, and
 //! the token goes into the mesh, which hands it to the machines.
 //! Codex signs in on each machine with its device sign-in, which the
-//! server runs there, or uses an API key the mesh hands out.
+//! machine runs, or uses an API key the mesh hands out.
 
 use crate::{
-    beep::{Service, epoch_ms},
-    error::{DesktopError, Result},
+    beep::epoch_ms,
+    error::Result,
     fleet::{
         Machines, agents as direct,
         projects::{FleetState, desk},
     },
-    projects::unknown_op,
     settings::cli_login::{find_tool, refused},
-    settings::credentials::plain,
 };
 use anyhow::Context;
 use beep_fleet::Session;
 use beep_proto::{
-    AgentAccount, AgentAccounts, AgentMachine, AgentToken, CancelCodexLogin, CodexLogin,
-    CodexLoginState, GetCodexLogin, SecretText, StartCodexLogin,
+    AgentAccount, AgentAccounts, AgentMachine, AgentToken, CodexLogin, CodexLoginState, SecretText,
 };
 use serde::Serialize;
 use std::{
@@ -130,22 +127,11 @@ impl From<CodexLoginState> for CodexStateView {
     }
 }
 
-fn outdated(e: DesktopError) -> DesktopError {
-    if unknown_op(&e) {
-        DesktopError::BadRequest(
-            "The server needs an update before it keeps agent accounts.".into(),
-        )
-    } else {
-        plain(e)
-    }
-}
-
 fn agent(slug: &str) -> Result<AgentAccount> {
     AgentAccount::from_str(slug).map_err(|_| refused("Beep keeps no token for that agent"))
 }
 
-/// The agents' tokens and machines; `None` from a server too old to keep
-/// them.
+/// The agents' tokens and machines.
 #[tauri::command]
 pub async fn agent_accounts(fleet: FleetState<'_>) -> Result<Option<AccountsView>> {
     let AgentAccounts {
@@ -189,23 +175,13 @@ pub async fn revoke_agent_token(fleet: FleetState<'_>, agent_slug: String) -> Re
 }
 
 #[tauri::command]
-pub async fn codex_login_start(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    machine_id: String,
-) -> Result<CodexLoginView> {
+pub async fn codex_login_start(fleet: Machines<'_>, machine_id: String) -> Result<CodexLoginView> {
     let CodexLogin {
         task,
         url,
         code,
         expires_at,
-    } = match fleet.member(&machine_id) {
-        Some(machine) => direct::codex_login_start(&fleet, machine).await?,
-        None => beep
-            .call(StartCodexLogin { machine_id })
-            .await
-            .map_err(outdated)?,
-    };
+    } = direct::codex_login_start(&fleet, fleet.machine(&machine_id)?).await?;
     Ok(CodexLoginView {
         task,
         url,
@@ -216,35 +192,17 @@ pub async fn codex_login_start(
 
 #[tauri::command]
 pub async fn codex_login_state(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     task: u32,
 ) -> Result<CodexStateView> {
-    let state = match fleet.member(&machine_id) {
-        Some(machine) => direct::codex_login_state(&fleet, machine, task).await?,
-        None => beep
-            .call(GetCodexLogin { machine_id, task })
-            .await
-            .map_err(outdated)?,
-    };
+    let state = direct::codex_login_state(&fleet, fleet.machine(&machine_id)?, task).await?;
     Ok(state.into())
 }
 
 #[tauri::command]
-pub async fn codex_login_cancel(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    machine_id: String,
-    task: u32,
-) -> Result<()> {
-    match fleet.member(&machine_id) {
-        Some(machine) => direct::codex_login_cancel(&fleet, machine, task).await,
-        None => beep
-            .call(CancelCodexLogin { machine_id, task })
-            .await
-            .map_err(outdated),
-    }
+pub async fn codex_login_cancel(fleet: Machines<'_>, machine_id: String, task: u32) -> Result<()> {
+    direct::codex_login_cancel(&fleet, fleet.machine(&machine_id)?, task).await
 }
 
 /// The Claude Code sign-in under way, if any: one at a time.

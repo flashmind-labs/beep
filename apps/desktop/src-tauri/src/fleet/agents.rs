@@ -1,7 +1,6 @@
 //! Coding agents on the machines of the mesh, asked directly: the sessions,
 //! starting, steering and answering them, their pictures and files, and
-//! the harnesses and sign-ins of each machine. What each returns is what
-//! the server returned for the same request, so the windows are the same.
+//! the harnesses and sign-ins of each machine.
 
 use super::Fleet;
 use crate::error::{DesktopError, Result};

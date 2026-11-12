@@ -77,7 +77,7 @@ export function formatAgo(ms: number, style: AgoStyle, now = Date.now()): string
 }
 
 /// How many days from `from` to `to`, by the calendar.
-export function dayDiff(from: Date, to: Date) {
+function dayDiff(from: Date, to: Date) {
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   return Math.round((day(to) - day(from)) / 86400000);
 }
@@ -135,3 +135,6 @@ export function isNewer(latest: string, current: string) {
 
   return false;
 }
+
+/// `s` with its first letter in capitals.
+export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

@@ -1,10 +1,7 @@
 // The bar's page, and the pane the command center window shows it in.
-import type { ReactElement } from "react";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
+import { invoke } from "../ui/tauri.ts";
 import type { PanePage } from "./pane.ts";
-import type { GroupState } from "../chat/groups.ts";
-import type { ChatBody } from "../ui/turn.ts";
-import type { Turn } from "../chat/transcript.ts";
 import type { ViewName, ViewArg, Location } from "../center/state.ts";
 
 export const bar = document.getElementById("bar")!;
@@ -13,73 +10,22 @@ export const bar = document.getElementById("bar")!;
 export const PANE = bar.dataset.mode === "window";
 
 /// What the bar or the pane shows.
-export type View =
-  | "chat" | "chats" | "group" | "ginfo" | "invite" | "gnew" | "joincode" | "joining"
-  | "link" | "login" | "revoked" | "invite-phone" | "starting" | "settings" | "apps" | "appperms" | "mcp"
-  | "machines" | "memories" | "routines" | "rnew" | "grants" | "skills" | "research" | "model"
-  | "agent" | "agentnew" | "agents" | "waiting";
-
-/// Whether this Mac is linked to an account.
-export type LinkState = "unlinked" | "linked" | "revoked";
-
-/// A row of the chat list: a chat or a group.
-export interface ChatRow {
-  kind: "chat" | "group";
-  id: string;
-  title: string;
-  pinned: boolean;
-  updated_at: number;
-  snippet?: string;
-  /// Beep is typing in the group.
-  typing?: boolean;
-}
-
-export type ChatsMode = "list" | "actions" | "rename" | "delete" | "share";
-
-export interface ChatsState {
-  list: ChatRow[];
-  sel: number;
-  query: string;
-  mode?: ChatsMode;
-  /// The group the list was opened from, for Esc.
-  back?: string | null;
-  share?: { id: string; url?: string; error?: string } | null;
-}
+export type View = "settings" | "machines" | "agent" | "agentnew" | "agents" | "waiting";
 
 export interface BarState {
   view: View;
-  link: LinkState;
-  /// Signed out of the server in Settings. `link` reads "unlinked" meanwhile, so the paths
-  /// that work with no account work the same; this says why.
-  signedOut: boolean;
-  /// Whether the desktop talks to a server at all, as Rust says (`status`). Off, nothing of one
-  /// shows: no account, sign in, subscription or error about a server.
-  server: boolean;
-  /// Whether live mode can start, as Rust says (`status`). Off, no hint mentions it or the orb.
-  live: boolean;
-  session: string | null;
-  chats: ChatsState;
-  /// The last chat list, drawn at once while a fresh one loads.
-  cache: ChatRow[];
-  timer: ReturnType<typeof setInterval> | undefined;
 }
 
 /// What the pane shows, for the window's sidebar.
 export interface PaneNow {
   view: View;
-  session: string | null;
-  group: string | null;
 }
-
-/// The group on screen. Drafts and approvals are kept per group.
-export const G: GroupState = { id: null, chat: null, pending: [], error: "", mention: null, poll: undefined, leave: false, drafts: new Map(), approvals: new Map() };
-export const GROUP_VIEWS = new Set<View>(["group", "ginfo", "invite", "gnew"]);
 
 export function current(): PaneNow {
-  return { view: S.view, session: S.session, group: GROUP_VIEWS.has(S.view) ? G.id : null };
+  return { view: S.view };
 }
 
-/// Told when the view or the open chat changes, for the window's sidebar.
+/// Told when the view changes, for the window's sidebar.
 export const changeListeners: ((now: PaneNow) => void)[] = [];
 let changeQueued = false;
 export function changed() {
@@ -92,22 +38,12 @@ export function changed() {
     for (const fn of changeListeners) { try { fn(now); } catch {} }
   });
 }
-export const S: BarState = new Proxy<BarState>({
-  view: "chat",
-  link: "unlinked",
-  signedOut: false,
-  server: false,
-  live: false,
-  session: null,
-  chats: { list: [], sel: 0, query: "" },
-  cache: [],
-  timer: undefined,
-}, {
+export const S: BarState = new Proxy<BarState>({ view: "waiting" }, {
   set(t, k, v) {
     const key = k as keyof BarState;
     const old = t[key];
     (t as unknown as Record<string, unknown>)[key] = v;
-    if ((key === "view" || key === "session") && old !== v) changed();
+    if (key === "view" && old !== v) changed();
     return true;
   },
 });
@@ -115,46 +51,6 @@ export const S: BarState = new Proxy<BarState>({
 export const $ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel);
 /// An element `$` is sure to find, as the view on screen draws it.
 export const $$ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel)!;
-
-export interface LiveRun {
-  id: string | null;
-  turn: Turn;
-}
-export interface PendingApproval {
-  queryId: string;
-  turn: Turn;
-  grant?: boolean;
-}
-export interface LiveEntry {
-  run: LiveRun | null;
-  approval: PendingApproval | null;
-  body: ChatBody | null;
-}
-
-// Chats with a run streaming or an approval waiting, by session id. Each keeps
-// its own body, so the bar can show other chats and come back to it.
-export const live = new Map<string | null, LiveEntry>();
-// Runs the bar let go of and is still telling the server to stop, by session id.
-// The chat's next prompt waits for that, so the server has the stop first.
-export const stopping = new Map<string | null, Promise<unknown>>();
-export const here = () => live.get(S.session);
-// Prompts typed while a chat's reply runs, by session id, oldest first. Each
-// sends as its own turn once the reply before it finishes cleanly; a stopped
-// or failed reply holds them until the user sends them with Cmd-Return.
-export const queued = new Map<string | null, { list: string[]; held: boolean }>();
-export function entry(id: string | null): LiveEntry {
-  let e = live.get(id);
-  if (!e) live.set(id, e = { run: null, approval: null, body: null });
-  return e;
-}
-// Made here so a new chat's run can be tracked before the server answers.
-export function newId() {
-  const b = crypto.getRandomValues(new Uint8Array(16));
-  b[6] = b[6] & 0x0f | 0x40;
-  b[8] = b[8] & 0x3f | 0x80;
-  const x = [...b].map(n => n.toString(16).padStart(2, "0")).join("");
-  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
-}
 
 /// What the command center window does for the pane. The bar has none.
 export interface WindowHooks {
@@ -168,7 +64,7 @@ export interface WindowHooks {
   openReport(): void;
   /// Settings' Keyboard shortcuts row: the sheet closes and the shortcuts sheet opens.
   openShortcuts(): void;
-  /// A page Settings leads to, such as Apps: the sheet closes and the pane
+  /// A page Settings leads to, such as Machines: the sheet closes and the pane
   /// shows it; null only closes.
   settingsAway(view: PanePage | null): void;
   /// Draws window view `name` (such as "providers") inside `root`, a page of
@@ -179,9 +75,6 @@ export interface WindowHooks {
   /// Esc from an agent view goes back to the view that opened it. A session that
   /// closed leaves at once, with `move` false, so a failed close finds the page it left for.
   goBack(from: BackTo, move: boolean): void;
-  /// What shows atop chat `session`, such as the card of the pull request or
-  /// issue it is about; null for nothing.
-  chatTop?(session: string): ReactElement | null;
   /// The project a coding session runs in, and how to open it.
   sessionDestinations?(s: { machine_id: string; cwd: string }): { name: string; folder: string }[];
   sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void } | null;
@@ -189,8 +82,14 @@ export interface WindowHooks {
 
 /// A window view to go back to, as the window opened an agent view from it.
 export type BackTo = Location;
-/// Where Esc from an agent view goes: the chat, Every session, the bar's waiting list or a window view.
-export type AgentReturn = "chat" | "agents" | "waiting" | BackTo;
+/// Where Esc from an agent view goes: Every session, the bar's waiting list, a window view,
+/// or with "hide" nowhere: the bar hides and the window goes Home.
+export type AgentReturn = "agents" | "waiting" | "hide" | BackTo;
+
+/// Hands a view to the command center window, which hides the bar.
+export function toWindow(target: unknown) {
+  return invoke("center_open", { target }).catch(() => {});
+}
 
 /// Set by the window once it has loaded the pane.
 export let windowHooks: WindowHooks | null = null;

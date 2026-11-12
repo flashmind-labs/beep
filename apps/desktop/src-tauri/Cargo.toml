@@ -28,14 +28,13 @@ async-trait = "0.1"
 ammonia = "4"
 base64 = "0.23"
 beep-fleet = { path = "../../../crates/fleet" }
-beep-live = { path = "../../../crates/live" }
 beep-mesh = { path = "../../../crates/mesh" }
 beep-node = { path = "../../../crates/node", default-features = false }
 metrics = "0.24"
 # Renders the metrics a phone keeps itself; a desktop's embedded node uses it too.
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 beep-projects = { path = "../../../crates/projects" }
-beep-proto = { path = "../../../crates/proto", features = ["client"] }
+beep-proto = { path = "../../../crates/proto", features = ["https"] }
 beep-report = { path = "../../../crates/report" }
 futures = "0.3"
 iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
@@ -53,7 +52,6 @@ serde_bytes = "0.11"
 serde_json = "1"
 strum = { version = "0.28", features = ["derive"] }
 tauri = { version = "2", default-features = false, features = ["wry", "dynamic-acl", "tray-icon", "image-png", "macos-private-api"] }
-tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 thiserror = "2"
@@ -98,7 +96,7 @@ objc2 = "0.6"
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-plugin-global-shortcut = "2"
 webview2-com = "0.39"
-tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The native updater, only in release builds (`sparkle`): it links Sparkle.framework,
@@ -112,13 +110,8 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "NSResponder", "NSWindow", "block2", "objc2-core-graphics"] }
 # Desktop control: the accessibility tree and Accessibility permission.
 objc2-application-services = { version = "0.3", default-features = false, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
-objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGImage", "CGRemoteOperation", "CGSession", "CGWindow"] }
-# Live mode: asking for the microphone before the engine opens it.
-objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
-# Live mode: microphone with echo cancellation, and the player, in one engine.
-objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioBuffer", "AVAudioEngine", "AVAudioFile", "AVAudioFormat", "AVAudioIONode", "AVAudioMixerNode", "AVAudioNode", "AVAudioPlayerNode", "AVAudioTime", "AVAudioTypes"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSNotification", "NSOperation", "NSURL", "block2"] }
 # Desktop control: screenshots.
 objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }

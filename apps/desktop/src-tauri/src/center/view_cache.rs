@@ -1,11 +1,8 @@
 //! The views the window last drew, in one file, so a new window shows them
-//! at once. Only what the mesh or the server lists goes in, never a key. A
+//! at once. Only what the mesh lists goes in, never a key. A
 //! new app version keeps only the typed local search lists.
 
-use crate::{
-    beep::{Service, state::LinkState},
-    error::{self, DesktopError},
-};
+use crate::error::{self, DesktopError};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,7 +25,7 @@ const FORMAT: u32 = 1;
 /// as a streaming session's, writes it once.
 const WRITE_AFTER: Duration = Duration::from_secs(2);
 
-/// One view the window draws from the server.
+/// One view the window draws from the mesh.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum View {
@@ -40,11 +37,7 @@ pub enum View {
     Groups,
     /// `project_sync`.
     Sync,
-    /// `center_projects`.
-    Agents,
-    /// `project_overview`.
-    Overview,
-    /// The machines' agent sessions as the server listed them, which Home
+    /// The machines' agent sessions as they listed them, which Home
     /// uses while the machines are slow to answer.
     AgentSessions,
     /// What each project's page last read, section by section, as the page
@@ -178,65 +171,6 @@ impl ViewCache {
         metrics::counter!("beep_persist_writes_total", "file" => "view_cache").increment(1);
         Ok(())
     }
-
-    /// Drops what only the server lists, when server views are hidden: the project agents, the
-    /// overview and Home's server sections. What the mesh gives stays, so a window draws Home,
-    /// the sidebar and project pages from disk at once; the first fresh read replaces each.
-    /// Writes the file only when something went.
-    pub fn keep_local(&self) {
-        let changed = {
-            let mut views = self.lock();
-            let agents = views.remove(&View::Agents).is_some();
-            let overview = views.remove(&View::Overview).is_some();
-            let home = views.get_mut(&View::Home).is_some_and(local_home);
-            agents || overview || home
-        };
-
-        if changed && let Err(e) = self.save() {
-            log::warn!("saving the local views: {e:#}");
-        }
-    }
-
-    /// Forgets every view, when this computer starts over.
-    pub fn clear(&self) {
-        self.lock().clear();
-
-        match fs::remove_file(&self.path) {
-            Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => log::warn!("removing {}: {e}", self.path.display()),
-        }
-    }
-}
-
-/// Home without what only the server lists: researches, chat approvals, routines, app updates
-/// and machines the mesh does not hold. True when any went.
-fn local_home(home: &mut Value) -> bool {
-    let Some(home) = home.as_object_mut() else {
-        return false;
-    };
-    let before = home.clone();
-    let kind_is = |row: &Value, kind: &str| row.get("kind").and_then(Value::as_str) == Some(kind);
-
-    if let Some(Value::Array(running)) = home.get_mut("running") {
-        running.retain(|row| !kind_is(row, "research"));
-    }
-
-    if let Some(Value::Array(needs)) = home.get_mut("needs_you") {
-        needs.retain(|row| !kind_is(row, "chat"));
-    }
-
-    if let Some(Value::Array(machines)) = home.get_mut("machines") {
-        machines.retain(|card| card.get("joined").and_then(Value::as_bool) != Some(false));
-    }
-
-    for section in ["coming_up", "updates"] {
-        if let Some(value) = home.get_mut(section) {
-            *value = Value::Null;
-        }
-    }
-
-    *home != before
 }
 
 /// `CacheFile` borrowed, so saving does not copy the views.
@@ -310,17 +244,10 @@ async fn write_later(cache: Arc<ViewCache>) {
     }
 }
 
-/// What the window last drew from the server, by view, for a window that
-/// opens to show before the server answers; `None` until this Mac is linked.
+/// What the window last drew, by view, for a window that opens to show
+/// before the machines answer.
 #[tauri::command]
-pub fn center_cached(
-    beep: Service<'_>,
-    cache: State<'_, Arc<ViewCache>>,
-) -> Option<BTreeMap<View, Value>> {
-    if cfg!(mobile) && beep.link_state() != LinkState::Linked {
-        return None;
-    }
-
+pub fn center_cached(cache: State<'_, Arc<ViewCache>>) -> Option<BTreeMap<View, Value>> {
     let mut views = cache.views();
     // This side's own head starts, not the page's.
     views.remove(&View::AgentSessions);
@@ -333,18 +260,9 @@ pub fn center_cached(
 /// it lower; this only stops a runaway one filling the disk.
 const MAX_PAGES: usize = 4 * 1024 * 1024;
 
-/// Keeps project pages across windows and restarts. Desktop pages belong to
-/// the local mesh; phone pages require a linked controller.
+/// Keeps project pages across windows and restarts.
 #[tauri::command]
-pub fn center_keep_pages(
-    beep: Service<'_>,
-    cache: State<'_, Arc<ViewCache>>,
-    pages: Value,
-) -> error::Result<()> {
-    if cfg!(mobile) && beep.link_state() != LinkState::Linked {
-        return Err(DesktopError::Unlinked);
-    }
-
+pub fn center_keep_pages(cache: State<'_, Arc<ViewCache>>, pages: Value) -> error::Result<()> {
     let size = serde_json::to_vec(&pages)
         .map_err(anyhow::Error::from)?
         .len();

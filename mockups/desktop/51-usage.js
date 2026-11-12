@@ -92,6 +92,4 @@ const usInject = html => !/<h2>Home<\/h2>/.test(html) ? html : html.replace(/(<d
 {
   const baseWin = ccWin;
   ccWin = (side, main) => usInject(baseWin(side, main));
-  const baseHome = D.dHome;
-  D.dHome = (...a) => usInject(baseHome(...a));
 }

@@ -42,7 +42,7 @@ fn a_kept_page_comes_back_and_goes_with_its_session() {
     // A follow ending after the delete does not write it back.
     kept.write(&key("s1"), &page("late")).unwrap();
     assert!(kept.read(&key("s1")).is_none());
-    kept.clear();
+    let _ = fs::remove_dir_all(&kept.dir);
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn trimming_keeps_the_newest_within_both_limits() {
     trim(&kept.dir, 10, one);
     assert!(kept.read(&key("s2")).is_none());
     assert!(kept.read(&key("s3")).is_some());
-    kept.clear();
+    let _ = fs::remove_dir_all(&kept.dir);
 }
 
 #[test]
@@ -84,13 +84,13 @@ fn an_unreadable_file_is_dropped() {
     fs::write(kept.file(&key("s1")), b"{").unwrap();
     assert!(kept.read(&key("s1")).is_none());
     assert!(!kept.file(&key("s1")).exists());
-    kept.clear();
+    let _ = fs::remove_dir_all(&kept.dir);
 }
 
 #[tokio::test]
 async fn the_thread_keeps_and_reads_in_order() {
     let dir = std::env::temp_dir().join(format!("beep-kept-{}", uuid::Uuid::new_v4()));
-    let kept = KeptTranscripts::new(dir);
+    let kept = KeptTranscripts::new(dir.clone());
     kept.keep(key("s1"), page("first"));
     kept.keep(key("s1"), page("second"));
     let back = kept
@@ -99,6 +99,5 @@ async fn the_thread_keeps_and_reads_in_order() {
         .unwrap()
         .expect("the page is kept");
     assert_eq!(back.page["entries"][0]["text"], "second");
-    kept.clear();
-    assert!(kept.read(key("s1")).await.unwrap().is_none());
+    let _ = fs::remove_dir_all(dir);
 }

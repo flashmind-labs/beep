@@ -2,7 +2,7 @@
 // match, the best few of each group, and one top hit. The app builds the
 // index (palette/index.rs), so a keystroke never leaves this window.
 
-export type HitKind = "action" | "setting" | "code" | "branch" | "project" | "project_chat" | "folder" | "agent_session" | "chat" | "memory" | "routine" | "machine";
+export type HitKind = "action" | "setting" | "code" | "branch" | "project" | "folder" | "agent_session" | "machine";
 
 /// One thing the palette can find (Entry).
 export interface Entry<S = unknown> {
@@ -30,17 +30,11 @@ export interface PaletteIndex<S = unknown> {
   code: Entry<S>[];
   projects: Entry<S>[];
   sessions: Entry<S>[];
-  /// Newest first.
-  chats: Entry<S>[];
-  memories: Entry<S>[];
-  routines: Entry<S>[];
   machines: Entry<S>[];
 }
 
 /// Most hits of one group.
 const PER_GROUP = 8;
-/// Chats listed before anything is typed.
-const RECENT_CHATS = 5;
 
 /// How well a text matches, best first.
 const PREFIX = 0, WORD_START = 1, SUBSTRING = 2, TEXT = 3, TIERS = 4;
@@ -48,7 +42,7 @@ const NO_MATCH = TIERS;
 
 /// Which group's best hit becomes the top hit on a tie: the things a search
 /// most often means first.
-const TOP_ORDER: HitKind[] = ["project", "project_chat", "folder", "machine", "code", "branch", "agent_session", "setting", "chat", "routine", "memory", "action"];
+const TOP_ORDER: HitKind[] = ["project", "folder", "machine", "code", "branch", "agent_session", "setting", "action"];
 
 const WORD_CHAR = /[\p{L}\p{N}]/u;
 
@@ -78,7 +72,7 @@ function matches<S>(query: string, group: Entry<S>[]): Hit<S>[][] {
   return tiers;
 }
 
-/// A session found by title and text is one hit, with its matching excerpt.
+/// A session found by title and prompt is one hit, with its matching excerpt.
 function withText<S>(tiers: Hit<S>[][], text: Entry<S>[]) {
   for (const found of text) {
     let known = false;
@@ -94,21 +88,15 @@ function withText<S>(tiers: Hit<S>[][], text: Entry<S>[]) {
   }
 }
 
-/// The hits for `query`, a group at a time; `text` holds the chats whose
-/// messages hold it, when they are known. Nothing typed lists every action
-/// and the newest chats.
+/// The hits for `query`, a group at a time; `text` holds the coding sessions
+/// whose prompts hold it, when they are known. Nothing typed lists every action.
 export function rank<S>(rawQuery: string, index: PaletteIndex<S>, text: Entry<S>[] = []): Hit<S>[] {
   const query = rawQuery.trim().toLowerCase();
-  if (!query) return [...index.actions, ...index.chats.slice(0, RECENT_CHATS)];
-  const chats = matches(query, index.chats);
-  withText(chats, text.filter(entry => entry.kind === "chat"));
+  if (!query) return [...index.actions];
   const sessions = matches(query, index.sessions);
   withText(sessions, text.filter(entry => entry.kind === "agent_session"));
   const find = (group: Entry<S>[]) => matches(query, group);
-  const groups = [
-    find(index.actions), find(index.settings), find(index.code), find(index.projects), sessions,
-    chats, find(index.memories), find(index.routines), find(index.machines),
-  ];
+  const groups = [find(index.actions), find(index.settings), find(index.code), find(index.projects), sessions, find(index.machines)];
   const shown = groups.map(tiers => tiers.flat().slice(0, PER_GROUP));
   const top = topGroup(groups, shown);
   const out: Hit<S>[] = top < 0 ? [] : [{ ...shown[top][0], top: true }];

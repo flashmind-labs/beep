@@ -1,8 +1,9 @@
 //! A phone is no machine of the mesh: it embeds no node, so there is nothing to lend. This
 //! stands in for `this_mac` where the rest of the app expects it, and lends nothing.
 
-use crate::beep::Beep;
+use crate::beep::state::Prefs;
 use beep_proto::node::desktop::{Permission, Permissions};
+use iroh::EndpointId;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -37,9 +38,9 @@ impl Machine {
         "Phone"
     }
 
-    pub fn view(&self, beep: &Beep) -> View {
+    pub fn view(&self, _: &Prefs, id: EndpointId) -> View {
         View {
-            id: beep.id().to_string(),
+            id: id.to_string(),
             name: self.name().to_owned(),
             enabled: false,
             status: Status::Off,
@@ -47,7 +48,7 @@ impl Machine {
         }
     }
 
-    pub fn sync(&self, _: &Beep) {}
+    pub fn sync(&self, _: &Prefs) {}
 }
 
 pub fn allow(_: Permission) {}

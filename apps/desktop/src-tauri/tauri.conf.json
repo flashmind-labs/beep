@@ -57,16 +57,10 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "signingIdentity": "-",
-      "entitlements": "Entitlements.plist"
+      "signingIdentity": "-"
     }
   },
   "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": ["beep"]
-      }
-    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4RkVCMkU1QkI5N0VDRUIKUldUcjdKZTc1YkwraUJnYWY0YmVpSW8vZlZXV0U1aDN4SllyR3YxRUdQQThOZ1ZYMDZZdTYrTzAK",
       "endpoints": [

@@ -134,7 +134,7 @@ impl TryFrom<FlshView> for FlshSettings {
     }
 }
 
-/// The user's flsh settings; `None` from a server too old to keep them.
+/// The user's flsh settings.
 #[tauri::command]
 pub async fn flsh_settings_get(fleet: FleetState<'_>) -> Result<Option<FlshView>> {
     Ok(Some(desk(&fleet).await?.flsh().into()))

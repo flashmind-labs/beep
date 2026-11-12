@@ -1,10 +1,8 @@
 //! Product cards. Beep writes one ```product block of JSON per item, and
 //! blocks in a row show as a row of cards that scrolls sideways. Clicking a
 //! card opens the shop in the browser; the corner button copies the link.
-//! The `show_products` tool sends the same cards with typed fields, which the
-//! page draws itself.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 const COPY_ICON: &str = r#"<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/></svg>"#;
 
@@ -28,54 +26,9 @@ pub struct Product {
     note: Option<String>,
 }
 
-/// One entry of a `show_products` result.
-#[derive(Debug, Deserialize)]
-struct Listing {
-    title: String,
-    url: String,
-    #[serde(default)]
-    store: Option<String>,
-    #[serde(default)]
-    price: Option<f64>,
-    #[serde(default)]
-    was: Option<f64>,
-    #[serde(default)]
-    currency: Option<String>,
-    #[serde(default)]
-    image: Option<String>,
-    #[serde(default)]
-    rating: Option<f64>,
-    #[serde(default)]
-    reviews: Option<u64>,
-    #[serde(default)]
-    note: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Shown {
-    products: Vec<serde_json::Value>,
-}
-
-impl From<Listing> for Product {
-    fn from(l: Listing) -> Self {
-        let currency = l.currency.as_deref();
-        Product {
-            title: l.title,
-            url: l.url,
-            price: l.price.map(|p| price(p, currency)),
-            was: l.was.map(|w| price(w, currency)),
-            store: l.store,
-            image: l.image,
-            rating: l.rating.map(Number::Float),
-            reviews: l.reviews.map(|r| Number::Float(r as f64)),
-            note: l.note,
-        }
-    }
-}
-
 /// A product card as the chat shows it: its fields checked, its price and
 /// details written out.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProductCard {
     pub title: String,
     pub url: String,
@@ -90,42 +43,6 @@ pub struct ProductCard {
     pub meta: Option<String>,
     /// What the card says to a screen reader.
     pub label: String,
-}
-
-/// The cards a `show_products` result lists, or None when it has none. An
-/// entry that does not parse is left out.
-pub fn shown(output: &str) -> Option<Vec<ProductCard>> {
-    let shown: Shown = serde_json::from_str(output).ok()?;
-    let cards: Vec<ProductCard> = shown
-        .products
-        .into_iter()
-        .filter_map(|entry| serde_json::from_value::<Listing>(entry).ok())
-        .map(Product::from)
-        .filter(Product::valid)
-        .map(ProductCard::from)
-        .collect();
-    (!cards.is_empty()).then_some(cards)
-}
-
-/// `amount` in `currency`, as in `€249`, `€249.99` or `249 CHF`.
-fn price(amount: f64, currency: Option<&str>) -> String {
-    let whole = currency == Some("JPY") || (amount * 100.0).round() % 100.0 == 0.0;
-    let number = if whole {
-        grouped(&format!("{:.0}", amount.round()))
-    } else {
-        let fixed = format!("{amount:.2}");
-        let (int, cents) = fixed.split_once('.').unwrap_or((&fixed, "00"));
-        format!("{}.{cents}", grouped(int))
-    };
-    let symbol = match currency {
-        Some("EUR") => "€",
-        Some("USD") => "$",
-        Some("GBP") => "£",
-        Some("JPY") => "¥",
-        Some(code) => return format!("{number} {code}"),
-        None => "",
-    };
-    format!("{symbol}{number}")
 }
 
 /// Digits with a comma every three places, `1,204` for `1204`.

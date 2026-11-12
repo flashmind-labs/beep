@@ -28,7 +28,7 @@ test("starting a session replaces a draft and discards its forward branch", () =
 });
 
 test("a draft replacement retains the previous session in history", () => {
-  const previous: Location = { view: "pane", arg: { chat: { session: "previous" } } };
+  const previous: Location = { view: "pane", arg: "settings" };
   const h = new WindowHistory(); h.start(previous); h.visit(previous, draft); h.visit(draft, session, true);
   assert.deepEqual(h.back(session), previous);
   assert.deepEqual(h.forward(previous), session);

@@ -60,7 +60,6 @@
   };
   const strip = cells => `<div class="cc-mstrip">${cells.map(([dot, b, t, cls]) => `<button class="m" data-toast="${b}">${dot ? `<span class="ddot ${dot}"></span>` : ""}<b>${b}</b><span${cls ? ` class="${cls}"` : ""}>${t}</span></button>`).join("")}</div>`;
   const MACHINES = [["busy", "build-box", "2 agents · 348 GB free"], ["", "studio", "idle · 80 GB free"], ["busy", "laptop", "1 agent · 120 GB free"], ["off", "phone", "offline"]];
-  const comp = (ph, extra = "") => `<div class="cc-comp hc"><span class="in"><span class="caret"></span><span class="ph">${ph}</span></span>${extra}<button class="dbtn pri" data-toast="Sent">Send<kbd>${DI.ret}</kbd></button></div>`;
   const tabs = (list, on) => `<div class="cc-tabs" role="tablist">${list.map(([k, l, n]) => `<button role="tab" aria-selected="${k === on}">${l}${n ? `<span class="n">${n}</span>` : ""}</button>`).join("")}</div>`;
 
   // ---------- Home ----------
@@ -80,8 +79,6 @@
     ["claude", "Retry uploads when the token expires", "acme/widget", "build-box", "retry-upload", "31 min"]];
   const runRows = () => sec("Running", RUN.length, panel(RUN.map(([a, t, p, m, , w]) => ln(ag(a), t, `${p} · ${m}`, w)).join("")));
 
-  const coming = () => sec("Coming up", CC_COMING.length, panel(CC_COMING.map(c => ln(`<span class="cc-when"><b>${c[0]}</b>${c[1]}</span>`, c[2], c[3], "")).join("")));
-
   const PROJ = [
     { name: "acme/api", branch: "main", ci: tg("bad", "CI failing"), on: "build-box, studio", rows: [ln(ag("codex"), "Fix the device build script", "build-box · 4 min", ""), ln(kind("bad", IC.ci), "#41 Cut the cache warm-up in half", "checks failing", btn("Fix with an agent")), ln(kind("ok", IC.done), "Clippy fixes in the sync crate", "finished · +84 −31", btn("Review", "pri"))] },
     { name: "you/site", branch: "fix-approval", ci: tg("run", "CI passing"), on: "laptop", rows: [ln(ag("claude"), "Swipeable approval strip on iOS", "laptop · asks to run xcodebuild", btn("Answer", "pri")), ln(kind("", IC.pr), "#12 Move the blog to the new theme", "wants your review", btn("Review"))] },
@@ -94,12 +91,12 @@
   D.dIdeaHome = () => {
     const v = S.d.ixh || "attention";
     const body = v === "attention"
-      ? note("<b>Attention first (built, #466).</b> One <b>Needs you</b> list holds agents' questions, chat approvals, PRs waiting on you and sync conflicts, each with one button. Running lists every session. Projects, Terminals, PR and Issue boxes leave Overview: the sidebar, the PRs and issues tab and the Machines tab have them. Updates show only with a server.")
-        + needs() + runRows() + coming()
+      ? note("<b>Attention first (built, #466).</b> One <b>Needs you</b> list holds agents' questions, PRs waiting on you and sync conflicts, each with one button. Running lists every session. Projects, Terminals, PR and Issue boxes leave Overview: the sidebar, the PRs and issues tab and the Machines tab have them.")
+        + needs() + runRows()
       : note("<b>By project.</b> Each project with something going on gets a card: its agents, its PRs and CI, its conflicts. Quiet projects fold into one line. Needs you is the same list, so the cards repeat it in context.")
-        + byProject() + coming();
+        + byProject();
     const main = `<div class="cc-top"><h2>Home</h2><small>Saturday, 7 November</small><span class="tools"></span></div>
-      <div class="cc-view">${strip(MACHINES)}${homeTabs}${body}</div>${comp("Ask Beep, or start an agent on a machine", `<button class="dbtn" data-toast="Start a coding agent">Agent</button>`)}`;
+      <div class="cc-view">${strip(MACHINES)}${homeTabs}${body}</div>`;
     return skinned(ccWin(ccSide("home"), main));
   };
   VARIANTS.dIdeaHome = [["A: Attention first", "attention"], ["B: By project", "project"]].map(([l, k]) => [l, () => { S.d.ixh = k; render(); }, () => (S.d.ixh || "attention") === k]);
@@ -124,7 +121,7 @@
     + `</div>`), `<button class="dbtn quiet small" data-toast="Add to laptop">Add to laptop</button>`);
 
   const overviewA = () => note("<b>Status strip (built, #466).</b> The strip says branch, Actions, agents, machines, PRs and issues; each opens its row of the list. The list loses its Project and Work headings, and Agents becomes Sessions (past sessions and custom agents), since running agents have their own rows. Actions leaves the overview: the strip and the list have it. Under Machines, Start an agent here, Open in Finder and Copy path go in one ⋯ menu; a fix keeps its button.")
-    + sec("Needs you", 1, panel(ln(kind("wait", "?"), "The project agent waits on you", "Plan for #92 Auto-sync the SDK docs: 3 steps on build-box", btn("Open plan", "pri"))))
+    + sec("Needs you", 1, panel(ln(ag("claude"), "May it run cargo test on build-box?", "Claude Code · #92 Auto-sync the SDK docs", btn("Answer", "pri"))))
     + sec("Running", 2, panel(ln(ag("claude"), "Swipeable approval strip", "build-box · fix-approval", "now") + ln(ag("codex"), "Fix the device build script", "studio · main", "3 min")))
     + `<div class="cc-cols">${sec("Pull requests", 2, panel(ln(kind("bad", "PR"), "#41 Cut the cache warm-up in half", "sam · 5 d · checks failing", tg("wait", "needs reply")) + ln(kind("ok", "PR"), "#38 Bump the sync crate", "you · 9 d · checks passing", tg("run", "ready"))))}${sec("Issues", 2, panel(ln(kind("", "#"), "#92 Auto-sync the SDK docs", "contributor-a · 32 d · docs, ci", "") + ln(kind("", "#"), "#53 Publish the CLI like the SDK", "contributor-b · 173 d · release", "")))}</div>`
     + machTable();
@@ -136,7 +133,7 @@
     ["09:30", kind("wait", "⇄"), "dev-vm can't fast-forward main", "Local commit on dev-vm not on origin", btn("Fix with an agent")]]],
   ["Yesterday", [["18:04", kind("ok", "✓"), "build.yml #347 passed on #38", "Bump the sync crate", ""], ["16:40", ag("codex"), "Bump the toolchain ended", "studio · merged as #39", ""], ["14:12", kind("", "#"), "contributor-a commented on #92", "Asked for the SDK docs to sync on release", ""]]]];
   const overviewB = () => note("<b>Activity feed.</b> The overview answers “what happened since I looked”: sessions, CI runs, PR and issue replies and sync problems in time order, each with its one action. A narrow column on the right keeps the facts. The list and composer stay as in A.")
-    + `<div class="ix-two"><div class="ix-feed">${sec("Needs you", 1, panel(ln(kind("wait", "?"), "The project agent waits on you", "Plan for #92: 3 steps on build-box", btn("Open plan", "pri"))))}${EVENTS.map(([d, evs]) => `<div class="ix-day">${d}</div>${evs.map(([tm, k, t, s, r]) => `<div class="ix-ev"><span class="tm">${tm}</span>${k}<span class="t"><b>${t}</b><small>${s}</small></span><span class="r">${r}</span></div>`).join("")}`).join("")}</div>`
+    + `<div class="ix-two"><div class="ix-feed">${sec("Needs you", 1, panel(ln(ag("claude"), "May it run cargo test on build-box?", "Claude Code · #92", btn("Answer", "pri"))))}${EVENTS.map(([d, evs]) => `<div class="ix-day">${d}</div>${evs.map(([tm, k, t, s, r]) => `<div class="ix-ev"><span class="tm">${tm}</span>${k}<span class="t"><b>${t}</b><small>${s}</small></span><span class="r">${r}</span></div>`).join("")}`).join("")}</div>`
     + `<div>${sec("At a glance", "", panel(`<div class="ix-kv"><span>Branch</span><span class="mono">main</span><span>CI</span><span style="color:var(--d-err)">failing · #351</span><span>Agents</span><span>2 running</span><span>Machines</span><span>3 of 4 in sync</span><span>PRs</span><span>2 open · 1 needs reply</span><span>Issues</span><span>2 open</span><span>Hosts</span><span>GitHub, Forgejo</span></div>`))}</div></div>`;
 
   // Sessions: past sessions and the project's custom agents in two tabs, so the
@@ -161,9 +158,8 @@
         <div class="pj-split">${nav("Sessions")}<div class="ix-det"><div class="sc">${sessionsTabs()}</div></div></div>${pjComp()}</div>`;
       return skinned(ccWin(ccSidePj("acme/widget"), main));
     }
-    const selected = v === "branches" || v === "review" ? "Git" : v === "running-sync" ? "Running" : "Overview";
+    const selected = v === "branches" ? "Git" : v === "running-sync" ? "Running" : "Overview";
     const content = v === "branches" ? window.gitHistoryDetail?.() || ""
-      : v === "review" ? `<button class="dbtn quiet small pj-back" data-dact="dset:ixp:branches" data-dgo="dIdeaProject">All branches</button>${window.__rvPane()}`
       : v === "running-sync" ? sec("Agents", 2, panel(
         ln(ag("claude"), "Swipeable approval strip", "acme/widget · build-box", "now").replace('<button class="t"', '<button class="t" data-dgo="dAgentSession"')
         + ln(ag("codex"), "Fix the device build script", "acme/widget · studio", "3 min").replace('<button class="t"', '<button class="t" data-dgo="dAgentSession"')))
@@ -173,7 +169,7 @@
       <div class="pj-split${v === "branches" ? " gh-layout" : ""}">${v === "branches" ? window.gitHistoryNavigation?.() || "" : nav(selected)}<div class="ix-det${v === "branches" ? " gh-inspector" : ""}"><div class="sc">${content}</div></div></div>${pjComp()}</div>`;
     return skinned(ccWin(ccSidePj("acme/widget"), main));
   };
-  VARIANTS.dIdeaProject = [["A: Status strip, centered composer", "strip"], ["Running while sync updates", "running-sync"], ["A: Sessions in tabs", "sessions"], ["Git history", "branches"], ["Review", "review"], ["B: Activity feed", "feed"]].map(([l, k]) => [l, () => { S.d.ixp = k; render(); }, () => (S.d.ixp || "strip") === k]);
+  VARIANTS.dIdeaProject = [["A: Status strip, centered composer", "strip"], ["Running while sync updates", "running-sync"], ["A: Sessions in tabs", "sessions"], ["Git history", "branches"], ["B: Activity feed", "feed"]].map(([l, k]) => [l, () => { S.d.ixp = k; render(); }, () => (S.d.ixp || "strip") === k]);
   let syncPreview = 0;
   setInterval(() => {
     const count = document.querySelector("[data-sync-preview]");

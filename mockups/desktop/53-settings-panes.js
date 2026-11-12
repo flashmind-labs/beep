@@ -1,7 +1,7 @@
 
 // Settings in two panes, as macOS System Settings: the left lists the pages
 // (a page's subpages nest under it once it is picked), the right shows only
-// the picked page. Subpages (an app, a machine, a coding agent) open in the
+// the picked page. Subpages (a machine, a coding agent) open in the
 // right pane under a breadcrumb with a back link, never in another window.
 // The sheet opens on the page picked last.
 const CC_SET = (() => {
@@ -25,13 +25,6 @@ const CC_SET = (() => {
 .mac .cs-page { padding: 16px 24px 24px; overflow: auto; scrollbar-width: thin; flex: 1; min-height: 0 }
 .mac .cs-page .cs-wide { max-width: 760px }
 .mac .cs-box { border: 1px solid var(--d-border); border-radius: 8px; overflow: hidden; margin: 6px 0 16px }
-.mac .cs-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--d-border); font-size: 13px }
-.mac .cs-row:last-child { border-bottom: 0 }
-.mac .cs-row.cs-go { cursor: pointer }
-.mac .cs-row.cs-go:hover { background: rgba(255,255,255,.025) }
-.mac .cs-row b { font-weight: 500 }
-.mac .cs-row small { display: block; color: var(--d-muted); font-size: 12px; margin-top: 2px }
-.mac .cs-row .end { display: flex; gap: 8px; align-items: center; color: var(--d-muted) }
 .mac .cs-h { font-size: 12px; font-weight: 600; color: var(--d-dim); margin: 14px 0 2px }
 .mac .cs-kv { display: grid; grid-template-columns: 160px minmax(0, 1fr); font-size: 13px }
 .mac .cs-kv > span { padding: 8px 14px; border-bottom: 1px solid var(--d-border) }
@@ -106,7 +99,7 @@ const CC_SET = (() => {
         : up === "log-empty" ? `<div class="dmuted" style="margin-bottom:6px">Nothing logged lately.</div>${logBtn("Refresh", 'data-toast="Refreshed"')}`
         : logFail[up] ? `<div class="derr" style="margin-bottom:6px">${logFail[up]}</div>${logBtn("Try again", 'data-dact="dset:mup:log"')}`
         : `<div>${logBtn("Show", 'data-dact="dset:mup:log"')}</div>`;
-      const ask = up === "asking" ? `<div class="ask"><span>Remove build-box from your account? It stops taking work. To use it again, add it with a new setup command.</span><span class="acts"><button class="dbtn warn" data-dact="dset:mup:" data-toast="build-box removed">Remove</button><button class="dbtn quiet" data-dact="dset:mup:">Cancel</button></span></div>` : "";
+      const ask = up === "asking" ? `<div class="ask"><span>Remove build-box from your machines? It stops taking work. To use it again, add it with a new setup command.</span><span class="acts"><button class="dbtn warn" data-dact="dset:mup:" data-toast="build-box removed">Remove</button><button class="dbtn quiet" data-dact="dset:mup:">Cancel</button></span></div>` : "";
       // Sign-ins: Sign in on a tool the machine can sign in from here; how to, on one it cannot.
       const signedOut = up === "signin-done" ? ["opencode", "gemini", "pi"] : ["claude", "opencode", "gemini", "pi"];
       const SIGN_HOW = { gemini: "Run gemini on build-box once, or add a Gemini API key in Credentials", pi: "Run pi on build-box and use /login" };
@@ -139,7 +132,6 @@ const CC_SET = (() => {
   };
   return { frame: v => SETV.frame(v, pages) };
 })();
-// Direct entries for the two subpages.
-D.dSetApp = () => { const keep = S.d.set; S.d.set = "app-gmail"; const html = D.dWinSettings(); S.d.set = keep; return html; };
+// A direct entry for a coding agent's subpage.
 D.dSetHarness = () => { const keep = S.d.set; S.d.set = "acct-claude"; const html = D.dWinSettings(); S.d.set = keep; return html; };
-DESK_SCREENS.find(g => g.group === "Command center").items.push(["dSetApp", "Settings, Apps > Gmail", "SettingsSheet, AppPage"], ["dSetHarness", "Settings, Agent accounts > Claude Code", "SettingsSheet, CodingAgent"]);
+DESK_SCREENS.find(g => g.group === "Command center").items.push(["dSetHarness", "Settings, Agent accounts > Claude Code", "SettingsSheet, CodingAgent"]);

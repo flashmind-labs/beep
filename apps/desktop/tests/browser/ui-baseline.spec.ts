@@ -37,7 +37,6 @@ test.beforeEach(async ({ page, browserName }, info) => {
 
 const machineId = "build-box";
 const folder = "/srv/project";
-const linked = { link: "linked", signed_out: false, server: true, live: false, session: null };
 
 const machine = (id: string, name: string, online: boolean, agents: number) => ({ id, name, online, can_host: true, seen_at: NOW - 3_600_000, version: "0.9.0", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents, stats: null });
 const project = (name: string, url = `https://example.test/${name}`, box = machineId) => ({ name, url, machine_id: box, machine_name: box, folder: `/srv/${name}`, cloned: true, imported_at: NOW - 86_400_000 });
@@ -45,9 +44,7 @@ const agentRow = (id: string, title: string, status: string, ago: number, cwd = 
 
 const projects = [project(projectName), project("example/gadget"), project("tools/delta", "https://forge.test/team/delta")];
 const running = [agentRow("notice-one", "Fix the login redirect", "working", 30_000, "/srv/example/widget"), agentRow("notice-two", "Update the changelog", "idle", 600_000, "/srv/example/gadget")];
-const updates = [{ id: 1, summary: "Release 0.9.0 is out", app: "app", app_name: "App", at: NOW - 3_600_000 }, { id: 2, summary: "Nightly build passed", app: "ci", app_name: "CI", at: NOW - 7_200_000 }];
-const home = { machines: [machine("build-box", "build-box", true, 2), machine("test-box", "test-box", false, 0)], projects, running, needs_you: [], coming_up: null, updates };
-const sidebar = { status: linked, list_sessions: [{ id: "chat-one", title: "Plan the release", pinned: true, updated_at: NOW - 60_000 }, { id: "chat-two", title: "Sketch the onboarding", pinned: false, updated_at: NOW - 3_600_000 }], list_groups: [], active_runs: [] };
+const home = { machines: [machine("build-box", "build-box", true, 2), machine("test-box", "test-box", false, 0)], projects, running, needs_you: [] };
 
 const session = { kind: "agent", machine_id: machineId, machine_name: machineId, id: "notice-one", agent: "codex", title: "Fix the login redirect", cwd: folder, status: "working", doing: null, started_at: NOW - 7_200_000, last_activity: NOW - 30_000, external: false };
 const transcript = [
@@ -154,8 +151,8 @@ async function openProject(page: Page, responses: Record<string, unknown> = {}) 
 // Desktop window
 
 test("home overview", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home, ...sidebar });
-  await expect(page.getByRole("button", { name: "Release 0.9.0 is out" })).toBeVisible();
+  await openDesktop(page, false, { center_home: home });
+  await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "home-overview");
 });
 
@@ -167,7 +164,7 @@ test("home machines", async ({ page }) => {
 });
 
 test("sidebar groups folded and collapsed", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home, ...sidebar });
+  await openDesktop(page, false, { center_home: home });
   const projectsGroup = page.locator("#side .cc-grp.projects");
   await expect(projectsGroup.getByRole("button", { name: "tools/delta", exact: true })).toBeVisible();
   await projectsGroup.getByRole("button", { name: "example/", exact: true }).click();
@@ -179,10 +176,9 @@ test("sidebar groups folded and collapsed", async ({ page }) => {
 });
 
 const groups = [{ id: "g", name: "Client work", paths: ["srv/example"] }];
-const overview = [{ project_id: "p", name: projectName, tasks: { planned: 3, running: 2, blocked: 1, review: 4, done: 12 }, workers: 3, latest: { slug: "login-redirect", title: "Fix the login redirect", state: "review", pr_url: "https://example.test/pr/1", updated_at: NOW - 3_600_000 } }];
 
 test("projects overview grouped", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home, project_groups: groups, project_overview: overview });
+  await openDesktop(page, false, { center_home: home, project_groups: groups });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
   await expect(page.locator(".pj-card")).toHaveCount(3);
   await baseline(page, "projects-grouped");
@@ -225,17 +221,6 @@ test("project git history", async ({ page }) => {
   await baseline(page, "project-git");
 });
 
-test("review with findings", async ({ page }) => {
-  const finding = (id: number, severity: string, title: string, line: number) => ({ id, area: "src", severity, title, file: "src/login.ts", line, why: "The redirect target is read before the session exists.", verdict: "verified", dropped_why: "", dismissed: false });
-  const review = { id: "review-one", project: projectName, branch: "feature", base: "main", head: "c3d4e5f6a7b8", head_at: NOW - 3_600_000, started_at: NOW - 1_800_000, machine_name: machineId, changed_lines: 42, files: 3, merge: "clean", conflicts: [], pr: null, shards: [], findings: [finding(1, "high", "Redirect reads next too early", 12), finding(2, "low", "Unused import", 3)] };
-  const branches = { machine_id: machineId, machine_name: machineId, default_branch: "main", branches: [{ name: "feature", worktree: folder, ahead: 2, behind: 0, head: "c3d4e5f6a7b8", subject: "Keep the query string on redirect", committed_at: NOW - 3_600_000, local: true, pushed: true }] };
-  await openProject(page, { project_branches: branches, reviews_list: [review], review_get: review, review_check: { head: "c3d4e5f6a7b8", stale: false }, project_git_history: { ...gitHistory, refs: [{ name: "feature", head: "c3d4e5f6a7b8", kind: "local" }] } });
-  await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
-  await page.getByRole("button", { name: "Review branch" }).click();
-  await expect(page.getByText("Redirect reads next too early")).toBeVisible();
-  await baseline(page, "review-findings");
-});
-
 test("sync page", async ({ page }) => {
   const box = { machine_id: machineId, machine_name: machineId, folder, status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: ["notes (conflict 12345678).txt"], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, git_only: false };
   const detail = { project: projectName, pinned: false, paused: false, machines: [box] };
@@ -253,7 +238,7 @@ test("terminals", async ({ page }) => {
   await baseline(page, "terminals");
 });
 
-const settingsResponses = { status: linked, settings: { name: machineId, version: "0.9.0", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [], agent_accounts: { claude: null, codex_key: null, machines: [] } };
+const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [] };
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {
@@ -319,7 +304,7 @@ test("agent artifacts", async ({ page }) => {
 
 test("notices popover", async ({ page }) => {
   const note = (id: string, kind: string, title: string, ago: number) => ({ id, at: NOW - ago, kind, title, text: "", source: machineId, read: false, done: false, target: null });
-  await openDesktop(page, false, { alerts_list: null, notes_list: [note("first", "finished", "Codex finished", 60_000), note("second", "asks", "Permission required", 120_000), note("third", "finished", "Claude Code finished", 3_600_000)] });
+  await openDesktop(page, false, { notes_list: [note("first", "finished", "Codex finished", 60_000), note("second", "asks", "Permission required", 120_000), note("third", "finished", "Claude Code finished", 3_600_000)] });
   await page.getByRole("button", { name: /Notifications/ }).click();
   await expect(page.locator('.nt-row[data-id="third"]')).toBeVisible();
   await baseline(page, "notices");
@@ -387,7 +372,7 @@ test("phone home", async ({ page }) => {
   await page.setViewportSize(PHONE);
   await openDesktop(page, false, { center_home: home });
   await expect(page.locator("body")).toHaveClass(/mobile/);
-  await expect(page.getByRole("button", { name: "Release 0.9.0 is out" })).toBeVisible();
+  await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "phone-home");
 });
 

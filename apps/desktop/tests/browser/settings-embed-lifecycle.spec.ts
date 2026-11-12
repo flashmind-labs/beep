@@ -10,7 +10,7 @@ async function openSettingsWithInstructions(page: Page) {
 }
 
 const responses = {
-  settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false },
+  settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
   mac_control: { id: "build-box", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } },
   instructions_get: { version: 1, text: "Example instructions", note: "", saved_at: 0 },
 };
@@ -42,7 +42,7 @@ test("refresh keeps the embedded instructions editor and its selection", async (
   await editor.fill("Draft instructions");
   await editor.evaluate(el => { if (el instanceof HTMLTextAreaElement) { el.setSelectionRange(2, 6); Reflect.set(window, "settingsEditor", el); } });
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length);
-  await page.evaluate(() => window.__navigation.emit("link-state", "unlinked"));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(reads);
   await expect(editor).toHaveValue("Draft instructions");
   expect(await editor.evaluate(el => el === Reflect.get(window, "settingsEditor") && document.activeElement === el && el instanceof HTMLTextAreaElement && el.selectionStart === 2 && el.selectionEnd === 6)).toBe(true);

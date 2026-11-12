@@ -1,20 +1,17 @@
-//! A project's pull requests and issues from the server's copy, with when it
-//! was read, and its workflow runs (GitHub or Forgejo Actions): the run
-//! list with live progress, one run's jobs and steps, and the end of a
-//! failed job's log. A repository pushed to GitHub and a Forgejo server
-//! runs on both: each run names its host, and a server from before that
-//! gives the primary host's runs alone.
+//! A mesh project's pull requests and issues, with when they were read, and
+//! its workflow runs (GitHub or Forgejo Actions): the run list with live
+//! progress, one run's jobs and steps, and the end of a failed job's log. A
+//! repository pushed to GitHub and a Forgejo server runs on both: each run
+//! names its host.
 
 use crate::{
-    beep::{Service, epoch_ms},
-    error::Result,
+    beep::epoch_ms,
+    error::{DesktopError, Result},
     fleet::projects::{FleetState, desk},
-    projects::known,
     projects::threads::{IssueRow, PullRequestRow},
 };
 use beep_proto::{
-    GetLabeledProjectLists, GetProjectRun, GetProjectRunOn, GitHostKind, HostedChecks, HostedRun,
-    HostedRuns, LabeledProjectLists, ListProjectRuns, ListProjectRunsAll, PrChecks,
+    ApiError, GitHostKind, HostedChecks, HostedRun, HostedRuns, LabeledProjectLists, PrChecks,
     ProjectRunDetail, ProjectRuns, RunJob, RunLog, RunProgress, RunStep, RunsHost, StepProgress,
     WorkflowRun,
 };
@@ -24,6 +21,14 @@ use uuid::Uuid;
 
 fn ms(at: Option<SystemTime>) -> Option<u64> {
     at.map(epoch_ms)
+}
+
+/// The name of the mesh project `project_id` is the id of.
+async fn named(fleet: &FleetState<'_>, project_id: Uuid) -> Result<String> {
+    desk(fleet)
+        .await?
+        .project_name(project_id)
+        .ok_or(DesktopError::Api(ApiError::NotFound {}))
 }
 
 /// The project's lists and when they were read (ProjectLists).
@@ -39,25 +44,15 @@ pub struct ListsRow {
 
 /// The pull requests and issues as last read, at once, with a newer read
 /// behind it when they are stale (the page hears of it as `project-live`);
-/// `refresh` reads the host now. `None` from a server too old to keep them,
-/// which the page then lists the older way.
+/// `refresh` reads the host now.
 #[tauri::command]
 pub async fn center_project_lists(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<ListsRow>> {
-    let found = match desk(&fleet).await?.project_name(project_id) {
-        Some(name) => Some(fleet.lists(&name, refresh).await?),
-        None => known(
-            beep.call(GetLabeledProjectLists {
-                project_id,
-                refresh,
-            })
-            .await,
-        )?,
-    };
+    let name = named(&fleet, project_id).await?;
+    let found = Some(fleet.lists(&name, refresh).await?);
     Ok(
         found.map(|LabeledProjectLists { lists, pr_labels }| ListsRow {
             prs: lists
@@ -268,33 +263,15 @@ impl From<HostedRuns> for RunsRow {
 }
 
 /// The newest workflow runs with live progress and each pull request's
-/// checks, from every host the repository is on, or from its primary host
-/// on a server that reads one; `None` from a server too old to read them.
+/// checks, from every host the repository is on.
 #[tauri::command]
 pub async fn center_project_runs(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project_id: Uuid,
     refresh: bool,
 ) -> Result<Option<RunsRow>> {
-    if let Some(name) = desk(&fleet).await?.project_name(project_id) {
-        return Ok(Some(fleet.runs(&name, refresh).await?.into()));
-    }
-
-    let all = ListProjectRunsAll {
-        project_id,
-        refresh,
-    };
-
-    if let Some(runs) = known(beep.call(all).await)? {
-        return Ok(Some(runs.into()));
-    }
-
-    let primary = ListProjectRuns {
-        project_id,
-        refresh,
-    };
-    Ok(known(beep.call(primary).await)?.map(Into::into))
+    let name = named(&fleet, project_id).await?;
+    Ok(Some(fleet.runs(&name, refresh).await?.into()))
 }
 
 #[derive(Debug, Serialize)]
@@ -366,41 +343,22 @@ impl From<ProjectRunDetail> for RunDetailRow {
 }
 
 /// One run with its jobs, steps and, when it failed, the end of its log,
-/// read from `host`, the host its row names. Without one, or from a server
-/// that reads one host, from the primary host. A project of the mesh gives
-/// a finished run as read before; `refresh` reads the host now.
+/// read from `host`, the host its row names; without one, from the primary
+/// host. A finished run is given as read before; `refresh` reads the host
+/// now.
 #[tauri::command]
 pub async fn center_project_run(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project_id: Uuid,
     run_id: u64,
     host: Option<String>,
     refresh: Option<bool>,
 ) -> Result<RunDetailRow> {
-    if let Some(name) = desk(&fleet).await?.project_name(project_id) {
-        let read = fleet
-            .run(&name, host.as_deref(), run_id, refresh.unwrap_or(false))
-            .await?;
-        let mut row: RunDetailRow = read.into();
-        row.run.host = host;
-        return Ok(row);
-    }
-
-    if let Some(host) = host {
-        let on = GetProjectRunOn {
-            project_id,
-            host: host.clone(),
-            run_id,
-        };
-
-        if let Some(detail) = known(beep.call(on).await)? {
-            let mut row: RunDetailRow = detail.into();
-            row.run.host = Some(host);
-            return Ok(row);
-        }
-    }
-
-    let detail = beep.call(GetProjectRun { project_id, run_id }).await?;
-    Ok(detail.into())
+    let name = named(&fleet, project_id).await?;
+    let read = fleet
+        .run(&name, host.as_deref(), run_id, refresh.unwrap_or(false))
+        .await?;
+    let mut row: RunDetailRow = read.into();
+    row.run.host = host;
+    Ok(row)
 }

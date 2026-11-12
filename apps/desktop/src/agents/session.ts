@@ -79,7 +79,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
       return void pollAgent(true);
     }
 
-    if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
+    if (from === undefined) AG.back = S.view === "agents" ? "agents" : "hide";
     S.view = "agent";
     Object.assign(AG, { sig: "", rest: "" });
     // Its log goes back where the reader left it, or to its end.
@@ -88,7 +88,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     return void pollAgent(true);
   }
 
-  if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
+  if (from === undefined) from = S.view === "agents" ? "agents" : "hide";
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
   if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);

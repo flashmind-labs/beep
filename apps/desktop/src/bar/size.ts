@@ -1,4 +1,3 @@
-import { drawLatest } from "../chat/chat.ts";
 import { $, bar, PANE } from "./core.ts";
 import { invoke } from "../ui/tauri.ts";
 import { ZOOMED } from "../ui/zoom-state.ts";
@@ -31,10 +30,10 @@ export function forgetHeight() { barHeight = 0; }
 /// not resize the window on every token. In a window's pane the bar does
 /// not size its window, so nothing is measured.
 export function fit() {
+  if (PANE) return;
   fitFrame ||= requestAnimationFrame(() => {
     fitFrame = 0;
-    if (!PANE) resize();
-    drawLatest();
+    resize();
   });
 }
 

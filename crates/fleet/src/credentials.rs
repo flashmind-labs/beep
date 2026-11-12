@@ -10,8 +10,8 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    migrate::{UNMOVED_CREDENTIAL, Unmoved, unmoved_credential},
     peer::probe,
+    records::{UNMOVED_CREDENTIAL, Unmoved, unmoved_credential},
     records::{WRITES, now_ms, time},
 };
 use beep_mesh::{DeviceStatus, Key, Mesh};

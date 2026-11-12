@@ -3,8 +3,8 @@ import { openDesktop } from "./harness.ts";
 
 const session = (id: string) => ({ kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: id, cwd: "/srv/project",
   status: "working", doing: null, started_at: 1, last_activity: 1, external: false, question: null });
-const home = (running: number, needs_you: unknown[] = []) => ({ machines: [], projects: [], running: Array.from({ length: running }, (_, i) => session(`agent-${i}`)), needs_you, coming_up: null, updates: null });
-const approval = { kind: "chat", session_id: "chat-one", session_title: "Deploy notes", pending: { run_id: "run-one", query_id: "query-one", approval: { app: "Mail", action: "send the draft", fields: [] } } };
+const home = (running: number, needs_you: unknown[] = []) => ({ machines: [], projects: [], running: Array.from({ length: running }, (_, i) => session(`agent-${i}`)), needs_you });
+const approval = { kind: "agent", machine_id: "build-box", machine_name: "build-box", agent: "codex", session: "agent-asks", title: "Deploy notes", question: { id: 1, text: "Send the draft?", detail: null, options: [] } };
 
 const reads = (page: Page) => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length);
 
@@ -33,7 +33,7 @@ test("a burst of Home changes reads Home and draws the sidebar once", async ({ p
   const before = await reads(page);
   await watchSidebar(page);
 
-  // The approval gives the sidebar's Home link a count, the one thing there that changes.
+  // The question gives the sidebar's Home link a count, the one thing there that changes.
   await burst(page, [approval]);
   expect(await reads(page)).toBe(before);
   await page.clock.runFor(1000);
@@ -49,19 +49,4 @@ test("a burst of Home changes reads Home and draws the sidebar once", async ({ p
   await page.clock.runFor(1200);
   await expect.poll(() => reads(page)).toBe(before + 2);
   expect(await sidebarDraws(page)).toBe(1);
-});
-
-test("an approval during a burst of Home changes shows at once", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home(0) });
-  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
-  await page.clock.install();
-  await page.clock.pauseAt(Date.now() + 1000);
-  await page.clock.runFor(2000);
-
-  await burst(page);
-  await page.evaluate(value => {
-    window.__navigation.respond("center_home", value);
-    window.__navigation.emit("group-approval", { group_id: "group-one", query_id: "query-one" });
-  }, home(1, [approval]));
-  await expect(page.getByText("Send the draft?")).toBeVisible();
 });

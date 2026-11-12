@@ -1,19 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { branchSession, branchSessions } from "../src/review/branchsession-state.ts";
+import { branchSessions } from "../src/review/branchsession-state.ts";
 
 const s = (id: string, cwd: string, last_activity: number, machine_id = "m1") => ({ id, cwd, last_activity, machine_id });
 
 test("the most recent session in the branch's worktree, running or not", () => {
   const list = [s("old", "/srv/w/.worktrees/a", 1), s("new", "/srv/w/.worktrees/a/", 9), s("other", "/srv/w/.worktrees/b", 20), s("away", "/srv/w/.worktrees/a", 30, "m2")];
-  assert.equal(branchSession(list, "m1", "/srv/w/.worktrees/a")?.id, "new");
+  assert.equal(branchSessions(list, "m1", "/srv/w/.worktrees/a")[0]?.id, "new");
 });
 
 test("a branch with no worktree, or a session on the checkout that moved on, has none", () => {
   const list = [s("shared", "/srv/w", 5)];
-  assert.equal(branchSession(list, "m1", null), undefined);
-  assert.equal(branchSession(list, "m1", "/srv/w/.worktrees/a"), undefined);
-  assert.equal(branchSession(list, "m1", "/srv/w")?.id, "shared");
+  assert.deepEqual(branchSessions(list, "m1", null), []);
+  assert.deepEqual(branchSessions(list, "m1", "/srv/w/.worktrees/a"), []);
+  assert.equal(branchSessions(list, "m1", "/srv/w")[0]?.id, "shared");
 });
 
 test("sessions in subfolders belong to the closest worktree, on the same machine", () => {
@@ -27,8 +27,8 @@ test("sessions in subfolders belong to the closest worktree, on the same machine
 test("a reported worktree takes precedence over where a session started", () => {
   const session = { ...s("moved", "/srv/project", 9), worktree: "/srv/project/.worktrees/login" };
   const paths = ["/srv/project", session.worktree];
-  assert.equal(branchSession([session], "m1", paths[1], paths)?.id, "moved");
-  assert.equal(branchSession([session], "m1", paths[0], paths), undefined);
+  assert.equal(branchSessions([session], "m1", paths[1], paths)[0]?.id, "moved");
+  assert.deepEqual(branchSessions([session], "m1", paths[0], paths), []);
   assert.equal(session.cwd, "/srv/project", "opening a session keeps its original folder");
 });
 

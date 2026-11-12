@@ -273,7 +273,7 @@ fn a_machine_off_since_a_restart_keeps_when_it_was_seen() {
     let dir = tempfile::tempdir().expect("a folder");
     let file = dir.path().join(SEEN_FILE);
     let seen = BTreeMap::from([(id.to_string(), 1_700_000_000_000_u64)]);
-    crate::beep::sync::write(&file, &serde_json::to_vec(&seen).expect("json")).expect("written");
+    crate::beep::state::write(&file, &serde_json::to_vec(&seen).expect("json")).expect("written");
     // As after a restart: the machine joined long ago and is off.
     let shared = Shared {
         peers: Mutex::new(BTreeMap::from([(

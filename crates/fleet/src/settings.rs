@@ -2,7 +2,7 @@
 //! their instructions. They are the same on every machine, so they are one value each in the
 //! mesh (`harness/<agent>`, `flsh`, `instructions`), which the nodes read.
 
-use crate::migrate::{Unmoved, unmoved_env};
+use crate::records::{Unmoved, unmoved_env};
 use crate::{
     desk::Desk,
     error::{FleetError, Result},

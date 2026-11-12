@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const responses = { status: { link: "unlinked", signed_out: true, server: false, live: false, session: null }, settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false }, mac_control: { id: "one", name: "build-box", enabled: true, status: "connected", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [] };
+const responses = { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, mac_control: { id: "one", name: "build-box", enabled: true, status: "connected", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [] };
 test("Appearance keeps the chosen control focused across refresh", async ({ page }) => {
   await openDesktop(page, false, responses);
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
@@ -12,7 +12,7 @@ test("Appearance keeps the chosen control focused across refresh", async ({ page
   await expect(skin).toHaveAttribute("aria-pressed", "true");
   await skin.evaluate(el => { Reflect.set(window, "chosenSkin", el); Reflect.set(window, "appearanceHost", el.closest("#set-appearance")); });
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length);
-  await page.evaluate(() => window.__navigation.emit("link-state", "unlinked"));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(reads);
   await expect(skin).toHaveAttribute("aria-pressed", "true");
   expect(await skin.evaluate(el => el === Reflect.get(window, "chosenSkin") && document.activeElement === el)).toBe(true);
@@ -40,7 +40,7 @@ test("computer controls call the existing native commands", async ({ page }, inf
   await toggle.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_mac_control" && call.args.enabled === false))).toBe(true);
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length);
-  await page.evaluate(() => window.__navigation.emit("link-state", "unlinked"));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(reads);
   await expect(toggle).toBeDisabled();
   expect(await toggle.evaluate(el => el === Reflect.get(window, "computerSwitch"))).toBe(true);

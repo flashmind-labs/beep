@@ -34,36 +34,6 @@ test("past sessions retain focused rows and scroll on refresh", async ({ page })
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === 'agent_view' && call.args.session === 'past-10'))).toBe(true);
 });
 
-test("compact past sessions keep their height and scroll during refresh", async ({ page }) => {
-  const sessions = Array.from({ length: 20 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null }));
-  // A linked server without a project agent draws the page that holds the compact list.
-  await openDesktop(page, false, { status: { link: 'linked', signed_out: false, server: true, live: false, session: null }, center_projects: [], project_sessions: sessions });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  const list = page.locator('.pj-cols.pj-half #sec-sessions .pj-scroll:visible');
-  const refresh = async () => {
-    const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length);
-    const read = await reads();
-    await page.evaluate(() => window.__navigation.notify('projects'));
-    await expect.poll(reads).toBeGreaterThan(read);
-  };
-  await expect(list.locator('.pv-row')).toHaveCount(20);
-  await expect.poll(() => list.evaluate(el => (el as HTMLElement).style.maxHeight)).not.toBe('');
-  await list.evaluate(el => { el.scrollTop = el.scrollHeight; });
-  const row = list.locator('.pv-row').last();
-  await row.focus();
-  await row.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
-  const before = await list.evaluate(el => el.scrollTop);
-  expect(before).toBeGreaterThan(0);
-  await refresh();
-  await expect(list).toHaveJSProperty('scrollTop', before);
-  await expect(row).toHaveAttribute('data-identity', 'kept');
-  await expect(row).toBeFocused();
-  await expect.poll(() => list.evaluate(el => (el as HTMLElement).style.maxHeight)).not.toBe('');
-  await refresh();
-  await expect(row).toHaveAttribute('data-identity', 'kept');
-  await expect(list).toHaveJSProperty('scrollTop', before);
-});
-
 test("large past session lists virtualize while retaining the focused row", async ({ page }) => {
   const sessions = Array.from({ length: 600 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 1000 - i, external: false, question: null }));
   await openDesktop(page, false, { project_sessions: sessions });

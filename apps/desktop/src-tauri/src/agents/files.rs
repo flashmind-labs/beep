@@ -5,7 +5,6 @@
 
 use crate::{
     agents::work_copy,
-    beep::{Beep, Service},
     chat::files::{GONE, file_name, free_name},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
@@ -62,23 +61,16 @@ pub struct TreeText {
 }
 
 /// One `ReadWorkFile`, with a file the machine no longer has as `GONE`.
-pub(crate) async fn read_part(
-    beep: &Beep,
-    fleet: &Fleet,
-    read: ReadWorkFile,
-) -> Result<AgentFileChunk> {
+pub(crate) async fn read_part(fleet: &Fleet, read: ReadWorkFile) -> Result<AgentFileChunk> {
     let full = work_copy::joined(&read.root, &read.path);
 
-    if let Some(part) =
-        work_copy::read(beep, fleet, &read.machine_id, &full, read.offset, read.len).await
+    if let Some(part) = work_copy::read(fleet, &read.machine_id, &full, read.offset, read.len).await
     {
         return Ok(part);
     }
 
-    let read = match fleet.member(&read.machine_id) {
-        Some(machine) => direct::read(fleet, machine, &read).await,
-        None => beep.call(read).await,
-    };
+    let machine = fleet.machine(&read.machine_id)?;
+    let read = direct::read(fleet, machine, &read).await;
 
     match read {
         Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
@@ -100,7 +92,6 @@ const TREE_DEPTH: u32 = 3;
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_tree(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     root: String,
@@ -119,14 +110,14 @@ pub async fn agent_tree(
     let cached = if fresh.unwrap_or(false) {
         None
     } else {
-        work_copy::tree(&beep, &fleet, &ask).await
+        work_copy::tree(&fleet, &ask).await
     };
     let tree = match cached {
         Some(tree) => tree,
-        None => match fleet.member(&ask.machine_id) {
-            Some(machine) => direct::tree(&fleet, machine, &ask, Reading::Followed).await?,
-            None => beep.call(ask).await?,
-        },
+        None => {
+            let machine = fleet.machine(&ask.machine_id)?;
+            direct::tree(&fleet, machine, &ask, Reading::Followed).await?
+        }
     };
     let folders = tree
         .folders
@@ -157,14 +148,12 @@ pub async fn agent_tree(
 /// The first `TEXT_CAP` bytes of the file `path` in `root`, for the text view.
 #[tauri::command]
 pub async fn agent_tree_text(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     root: String,
     path: String,
 ) -> Result<TreeText> {
     let part = read_part(
-        &beep,
         &fleet,
         ReadWorkFile {
             machine_id,
@@ -200,7 +189,6 @@ fn looks_binary(data: &[u8]) -> bool {
 #[tauri::command]
 pub async fn agent_tree_save(
     app: AppHandle,
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     root: String,
@@ -212,7 +200,6 @@ pub async fn agent_tree_save(
     loop {
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
         let part = read_part(
-            &beep,
             &fleet,
             ReadWorkFile {
                 machine_id: machine_id.clone(),
@@ -264,7 +251,6 @@ pub struct AttachmentSession {
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_tree_upload(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     root: String,
@@ -286,15 +272,11 @@ pub async fn agent_tree_upload(
         data,
     };
 
-    match (fleet.member(&write.machine_id), attachment) {
-        (Some(machine), Some(owner)) => {
-            direct::upload(&fleet, machine, owner.agent, owner.session, write).await
-        }
-        (Some(machine), None) => direct::write(&fleet, machine, write).await,
-        (None, Some(_)) => Err(DesktopError::BadRequest(
-            "Connect this machine to the mesh to upload attachments".into(),
-        )),
-        (None, None) => beep.call(write).await,
+    let machine = fleet.machine(&write.machine_id)?;
+
+    match attachment {
+        Some(owner) => direct::upload(&fleet, machine, owner.agent, owner.session, write).await,
+        None => direct::write(&fleet, machine, write).await,
     }
 }
 

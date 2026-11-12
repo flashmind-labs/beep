@@ -177,7 +177,8 @@
 .mac .ag-sess .dchat .run { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--d-emerald); flex: none }
 .mac .dchat:hover { background: rgba(227,228,230,.04) }
 .mac .dstate { font-size: 11px; font-weight: 600; padding: 0 8px; line-height: 19px; border-radius: 999px; border: 1px solid var(--d-border); color: var(--d-muted); flex: none; white-space: nowrap }
-.mac .dstate.ask { border-color: color-mix(in srgb, #f2994a 50%, transparent); color: #f2994a }`;
+.mac .dstate.ask { border-color: color-mix(in srgb, #f2994a 50%, transparent); color: #f2994a }
+.mac .dstate.run { border-color: rgba(94,106,210,.5); color: var(--d-emerald) }`;
   document.head.append(st);
 
   const AGK = { claude: ["CC", "Claude Code"], codex: ["CX", "Codex"], gemini: ["GE", "Gemini CLI"], pi: ["PI", "pi"], flsh: ["FL", "flsh"], opencode: ["OC", "OpenCode"], hermes: ["HE", "Hermes"] };
@@ -264,7 +265,7 @@
     // No Auto: the user picks the machine, remembered per project. Start waits for one.
     const why = chosenHost || none || looking ? "" : `<div class="agc-why"><span class="ddot off"></span><span>Pick a machine to start.</span></div>`;
     const help = looking ? `<div class="agc-note"><span class="dspin"></span> Looking for machines…</div>` : none ? `<div class="agc-help"><b>No machine can run an agent yet</b>
-        <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Run <code>beep-node link</code> there.</li><li>Paste the link it prints into a chat here.</li></ol>
+        <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Open Machines, then Add a machine, and run the command it gives you there.</li></ol>
         <div><button class="dbtn" data-dgo="dMachines">Machines settings</button></div></div>` : "";
     const prompt = none || looking || noprompt ? "" : "Fix the failing login test";
     const pjIc = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';

@@ -3,10 +3,10 @@
 // One turn makes one "finished" notification, however many tools it ran; prompts queued behind it
 // run first. A question has Allow and Deny, answered without opening anything; a click opens the
 // session. Nothing shows while that session is on screen in a focused window or the open bar.
-// Sessions a chat or a project started report there instead. An alert goes only to the device
+// An alert goes only to the device
 // that started the session: one started on the phone notifies the phone (a banner that opens
 // Beep), one started on a Mac notifies that Mac. Sessions Beep did not start from a device (a
-// terminal, a routine, a project agent) notify the Macs only, never the phone.
+// terminal) notify the Macs only, never the phone.
 // Settings, General has a switch that turns them off on this Mac.
 // Every system banner uses the bundled arrow icon, including those without actions.
 (() => {
@@ -26,12 +26,5 @@
       <div class="tx"><div class="top"><b>Beep</b><small>now</small></div><b>${v.t}</b><span>${v.b}</span></div></div>${side}</div>`, { badge: !!v.ask });
   };
   VARIANTS.dNotifAgent = dv("agn", [["Asks", "asks"], ["Finished", "done"], ["Failed", "failed"], ["Stopped", "stopped"], ["Build failed", "buildfail"], ["Build passed", "buildok"]]);
-  const g = DESK_SCREENS.find(g => g.group === "Menu bar and windows").items;
-  g.splice(g.findIndex(it => it[0] === "dNotifApprove") + 1, 0, ["dNotifAgent", "Coding agent", "Notification, agent session"]);
-  // Settings, General: the switch under the voice rows.
-  const row = () => `<div class="dtoggle"><span><b>Coding agent notifications</b><small>${S.d.agnoff ? "Coding agents only show under Waiting" : "When a coding agent asks something or finishes a turn"}</small></span><button class="dswitch" role="switch" aria-checked="${!S.d.agnoff}" aria-label="Coding agent notifications" data-dact="dset:agnoff:${S.d.agnoff ? "" : "1"}"></button></div>`;
-  for (const id of ["dSettings", "dLiveSettings"]) {
-    const base = D[id];
-    D[id] = (...a) => base(...a).replace(/(aria-label="When I stop talking"[\s\S]*?<\/div>)/, m => m + row());
-  }
+  DESK_SCREENS.find(g => g.group === "Menu bar and windows").items.push(["dNotifAgent", "Coding agent", "Notification, agent session"]);
 })();

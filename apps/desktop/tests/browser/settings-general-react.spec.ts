@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const responses = { status: { link: "unlinked", signed_out: true, server: false, live: false, session: null }, settings: { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false }, mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [], skill_sync_get: true, project_sync_get: true };
+const responses = { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [], skill_sync_get: true, project_sync_get: true };
 test("skill sync preserves state and serializes a save across Settings reopening", async ({ page }) => {
   await openDesktop(page, false, responses);
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
@@ -34,7 +34,7 @@ test("general settings use their native commands and retain focus on refresh", a
   await skill.focus();
   await skill.evaluate(el => Reflect.set(window, "skillToggle", el));
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length);
-  await page.evaluate(() => window.__navigation.emit("link-state", "unlinked"));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "settings").length)).toBeGreaterThan(reads);
   expect(await skill.evaluate(el => el === Reflect.get(window, "skillToggle") && document.activeElement === el)).toBe(true);
 });
@@ -50,26 +50,6 @@ test("skill sync retries an unsuccessful read", async ({ page }) => {
   await settings.getByRole("button", { name: "Retry" }).click();
   await expect(toggle).toBeEnabled();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
-});
-
-test("voice, pause and autostart controls send the expected settings", async ({ page }) => {
-  const current = { name: "build-box", version: "0.1", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false };
-  await openDesktop(page, false, { ...responses, status: { link: "linked", signed_out: false, server: true, live: false, session: null }, settings: current, list_devices: { devices: [], server: "answered" } });
-  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
-  const settings = page.getByRole("dialog", { name: "Settings" });
-  const launch = settings.getByRole("switch", { name: "Launch at login" });
-  await page.evaluate(value => window.__navigation.respond("settings", value), { ...current, autostart: true });
-  await launch.click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_autostart" && call.args.enabled === true))).toBe(true);
-  await expect(launch).toHaveAttribute("aria-checked", "true");
-  await page.evaluate(value => window.__navigation.respond("settings", value), { ...current, autostart: true, notice_voice: "ask" });
-  await settings.getByRole("radio", { name: "Ask first" }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_notice_voice" && call.args.choice === "ask"))).toBe(true);
-  await expect(settings.getByRole("radio", { name: "Ask first" })).toHaveAttribute("aria-checked", "true");
-  await page.evaluate(value => window.__navigation.respond("settings", value), { ...current, autostart: true, notice_voice: "ask", send_on_pause: true });
-  await settings.getByRole("radio", { name: "Send when I stop talking" }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_send_on_pause" && call.args.enabled === true))).toBe(true);
-  await expect(settings.getByRole("radio", { name: "Send when I stop talking" })).toHaveAttribute("aria-checked", "true");
 });
 
 test("phone General hides launch at login", async ({ page }) => {

@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn an_old_server_finds_nothing() {
+fn an_old_machine_finds_nothing() {
     assert!(unknown_op(&DesktopError::Api(ApiError::bad_request(
         "unknown op 169"
     ))));

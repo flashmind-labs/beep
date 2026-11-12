@@ -1,8 +1,10 @@
 //! The bar's window: showing it on the screen under the mouse, sizing it to
 //! the page, and handing focus back when it hides.
 
-use crate::{beep::Service, error::Result, voice::orb};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Runtime, WebviewWindow};
+use crate::{beep::state::Prefs, error::Result};
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Runtime, State, WebviewWindow,
+};
 
 pub(crate) const LABEL: &str = "bar";
 const WIDTH: f64 = 680.0;
@@ -16,8 +18,9 @@ fn window<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
     app.get_webview_window(LABEL)
 }
 
-/// Shows the bar on the screen under the mouse, or hides it if it is open.
-#[cfg(desktop)]
+/// Shows the bar on the screen under the mouse, or hides it if it is open:
+/// two taps of Option on macOS, the shortcut on Windows.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub fn toggle<R: Runtime>(app: &AppHandle<R>) {
     let Some(bar) = window(app) else { return };
     if bar.is_visible().unwrap_or(false) {
@@ -27,8 +30,7 @@ pub fn toggle<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Shows the bar, in place of the orb when live mode runs. `view` asks the
-/// page to open a view, such as "link".
+/// Shows the bar. `view` asks the page to open a view.
 pub fn show<R: Runtime>(app: &AppHandle<R>, view: Option<&str>) {
     let Some(bar) = window(app) else { return };
 
@@ -36,7 +38,6 @@ pub fn show<R: Runtime>(app: &AppHandle<R>, view: Option<&str>) {
         log::warn!("placing the bar: {e}");
     }
 
-    orb::hide(app);
     let _ = bar.show();
     activate();
     let _ = bar.set_focus();
@@ -61,13 +62,6 @@ fn activate() {
 
 #[cfg(not(target_os = "macos"))]
 fn activate() {}
-
-/// Whether the bar has the keyboard.
-pub fn is_focused<R: Runtime>(app: &AppHandle<R>) -> bool {
-    window(app)
-        .and_then(|w| w.is_focused().ok())
-        .unwrap_or(false)
-}
 
 /// Whether the bar is on screen.
 pub fn is_open<R: Runtime>(app: &AppHandle<R>) -> bool {
@@ -143,17 +137,11 @@ fn resize<R: Runtime>(app: &AppHandle<R>, height: f64) -> tauri::Result<()> {
 
 /// `height` is the page's, so the window takes it zoomed.
 #[tauri::command]
-pub fn resize_bar(app: AppHandle, beep: Service<'_>, height: f64) -> Result<()> {
-    Ok(resize(&app, height * beep.zoom().factor())?)
+pub fn resize_bar(app: AppHandle, prefs: State<'_, Prefs>, height: f64) -> Result<()> {
+    Ok(resize(&app, height * prefs.zoom().factor())?)
 }
 
 #[tauri::command]
 pub fn hide_bar(app: AppHandle) {
     dismiss(&app);
-}
-
-/// A click on the orb: the bar comes back in its place.
-#[tauri::command]
-pub fn show_bar(app: AppHandle) {
-    show(&app, None);
 }

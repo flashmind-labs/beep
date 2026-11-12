@@ -261,7 +261,6 @@ function ConversationRail({ body }: { body: ChatBody }) {
 }
 
 const sameHints = (a: AgentHintsModel, b: AgentHintsModel) => a.project === b.project && a.value.window === b.value.window
-  && a.value.model === b.value.model && a.value.link?.[0] === b.value.link?.[0] && a.value.link?.[1] === b.value.link?.[1]
   && a.value.items.length === b.value.items.length && a.value.items.every((item, i) => item.join("\n") === b.value.items[i].join("\n"));
 
 export function updateSessionHints(hints: AgentHintsModel) {
