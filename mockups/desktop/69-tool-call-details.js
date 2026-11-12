@@ -30,6 +30,7 @@
       + testCommand() + buildCommand())
     + '<div class="dcoderen agent md">All 24 login tests pass. The iOS check is still running. I will check it again shortly.</div>'
     + '<div class="dcoderen compacted"><span>Conversation compacted</span></div>'
+    + '<div class="dcoderen other">Interrupted</div>'
     + dRows(waitCommand());
 
   const session = D.dAgentSession;
