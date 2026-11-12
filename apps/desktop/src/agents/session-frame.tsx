@@ -198,6 +198,7 @@ const THUMB_MIN = 24;
 function ConversationRail({ body }: { body: ChatBody }) {
   const rail = useRef<HTMLDivElement>(null);
   const [view, setView] = useState(NO_RAIL);
+  const [peek, setPeek] = useState<string | null>(null);
 
   useEffect(() => {
     let frame = 0;
@@ -248,10 +249,14 @@ function ConversationRail({ body }: { body: ChatBody }) {
     target.addEventListener("pointercancel", up);
   };
 
+  // The message under the pointer, beside its tick.
+  const shown = view.ticks.find(tick => tick.key === peek) ?? null;
+
   return <div className={view.thumb ? "agrail" : "agrail off"} ref={rail} onPointerDown={press}>
     {view.thumb && <div className="th" style={{ top: view.thumb.top, height: view.thumb.height }}/>}
-    {view.ticks.map(tick => <button type="button" className="tk" key={tick.key} style={{ top: tick.top }} title={tick.prompt.split("\n")[0].slice(0, 120)}
-      aria-label={`Jump to your message: ${tick.prompt.slice(0, 80)}`} onClick={() => jump(tick.key)}/>)}
+    {view.ticks.map(tick => <button type="button" className="tk" key={tick.key} style={{ top: tick.top }} aria-label={`Jump to your message: ${tick.prompt.slice(0, 80)}`}
+      onClick={() => jump(tick.key)} onPointerEnter={() => setPeek(tick.key)} onPointerLeave={() => setPeek(null)} onFocus={() => setPeek(tick.key)} onBlur={() => setPeek(null)}/>)}
+    {shown && <div className="agpeek" style={{ top: shown.top }} aria-hidden="true">{shown.prompt}</div>}
   </div>;
 }
 

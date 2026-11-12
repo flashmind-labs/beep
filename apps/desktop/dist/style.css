@@ -872,6 +872,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agrail:hover .th { background: color-mix(in srgb, var(--fg) 28%, transparent) }
 .agrail .tk { all: unset; position: absolute; left: 0; right: 0; height: 2px; border-radius: 1px; background: var(--accent); opacity: .75; cursor: pointer }
 .agrail .tk:hover, .agrail .tk:focus-visible { opacity: 1; height: 4px; margin-top: -1px }
+.agpeek { position: absolute; right: 18px; width: max-content; max-width: min(420px, 70vw); transform: translateY(-50%); padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--elev); box-shadow: 0 6px 20px rgb(0 0 0 / .28); font-size: 12.5px; line-height: 18px; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; pointer-events: none }
 .dagjump:hover { border-color: var(--border-hi) }
 /* Code blocks in replies, with a copy button; tables. */
 .dcoderen.agent.md pre.dcode { position: relative; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); overflow: auto }
