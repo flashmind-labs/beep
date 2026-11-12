@@ -7,7 +7,10 @@ use super::{
     session::{NODE_STOPPED, Session},
 };
 use anyhow::{Context, Result};
-use beep_proto::node::agent::{Entry, ParentLink, Status};
+use beep_proto::{
+    ModelId,
+    node::agent::{Entry, ParentLink, Status},
+};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::time::timeout;
@@ -62,6 +65,9 @@ pub(crate) struct OpenSession {
     /// agent that resumes with `session/resume`, which replays nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     transcript: Vec<Entry>,
+    /// The model it ran on. A resumed agent starts on its own default otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<ModelId>,
 }
 
 impl OpenSession {
@@ -167,6 +173,7 @@ impl Agents {
             parent: live.info.parent.clone(),
             kids: Vec::new(),
             transcript,
+            model: live.info.model.clone(),
         })
     }
 
@@ -241,6 +248,7 @@ impl Agents {
                 resume: Some(open.session),
                 timestamps: Some((open.started_at, open.last_activity)),
                 earlier: open.transcript,
+                model: open.model,
                 mode: open.mode,
                 parent: open.parent,
                 follows,

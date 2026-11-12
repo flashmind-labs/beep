@@ -379,3 +379,50 @@ async fn a_session_comes_back_after_a_crash() {
     before.shutdown().await;
     after.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
+    const MODELS: &str = r#""models":{"availableModels":[{"modelId":"fast"},{"modelId":"deep"}],"currentModelId":"fast"}"#;
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let log = dir.path().join("log");
+    let mut kind = adapter(&log);
+    kind.args[1] = ADAPTER
+        .replace(
+            r#"reply '{"sessionId":"held-1"}'"#,
+            &format!(r#"reply '{{"sessionId":"held-1",{MODELS}}}'"#),
+        )
+        .replace(
+            r#"*'"session/load"'*) reply '{}'"#,
+            &format!(r#"*'"session/load"'*) reply '{{{MODELS}}}'"#),
+        );
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            Begin {
+                model: Some(ModelId::new("deep")),
+                ..begin("hello")
+            },
+        )
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+    before.shutdown().await;
+    let stopped = before.open_sessions();
+    assert_eq!(stopped[0].model, Some(ModelId::new("deep")));
+
+    let after = Agents::new(vec![kind]);
+    after.settings_arrived();
+    after.reopen(stopped).await;
+    let session = after.get("held-1").expect("resumed under the agent's id");
+    let mut live = session.live.clone();
+    until(&mut live, |live| {
+        live.info.model == Some(ModelId::new("deep"))
+    })
+    .await;
+    let read = std::fs::read_to_string(&log).expect("the adapter's log");
+    let loaded = read.find("session/load").expect("the session loads");
+    assert!(read[loaded..].contains("session/set_model"), "{read}");
+    after.shutdown().await;
+}
