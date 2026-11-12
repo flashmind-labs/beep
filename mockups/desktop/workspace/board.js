@@ -179,5 +179,75 @@ const BOARD_MOCK = (() => {
   VARIANTS.dWinProject.splice(VARIANTS.dWinProject.indexOf(front) + 1, 0,
     ["Layout: List", () => { S.d.frontProject = layout("project") === "list" ? "" : "list"; S.d.psel = "overview"; S.d.pmenu = ""; render(); }, () => layout("project") === "list"]);
 
+  // A two-finger swipe sideways goes back or forward through the screens visited. The page
+  // follows the fingers, leaves past 120px and comes back when they stop short. What scrolls
+  // sideways under the pointer keeps the swipe, and one swipe is one step.
+  const visited = [], SWIPE_PX = 120, AIM_PX = 12, REST_MS = 150;
+  let here = -1, stepping = false;
+  const baseGo = go;
+  go = function (screen) {
+    if (here < 0) { visited.push(S.screen); here = 0; }
+    if (!stepping && screen !== S.screen) { visited.splice(here + 1, visited.length, screen); here = visited.length - 1; }
+    baseGo(screen);
+  };
+  const page = () => document.querySelector("#desk .cc-main") || document.getElementById("desk");
+  const scrollsSideways = (target, forward) => {
+    for (let el = target; el instanceof Element; el = el.parentElement) {
+      const room = el.scrollWidth - el.clientWidth;
+      if (room > 1 && /auto|scroll/.test(getComputedStyle(el).overflowX) && (forward ? el.scrollLeft < room - 1 : el.scrollLeft > 0)) return true;
+    }
+    return false;
+  };
+  let phase = "idle", x = 0, y = 0, last = 0, forward = false, rest;
+  const settle = () => {
+    phase = "idle";
+    const el = page();
+    if (!el.style.transform) return;
+    el.animate([{ transform: el.style.transform }, { transform: "none" }], { duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    el.style.transform = "";
+  };
+  const leave = () => {
+    phase = "spent";
+    const side = forward ? -1 : 1;
+    const step = () => {
+      here += forward ? 1 : -1;
+      stepping = true;
+      go(visited[here]);
+      stepping = false;
+      if (!still()) page().animate([{ opacity: .3, transform: `translateX(${-56 * side}px)` }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    };
+    if (still()) return step();
+    const el = page();
+    const out = el.animate([{ transform: el.style.transform || "none", opacity: 1 }, { transform: `translateX(${(SWIPE_PX + 60) * side}px)`, opacity: 0 }], { duration: 90, easing: "ease-in", fill: "forwards" });
+    el.style.transform = "";
+    const land = () => { step(); out.cancel(); };
+    out.finished.then(land, land);
+  };
+  document.addEventListener("wheel", event => {
+    if (phase !== "follow" && event.timeStamp - last > REST_MS) phase = "idle";
+    last = event.timeStamp;
+    if (phase === "spent") return;
+    if (phase === "idle") {
+      x = 0; y = 0;
+      phase = event.target.closest("#desk") && !event.ctrlKey && !event.shiftKey ? "aim" : "spent";
+      if (phase === "spent") return;
+    }
+    x += event.deltaX; y += event.deltaY;
+
+    if (phase === "aim") {
+      if (Math.hypot(x, y) < AIM_PX) return;
+      forward = x > 0;
+      const has = forward ? here >= 0 && here < visited.length - 1 : here > 0;
+      if (Math.abs(x) < 2 * Math.abs(y) || !has || scrollsSideways(event.target, forward)) { phase = "spent"; return; }
+      phase = "follow";
+    }
+
+    const travel = Math.max(0, forward ? x : -x);
+    clearTimeout(rest);
+    if (travel >= SWIPE_PX) return leave();
+    rest = setTimeout(settle, REST_MS);
+    if (!still()) page().style.transform = `translateX(${forward ? -travel : travel}px)`;
+  }, { passive: true });
+
   return { layout, lanes, card, mark, button };
 })();

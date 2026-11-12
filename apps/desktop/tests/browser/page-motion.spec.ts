@@ -60,3 +60,41 @@ test("opening a session and going back capture only the card and the head", asyn
   await expect(card).toBeVisible();
   await expect.poll(moves).toEqual([["::view-transition-group(board-hero)"], ["::view-transition-group(board-hero)"]]);
 });
+
+test("a two-finger swipe goes back and forward, and a sideways scroller keeps it", async ({ page }) => {
+  await openDesktop(page);
+  const title = page.locator("#title");
+  const home = await title.textContent();
+  await page.evaluate(() => window.__navigation.open("instructions"));
+  await expect(title).not.toHaveText(home ?? "");
+  const swipe = async (by: number) => {
+    // The wheel rests between two swipes.
+    await page.waitForTimeout(250);
+    for (let i = 0; i < 4; i++) await page.mouse.wheel(by, 0);
+  };
+  await page.mouse.move(700, 450);
+
+  // Fingers stopping short leave the page where it was.
+  await page.waitForTimeout(250);
+  await page.mouse.wheel(-60, 0);
+  await expect(page.locator(".cc-main")).toHaveAttribute("style", /translateX\(60px\)/);
+  await expect(page.locator(".cc-main")).not.toHaveAttribute("style", /translateX/);
+  await expect(title).not.toHaveText(home ?? "");
+
+  await swipe(-50);
+  await expect(title).toHaveText(home ?? "");
+  await swipe(50);
+  await expect(title).not.toHaveText(home ?? "");
+
+  await page.evaluate(() => {
+    const scroller = document.createElement("div");
+    scroller.style.cssText = "position:fixed;left:600px;top:400px;width:200px;height:100px;overflow-x:auto;z-index:99";
+    scroller.innerHTML = '<div style="width:2000px;height:50px"></div>';
+    scroller.id = "sideways";
+    document.querySelector(".cc-main")?.append(scroller);
+    scroller.scrollLeft = 500;
+  });
+  await swipe(-50);
+  await expect.poll(() => page.locator("#sideways").evaluate(el => el.scrollLeft)).toBe(300);
+  await expect(title).not.toHaveText(home ?? "");
+});

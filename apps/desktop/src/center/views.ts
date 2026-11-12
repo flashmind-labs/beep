@@ -26,7 +26,7 @@ import { G, S } from "../bar/core.ts";
 import { canGoBack, syncMobile } from "./mobile.ts";
 import { placeWindowParts } from "./window-root.ts";
 import { shell, windowHost } from "./window-shell.tsx";
-import { movePlaying } from "../ui/motion.ts";
+import { movePlaying, swipePlaying, type Swipe } from "../ui/motion.ts";
 
 let currentPage: Location | null = null;
 
@@ -164,6 +164,9 @@ export function currentLocation(): Location | null {
   return currentPage;
 }
 
+/// Whether there is a page to go back or forward to.
+export const hasHistory = (forward: boolean) => pages.has(forward);
+
 /// Goes one page back (⌘[) or forward (⌘]), if there is one; false when there is none.
 export function goHistory(forward: boolean): boolean {
   const current = currentLocation();
@@ -253,12 +256,15 @@ function pageMotion(phone: boolean, back: boolean, hasBack: boolean): PageMotion
   return hasBack ? "push" : "fade";
 }
 
-const MOTION: Record<PageMotion, { frames: Keyframe[]; ms: number }> = {
+const MOTION: Record<PageMotion | Swipe, { frames: Keyframe[]; ms: number }> = {
   // Opacity only, so popovers measured while it plays land where they belong. It starts
   // half drawn and short, so the page reads as there at once.
   fade: { frames: [{ opacity: .5 }, { opacity: 1 }], ms: 100 },
   push: { frames: [{ opacity: .6, transform: "translateX(28%)" }, { opacity: 1, transform: "none" }], ms: 240 },
   pop: { frames: [{ opacity: .6, transform: "translateX(-22%)" }, { opacity: 1, transform: "none" }], ms: 220 },
+  // A swiped page comes in from the side the last one left room on.
+  back: { frames: [{ opacity: .3, transform: "translateX(-56px)" }, { opacity: 1, transform: "none" }], ms: 200 },
+  forward: { frames: [{ opacity: .3, transform: "translateX(56px)" }, { opacity: 1, transform: "none" }], ms: 200 },
 };
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -269,7 +275,7 @@ function animateIn(box: HTMLElement, back: boolean) {
   if (reduceMotion.matches || document.hidden || move === "next") return;
   const phone = document.body.classList.contains("mobile");
   // A card growing into the head, or back, carries the eye: the page under it only fades.
-  const { frames, ms } = MOTION[move ? "fade" : pageMotion(phone, back, phone && canGoBack())];
+  const { frames, ms } = MOTION[swipePlaying() ?? (move ? "fade" : pageMotion(phone, back, phone && canGoBack()))];
   for (const running of box.getAnimations()) running.cancel();
   box.animate(frames, { duration: ms, easing: "cubic-bezier(.2, .8, .2, 1)" });
 }
