@@ -11,6 +11,7 @@ use crate::files::sync::{
     root::{self, Checked, RootId},
     rules::{MARKER, Rules},
     scan,
+    watch::{Changes, Mode},
 };
 use crate::{read_lock, write_lock};
 use anyhow::{Context, Result, bail};
@@ -75,6 +76,29 @@ impl Task {
         if !paths.is_empty() {
             self.scan_inner(Some(paths), Reason::Changes).await;
         }
+    }
+
+    /// Brings the list in line before a peer is matched: what the watcher
+    /// reported is scanned, and the whole folder when the watcher cannot
+    /// vouch for it or the checkout moved since the last scan. Whether
+    /// anything was scanned.
+    pub(super) async fn scan_for_match(&mut self, changes: Changes, touched: bool) -> bool {
+        let checkout = self.shared.head().await.ok();
+        let vouched = matches!(self.mode, Mode::Watching)
+            && checkout.is_some()
+            && self.shared.lock().saved.checkout == checkout;
+
+        if changes.full || touched || !vouched {
+            self.scan(Reason::Request).await;
+            return true;
+        }
+
+        if changes.paths.is_empty() {
+            return false;
+        }
+
+        self.scan_changes(changes.paths).await;
+        true
     }
 
     async fn scan_inner(&mut self, paths: Option<BTreeSet<PathBuf>>, reason: Reason) {

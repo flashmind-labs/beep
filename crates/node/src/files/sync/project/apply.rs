@@ -162,6 +162,7 @@ impl Task {
             self.scan(Reason::Checkout).await;
         }
 
+        let sessions_hold = aligned.as_ref().is_ok_and(|alignment| alignment.held);
         let aligned = aligned.and_then(|alignment| match alignment.warning {
             Some(warning) => Err(warning),
             None => Ok(()),
@@ -169,6 +170,7 @@ impl Task {
 
         if let Err(e) = aligned.and(self.shared.check_git().await) {
             self.pending = 1;
+            self.git_held = sessions_hold || self.git_is_held().await;
             self.fail(WAITING_FOR_GIT, &e);
             self.publish_status(None);
             return false;
@@ -367,6 +369,22 @@ impl Task {
 
         self.publish_status(None);
         true
+    }
+
+    /// Whether something the watcher does not report holds the checkout:
+    /// a Git operation or lock, a recovery to review, or a dataset check.
+    async fn git_is_held(&self) -> bool {
+        if self.shared.ignored.is_some() {
+            return true;
+        }
+
+        let root = self.shared.root().to_owned();
+        spawn_blocking(move || {
+            gitdir::is_busy(&root)
+                || Repo::open(&root).is_some_and(|repo| repo.check_recovery().is_err())
+        })
+        .await
+        .unwrap_or(true)
     }
 
     fn note_failure(&mut self, round: &mut Round, path: String, size: u64, e: &anyhow::Error) {
