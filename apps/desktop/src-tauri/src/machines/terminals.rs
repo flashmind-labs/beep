@@ -12,7 +12,6 @@ use crate::{
     machines::list::Outside,
     projects::{needs_update, unknown_op},
 };
-use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_mesh::machine::terminals::{Heard, heard};
 use beep_proto::{
     AttachTerminal, CloseTerminal, GetTerminal, ListAllTerminals, MAX_TERMINAL_INPUT, OpenTerminal,
@@ -21,17 +20,25 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use std::sync::Arc;
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
 };
-use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
-use tokio::sync::mpsc;
+use std::{sync::Arc, time::Duration};
+use tauri::{
+    AppHandle, Manager, State, WebviewWindow,
+    ipc::{Channel, InvokeResponseBody},
+};
+use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
 
 /// Keys and sizes waiting to go up one attached terminal's stream.
 const INPUT_QUEUE: usize = 64;
+/// The most output one message to the window carries, and how long output
+/// waits for more once a flood began: each message costs the webview a
+/// script and a fetch, so a flood goes in few large ones.
+const BATCH_BYTES: usize = 256 * 1024;
+const BATCH_WAIT: Duration = Duration::from_millis(4);
 
 /// One terminal as the window shows it.
 #[derive(Debug, Serialize)]
@@ -268,14 +275,15 @@ pub async fn terminal_close(beep: Service<'_>, fleet: Machines<'_>, id: Uuid) ->
     beep.call(CloseTerminal { id }).await.map_err(outdated)
 }
 
-/// What an attached terminal tells the window.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+/// What an attached terminal tells the window. Output goes as raw bytes,
+/// the offset `at` first as eight little-endian bytes, so it is neither
+/// base64 nor JSON; the rest goes as JSON tagged by `kind`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum TermEvent {
     /// The stream is open: keys typed from now on go to the terminal.
     Attached,
-    /// Output from byte `at`, base64.
-    Output { at: u64, data: String },
+    /// Output from byte `at`.
+    Output { at: u64, data: Vec<u8> },
     /// It stopped, or its machine went offline: `state` as `TerminalRow`'s.
     Ended {
         state: &'static str,
@@ -285,12 +293,140 @@ pub enum TermEvent {
     ViewOnly,
 }
 
+/// The events other than output, as the window reads them in JSON.
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TermNotice {
+    Attached,
+    Ended {
+        state: &'static str,
+        code: Option<i32>,
+    },
+    ViewOnly,
+}
+
+impl TermEvent {
+    /// The message the window's channel gets.
+    pub fn body(self) -> Result<InvokeResponseBody> {
+        let notice = match self {
+            Self::Output { at, data } => {
+                let mut bytes = Vec::with_capacity(8 + data.len());
+                bytes.extend_from_slice(&at.to_le_bytes());
+                bytes.extend_from_slice(&data);
+                return Ok(InvokeResponseBody::Raw(bytes));
+            }
+            Self::Attached => TermNotice::Attached,
+            Self::Ended { state, code } => TermNotice::Ended { state, code },
+            Self::ViewOnly => TermNotice::ViewOnly,
+        };
+
+        let json = serde_json::to_string(&notice).map_err(anyhow::Error::from)?;
+        Ok(InvokeResponseBody::Json(json))
+    }
+}
+
+/// Output on its way to the window, gathered while it floods in. Output
+/// after a quiet spell goes at once, so typing echoes without delay.
+#[derive(Default)]
+struct OutputBatch {
+    at: u64,
+    data: Vec<u8>,
+    /// When the gathered output must go.
+    due: Option<Instant>,
+    /// When output last went.
+    sent: Option<Instant>,
+}
+
+impl OutputBatch {
+    /// Takes output from byte `at`, and gives what goes to the window now.
+    fn add(&mut self, at: u64, data: &[u8], now: Instant) -> Vec<TermEvent> {
+        let mut out = Vec::new();
+
+        // Output that does not follow what is gathered goes apart.
+        if !self.data.is_empty() && self.at + self.data.len() as u64 != at {
+            out.extend(self.take(now));
+        }
+
+        if self.data.is_empty() {
+            self.at = at;
+        }
+        self.data.extend_from_slice(data);
+        let quiet = self
+            .sent
+            .is_none_or(|sent| now.duration_since(sent) >= BATCH_WAIT);
+
+        if self.data.len() >= BATCH_BYTES || (quiet && self.due.is_none()) {
+            out.extend(self.take(now));
+        } else if self.due.is_none() {
+            self.due = Some(now + BATCH_WAIT);
+        }
+
+        out
+    }
+
+    fn due(&self) -> Option<Instant> {
+        self.due
+    }
+
+    /// The gathered output, which goes now.
+    fn take(&mut self, now: Instant) -> Option<TermEvent> {
+        self.due = None;
+
+        if self.data.is_empty() {
+            return None;
+        }
+
+        self.sent = Some(now);
+        Some(TermEvent::Output {
+            at: self.at,
+            data: std::mem::take(&mut self.data),
+        })
+    }
+
+    /// Sends `event` to the window: output gathered or as it comes, the rest
+    /// after the output gathered before it.
+    fn send(&mut self, on_event: &Channel<InvokeResponseBody>, event: TerminalEvent) -> Result<()> {
+        let now = Instant::now();
+        let events = match event {
+            TerminalEvent::Output { at, data } => self.add(at, &data, now),
+            other => self
+                .take(now)
+                .into_iter()
+                .chain([TermEvent::from(other)])
+                .collect(),
+        };
+
+        for event in events {
+            on_event.send(event.body()?)?;
+        }
+
+        Ok(())
+    }
+
+    /// Sends the output gathered, when it is due.
+    fn flush(&mut self, on_event: &Channel<InvokeResponseBody>) -> Result<()> {
+        if let Some(event) = self.take(Instant::now()) {
+            on_event.send(event.body()?)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Waits until `batch`'s output is due; forever when none is gathered.
+async fn batch_due(batch: &OutputBatch) {
+    match batch.due() {
+        Some(due) => tokio::time::sleep_until(due).await,
+        None => std::future::pending().await,
+    }
+}
+
 impl From<TerminalEvent> for TermEvent {
     fn from(event: TerminalEvent) -> Self {
         match event {
             TerminalEvent::Output { at, data } => Self::Output {
                 at,
-                data: STANDARD.encode(data),
+                data: data.into_vec(),
             },
             TerminalEvent::Ended { state } => Self::Ended {
                 code: match state {
@@ -412,13 +548,13 @@ pub async fn terminal_attach(
     from: u64,
     cols: u32,
     rows: u32,
-    on_event: Channel<TermEvent>,
+    on_event: Channel<InvokeResponseBody>,
 ) -> Result<()> {
     if !SERVER_ENABLED || direct::has(&fleet, id) {
         let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
             Opened::Live { tx, rx } => (tx, rx),
             Opened::Over(event) => {
-                on_event.send(event.into())?;
+                on_event.send(TermEvent::from(event).body()?)?;
                 return Ok(());
             }
         };
@@ -440,22 +576,24 @@ pub async fn terminal_attach(
             return Ok(());
         }
 
-        on_event.send(TermEvent::Attached)?;
-        let ended = |state| TermEvent::from(TerminalEvent::Ended { state });
+        on_event.send(TermEvent::Attached.body()?)?;
+        let ended = |state| TerminalEvent::Ended { state };
+        let mut batch = OutputBatch::default();
 
         loop {
             tokio::select! {
+                () = batch_due(&batch) => batch.flush(&on_event)?,
                 heard_from_node = rx.recv::<PtyReply>() => match heard_from_node {
                     Ok(Some(reply)) => match heard(reply) {
-                        Heard::Show(event) => on_event.send(event.into())?,
+                        Heard::Show(event) => batch.send(&on_event, event)?,
                         Heard::End(state) => {
-                            on_event.send(ended(state))?;
+                            batch.send(&on_event, ended(state))?;
                             return Ok(());
                         }
                         Heard::Ignore => {}
                     },
                     Ok(None) | Err(_) => {
-                        on_event.send(ended(TerminalState::Offline {}))?;
+                        batch.send(&on_event, ended(TerminalState::Offline {}))?;
                         return Ok(());
                     }
                 },
@@ -470,7 +608,7 @@ pub async fn terminal_attach(
                     };
 
                     if tx.send(&request).await.is_err() {
-                        on_event.send(ended(TerminalState::Offline {}))?;
+                        batch.send(&on_event, ended(TerminalState::Offline {}))?;
                         return Ok(());
                     }
                 }
@@ -495,20 +633,25 @@ pub async fn terminal_attach(
         viewer,
         serial,
     };
-    on_event.send(TermEvent::Attached)?;
+    on_event.send(TermEvent::Attached.body()?)?;
+    let mut batch = OutputBatch::default();
 
     loop {
         tokio::select! {
+            () = batch_due(&batch) => batch.flush(&on_event)?,
             reply = replies.next() => match reply.map_err(DesktopError::from).map_err(outdated)? {
                 Some(event) => {
                     let last = !matches!(event, TerminalEvent::Output { .. });
-                    on_event.send(event.into())?;
+                    batch.send(&on_event, event)?;
 
                     if last {
                         return Ok(());
                     }
                 }
-                None => return Ok(()),
+                None => {
+                    batch.flush(&on_event)?;
+                    return Ok(());
+                }
             },
             typed = input.recv() => match typed {
                 Some(up) => uplink.send(&up).await?,

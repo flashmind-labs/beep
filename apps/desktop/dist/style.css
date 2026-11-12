@@ -784,9 +784,11 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agcode pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--fg); white-space: pre; tab-size: 4 }
 .agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--dim); -webkit-user-select: none; user-select: none }
 .agcode .k, .dcoderen .cmd .k { color: #C792EA } .agcode .s, .dcoderen .cmd .s { color: #A5D6A7 } .agcode .c, .dcoderen .cmd .c { color: var(--dim); font-style: italic } .agcode .n, .dcoderen .cmd .n { color: #F2B482 }
-.agpview.term .tm-xterm { flex: 1; min-height: 0; height: auto; padding: 6px 8px; background: var(--deep) }
-.agpview.term .tm-xterm .xterm { height: 100% }
-.agpview.term .tm-xterm .xterm-viewport { background: var(--deep) !important }
+.agpview.term .tm-term { flex: 1; min-height: 0; height: auto; padding: 6px 8px; background: var(--deep) }
+/* A terminal screen (terminals/termview.ts): its canvas, and the hidden field keys and IME type into. */
+.tm-term { position: relative; overflow: hidden; cursor: text }
+.tm-term .tm-canvas { display: block; touch-action: none }
+.tm-term .tm-keys-input { position: absolute; top: 0; left: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; overflow: hidden; pointer-events: none; caret-color: transparent }
 /* Paths mentioned in the next message, uploads on their way, and where a drop goes. */
 .agment { display: inline-flex; align-items: center; gap: 6px; max-width: 280px; padding: 3px 4px 3px 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--link) 12%, transparent); border: 1px solid color-mix(in srgb, var(--link) 30%, transparent); font: 11.5px var(--mono); color: var(--fg) }
 .agment .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left }

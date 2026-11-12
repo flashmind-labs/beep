@@ -35,7 +35,7 @@ interface NavigationHarness {
 }
 type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
-  core: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown>; Channel: new <T>() => { onmessage(message: T): void } };
+  core: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown>; Channel: new <T>() => { id: number; onmessage(message: T): void } };
   event: { listen(name: string, handler: NativeHandler): Promise<() => void> };
   webviewWindow: { getCurrentWebviewWindow(): { listen(name: string, handler: NativeHandler): Promise<() => void> } };
 }
@@ -162,7 +162,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
 
         return structuredClone(answers[command] ?? null);
       },
-      Channel: class<T> { onmessage(_message: T): void {} },
+      Channel: class<T> { id = 0; onmessage(_message: T): void {} },
     },
     event: { async listen(name, handler) {
       let registered = handlers.get(name);
@@ -173,6 +173,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (name, handler) => boundary.event.listen(name, handler) }) },
   };
   Object.defineProperty(window, "__TAURI__", { value: boundary });
+  // The callbacks Rust's channel messages call; nothing here sends any.
+  let nextCallback = 1;
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { value: { transformCallback: () => nextCallback++, unregisterCallback() {} } });
   const harness: NavigationHarness = {
     open(target) { pending = target; for (const handler of handlers.get("center-open") ?? []) handler({ payload: target }); },
     processes(rows) {

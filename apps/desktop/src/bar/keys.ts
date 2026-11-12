@@ -146,7 +146,7 @@ export function liveKeys(e: KeyboardEvent, cmd: boolean) {
 let paneMounted = false;
 export function mountPane(on: boolean) { paneMounted = on; }
 document.addEventListener("keydown", e => {
-  const cmd = commandKey(e) && !(WINDOWS && e.target instanceof Element && e.target.closest(".tm-xterm"));
+  const cmd = commandKey(e) && !(WINDOWS && e.target instanceof Element && e.target.closest(".tm-term"));
   if (PANE && !paneMounted) return;
   // A key meant for the sidebar (Enter on a row) is not the pane's.
   const t = target(e);
@@ -157,7 +157,7 @@ document.addEventListener("keydown", e => {
   if (S.view === "agent" && e.ctrlKey && !cmd && e.key === "`") { e.preventDefault(); return newTerminal(); }
   // Keys typed into a terminal of the pane are the terminal's: Tab, Esc
   // and the arrows go to the shell.
-  if (!cmd && t instanceof Element && t.closest(".tm-xterm")) return;
+  if (!cmd && t instanceof Element && t.closest(".tm-term")) return;
   if (!e.isComposing && e.key === "Escape" && closeChatFind()) { e.preventDefault(); return; }
   if (cmd && !e.altKey && !e.isComposing && e.key.toLowerCase() === "g" && stepChatFind(e.shiftKey ? -1 : 1)) { e.preventDefault(); return; }
 

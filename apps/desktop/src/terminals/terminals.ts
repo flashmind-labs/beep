@@ -8,7 +8,7 @@ import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange } from "../ui/active.ts";
-import type { invoke as Invoke, Channel as ChannelCtor } from "../ui/tauri.ts";
+import type { invoke as Invoke, indexedChannel } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import type { Ago } from "../ui/format.ts";
 import type { TileData } from "../project/board.ts";
@@ -20,8 +20,12 @@ import { newTermLike } from "./newkey-state.ts";
 /// Terminals page drawn from them.
 
 export function makeTerminals(deps: TerminalDeps) {
-  const { invoke, Channel, makeScreen, ago, redraw } = deps;
+  const { invoke, channel: streamChannel, makeScreen, ago, redraw } = deps;
+  /// A line in the app's log: how a terminal's stream went.
+  const log = (message: string, info: boolean) => { invoke("log_webview", { message, info }).catch(() => {}); };
   const all = new Map<string, ProjectTerminals>();
+  /// Terminals this view started and has not attached to yet.
+  const opened = new Set<string>();
   /// Live views by terminal id, for the project on show.
   const lives = new Map<string, Live>();
   let unfollow: (() => void) | null = null;
@@ -139,13 +143,16 @@ export function makeTerminals(deps: TerminalDeps) {
 
     if (!live) {
       const screen = makeScreen();
-      live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0, view: newView(), attaches: 0, sent: null };
+      live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0, view: newView(), attaches: 0, sent: null, replay: new Replay(opened.delete(id)) };
       lives.set(id, live);
       const l = live;
-      screen.onData(data => {
+      const input = (data: string) => {
         if (l.link !== "attached" || l.watching) return;
         invoke("terminal_input", { id, view: l.view, data }).catch(e => { of(name).error = reason(e); redraw(); });
-      });
+      };
+      screen.onData(input);
+      // The node does not answer queries yet: the screen's answers go as input.
+      screen.onReply(input);
       screen.onResize(() => { if (l.link === "attached") sendSize(l); });
       attach(name, live);
     }
@@ -170,11 +177,16 @@ export function makeTerminals(deps: TerminalDeps) {
     const attempt = ++live.attaches;
     // Whether this is still the view's stream: one it replaced says nothing.
     const current = () => lives.get(live.id) === live && live.attaches === attempt;
-    const channel = new Channel<TermEvent>();
-    channel.onmessage = ev => {
-      if (!current()) return;
+    const show = (message: unknown) => {
+      const ev = readTermMessage(message);
+      if (ev === null) {
+        log(`terminal ${live.id}: a stream message was not understood (${describeMessage(message)})`, false);
+        return;
+      }
 
       if (ev.kind === "attached") {
+        log(`terminal ${live.id}: attached`, true);
+        live.replay.start(performance.now());
         live.link = "attached";
         live.tries = 0;
         live.screen.setInput(!live.watching);
@@ -182,12 +194,14 @@ export function makeTerminals(deps: TerminalDeps) {
         sendSize(live);
         redraw();
       } else if (ev.kind === "output") {
-        const bytes = fromBase64(ev.data);
+        const bytes = ev.data;
         const { skip, gap } = splice(live.next, ev.at, bytes.length);
         if (gap) live.screen.note("… earlier output was not kept");
-        live.screen.write(bytes.subarray(skip));
+        if (live.replay.is(performance.now())) live.screen.replay(bytes.subarray(skip));
+        else live.screen.write(bytes.subarray(skip));
         live.next = Math.max(live.next, ev.at + bytes.length);
       } else if (ev.kind === "ended") {
+        log(`terminal ${live.id}: ended (${ev.state})`, true);
         live.link = "ended";
         live.screen.setInput(false);
         // Its shell exited: the terminal goes from the list and its view
@@ -197,12 +211,17 @@ export function makeTerminals(deps: TerminalDeps) {
         if (row) setRow(name, { ...row, state: ev.state, code: ev.code });
         redraw();
       } else {
+        log(`terminal ${live.id}: view only`, true);
         live.link = "view_only";
         live.screen.setInput(false);
         readOutput(name);
         redraw();
       }
     };
+    const channel = inOrderChannel(streamChannel, current, show, missing => {
+      log(`terminal ${live.id}: stream message ${missing} was lost; attaching again`, false);
+      attach(name, live);
+    });
     // The attach carries the size, so the node has it from here on.
     const size = live.screen.size();
     live.sent = size;
@@ -227,6 +246,7 @@ export function makeTerminals(deps: TerminalDeps) {
   }
 
   function retry(name: string, live: Live, why: string) {
+    log(`terminal ${live.id}: stream dropped, try ${live.tries + 1}${why ? `: ${why}` : ""}`, true);
     live.tries += 1;
     live.screen.setInput(false);
 
@@ -292,6 +312,7 @@ export function makeTerminals(deps: TerminalDeps) {
 
       t.list = [...(t.list || []), made];
       t.form = null;
+      opened.add(made.id);
       select(name, made.id);
     } catch (e) {
       t.error = reason(e);
@@ -531,13 +552,65 @@ export interface OutputView {
   earlier: boolean;
 }
 
-/// What an attached terminal sends (TermEvent): output from byte `at` in
-/// base64, its end, or that it takes no input.
+/// What an attached terminal sends: output from byte `at`, its end, or
+/// that it takes no input.
 export type TermEvent =
   | { kind: "attached" }
-  | { kind: "output"; at: number; data: string }
+  | { kind: "output"; at: number; data: Uint8Array }
+  | TermNotice;
+
+/// The events other than output, as JSON on the channel (TermNotice).
+export type TermNotice =
+  | { kind: "attached" }
   | { kind: "ended"; state: string; code: number | null }
   | { kind: "view_only" };
+
+/// What `terminal_attach`'s channel carries: output as raw bytes, the
+/// offset first as eight little-endian bytes, and notices as JSON. Tauri
+/// hands raw bytes over as an ArrayBuffer, or as an array of numbers when its
+/// IPC falls back to postMessage.
+export type TermMessage = ArrayBuffer | ArrayBufferView | number[] | TermNotice;
+
+/// A channel message as an event, or null for one this page does not know.
+export function readTermMessage(message: unknown): TermEvent | null {
+  const bytes = rawBytes(message);
+  if (bytes !== null) {
+    if (bytes.length < 8) return null;
+    const at = Number(new DataView(bytes.buffer, bytes.byteOffset, 8).getBigUint64(0, true));
+    return { kind: "output", at, data: bytes.subarray(8) };
+  }
+
+  if (typeof message !== "object" || message === null || !("kind" in message)) return null;
+  switch (message.kind) {
+    case "attached":
+      return { kind: "attached" };
+    case "view_only":
+      return { kind: "view_only" };
+    case "ended": {
+      const ended = message as { state?: unknown; code?: unknown };
+      if (typeof ended.state !== "string") return null;
+      return { kind: "ended", state: ended.state, code: typeof ended.code === "number" ? ended.code : null };
+    }
+    default:
+      return null;
+  }
+}
+
+function rawBytes(message: unknown): Uint8Array | null {
+  if (message instanceof ArrayBuffer) return new Uint8Array(message);
+  if (ArrayBuffer.isView(message)) return new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+  if (Array.isArray(message) && message.every(n => typeof n === "number")) return Uint8Array.from(message);
+  return null;
+}
+
+/// What a channel message was, for the log when it is not understood.
+export function describeMessage(message: unknown): string {
+  if (message === null) return "null";
+  if (Array.isArray(message)) return `array of ${message.length}`;
+  if (typeof message !== "object") return typeof message;
+  const name = Object.getPrototypeOf(message)?.constructor?.name ?? "object";
+  return name === "Object" ? `object with keys ${Object.keys(message).join(", ")}` : name;
+}
 
 /// A machine a terminal can start on, in the project's folder there.
 export interface TerminalPlace {
@@ -546,12 +619,11 @@ export interface TerminalPlace {
   folder: string;
 }
 
-/// A terminal emulator on the page (termview.ts draws one with xterm.js).
-/// A screen whose terminal comes from `load` when first made, so xterm stays out of the
-/// window's first load. What it is given before then waits; its size is xterm's first one.
+/// A screen whose terminal comes from `load` when first made, so the terminal stays out
+/// of the window's first load. What it is given before then waits.
 export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Screen {
   const el = document.createElement("div");
-  el.className = "tm-xterm";
+  el.className = "tm-term";
   let real: Screen | null = null;
   let gone = false;
   const early: ((screen: Screen) => void)[] = [];
@@ -565,12 +637,18 @@ export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Sc
   return {
     el,
     write: data => use(screen => screen.write(data)),
+    replay: data => use(screen => screen.replay(data)),
     note: text => use(screen => screen.note(text)),
     size: () => real?.size() ?? { cols: 80, rows: 24 },
     fit: () => use(screen => screen.fit()),
-    focus: () => use(screen => screen.focus()),
+    // Asked before the terminal loaded: not if the keyboard went elsewhere meanwhile.
+    focus: () => {
+      const from = document.activeElement;
+      use(screen => { if (document.activeElement === from) screen.focus(); });
+    },
     focused: () => el.contains(document.activeElement),
     onData: cb => use(screen => screen.onData(cb)),
+    onReply: cb => use(screen => screen.onReply(cb)),
     onResize: cb => use(screen => screen.onResize(cb)),
     onEscape: cb => use(screen => screen.onEscape(cb)),
     setInput: on => use(screen => screen.setInput(on)),
@@ -578,9 +656,13 @@ export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Sc
   };
 }
 
+/// A terminal emulator on the page (termview.ts runs one with Ghostty).
 export interface Screen {
   el: HTMLElement;
   write(data: Uint8Array): void;
+  /// Output from before this view attached: shown, but queries in it are
+  /// not answered, since whoever asked them is long gone.
+  replay(data: Uint8Array): void;
   /// A dim line of our own, such as "… earlier output was not kept".
   note(text: string): void;
   size(): { cols: number; rows: number };
@@ -589,7 +671,12 @@ export interface Screen {
   focus(): void;
   /// Whether the keyboard is in it now.
   focused(): boolean;
+  /// What the user typed, pasted or clicked, for the program.
   onData(cb: (data: string) => void): void;
+  /// What the terminal answers the program's queries with (cursor position,
+  /// device attributes, image support). Apart from onData, so a node that
+  /// answers queries itself can have these dropped.
+  onReply(cb: (data: string) => void): void;
   onResize(cb: (size: { cols: number; rows: number }) => void): void;
   /// Esc typed in it, which it does not send on; only a pane's terminal sets this.
   /// A program on the alternate screen (vim, less) still gets Esc.
@@ -620,7 +707,7 @@ export const ALL = "";
 /// What the window hands `makeTerminals`.
 export interface TerminalDeps {
   invoke: typeof Invoke;
-  Channel: typeof ChannelCtor;
+  channel: typeof indexedChannel;
   makeScreen: () => Screen;
   ago: Ago;
   redraw: () => void;
@@ -660,6 +747,8 @@ interface Live {
   attaches: number;
   /// The size the node last got from this view.
   sent: TermSize | null;
+  /// Which output replays what the node kept.
+  replay: Replay;
   /// Let go while the window was hidden, to follow again when it shows.
   paused?: boolean;
 }
@@ -679,6 +768,9 @@ interface ProjectTerminals {
 const START_SIZE = { cols: 100, rows: 30 };
 /// Attaches tried in a row before giving up until asked again.
 const MAX_TRIES = 6;
+/// How long a stream message may stay missing while later ones came: then
+/// it was lost, and the screen attaches again from what it showed.
+export const LOST_MS = 2000;
 
 /// Every machine with its terminals, in the machines' order; a terminal of
 /// a machine no longer listed goes under its own name at the end, offline.
@@ -750,12 +842,41 @@ export function splice(next: number, at: number, len: number): { skip: number; g
   return { skip: Math.min(next - at, len), gap: false };
 }
 
-/// The bytes of a base64 string.
-export function fromBase64(data: string): Uint8Array {
-  const text = atob(data);
-  const out = new Uint8Array(text.length);
-  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i);
-  return out;
+/// How long after attaching output still counts as the node's replay of what
+/// it kept, at most, and the pause in output that ends the replay sooner.
+export const REPLAY_MAX_MS = 2000;
+export const REPLAY_GAP_MS = 150;
+
+/// Which output on a stream replays what the node kept from before the view
+/// attached. The node sends that at once; the protocol does not say where it
+/// ends, so a pause in the output or REPLAY_MAX_MS does. A terminal the view
+/// itself just opened has nothing to replay: its first queries are live.
+export class Replay {
+  private until = 0;
+  private last = 0;
+  private opened: boolean;
+
+  constructor(opened: boolean) {
+    this.opened = opened;
+  }
+
+  /// The stream attached at `now`.
+  start(now: number) {
+    this.until = this.opened ? 0 : now + REPLAY_MAX_MS;
+    this.opened = false;
+    this.last = now;
+  }
+
+  /// Whether output arriving at `now` is still the replay.
+  is(now: number): boolean {
+    if (now > this.until || now - this.last > REPLAY_GAP_MS) {
+      this.until = 0;
+      return false;
+    }
+
+    this.last = now;
+    return true;
+  }
 }
 
 /// A terminal's size in cells.
@@ -774,6 +895,65 @@ export function sizeChanged(sent: TermSize | null, now: TermSize) {
 /// each keep their own stream.
 export function newView(): string {
   return crypto.randomUUID();
+}
+
+/// A stream's messages back in order by their index.
+export class InOrder {
+  private next = 0;
+  private readonly held = new Map<number, unknown>();
+
+  /// Message `index`, and the messages that are now in order.
+  take(message: unknown, index: number): unknown[] {
+    if (index < this.next) return [];
+    this.held.set(index, message);
+    const ready: unknown[] = [];
+
+    while (this.held.has(this.next)) {
+      ready.push(this.held.get(this.next));
+      this.held.delete(this.next);
+      this.next++;
+    }
+
+    return ready;
+  }
+
+  /// The index of the message later ones wait for, or null when none wait.
+  missing(): number | null {
+    return this.held.size > 0 ? this.next : null;
+  }
+}
+
+/// A terminal stream's channel: its messages go to `show` in order while
+/// `current`. One missing for `LOST_MS` while later ones came was lost:
+/// `lost` gets its index, and the screen should follow again from what it
+/// showed, since the rest would never come.
+export function inOrderChannel(
+  open: typeof indexedChannel,
+  current: () => boolean,
+  show: (message: unknown) => void,
+  lost: (index: number) => void,
+) {
+  const order = new InOrder();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let waiting: number | null = null;
+  /// Times the message waited for, from when it was first waited for.
+  const watchGap = () => {
+    const missing = order.missing();
+    if (missing === waiting) return;
+
+    clearTimeout(timer);
+    waiting = missing;
+    if (missing === null) return;
+    timer = setTimeout(() => { if (current()) lost(missing); }, LOST_MS);
+  };
+
+  return open((message, index) => {
+    for (const next of order.take(message, index)) {
+      if (!current()) return;
+      show(next);
+    }
+    watchGap();
+  });
 }
 
 /// How long to wait before attach number `tries` (1 for the first retry).

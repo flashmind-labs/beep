@@ -1,4 +1,6 @@
 export const WINDOWS = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+/// macOS, iOS and iPadOS, where Command is the app modifier.
+export const APPLE = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 
 /// The app modifier: Control on Windows, Command on macOS.
 export function commandKey(e: { metaKey: boolean; ctrlKey?: boolean }, windows = WINDOWS): boolean {

@@ -14,8 +14,10 @@ test("terminal list refresh keeps its rows and mounted screen", async ({ page })
   const first = list.getByRole("button", { name: /shell-0/ });
   await expect(first).toBeVisible();
   await first.click();
-  const screen = page.locator(".tm-panel .xterm-screen");
+  const screen = page.locator(".tm-panel .tm-term");
   await expect(screen).toBeVisible();
+  // Opening it gives the screen the keyboard once the terminal has loaded.
+  await expect(page.locator(".tm-panel .tm-keys-input")).toBeFocused();
   await first.focus();
   await first.evaluate(element => { element.dataset.identity = "kept"; });
   await screen.evaluate(element => { element.dataset.identity = "kept"; });
@@ -28,12 +30,12 @@ test("terminal list refresh keeps its rows and mounted screen", async ({ page })
   await expect(screen).toHaveAttribute("data-identity", "kept");
   await expect(list).toHaveJSProperty("scrollTop", top);
   await page.getByRole("button", { name: "Focus", exact: true }).click();
-  await expect(page.locator(".tm-panel .xterm-helper-textarea")).toBeFocused();
+  await expect(page.locator(".tm-panel .tm-keys-input")).toBeFocused();
   await page.evaluate(value => { window.__navigation.respond("terminals_all", value); window.__navigation.notify("terminals"); }, [terminal("terminal-0", "renamed active shell"), ...rows.slice(1), terminal("terminal-new", "renamed shell")]);
   await expect(list.getByRole("button", { name: /renamed shell/ })).toBeVisible();
   await expect(page.locator(".tm-head")).toContainText("renamed active shell");
   await expect(screen).toHaveAttribute("data-identity", "kept");
-  await expect(page.locator(".tm-panel .xterm-helper-textarea")).toBeFocused();
+  await expect(page.locator(".tm-panel .tm-keys-input")).toBeFocused();
   await page.getByRole("button", { name: "View only", exact: true }).click();
   await expect(page.getByRole("button", { name: "Take control", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Take control", exact: true }).click();
@@ -55,7 +57,7 @@ test("terminal switching reuses screens and stopping requires confirmation", asy
   await page.evaluate(() => window.__navigation.open("terminals"));
   const list = page.locator(".tl-list");
   await list.getByRole("button", { name: /first/ }).click();
-  const screen = page.locator(".tm-panel .xterm-screen");
+  const screen = page.locator(".tm-panel .tm-term");
   await expect(screen).toBeVisible();
   await screen.evaluate(element => { element.dataset.identity = "first"; });
   await page.locator(".tm-head").click({ button: "right" });
@@ -104,7 +106,7 @@ test("new terminal form retains draft and caret through refresh and starts once"
   await form.dispatchEvent("submit", { bubbles: true, cancelable: true });
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_open").length)).toBe(1);
   await page.evaluate(() => window.__navigation.release("terminal_open"));
-  await expect(page.locator(".tm-panel .xterm-screen")).toBeVisible();
+  await expect(page.locator(".tm-panel .tm-term")).toBeVisible();
   expect(await page.evaluate(() => window.__navigation.calls().find(call => call.command === "terminal_open")?.args.terminal)).toMatchObject({ machineId: "build-box", name: "my shell", command: "printf test" });
   await page.getByRole("button", { name: "New terminal", exact: true }).first().click();
   await page.locator(".tm-form").getByRole("button", { name: "Cancel" }).click();

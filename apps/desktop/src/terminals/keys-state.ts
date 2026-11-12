@@ -13,7 +13,7 @@
 
 type KeyLike = Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
 
-/// The bytes to send for a key, or null when xterm.js handles it.
+/// The bytes to send for a key, or null when the terminal encodes it.
 export function wordKeyBytes(e: KeyLike): string | null {
   if (e.shiftKey) return null;
   const { metaKey: meta, ctrlKey: ctrl, altKey: alt } = e;

@@ -6,7 +6,7 @@ import { S } from "../bar/core.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing, sessionVisible, shownStatus } from "../agents/closing.ts";
-import { invoke, Channel, listen } from "../ui/tauri.ts";
+import { invoke, Channel, indexedChannel, listen } from "../ui/tauri.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { pageAgent, workerSession, type ProjectAgent } from "./agent.ts";
@@ -43,7 +43,7 @@ import { loadThreadChats, threadChats } from "../center/threadcard.ts";
 /// project's list picked, null for the first.
 export const pa = { busy: new Set<string>(), errors: new Map<string, string>(), outcomes: new Map<string, Outcome>(), tile: null as string | null, run: null as { project: string; id: number; host: string } | null };
 
-export const terms = makeTerminals({ invoke, Channel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
+export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
 export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
 
 /// The project's branches and their reviews: the Branches list and the

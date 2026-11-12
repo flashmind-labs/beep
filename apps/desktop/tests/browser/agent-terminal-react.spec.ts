@@ -12,8 +12,8 @@ test("agent terminal footer retains its screen and confirms close", async ({ pag
   await page.getByRole("tab", { name: "Files", exact: true }).click();
   await page.getByRole("button", { name: "+ Terminal" }).filter({ visible: true }).click();
   const terminalView = page.locator(".agpview.term:visible");
-  await expect(terminalView.locator(".xterm")).toBeVisible();
-  const screen = terminalView.locator(".xterm");
+  await expect(terminalView.locator(".tm-term")).toBeVisible();
+  const screen = terminalView.locator(".tm-term");
   await screen.evaluate(element => { element.dataset.identity = "kept"; });
   await terminalView.locator(".agpacts").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Detach" }).click();

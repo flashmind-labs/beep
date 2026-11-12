@@ -126,7 +126,10 @@ jobs:
           # Tauri runs `xattr -crs` before signing, and the pip xattr in
           # /opt/homebrew/bin has no -r.
           # bash 3.2 treats an empty "${extra[@]}" as unset under set -u.
-          PATH="/usr/bin:$PATH" cargo tauri build --bundles app ${extra[@]+"${extra[@]}"}
+          # Only this signed build has the native updater: a local build signed
+          # ad hoc cannot load Sparkle.framework under the hardened runtime.
+          PATH="/usr/bin:$PATH" cargo tauri build --bundles app --features sparkle \
+            --config tauri.sparkle.conf.json ${extra[@]+"${extra[@]}"}
           app="$CARGO_TARGET_DIR/release/bundle/macos/Beep.app"
           codesign --verify --deep --strict "$app"
           xcrun stapler validate "$app"

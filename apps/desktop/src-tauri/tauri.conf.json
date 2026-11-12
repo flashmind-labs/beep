@@ -35,7 +35,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' tauri://localhost/diagrams/renderer.js tauri://localhost/diagrams/mermaid.min.js; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' blob:; frame-src 'self' blob: beepview:; object-src 'self' blob:"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; script-src 'self' 'wasm-unsafe-eval' tauri://localhost/diagrams/renderer.js tauri://localhost/diagrams/mermaid.min.js; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' blob:; frame-src 'self' blob: beepview:; object-src 'self' blob:"
     }
   },
   "bundle": {
@@ -46,8 +46,7 @@
     ],
     "category": "Productivity",
     "resources": {
-      "icons/icon.png": "notification-icon.png",
-      "Sparkle-LICENSE.txt": "Sparkle-LICENSE.txt"
+      "icons/icon.png": "notification-icon.png"
     },
     "icon": [
       "icons/32x32.png",
@@ -58,9 +57,6 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "files": {
-        "Frameworks/Sparkle.framework": "sparkle/Sparkle.framework"
-      },
       "signingIdentity": "-",
       "entitlements": "Entitlements.plist"
     }

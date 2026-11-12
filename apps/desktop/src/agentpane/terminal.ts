@@ -2,8 +2,8 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { endsForGood, fromBase64, newView, retryDelay, sizeChanged, splice, type Screen, type TermEvent, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
-import { Channel, invoke } from "../ui/tauri.ts";
+import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, retryDelay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.ts";
+import { indexedChannel, invoke, logError, logInfo } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 
 /// The size a terminal starts at, before its screen is fitted.
@@ -32,6 +32,8 @@ export interface PaneTerm {
   paused?: boolean;
   /// The size the node last got from this tab.
   sent: TermSize | null;
+  /// Which output replays what the node kept.
+  replay: Replay;
   /// Its shell exited, or its machine no longer has it.
   onEnd: () => void;
   /// How it stands changed.
@@ -58,24 +60,28 @@ export async function openTerm(place: TermPlace, hooks: TermHooks): Promise<Pane
     terminal: { project: place.project, machineId: place.machine_id, name: place.name, command: "", cwd: place.cwd, ...START_SIZE },
   });
   if (!row) throw new Error("The server is too old for terminals here.");
-  return followTerm(row, hooks);
+  return followTerm(row, hooks, true);
 }
 
-/// Follows terminal `row`, one that already runs, in a tab.
-export async function followTerm(row: TerminalRow, hooks: TermHooks): Promise<PaneTerm> {
+/// Follows terminal `row`, one that already runs, in a tab; `opened` when
+/// this tab just started it.
+export async function followTerm(row: TerminalRow, hooks: TermHooks, opened = false): Promise<PaneTerm> {
   const { makeScreen } = await import("../terminals/termview.ts");
-  const t = paneTerm(row, makeScreen(), hooks);
+  const t = paneTerm(row, makeScreen(), hooks, opened);
   attach(t);
   return t;
 }
 
 /// Terminal `row` on `screen`, with typing and resizes wired to it; not
 /// attached yet.
-export function paneTerm(row: TerminalRow, screen: Screen, hooks: TermHooks): PaneTerm {
-  const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, view: newView(), attaches: 0, sent: null, ...hooks };
-  screen.onData(data => {
+export function paneTerm(row: TerminalRow, screen: Screen, hooks: TermHooks, opened = false): PaneTerm {
+  const t: PaneTerm = { row, screen, link: "attaching", next: 0, tries: 0, view: newView(), attaches: 0, sent: null, replay: new Replay(opened), ...hooks };
+  const input = (data: string) => {
     if (t.link === "attached") invoke("terminal_input", { id: row.id, view: t.view, data }).catch(() => {});
-  });
+  };
+  screen.onData(input);
+  // The node does not answer queries yet: the screen's answers go as input.
+  screen.onReply(input);
   screen.onResize(() => { if (t.link === "attached") sendSize(t); });
   screen.onEscape(() => t.onEscape());
   follow(t);
@@ -128,36 +134,49 @@ export function attach(t: PaneTerm) {
   const attempt = ++t.attaches;
   // Whether this is still the tab's stream: one it replaced says nothing.
   const current = () => t.attaches === attempt;
-  const channel = new Channel<TermEvent>();
-  channel.onmessage = ev => {
-    if (t.link === "detached" || !current()) return;
+  const show = (message: unknown) => {
+    if (t.link === "detached") return;
+    const ev = readTermMessage(message);
+    if (ev === null) {
+      logError(`terminal ${t.row.id}: a stream message was not understood (${describeMessage(message)})`);
+      return;
+    }
 
     if (ev.kind === "attached") {
+      logInfo(`terminal ${t.row.id}: attached in a pane`);
+      t.replay.start(performance.now());
       t.link = "attached";
       t.tries = 0;
       t.screen.setInput(true);
       // The screen may have been fitted while it attached.
       sendSize(t);
     } else if (ev.kind === "output") {
-      const bytes = fromBase64(ev.data);
+      const bytes = ev.data;
       const { skip, gap } = splice(t.next, ev.at, bytes.length);
       if (gap) t.screen.note("… earlier output was not kept");
-      t.screen.write(bytes.subarray(skip));
+      if (t.replay.is(performance.now())) t.screen.replay(bytes.subarray(skip));
+      else t.screen.write(bytes.subarray(skip));
       t.next = Math.max(t.next, ev.at + bytes.length);
       return;
     } else if (ev.kind === "ended") {
+      logInfo(`terminal ${t.row.id}: ended (${ev.state})`);
       t.link = "ended";
       t.screen.setInput(false);
       if (endsForGood(ev.state)) return t.onEnd();
       t.row = { ...t.row, state: ev.state, code: ev.code };
     } else {
       // A terminal that takes no input is not one the pane opened.
+      logInfo(`terminal ${t.row.id}: view only in a pane`);
       t.link = "ended";
       t.screen.setInput(false);
     }
 
     t.onLink();
   };
+  const channel = inOrderChannel(indexedChannel, current, show, missing => {
+    logError(`terminal ${t.row.id}: stream message ${missing} was lost in a pane; attaching again`);
+    attach(t);
+  });
   // The attach carries the size, so the node has it from here on.
   const size = t.screen.size();
   t.sent = size;
@@ -167,6 +186,7 @@ export function attach(t: PaneTerm) {
 }
 
 function retry(t: PaneTerm) {
+  logInfo(`terminal ${t.row.id}: stream dropped in a pane, try ${t.tries + 1}`);
   t.tries += 1;
   t.screen.setInput(false);
   t.link = t.tries > MAX_TRIES ? "detached" : "attaching";

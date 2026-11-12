@@ -5,10 +5,10 @@ import { copyFileSync, cpSync, readdirSync, rmSync } from "node:fs";
 
 cpSync(new URL("../diagrams/assets/", import.meta.url), new URL("dist/diagrams/", import.meta.url), { recursive: true });
 
-// xterm.js's stylesheet, linked from center.html next to the bundle.
+// Ghostty's terminal engine, loaded by terminals/termview.ts next to the bundle.
 copyFileSync(
-  new URL("node_modules/@xterm/xterm/css/xterm.css", import.meta.url),
-  new URL("dist/xterm.css", import.meta.url),
+  new URL("ghostty/ghostty-vt.wasm", import.meta.url),
+  new URL("dist/ghostty-vt.wasm", import.meta.url),
 );
 
 // Chunks from earlier builds, named by their hash, would ship with the app.
