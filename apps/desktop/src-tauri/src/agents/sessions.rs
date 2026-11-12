@@ -40,6 +40,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 /// How long one scan of the sessions started outside Beep serves every
@@ -296,7 +297,6 @@ pub async fn agent_sessions(
 /// Saves the user's title independently of the agent's generated title.
 #[tauri::command]
 pub async fn agent_title_save(
-    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
@@ -304,14 +304,38 @@ pub async fn agent_title_save(
     title: String,
 ) -> Result<()> {
     let mesh = fleet.ready().await?;
+    // `follow_titles` hears the write and tells the windows.
     beep_fleet::session_titles::save(&mesh, &machine_id, &agent, &session, &title).await?;
-    app.state::<Arc<AgentSessions>>().stale();
-
-    if let Err(e) = app.emit("agent-title-changed", ()) {
-        log::warn!("could not tell the windows a session title changed: {e}");
-    }
-
     Ok(())
+}
+
+/// Tells the windows of each title saved here or on another app, with the
+/// session and its title, so an open session retitles in place.
+pub(crate) async fn follow_titles(app: AppHandle, fleet: Arc<Fleet>) {
+    let mesh = match fleet.ready().await {
+        Ok(mesh) => mesh,
+        Err(e) => {
+            log::warn!("session titles saved elsewhere are not followed: {e}");
+            return;
+        }
+    };
+    let mut changes = mesh.changes();
+
+    loop {
+        let key = match changes.recv().await {
+            Ok(key) => key,
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => return,
+        };
+        let Some(retitled) = beep_fleet::session_titles::changed(&mesh, &key) else {
+            continue;
+        };
+        app.state::<Arc<AgentSessions>>().stale();
+
+        if let Err(e) = app.emit("agent-title-changed", retitled) {
+            log::warn!("could not tell the windows a session title changed: {e}");
+        }
+    }
 }
 
 /// Shows a session its machine said ended as ended in the lists held here, so

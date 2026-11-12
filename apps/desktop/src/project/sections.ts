@@ -1,6 +1,6 @@
 // A project page's sections (terminals, file sync, reviews, threads, runs)
 // and the acts its agent's cards call.
-import { layoutChanged } from "../center/lanes-view.tsx";
+import { layoutChanged } from "../ui/skin.ts";
 import { failure, formatAgo } from "../ui/format.ts";
 import { S } from "../bar/core.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";

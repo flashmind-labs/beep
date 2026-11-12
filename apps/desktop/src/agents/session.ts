@@ -9,7 +9,7 @@ import { bindSessionStash } from "./stash.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.ts";
 import { fileLinkMenu } from "./filelinks.ts";
-import { conversationHistory } from "./conversation-state.ts";
+import { conversationHistory, retitle, type Retitled } from "./conversation-state.ts";
 import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
@@ -152,13 +152,10 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const banner = takeover ? "Running outside Beep. Beep follows it here." : "Started outside Beep. Beep follows it here.";
   const continueHere = takeover ? { target: continueKey(s), start: () => askContinueHere(s) } : null;
   keepContinuing(s);
-  const open = AG.open;
+  // The saved title shows at once; `agent-title-changed` brings it to the lists.
   const saveTitle = async (title: string) => {
     await invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title });
-    if (AG.open !== open) return;
-    if (AG.page) AG.page.session.title = title || null;
-    await pollAgent(true);
-    void loadSessions().catch(e => console.warn("session titles:", e));
+    await retitleOpen({ machine_id: s.machine_id, agent: s.agent, session: s.id, title: title || null });
   };
   const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: shownUsage(s), moveKey: moveKey(s), saveTitle });
   const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: moveKey(s), continueHere, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
@@ -514,11 +511,21 @@ onShownChange(shown => {
   if (S.view === "agent") void pollAgent();
 });
 
-const titlesChanged = ambient(() => {
-  if (S.view === "agent") void pollAgent(true);
-  return S.view === "agents" ? ensureSessions().then(() => drawAgents(false)) : undefined;
-}, AMBIENT_MS);
-listen("agent-title-changed", () => titlesChanged());
+/// Shows the title saved for the open session in its head, and in the switcher, which lists it.
+/// A followed session pushes only when it works, so a read would not bring the title.
+async function retitleOpen(change: Retitled) {
+  const s = AG.page?.session;
+  if (!s || !retitle(s, change, [])) return;
+  const listed = change.title === null ? await loadSessions().catch(e => { console.warn("session titles:", e); return []; }) : [];
+  const now = AG.page?.session;
+  const shown = now && retitle(now, change, listed);
+  if (!shown || !AG.page) return;
+  AG.page.session = shown;
+  drawAgentHeading();
+}
+
+const titlesChanged = ambient(() => S.view === "agents" ? ensureSessions().then(() => drawAgents(false)) : undefined, AMBIENT_MS);
+listen<Retitled>("agent-title-changed", e => { void retitleOpen(e.payload); titlesChanged(); });
 
 // A notice about a session that asks may mean it was answered elsewhere.
 for (const name of ["sessions-changed", "work-resolved"]) {

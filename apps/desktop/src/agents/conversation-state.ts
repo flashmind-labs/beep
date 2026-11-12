@@ -28,6 +28,18 @@ export class ConversationHistory {
 }
 export const conversationHistory = new ConversationHistory();
 
+/// A title saved for a session, here or on another app: null shows the agent's own title again.
+export interface Retitled { machine_id: string; agent: string; session: string; title: string | null }
+
+/// Session `s` under the title `change` saved for it, or null when `change` is for another
+/// session. A cleared title takes the agent's own from `listed`, the sessions read after it.
+export function retitle(s: AgentRow, change: Retitled, listed: readonly AgentRow[]): AgentRow | null {
+  const key = conversationKey({ machine_id: change.machine_id, agent: change.agent, id: change.session });
+  if (conversationKey(s) !== key) return null;
+  const title = change.title ?? listed.find(row => conversationKey(row) === key)?.title ?? null;
+  return { ...s, title };
+}
+
 /// A row of the switcher, and how deep it sits under the session that started it.
 export interface ConversationChoice {
   row: AgentRow;

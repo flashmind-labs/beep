@@ -5,14 +5,13 @@ use crate::{
     desk::Desk,
     error::{FleetError, Result},
     nearest_first,
-    records::find_project,
-    records::{now_ms, time},
+    records::{now_ms, projects, time},
 };
 use async_trait::async_trait;
 use beep_mesh::Mesh;
 use beep_projects::issues::{
-    HostGates, ImportedPlace, MachineName, MachineView, Machines, ProjectStore, issue_view,
-    list_open, list_open_prs, machine_view, pull_request_head, pull_request_view,
+    HostGates, ImportedPlace, MachineName, MachineView, Machines, ProjectStore, host_of_url,
+    issue_view, list_open, list_open_prs, machine_view, pull_request_head, pull_request_view,
 };
 use beep_projects::model::plain_path;
 use beep_projects::{
@@ -46,25 +45,34 @@ impl Desk {
             .find_map(|stored| (project_id(&stored.name) == id).then_some(stored.name))
     }
 
-    /// What reading `name`'s host needs. With `local_only`, and a checkout of the project on this
-    /// Mac, only this Mac is asked, so nothing waits on another machine. Otherwise the machines
-    /// the project is on are asked, and no other, nearest first.
+    /// What reading `name`'s host needs, and whether only this Mac is asked. With `local_only`,
+    /// a checkout of the project on this Mac, and no other machine known to answer for the host
+    /// instead, only this Mac is asked, so nothing waits on another machine. Otherwise every
+    /// machine with a repository on the host is asked, nearest first.
     pub(crate) async fn host_reads(
         &self,
         name: &str,
         local_only: bool,
-    ) -> Result<(DeskProject, DeskMachines)> {
+    ) -> Result<(DeskProject, DeskMachines, bool)> {
         let store = DeskProject::of(&self.mesh, name)?;
+        let gates = self.hosts.gates();
+        let local_answers = store.host.as_ref().is_none_or(|host| {
+            !gates.is_paused(self.local, host)
+                && gates
+                    .preferred(host)
+                    .is_none_or(|machine| machine == self.local)
+        });
 
         if local_only
+            && local_answers
             && store.is_on(self.local)
             && let Some(local) = self.local_machine().await
         {
-            return Ok((store, DeskMachines::of(&[local], self.hosts.gates())));
+            return Ok((store, DeskMachines::of(&[local], gates), true));
         }
 
         let machines = self.machines_among(&store.machine_ids()).await;
-        Ok((store, DeskMachines::of(&machines, self.hosts.gates())))
+        Ok((store, DeskMachines::of(&machines, gates), false))
     }
 
     /// Runs `read` against what reading the project's host needs, asking this Mac alone when the
@@ -74,12 +82,11 @@ impl Desk {
         R: Fn(DeskProject, DeskMachines) -> F,
         F: Future<Output = Result<T>>,
     {
-        let (store, machines) = self.host_reads(project, true).await?;
-        let here = store.is_on(self.local);
+        let (store, machines, alone) = self.host_reads(project, true).await?;
 
         match read(store, machines).await {
-            Err(_) if here => {
-                let (store, machines) = self.host_reads(project, false).await?;
+            Err(_) if alone => {
+                let (store, machines, _) = self.host_reads(project, false).await?;
                 read(store, machines).await
             }
             done => done,
@@ -134,26 +141,32 @@ impl Desk {
         number: u64,
         body: &str,
     ) -> Result<()> {
-        let (store, machines) = self.host_reads(project, true).await?;
+        let (store, machines, _) = self.host_reads(project, true).await?;
         Ok(beep_projects::thread_detail::comment(&store, &machines, kind, number, body).await?)
     }
 
     /// The project's open pull requests, with their labels, and its issues no task tracks. A list
     /// that cannot be read says why beside the other.
     pub async fn lists(&self, project: &str) -> Result<LabeledProjectLists> {
-        let local = self.lists_on(project, true).await?;
+        let (local, alone) = self.lists_on(project, true).await?;
         let failed = local.lists.prs_error.is_some() || local.lists.issues_error.is_some();
 
-        if failed && DeskProject::of(&self.mesh, project)?.is_on(self.local) {
+        if failed && alone {
             // This Mac could not read it; the others may.
-            return self.lists_on(project, false).await;
+            return Ok(self.lists_on(project, false).await?.0);
         }
 
         Ok(local)
     }
 
-    async fn lists_on(&self, project: &str, local_only: bool) -> Result<LabeledProjectLists> {
-        let (store, machines) = self.host_reads(project, local_only).await?;
+    /// The lists read through the machines `host_reads` gives, and whether only this Mac was
+    /// asked.
+    async fn lists_on(
+        &self,
+        project: &str,
+        local_only: bool,
+    ) -> Result<(LabeledProjectLists, bool)> {
+        let (store, machines, alone) = self.host_reads(project, local_only).await?;
         let (prs, issues) = tokio::join!(
             beep_projects::issues::list_open_prs(&store, &machines),
             list_open(&store, &machines),
@@ -174,7 +187,7 @@ impl Desk {
             Ok(open) => (open.into_iter().map(issue_view).collect(), None),
             Err(e) => (Vec::new(), Some(e.to_string())),
         };
-        Ok(LabeledProjectLists {
+        let lists = LabeledProjectLists {
             lists: ProjectLists {
                 pull_requests,
                 prs_error,
@@ -183,18 +196,18 @@ impl Desk {
                 synced_at: Some(time(now_ms())),
             },
             pr_labels,
-        })
+        };
+        Ok((lists, alone))
     }
 
     /// What the machine that holds `project` says about its account and the repository, asking
     /// this Mac alone when the project is checked out here, and the others only if that failed.
     pub(crate) async fn machine_view(&self, project: &str) -> Option<MachineView> {
-        let (store, machines) = self.host_reads(project, true).await.ok()?;
-        let here = store.is_on(self.local);
+        let (store, machines, alone) = self.host_reads(project, true).await.ok()?;
 
         match machine_view(&store, &machines).await {
-            None if here => {
-                let (store, machines) = self.host_reads(project, false).await.ok()?;
+            None if alone => {
+                let (store, machines, _) = self.host_reads(project, false).await.ok()?;
                 machine_view(&store, &machines).await
             }
             view => view,
@@ -228,30 +241,61 @@ pub fn places(mesh: &beep_mesh::Mesh, project: &str) -> Vec<(iroh::EndpointId, S
         .unwrap_or_default()
 }
 
-/// One project, for reading its issues host: its checkouts nearest first, the order they are
-/// asked in.
+/// One project, for reading its issues host: its checkouts nearest first, then the other
+/// machines with a repository on the same host, the order they are asked in. The host's CLI
+/// takes the repository by name, so any machine signed in to the host can read it.
 pub(crate) struct DeskProject {
     name: RepoName,
+    host: Option<IssueHost>,
     places: Vec<ImportedPlace>,
+    /// How many of `places` are the project's own checkouts.
+    own: usize,
 }
 
 impl DeskProject {
     pub(crate) fn of(mesh: &Mesh, name: &str) -> Result<Self> {
         let name = RepoName::from_str(name).map_err(|e| FleetError::refused(e.to_string()))?;
-        let stored = find_project(mesh, &name.to_string()).ok_or(FleetError::NotFound)?;
-        let mut machines: Vec<EndpointId> = stored.places.keys().copied().collect();
-        nearest_first(mesh, &mut machines, |machine| *machine);
-        let places = machines
-            .into_iter()
+        let all = projects(mesh);
+        let stored = all
+            .iter()
+            .find(|stored| stored.name.eq_ignore_ascii_case(&name.to_string()))
+            .ok_or(FleetError::NotFound)?;
+        let host = host_of_url(&stored.record.url);
+        let mut own: Vec<EndpointId> = stored.places.keys().copied().collect();
+        nearest_first(mesh, &mut own, |machine| *machine);
+        let mut others: Vec<EndpointId> = Vec::new();
+
+        if host.is_some() {
+            for machine in all
+                .iter()
+                .filter(|other| host_of_url(&other.record.url) == host)
+                .flat_map(|other| other.places.keys())
+            {
+                if !own.contains(machine) && !others.contains(machine) {
+                    others.push(*machine);
+                }
+            }
+
+            nearest_first(mesh, &mut others, |machine| *machine);
+        }
+
+        let places = own
+            .iter()
+            .chain(&others)
             .map(|machine| ImportedPlace {
                 url: stored.record.url.clone(),
-                machine: Some(machine),
+                machine: Some(*machine),
             })
             .collect();
-        Ok(Self { name, places })
+        Ok(Self {
+            name,
+            host,
+            places,
+            own: own.len(),
+        })
     }
 
-    /// The machines the project is checked out on.
+    /// The machines that may read the project's host.
     pub(crate) fn machine_ids(&self) -> Vec<EndpointId> {
         self.places
             .iter()
@@ -261,7 +305,7 @@ impl DeskProject {
 
     /// Whether the project has a checkout on `machine`.
     pub(crate) fn is_on(&self, machine: EndpointId) -> bool {
-        self.places
+        self.places[..self.own]
             .iter()
             .any(|place| place.machine == Some(machine))
     }

@@ -242,6 +242,24 @@ export function zoomAt(v: ImageView, factor: number, px: number, py: number): Im
   return { scale, x: px - (px - v.x) * k, y: py - (py - v.y) * k, fit: false };
 }
 
+/// The fingers on a picture, by pointer id, at their last positions.
+export type Touches = Map<number, { x: number; y: number }>;
+
+/// A move of one of two fingers: how far they spread (`factor`) about their
+/// midpoint and how far that midpoint moved. Null with fewer or more fingers.
+export function pinchStep(touches: Touches, id: number, x: number, y: number) {
+  const before = [...touches.values()];
+  if (!touches.has(id)) return null;
+  touches.set(id, { x, y });
+  if (before.length !== 2) return null;
+
+  const after = [...touches.values()];
+  const gap = (p: { x: number; y: number }[]) => Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  const mid = (p: { x: number; y: number }[]) => ({ x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 });
+  const from = mid(before), to = mid(after), start = gap(before);
+  return { factor: start > 0 ? gap(after) / start : 1, x: to.x, y: to.y, dx: to.x - from.x, dy: to.y - from.y };
+}
+
 /// ⇧esc, which zooms a side pane over its conversation and back.
 export const isZoomKey = (e: KeyboardEvent) => e.key === "Escape" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
 

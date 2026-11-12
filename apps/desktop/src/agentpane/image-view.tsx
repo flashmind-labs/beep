@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { fileSize, openViewer } from "../chat/media.ts";
-import { actualView, fitView, zoomAt } from "./media-state.ts";
+import { actualView, fitView, pinchStep, zoomAt, type Touches } from "./media-state.ts";
 import { FileActions } from "./media-view.tsx";
 import type { MediaTab } from "./media.ts";
 
@@ -19,6 +19,7 @@ export function ImageView({ tab, machine }: { tab: MediaTab; machine: string | n
     if (!box || !img) return;
     let frame = 0, still: ReturnType<typeof setTimeout> | null = null;
     let pinch = 1, drag: { x: number; y: number; pointer: number } | null = null;
+    const touches: Touches = new Map();
     const apply = () => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
@@ -64,17 +65,33 @@ export function ImageView({ tab, machine }: { tab: MediaTab; machine: string | n
     const gestureStart = (event: Event) => { event.preventDefault(); pinch = 1; };
     const gestureChange = (event: Event) => {
       event.preventDefault();
+      // Two fingers on a phone are the pointer pinch's.
+      if (touches.size > 0) return;
       const gesture = event as Event & { scale: number; clientX: number; clientY: number };
       zoom(gesture.scale / pinch, gesture.clientX, gesture.clientY); pinch = gesture.scale;
     };
     const move = (event: PointerEvent) => {
-      if (!drag || !tab.image) return;
+      const step = pinchStep(touches, event.pointerId, event.clientX, event.clientY);
+      if (step && tab.image) {
+        tab.image.view = { ...tab.image.view, x: tab.image.view.x + step.dx, y: tab.image.view.y + step.dy, fit: false };
+        zoom(step.factor, step.x, step.y);
+        if (drag?.pointer === event.pointerId) drag = { ...drag, x: event.clientX, y: event.clientY };
+        return;
+      }
+
+      if (!drag || !tab.image || touches.size > 1) return;
       tab.image.view = { ...tab.image.view, x: tab.image.view.x + event.clientX - drag.x, y: tab.image.view.y + event.clientY - drag.y, fit: false };
       drag = { x: event.clientX, y: event.clientY, pointer: drag.pointer }; apply();
     };
-    const up = () => { drag = null; setMoving(now => ({ ...now, drag: false })); };
+    const up = (event: PointerEvent) => {
+      touches.delete(event.pointerId);
+      if (drag?.pointer !== event.pointerId) return;
+      drag = null; setMoving(now => ({ ...now, drag: false }));
+    };
     const down = (event: PointerEvent) => {
       if (event.button !== 0 || !tab.image) return;
+      if (event.pointerType === "touch") touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (drag) return;
       box.setPointerCapture(event.pointerId); setMoving(now => ({ ...now, drag: true }));
       drag = { x: event.clientX, y: event.clientY, pointer: event.pointerId };
     };

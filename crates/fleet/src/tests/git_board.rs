@@ -1,6 +1,5 @@
 use super::*;
-use beep_projects::git_items::{access::Repo, host::HostError};
-use beep_proto::{GitHostKind, GitItem, GitItemKind, GitReview, ProjectLists};
+use beep_proto::{GitItem, GitItemKind, GitReview, ProjectLists};
 use std::time::UNIX_EPOCH;
 
 fn host() -> GitHost {
@@ -83,14 +82,20 @@ fn a_failed_project_read_keeps_the_lists_it_had() {
         },
         pr_labels: Vec::new(),
     };
-    kept.take_project(ProjectRead {
-        name: "acme/widget".into(),
-        result: Ok(lists),
-    });
-    kept.take_project(ProjectRead {
-        name: "acme/widget".into(),
-        result: Err("no answer in time".into()),
-    });
+    kept.take_project(
+        ProjectRead {
+            name: "acme/widget".into(),
+            result: Ok(lists),
+        },
+        None,
+    );
+    kept.take_project(
+        ProjectRead {
+            name: "acme/widget".into(),
+            result: Err("no answer in time".into()),
+        },
+        None,
+    );
     assert!(kept.projects.contains_key("acme/widget"));
     assert!(kept.saved().failed.is_empty());
     assert_eq!(kept.items().items.found.hosts.len(), 1);
@@ -117,4 +122,66 @@ fn what_is_kept_survives_json() {
         host: "github.com".into(),
         name: "acme/widget".into(),
     }));
+}
+
+fn empty_lists() -> LabeledProjectLists {
+    LabeledProjectLists {
+        lists: ProjectLists {
+            pull_requests: Vec::new(),
+            prs_error: None,
+            issues: Vec::new(),
+            issues_error: None,
+            synced_at: None,
+        },
+        pr_labels: Vec::new(),
+    }
+}
+
+/// A Forgejo search that got no connection from this Mac.
+fn unreached_forge() -> GitKept {
+    let mut kept = GitKept {
+        hosts: vec![None],
+        ..GitKept::default()
+    };
+    let answer = Answer {
+        host: GitHost {
+            host: "forge.example".into(),
+            kind: GitHostKind::Forgejo {},
+            account: None,
+            error: None,
+        },
+        result: Err(HostError::Unreachable("forge.example".into())),
+    };
+    kept.take_host(0, Some(answer));
+    kept
+}
+
+#[test]
+fn a_host_this_mac_cannot_reach_is_no_error_while_a_machine_reads_it() {
+    let mut kept = unreached_forge();
+    let read = ProjectRead {
+        name: "acme/widget".into(),
+        result: Ok(empty_lists()),
+    };
+    kept.take_project(read, Some("forge.example"));
+
+    assert_eq!(kept.items().items.found.hosts[0].error, None);
+}
+
+#[test]
+fn a_host_no_machine_reaches_says_so() {
+    let mut kept = unreached_forge();
+    let failed = ProjectRead {
+        name: "acme/widget".into(),
+        result: Err("no answer in time".into()),
+    };
+    kept.take_project(failed, Some("forge.example"));
+    let other = ProjectRead {
+        name: "acme/other".into(),
+        result: Ok(empty_lists()),
+    };
+    kept.take_project(other, Some("elsewhere.example"));
+
+    let error = kept.items().items.found.hosts[0].error.clone();
+    assert_eq!(error.as_deref(), Some("Could not reach forge.example."));
 }

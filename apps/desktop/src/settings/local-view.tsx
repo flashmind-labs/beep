@@ -1,21 +1,21 @@
-import { useEffect, useState } from "react";
-import { SKINS, setSkin, skinId } from "../ui/skin.ts";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { SKINS, frontLayout, setFrontLayout, setSkin, skinId, type FrontLayout, type FrontPage } from "../ui/skin.ts";
 import type { MacControl } from "./settings.ts";
-import { frontLayout, setFrontLayout, type FrontLayout, type FrontPage } from "../center/lanes-view.tsx";
-import { Segmented } from "../ui/aria-kit.tsx";
 
 const LAYOUTS: readonly { id: FrontLayout; label: string }[] = [{ id: "board", label: "Board" }, { id: "list", label: "List" }];
 const FRONT_PAGES: readonly { page: FrontPage; name: string; note: string }[] = [
   { page: "home", name: "Home", note: "Lanes of cards, or sections of rows" },
   { page: "project", name: "Projects", note: "A project's front page" },
 ];
+// React Aria sets up global listeners on load, so it loads with the view that
+// shows it rather than with Settings.
+const LayoutSegmented = lazy(() => import("../ui/aria-kit.tsx").then(({ Segmented }) => ({ default: Segmented<FrontLayout> })));
 
 function LayoutPick({ page, name, note }: { page: FrontPage; name: string; note: string }) {
   const [layout, setLayout] = useState(() => frontLayout(page));
   return <div className="dtoggle"><span><b>{name}</b><small>{note}</small></span>
-    <Segmented label={`${name} layout`} options={LAYOUTS} value={layout} onChange={next => { setFrontLayout(page, next); setLayout(next); }}/></div>;
+    <Suspense fallback={null}><LayoutSegmented label={`${name} layout`} options={LAYOUTS} value={layout} onChange={next => { setFrontLayout(page, next); setLayout(next); }}/></Suspense></div>;
 }
-
 
 export function AppearanceView() {
   const [selected, setSelected] = useState(skinId);

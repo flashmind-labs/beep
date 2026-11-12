@@ -19,7 +19,7 @@ import { onPlaces } from "../agents/place.ts";
 import { sessionsChanged } from "../agents/sessions.ts";
 import type { SessionRow } from "../project/projects-state.ts";
 import { ambient } from "../ui/active.ts";
-import { frontLayout, layoutChanged } from "./lanes-view.tsx";
+import { frontLayout, layoutChanged } from "../ui/skin.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
 import { createElement } from "react";

@@ -7,6 +7,29 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.13] - 2026-11-12
+
+### Fixed
+
+- Desktop: pull requests and issues on a git host this Mac cannot reach are read through another
+  machine with repositories on that host, and "Could not reach" shows only when no machine can.
+- Desktop: a git host no machine reaches is tried again every few minutes instead of on every
+  refresh, and its failures no longer fill the log.
+- Desktop: renaming a coding agent session shows the new title at once in the
+  open session, the session lists and the Option+Tab switcher, also on other
+  desktops and phones, instead of after reopening the session.
+
+## [0.8.12] - 2026-11-12
+
+### Changed
+
+- Desktop: a new project on GitHub or Forgejo clones into `<folder>/<name>`
+  instead of `<folder>/<owner>/<name>`.
+
+### Fixed
+
+- Desktop: Settings, Appearance highlights the picked Board or List.
+
 ## [0.8.11] - 2026-11-12
 
 ### Added

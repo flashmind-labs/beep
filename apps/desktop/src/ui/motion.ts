@@ -3,7 +3,6 @@
 
 export type Move = "open" | "back" | "next";
 
-const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let playing = false;
 /// The board card that shares its shape with the open session's head.
 let hero: string | null = null;
@@ -15,7 +14,8 @@ export function setHeroCard(key: string | null) { hero = key; }
 export const movePlaying = () => playing;
 
 /// Whether motion may play now: not under reduced motion, nor in a hidden window.
-export const motionAllowed = () => !reduceMotion.matches && !document.hidden;
+export const motionAllowed = () =>
+  !window.matchMedia("(prefers-reduced-motion: reduce)").matches && !document.hidden;
 
 /// Runs `step`, which changes the page, as one transition. The page changes a
 /// frame later, after the old one is captured; without support, or when motion
