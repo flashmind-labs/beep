@@ -170,21 +170,21 @@ const FIXED_NAMES: Record<Fixed, string> = { running: "Running", subagents: "Sub
 
 const TAB_ICONS: Record<TabKind | Fixed, IconName> = {
   files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", image: "paneImage", model: "paneModel",
-  video: "paneVideo", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents",
+  video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents",
 };
 
-/// Pauses a tab's video and its model's animation, whose frames would
+/// Pauses a tab's video or audio and its model's animation, whose frames would
 /// otherwise keep drawing out of sight.
 function stopPlaying(t: MediaTab) {
-  t.video?.pause();
+  t.player?.pause();
   t.model?.anim?.play(false);
 }
 
 /// Loads a tab's video again where it stood: WebKit can lose its picture
 /// while it is out of sight and show it dark, sound and controls still there.
 function showFrame(t: MediaTab) {
-  const video = t.video;
-  if (!video || video.readyState === 0) return;
+  const video = t.player;
+  if (!(video instanceof HTMLVideoElement) || video.readyState === 0) return;
   const at = video.currentTime;
   video.addEventListener("loadedmetadata", () => { video.currentTime = at; }, { once: true });
   video.load();

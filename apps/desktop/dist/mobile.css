@@ -138,7 +138,10 @@ body.mobile .cc-set-scrim, body.mobile .cc-scrim { padding-left: env(safe-area-i
 body.mobile .cc-mt { overflow-x: auto }
 body.mobile .dcoderen.agent.md :is(th, td) { min-width: 9em }
 body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
-body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
+body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot, body.mobile .agpacts .hint { display: none }
+/* Time filters keep each label on one line; the row scrolls when it runs out. */
+body.mobile .pj-ctl .seg { min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none }
+body.mobile .pj-ctl .dbtn { flex: none; white-space: nowrap; padding: 0 8px }
 
 body.mobile:not(.mb-home) #usage { display: none }
 /* Home's usage pill keeps to plan shares when there are any; the popover has the rest. */

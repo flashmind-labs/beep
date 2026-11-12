@@ -1,6 +1,6 @@
 // agentpane/: a coding agent session's side pane and its tabs (media,
 // files, changes, artifacts, terminal). Entry: this file.
-// The media pane of a coding agent session: pictures, videos, 3D models and
+// The media pane of a coding agent session: pictures, videos, audio, 3D models and
 // PDFs the agent made or looked at, its files, artifacts, terminals and
 // subagents, each a tab. Drawing the tabs is in media-draw.ts, the docks'
 // layout and dividers in media-layout.ts.
@@ -69,9 +69,9 @@ export interface MediaTab {
   viewHidden: boolean;
   /// What a save or copy said, shown in its footer.
   note: string | null;
-  /// A video tab's element, and where it stood when its view went.
-  video: HTMLVideoElement | null;
-  videoAt: number;
+  /// A video or audio tab's element, and where it stood when its view went.
+  player: HTMLMediaElement | null;
+  playerAt: number;
   image?: { view: ImageView; w: number; h: number };
   model?: ModelView | null;
   wire?: boolean;
@@ -252,7 +252,7 @@ export function openPath(path: string) {
 
 export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
   if (!P.tabs.some(x => x.id === t.id)) {
-    const tab: MediaTab = { size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, video: null, videoAt: 0, ...t };
+    const tab: MediaTab = { size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, ...t };
     P.tabs.push(tab);
 
     if (!tab.error) {
@@ -268,12 +268,18 @@ export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> 
 /// Shows tab `id`, unfolding its dock, and gives the pane the keys.
 export function focusTab(id: string) {
   const d = dockOf(id);
+  leaveLog();
   P.layout.hidden[d] = false;
   saveLayout();
   P.on[d] = id;
   rememberPane();
   draw();
   paneOf(d)?.focus({ preventScroll: true });
+}
+
+/// On a phone, which shows one pane at a time, a tab being shown takes the screen from the log.
+function leaveLog() {
+  if (paneModel.getState().phone) setPaneModel({ log: false });
 }
 
 /// ⌘2, ⌘3, ⌘4: the pane's Files, Changes or Artifacts tab (`n` from 0). False
@@ -303,7 +309,7 @@ export function paneSession(): Readonly<PaneSession> | null {
 }
 
 /// Opens `rel`, a file in the session's folder, from the Files tab: a
-/// picture, video, 3D model or PDF in its viewer, anything else as text.
+/// picture, video, audio, 3D model or PDF in its viewer, anything else as text.
 export function openWorkFile(rel: string) {
   openIn(paneRoot(), rel);
 }
@@ -466,6 +472,7 @@ export function closeFocusedTab() {
 /// Shows the Files tab, unfolding its dock.
 export function showFiles() {
   const d = dockOf(FILES);
+  leaveLog();
   P.on[d] = FILES;
   P.layout.hidden[d] = false;
   draw();
@@ -492,6 +499,7 @@ export function showArtifact(path?: string) {
   if (path && !pickArtifact(path)) return false;
   if (!artifactCount()) return false;
   const d = dockOf(ARTS);
+  leaveLog();
   P.on[d] = ARTS;
   P.layout.hidden[d] = false;
   saveLayout();
@@ -588,7 +596,7 @@ export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
 window.addEventListener("pagehide", rememberPane);
 
 function dropTab(t: MediaTab) {
-  t.video?.pause();
+  t.player?.pause();
   if (t.term) dropTerm(t.term);
   t.model?.dispose();
   if (t.url?.startsWith("blob:")) URL.revokeObjectURL(t.url);

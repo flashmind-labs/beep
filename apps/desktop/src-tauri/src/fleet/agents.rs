@@ -654,7 +654,7 @@ pub(crate) async fn file(
 ) -> Result<AgentFileChunk> {
     if media_mime(&get.path).is_none() {
         return Err(ApiError::bad_request(
-            "Only pictures, videos, 3D models and PDFs can be shown.",
+            "Only pictures, videos, audio, 3D models and PDFs can be shown.",
         )
         .into());
     }

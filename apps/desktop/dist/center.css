@@ -1053,7 +1053,25 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .bd-card .ft .sp { flex: 1 }
 .bd-empty { padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 11.5px; color: var(--muted) }
 .pj-board { overflow: auto; min-height: 0; padding: 0 16px 130px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
-@container (max-width: 760px) { .bd-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+.bd-pick { display: inline-flex; align-items: center; gap: 3px }
+.bd-pick svg { width: 12px; height: 12px }
+/* Home: a row for each project under the lanes' titles. */
+.bd-rows { display: grid; grid-template-columns: 132px repeat(4, minmax(0, 1fr)); column-gap: 12px; align-items: start }
+.bd-rows > * { padding: 10px 0; border-top: 1px solid var(--border); min-width: 0 }
+.bd-rows > .hd { border-top: 0; padding: 0 0 8px }
+.bd-rows > .pj button { all: unset; cursor: pointer }
+.bd-rows > .pj button:hover, .bd-rows > .pj button:focus-visible { text-decoration: underline }
+/* A cell shows about two cards and scrolls to the rest. */
+.bd-rows > .bd-lane:not(.hd) { max-height: 236px; overflow-y: auto; scrollbar-width: thin }
+.bd-rows > .pj { padding-top: 20px; font-weight: 500; font-size: 13px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+
+@container (max-width: 760px) {
+  .bd-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .bd-rows { grid-template-columns: repeat(4, minmax(0, 1fr)) }
+  .bd-rows > span.hd { display: none }
+  .bd-rows > .pj { grid-column: 1 / -1; padding: 10px 0 0 }
+  .bd-rows > .pj ~ .bd-lane:not(.hd) { border-top: 0; padding-top: 6px }
+}
 
 /* Moves: one short transition per navigation, never ambient. A board card grows into the
    session's head and back, over a page that fades in by itself. Only the card and the head
