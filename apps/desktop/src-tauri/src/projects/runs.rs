@@ -254,9 +254,9 @@ pub async fn center_project_runs(
     fleet: FleetState<'_>,
     project_id: Uuid,
     refresh: bool,
-) -> Result<Option<RunsRow>> {
+) -> Result<RunsRow> {
     let name = named(&fleet, project_id).await?;
-    Ok(Some(fleet.runs(&name, refresh).await?.into()))
+    Ok(fleet.runs(&name, refresh).await?.into())
 }
 
 #[derive(Debug, Serialize)]
