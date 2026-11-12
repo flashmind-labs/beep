@@ -1,8 +1,8 @@
-// The session composer's `/` and `@` menus: the agent's commands and skills
-// while the message starts with `/`, the session's files after an `@`. The
-// commands are asked of the machine when a menu opens, the files are read
-// once and kept. What opens a menu, what it lists and what its keys do is
-// in mention-state.ts.
+// The `/` and `@` menus of a session's composer and of the start fields: the
+// agent's commands and skills while the message starts with `/`, the folder's
+// files after an `@`. The commands are asked of the machine when a menu
+// opens, the files are read once and kept. What opens a menu, what it lists
+// and what its keys do is in mention-state.ts.
 import { type Tree, mergeTree, unreadFolders, type Listing } from "../agentpane/files-state.ts";
 import { paneRoot } from "../agentpane/worktree.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
@@ -10,7 +10,8 @@ import { showAgentMenu } from "./composer-ui.tsx";
 import { S } from "../bar/core.ts";
 import { paneShown } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
-import { AG } from "./agents.ts";
+import { AG, type AgentSession } from "./agents.ts";
+import { sessions } from "./sessions.ts";
 import {
   type AgentCommand, type FileIndex, type Row, type Trigger,
   filePaths, filterCommands, filterFiles, indexFiles, menuKey, picked, triggerAt,
@@ -77,9 +78,36 @@ async function readFiles(key: string, machine: string, root: string, again: () =
   if (walking === key) walking = "";
 }
 
-/// Makes `field`, a session's message field, offer commands and files as it
-/// is typed in. Call it once for each field drawn.
-export function bindMentionMenu(field: HTMLTextAreaElement) {
+/// Where a field's menus look: the session whose commands are offered (none
+/// offers no commands), and the folder whose files are, under `cwd`.
+export interface MenuPlace {
+  machine: string;
+  session: string | null;
+  root: string;
+  cwd: string;
+}
+
+/// The open session page's place, while its pane shows.
+function sessionPlace(): MenuPlace | null {
+  if (S.view !== "agent" || !paneShown()) return null;
+  const s = AG.page?.session;
+  return s && !s.external ? { machine: s.machine_id, session: s.id, root: paneRoot() || s.cwd, cwd: s.cwd } : null;
+}
+
+/// The Beep session whose commands an agent `agent` about to start in `cwd`
+/// on `machine` is offered: the latest there, else the latest on the machine.
+/// A harness reports its commands only once a session runs.
+export function menuPlaceFor(machine: string, agent: string, cwd: string): MenuPlace {
+  const latest = (rows: AgentSession[]) => rows.reduce<AgentSession | null>((best, s) => !best || s.last_activity > best.last_activity ? s : best, null);
+  const same = sessions.filter(s => s.machine_id === machine && s.agent === agent && !s.external);
+  const session = latest(same.filter(s => s.cwd === cwd)) ?? latest(same);
+  return { machine, session: session?.id ?? null, root: cwd, cwd };
+}
+
+/// Makes `field` offer commands and files as it is typed in, for the place
+/// `place` gives (null while it offers none; a session's page by default).
+/// Call it once for each field drawn.
+export function bindMentionMenu(field: HTMLTextAreaElement, place: () => MenuPlace | null = sessionPlace) {
   let open = false;
   let rows: Row[] = [];
   let trigger: Trigger | null = null;
@@ -99,24 +127,26 @@ export function bindMentionMenu(field: HTMLTextAreaElement) {
   };
 
   const update = () => {
-    if (!field.isConnected || S.view !== "agent" || !paneShown()) return;
-    const s = AG.page?.session;
-    const t = composing || !s || s.external ? null : triggerAt(field.value, field.selectionStart);
-    if (!t || !s) return close();
+    if (!field.isConnected) return;
+    const at = place();
+    const t = composing || !at ? null : triggerAt(field.value, field.selectionStart);
+    if (!t || !at) return close();
     const opening = !open || trigger?.kind !== t.kind;
 
     if (t.kind === "command") {
-      const key = `${s.machine_id}\n${s.id}`;
-      if (opening && (commands?.key !== key || Date.now() - commands.at > COMMANDS_FRESH_MS)) void readCommands(key, s.machine_id, s.id, update);
+      const session = at.session;
+      if (!session) return close();
+      const key = `${at.machine}\n${session}`;
+      if (opening && (commands?.key !== key || Date.now() - commands.at > COMMANDS_FRESH_MS)) void readCommands(key, at.machine, session, update);
       const list = commands?.key === key ? commands.value : [];
       const found = filterCommands(list, t.query);
       return found.length ? draw(found, t) : close();
     }
 
-    const root = paneRoot() || s.cwd;
-    const key = `${s.machine_id}\n${root}`;
-    if (opening && (files?.key !== key || Date.now() - files.at > FILES_FRESH_MS)) void readFiles(key, s.machine_id, root, update);
-    const found = files?.key === key ? filterFiles(files.value, t.query, path => mentioned(root, s.cwd, path)) : [];
+    const { machine, root, cwd } = at;
+    const key = `${machine}\n${root}`;
+    if (opening && (files?.key !== key || Date.now() - files.at > FILES_FRESH_MS)) void readFiles(key, machine, root, update);
+    const found = files?.key === key ? filterFiles(files.value, t.query, path => mentioned(root, cwd, path)) : [];
     return found.length ? draw(found, t) : close();
   };
 

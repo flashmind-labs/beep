@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, projectName } from "./harness.ts";
 
 test("command suggestions keep focus and insert the selected command", async ({ page }) => {
   const commands = [{ name: "review", description: "Review work", hint: "[path]" }, { name: "run", description: "Run checks", hint: "" }];
@@ -58,4 +58,21 @@ test("a failed background session close shows a dismissible error", async ({ pag
   await expect(alert.locator("pre")).toHaveText("More details");
   await alert.getByRole("button", { name: "Dismiss" }).click();
   await expect(alert).toHaveCount(0);
+});
+
+test("the project start field offers the commands of the harness picked", async ({ page }) => {
+  await openDesktop(page, false, {
+    agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+    agent_commands: [{ name: "simplify", description: "Simplify the code", hint: "" }],
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const form = page.locator(".cc-pjc:visible");
+  const input = form.getByRole("textbox", { name: "Task for a coding agent" });
+  await expect(form.locator('[data-composer="machine"]')).toBeEnabled();
+  await input.fill("/simp");
+  const menu = form.locator(".cm-menu");
+  await expect(menu.getByRole("option")).toHaveCount(1);
+  await input.press("Enter");
+  await expect(input).toHaveValue("/simplify ");
+  await expect(input).toBeFocused();
 });
