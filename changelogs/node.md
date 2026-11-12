@@ -2,6 +2,24 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.10] - 2026-11-12
+
+### Fixed
+
+- macOS: beep-node starts again after updating itself, instead of staying
+  stopped because launchd refused the replaced binary.
+- Plan usage shows the weekly limits of single models, such as the Fable only week, next to Opus and Sonnet.
+- beep-node: a session resumed after the node restarts goes back to the model
+  it ran on, not the agent's default.
+
+### Performance
+
+- Node: an idle node starts far fewer background processes. The machine's
+  tool and sign-in check runs once for every status connection and for
+  `list_machines`, path checks no longer run `git` for each removed
+  worktree, and idle session process and open-file checks run less often.
+- The search for checkouts skips media, app and cache folders such as Pictures, Music, Movies and Library, so it is quicker and macOS does not ask for photo or music access.
+
 ## [0.6.9] - 2026-11-12
 
 ### Changed
