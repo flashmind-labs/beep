@@ -1,6 +1,6 @@
 // ---- The board (#613): what is not built yet ----
 // The board itself is in workspace/board.js. These are the parts still proposed: a project filter
-// and New agent above Home's lanes, rows by project, a way back to the board with Option-Tab
+// and New agent above Home's lanes, a way back to the board with Option-Tab
 // to the next conversation on an opened card, and a started task flying from the composer to Working.
 {
   const st = document.createElement("style");
@@ -12,12 +12,6 @@
 .mac .bd-chip .cc-pdot { width: 7px; height: 7px; border-radius: 2px }
 .mac button.bd-card { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--d-border); border-radius: 8px; background: color-mix(in srgb, var(--d-surface) 82%, transparent) }
 .mac .bd-card .a { color: #4cb782 } .mac .bd-card .d { color: var(--d-err) }
-.mac .bd-rows h4 { margin: 0; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--d-dim) }
-.mac .bd-rows h4 span { font-weight: 500; color: var(--d-muted) }
-.mac .bd-rows { display: grid; grid-template-columns: 120px repeat(4, minmax(0, 1fr)); column-gap: 12px; align-items: start }
-.mac .bd-rows > * { padding: 10px 0; border-top: 1px solid var(--d-border); min-width: 0 }
-.mac .bd-rows > .hd { border-top: 0; padding: 0 0 8px }
-.mac .bd-rows > .pj { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500 }
 .mac .bd-back { all: unset; cursor: pointer; font-size: 12.5px; color: var(--d-muted) } .mac .bd-back:hover { color: var(--d-fg) }
 .mac .bd-next { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--d-muted) }
 .mac .bd-next kbd { font: 10.5px var(--mono); padding: 1px 5px; border: 1px solid var(--d-border); border-radius: 4px }
@@ -79,8 +73,6 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     <button class="bd-chip" aria-pressed="true">All projects</button>
     ${PROJECTS.map(([name, color]) => `<button class="bd-chip" aria-pressed="false" data-bdgo="project"><span class="cc-pdot" style="background:${color}"></span>${name}</button>`).join("")}
     ${newAgent}</div>`;
-  const rows = () => `<div class="bd-rows"><span class="hd"></span>${LANES.map(([key, name]) => `<h4 class="hd">${name}<span>${cardsIn(key).length}</span></h4>`).join("")}
-    ${PROJECTS.map(([name, color]) => `<span class="pj"><span class="cc-pdot" style="background:${color}"></span>${name}</span>${LANES.map(([key]) => `<div class="bd-lane">${cardsIn(key, name).map(c => card(c, false)).join("")}</div>`).join("")}`).join("")}</div>`;
 
   // The board lives in the real window: a current screen is rendered, then changed in place.
   const frame = (html, current) => {
@@ -138,12 +130,11 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     const v = view();
     if (v === "open") return opened();
     if (v === "project") return project();
-    if (v === "rows") return home(`<div class="bd-bar">${newAgent}</div>${rows()}`);
     return home(bar() + lanes(""));
   };
 
   // One place moves between views, so every move gets the same transition.
-  const DEPTH = { all: 0, rows: 0, project: 1, open: 2 };
+  const DEPTH = { all: 0, project: 1, open: 2 };
   const AGENT_CARDS = CARDS.flatMap((c, i) => c[1] ? [i] : []);
   function move(to) {
     const from = view();
@@ -201,12 +192,12 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
   }, { capture: true });
 
   VARIANTS.dIdeaBoard = [
-    ...[["Project filter and New agent", "all"], ["Rows by project", "rows"], ["Card opened: back to the board, next conversation", "open"]]
+    ...[["Project filter and New agent", "all"], ["Card opened: back to the board, next conversation", "open"]]
       .map(([label, key]) => [label, () => move(key === "open" ? `open:${openCard()}` : key), () => view() === key]),
     ["Start an agent: the task flies to Working", () => { S.d.ixb = "project"; start("Bump the SDK to 4.3"); }, () => view() === "project"],
   ];
 
-  DESK_SCREENS.unshift({ group: "Ideas (12 Nov)", items: [["dIdeaBoard", "Board: not built yet", "Project filter, rows by project, back to the board, a started task flying to Working"]] });
+  DESK_SCREENS.unshift({ group: "Ideas (12 Nov)", items: [["dIdeaBoard", "Board: not built yet", "Project filter, back to the board, a started task flying to Working"]] });
   if (location.hash.slice(1) === "dIdeaBoard") S.screen = "dIdeaBoard";
   render();
 }

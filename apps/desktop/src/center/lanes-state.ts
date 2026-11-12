@@ -29,6 +29,21 @@ export function byLane<T extends { lane: Lane }>(cards: readonly T[]): Record<La
   return lanes;
 }
 
+/// Home's rows: the cards of each project together, a project that waits on
+/// the user first, and the cards of no project last.
+export function byProject<T extends { lane: Lane; project: string | null }>(cards: readonly T[]): { project: string | null; cards: T[] }[] {
+  const rows = new Map<string | null, T[]>();
+
+  for (const card of cards) {
+    const row = rows.get(card.project) ?? [];
+    row.push(card);
+    rows.set(card.project, row);
+  }
+
+  const rank = (row: { project: string | null; cards: T[] }) => row.project === null ? 2 : row.cards.some(card => card.lane === "needs") ? 0 : 1;
+  return [...rows].map(([project, own]) => ({ project, cards: own })).sort((a, b) => rank(a) - rank(b));
+}
+
 /// The sessions that ended since local midnight of `now`, the latest first.
 export function endedToday<T extends { status: string; last_activity: number }>(sessions: readonly T[], now: number): T[] {
   const midnight = new Date(now).setHours(0, 0, 0, 0);
