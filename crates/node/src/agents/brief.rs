@@ -25,7 +25,10 @@ pub(crate) const CHAT: &str = "Your replies show in the Beep chat, next to a fil
     Link files as Markdown links with paths relative to this session's folder, such as \
     [src/main.rs](src/main.rs); a click opens the file in the pane. \
     Image, video, 3D model (glb, gltf, obj, stl) and PDF paths named in a reply open in the pane \
-    too.\n\n\
+    too: videos play there and 3D models open in a viewer with their animation clips, so name \
+    the paths of renders and exports in your reply. HTML, Markdown, SVG, image and PDF files you \
+    write appear in the session's Artifacts tab; HTML runs there with its scripts sandboxed, so a \
+    page can show a result better than a long reply.\n\n\
     When giving the user text intended to be copied or pasted, such as a prompt, message, \
     or handoff, put that text in a Markdown blockquote (`>`). Keep any explanation outside \
     the quote. Use fenced code blocks for code and commands.\n\n\
