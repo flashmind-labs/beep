@@ -52,7 +52,8 @@ const usPill = () => {
   const pop = open ? `<div class="us-pop">
       <div><h5><span>${mk("claude")}Claude Code · Max plan</span><span>as of 4 min ago</span></h5>
         ${win("5 hours", 38, "14:30")}
-        ${win("This week", 76, "Mon", true)}</div>
+        ${win("This week", 76, "Mon", true)}
+        ${win("This week, Fable", 42, "Mon")}</div>
       <div><h5><span>${mk("codex")}Codex · ChatGPT Pro</span><span>as of 12 min ago</span></h5>
         ${win("5 hours", 9, "15:10")}
         ${win("This week", 20, "Thu")}</div>
@@ -70,7 +71,7 @@ const usPill = () => {
         <div class="us-row"><b>Total</b><b class="us-r">${d.total}<small>${d.total ? " · " : ""}${d.tokens}</small></b></div></div>
       ${/\$/.test(JSON.stringify(d)) ? `<div class="us-note">Dollars are API spend. ~ is what plan use would cost on the API, not in the total.</div>` : ""}
     </div>` : "";
-  return `<span class="us"><button class="us-pill" data-uspop aria-expanded="${open}" title="Plan usage and cost" aria-label="Plan usage: Claude Code 76%, Codex 20%">${lim("claude", 76, true)}${lim("codex", 20)}<span>OpenRouter <b>$622</b> left</span></button>${pop}</span>`;
+  return `<span class="us"><button class="us-pill" data-uspop aria-expanded="${open}" title="Plan usage and cost" aria-label="Plan usage: Claude Code 76%, Fable 42%, Codex 20%">${lim("claude", 76, true)}<span class="us-plan">Fable<b>42%</b></span>${lim("codex", 20)}<span>OpenRouter <b>$622</b> left</span></button>${pop}</span>`;
 };
 document.getElementById("desk").addEventListener("click", e => {
   if (!e.target.closest("[data-usmore]")) return;
