@@ -7,6 +7,17 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.12] - 2026-11-12
+
+### Changed
+
+- Desktop: a new project on GitHub or Forgejo clones into `<folder>/<name>`
+  instead of `<folder>/<owner>/<name>`.
+
+### Fixed
+
+- Desktop: Settings, Appearance highlights the picked Board or List.
+
 ## [0.8.11] - 2026-11-12
 
 ### Added
