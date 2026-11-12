@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Dialog, Modal, ModalOverlay, Tab, TabList, Tabs, ToggleButton, ToggleButtonGroup, type Key } from "react-aria-components";
 
 // Kit controls on React Aria, kept apart from kit.tsx because loading React
-// Aria sets up global listeners a bare test DOM cannot take. None is used yet.
+// Aria sets up global listeners a bare test DOM cannot take. Segmented is used.
 // Their DOM differs from the hand-written versions, so a view that switches
 // needs these CSS changes first:
 // - Segmented draws `div[role=radiogroup]` with `button[role=radio][aria-checked]`
