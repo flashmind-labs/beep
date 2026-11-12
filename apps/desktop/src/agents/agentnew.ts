@@ -603,7 +603,8 @@ export async function startAgent() {
     const { cwd, checkout } = checkoutHere()
       ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
       : { cwd: f.cwd.trim(), checkout: null };
-    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim(), error => composer?.update({ error }));
+    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim(), progress => composer?.update({ progress }));
+    if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const started = await invoke<Started>("agent_start", {
       machineId: f.machine,
@@ -619,11 +620,13 @@ export async function startAgent() {
     const resolved = model ?? models?.current ?? "";
     sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort });
     AG.busy = false;
+    composer?.update({ progress: "" });
     if (S.view !== "agentnew") return;
     // Back from the session goes where the form came from.
     openAgent(started.session, { why: started.why, back: AG.back });
   } catch (e) {
     AG.busy = false;
+    composer?.update({ progress: "" });
     AG.error = String(e).replace(/^bad request: /, "");
     if (S.view === "agentnew") drawParts();
   }
