@@ -1,5 +1,5 @@
 import { Spinner } from "../ui/kit.tsx";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { ModelControls } from "./model-controls.tsx";
 import { fileSize } from "../chat/media.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -30,7 +30,8 @@ export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: s
 export function VideoView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
   const [meta, setMeta] = useState(fileSize(tab.size));
   const [failed, setFailed] = useState(false);
-  return <>{failed ? <div className="agpmsg">This video does not play here. Open it in QuickTime instead.</div> : <div className="agpstage"><video ref={node => keepPlayer(tab, node)} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
+  const player = useCallback((node: HTMLMediaElement | null) => keepPlayer(tab, node), [tab]);
+  return <>{failed ? <div className="agpmsg">This video does not play here. Open it in QuickTime instead.</div> : <div className="agpstage"><video ref={player} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
     const node = event.currentTarget;
     setMeta(`${duration(node.duration)}${node.videoWidth}×${node.videoHeight} · ${fileSize(tab.size)}`);
     resume(tab, node);
@@ -42,7 +43,8 @@ export function VideoView({ tab, machine }: { tab: MediaTab; machine: string | n
 export function AudioView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
   const [meta, setMeta] = useState(fileSize(tab.size));
   const [failed, setFailed] = useState(false);
-  return <>{failed ? <div className="agpmsg">This audio does not play here. Open it in another app instead.</div> : <div className="agpstage audio"><audio ref={node => keepPlayer(tab, node)} controls preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
+  const player = useCallback((node: HTMLMediaElement | null) => keepPlayer(tab, node), [tab]);
+  return <>{failed ? <div className="agpmsg">This audio does not play here. Open it in another app instead.</div> : <div className="agpstage audio"><audio ref={player} controls preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
     const node = event.currentTarget;
     setMeta(`${duration(node.duration)}${fileSize(tab.size)}`);
     resume(tab, node);
