@@ -19,9 +19,9 @@ export const shownStatus = (s: Ref & { status: string }) => closings.stateOf(s, 
 /// Closed sessions stay out of lists while cached reads catch up.
 export const sessionVisible = (s: Ref) => closings.stateOf(s, Date.now()) === null;
 
-/// Running lists also include research, which session closes do not affect.
+/// The running sessions that are not closing.
 export const visibleRunning = (rows: readonly RunningAgent[] | null | undefined) =>
-  (rows || []).filter(r => r.kind !== "agent" || sessionVisible(r));
+  (rows || []).filter(sessionVisible);
 
 /// What a Running row says in place of its time while `s` closes, or once it ended.
 export const closingNote = (s: Ref) => closings.stateOf(s, Date.now());
