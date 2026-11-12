@@ -7,6 +7,36 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.7] - 2026-11-12
+
+### Added
+
+- Desktop: ⌘O in the bar opens the agent session in the main window, also
+  offered in the hint row.
+
+### Changed
+
+- Desktop: Coding agents lists live sessions first and folds ended ones under
+  a closed Ended group with a count. Open it to see them, each with when it
+  last ran. The summary counts live sessions only.
+- Desktop: an agent session opened in the bar starts with its Files and
+  Changes pane folded. Click the strip or press ⌘2 to show it.
+
+### Fixed
+
+- Desktop: typing `/` or `@` in a project's agent start field, or on the new
+  agent page, offers the agent's commands and skills and the project's files,
+  as a running session's field does.
+- Desktop: a file moved without `git add` shows in the diff as a rename instead of a deleted file and an added one.
+- Desktop: on a flaky network the app no longer climbs to several cores of CPU and gigabytes of memory; the networking library kept retrying the same connection paths in a queue that never stopped growing.
+
+### Performance
+
+- Desktop: a project that cannot sync on a machine (uncommitted changes, or
+  ahead of the others) no longer keeps machines busy retrying; they wait
+  until it changes.
+- Desktop: synced files under 16 KB are no longer copied into the sync database, which kept it large and held much of it in memory.
+
 ## [0.8.6] - 2026-11-12
 
 ### Changed
