@@ -480,7 +480,7 @@ name = "beep-mesh"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "beep-node",
  "beep-proto",
  "bytes",
@@ -496,7 +496,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
- "shlex 1.3.0",
+ "shlex",
  "strum 0.28.0",
  "subtle",
  "tempfile",
@@ -515,7 +515,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bao-tree",
- "base64 0.22.1",
+ "base64 0.23.1",
  "beep-mesh",
  "beep-projects",
  "beep-proto",
@@ -579,7 +579,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "beep-proto",
  "bytes",
  "chrono",
@@ -590,7 +590,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
- "shlex 1.3.0",
+ "shlex",
  "strum 0.28.0",
  "tempfile",
  "thiserror 2.0.21",
@@ -603,7 +603,7 @@ name = "beep-proto"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "blake3",
  "bytes",
  "chacha20poly1305",
@@ -658,7 +658,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "beep-mesh",
  "beep-projects",
  "beep-proto",
@@ -945,7 +945,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
 dependencies = [
  "find-msvc-tools",
- "shlex 2.0.1",
+ "shlex",
 ]
 
 [[package]]
@@ -6796,12 +6796,6 @@ name = "shell-words"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
-
-[[package]]
-name = "shlex"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shlex"

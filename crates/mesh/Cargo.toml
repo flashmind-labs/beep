@@ -12,7 +12,7 @@ thumbs = ["dep:image"]
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 beep-proto = { path = "../proto", features = ["https"] }
 bytes = "1"
 crc32fast = "1"
@@ -27,7 +27,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 rmp-serde = "1"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
-shlex = "1"
+shlex = "2"
 strum = { version = "0.28", features = ["derive"] }
 subtle = "2"
 thiserror = "2"
