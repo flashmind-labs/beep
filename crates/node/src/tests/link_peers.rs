@@ -46,7 +46,8 @@ async fn status_reports_and_ends_while_the_probe_is_still_running() {
     let serving = tokio::spawn(async move {
         let (send, recv) = from_desktop.open_bi().await.expect("a stream opens");
         let (tx, rx) = link(send, recv);
-        status_with(tx, rx, Offers::default(), std::future::pending).await
+        let probes = env::Probes::new(|| Box::pin(std::future::pending()));
+        status_with(tx, rx, Offers::default(), &probes).await
     });
     let (send, recv) = to_node.accept_bi().await.expect("the stream arrives");
     let (client_tx, mut reports) = link(send, recv);
