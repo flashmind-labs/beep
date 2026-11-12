@@ -5,7 +5,9 @@
 
 use crate::{
     error::{FleetError, Result},
+    left_folder::{normal, within},
     peer::Peers,
+    records::projects,
 };
 use beep_mesh::{Mesh, MeshError, PeerClient};
 use beep_proto::{
@@ -190,6 +192,21 @@ fn name_of(mesh: &Mesh, machine: EndpointId) -> String {
         )
 }
 
+/// The short name of the project whose checkout on `machine` holds `cwd`, the deepest when
+/// checkouts nest: `web` for `org/web`.
+fn project_at(mesh: &Mesh, machine: EndpointId, cwd: &str) -> Option<String> {
+    let cwd = normal(cwd);
+
+    projects(mesh)
+        .into_iter()
+        .filter_map(|stored| {
+            let folder = normal(&stored.places.get(&machine)?.folder);
+            within(&cwd, &folder).then_some((folder.len(), stored.name))
+        })
+        .max_by_key(|(depth, _)| *depth)
+        .map(|(_, name)| name.rsplit('/').next().unwrap_or(&name).to_owned())
+}
+
 /// Follows one of `id`'s streams, again after each break, until the receiver goes or the machine
 /// is not one this side can reach at all.
 async fn follow_one(
@@ -331,8 +348,9 @@ async fn stream(
         let heard = match reply {
             SessionsReply::Alert { alert } => {
                 let key = alert.key(&id.to_string(), &name_of(mesh, id));
+                let project = project_at(mesh, id, &alert.cwd);
                 let notice = Notice {
-                    title: alert.notice_title(&key.machine_name),
+                    title: alert.notice_title(&key.machine_name, project.as_deref()),
                     body: alert.notice_body(),
                     session_id: key.to_string(),
                     app: None,
