@@ -258,6 +258,14 @@ impl Digest {
             }
             _ => None,
         };
+        // Claude Code writes a cut-off turn as a user line, but nobody said it.
+        if text.as_deref().is_some_and(|text| {
+            text.trim()
+                .starts_with("[Request interrupted by user")
+        }) {
+            self.push(EntryKind::Other, "Interrupted");
+            return;
+        }
         // Beep's context and what other sessions sent stay apart from the
         // user's words, which Claude Code's own tags may wrap.
         let parts = text.as_deref().map(tags::parts).unwrap_or_default();
@@ -1298,6 +1306,24 @@ pub(super) mod tests {
         assert_eq!(digest.entries.len(), 1, "{:?}", digest.entries);
         assert_eq!(digest.entries[0].kind, EntryKind::User);
         digest.entries[0].text.clone()
+    }
+
+    #[test]
+    fn a_cut_off_turn_reads_as_a_note_not_a_prompt() {
+        for content in [
+            serde_json::json!("[Request interrupted by user]"),
+            serde_json::json!([{"type": "text", "text": "[Request interrupted by user for tool use]"}]),
+        ] {
+            let line = serde_json::json!({"type": "user", "message": {"role": "user", "content": content}});
+            let digest = Digest::with_pictures(&line.to_string());
+            let shown: Vec<_> = digest
+                .entries
+                .iter()
+                .map(|entry| (entry.kind, entry.text.as_str()))
+                .collect();
+            assert_eq!(shown, [(EntryKind::Other, "Interrupted")]);
+            assert_eq!(digest.prompt(), None);
+        }
     }
 
     #[test]
