@@ -37,7 +37,14 @@ pub async fn project_sessions(
     if let super::branches::Placed::Mesh(places) =
         super::branches::placed(&beep, &fleet, &project).await?
     {
-        let sessions = direct::project_sessions(&fleet, &places).await;
+        let mut sessions = direct::project_sessions(&fleet, &places).await;
+
+        if let Some(mesh) = fleet.mesh() {
+            for session in &mut sessions {
+                beep_fleet::session_titles::apply(&mesh, session);
+            }
+        }
+
         return Ok(sessions.into_iter().map(SessionRow::from).collect());
     }
 

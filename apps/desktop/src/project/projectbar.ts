@@ -2,6 +2,7 @@
 // project's checkout on a machine, by default in the checkout as it is.
 
 import type { CheckoutPick } from "../agents/agentpick.ts";
+import type { SessionRow } from "./projects-state.ts";
 
 /// A machine that can run a coding agent, the fields the bar reads.
 export interface BarHost {
@@ -82,14 +83,20 @@ export interface Review {
 }
 
 /// The session that last reviewed a pull request.
-export interface ReviewSession {
-  machine_id: string;
-  agent: string;
-  id: string;
-}
+export type ReviewSession = Pick<SessionRow, "machine_id" | "machine_name" | "agent" | "id" | "cwd" | "status" | "external">;
 
-/// Where the session that last reviewed PR `number` of `project` is kept.
-export const reviewKey = (project: string, number: number) => `beep.prReview.${project}#${number}`;
+/// A review session's name, set when it starts. It finds the session again
+/// from any machine, so it cannot be renamed.
+export const reviewTitle = (number: number) => `Review #${number}`;
+
+/// Whether `title` names a review session, which keeps its name.
+export const fixedTitle = (title: string | null) => title !== null && /^Review #\d+$/.test(title);
+
+/// The newest of a project's `sessions` that reviewed PR `number`, or null.
+export function reviewSession<T extends Pick<SessionRow, "title" | "last_activity">>(sessions: readonly T[], number: number): T | null {
+  const title = reviewTitle(number);
+  return sessions.filter(s => s.title === title).sort((a, b) => b.last_activity - a.last_activity)[0] ?? null;
+}
 
 /// github.com is GitHub, any other host is a Forgejo or Gitea server.
 export function forgeOf(url: string): Forge {

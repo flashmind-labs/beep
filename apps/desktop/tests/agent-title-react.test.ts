@@ -35,3 +35,15 @@ test("session title keeps a draft during refresh, reports errors and retries", a
   assert.equal(document.activeElement, title);
   root.unmount(); host.remove();
 });
+
+test("a session title without save cannot be renamed", () => {
+  const host = document.createElement("div"); bar.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(createElement(SessionTitle, { title: "Review #41", save: null })));
+  const title = host.querySelector<HTMLElement>("#agtitle"); assert.ok(title);
+  flushSync(() => fireEvent.keyDown(title, { key: "Enter" }));
+  flushSync(() => fireEvent.doubleClick(title));
+  assert.equal(host.querySelector("input"), null);
+  assert.equal(title.getAttribute("role"), null);
+  root.unmount(); host.remove();
+});
