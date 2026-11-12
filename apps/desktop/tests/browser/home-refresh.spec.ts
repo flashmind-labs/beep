@@ -17,27 +17,29 @@ const watchSidebar = (page: Page) => page.evaluate(() => {
 const sidebarDraws = (page: Page) => page.evaluate(() => (window as unknown as { __sideDraws: number }).__sideDraws);
 
 /// Twenty Home changes 40 ms apart, each with a different answer, as during an agent's turn.
-async function burst(page: Page) {
+async function burst(page: Page, needs: unknown[] = []) {
   for (let i = 0; i < 20; i++) {
-    await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, home(20 - i));
+    await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, home(20 - i, needs));
     await page.clock.runFor(40);
   }
 }
 
 test("a burst of Home changes reads Home and draws the sidebar once", async ({ page }) => {
   await openDesktop(page, false, { center_home: home(0) });
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
   await page.clock.install();
   await page.clock.pauseAt(Date.now() + 1000);
   await page.clock.runFor(2000);
   const before = await reads(page);
   await watchSidebar(page);
 
-  await burst(page);
+  // The approval gives the sidebar's Home link a count, the one thing there that changes.
+  await burst(page, [approval]);
   expect(await reads(page)).toBe(before);
   await page.clock.runFor(1000);
   await expect.poll(() => reads(page)).toBe(before + 1);
-  await expect(page.locator("#side")).toContainText("Running1");
+  await expect(page.locator("#side")).toContainText("Home1");
+  await expect(page.locator("#sec-needs .bd-lane").filter({ hasText: "Working" }).locator(".bd-card")).toHaveCount(1);
   await page.clock.runFor(2000);
   expect(await reads(page)).toBe(before + 1);
   expect(await sidebarDraws(page)).toBe(1);
@@ -51,7 +53,7 @@ test("a burst of Home changes reads Home and draws the sidebar once", async ({ p
 
 test("an approval during a burst of Home changes shows at once", async ({ page }) => {
   await openDesktop(page, false, { center_home: home(0) });
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
   await page.clock.install();
   await page.clock.pauseAt(Date.now() + 1000);
   await page.clock.runFor(2000);

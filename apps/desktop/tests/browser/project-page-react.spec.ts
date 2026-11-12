@@ -20,7 +20,7 @@ test("your threads keep the page, detail column, scroll and focus through refres
   const now = Date.now();
   const threads = Array.from({ length: 12 }, (_, i) => ({ kind: i % 2 ? "issue" : "pr", repo: projectName, number: i + 1, title: `Thread ${i + 1}`, url: `https://example.test/pull/${i + 1}`, last_other: "Reviewer", needs_reply: i === 0, updated_at: now }));
   await openDesktop(page, false, { center_project_lists: { issues: [], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_project_threads: threads, center_thread_chats: [{ chat_id: "chat-one", kind: "pr", repo: projectName, number: 1, title: "About PR 1" }] });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "threads" } }), projectName);
   await page.locator('.pj-list .pj-li[title="Your pull requests and issues"]').click();
 
   const view = page.locator("#main .cc-view.split"), det = page.locator(".pj-split > .pj-det");
@@ -58,7 +58,7 @@ test("needs you cards answer once and keep their buttons through refreshes", asy
     status: { link: "linked", signed_out: false, server: true, live: false, session: null }, center_projects: [agent],
     center_project: { tasks: [], workers: [], turns: [], cards: [card] },
   });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "needs" } }), projectName);
   await page.locator('.pj-list .pj-li[title="Needs you"]').click();
 
   const section = page.locator(".pj-det > #sec-project-needs");
@@ -82,8 +82,7 @@ test("needs you cards answer once and keep their buttons through refreshes", asy
 test("sessions tab keeps its list host while tabs switch", async ({ page }) => {
   const past = [{ machine_id: "build-box", machine_name: "build-box", id: "past-one", agent: "codex", title: "Past session", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 1, external: false, question: null }];
   await openDesktop(page, false, { project_sessions: past });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   const det = page.locator(".pj-split > .pj-det"), tabs = det.locator(":scope > .cc-tabs.pj-tabs");
   await expect(tabs.getByRole("tab", { name: /Sessions/ })).toHaveAttribute("aria-selected", "true");
   await expect(det.locator(":scope > .cc-panel .pv-row").first()).toBeVisible();

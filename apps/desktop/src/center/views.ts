@@ -26,6 +26,7 @@ import { G, S } from "../bar/core.ts";
 import { canGoBack, syncMobile } from "./mobile.ts";
 import { placeWindowParts } from "./window-root.ts";
 import { shell, windowHost } from "./window-shell.tsx";
+import { movePlaying } from "../ui/motion.ts";
 
 let currentPage: Location | null = null;
 
@@ -262,7 +263,8 @@ const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 /// Plays the page's way in on its box; the compositor runs it, so the page draws as usual.
 function animateIn(box: HTMLElement, back: boolean) {
-  if (reduceMotion.matches || document.hidden) return;
+  // A move already carries the page in.
+  if (reduceMotion.matches || document.hidden || movePlaying()) return;
   const phone = document.body.classList.contains("mobile");
   const { frames, ms } = MOTION[pageMotion(phone, back, phone && canGoBack())];
   for (const running of box.getAnimations()) running.cancel();

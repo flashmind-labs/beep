@@ -17,7 +17,7 @@ test("connecting retry keeps its button focused and opens Home when ready", asyn
   await retry.evaluate(button => (button as HTMLButtonElement).click());
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length)).toBe(reads);
   await page.evaluate(() => { window.__navigation.respond("center_home", { machines: [], projects: [], running: [], needs_you: [], coming_up: null, updates: null }); window.__navigation.release("center_home"); });
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
 });
 
 test("a failed retry becomes available with a cached Home", async ({ page }) => {

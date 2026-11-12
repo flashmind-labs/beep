@@ -176,8 +176,9 @@ export interface WindowHooks {
   embedView?(name: ViewName, root: HTMLElement, arg: ViewArg): () => void;
   /// ⌘N in the pane: the window picks where the agent starts.
   newAgent(): void;
-  /// Esc from an agent view goes back to the view that opened it.
-  goBack(from: BackTo): void;
+  /// Esc from an agent view goes back to the view that opened it. A session that
+  /// closed leaves at once, with `move` false, so a failed close finds the page it left for.
+  goBack(from: BackTo, move: boolean): void;
   /// What shows atop chat `session`, such as the card of the pull request or
   /// issue it is about; null for nothing.
   chatTop?(session: string): ReactElement | null;

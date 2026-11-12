@@ -10,7 +10,7 @@ test("starting a project draft keeps its terminal and dock mounted", async ({ pa
     terminal_open: { id: "shell-one", project: projectName, machine_id: "build-box", machine_name: "build-box", name: "shell", command: "", cwd: "/srv/project", state: "running", code: null, started_at: 1 },
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await expect(page.locator(".pj-strip")).toBeVisible();
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
   const draft = page.locator("#agdraft textarea"); await expect(draft).toBeFocused();
   await page.getByRole("button", { name: "+ Terminal", exact: true }).click();

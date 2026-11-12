@@ -607,7 +607,7 @@ export function agentBack(closed = false) {
   if (S.view === "agent" && AG.draft) {
     if (leavePane()) return;
     const typed = draftMessage.current?.value ?? "";
-    if (draftEsc(typed) === "project") windowHooks?.goBack({ view: "projects", arg: { project: AG.draft } });
+    if (draftEsc(typed) === "project") windowHooks?.goBack({ view: "projects", arg: { project: AG.draft } }, true);
     return;
   }
 
@@ -616,7 +616,7 @@ export function agentBack(closed = false) {
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
   if (up) return openAgent(up, { back: AG.back });
   if (S.view === "agent" && windowHooks && !closed && leavePane()) return;
-  if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back);
+  if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back, !closed);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "waiting") return renderWaiting();
 

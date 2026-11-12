@@ -4,8 +4,7 @@ import { openDesktop, projectName } from "./harness.ts";
 test("past sessions retain focused rows and scroll on refresh", async ({ page }) => {
   const sessions = Array.from({ length: 20 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null }));
   await openDesktop(page, false, { project_sessions: sessions });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   const row = page.locator('.pj-det .pv-row').filter({ hasText: 'Past session 10' });
   await expect(row).toBeVisible();
   const detail = page.locator('.pj-det');
@@ -37,9 +36,16 @@ test("past sessions retain focused rows and scroll on refresh", async ({ page })
 
 test("compact past sessions keep their height and scroll during refresh", async ({ page }) => {
   const sessions = Array.from({ length: 20 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null }));
-  await openDesktop(page, false, { project_sessions: sessions });
+  // A linked server without a project agent draws the page that holds the compact list.
+  await openDesktop(page, false, { status: { link: 'linked', signed_out: false, server: true, live: false, session: null }, center_projects: [], project_sessions: sessions });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  const list = page.locator('#sec-sessions .pj-scroll:visible');
+  const list = page.locator('.pj-cols.pj-half #sec-sessions .pj-scroll:visible');
+  const refresh = async () => {
+    const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length);
+    const read = await reads();
+    await page.evaluate(() => window.__navigation.notify('projects'));
+    await expect.poll(reads).toBeGreaterThan(read);
+  };
   await expect(list.locator('.pv-row')).toHaveCount(20);
   await expect.poll(() => list.evaluate(el => (el as HTMLElement).style.maxHeight)).not.toBe('');
   await list.evaluate(el => { el.scrollTop = el.scrollHeight; });
@@ -48,13 +54,12 @@ test("compact past sessions keep their height and scroll during refresh", async 
   await row.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
   const before = await list.evaluate(el => el.scrollTop);
   expect(before).toBeGreaterThan(0);
-  await page.locator('.pj-list .pj-li[title="Overview"]').evaluate(el => { if (el instanceof HTMLElement) el.click(); });
+  await refresh();
   await expect(list).toHaveJSProperty('scrollTop', before);
   await expect(row).toHaveAttribute('data-identity', 'kept');
   await expect(row).toBeFocused();
   await expect.poll(() => list.evaluate(el => (el as HTMLElement).style.maxHeight)).not.toBe('');
-  await page.locator('.pj-list .pj-li[title="Running"]').click();
-  await page.locator('.pj-list .pj-li[title="Overview"]').click();
+  await refresh();
   await expect(row).toHaveAttribute('data-identity', 'kept');
   await expect(list).toHaveJSProperty('scrollTop', before);
 });
@@ -62,8 +67,7 @@ test("compact past sessions keep their height and scroll during refresh", async 
 test("large past session lists virtualize while retaining the focused row", async ({ page }) => {
   const sessions = Array.from({ length: 600 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 1000 - i, external: false, question: null }));
   await openDesktop(page, false, { project_sessions: sessions });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   const detail = page.locator('.pj-det');
   const rows = detail.locator('.pv-row');
   await expect(rows.first()).toBeVisible();
@@ -101,7 +105,7 @@ test("large past session lists virtualize while retaining the focused row", asyn
   await page.evaluate(() => document.getSelection()?.removeAllRanges());
   await page.locator('.pj-list .pj-li[title="Git"]').click();
   await page.locator('.gh-back').click();
-  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await page.locator('.pj-strip button').filter({ hasText: 'Sessions' }).click();
   await expect(detail.locator('.pv-row').first()).toBeVisible();
   await detail.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await expect(detail.getByText('Past session 599', { exact: true })).toBeVisible();
@@ -110,8 +114,7 @@ test("large past session lists virtualize while retaining the focused row", asyn
 test("newer sessions keep the visible session anchored", async ({ page }) => {
   const sessions = Array.from({ length: 600 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 1000 - i, external: false, question: null }));
   await openDesktop(page, false, { project_sessions: sessions });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   const detail = page.locator('.pj-det');
   await expect(detail.locator('.pv-row').first()).toBeVisible();
   await detail.evaluate(el => { el.scrollTop = 10000; });

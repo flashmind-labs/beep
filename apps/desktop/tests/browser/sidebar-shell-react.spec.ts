@@ -133,10 +133,11 @@ test("running agents and chats show turning spinners that pause while the window
 });
 
 test("project counts line up with the counts of the links above", async ({ page }) => {
-  await openDesktop(page);
-  const running = page.locator("#side .cc-si", { hasText: "Running" }).locator(".n");
+  const terminal = { id: "shell-one", project: "", machine_id: "build-box", machine_name: "build-box", name: "shell-one", command: "shell", cwd: "/srv/project", state: "running", code: null, started_at: 1 };
+  await openDesktop(page, false, { terminals_all: [terminal] });
+  const link = page.locator("#side .cc-si", { hasText: "Terminals" }).locator(".n");
   const project = page.locator("#side .cc-chat .n").first();
   await expect(project).toBeVisible();
-  const right = async (n: typeof running) => Math.round((await n.boundingBox())!.x + (await n.boundingBox())!.width);
-  expect(await right(project)).toBe(await right(running));
+  const right = async (n: typeof link) => Math.round((await n.boundingBox())!.x + (await n.boundingBox())!.width);
+  expect(await right(project)).toBe(await right(link));
 });

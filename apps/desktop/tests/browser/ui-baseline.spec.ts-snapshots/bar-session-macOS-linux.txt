@@ -1,7 +1,7 @@
 body
   div#bar.dbar [aria-label="Beep" role="dialog"]
     div [data-bar-page] style(display)
-      div.dhead
+      div.ag-head.dhead
         span.claude.dapp.dcoderav.mark
           svg [aria-hidden="true" viewBox="0 0 24 24"]
         span.tt
@@ -101,6 +101,8 @@ body
                   kbd "⌘D"
                 span.lo "back"
                   kbd "esc"
+                button.win "open in window"
+                  kbd "⌘O"
               details#agshortcuts
                 summary "Show more"
                 div.agkeys-list
@@ -144,7 +146,7 @@ body
                       kbd "⌘3"
                     span "Artifacts"
                       kbd "⌘4"
-                    span "Open folder in the editor"
+                    span "Open folder in the editor, or from the bar the session in the window"
                       kbd "⌘O"
                     span "Zoom the pane"
                       kbd "⇧esc"
@@ -201,8 +203,8 @@ body
               svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
             span "Files"
             small "0"
-        div#agdiv-right.agdiv [aria-orientation="vertical" data-dock="right" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
-        aside#agpane-right.agpane [data-dock="right" tabindex="-1"] style(flex-basis)
+        div#agdiv-right.agdiv [data-dock="right" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
+        aside#agpane-right.agpane [data-dock="right" hidden tabindex="-1"]
           div.agpane-content
             div.agphead
               div.agtabs [role="tablist"]
@@ -255,7 +257,7 @@ body
                   span [data-fstatus="true" role="status"]
                   span.sp
                   span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
-        button#agpstrip-right.agpstrip [data-dock="right" hidden title="Show the pane"]
+        button#agpstrip-right.agpstrip [data-dock="right" title="Show the pane"]
           span style(display)
             svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
           span "Files"
