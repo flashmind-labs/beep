@@ -40,7 +40,7 @@ async fn an_older_nodes_run_on_with_a_prompt_starts_no_agent_here() {
 }
 
 #[tokio::test]
-async fn a_desktop_takes_no_files_from_a_node_but_syncs_for_it() {
+async fn a_desktop_takes_a_nodes_files_and_syncs_for_it() {
     let table = Table::Peer(iroh::SecretKey::generate().public());
     let on_desktop = caller(table, false);
     let send = Request {
@@ -49,12 +49,10 @@ async fn a_desktop_takes_no_files_from_a_node_but_syncs_for_it() {
         args: "{}".to_owned(),
         approved: Default::default(),
     };
-    let Reply::Done { text, failed } = answer(send, on_desktop.clone()).await else {
+    let Reply::Done { text, .. } = answer(send, on_desktop.clone()).await else {
         panic!("not done");
     };
-    assert!(failed && text.contains("desktop"), "{text}");
-    // Syncing is not refused for being a desktop: it is confined to a
-    // project the device already syncs.
+    assert!(!text.contains("desktop"), "{text}");
     let sync = Request {
         session: "a3f9c1".to_owned(),
         tool: Tool::SyncProject,
