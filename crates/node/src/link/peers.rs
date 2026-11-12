@@ -456,8 +456,8 @@ impl Peers {
         JoinAlpn(self.clone())
     }
 
-    /// The `beep-sessions/1` handler: the other machine of a move, and
-    /// background copies, read this node's sessions through it.
+    /// The `beep-sessions/1` handler: the other machine of a move reads
+    /// this node's sessions through it.
     pub fn sessions_handler(&self) -> SessionsAlpn {
         let offers = self.inner.offers();
         SessionsAlpn::new(offers.agents.clone(), offers.mesh.clone())

@@ -1,35 +1,14 @@
 //! Running a session here from a transcript that came from another machine:
 //! writes it into the harness's store for the folder it works in here, marks
 //! its bytes as counted (the machine that ran it counted them), and starts
-//! it through its agent. A session moved by its source, or continued by the
-//! user from a background copy.
+//! it through its agent. A session moved here by its source.
 
-use super::{
-    Env, Harness,
-    background::{Kept, keep_local, unix_secs},
-    cache::Meta,
-    flsh,
-    offers::{harness_of, now_secs, project_folder},
-    rewrite, store,
-};
+use super::{Env, Harness, rewrite, store};
 use crate::agents::{AgentKind, Begin, found::Agent};
-use anyhow::{Context, Result, bail};
-use beep_proto::AgentSlug;
+use anyhow::{Context, Result};
 use iroh::EndpointId;
-use std::{
-    borrow::Cow,
-    path::{Component, Path, PathBuf},
-};
+use std::{borrow::Cow, path::PathBuf};
 use tokio::task::spawn_blocking;
-
-/// How the session came to run here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum How {
-    /// Its source ended it for a move.
-    Moved,
-    /// The user continued it from a copy.
-    Continued,
-}
 
 /// A session to run here.
 pub(super) struct Arrival<'a> {
@@ -37,7 +16,6 @@ pub(super) struct Arrival<'a> {
     pub(super) mode: Option<String>,
     /// The machine that ran it.
     pub(super) from: EndpointId,
-    pub(super) how: How,
 }
 
 pub(super) use super::folder::{Folders, Workspace};
@@ -86,24 +64,12 @@ pub(super) async fn resume(
 
     let cwd = folders.new.to_string_lossy().into_owned();
     let from = env.name_of(&arrival.from);
-    let (note, brief) = match arrival.how {
-        How::Moved => (
-            format!("Moved here from {from}"),
-            format!(
-                "This session moved from another machine. Paths in the conversation so far name its old folder, {}; the same checkout is now {}.",
-                folders.old.display(),
-                folders.new.display()
-            ),
-        ),
-        How::Continued => (
-            format!("Continued here from a copy made on {from}"),
-            format!(
-                "This session continues from a copy of another machine's, which may not have its latest turns. Paths in the conversation so far name its old folder, {}; the same checkout is now {}.",
-                folders.old.display(),
-                folders.new.display()
-            ),
-        ),
-    };
+    let note = format!("Moved here from {from}");
+    let brief = format!(
+        "This session moved from another machine. Paths in the conversation so far name its old folder, {}; the same checkout is now {}.",
+        folders.old.display(),
+        folders.new.display()
+    );
     env.agents.start(
         kind,
         Some(&cwd),
@@ -116,146 +82,6 @@ pub(super) async fn resume(
         },
     )?;
     Ok(())
-}
-
-/// Continues the session `id` of `agent` here from its background copy (or
-/// the version that lost at `lost`); that copy goes once the session runs.
-/// Never touches the machine that ran it, and changes nothing here until
-/// every check has passed.
-pub(super) async fn continue_here(
-    env: &Env,
-    agent: &AgentSlug,
-    id: &str,
-    lost: Option<u64>,
-) -> Result<()> {
-    if harness_of(agent.as_ref()).is_none() {
-        bail!("{agent} sessions cannot be continued yet");
-    }
-
-    let Some(_going) = env.agents.moves.begin_continue(id) else {
-        bail!("session {id} is being continued already");
-    };
-    let (copy, meta) = {
-        let (cache, slug, key) = (env.cache.clone(), agent.clone(), id.to_owned());
-        spawn_blocking(move || match lost {
-            Some(at) => cache.lost(&slug, &key, at),
-            None => Some((cache.copy(&slug, &key)?, cache.meta(&slug, &key)?)),
-        })
-        .await?
-        .with_context(|| format!("this machine has no such copy of session {id}"))?
-    };
-
-    if env.agents.runs(id) {
-        bail!("session {id} runs on this machine already");
-    }
-
-    let kind = env
-        .agents
-        .named(agent.as_ref())
-        .with_context(|| format!("this machine has no {agent}"))?;
-    if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
-        flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
-    }
-
-    let folders = continued_folders(env, &meta)?;
-
-    if !folders.new.is_dir() {
-        bail!(
-            "{} has no folder here to continue in: sync the project first",
-            meta.project
-        );
-    }
-    // The last check that can fail comes first; then a transcript of this
-    // session already in the store (the winner's, which does not run) is
-    // kept where the list shows it, as a version that lost: writing over it
-    // would set it aside where nothing lists it. If the session still does
-    // not start, it goes back.
-    let mut aside = None;
-
-    if let Some(harness) = harness_of(agent.as_ref())
-        && let Some(local) = env.agents.transcript_file(harness, id).await
-    {
-        let (len, modified) = {
-            let local = local.clone();
-            spawn_blocking(move || -> Result<_> {
-                let meta = std::fs::metadata(&local)?;
-                Ok((meta.len(), unix_secs(&meta)))
-            })
-            .await??
-        };
-        let at = keep_local(
-            env,
-            agent,
-            id,
-            &Kept {
-                project: &meta.project,
-                path: &meta.path,
-                len,
-                modified,
-            },
-            &local,
-        )
-        .await
-        .context("keeping the transcript this machine has of it")?;
-        aside = Some((at, local));
-    }
-
-    let arrival = Arrival {
-        id,
-        mode: None,
-        from: meta.from,
-        how: How::Continued,
-    };
-
-    if let Err(e) = resume(env, &arrival, &kind, &folders, meta.file_name.clone(), copy).await {
-        if let Some((at, local)) = aside {
-            let (cache, slug, key) = (env.cache.clone(), agent.clone(), id.to_owned());
-            let back = spawn_blocking(move || cache.put_back(&slug, &key, at, &local)).await;
-
-            if !back.unwrap_or(false) {
-                log::warn!("the transcript of session {id} stays among the versions kept");
-            }
-        }
-
-        return Err(e);
-    }
-    // The copy goes, and a note stays of the point it was taken at, so a
-    // later session of another machine that went on from there is known.
-    let (cache, agent, id) = (env.cache.clone(), agent.clone(), id.to_owned());
-    spawn_blocking(move || {
-        if let Some(at) = lost {
-            cache.drop_lost(&agent, &id, at);
-        }
-
-        cache.remove(&agent, &id, false);
-        cache.mark_continued(&agent, &id, meta.last_activity, now_secs())
-    })
-    .await?
-    .context("noting that the session continues here")?;
-    Ok(())
-}
-
-/// The folder a copied session worked in on its machine and the same
-/// folder here.
-fn continued_folders(env: &Env, meta: &Meta) -> Result<Folders> {
-    let theirs = project_folder(&env.mesh, &meta.project, &meta.from)
-        .context("the machine that ran it does not keep the project")?;
-    let mine = project_folder(&env.mesh, &meta.project, &env.mesh.me())
-        .context("this machine does not keep the project")?;
-    let relative = Path::new(&meta.path);
-
-    if relative
-        .components()
-        .any(|part| !matches!(part, Component::Normal(_)))
-    {
-        bail!("the session's folder is not inside the project");
-    }
-
-    Ok(Folders {
-        old: Path::new(&theirs).join(relative),
-        new: Path::new(&mine).join(relative),
-        workspace: None,
-    })
 }
 
 #[cfg(test)]

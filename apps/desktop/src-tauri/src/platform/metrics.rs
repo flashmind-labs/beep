@@ -65,7 +65,6 @@ const COMMANDS: &[&str] = &[
     "machine_clocks",
     "project_sync_detail",
     "agent_worktrees",
-    "session_copies",
     "session_moves",
     "session_move_progress",
     "agent_view",

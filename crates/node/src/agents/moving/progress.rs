@@ -3,18 +3,14 @@
 //! that a session it ended is still served as running until its files are
 //! scanned, and that it gave a move up.
 
-use super::{Env, offers::project_folder};
+use super::{Env, folder::project_folder};
 use crate::{files::syncthing::Syncthing, lock};
 use anyhow::Result;
 use beep_proto::node::agent::{MovePhase, MoveProgress};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::SystemTime,
+    sync::{Arc, Mutex, Weak},
 };
 use tokio::sync::watch;
 
@@ -54,67 +50,8 @@ pub(crate) struct Moves {
     sent: Mutex<HashMap<String, String>>,
     /// Worktree sessions whose snapshot a live read already tried.
     previewed: Mutex<HashSet<String>>,
-    /// What the moves and copies of this node share, for requests that
-    /// continue a copy here.
+    /// What the moves of this node share, for requests about a move.
     env: Mutex<Weak<Env>>,
-    hashes: Hashes,
-    /// Sessions being continued from a copy right now.
-    continuing: Mutex<HashSet<String>>,
-    /// Background copying waits for a session of this node.
-    paused: AtomicBool,
-}
-
-/// A session being continued from its copy, until this drops: a second
-/// continue of it is refused meanwhile.
-pub(super) struct Continuing<'a> {
-    moves: &'a Moves,
-    id: String,
-}
-
-impl Drop for Continuing<'_> {
-    fn drop(&mut self) {
-        lock(&self.moves.continuing).remove(&self.id);
-    }
-}
-
-/// The hash of each transcript offered, read again only when its size or
-/// time changed.
-#[derive(Clone, Default)]
-pub(super) struct Hashes(Arc<Mutex<HashMap<PathBuf, Hashed>>>);
-
-/// A transcript's hash, with the size and time it was read at.
-struct Hashed {
-    size: u64,
-    modified: SystemTime,
-    hash: Vec<u8>,
-}
-
-/// The most transcripts whose hashes are kept.
-const MAX_HASHES: usize = 5000;
-
-impl Hashes {
-    pub(super) fn get(&self, file: &Path, size: u64, modified: SystemTime) -> Option<Vec<u8>> {
-        let kept = lock(&self.0);
-        let found = kept.get(file)?;
-        (found.size == size && found.modified == modified).then(|| found.hash.clone())
-    }
-
-    pub(super) fn put(&self, file: &Path, size: u64, modified: SystemTime, hash: Vec<u8>) {
-        let mut kept = lock(&self.0);
-
-        if kept.len() >= MAX_HASHES {
-            kept.clear();
-        }
-
-        kept.insert(
-            file.to_owned(),
-            Hashed {
-                size,
-                modified,
-                hash,
-            },
-        );
-    }
 }
 
 /// A session the source ended is served as running while this lives, so a
@@ -188,59 +125,8 @@ impl Moves {
         lock(&self.worktrees).get(id).cloned()
     }
 
-    /// Starts continuing session `id`; `None` when that is going already.
-    pub(super) fn begin_continue(&self, id: &str) -> Option<Continuing<'_>> {
-        lock(&self.continuing)
-            .insert(id.to_owned())
-            .then(|| Continuing {
-                moves: self,
-                id: id.to_owned(),
-            })
-    }
-
-    /// Notes whether background copying waits; true when that changed.
-    pub(super) fn set_paused(&self, paused: bool) -> bool {
-        self.paused.swap(paused, Ordering::Relaxed) != paused
-    }
-
-    pub(super) fn clone_hashes(&self) -> Hashes {
-        self.hashes.clone()
-    }
-
     pub(super) fn use_env(&self, env: Weak<Env>) {
         *lock(&self.env) = env;
-    }
-
-    /// Continues the copy of session `id` of `agent` here.
-    pub(crate) async fn continue_copy(
-        &self,
-        agent: &str,
-        id: &str,
-        lost: Option<u64>,
-    ) -> Result<()> {
-        let env = lock(&self.env)
-            .upgrade()
-            .ok_or_else(|| anyhow::anyhow!("this node does not copy sessions"))?;
-        super::resume::continue_here(&env, &beep_proto::AgentSlug::from(agent), id, lost).await
-    }
-
-    /// The copies this node keeps, and the versions that lost.
-    pub(crate) async fn copies(&self) -> Vec<beep_proto::node::agent::CopyView> {
-        let env = lock(&self.env).upgrade();
-
-        match env {
-            Some(env) => super::background::views(&env).await,
-            None => Vec::new(),
-        }
-    }
-
-    /// Throws a copy away, or the version set aside at `lost`.
-    pub(crate) async fn discard_copy(&self, agent: &str, id: &str, lost: Option<u64>) {
-        let env = lock(&self.env).upgrade();
-
-        if let Some(env) = env {
-            super::background::discard(&env, &beep_proto::AgentSlug::from(agent), id, lost).await;
-        }
     }
 
     /// Makes Syncthing leave this project's Git metadata and worktrees alone.
@@ -322,7 +208,3 @@ pub(super) fn show(tracker: &Tracker, change: impl FnOnce(&mut MoveProgress)) {
     tracker.send_modify(change);
     crate::events::system().changed(beep_proto::node::events::Topic::new("moves"));
 }
-
-#[cfg(test)]
-#[path = "../../tests/agents_moving_progress.rs"]
-mod tests;

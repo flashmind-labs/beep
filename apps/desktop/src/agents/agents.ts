@@ -15,7 +15,6 @@ import type { ProviderCredits } from "../ui/credits.ts";
 import { type Nested, nest, splitEnded } from "./nesting-state.ts";
 import { parentSession, ensureSessions, loadSessions, reviewers, sessions, sessionsChanged } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
-import { copies, copiesView, keepCopiesFresh, type CopiesModel } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
 import type { CheckoutPick } from "./agentpick.ts";
@@ -406,7 +405,6 @@ export async function loadAgentHosts() {
 export async function renderAgents() {
   S.view = "agents";
   agentsList.setState({ selected: 0, endedOpen: false });
-  keepCopiesFresh(() => S.view === "agents");
   drawAgents(true);
 
   try {
@@ -436,7 +434,6 @@ const rereadAgents = ambient(async () => {
 sessionsChanged.add(() => rereadAgents());
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 onMoves(() => { if (S.view === "agents") drawAgents(false); });
-copies.subscribe(() => { if (S.view === "agents") drawAgents(false); });
 onClosing(() => { if (S.view === "agents") drawAgents(false); });
 onConnecting(() => { if (S.view === "agents") drawAgents(false); });
 
@@ -469,11 +466,10 @@ export interface AgentsListState {
   loading: boolean;
   error: string;
   summary: string;
-  copies: CopiesModel | null;
 }
 
 export const agentsList = createStore<AgentsListState>(() => ({
-  live: [], ended: [], endedOpen: false, selected: 0, loading: false, error: "", summary: "", copies: null,
+  live: [], ended: [], endedOpen: false, selected: 0, loading: false, error: "", summary: "",
 }));
 
 /// The rows the arrows and Enter move over: the ended ones only while open.
@@ -493,7 +489,7 @@ export function drawAgents(loading: boolean) {
     : going.length ? `${going.length} live on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
 
   agentsList.setState(s => {
-    const next = { ...s, live, ended, loading, summary, error: AG.error, copies: copiesView(new Set(visible.map(r => r.id))) };
+    const next = { ...s, live, ended, loading, summary, error: AG.error };
     return { ...next, selected: Math.min(s.selected, Math.max(0, pickable(next).length - 1)) };
   });
 

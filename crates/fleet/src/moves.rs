@@ -9,17 +9,11 @@ use crate::{
 };
 use beep_mesh::{
     Key,
-    machine::sessions::{
-        MoveState, NodeCopies, NodeWork, WorktreeMove, continue_copy, copies, discard_copy,
-        move_progress, worktree_move,
-    },
+    machine::sessions::{MoveState, WorktreeMove, move_progress, worktree_move},
 };
 use beep_proto::{
     AgentSlug,
-    node::{
-        agent::CopyView,
-        mesh_state::{MovedWorktree, SessionMove, StateValue, SyncSpec},
-    },
+    node::mesh_state::{MovedWorktree, SessionMove, StateValue, SyncSpec},
 };
 use iroh::EndpointId;
 use std::path::{Component, Path};
@@ -39,15 +33,6 @@ pub struct MoveAsk<'a> {
     pub mode: Option<String>,
     /// Stop the turn instead of waiting for it.
     pub stop: bool,
-}
-
-/// A copy this Mac's node keeps, and how the machine that ran the session
-/// is: its name, and whether the mesh has it online now.
-pub struct CopyState {
-    pub view: CopyView,
-    /// `None` for a machine the mesh does not list any more.
-    pub from_name: Option<String>,
-    pub online: bool,
 }
 
 /// The linked worktree a session works in on the source.
@@ -213,47 +198,6 @@ impl Desk {
         }
 
         Ok(())
-    }
-
-    /// The copies of other machines' sessions that this Mac's node keeps,
-    /// each with the machine that ran it as the mesh says it is now. `None`
-    /// for a node from before background copies.
-    pub async fn session_copies(&self) -> Result<Option<Vec<CopyState>>> {
-        let client = self.peers.client(self.local).await?;
-        let NodeCopies::Listed(listed) = copies(&client).await? else {
-            return Ok(None);
-        };
-        let devices = self.mesh.code_hosts();
-        Ok(Some(
-            listed
-                .into_iter()
-                .map(|view| {
-                    let device = devices.iter().find(|status| status.device.id == view.from);
-                    CopyState {
-                        from_name: device.map(|status| status.device.name.clone()),
-                        online: device.is_some_and(|status| status.online),
-                        view,
-                    }
-                })
-                .collect(),
-        ))
-    }
-
-    /// Has this Mac's node run its copy of a session (or its version set
-    /// aside at `lost`) in its own checkout. Refused in the node's words.
-    pub async fn continue_copy(&self, agent: &str, id: &str, lost: Option<u64>) -> Result<()> {
-        let client = self.peers.client(self.local).await?;
-
-        match continue_copy(&client, agent, id, lost).await? {
-            NodeWork::Done(()) => Ok(()),
-            NodeWork::Refused(why) => Err(refused(why)),
-        }
-    }
-
-    /// Has this Mac's node throw a copy away.
-    pub async fn discard_copy(&self, agent: &str, id: &str, lost: Option<u64>) -> Result<()> {
-        let client = self.peers.client(self.local).await?;
-        Ok(discard_copy(&client, agent, id, lost).await?)
     }
 
     /// Takes back the move of session `id`: the machines stop it unless
