@@ -33,13 +33,22 @@ pub enum Request {
     /// The devices the node can show, running or not.
     List {},
     /// Starts device `id`; the reply comes once it is starting.
-    Boot { id: DeviceId },
-    Shutdown { id: DeviceId },
+    Boot {
+        id: DeviceId,
+    },
+    Shutdown {
+        id: DeviceId,
+    },
     /// Follows device `id`'s screen, each frame scaled so its longer side is
     /// at most `max_side` pixels.
-    Attach { id: DeviceId, max_side: u32 },
+    Attach {
+        id: DeviceId,
+        max_side: u32,
+    },
     /// Input to the attached device.
-    Input { input: Input },
+    Input {
+        input: Input,
+    },
 }
 
 /// Something the user did on the attached device's screen or buttons.
@@ -48,11 +57,21 @@ pub enum Request {
 pub enum Input {
     /// A finger at `x`, `y`, each a fraction of the screen's width and
     /// height from its top left corner.
-    Touch { phase: TouchPhase, x: f32, y: f32 },
+    Touch {
+        phase: TouchPhase,
+        x: f32,
+        y: f32,
+    },
     /// Text typed into whatever has focus.
-    Text { text: String },
-    Key { key: Key },
-    Button { button: Button },
+    Text {
+        text: String,
+    },
+    Key {
+        key: Key,
+    },
+    Button {
+        button: Button,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,12 +113,18 @@ pub enum Button {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Reply {
-    Devices { devices: Vec<Device> },
+    Devices {
+        devices: Vec<Device>,
+    },
     Done {},
     Frame(Frame),
     /// The attached device stopped, or its view could not go on.
-    Ended { reason: String },
-    Failed { reason: String },
+    Ended {
+        reason: String,
+    },
+    Failed {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
