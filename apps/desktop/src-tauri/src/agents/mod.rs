@@ -6,6 +6,7 @@ pub(crate) mod artifacts;
 mod child_reply;
 pub(crate) mod custom;
 pub(crate) mod diff;
+pub(crate) mod file_cache;
 pub(crate) mod files;
 pub(crate) mod flsh_settings;
 pub(crate) mod follow;

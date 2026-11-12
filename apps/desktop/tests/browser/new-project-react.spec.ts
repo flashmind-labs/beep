@@ -23,7 +23,7 @@ test("new project preserves input and focus while options change", async ({ page
   await page.getByRole("menuitem", { name: "other", exact: true }).click();
   await expect(sheet.getByRole("button", { name: "other", exact: true })).toBeFocused();
   await sheet.getByRole("button", { name: "Create", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "create_project").map(call => call.args))).toEqual([{ name: "example-project", repository: { host: "github", owner: "other", private: false }, machineIds: ["one"] }]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "create_project").map(call => call.args))).toEqual([{ name: "example-project", repository: { host: "github", owner: "other", private: false }, machineIds: ["one"], folders: [{ machine_id: "one", folder: "" }] }]);
 });
 
 test("a stale forge response cannot replace a reopened form", async ({ page }) => {
@@ -99,7 +99,7 @@ test("local-only creation keeps exactly the selected online machine", async ({ p
   await expect(sheet.getByRole("button", { name: "Build box", exact: true })).toHaveAttribute("aria-pressed", "false");
   await expect(sheet.getByRole("button", { name: "Other box", exact: true })).toHaveAttribute("aria-pressed", "true");
   await sheet.getByRole("button", { name: "Create", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "create_project").map(call => call.args))).toEqual([{ name: "project", repository: null, machineIds: ["two"] }]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "create_project").map(call => call.args))).toEqual([{ name: "project", repository: null, machineIds: ["two"], folders: [{ machine_id: "two", folder: "" }] }]);
 });
 
 test("creation is disabled when no machine is online", async ({ page }) => {

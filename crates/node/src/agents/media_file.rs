@@ -25,7 +25,7 @@ pub(super) struct Chunk {
 /// for `home`. Blocks on the file system.
 pub(super) fn read_chunk(path: &str, offset: u64, home: Option<&Path>) -> Result<Option<Chunk>> {
     let Some(mime) = media_mime(path) else {
-        bail!("{path} is not a picture, video, 3D model or PDF");
+        bail!("{path} is not a picture, video, audio file, 3D model or PDF");
     };
     let full = resolve(path, home)?;
     let mut file = match crate::files::fsat::open_read(&full) {

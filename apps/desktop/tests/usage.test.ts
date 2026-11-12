@@ -61,7 +61,15 @@ test("the pill shows each plan's binding window, the one most used", () => {
     plan("claude", [{ minutes: 300, used_percent: 38 }, { minutes: 10_080, used_percent: 76.4 }]),
     plan("codex", [{ minutes: 300, used_percent: 9 }]),
     plan("flsh", []),
-  ]), [{ agent: "claude", used: 76, window: "This week" }, { agent: "codex", used: 9, window: "5 hours" }]);
+  ]), [{ agent: "claude", model: null, used: 76, window: "This week" }, { agent: "codex", model: null, used: 9, window: "5 hours" }]);
+});
+
+test("the pill shows a model's weekly limit past 1% beside its plan", () => {
+  const windows = [{ minutes: 300, used_percent: 38, scope: null }, { minutes: 10_080, used_percent: 20, scope: null }, { minutes: 10_080, used_percent: 91, scope: "Fable" }, { minutes: 10_080, used_percent: 1, scope: "Opus" }];
+  assert.deepEqual(pillPlans([{ agent: "claude", plan: "max", machine_name: "build-box", as_of: 0, windows: windows.map(w => ({ ...w, resets_at: null })) }]), [
+    { agent: "claude", model: null, used: 38, window: "5 hours" },
+    { agent: "claude", model: "Fable", used: 91, window: "This week, Fable" },
+  ]);
 });
 
 test("the note on dollars shows only when a row shows dollars", () => {

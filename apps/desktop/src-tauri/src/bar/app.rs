@@ -10,7 +10,7 @@ use crate::{
 };
 use beep_proto::node::desktop::Permission;
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
@@ -22,6 +22,10 @@ pub struct Settings {
     autostart: bool,
     /// Coding agents notify when they ask or finish a turn.
     agent_notices: bool,
+    /// Where saves go now.
+    save_folder: Option<PathBuf>,
+    /// Whether that folder was picked rather than Downloads.
+    save_folder_picked: bool,
 }
 
 #[tauri::command]
@@ -34,7 +38,39 @@ pub fn settings(app: AppHandle, prefs: State<'_, Prefs>) -> Settings {
         #[cfg(mobile)]
         autostart: false,
         agent_notices: prefs.agent_notices(),
+        save_folder: crate::platform::saves_dir(&app).ok(),
+        save_folder_picked: prefs.save_folder().is_some(),
     }
+}
+
+/// Asks for the folder saves go to; a cancel keeps the current one.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn choose_save_folder(app: AppHandle, prefs: State<'_, Prefs>) -> Result<()> {
+    let start = crate::platform::saves_dir(&app).ok();
+    let picked = crate::projects::import::pick(&app, "Save files to", start).await?;
+
+    if let Some(folder) = picked {
+        let folder = folder
+            .into_path()
+            .map_err(|e| DesktopError::BadRequest(format!("That folder cannot be used: {e}")))?;
+        prefs.set_save_folder(Some(folder));
+    }
+    Ok(())
+}
+
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn choose_save_folder() -> Result<()> {
+    Err(DesktopError::BadRequest(
+        "On a phone, Share picks where a file goes.".into(),
+    ))
+}
+
+/// Saves go to Downloads again.
+#[tauri::command]
+pub fn use_downloads(prefs: State<'_, Prefs>) {
+    prefs.set_save_folder(None);
 }
 
 /// Whether coding agents notify when they ask or finish a turn.

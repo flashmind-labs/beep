@@ -7,6 +7,85 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.18] - 2026-11-12
+
+### Added
+
+- Desktop: audio files (MP3, M4A, AAC, WAV, FLAC, Ogg, Opus) named in an agent's reply or opened from Files play in the side pane.
+- Desktop: a two-finger swipe sideways on the trackpad goes back or forward.
+  The page follows the fingers and comes back if they stop short.
+
+### Changed
+
+- Desktop: Home's board has a row for each project, with the projects that
+  wait on you first. A project's name opens it, a cell shows about two cards
+  and scrolls to the rest, and a project's sync conflicts share one card.
+- Desktop: the Review button of a pull request on the board is a menu: Open
+  shows it on its host, and Review with agent starts an agent's review.
+
+## [0.8.17] - 2026-11-12
+
+### Added
+
+- Desktop: a file path an agent writes in inline code, such as
+  `src/main.rs:42`, opens in the file pane, and a line number in a file link
+  scrolls to and marks that line.
+- Desktop: Settings > General has "Save files to", for choosing the folder
+  saved files go to on macOS, Windows and Linux. Downloads stays the default.
+
+### Changed
+
+- Desktop: a coding agent notification names its project first, such as
+  "org/web: Claude Code on build-box finished".
+- Desktop: a relative file link opens the file from the worktree the agent
+  works in, falling back to the session's folder.
+
+### Fixed
+
+- Desktop: each project remembers its selected coding agent, model and thinking level.
+
+### Performance
+
+- Desktop: a picture, video, 3D model or PDF opened from a chat downloads
+  once and opens from the local copy after that while it is unchanged. An
+  interrupted download resumes. Closing the session deletes the files only it
+  opened, and files not opened for a day are removed.
+
+## [0.8.16] - 2026-11-12
+
+### Added
+
+- Desktop: the machine page offers updates for coding agents (Codex, Claude
+  Code, pi, OpenCode, Gemini) next to gh, teacli and flsh, checked hourly
+  against their newest release.
+- Desktop: the usage pill in the header shows Claude's weekly model limits,
+  such as Fable, next to the plan's own percentage.
+
+### Changed
+
+- Desktop: an agent on another machine can send files to a desktop instead of
+  being refused.
+
+### Fixed
+
+- Desktop: a terminal in a pane that gets narrower fits the pane again
+  instead of cutting off the right side of its lines.
+- Desktop: the terminal cursor stays visible while you type or output
+  arrives, and a cursor a program sets to steady no longer blinks.
+- Desktop: a file attached to a new agent shows its upload progress in grey
+  instead of red, reaches 100%, then says the agent is starting.
+
+### Performance
+
+- Desktop: working agents, running commands, CI runs and research show a still
+  dot instead of a turning spinner, so an idle window with agents at work no
+  longer redraws every frame. The thinking sweep stops while the window is
+  hidden, and a terminal cursor blinks only while its window has focus.
+- Desktop: the built-in node runs git less often while agents work: a git
+  command no longer makes it rewatch every folder and read them all again,
+  file sync reads the checked-out commit once per change, and a folder's file
+  list waits longer between reads while it stays the same.
+
 ## [0.8.15] - 2026-11-12
 
 ### Changed

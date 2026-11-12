@@ -108,7 +108,7 @@ const WRITES: Readonly<Record<string, readonly ViewCommand[]>> = {
   agent_file_save: ["project_sync"], agent_tree_edit: ["project_sync"], agent_tree_upload: ["project_sync"],
   agent_files_sync: ["project_sync"], project_sync_pause: ["project_sync"], project_sync_resolve: ["project_sync"],
   save_picture: [], save_machine_log: [],
-  set_zoom_level: [], set_agent_notices: [], set_autostart: [],
+  set_zoom_level: [], set_agent_notices: [], set_autostart: [], choose_save_folder: [], use_downloads: [],
   set_machine_search: [],
   set_mac_control: ["mac_control"], allow_mac_permission: ["mac_control"],
   pin_project_to_top: ["projects_on_top"],

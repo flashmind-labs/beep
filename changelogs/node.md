@@ -2,6 +2,44 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.14] - 2026-11-12
+
+### Added
+
+- Node: serves audio files to the desktop's agent pane, so they play there.
+
+### Fixed
+
+- Node: images a Claude Code subagent took load in its parent session's log
+  after the node restarts, instead of staying empty tiles.
+
+## [0.6.13] - 2026-11-12
+
+### Changed
+
+- Node: agents learn that file paths relative to their folder open in the
+  desktop's file pane at the line given, and that videos, 3D models and the
+  files they write show there too.
+
+### Performance
+
+- Node: desktops and phones fetch media files from chats over iroh-blobs, so
+  an unchanged file is not sent again.
+
+## [0.6.12] - 2026-11-12
+
+### Changed
+
+- Desktop: an agent on another machine can send files to a desktop instead of
+  being refused.
+
+### Performance
+
+- Node: runs git less often while agents work: a git command no longer makes
+  it rewatch every folder and read them all again, file sync reads the
+  checked-out commit once per change, and a folder's file list waits longer
+  between reads while it stays the same.
+
 ## [0.6.11] - 2026-11-12
 
 ### Changed

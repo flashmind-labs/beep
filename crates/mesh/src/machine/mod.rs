@@ -28,7 +28,7 @@ pub use node::{
     Exec, Tasks, Updated, exec, files, install_tool, log, rescan_search, search, set_search,
     sign_in, tool_updates, update_node,
 };
-pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite};
+pub use sessions::{NodeFile, NodeImage, NodeShare, NodeWork, Sessions, WorkRead, WorkWrite};
 
 use crate::MeshError;
 use anyhow::anyhow;

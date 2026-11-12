@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { commandKey } from "../ui/platform.ts";
+import { commandKey, revealLabel } from "../ui/platform.ts";
 import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -85,5 +85,5 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
 }
 
 export function ViewerNotice({ text, path, bad }: { text: string; path: string | null; bad: boolean }) {
-  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <button className="dbtn" onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>Show in Finder</button>}</div>;
+  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <button className="dbtn" onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>{revealLabel()}</button>}</div>;
 }

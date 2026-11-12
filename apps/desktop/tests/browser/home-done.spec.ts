@@ -8,9 +8,35 @@ test("Home lists the sessions that ended today under Done today", async ({ page 
   const home = { machines: [], projects: [], running: [], needs_you: [] };
   await openDesktop(page, false, { center_home: home, session_moves: [], session_copies: [],
     projects_sessions: [session("today", "ended", now), session("old", "ended", now - 3 * 86_400_000)] });
-  const done = page.locator(".bd-lane", { hasText: "Done today" });
-  await expect(done.getByText("Session today")).toBeVisible();
-  await expect(done.getByText("Session old")).toHaveCount(0);
+  await expect(page.locator(".bd-lane.hd", { hasText: "Done today" })).toHaveText("Done today1");
+  await expect(page.locator(".bd-rows").getByText("Session today")).toBeVisible();
+  await expect(page.locator(".bd-rows").getByText("Session old")).toHaveCount(0);
+});
+
+test("Home's board gives each project a row, and a review is opened on its host or handed to an agent", async ({ page }) => {
+  const pull = { host: "example.test", repo: "other/site", number: 12, kind: "pull_request", title: "Move the blog", url: "https://example.test/other/site/pull/12",
+    updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0 };
+  await openDesktop(page, false, { git_items: { items: [pull], hosts: [] } });
+
+  // The project that waits on the user comes first.
+  await expect(page.locator(".bd-rows > .pj")).toHaveText(["other/site", projectName]);
+  await page.locator(".bd-card", { hasText: "#12 Move the blog" }).getByRole("button", { name: "Review" }).click();
+  await expect(page.getByRole("menuitem", { name: "Open", exact: true })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Review with agent" }).click();
+  await expect(page.locator("textarea").first()).toHaveValue(/^Review PR https:\/\/example\.test\/other\/site\/pull\/12/);
+});
+
+test("a row's project name opens the project, and a full cell scrolls", async ({ page }) => {
+  const pull = (number: number) => ({ host: "example.test", repo: projectName, number, kind: "pull_request", title: `Pull ${number}`, url: `https://example.test/${projectName}/pull/${number}`,
+    updated_at: number, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0 });
+  await openDesktop(page, false, { git_items: { items: [1, 2, 3, 4].map(pull), hosts: [] } });
+
+  const cell = page.locator(".bd-rows > .bd-lane:not(.hd)").first();
+  await expect(cell.locator(".bd-card")).toHaveCount(4);
+  expect(await cell.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+
+  await page.locator(".bd-rows > .pj").getByRole("button", { name: projectName }).click();
+  await expect(page.locator(".pj-board")).toBeVisible();
 });
 
 /// Picks `layout` for `name` in Settings, under Appearance, and closes Settings.
@@ -26,12 +52,12 @@ async function pickLayout(page: Page, name: string, layout: string) {
 test("Appearance picks the board or the list for Home and for projects, each on its own", async ({ page }) => {
   await openDesktop(page, false, { settings: { name: "build-box", version: "0.9.0", autostart: false, agent_notices: false },
     list_credentials: [], list_github_accounts: [] });
-  await expect(page.locator("#sec-needs .bd-lanes")).toBeVisible();
+  await expect(page.locator("#sec-needs .bd-rows")).toBeVisible();
 
   await pickLayout(page, "Home", "List");
   expect(await page.evaluate(() => [localStorage.getItem("beep.layout.home"), localStorage.getItem("beep.layout.project")])).toEqual(["list", null]);
   await page.locator("#side").getByRole("button", { name: "Home", exact: true }).click();
-  await expect(page.locator(".bd-lanes")).toHaveCount(0);
+  await expect(page.locator(".bd-rows")).toHaveCount(0);
   await expect(page.locator("#sec-running")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
   await expect(page.locator("#side").getByRole("button", { name: "Running" })).toBeVisible();

@@ -58,7 +58,7 @@ export function drawTasks() {
 /// "3 commands running", which opens the Running tab.
 function TasksLine({ count }: { count: number }) {
   return createElement("button", { type: "button", className: "ag-tasks", title: "Show them in the Running tab", onClick: showRunning },
-    createElement(Spinner),
+    createElement(Spinner, { dot: true }),
     createElement("span", null, `${count} ${count === 1 ? "command" : "commands"} running`));
 }
 

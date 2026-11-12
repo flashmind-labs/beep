@@ -5,11 +5,12 @@ import { commandKey } from "../ui/platform.ts";
 // or not), kept per window.
 
 /// What the pane shows a file as.
-export type MediaKind = "image" | "video" | "model" | "pdf";
+export type MediaKind = "image" | "video" | "audio" | "model" | "pdf";
 
 const KINDS: Record<string, MediaKind> = {
   png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", avif: "image",
   mp4: "video", m4v: "video", webm: "video", mov: "video",
+  mp3: "audio", m4a: "audio", aac: "audio", wav: "audio", flac: "audio", ogg: "audio", oga: "audio", opus: "audio",
   glb: "model", gltf: "model", obj: "model", stl: "model",
   pdf: "pdf",
 };
@@ -39,16 +40,25 @@ export function mediaKind(path: string): MediaKind | null {
   return KINDS[extension(path)] ?? null;
 }
 
+/// A file a reply points at, and the line it names.
+export interface FileRef {
+  path: string;
+  line: number | null;
+}
+
 /// The file a link in a reply points at, or null for a web address or a
-/// place in the page: its `#L12` or `:12` line is left off.
-export function linkedPath(href: string) {
-  if (!href || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+/// place in the page, with its `#L12` or `:12` line.
+export function linkedPath(href: string): FileRef | null {
+  // `main.rs:12` is a file and its line, not a web address.
+  if (!href || href.startsWith("#") || /^[a-z][a-z0-9+.-]*:(?!\d+(?::\d+)?$)/i.test(href)) return null;
+  const at = /(?:#L(\d+)(?:-L?\d+)?|:(\d+)(?::\d+)?)$/.exec(href);
+  const line = at ? Number(at[1] ?? at[2]) : null;
   const path = href.replace(/[?#].*$/, "").replace(/:\d+(:\d+)?$/, "");
 
   try {
-    return decodeURI(path);
+    return { path: decodeURI(path), line };
   } catch {
-    return path;
+    return { path, line };
   }
 }
 

@@ -45,3 +45,27 @@ fn all_sessions_together_stay_under_the_overall_limit() {
     images.keep("s0", big.clone());
     assert_eq!(images.get("s0", &image_key(&big.data)), None, "too big");
 }
+
+#[test]
+fn a_picture_only_a_subagent_wrote_is_found_from_its_parent() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().join("p1.jsonl");
+    std::fs::write(&parent, "{\"type\":\"user\",\"message\":{\"content\":\"hi\"}}\n").unwrap();
+    let subagents = dir.path().join("p1/subagents");
+    std::fs::create_dir_all(&subagents).unwrap();
+    let shot = png(7, 64);
+    let line = serde_json::json!({"type": "user", "message": {"content": [
+        {"type": "tool_result", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                "data": STANDARD.encode(&shot.data)}}
+        ]}
+    ]}});
+    std::fs::write(subagents.join("agent-a1.jsonl"), format!("{line}\n")).unwrap();
+
+    let images = Images::default();
+    let found = images.find_in_file(&parent, &image_key(&shot.data)).unwrap();
+    assert_eq!(found.map(|p| p.data), Some(shot.data));
+    assert_eq!(images.find_in_file(&parent, &image_key(&png(8, 64).data)).unwrap(), None);
+}

@@ -7,7 +7,7 @@ import { fileSize } from "../chat/media.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
 import { draw, touchTab } from "./media-draw.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
 const MAX_FILE = 128 * 1024 * 1024;
@@ -18,24 +18,39 @@ function bytesOf(b64: string) {
   return out;
 }
 
-/// Reads all of `path` from `machine`, a part at a time; `progress` hears
-/// how far it got.
-export async function readFile(machine: string, path: string, progress: (done: number, size: number) => void) {
+/// How far fetching a file from another machine has come.
+type FileProgress = { machine_id: string; path: string; done: number; size: number };
+
+/// Reads all of `path` from `machine`, a part at a time, keeping it for the
+/// conversation `session`; `progress` hears how far it got. The first part
+/// fetches a file from another machine whole, telling its progress.
+export async function readFile(machine: string, path: string, session: string | null, progress: (done: number, size: number) => void) {
   const parts: Uint8Array[] = [];
   let done = 0, size = 0, mime = "";
+  const unlisten = await listen<FileProgress>("agent-file-progress", e => {
+    if (e.payload.machine_id === machine && e.payload.path === path) progress(e.payload.done, e.payload.size);
+  });
 
-  do {
-    const part = await invoke<FilePart>("agent_file", { machineId: machine, path, offset: done });
-    size = part.size;
-    mime = part.mime;
-    if (size > MAX_FILE) throw new Error(`It is ${fileSize(size)}; the pane opens files up to ${fileSize(MAX_FILE)}.`);
-    const bytes = bytesOf(part.data);
-    if (!bytes.length) break;
-    parts.push(bytes);
-    done += bytes.length;
-    progress(done, size);
-  } while (done < size);
+  try {
+    do {
+      const part = await invoke<FilePart>("agent_file", { machineId: machine, path, offset: done, session });
+      size = part.size;
+      mime = part.mime;
+      if (size > MAX_FILE) throw new Error(`It is ${fileSize(size)}; the pane opens files up to ${fileSize(MAX_FILE)}.`);
+      const bytes = bytesOf(part.data);
+      if (!bytes.length) break;
+      parts.push(bytes);
+      done += bytes.length;
+      progress(done, size);
+    } while (done < size);
+  } finally {
+    unlisten();
+  }
 
+  return joined(parts, done, mime);
+}
+
+function joined(parts: readonly Uint8Array[], done: number, mime: string) {
   const all = new Uint8Array(done);
   let at = 0;
   for (const p of parts) { all.set(p, at); at += p.length; }
@@ -60,6 +75,7 @@ export async function loadText(t: MediaTab) {
     t.text = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: t.root ?? s.cwd, path: t.rel });
     t.size = t.text.size;
   } catch (e) {
+    if (lookElsewhere(t)) return loadText(t);
     t.error = readError(e);
   }
 
@@ -67,6 +83,25 @@ export async function loadText(t: MediaTab) {
     touchTab(t);
     if (takeQueuedPreview(t) && t.text && !t.text.binary) void togglePreview(t);
   }
+}
+
+/// Points `t` at the same file in the session's folder when it was looked
+/// for in another worktree; false when there is nowhere else to look.
+function lookElsewhere(t: MediaTab) {
+  const s = P.session, there = t.elsewhere;
+  if (!s || !there) return false;
+
+  t.elsewhere = null;
+  const cwd = s.cwd.replace(/\/+$/, "");
+
+  if (t.kind === "text") {
+    t.root = s.cwd;
+    t.rel = there.startsWith(`${cwd}/`) ? there.slice(cwd.length + 1) : there;
+  } else {
+    t.path = there;
+  }
+
+  return true;
 }
 
 /// Starts a terminal tab's shell; when it exits the tab goes.
@@ -121,7 +156,7 @@ export async function load(t: MediaTab) {
   if (!s || !t.path) return;
 
   try {
-    const { bytes, mime } = await readFile(s.machine_id, t.path, (done, size) => {
+    const { bytes, mime } = await readFile(s.machine_id, t.path, s.id, (done, size) => {
       t.done = done;
       t.size = size;
       touchTab(t);
@@ -132,6 +167,7 @@ export async function load(t: MediaTab) {
     t.url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime || "application/octet-stream" }));
   } catch (e) {
     if (!P.tabs.includes(t)) return;
+    if (lookElsewhere(t)) return load(t);
     t.error = readError(e);
   }
 

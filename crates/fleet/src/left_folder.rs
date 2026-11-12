@@ -120,7 +120,7 @@ fn why_kept(folder: &str, roots: &[&str], others: &[String]) -> Option<String> {
 
 /// `path` without the Windows prefix, with `/` between parts and no trailing one, lower case on
 /// Windows, where case does not tell folders apart.
-fn normal(path: &str) -> String {
+pub(crate) fn normal(path: &str) -> String {
     let plain = plain_path(path);
     let windows = plain.contains('\\') || plain.as_bytes().get(1) == Some(&b':');
     let slashed = plain.replace('\\', "/");
@@ -133,7 +133,7 @@ fn normal(path: &str) -> String {
 }
 
 /// Whether `path` is `folder` or lies in it.
-fn within(path: &str, folder: &str) -> bool {
+pub(crate) fn within(path: &str, folder: &str) -> bool {
     path == folder
         || path
             .strip_prefix(folder)

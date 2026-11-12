@@ -17,7 +17,7 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// The most of a file the text view shows.
 const TEXT_CAP: u32 = 512 * 1024;
@@ -233,7 +233,7 @@ pub async fn agent_tree_save(
         }
     }
 
-    let to = free_name(&app.path().download_dir()?, &file_name(&path));
+    let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&path));
     fs::write(&to, &data).map_err(anyhow::Error::from)?;
     Ok(to)
 }
@@ -332,7 +332,7 @@ pub async fn agent_tree_save_many(
         return Err(DesktopError::BadRequest("Invalid selection path".into()));
     }
 
-    let to = free_name(&app.path().download_dir()?, "Files");
+    let to = free_name(&crate::platform::saves_dir(&app)?, "Files");
     fs::create_dir(&to).map_err(anyhow::Error::from)?;
     let selected: HashSet<_> = paths.iter().cloned().collect();
     let mut queue: VecDeque<String> = paths

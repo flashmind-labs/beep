@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, imageLines, linkImagePaths, markWarnings, parseTool, subagent, tailLines } from "../src/agents/agentlog.ts";
+import { answeredQuestions, imageLines, linkCodeFiles, linkImagePaths, markWarnings, parseTool, subagent, tailLines } from "../src/agents/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -87,4 +87,11 @@ test("image files a reply names become links, numbered as first named", () => {
 
 test("a paragraph starting Warning: is marked, others are not", () => {
   assert.equal(markWarnings("<p>Warning: slow</p><p>No Warning: here</p>"), '<p class="agwarn">Warning: slow</p><p>No Warning: here</p>');
+});
+
+test("inline code naming a file becomes a file reference", () => {
+  assert.equal(
+    linkCodeFiles("<p>See <code>src/a.rs:12</code>, <code>self.mcp</code>.</p><pre><code>src/b.rs</code></pre>"),
+    '<p>See <code class="fref" data-file="src/a.rs:12" role="link" tabindex="0">src/a.rs:12</code>, <code>self.mcp</code>.</p><pre><code>src/b.rs</code></pre>',
+  );
 });

@@ -128,7 +128,7 @@ body.cbody.mb-home.mobile
                     span "example/widget · build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
               div.bd-lane
                 h4 "Ready to review"

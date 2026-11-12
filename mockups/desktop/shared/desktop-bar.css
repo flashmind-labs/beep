@@ -57,9 +57,9 @@
 .dbody .dcoderlog .dcoderen.tool.row .tt { background: none; border: 0; border-radius: 0; padding: 0 }
 .dbar .ag-queue + .dhints { margin-top: 8px }
 .dhost { padding: 0 5px; border-radius: 4px; background: var(--d-elev); border: 1px solid var(--d-border); color: var(--d-muted); font-size: 11.5px }
-/* Spinners show work in progress, so they still turn. */
+/* A spinner turns while the user waits on an action; an agent's own work shows the still running dot. */
 .dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--d-border); border-top-color: var(--d-emerald); animation: spin .8s linear infinite }
-.drun { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--d-border); border-top-color: var(--d-emerald); animation: spin .8s linear infinite }
+.drun { display: inline-block; flex: none; width: 10px; height: 10px; box-sizing: border-box; border-radius: 50%; border: 2.5px solid color-mix(in srgb, var(--d-emerald) 30%, transparent); background: var(--d-emerald); background-clip: padding-box }
 .dok { color: var(--d-emerald); display: grid }
 .caret { display: inline-block; width: 2px; height: 16px; margin-left: 1px; background: var(--d-emerald); vertical-align: -3px; animation: none}
 @keyframes blink { 50% { opacity: 0 } }

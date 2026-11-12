@@ -27,7 +27,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 /// A machine as the bar shows it.
 #[derive(Debug, Serialize)]
@@ -352,7 +352,7 @@ pub async fn machine_log(fleet: Machines<'_>, id: String) -> Result<String> {
 #[tauri::command]
 pub fn save_machine_log(app: AppHandle, name: String, text: String) -> Result<PathBuf> {
     let to = free_name(
-        &app.path().download_dir()?,
+        &crate::platform::saves_dir(&app)?,
         &file_name(&format!("{name}.log")),
     );
     fs::write(&to, text).map_err(anyhow::Error::from)?;

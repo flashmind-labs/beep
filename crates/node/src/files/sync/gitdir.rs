@@ -624,12 +624,17 @@ impl Repo {
         Ok(refs)
     }
 
-    /// The commit HEAD is at, if it is at one.
+    /// The commit HEAD is at, if it is at one. Git is asked again only once
+    /// `HEAD` or the ref it names changes.
     pub(super) fn head(&self) -> Option<Oid> {
-        let output = self
-            .run(&["rev-parse", "-q", "--verify", "HEAD^{commit}"])
-            .ok()?;
-        String::from_utf8_lossy(&output.stdout).trim().parse().ok()
+        crate::agents::found::head(&self.root, || {
+            let output = self
+                .run(&["rev-parse", "-q", "--verify", "HEAD^{commit}"])
+                .ok()?;
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        })?
+        .parse()
+        .ok()
     }
 
     /// The ref HEAD names, unless it is detached.

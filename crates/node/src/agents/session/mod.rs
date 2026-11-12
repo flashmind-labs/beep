@@ -384,7 +384,10 @@ impl Session {
             stop_within,
             running: HashSet::new(),
             brief: brief.map(Cow::into_owned),
-            standing: actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
+            standing: actor::joined(
+                actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
+                mcp.is_some().then_some(super::mcp::CHAT),
+            ),
             mcp_servers: mcp.into_iter().collect(),
             resume,
             earlier,

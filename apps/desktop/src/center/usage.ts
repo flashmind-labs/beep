@@ -94,18 +94,25 @@ export function planUsed(plan: { windows: Pick<UsageWindow, "used_percent">[] })
   return Math.max(...plan.windows.map(windowUsed));
 }
 
-/// One harness in the pill: the share of its binding window, the one most used.
+/// One item in the pill: a harness's binding window, the one most used, or
+/// one of its model limits, such as Fable's weekly window.
 export interface PillPlan {
   agent: string;
+  /// The model a limit applies to; null for the plan as a whole.
+  model: string | null;
   used: number;
   window: string;
 }
 
-/// Each plan with windows, as the pill shows it.
+/// Each plan with windows, as the pill shows it: the plan's binding window,
+/// then each model limit used past 1%.
 export function pillPlans(limits: PlanLimits[]): PillPlan[] {
   return limits.flatMap(plan => {
-    const binding = plan.windows.reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
-    return binding ? [{ agent: plan.agent, used: windowUsed(binding), window: windowName(binding) }] : [];
+    const binding = plan.windows.filter(w => !w.scope)
+      .reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
+    const models = plan.windows.filter(w => w.scope && windowUsed(w) > 1)
+      .map(w => ({ agent: plan.agent, model: w.scope, used: windowUsed(w), window: windowName(w) }));
+    return binding ? [{ agent: plan.agent, model: null, used: windowUsed(binding), window: windowName(binding) }, ...models] : models;
   });
 }
 

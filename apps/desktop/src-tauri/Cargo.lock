@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "beep-desktop"
-version = "0.8.15"
+version = "0.8.18"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -481,6 +481,7 @@ dependencies = [
  "futures",
  "image",
  "iroh",
+ "iroh-blobs",
  "iroh-tickets",
  "log",
  "mac-notification-sys",
@@ -586,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.6.11"
+version = "0.6.14"
 dependencies = [
  "agent-client-protocol",
  "anyhow",

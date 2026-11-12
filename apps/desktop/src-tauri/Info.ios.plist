@@ -4,6 +4,11 @@
 <dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan a pairing code</string>
+	<!-- Saved files go to Documents; these show it in the Files app. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<!-- The window only gets its size once it belongs to a scene: without this
 	     manifest iOS 26 shows the app's window at zero size. -->
 	<key>UIApplicationSceneManifest</key>

@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.6.11"
+version = "0.6.14"
 edition = "2024"
 rust-version = "1.99"
 publish = false

@@ -102,7 +102,7 @@ body.cbody.mb-full.mobile
                     span "example/widget · build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
                 div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                   b "Second notification"
@@ -112,7 +112,7 @@ body.cbody.mb-full.mobile
                     span "example/widget · build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
               div.bd-lane
                 h4 "Ready to review"
@@ -190,17 +190,14 @@ body.cbody.mb-full.mobile
                           div.agspace [hidden] style(height)
                       button#agjump.dagjump [hidden] "Jump to latest"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                    div.agrail
-                      div.th style(height,top)
-                      button.tk [aria-label="Jump to your message: The login page redirects to a blank page after sign in. Find out why and fix it." type="button"] style(top)
-                      button.tk [aria-label="Jump to your message: Also keep the query string." type="button"] style(top)
+                    div.agrail.off
                   div#agmovebox
                   div#agplan
                   div.ag-work
                     div.ag-worklist
                       div#agtasks
                         button.ag-tasks [title="Show them in the Running tab" type="button"]
-                          span.dspin style(animation-delay)
+                          span.drun
                           span "3 commands running"
                       div [data-agent-queue-slot="true"] style(display)
                         div#agqueue.ag-queue
@@ -229,7 +226,7 @@ body.cbody.mb-full.mobile
                       svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     input [hidden multiple type="file"] value=""
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="" (focused)
+                    textarea#agmsg.cx-field [autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value=""
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"] "Model unknown"
@@ -241,8 +238,6 @@ body.cbody.mb-full.mobile
                     button#agsend.dbtn [aria-label="Send"]
                       svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
                     div [data-agent-menu-slot="true"] style(display)
-                    button.mb-kbdhide [aria-label="Hide the keyboard" type="button"]
-                      svg [aria-hidden="true" fill="none" height="20" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="20"]
                   div#agpickm
                   div.agkeys
                     div.dhints.slim

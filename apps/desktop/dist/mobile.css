@@ -136,7 +136,10 @@ body.mobile .cc-set-scrim, body.mobile .cc-scrim { padding-left: env(safe-area-i
 body.mobile .cc-mt { overflow-x: auto }
 body.mobile .dcoderen.agent.md :is(th, td) { min-width: 9em }
 body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
-body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot { display: none }
+body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot, body.mobile .agpacts .hint { display: none }
+/* Time filters keep each label on one line; the row scrolls when it runs out. */
+body.mobile .pj-ctl .seg { min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none }
+body.mobile .pj-ctl .dbtn { flex: none; white-space: nowrap; padding: 0 8px }
 
 body.mobile:not(.mb-home) #usage { display: none }
 /* Home's usage pill keeps to plan shares when there are any; the popover has the rest. */
@@ -219,3 +222,21 @@ body.mobile .agpane .agphead :is(.agtabs, .agaddterm, [data-pact]) { display: no
 body.mobile .bd-lanes { grid-template-columns: minmax(0, 1fr) }
 body.mobile .bd-lane:has(> .bd-empty) { display: none }
 body.mobile .agrail { display: none }
+
+/* Landscape on a phone: the tabs are a rail on the left, the top bar and a session's head are
+   one short line, and the board's lanes sit side by side, so pages keep the little height
+   there is. */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.mobile .cwin { flex-direction: row }
+  body.mobile .cc-main { min-width: 0; min-height: 0; height: 100% }
+  body.mobile .mb-tabs { order: -1; width: 72px; display: flex; flex-direction: column; justify-content: center; border-top: 0; border-right: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom) }
+  body.mobile .mb-tabs button { flex: 1 1 0; max-height: 60px; min-height: 44px }
+  body.mobile .cc-top { min-height: 40px; padding-top: env(safe-area-inset-top); padding-bottom: 0 }
+  body.mobile :is(.mb-back, .nt-bell) { height: 40px }
+  body.mobile .cc-view { padding-top: 10px; gap: 10px }
+  body.mobile .bd-lanes { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) }
+  body.mobile .dhead { flex-wrap: nowrap; padding-top: 4px; padding-bottom: 4px }
+  body.mobile .dhead #agtitle { flex: 1 1 auto }
+  body.mobile .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse) { flex: 0 1 auto; min-width: 0 }
+  body.mobile .dinput textarea { max-height: 72px }
+}

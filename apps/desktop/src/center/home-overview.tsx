@@ -2,7 +2,7 @@ import { visibleRunning } from "../agents/closing.ts";
 import { closingNote } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
-import { byRecent, runningKey, runningLine, runningWhen, type RunningAgent } from "../agents/running-state.ts";
+import { byRecent, projectOf, runningKey, runningLine, runningWhen, type RunningAgent } from "../agents/running-state.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
 import { endedToday, laneOf } from "./lanes-state.ts";
@@ -14,12 +14,14 @@ import { syncProjects } from "../project/syncpage.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { type HomeView, needsLine } from "./home-state.ts";
 import { homeSessions, openAsking } from "./home.ts";
-import { itemChips, newestFirst, waitsOnYou } from "./openitems-state.ts";
+import { itemChips, newestFirst, projectsWithOpen, reviewStart, waitsOnYou } from "./openitems-state.ts";
 import { openUrl } from "./openitems.ts";
+import { projectRows } from "./sidebar.ts";
 import { state } from "./state.ts";
 import { go } from "./views.ts";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
+import { isMobile } from "../ui/platform.ts";
 import { Section } from "../ui/kit.tsx";
 
 /// What a running row says at its end: a move or a close, that it asks, or since when.
@@ -29,9 +31,12 @@ function runningStatus(row: RunningAgent, home: HomeView) {
   const working = ["working", "running", "starting"].includes(row.status);
   // Shown as last seen until its machine answers.
   const waiting = !!home.machines?.some(m => m.id === row.machine_id && m.connecting);
-  const status = moving ? <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span> : closing || (row.status === "asking" ? <span className="chip wait">needs you</span> : working ? <span className="cc-running"><span className="dspin" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
+  const status = moving ? <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span> : closing || (row.status === "asking" ? <span className="chip wait">needs you</span> : working ? <span className="cc-running"><span className="drun" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
   return { foot: waiting ? <span className="cc-wait">connecting</span> : status, waiting, why: moving?.why ?? null };
 }
+
+/// The project a session works in: the imported one that holds its folder.
+const sessionProject = (s: { machine_id: string; cwd: string }, home: HomeView) => projectOf(s, home.projects || [])?.name ?? null;
 
 /// What waits on the user: agents' questions, pull requests, sync conflicts.
 function needsCards(home: HomeView): BoardCard[] {
@@ -40,28 +45,35 @@ function needsCards(home: HomeView): BoardCard[] {
   for (const need of home.needs_you) {
     const details = needsLine(need);
     const open = () => openAsking(need);
+    const asks = home.running?.find(row => row.machine_id === need.machine_id && row.id === need.session);
     cards.push({
+      project: asks ? sessionProject(asks, home) : null,
       key: runningKey({ machine_id: need.machine_id, id: need.session }), lane: "needs", session: true,
       lead: <HarnessIcon agent={need.agent} />, title: details.title, sub: details.sub, foot: null,
-      action: { label: details.button, primary: true, run: open }, dim: false, hint: null, open, menu: null,
+      action: { kind: "run", label: details.button, primary: true, run: open }, dim: false, hint: null, open, menu: null,
     });
   }
 
+  const repos = new Map(projectsWithOpen(state.git, projectRows() || []).map(repo => [repo.key, repo]));
+
   for (const item of (state.git?.items || []).filter(waitsOnYou).sort(newestFirst)) {
     const open = () => openUrl(item.url);
-    cards.push({ key: item.url, lane: "needs", session: false, lead: <span style={{ display: "contents" }}><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>,
+    const project = repos.get(`${item.host} ${item.repo}`)?.project ?? null;
+    // A review can be read on the host or handed to an agent.
+    const review = () => { go("pane", { agentnew: reviewStart(item, project, home.machines?.filter(m => m.can_host !== false)) }); };
+    cards.push({ key: item.url, lane: "needs", project: project?.name ?? item.repo, session: false, lead: <span style={{ display: "contents" }}><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>,
       title: `#${item.number} ${item.title}`, sub: [item.repo, itemChips(item).map(c => c.text).join(", ")].filter(Boolean).join(" · "), foot: null,
-      action: { label: item.review_requested ? "Review" : "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
+      action: item.review_requested ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
   }
 
+  // A project's conflicts share one card: the Sync page lists them.
   for (const project of syncProjects()) {
-    const detail = fsync.detail(project);
-
-    for (const conflict of conflictList(detail)) {
-      cards.push({ key: `${project}:${conflict.path}`, lane: "needs", session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
-        title: conflict.path, sub: conflictSub(project, conflict, detail?.machines ?? []), foot: null,
-        action: { label: "Resolve", primary: false, run: () => go("sync") }, dim: false, hint: conflict.path, open: () => go("sync"), menu: null });
-    }
+    const detail = fsync.detail(project), conflicts = conflictList(detail), first = conflicts[0];
+    if (!first) continue;
+    const one = conflicts.length === 1;
+    cards.push({ key: `${project}:conflicts`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
+      title: one ? first.path : `${conflicts.length} files have two copies`, sub: one ? conflictSub(project, first, detail?.machines ?? []) : project, foot: null,
+      action: { kind: "run", label: "Resolve", primary: false, run: () => go("sync") }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open: () => go("sync"), menu: null });
   }
 
   return cards;
@@ -73,7 +85,7 @@ function runningCards(home: HomeView): BoardCard[] {
   return byRecent(visibleRunning(home.running)).map(row => {
     const { title, sub } = runningLineAt(row, projects);
     const status = runningStatus(row, home);
-    return { key: runningKey(row), lane: laneOf(row.status), session: true, lead: <HarnessIcon agent={row.agent} />,
+    return { key: runningKey(row), lane: laneOf(row.status), project: sessionProject(row, home), session: true, lead: <HarnessIcon agent={row.agent} />,
       title, sub, foot: status.foot, action: null, dim: status.waiting, hint: status.why,
       open: () => go("pane", { agent: row }),
       menu: event => { void sessionMenu(event, row, s => go("pane", { agent: s })); } };
@@ -96,7 +108,7 @@ function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[]): B
     const key = runningKey(session);
     if (shown.has(key)) continue;
     const { title, sub } = runningLine(session, projects);
-    cards.push({ key, lane: "done", session: true, lead: <HarnessIcon agent={session.agent} />, title, sub, foot: formatAgo(session.last_activity, "since"),
+    cards.push({ key, lane: "done", project: sessionProject(session, home), session: true, lead: <HarnessIcon agent={session.agent} />, title, sub, foot: formatAgo(session.last_activity, "since"),
       action: null, dim: false, hint: null, open: () => go("pane", { agent: { kind: "agent", ...session } }), menu: null });
   }
 
@@ -111,9 +123,11 @@ export function HomeOverview({ home }: { home: HomeView }) {
   const needs = needsCards(home), running = runningCards(home);
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
   const empty = !cards.length;
+  const imported = new Set((home.projects || []).map(project => project.name));
+  const rows = (project: string) => imported.has(project) ? () => { go("projects", { project }); } : null;
   return <>
     {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{needs.map(card => <CardRow key={card.key} card={card}/>)}</Section>
-      : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/></div>}
+      : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows}/></div>}
     {list && !!running.length && <Section id="sec-running" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "agents")}>Running</button>} count={running.length}>{running.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
     {empty && <Empty home={home} />}
   </>;

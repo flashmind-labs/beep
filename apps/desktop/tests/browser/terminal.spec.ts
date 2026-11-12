@@ -152,7 +152,9 @@ test("the screen fits its element and draws text, colours and images, placeholde
   const loaded = await page.evaluate(async () => (await document.fonts.load("12px 'Symbols Nerd Font Mono'", "\u{f07b}")).map(face => face.status));
   expect(loaded).toEqual(["loaded"]);
 
-  // The theme's foreground draws the text.
+  // The theme's foreground draws the text. A full line, since thin glyphs leave few pixels
+  // at exactly that colour.
+  await page.evaluate(() => window.term.write("the quick brown fox jumps over the lazy dog\r\n"));
   await expect.poll(() => pixels(page, [0xcf, 0xe3, 0xd8])).toBeGreaterThan(20);
 });
 
@@ -168,6 +170,41 @@ test("a screen hidden and shown again draws again", async ({ page }) => {
   await page.evaluate(() => window.term.write("\x1b[48;2;200;30;30m          \x1b[0m\r\n"));
 
   await expect.poll(() => pixels(page, red)).toBeGreaterThan(500);
+});
+
+test("a pane that narrows narrows the grid", async ({ page }) => {
+  await open(page);
+  // As in the app: the screen fills a flex item in a row of panes.
+  await page.evaluate(() => {
+    const row = document.createElement("div");
+    row.style.cssText = "display: flex; width: 800px; height: 400px";
+    const pane = document.createElement("div");
+    pane.style.cssText = "flex: 1; display: flex; flex-direction: column";
+    const el = window.term.screen.el;
+    el.style.cssText = "flex: 1";
+    pane.append(el);
+    row.append(pane);
+    document.body.append(row);
+  });
+  await expect.poll(() => page.evaluate(() => window.term.screen.size().cols)).toBeGreaterThan(80);
+  const wide = await page.evaluate(() => window.term.screen.size().cols);
+
+  await page.evaluate(() => { (window.term.screen.el.parentElement?.parentElement as HTMLElement).style.width = "400px"; });
+  await expect.poll(() => page.evaluate(() => window.term.screen.size().cols)).toBeLessThan(wide / 2 + 2);
+  const fits = await page.evaluate(() => window.term.screen.el.querySelector("canvas")!.getBoundingClientRect().right <= window.term.screen.el.getBoundingClientRect().right);
+  expect(fits).toBe(true);
+});
+
+test("a steady cursor stays drawn", async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => { window.term.screen.focus(); window.term.write("\x1b[2 q"); });
+  const cursor: [number, number, number] = [0x6f, 0xcf, 0x97];
+
+  // Across several blink periods.
+  for (let i = 0; i < 6; i++) {
+    expect(await pixels(page, cursor)).toBeGreaterThan(40);
+    await page.waitForTimeout(200);
+  }
 });
 
 test("keys go out encoded, apart from the terminal's replies", async ({ page }) => {

@@ -35,6 +35,7 @@ export async function closeSession(s: Ref & { agent: string }) {
   try {
     await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: "close" });
     forgetView(s.machine_id, s.id);
+    void invoke("agent_files_forget", { session: s.id }).catch(() => {});
   } catch (e) {
     closings.refused(s);
     changed();

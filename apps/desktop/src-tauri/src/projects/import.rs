@@ -278,24 +278,36 @@ pub async fn pick_folder(_start: Option<String>) -> Result<Option<String>> {
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option<String>> {
+    let start = start.filter(|start| !start.is_empty()).map(PathBuf::from);
+    let folder = pick(&app, "Choose a folder for the project", start).await?;
+    folder.map(folder_text).transpose()
+}
+
+/// The system folder picker titled `title`, opened at `start`; `None`
+/// when the user cancels.
+#[cfg(desktop)]
+pub(crate) async fn pick(
+    app: &AppHandle,
+    title: &str,
+    start: Option<PathBuf>,
+) -> Result<Option<FilePath>> {
     let (picked, chosen) = oneshot::channel();
     let mut dialog = app
         .dialog()
         .file()
-        .set_title("Choose a folder for the project")
+        .set_title(title)
         .set_can_create_directories(true);
-    if let Some(start) = start.filter(|start| !start.is_empty()) {
-        dialog = dialog.set_directory(PathBuf::from(start));
+    if let Some(start) = start {
+        dialog = dialog.set_directory(start);
     }
 
     dialog.pick_folder(move |folder| {
         // The sheet may have closed meanwhile; then nobody waits for it.
         let _ = picked.send(folder);
     });
-    let folder = chosen
+    chosen
         .await
-        .map_err(|_| DesktopError::BadRequest("The folder picker closed.".into()))?;
-    folder.map(folder_text).transpose()
+        .map_err(|_| DesktopError::BadRequest("The folder picker closed.".into()))
 }
 
 /// A picked folder as the path the machines take.

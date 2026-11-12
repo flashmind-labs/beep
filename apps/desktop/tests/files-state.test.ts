@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  MAX_UPLOAD, type Listing, type TreeEntry, atEdge, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, unreadFolders, uploadParts,
+  MAX_UPLOAD, type Listing, type TreeEntry, atEdge, codeFile, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, unreadFolders, uploadParts,
   uploadRefusal, withMentions,
 } from "../src/agentpane/files-state.ts";
 import { linkedPath } from "../src/agentpane/media-state.ts";
@@ -59,10 +59,19 @@ test("a filter reads the folders nothing read yet, not what git ignores", () => 
 });
 
 test("a link to a file gives its path, a web link none", () => {
-  assert.equal(linkedPath("/srv/app/my%20notes.md#L3"), "/srv/app/my notes.md");
-  assert.equal(linkedPath("src/main.rs:12"), "src/main.rs");
+  assert.deepEqual(linkedPath("/srv/app/my%20notes.md#L3"), { path: "/srv/app/my notes.md", line: 3 });
+  assert.deepEqual(linkedPath("src/main.rs:12:4"), { path: "src/main.rs", line: 12 });
+  assert.deepEqual(linkedPath("README.md"), { path: "README.md", line: null });
+  assert.deepEqual(linkedPath("main.rs:42"), { path: "main.rs", line: 42 });
   assert.equal(linkedPath("https://example.com/a.md"), null);
   assert.equal(linkedPath("#top"), null);
+});
+
+test("inline code names a file by its folder, line or known extension", () => {
+  assert.deepEqual(codeFile("src/agents/brief.rs:24"), { path: "src/agents/brief.rs", line: 24 });
+  assert.deepEqual(codeFile("justfile.toml"), { path: "justfile.toml", line: null });
+  assert.deepEqual(codeFile("notes.weird:3"), { path: "notes.weird", line: 3 });
+  for (const text of ["self.mcp", "origin/main", "cargo test", "https://x.dev/a.rs", "v1.2"]) assert.equal(codeFile(text), null, text);
 });
 
 test("mentions go after the text, quoted with a space", () => {

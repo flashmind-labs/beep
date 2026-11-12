@@ -28,16 +28,18 @@ export class StartFiles {
       const { file } = entry;
 
       if (entry.uploaded?.machine !== machine || entry.uploaded.root !== root) {
-        let path = joinPath(".beep/uploads", file.name || "file");
+        const name = file.name || "file";
+        let path = joinPath(".beep/uploads", name);
+        progress(`Uploading ${name}: 0%`);
 
         for (const part of uploadParts(file.size)) {
-          progress(`Uploading ${file.name || "file"}: ${file.size ? Math.round(part.offset / file.size * 100) : 0}%`);
           let data: string;
 
           try { data = await fileBase64(file.slice(part.offset, part.offset + part.len)); }
           catch { throw new Error(`${file.name || "That file"} could not be read; drop files rather than folders`); }
 
           path = await invoke<string>("agent_tree_upload", { machineId: machine, root, path, offset: part.offset, size: file.size, data, attachment: null });
+          progress(`Uploading ${name}: ${file.size ? Math.round((part.offset + part.len) / file.size * 100) : 100}%`);
         }
 
         entry.uploaded = { machine, root, path: joinPath(root, path) };

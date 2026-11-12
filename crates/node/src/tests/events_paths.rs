@@ -141,3 +141,16 @@ fn git_internals_do_not_touch_a_checkout_root_but_its_watched_refs_do() {
     let head = root.join(".git/HEAD");
     assert!(affects(&head, &head));
 }
+
+#[test]
+fn replacing_a_file_in_a_watched_checkout_keeps_its_watch() {
+    let checkout = PathBuf::from("/srv/project");
+    let index = checkout.join(".git/index");
+    let linked = PathBuf::from("/srv/elsewhere/.git/worktrees/x/index");
+    let roots = vec![checkout.clone(), index.clone(), linked.clone()];
+
+    assert!(!loses_watch(&roots, &index));
+    assert!(loses_watch(&roots, &linked));
+    assert!(loses_watch(&roots, &checkout));
+    assert!(loses_watch(&roots, Path::new("/srv")));
+}

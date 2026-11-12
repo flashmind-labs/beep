@@ -27,10 +27,10 @@ import { pairing } from "./pairing.ts";
 import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.ts";
-import { currentLocation, windowProject, go, goHistory, setWindowProject, goTo } from "./views.ts";
+import { currentLocation, windowProject, go, goHistory, hasHistory, setWindowProject, goTo } from "./views.ts";
 import { reloadGroup, paneOn, openProjects, openProjectWindow, addProject } from "./sidebar.ts";
 import { escUp } from "./escup-state.ts";
-import { setHeroCard, withMove } from "../ui/motion.ts";
+import { setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { AG } from "../agents/agents.ts";
@@ -60,6 +60,7 @@ initConversationSwitcher({
 // ---------- Keys ----------
 
 initMobile();
+trackpadSwipe({ has: to => !dialogOpen() && hasHistory(to === "forward"), go: to => { goHistory(to === "forward"); } });
 mountUsage(refresh => invoke<UsageView | null>("usage_get", { refresh }));
 mountNotices();
 

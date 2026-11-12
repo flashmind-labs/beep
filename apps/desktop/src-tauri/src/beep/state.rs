@@ -59,6 +59,9 @@ pub struct Saved {
     /// Page zoom of every window, ⌘= ⌘- ⌘0.
     #[serde(default)]
     pub zoom: Zoom,
+    /// The folder saves go to, picked in Settings; Downloads without one.
+    #[serde(default)]
+    pub save_folder: Option<PathBuf>,
 }
 
 fn on() -> bool {
@@ -93,6 +96,7 @@ impl Default for Saved {
             mac_on: Some(true),
             agent_notices: true,
             zoom: Zoom::default(),
+            save_folder: None,
         }
     }
 }
@@ -164,6 +168,15 @@ impl Prefs {
 
     pub fn set_agent_notices(&self, on: bool) {
         self.update(|s| s.agent_notices = on);
+    }
+
+    /// The folder picked for saves, if any.
+    pub fn save_folder(&self) -> Option<PathBuf> {
+        self.saved().save_folder.clone()
+    }
+
+    pub fn set_save_folder(&self, folder: Option<PathBuf>) {
+        self.update(|s| s.save_folder = folder);
     }
 
     /// The page zoom of every window.

@@ -38,8 +38,7 @@ const DEFAULT_RUN_SECS: u64 = 600;
 pub(crate) struct Caller {
     /// The tasks the caller's jobs live in and can see.
     pub table: Table,
-    /// This device is a desktop: a node may not send it files or start
-    /// agents on it.
+    /// This device is a desktop: a node may not start agents on it.
     pub desktop_here: bool,
     /// Why a node's `RunOn` may not run here, or `None` when it may: the
     /// host lends this machine to no other device.
@@ -124,12 +123,6 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
             },
             Tool::JobStatus => job(args, false, caller.table).await,
             Tool::Cancel => job(args, true, caller.table).await,
-            // Writes outside a project the desktop's owner shares: a node may
-            // not send files to a desktop. Syncing is confined to a project
-            // this device already syncs, with the peers a desktop named.
-            Tool::SendFiles if caller.desktop_here => {
-                Err("This device is a desktop: another node may not send files to it.".to_owned())
-            }
             Tool::SyncProject => sync_project(args, &caller).await,
             Tool::SendFiles => receive_files(args, &caller).await,
             other => Err(format!("A node does not serve {other} for another node.")),

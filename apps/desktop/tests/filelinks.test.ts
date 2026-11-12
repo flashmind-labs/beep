@@ -2,6 +2,7 @@ import { answers, calls } from "./chat-dom-env.ts";
 import test, { afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { fileLinkMenu } from "../src/agents/filelinks.ts";
+import type { FileRef } from "../src/agentpane/media-state.ts";
 import { closeMenu } from "../src/ui/menu.ts";
 
 const folder = { machineId: "build-box-id", root: "/srv/project" };
@@ -15,13 +16,13 @@ beforeEach(() => {
 });
 afterEach(() => { closeMenu(); });
 
-function context(href: string, open: (path: string) => void = () => {}) {
+function context(href: string, open: (ref: FileRef) => void = () => {}) {
   const link = document.createElement("a");
   link.setAttribute("href", href);
   const code = document.createElement("code");
   link.append(code);
   const event = { target: code, clientX: 20, clientY: 30, preventDefault() {}, stopPropagation() {} } as unknown as MouseEvent;
-  fileLinkMenu(event, folder, open);
+  fileLinkMenu(event, folder, "session-1", open);
 }
 
 function click(label: string) {
@@ -51,12 +52,12 @@ test("absolute references, spaces, and source line suffixes resolve to a relativ
 
 test("Open in Beep works even when a file has no local copy", async () => {
   answers.local_file = null;
-  let opened = "";
-  context("mockups/index.html#L12", path => { opened = path; });
+  let opened: FileRef | null = null;
+  context("mockups/index.html#L12", ref => { opened = ref; });
   await settle();
   assert.deepEqual(labels(), ["Open in Beep", "Copy path", "Open in default app"]);
   click("Open in Beep");
-  assert.equal(opened, "mockups/index.html");
+  assert.deepEqual(opened, { path: "mockups/index.html", line: 12 });
 });
 
 test("web links and page anchors do not request local file actions", () => {
@@ -93,6 +94,6 @@ test("a remote file opens through the default app", async () => {
   click("Open in default app");
   await settle();
   assert.deepEqual(calls.find(c => c.cmd === "agent_file_open")?.args, {
-    machineId: folder.machineId, path: "/srv/project/mockups/index.html",
+    machineId: folder.machineId, path: "/srv/project/mockups/index.html", session: "session-1",
   });
 });

@@ -10,8 +10,8 @@ export type ComposerOpen = "pick" | "project" | "host" | "folder" | "base" | nul
 
 export interface StartComposerState {
   centered: boolean; busy: boolean; welcome: string;
-  /// The line under the field: an error or progress.
-  error: string; placeholder: string; invalid: boolean; dropping: boolean;
+  /// The line under the field: an error, else the start's progress.
+  error: string; progress: string; placeholder: string; invalid: boolean; dropping: boolean;
   sendDisabled: boolean; sendTitle: string | null;
   /// A stash restore holds the send button until it is done.
   stashLocked: boolean;
@@ -87,7 +87,7 @@ export function StartComposerView({ nodes, choices, projectPicker, externalChoic
         onKeyDown={event => { actions.keyDown?.(event.nativeEvent); if (event.currentTarget.readOnly || event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.defaultPrevented) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.form?.requestSubmit(); }} />
       <div className="row" ref={row}><span className="sp" /><button ref={refs.harness} id={id("agpillb")} className="pill" type="button" title="Harness, model and thinking" disabled={state.harnessDisabled} aria-expanded={expanded("pick")} onClick={actions.harness}>{state.harness}</button>{state.uploadPicker}<button id={id("aggo")} className={state.centered ? "agc-send" : "dbtn pri"} type="submit" disabled={state.sendDisabled || state.stashLocked} title={state.sendTitle ?? undefined} aria-label={sendLabel}>{state.centered ? state.busy ? <Spinner /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg> : <>{state.busy ? "Starting" : "Start"}<kbd>⏎</kbd></>}</button></div>
       <div className="pick" id={id("agpick")} ref={refs.pick}>{state.picker}</div>{state.under}<FieldMenu /></div>
-    <span className="cc-err" id={id("agerr")} role="status">{state.error}</span>
+    <span className={state.error ? "cc-err" : "cc-err cc-progress"} id={id("agerr")} role="status">{state.error || state.progress}</span>
     {state.notes}
     {state.footer}
     {createPortal(externalChoices ? state.choiceView : <>{projectPicker && <button ref={refs.project} id={id("agprojb")} className="pill" type="button" title={state.projectTitle} aria-expanded={expanded("project")} onClick={choice("project")}>{state.choiceContents?.project}</button>}<button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button><button ref={refs.folder} id={id("agfoldb")} className="pill" type="button" title={state.folderTitle ?? "The checkout, a new worktree, or an existing worktree"} hidden={state.folderHidden} aria-expanded={expanded("folder")} onClick={choice("folder")}>{state.choiceContents?.folder}</button><span className="choices">{state.extras}</span></>, choices)}

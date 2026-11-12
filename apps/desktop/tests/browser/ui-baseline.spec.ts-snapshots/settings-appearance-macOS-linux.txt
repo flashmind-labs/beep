@@ -85,15 +85,26 @@ body.cbody
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
           div#sec-needs
-            div.bd-lanes
-              div.bd-lane
+            div.bd-rows
+              span.hd
+              div.bd-lane.hd
                 h4 "Needs you"
                   span
-                div.bd-empty "Nothing here"
-              div.bd-lane
+              div.bd-lane.hd
                 h4
                   button [type="button"] "Working"
                   span "2"
+              div.bd-lane.hd
+                h4 "Ready to review"
+                  span
+              div.bd-lane.hd
+                h4
+                  button [type="button"] "Done today"
+                  span
+              b.pj [title="example/widget"]
+                button [type="button"] "example/widget"
+              div.bd-lane
+              div.bd-lane
                 div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                   b "First notification"
                   span.sub
@@ -102,7 +113,7 @@ body.cbody
                     span "example/widget · build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
                 div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                   b "Second notification"
@@ -112,17 +123,10 @@ body.cbody
                     span "example/widget · build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
               div.bd-lane
-                h4 "Ready to review"
-                  span
-                div.bd-empty "Nothing here"
               div.bd-lane
-                h4
-                  button [type="button"] "Done today"
-                  span
-                div.bd-empty "Nothing here"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]

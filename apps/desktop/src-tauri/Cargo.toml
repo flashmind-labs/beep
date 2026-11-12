@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.8.15"
+version = "0.8.18"
 edition = "2024"
 rust-version = "1.99"
 description = "Beep desktop: projects, coding agents and a quick-access tray bar"
@@ -39,6 +39,7 @@ beep-report = { path = "../../../crates/report" }
 futures = "0.3"
 iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
 iroh-tickets = "1"
+iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"] }
 log = "0.4"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 percent-encoding = "2"

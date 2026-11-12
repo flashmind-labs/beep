@@ -3,6 +3,7 @@ import { createDocumentScope } from "../ui/document-root.tsx";
 import { Viewer, ViewerNotice } from "./viewer-view.tsx";
 import { $, bar } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
+import { savedIn } from "../ui/platform.ts";
 
 /// A picture the viewer shows; one it `saves` can be saved and copied.
 export interface ViewerPic { url: string; saves?: boolean; caption?: string; name?: string }
@@ -73,11 +74,11 @@ export function viewerKeys(e: KeyboardEvent, cmd: boolean) {
   else if (cmd && key === "q") invoke("quit");
 }
 
-/// Saves a picture held as a data URL to Downloads and says where it went.
+/// Saves a picture held as a data URL to the save folder and says where it went.
 export async function saveUrl(url: string, name: string) {
   try {
     const path = await invoke<string>("save_picture", { name, url });
-    notice(`Saved ${path.split("/").pop()} to Downloads`, { path });
+    notice(`Saved ${path.split("/").pop()} to ${savedIn(path)}`, { path });
   } catch (e) {
     notice(`Could not save it. ${e}`, { bad: true });
   }

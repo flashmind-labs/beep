@@ -21,7 +21,7 @@ import { SubagentsView } from "./subagents-view.tsx";
 import { changesModel, leftChanges, placedChanges } from "./changes.ts";
 import { TextView } from "./text-view.tsx";
 import { ImageView } from "./image-view.tsx";
-import { ModelView, PdfView, PendingView, VideoView } from "./media-view.tsx";
+import { AudioView, ModelView, PdfView, PendingView, VideoView } from "./media-view.tsx";
 import { TermView } from "./term-footer.tsx";
 
 /// The session's shell: the conversation with the bottom dock under it, and the right dock.
@@ -114,7 +114,7 @@ const ChangesView = memo(function ChangesView({ hidden }: { hidden: boolean }) {
 });
 
 /// What an opened tab shows: a file as text, a terminal, a picture, a video,
-/// a PDF or a 3D model, or its load while it reads.
+/// audio, a PDF or a 3D model, or its load while it reads.
 const TabView = memo(function TabView({ tab, rev, hidden }: { tab: MediaTab; rev: number; hidden: boolean }) {
   const machine = P.session?.machine_id ?? null;
   if (tab.kind === "term" && tab.term && !tab.error) return <TermView tab={tab} term={tab.term} hidden={hidden} rev={rev} />;
@@ -123,6 +123,7 @@ const TabView = memo(function TabView({ tab, rev, hidden }: { tab: MediaTab; rev
     : tab.kind === "text" && tab.text ? <TextView tab={tab} text={tab.text} rev={rev} />
     : tab.kind === "image" ? <ImageView tab={tab} machine={machine} />
     : tab.kind === "video" ? <VideoView tab={tab} machine={machine} />
+    : tab.kind === "audio" ? <AudioView tab={tab} machine={machine} />
     : tab.kind === "pdf" ? <PdfView tab={tab} machine={machine} />
     : tab.bytes ? <ModelView tab={tab} bytes={tab.bytes} machine={machine} /> : <PendingView tab={tab} />}</div>;
 });

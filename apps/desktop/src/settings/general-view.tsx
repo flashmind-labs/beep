@@ -5,7 +5,7 @@ import type { MacSettings } from "./settings.ts";
 
 interface Props {
   settings: MacSettings; phone: boolean; busy: ReadonlySet<string>;
-  autostart(enabled: boolean): void; notices(enabled: boolean): void; shortcuts(): void; report(): void;
+  autostart(enabled: boolean): void; notices(enabled: boolean): void; chooseSaves(): void; useDownloads(): void; shortcuts(): void; report(): void;
 }
 function SyncPreference({ kind }: { kind: "skills" | "projects" }) {
   const store = kind === "skills" ? skillSync : projectSync;
@@ -19,6 +19,6 @@ export function GeneralView(p: Props) {
   const s = p.settings;
   return <>{!p.phone && <div className="dtoggle"><span><b>Launch at login</b><small>Keep Beep in the tray after a restart</small></span><button type="button" className="dswitch" role="switch" id="autostart" aria-label="Launch at login" aria-checked={s.autostart} disabled={p.busy.size > 0} onClick={() => p.autostart(!s.autostart)} /></div>}
     <div className="dtoggle"><span><b>Coding agent notifications</b><small>{s.agent_notices ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting"}</small></span><button type="button" className="dswitch" role="switch" id="agentNotices" aria-label="Coding agent notifications" aria-checked={s.agent_notices} disabled={p.busy.size > 0} onClick={() => p.notices(!s.agent_notices)} /></div>
-    <SyncPreference kind="skills" /><SyncPreference kind="projects" /><div className="dtoggle"><span><b>Keyboard shortcuts</b><small>Every shortcut, by where it works</small></span><button className="dbtn" id="openShortcuts" onClick={p.shortcuts}>Show…</button></div><div className="dtoggle"><span><b>Report a problem</b><small>Collect logs from your machines and send them to us</small></span><button className="dbtn" id="openReport" onClick={p.report}>Report…</button></div>
+    <SyncPreference kind="skills" /><SyncPreference kind="projects" />{!p.phone && <div className="dtoggle"><span><b>Save files to</b><small>{s.save_folder ?? "No folder"}</small></span><span>{s.save_folder_picked && <button className="dbtn quiet" id="useDownloads" disabled={p.busy.size > 0} onClick={p.useDownloads}>Use Downloads</button>}<button className="dbtn" id="chooseSaves" disabled={p.busy.size > 0} onClick={p.chooseSaves}>Choose…</button></span></div>}<div className="dtoggle"><span><b>Keyboard shortcuts</b><small>Every shortcut, by where it works</small></span><button className="dbtn" id="openShortcuts" onClick={p.shortcuts}>Show…</button></div><div className="dtoggle"><span><b>Report a problem</b><small>Collect logs from your machines and send them to us</small></span><button className="dbtn" id="openReport" onClick={p.report}>Report…</button></div>
   </>;
 }
