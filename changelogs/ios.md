@@ -11,6 +11,7 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: a connection to a machine that stops answering is dropped and dialed again after about 15 seconds instead of 30.
 - iOS: machines reconnect within seconds after the phone wakes instead of waiting out connections that died while it slept.
 - iOS: Projects no longer scrolls sideways when an open issue or pull request has many labels; the labels wrap under the title.
 - iOS: the project page has no blank band above its task field.
