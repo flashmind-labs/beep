@@ -312,7 +312,7 @@ export function missingMachine(p: Project, m: WhereRow) {
   const text = copied?.text || m.text || "", title = m.kind === "none" && m.checked_at ? `Checked ${formatAgo(m.checked_at, "since")}` : "";
   let action: { label: string; disabled: boolean; run(): void } | null = null;
   if (!state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
-    if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m, os: state.home?.machines?.find(x => x.id === m.id)?.env?.os, macId: state.mac?.id || null, added: () => { refresh(); loadWhere(p.name); } }) };
+    if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m, macId: state.mac?.id || null, added: () => { refresh(); loadWhere(p.name); } }) };
     else if (m.kind === "none" && m.copy && copied?.state !== "failed") action = { label: copied ? "Copying…" : "Copy here", disabled: !!copied, run: () => void copyHere(p, m, key) };
     else if (m.kind === "none" && p.url) { const url = p.url; action = { label: "Clone here", disabled: false, run: () => importSheet(repoFromRemote(url), m.id) }; }
   }

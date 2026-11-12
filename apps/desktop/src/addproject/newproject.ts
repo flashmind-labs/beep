@@ -8,7 +8,8 @@ import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { openMenu } from "../ui/menu.ts";
 import { cleanError } from "./importproject-state.ts";
-import { canCreate, pickHost, startForm, toggleMachine } from "./newproject-state.ts";
+import { canCreate, pickHost, projectFolders, startForm, toggleMachine } from "./newproject-state.ts";
+import { projectsIn } from "./importproject.ts";
 import type { Created, Forge, NewProjectForm } from "./newproject-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
@@ -35,6 +36,8 @@ let creating = false, error: string | null = null, created: Created | null = nul
 /// reports to no later one.
 let opening = 0;
 let view: ((content: ReactNode) => void) | null = null;
+/// Each machine's Projects in folder, by id, once read.
+const defaults = new Map<string, string>();
 
 const online = () => (opts.machines || []).filter(m => m.online);
 
@@ -48,9 +51,17 @@ export function openNewProject(options: NewProjectOptions = {}) {
   creating = false;
   error = null;
   created = null;
+  defaults.clear();
   ({ root, close, render: view } = openSheet("New project", "am-sheet ip-sheet np-sheet", { onClose: closed }));
   draw();
   const mine = opening;
+  for (const machine of online()) {
+    void projectsIn(machine.id).then(folder => {
+      if (mine !== opening || !root) return;
+      defaults.set(machine.id, folder);
+      draw();
+    });
+  }
   invoke<Forge[] | null>("project_forges")
     .then(got => {
       if (mine !== opening || !root) return;
@@ -81,7 +92,7 @@ async function submit() {
   const repository = form.host === null ? null : { host: form.host, owner: form.owner, private: form.isPrivate };
 
   try {
-    const made = await invoke<Created>("create_project", { name: form.name.trim(), repository, machineIds: form.machines });
+    const made = await invoke<Created>("create_project", { name: form.name.trim(), repository, machineIds: form.machines, folders: projectFolders(form, defaults) });
 
     if (mine !== opening || !root) {
       if (made.imported[0]) then?.(made.imported[0]);
@@ -108,7 +119,7 @@ function draw() {
   if (!view) return;
   const current = view;
   flushSync(() => current(createElement(NewProjectView, {
-    forges, loadError, form, machines: online(), creating, error, created, hostError: hostError(),
+    forges, loadError, form, machines: online(), defaults, creating, error, created, hostError: hostError(),
     name: (name: string) => setForm({ ...form, name }),
     host: (host: string | null) => setForm(pickHost(form, forges ?? [], host)),
     owner: (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -117,6 +128,7 @@ function draw() {
     },
     privacy: (isPrivate: boolean) => setForm({ ...form, isPrivate }),
     machine: (id: string) => setForm(toggleMachine(form, id)), submit: () => void submit(),
+    folder: (id: string, folder: string) => setForm({ ...form, folders: { ...form.folders, [id]: folder } }),
     back: () => { closeNewProject(); opts.onBack?.(); }, close: closeNewProject,
     clone: (url: string) => { closeNewProject(); opts.onClone?.(url); },
   })));

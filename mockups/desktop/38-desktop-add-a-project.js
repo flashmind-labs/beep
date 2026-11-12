@@ -221,7 +221,9 @@ D.dAddFolder = () => {
 VARIANTS.dAddFolder = [["This Mac, nothing chosen", "mac"], ["A checkout on this Mac", "checkout"], ["Not a checkout", "plain"], ["No origin remote", "noorigin"], ["Browsing build-box", "browse"], ["A checkout on build-box", "remote"], ["Adding", "adding"], ["Added", "done"]]
   .map(([l, k]) => [l, () => { S.d.af = k; S.d.pp = "list"; render(); }, () => (S.d.af || "mac") === k]);
 DESK_SCREENS.find(g => g.group === "Command center").items.push(["dAddFolder", "Add a folder", "AddFolderSheet"]);
-// A new project: where its repository lives and which machines get a checkout.
+// A new project: where its repository lives, which machines get a checkout, and the folder on each.
+// A machine's folder starts at its Projects in folder, takes typing with the folder menu, and the
+// project goes in <folder>/<owner>/<name>, or <folder>/<name> when local.
 D.dNewProject = () => {
   const v = S.d.np || "form", local = v === "local", typed = v !== "form";
   const hosts = [["GitHub", "acme"], ["forge.example.com", "acme"], ["Local only", ""]];
@@ -233,12 +235,13 @@ D.dNewProject = () => {
     <div class="am-sub">Create with a connected GitHub, Forgejo or Gitea account, or keep it local.</div>${label("Repository on")}${row(`<div class="dchips">${host}</div>`)}
     ${local ? "" : `${label("Owner and visibility")}${row(`<button class="dbtn" data-toast="Your account or an organization">acme</button><div class="dchips"><button class="dbtn dchip" aria-pressed="true" data-toast="Private">Private</button><button class="dbtn dchip" aria-pressed="false" data-toast="Public">Public</button></div>`)}`}
     ${label("Machines")}${row(`<div class="dchips">${chips}</div>`)}
-    ${typed ? `<div class="ip-to">${local ? "A git repository in ~/code/widget on build-box." : "Each machine clones it into ~/code/widget and keeps it in sync."}</div>` : ""}
+    ${label("Folders")}${(local ? [["build-box", "~/code"]] : [["build-box", "~/code"], ["studio", "~/Projects"]]).map(([m, f]) => row(`<span class="np-m">${m}</span><div class="ip-path" title="${f}">${f}</div><span class="np-to">/${typed ? local ? "widget" : "acme/widget" : local ? "my-project" : "acme/my-project"}</span>`)).join("")}
+    ${typed && !local ? `<div class="ip-to">Each machine clones it and keeps it in sync.</div>` : ""}
     ${v === "error" ? `<div style="font-size:13px;color:var(--d-err);margin-bottom:12px">acme/widget already exists on forge.example.com.</div>` : ""}
     <div class="ip-foot"><button class="dbtn pri"${typed ? ' data-dact="dset:np:creating"' : " disabled"} style="${typed ? "" : "opacity:.5"}">Create</button><button class="dbtn quiet" data-dgo="dAddProject">Back</button></div>`;
   const creating = `<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--d-muted)"><span class="dspin"></span>Creating acme/widget, then cloning onto build-box and studio…</div>`;
   const done = `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>acme/widget created</b></div>
-    <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">On build-box and studio in ~/code/widget</div><button class="dbtn pri" data-dact="dset:pp:one" data-dgo="dProjectsPage">Open project</button>`;
+    <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">On build-box in ~/code/acme/widget</div><div style="font-size:12.5px;color:var(--d-muted);margin:0 0 14px">On studio in ~/Projects/acme/widget</div><button class="dbtn pri" data-dact="dset:pp:one" data-dgo="dProjectsPage">Open project</button>`;
   const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:90px;justify-content:center;z-index:5">
     <div class="am-sheet ip-sheet np-sheet" role="dialog" aria-label="New project">
       <div style="display:flex;justify-content:space-between;margin-bottom:12px"><b style="font-size:15px">New project</b><kbd style="font-size:11px;opacity:.7">esc</kbd></div>${v === "creating" ? creating : v === "done" ? done : form}</div></div>`;
@@ -390,6 +393,8 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(["dWinTerminal",
 .mac .ap-sheet { width: min(640px, 88vw); overflow: auto; padding: 16px }
 .mac .ap-sheet, .mac .np-sheet, .mac .ap-sheet .ap-list, .mac .ap-sheet .ap-q,
 .mac .ap-sheet .dbtn, .mac .np-sheet .dbtn { border-radius: 4px }
+.np-sheet .np-m { width: 88px; flex: none; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.np-sheet .np-to { flex: none; max-width: 40%; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--d-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .ap-sheet .am-head { margin-bottom: 12px }
 .mac .ap-sheet .am-label { margin: 12px 0 8px }
 .mac .ap-ways { display: flex; flex-wrap: wrap; margin: 0; gap: 8px }

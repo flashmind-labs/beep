@@ -78,7 +78,18 @@ impl Desk {
     /// Clones or finds `job.repo` on its machine and records it, then adds the worktrees asked for.
     pub async fn import(&self, job: ImportJob<'_>) -> Result<ImportedProject> {
         let store = MeshStore::new(&self.mesh);
-        let (credentials, machines) = (self.opened(), self.machines().await);
+        let (credentials, mut machines) = (self.opened(), self.machines().await);
+        let placed = [job.folder, job.parent]
+            .into_iter()
+            .flatten()
+            .any(|folder| !folder.trim().is_empty());
+
+        if !placed {
+            let only = job.machine_id.map(|id| [id]);
+            self.learn_projects_in(&mut machines, only.as_ref().map(|id| &id[..]))
+                .await;
+        }
+
         let env = Env {
             store: &store,
             hosts: &self.hosts,
@@ -150,7 +161,20 @@ impl Desk {
     /// Makes the project `request` asks for.
     pub async fn create(&self, request: &CreateProject) -> Result<CreatedProject> {
         let store = MeshStore::new(&self.mesh);
-        let (credentials, machines) = (self.opened(), self.machines().await);
+        let (credentials, mut machines) = (self.opened(), self.machines().await);
+        let unplaced: Vec<&str> = request
+            .machine_ids
+            .iter()
+            .map(|id| id.trim())
+            .filter(|id| {
+                !request
+                    .folders
+                    .iter()
+                    .any(|f| f.machine_id == *id && !f.folder.trim().is_empty())
+            })
+            .collect();
+        self.learn_projects_in(&mut machines, Some(&unplaced)).await;
+
         let env = Env {
             store: &store,
             hosts: &self.hosts,

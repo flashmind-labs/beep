@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
-import { START, importRoot, folderUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
+import { START, folderUnder, projectUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
 import { awaitsView, foundFor, mergeProjects, plainPath, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
 import { overviewGroups, overviewSub } from "../src/project/overview-state.ts";
 import type { RunningAgent, RunningRow } from "../src/agents/running-state.ts";
@@ -203,9 +203,9 @@ test("Where it lives keeps the same order whatever order machines arrive in", ()
   assert.deepEqual(names(whereRows({ machines: [] }, [...a].reverse() as any, null)), ["build-box", "devbox", "Laptop"]);
 });
 
-test("the next import goes under the folder the last one went under", () => {
-  assert.equal(importRoot("/srv/projects/acme/widget", "acme/widget"), "/srv/projects");
-  assert.equal(importRoot("/srv/code/widget/", "acme/widget"), "/srv/code");
+test("a project goes under its org in the folder, a local one by name", () => {
+  assert.equal(projectUnder("~/", "acme/widget"), "~/acme/widget");
+  assert.equal(projectUnder("/srv/code", "local/notes"), "/srv/code/notes");
   assert.equal(folderUnder("/srv/projects/", "n0-computer/iroh"), "/srv/projects/n0-computer/iroh");
   assert.equal(folderUnder("/srv/projects", "https://git.example.com/acme/relay.git"), "/srv/projects/acme/relay");
   assert.equal(folderUnder("/srv/projects", "nope"), null);

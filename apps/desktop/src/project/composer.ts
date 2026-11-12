@@ -34,9 +34,8 @@ import { redrawProjects, pc } from "./sections.ts";
 import { loadWhere, projectPlaces } from "./loads.ts";
 import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
-import type { MachineFolder } from "./projects-state.ts";
-import { defaultParent } from "../addproject/importproject-state.ts";
-import { lastImport } from "../addproject/importproject.ts";
+import { projectUnder } from "../addproject/importproject-state.ts";
+import { projectsIn } from "../addproject/importproject.ts";
 import { refresh } from "../center/refresh.ts";
 import { startAttachments } from "../agents/start-attachments.ts";
 
@@ -522,11 +521,8 @@ async function addToMachine(project: string, m: AgentHost) {
   redrawProjects();
 
   try {
-    const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: m.machine_id, path: null });
-    const os = state.home?.machines?.find(x => x.id === m.machine_id)?.env?.os;
-    const parent = defaultParent(m.machine_id, listing.path, os, lastImport());
-    if (!parent) throw new Error(`${m.machine_name} has no folder to add ${shortName(project)} to.`);
-    await invoke<string>("project_add_to_machine", { project, machineId: m.machine_id, folder: `${parent}/${shortName(project)}` });
+    const folder = projectUnder(await projectsIn(m.machine_id), project);
+    await invoke<string>("project_add_to_machine", { project, machineId: m.machine_id, folder });
     refresh();
     loadWhere(project);
     await new Promise<void>(resolve => {

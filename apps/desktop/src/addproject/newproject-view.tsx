@@ -1,17 +1,18 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
-import { canCreate, creatingText, goesText, landedLines, shownName, type Created, type Forge, type NewProjectForm } from "./newproject-state.ts";
+import { canCreate, creatingText, folderOn, folderTail, goesText, landedLines, shownName, type Created, type Forge, type NewProjectForm } from "./newproject-state.ts";
 import { ChipToggle } from "../ui/kit.tsx";
+import { FolderField } from "./folderbrowser.tsx";
 
 interface Machine { id: string; name: string; online: boolean }
 interface Props {
-  forges: Forge[] | null | undefined; loadError: string | null; form: NewProjectForm; machines: readonly Machine[];
+  forges: Forge[] | null | undefined; loadError: string | null; form: NewProjectForm; machines: readonly Machine[]; defaults: ReadonlyMap<string, string>;
   creating: boolean; error: string | null; created: Created | null; hostError: string | null;
-  name(value: string): void; host(value: string | null): void; owner(event: MouseEvent<HTMLButtonElement>): void; privacy(value: boolean): void; machine(id: string): void;
+  name(value: string): void; host(value: string | null): void; owner(event: MouseEvent<HTMLButtonElement>): void; privacy(value: boolean): void; machine(id: string): void; folder(id: string, folder: string): void;
   submit(): void; back(): void; close(): void; clone(url: string): void;
 }
 function Fields(p: Props) {
   const input = useRef<HTMLInputElement>(null), list = p.forges ?? [], owners = list.find(f => f.host === p.form.host)?.owners ?? [];
-  const picked = p.form.machines.map(id => p.machines.find(machine => machine.id === id)?.name ?? id), note = goesText(p.form, picked);
+  const note = goesText(p.form), tail = folderTail(p.form);
   useLayoutEffect(() => { const field = input.current; if (field) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); } }, []);
   return <><div className="am-label">Name</div><div className="am-line"><input ref={input} className="ip-field" type="text" placeholder="my-project" spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label="Name" value={p.form.name} onChange={e => p.name(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); p.submit(); } }} /></div>
     <div className="am-sub">{list.length ? "Create with a connected GitHub, Forgejo or Gitea account, or keep it local." : "Connect GitHub or add a Forgejo/Gitea token in Settings > Credentials to create a remote repository."}</div>
@@ -19,6 +20,7 @@ function Fields(p: Props) {
     {p.loadError && <div className="am-msg bad">{p.loadError}</div>}{p.hostError && <div className="am-msg bad">{p.hostError}</div>}
     {p.form.host !== null && owners.length > 0 && <><div className="am-label">Owner and visibility</div><div className="am-line"><button type="button" className="dbtn" onClick={p.owner}>{p.form.owner}</button><div className="dchips"><ChipToggle label="Private" selected={p.form.isPrivate} onToggle={() => p.privacy(true)} /><ChipToggle label="Public" selected={!p.form.isPrivate} onToggle={() => p.privacy(false)} /></div></div></>}
     <div className="am-label">Machines</div>{p.machines.length ? <div className="am-line"><div className="dchips">{p.machines.map(machine => <ChipToggle key={machine.id} label={machine.name} selected={p.form.machines.includes(machine.id)} onToggle={() => p.machine(machine.id)} />)}</div></div> : <div className="am-sub">None of your machines is online.</div>}
+    {p.form.machines.length > 0 && <><div className="am-label">Folders</div>{p.form.machines.map(id => { const name = p.machines.find(machine => machine.id === id)?.name ?? id; return <div className="am-line np-folder" key={id}><span className="np-m" title={name}>{name}</span><FolderField machine={id} value={folderOn(p.form, id, p.defaults)} label={`Folder on ${name}`} placeholder="The machine's projects folder" disabled={false} change={folder => p.folder(id, folder)} enter={p.submit} /><span className="np-to" title={tail}>{tail}</span></div>; })}</>}
     {note && <div className="am-sub ip-to">{note}</div>}{p.error && <div className="am-msg bad">{p.error}</div>}<div className="am-line ip-foot"><button type="button" className="dbtn pri ip-go" disabled={!canCreate(p.form) || !!p.hostError} onClick={p.submit}>Create</button><button type="button" className="dbtn quiet" onClick={p.back}>Back</button></div></>;
 }
 function Done({ made, p }: { made: Created; p: Props }) {

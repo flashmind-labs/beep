@@ -1,19 +1,17 @@
-import { createElement, createRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ImportProjectView } from "./importproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
 // online machine (Auto lets the server pick), the parent folder a clone goes
-// under as <parent>/<org>/<repo> (the last one used there), then Import.
+// under as <parent>/<org>/<repo> (the machine's Projects in folder), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
-import { START, defaultParent as parentOn, importRoot, next, looksLikeRepo, folderUnder, type LastImport } from "./importproject-state.ts";
+import { START, next, looksLikeRepo, folderUnder, type LastImport } from "./importproject-state.ts";
 import type { ImportEvent } from "./importproject-state.ts";
 import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
 import { defaultPlaces, worktreesToAsk } from "../review/branchwork.ts";
 import type { BranchPicks, ImportFork, PreviewView } from "../review/branchwork.ts";
-import { NO_MENU, isOpen, menuKey, menuOf, splitTyped, suggest } from "./foldercomplete.ts";
-import type { FolderMenu } from "./foldercomplete.ts";
 import { reason } from "../ui/format.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 
@@ -41,22 +39,20 @@ const LAST_KEY = "beep.lastImport.v1";
 export function lastImport(): LastImport | null {
   try {
     const v = JSON.parse(localStorage.getItem(LAST_KEY) || "null");
-    return v && typeof v.machine === "string" ? { machine: v.machine, root: typeof v.root === "string" ? v.root : null } : null;
+    return v && typeof v.machine === "string" ? { machine: v.machine } : null;
   } catch {
     return null;
   }
 }
 
-/// Notes where `project` landed, for the next import.
+/// Notes the machine `project` landed on, for the next import.
 export function keepLastImport(project: ProjectRow) {
-  const last: LastImport = { machine: project.machine_id, root: importRoot(project.folder, project.name) };
+  const last: LastImport = { machine: project.machine_id };
   try { localStorage.setItem(LAST_KEY, JSON.stringify(last)); } catch { /* kept for this launch only */ }
 }
 
 let syncthing = syncthingImportChoice();
 let root: HTMLDivElement | null = null, state = START, machines: readonly Machine[] = [];
-/// The folder field, while the sheet shows it.
-const folderField = createRef<HTMLInputElement>();
 let macId: string | null = null, close: (() => void) | null = null, onDone: ((project: ProjectRow) => void) | null = null;
 /// The repository's checkouts and branches with work, once read: for the repo
 /// text `previewFor`, null from a server too old to say.
@@ -65,20 +61,15 @@ let previewTimer: ReturnType<typeof setTimeout> | undefined;
 /// The user's fork the import would clone, for the repo text `previewFor`:
 /// undefined while it is read, null for none or a server too old to say.
 let fork: ImportFork | null | undefined = undefined;
-/// The folder each machine starts in (workspace, else home), by id, once read.
+/// The folder each machine starts in, its home, by id, once read.
 const bases = new Map<string, string>();
+/// Each machine's Projects in folder, by id, once read.
+const roots = new Map<string, string>();
 /// A folder is being read, so the folder buttons wait.
 let reading = false;
 /// The parent field's text once the user types in it; null while it shows
 /// the folder chosen or the default parent.
 let folderText: string | null = null;
-/// The folders offered under the Folder field.
-let menu: FolderMenu = NO_MENU;
-/// The latest folder lookup: an answer to an older one is dropped.
-let lookup = 0;
-let lookupTimer: ReturnType<typeof setTimeout> | undefined;
-/// The folders read while the sheet is open, by machine and folder.
-const listed = new Map<string, readonly string[]>();
 let view: ((content: ReactNode) => void) | null = null, opening = 0;
 
 /// Opens the sheet. Choose… opens the folder picker, never the sheet itself.
@@ -96,7 +87,6 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   if (options.repo) state = { ...state, repo: options.repo };
   ({ root, close, render: view } = openSheet("Import a project", "am-sheet ip-sheet", {
     canClose: () => state.step !== "cloning",
-    onKey,
     onClose: closed,
   }));
   preview = undefined;
@@ -106,7 +96,7 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   picks = {};
   resetFolder();
   if (options.folder) folderText = options.folder;
-  listed.clear();
+  roots.clear();
   draw();
   learnBase();
   schedulePreview();
@@ -159,20 +149,9 @@ function closed() {
   preview = undefined;
   previewFor = "";
   resetFolder();
-  listed.clear();
   const then = onDone;
   onDone = null;
   if (done && then) then(done);
-}
-
-/// Esc first closes the folder menu, then the sheet, cloning or not.
-function onKey(e: KeyboardEvent) {
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  if (isOpen(menu)) setMenu(NO_MENU);
-  else closeImportProject();
-  return true;
 }
 
 function update(event: ImportEvent) {
@@ -214,17 +193,14 @@ function draw() {
   const current = view;
   const folder = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
   flushSync(() => current(createElement(ImportProjectView, {
-    state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), menu, syncChoice: syncthing, folderField,
+    state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), syncChoice: syncthing,
     edit: (repo: string) => { update({ type: "edit", repo }); schedulePreview(); },
     pick: (machine: string | null) => { update({ type: "pick", machine }); learnBase(); },
     submit: () => void submit(), close: closeImportProject, choose: () => void choose(), unchoose: () => update({ type: "unchoose" }),
     folderInput: (value: string) => {
       if (state.chosen) { resetFolder(); state = next(state, { type: "unchoose" }); void syncthing.follow(state.machine, null); }
-      folderText = value; draw(); lookFolders();
+      folderText = value; draw();
     },
-    folderKey: (event: ReactKeyboardEvent<HTMLInputElement>) => onFolderKey(event, event.currentTarget),
-    folderBlur: () => { lookup++; clearTimeout(lookupTimer); setMenu(NO_MENU); },
-    acceptFolder: (text: string) => { const field = folderField.current; if (field) acceptFolder(field, text); },
     browse: browseTo, cancelBrowse: () => update({ type: "browse", listing: null }), useFolder: (listing: MachineFolder) => update({ type: "choose", listing }),
     pickBranch: (branch: string, machine: string | null) => { if (machine === null) delete picks[branch]; else picks[branch] = machine; draw(); },
   })));
@@ -253,9 +229,22 @@ async function read(path: string | null, then: (listing: MachineFolder) => void)
   }
 }
 
-/// Learns where the picked machine starts, for the default folder it shows.
+/// Learns where the picked machine starts, and its Projects in folder for
+/// the default it shows.
 function learnBase() {
-  if (state.machine && !bases.has(state.machine)) read(null, () => {});
+  const machine = state.machine, mine = opening;
+  if (!machine) return;
+  if (!bases.has(machine)) read(null, () => {});
+  if (roots.has(machine)) return;
+  void projectsIn(machine).then(folder => {
+    roots.set(machine, folder);
+    if (mine === opening && root && state.machine === machine) draw();
+  });
+}
+
+/// Where `machine` keeps its projects: its Projects in folder, else its home.
+export function projectsIn(machine: string): Promise<string> {
+  return invoke<string>("machine_search", { machineId: machine }).then(folder => folder.trim() || "~", () => "~");
 }
 
 /// Moves the folder browser to `path`.
@@ -291,8 +280,7 @@ async function choose() {
 
 /// The parent a clone goes under before anything is typed.
 function defaultParent() {
-  if (!state.machine) return null;
-  return parentOn(state.machine, bases.get(state.machine), machines.find(x => x.id === state.machine)?.env?.os, lastImport());
+  return state.machine ? roots.get(state.machine) ?? null : null;
 }
 
 /// "Goes in <parent>/<org>/<repo>." under the parent field.
@@ -302,69 +290,7 @@ function goesIn() {
   return `Goes in ${folderUnder(parent, state.repo) ?? `${parent.replace(/\/+$/, "")}/<org>/<repo>`}.`;
 }
 
-/// Forgets the folder typed and its menu.
+/// Forgets the folder typed.
 function resetFolder() {
   folderText = null;
-  menu = NO_MENU;
-  lookup++;
-  clearTimeout(lookupTimer);
-}
-
-/// Up, Down, Tab and Enter in the Folder field (Esc reaches `onKey`
-/// first). Enter with no menu imports.
-function onFolderKey(e: ReactKeyboardEvent<HTMLInputElement>, field: HTMLInputElement) {
-  const act = menuKey(menu, e.key, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey);
-
-  if (act.type === "none") {
-    if (e.key === "Enter") { e.preventDefault(); submit(); }
-    return;
-  }
-
-  e.preventDefault();
-  if (act.type === "move") setMenu({ ...menu, index: act.index });
-  else if (act.type === "close") setMenu(NO_MENU);
-  else acceptFolder(field, act.text);
-}
-
-/// Puts a folder picked from the menu in the field, then offers its folders.
-function acceptFolder(field: HTMLInputElement, text: string) {
-  folderText = text;
-  draw();
-  field.setSelectionRange(text.length, text.length);
-  lookFolders();
-}
-
-/// Offers the folders matching what the Folder field holds, once typing pauses;
-/// a folder read before answers at once.
-function lookFolders() {
-  clearTimeout(lookupTimer);
-  const ask = ++lookup, mine = opening;
-  const machine = state.machine;
-  const typed = folderText == null ? null : splitTyped(folderText);
-  if (!machine || !typed) { setMenu(NO_MENU); return; }
-  if (menu.dir !== typed.dir) setMenu(NO_MENU);
-  const key = `${machine}\n${typed.dir}`;
-  const offer = (folders: readonly string[]) => {
-    if (ask === lookup && state.machine === machine) setMenu(menuOf(typed.dir, suggest(folders, typed.prefix)));
-  };
-  const known = listed.get(key);
-  if (known) { offer(known); return; }
-  lookupTimer = setTimeout(async () => {
-    try {
-      const listing = await invoke<MachineFolder>("list_machine_folder", { machineId: machine, path: typed.dir });
-      if (mine !== opening || !root) return;
-      listed.set(key, listing.folders);
-      offer(listing.folders);
-    } catch {
-      // Nothing to offer: typing goes on as without the menu.
-      if (mine === opening && root && ask === lookup) setMenu(NO_MENU);
-    }
-  }, 150);
-}
-
-/// Shows the folder suggestions while their field owns focus.
-function setMenu(next: FolderMenu) {
-  const field = folderField.current;
-  menu = field && document.activeElement === field ? next : NO_MENU;
-  if (root) draw();
 }

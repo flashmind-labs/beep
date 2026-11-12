@@ -8,7 +8,8 @@ use crate::{
     fleet::projects::{FleetState, desk, mirror_import},
 };
 use beep_proto::{
-    CheckoutFailure, CreateProject, CreatedProject, GitHostKind, NewRepository, ProjectForge,
+    CheckoutFailure, CreateProject, CreatedProject, GitHostKind, NewRepository, ProjectFolder,
+    ProjectForge,
 };
 use serde::Serialize;
 
@@ -60,7 +61,8 @@ pub async fn project_forges(fleet: FleetState<'_>) -> Result<Option<Vec<ForgeRow
 }
 
 /// Makes the project `name`: on `repository` and cloned onto `machine_ids`, or
-/// with no repository, `git init` on the one machine given.
+/// with no repository, `git init` on the one machine given; on each machine
+/// under its folder in `folders`, else its projects folder.
 #[tauri::command]
 pub async fn create_project(
     fleet: FleetState<'_>,
@@ -68,11 +70,13 @@ pub async fn create_project(
     name: String,
     repository: Option<NewRepository>,
     machine_ids: Vec<String>,
+    folders: Option<Vec<ProjectFolder>>,
 ) -> Result<CreatedRow> {
     let request = CreateProject {
         name,
         repository,
         machine_ids,
+        folders: folders.unwrap_or_default(),
     };
     let created = desk(&fleet).await?.create(&request).await?;
 

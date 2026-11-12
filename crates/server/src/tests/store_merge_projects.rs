@@ -16,12 +16,11 @@ fn passes_every_rule(name: &str) {
     let import = RepoRef::parse(name, &[]).unwrap_or_else(|e| panic!("{name}: {e:?}"));
     assert_eq!(import.project(), name);
     let folders = Folders {
-        os: Some("linux"),
         home: Some("/home/user"),
-        workspace: None,
+        projects_in: None,
     };
     let folder = checkout_folder(folders, &import).expect("a checkout folder");
-    assert_eq!(folder, format!("/home/user/projects/{name}"));
+    assert_eq!(folder, format!("/home/user/{name}"));
 }
 
 #[test]
