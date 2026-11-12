@@ -1007,10 +1007,10 @@ async fn a_project_waiting_for_git_waits_for_a_change_not_a_timer() {
     let mut project = Project::new(&["a.txt"]).await;
     project.task.error = Some("waiting for Git: this checkout is ahead of the peers".into());
     project.task.pending = 1;
-    assert!(!project.task.retries_on_timer());
+    assert!(project.task.waits_for_change());
     // A Git operation or a session holding the checkout ends unannounced.
     project.task.git_held = true;
-    assert!(project.task.retries_on_timer());
+    assert!(!project.task.waits_for_change());
 
     // A peer that reconnects with the same commits wakes nothing.
     let shared = project.task.shared.clone();
