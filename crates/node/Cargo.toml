@@ -145,7 +145,7 @@ toml_edit = { version = "0.25", optional = true }
 tracing = { version = "0.1", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 which = { version = "8", optional = true }
-zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
