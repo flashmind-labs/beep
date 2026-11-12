@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../src/bar/bar-app.tsx";
 import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
-import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, drawAgents, usageLine } from "../src/agents/agents.ts";
+import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, agentsList, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
 import { closeOpenSession, pollAgent, sessionPicks } from "../src/agents/session.ts";
@@ -470,6 +470,8 @@ test("Stopping leaves pending steers with the node (#378)", async () => {
 function agentsListDom(t: TestContext) {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
   Object.defineProperty(dom.window.document, "visibilityState", { value: "visible", configurable: true, writable: true });
+  // JSDOM does no layout, so it has no scrolling into view.
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
   const actual = dom.window.document.getElementById("root"); assert.ok(actual);
   const previous = new Map<string, PropertyDescriptor | undefined>();
   for (const [key, value] of Object.entries({ document: dom.window.document, window: dom.window, Event: dom.window.Event, MutationObserver: dom.window.MutationObserver })) {
@@ -497,7 +499,7 @@ test("replacing the shared session list does not change what a drawn row opens",
   const row = (id: string) => ({ machine_id: "m1", machine_name: "build-box", id, agent: "claude", cwd: "/srv/project", status: "idle", external: false, question: null });
   answers.agent_sessions = [row("a1"), row("a2")];
   S.view = "agents";
-  AG.sel = 0;
+  agentsList.setState({ selected: 0 });
   await loadSessions();
   drawAgents(false);
   // Another page reads a shorter list; this one is not redrawn.
@@ -644,17 +646,17 @@ test("closing removes list rows and counts before the reply, survives stale read
   answers.agent_sessions = [closing, other];
   await loadSessions();
   S.view = "agents";
-  AG.sel = 1;
+  agentsList.setState({ selected: 1 });
   show({});
   drawAgents(false);
-  assert.match(bar.innerHTML, /2 on 2 machines/);
+  assert.match(bar.innerHTML, /2 live on 2 machines/);
   let refuseClose!: (reason: string) => void;
   answers.agent_steer = new Promise((_, reject) => { refuseClose = reject; });
   const sent = closeSession(closing);
   assert.doesNotMatch(bar.innerHTML, /first-machine/);
   assert.match(bar.innerHTML, /second-machine/);
-  assert.match(bar.innerHTML, /1 on 1 machine/);
-  assert.equal(AG.sel, 0, "selection stays on a row after the list shrinks");
+  assert.match(bar.innerHTML, /1 live on 1 machine/);
+  assert.equal(agentsList.getState().selected, 0, "selection stays on a row after the list shrinks");
   assert.deepEqual(visibleRunning(running), [running[1], research]);
   // A cached response must not bring back a row while its close is pending.
   await loadSessions();
@@ -663,7 +665,7 @@ test("closing removes list rows and counts before the reply, survives stale read
   refuseClose("Machine is offline");
   await assert.rejects(sent, reason => reason === "Machine is offline");
   assert.match(bar.innerHTML, /first-machine/);
-  assert.match(bar.innerHTML, /2 on 2 machines/);
+  assert.match(bar.innerHTML, /2 live on 2 machines/);
   assert.deepEqual(visibleRunning(running), running);
   delete answers.agent_steer;
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { childRow, nest, parentRow } from "../src/agents/nesting-state.ts";
+import { childRow, nest, parentRow, splitEnded } from "../src/agents/nesting-state.ts";
 import { subagent } from "../src/agents/agentlog.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 
@@ -57,4 +57,16 @@ test("an agent another agent started reads as a card that links to its session",
   assert.equal(subagent("[steps] 1\n[child] a@b idle k1\n[spend] 5 -\nok")?.child?.cost, null);
   // A plain subagent is as before.
   assert.deepEqual(subagent("[steps] 0\n[agent] Explore\nDone"), { count: 0, steps: [], result: "Done", agent: "Explore" });
+});
+
+test("ended trees fold apart, and a tree with a live session stays live whole", () => {
+  const rows = [
+    row("live"),
+    row("done", { status: "ended" }),
+    row("parent", { status: "ended" }),
+    row("kid", { parent: under("m1", "parent") }),
+  ];
+  const split = splitEnded(nest(rows), r => r.status === "ended");
+  assert.deepEqual(split.live.map(n => n.row.id), ["live", "parent", "kid"]);
+  assert.deepEqual(split.ended.map(n => n.row.id), ["done"]);
 });
