@@ -33,7 +33,8 @@ import { prepareInlineImages } from "./inline-images.ts";
 import { picTile } from "./pic-state.ts";
 import { drawModelPill } from "./modelpill.ts";
 import { drawModes } from "./modepill.ts";
-import { backgroundedEntry, drawTasks } from "./tasks.ts";
+import { backgroundedEntry, drawTasks, runs } from "./tasks.ts";
+import { waitLine, type BackgroundWork } from "./waiting-state.ts";
 import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
@@ -268,7 +269,7 @@ function subOf(at: number) {
   if (!working && seen.live && seen.end == null) seen.end = now;
   const ms = !seen.live ? null : working ? now - seen.start : (seen.end ?? now) - seen.start;
   const [name, ...prompt] = title.split("\n");
-  return { title: name, prompt: sub.child ? prompt.join("\n") : "", agent: sub.agent ?? "", status, working, failed: status === "failed", sub, ms };
+  return { title: name, prompt: sub.child ? prompt.join("\n") : "", agent: sub.agent ?? "", status, working, failed: status === "failed", sub, ms, start: seen.start };
 }
 
 /// Subagents closed in the pane, by session and the call's place. The log keeps them.
@@ -323,6 +324,31 @@ function subActivity(ats: number[]): ActivityRow {
 export function workingSubagents() {
   const p = AG.page;
   return p ? subagentsShown(p).filter(at => { const x = subOf(at); return x.working && !x.sub.child; }).length : 0;
+}
+
+/// When this window first saw each background command running, by session and task.
+const taskStarts = new Map<string, number>();
+
+/// What the open session runs in the background: its working subagents, not
+/// agents it started, and its commands that are not a subagent's.
+function backgroundWork(p: AgentPage): BackgroundWork[] {
+  const subs = subagentsShown(p), now = Date.now();
+  const work: BackgroundWork[] = subs.flatMap(at => {
+    const x = subOf(at);
+    return x.working && !x.sub.child ? [{ target: { kind: "subagent" as const, at }, title: x.title, start: x.start }] : [];
+  });
+
+  for (const task of AG.tasks) {
+    const key = `${AG.open?.session}\n${task.id}`;
+    if (!runs(task)) { taskStarts.delete(key); continue; }
+    if (task.entry != null && subs.includes(task.entry)) continue;
+
+    let start = taskStarts.get(key);
+    if (start == null) taskStarts.set(key, start = now);
+    work.push({ target: { kind: "command" }, title: task.name || task.description, start });
+  }
+
+  return work;
 }
 
 /// The places of the subagents' calls among the entries shown.
@@ -616,7 +642,9 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
       const head = turnHeading({ state, start: start ?? null, ms, stats: "", turn: null, opened: false });
       const shownTitle = newest != null ? toolParts(entry(newest))?.title.trim() : "";
       const liveDoing = state === "working" && doing !== "Thinking" && !(shownTitle && (shownTitle.includes(doing) || doing.includes(shownTitle))) ? doing : "";
-      const live: ActivityRow | null = running ? { kind: "live", id: String(t.key), state, thinking, start: start ?? null, doing: liveDoing } : null;
+      // Replied, but subagents or commands in the background hold the turn open.
+      const wait = state === "working" && t.answer.length ? waitLine(backgroundWork(p)) : null;
+      const live: ActivityRow | null = !running ? null : wait ? { kind: "waiting", id: String(t.key), line: wait } : { kind: "live", id: String(t.key), state, thinking, start: start ?? null, doing: liveDoing };
       return [...user(), ...(head ? [head] : []), ...work, ...(live ? [live] : [])];
     };
   }

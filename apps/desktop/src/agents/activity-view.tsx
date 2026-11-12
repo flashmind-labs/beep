@@ -1,6 +1,6 @@
 // The work rows of a coding agent's log: thoughts, tool calls and runs of
 // them, subagents, notes and the live line.
-import { Fragment } from "react";
+import { Fragment, useSyncExternalStore } from "react";
 import { diffBlocks, thoughtLabel, withoutDiffs, KIND_ICONS, type RowParts, type ToolKind, type TurnState } from "./agentturns.ts";
 import { liveText } from "./karaoke.ts";
 import { Icon } from "../ui/icons.tsx";
@@ -9,6 +9,8 @@ import type { MadeFile, MadeFiles } from "../agentpane/artifacts-state.ts";
 import type { Answered } from "./agentlog.ts";
 import type { ToolDetails } from "./tool-details.ts";
 import { Since, StepMarkView, type StepMark } from "./turn-heading-view.tsx";
+import { waitedFor, type WaitLine } from "./waiting-state.ts";
+import { onShownChange, paneShown } from "../ui/active.ts";
 
 /// What an opened tool call shows under its row.
 export type ToolBody =
@@ -36,6 +38,8 @@ export interface ToolActivity {
 export type ActivityRow =
   | { kind: "thought"; id: string; key: string; at: number; text: string; content: string | null; ms: number | null; live: boolean; open: boolean }
   | { kind: "live"; id: string; state: TurnState; thinking: boolean; start: number | null; doing: string }
+  /// In place of the live line once the agent replied while background work still runs.
+  | { kind: "waiting"; id: string; line: WaitLine }
   | ToolActivity
   | { kind: "run"; id: string; at: number; toolKind: ToolKind; label: string; summary: string; open: boolean; tools: ActivityRow[] }
   | { kind: "subagents"; id: string; at: number; heading: string | null; counts: string; rows: SubagentRow[] }
@@ -57,6 +61,7 @@ export function ActivityView({ row }: { row: ActivityRow }) {
     case "run": return <div className={`dtrun${row.open ? " open" : ""}`} data-row={row.at}><button data-run={row.at} aria-expanded={row.open}><span className="ki" dangerouslySetInnerHTML={{ __html: KIND_ICONS[row.toolKind] }} /><span className="vb">{row.label}</span><span className="sm">{row.summary}</span><span className="cv"><Icon name="chev" /></span></button><div className="bd"><div><div className="in">{row.tools.map(tool => <ActivityView key={`${tool.kind}:${tool.id}`} row={tool} />)}</div></div></div></div>;
     case "tool": return <Tool row={row} />;
     case "live": return <LiveLine row={row} />;
+    case "waiting": return <WaitingLine line={row.line} />;
     case "thought": return <Thought row={row} />;
   }
 }
@@ -75,6 +80,37 @@ function LiveLine({ row }: { row: Extract<ActivityRow, { kind: "live" }> }) {
   const waiting = row.state === "waiting", lead = row.doing || (row.thinking ? "Thinking" : "Working");
   return <div className={`dthink dlive${waiting ? "" : " live"}`}><span className="lb" title={waiting ? undefined : lead}>{waiting ? "Waiting for you" : lead}</span>{row.start !== null && <Since className="since" start={row.start} />}</div>;
 }
+
+/// "Waiting for 1 subagent · Upgrade all deps · 12 min", still. A click opens
+/// that subagent, or the Running tab for a command.
+function WaitingLine({ line }: { line: WaitLine }) {
+  useSyncExternalStore(subscribeMinute, currentMinute);
+  const waited = waitedFor(Date.now() - line.start);
+  const target = line.target;
+  return <div className="dthink dlive"><button data-wait={target.kind === "subagent" ? target.at : "running"} title={target.kind === "subagent" ? `Open ${line.title}` : "Show it in the Running tab"}><span className="lb">{line.label}</span><span className="ln">· {line.title}</span>{waited !== null && <span className="since">· {waited}</span>}</button></div>;
+}
+
+// The waiting lines move once a minute, on one timer that stops while none
+// shows or the pane hides; shown again, they catch up at once.
+const minuteListeners = new Set<() => void>();
+let minuteTimer: ReturnType<typeof setInterval> | null = null;
+
+function subscribeMinute(listener: () => void) {
+  minuteListeners.add(listener);
+  tickMinutes();
+  return () => { minuteListeners.delete(listener); tickMinutes(); };
+}
+
+function tickMinutes() {
+  const run = minuteListeners.size > 0 && paneShown();
+  if (run && minuteTimer === null) minuteTimer = setInterval(nextMinute, 60_000);
+  else if (!run && minuteTimer !== null) { clearInterval(minuteTimer); minuteTimer = null; }
+}
+
+const currentMinute = () => Math.floor(Date.now() / 60_000);
+function nextMinute() { for (const listener of minuteListeners) listener(); }
+
+onShownChange(shown => { tickMinutes(); if (shown) nextMinute(); }, true);
 
 /// A tool call as one row: its mark, icon, verb, its target in mono, the
 /// right side (an edit's +2 -1, an exit code) and, opened, what it did.
