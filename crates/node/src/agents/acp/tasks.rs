@@ -2,7 +2,7 @@
 
 use agent_client_protocol::{
     UntypedMessage,
-    schema::v1::{CLIENT_METHOD_NAMES, SessionId},
+    v1::schema::{CLIENT_METHOD_NAMES, SessionId},
 };
 use serde::Deserialize;
 use serde_json::json;

@@ -16,9 +16,10 @@ use crate::agents::{
 };
 use crate::run::process::{GroupLeader, STOP_GRACE};
 use agent_client_protocol::{
-    Agent, Client, ConnectionTo, Dispatch, Handled, JsonRpcRequest, Responder, on_receive_dispatch,
-    on_receive_notification, on_receive_request,
-    schema::v1::{
+    Agent, Client, Handled, JsonRpcRequest, on_receive_dispatch, on_receive_notification,
+    on_receive_request,
+    v1::{ConnectionTo, Dispatch, Responder},
+    v1::schema::{
         ContentBlock, InitializeResponse, McpServer, PromptResponse, RequestPermissionRequest,
         RequestPermissionResponse, SessionConfigId, SessionId, SessionNotification, SessionUpdate,
         SetSessionModeRequest, ToolCallId,
@@ -53,7 +54,7 @@ pub(super) enum Event {
     Task(AsyncTask),
     Permission(
         RequestPermissionRequest,
-        Responder<RequestPermissionResponse>,
+        Box<Responder<RequestPermissionResponse>>,
     ),
 }
 
@@ -139,7 +140,7 @@ pub(super) struct PendingSteer {
 /// Who waits for a question's answer.
 pub(super) enum Waiting {
     /// The agent, on its `session/request_permission`.
-    Agent(Responder<RequestPermissionResponse>),
+    Agent(Box<Responder<RequestPermissionResponse>>),
     /// The node, for a question of its own (`Command::Ask`).
     Node(oneshot::Sender<Answered>),
 }
@@ -401,7 +402,7 @@ impl Actor {
         // The handlers run in the crate's dispatch loop, which reads apart
         // from writing; each only hands the message to this task.
         let ended = Client
-            .builder()
+            .v1()
             .name("beep-node")
             // Before the typed handler below, which refuses the updates the
             // crate does not know.
@@ -435,12 +436,12 @@ impl Actor {
             )
             .on_receive_request(
                 async move |request: RequestPermissionRequest, responder, _cx| {
-                    let event = Event::Permission(request, responder);
+                    let event = Event::Permission(request, Box::new(responder));
 
                     if let Err(mpsc::error::SendError(Event::Permission(_, responder))) =
                         questions.send(event).await
                     {
-                        responder.respond(acp::cancelled())?;
+                        (*responder).respond(acp::cancelled())?;
                     }
 
                     Ok(())
@@ -603,7 +604,7 @@ impl Actor {
                 self.subagents_moved();
             }
             Event::Permission(request, responder) => {
-                let Some(responder) = self.plan_ready(&request, responder) else {
+                let Some(responder) = self.plan_ready(&request, *responder) else {
                     return Ok(());
                 };
 

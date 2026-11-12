@@ -6,7 +6,7 @@ use crate::agents::{
     images::Picture,
     subagent::{Run, RunStep},
 };
-use agent_client_protocol::schema::v1::SessionUpdate;
+use agent_client_protocol::v1::schema::SessionUpdate;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::node::agent::{EntryKind, Status};
 use beep_proto::{AgentContext, image_key};

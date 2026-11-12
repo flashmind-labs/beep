@@ -3,7 +3,7 @@
 use crate::agents::images::{Picture, image_line};
 use agent_client_protocol::{
     UntypedMessage,
-    schema::v1::{
+    v1::schema::{
         ContentBlock, ImageContent, InitializeResponse, PromptRequest, SessionId, TextContent,
     },
 };

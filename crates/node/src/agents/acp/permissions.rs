@@ -1,6 +1,6 @@
 //! Permission choices and plan approval requests.
 
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     PermissionOptionId, RequestPermissionOutcome, RequestPermissionRequest,
     RequestPermissionResponse, SelectedPermissionOutcome,
 };

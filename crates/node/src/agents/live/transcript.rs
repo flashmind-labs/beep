@@ -14,7 +14,7 @@ use crate::agents::{
     usage::{UsageHub, claude_rate_limit, flsh_credits},
     window::window,
 };
-use agent_client_protocol::schema::v1::{RequestPermissionRequest, SessionUpdate, ToolCallId};
+use agent_client_protocol::v1::schema::{RequestPermissionRequest, SessionUpdate, ToolCallId};
 use beep_proto::{
     AgentSlug,
     node::{

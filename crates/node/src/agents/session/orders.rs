@@ -9,8 +9,9 @@ use crate::agents::{
     live::cut,
 };
 use agent_client_protocol::{
-    Agent, ConnectionTo, Responder,
-    schema::v1::{
+    Agent,
+    v1::{ConnectionTo, Responder},
+    v1::schema::{
         CancelNotification, RequestPermissionRequest, RequestPermissionResponse,
         SetSessionModeRequest,
     },
@@ -329,7 +330,7 @@ impl Actor {
         };
         self.put(
             question,
-            Waiting::Agent(responder),
+            Waiting::Agent(Box::new(responder)),
             Some(cut(&plan, MAX_PLAN)),
         );
         None
@@ -430,7 +431,7 @@ impl Actor {
         responder: Responder<RequestPermissionResponse>,
     ) {
         let question = self.live.borrow().question(0, request);
-        self.put(question, Waiting::Agent(responder), None);
+        self.put(question, Waiting::Agent(Box::new(responder)), None);
     }
 
     /// Shows `question` once those before it are answered, numbered next.
@@ -527,7 +528,7 @@ impl Actor {
             ..
         }) = self.asked.pop_front()
         {
-            responder.respond(answer)?;
+            (*responder).respond(answer)?;
         }
         if approves_plan {
             self.returning = self

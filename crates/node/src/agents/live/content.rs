@@ -4,7 +4,7 @@ use super::MAX_LINE;
 pub(crate) use crate::agents::text::cut;
 pub(super) use crate::agents::text::push_cut;
 use crate::agents::images::{Picture, data_url, picture_of};
-use agent_client_protocol::schema::v1::{ImageContent, ToolCallId};
+use agent_client_protocol::v1::schema::{ImageContent, ToolCallId};
 use serde_json::Value;
 
 /// The picture of an ACP image block.

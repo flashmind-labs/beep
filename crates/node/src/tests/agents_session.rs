@@ -235,7 +235,7 @@ cat > /dev/null
 "#;
 
 fn beep_server() -> McpServer {
-    McpServer::Stdio(agent_client_protocol::schema::v1::McpServerStdio::new(
+    McpServer::Stdio(agent_client_protocol::v1::schema::McpServerStdio::new(
         "beep",
         "/bin/true",
     ))

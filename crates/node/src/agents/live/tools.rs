@@ -13,7 +13,7 @@ use crate::agents::{
     tool_details,
     tool_diff::diff_text,
 };
-use agent_client_protocol::schema::v1::{
+use agent_client_protocol::v1::schema::{
     ContentBlock, EmbeddedResourceResource, ToolCall as AcpToolCall, ToolCallContent, ToolCallId,
     ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolKind,
 };
