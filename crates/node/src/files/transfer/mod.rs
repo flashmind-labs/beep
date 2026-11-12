@@ -348,6 +348,9 @@ impl Transfers {
     ) -> Result<(Self, Served)> {
         let collect = Arc::new(Notify::new());
         let mut options = Options::new(dir);
+        // Small files are referenced where they lie, as large ones are,
+        // instead of copied into the database, which redb caches in memory.
+        options.inline.max_data_inlined = 0;
         options.gc = Some(GcConfig {
             // The collector checks this often, but waits in `add_protected`
             // for a transfer to end, so it runs right after each one.
