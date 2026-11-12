@@ -4,6 +4,8 @@ Earlier releases predate this changelog.
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-11-12
+
 ### Changed
 
 - Node: agents name machines without apostrophes or symbols, so
