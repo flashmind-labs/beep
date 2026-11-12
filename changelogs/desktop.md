@@ -1,13 +1,11 @@
 # Desktop changelog
 
-Desktop changes are collected under Unreleased, then archived by version and
-date. Releases before 0.6.0 predate this changelog.
+Pending changes are files in [unreleased/desktop](unreleased/desktop), collected
+here by version and date at release. Releases before 0.6.0 predate this changelog.
 
 Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
-
-## [Unreleased]
 
 ## [0.8.6] - 2026-11-12
 

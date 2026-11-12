@@ -69,7 +69,7 @@ desktop-release version:
     python3 scripts/changelog.py freeze {{version}}
     sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' apps/desktop/src-tauri/Cargo.toml && rm apps/desktop/src-tauri/Cargo.toml.bak
     (cd apps/desktop/src-tauri && cargo update --workspace --offline --quiet)
-    git commit --quiet -m "Release Beep desktop {{version}}" changelogs/desktop.md apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
+    git commit --quiet -m "Release Beep desktop {{version}}" changelogs/desktop.md changelogs/unreleased/desktop apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
     git tag -a "desktop-v{{version}}" -m "Beep desktop {{version}}"
     echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
 
@@ -85,7 +85,7 @@ android-release version:
     cfg=apps/desktop/src-tauri/tauri.android.conf.json
     sed -i.bak 's/^\( *"version": \)".*"/\1"{{version}}"/' "$cfg" && rm "$cfg.bak"
     # The version may already be set, as in a first release.
-    git commit --quiet -m "Release Beep for Android {{version}}" changelogs/android.md "$cfg"
+    git commit --quiet -m "Release Beep for Android {{version}}" changelogs/android.md changelogs/unreleased/android "$cfg"
     git tag -a "android-v{{version}}" -m "Beep for Android {{version}}"
     echo "Tagged android-v{{version}}. Publish it with: git push origin main android-v{{version}}"
 
@@ -101,7 +101,7 @@ ios-release version:
     cfg=apps/desktop/src-tauri/tauri.ios.conf.json
     sed -i.bak 's/^\( *"version": \)".*"/\1"{{version}}"/' "$cfg" && rm "$cfg.bak"
     # The version may already be set, as in a first release.
-    git commit --quiet -m "Release Beep for iOS {{version}}" changelogs/ios.md "$cfg"
+    git commit --quiet -m "Release Beep for iOS {{version}}" changelogs/ios.md changelogs/unreleased/ios "$cfg"
     git tag -a "ios-v{{version}}" -m "Beep for iOS {{version}}"
     echo "Tagged ios-v{{version}}. Publish it with: git push origin main ios-v{{version}}"
 
@@ -122,7 +122,7 @@ node-release version:
     # Resolving the lockfile records just that; `cargo update -p beep-node`
     # would also move the node's git dependencies.
     (cd apps/desktop/src-tauri && cargo metadata --offline --format-version 1 > /dev/null)
-    git commit --quiet -m "Release beep-node {{version}}" changelogs/node.md crates/node/Cargo.toml Cargo.lock apps/desktop/src-tauri/Cargo.lock
+    git commit --quiet -m "Release beep-node {{version}}" changelogs/node.md changelogs/unreleased/node crates/node/Cargo.toml Cargo.lock apps/desktop/src-tauri/Cargo.lock
     git tag -a "node-v{{version}}" -m "beep-node {{version}}"
     echo "Tagged node-v{{version}}. Publish it with: git push origin main node-v{{version}}"
 
