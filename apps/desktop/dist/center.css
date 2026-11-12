@@ -5,6 +5,7 @@ html, body.cbody { background: var(--ink) }
 /* The traffic lights sit over the top of the sidebar; both bars drag the window. */
 .cc-head { height: 38px; flex: none }
 .cc-err { color: var(--err); font-size: 12px }
+.cc-err.cc-progress, .cc-pjc .cc-err.cc-progress { color: var(--muted) }
 .cc-comp input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; user-select: text }
 .cc-comp input::placeholder { color: var(--dim) }
 .cc-side { display: flex; flex-direction: column; padding: 10px 8px 0; min-width: 0; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent); overflow: hidden; min-height: 0 }
