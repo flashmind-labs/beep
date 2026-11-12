@@ -338,9 +338,11 @@ impl Digest {
 
                     let line = if self.native {
                         let name = block["name"].as_str().unwrap_or("tool");
+                        // A Beep tool reads by its own title, as `Run on <machine>: <command>`.
                         let detail = ["command", "file_path", "pattern", "path"]
                             .iter()
-                            .find_map(|key| block["input"][key].as_str());
+                            .find_map(|key| block["input"][key].as_str())
+                            .filter(|_| BeepTool::of_name(name).is_none());
                         format!(
                             "{} [in_progress]",
                             detail.map_or_else(
@@ -1306,6 +1308,25 @@ pub(super) mod tests {
         assert_eq!(digest.entries.len(), 1, "{:?}", digest.entries);
         assert_eq!(digest.entries[0].kind, EntryKind::User);
         digest.entries[0].text.clone()
+    }
+
+    #[test]
+    fn a_subagents_beep_call_reads_by_its_beep_title() {
+        let mut digest = Digest {
+            native: true,
+            ..Digest::default()
+        };
+        let call = serde_json::json!({"type": "assistant", "message": {"content": [{
+            "type": "tool_use", "id": "t1", "name": "mcp__beep__remote_run",
+            "input": {"machine": "build-box", "command": "cargo test"}
+        }]}});
+        digest.line(&call.to_string());
+        assert_eq!(digest.entries[0].kind, EntryKind::Tool);
+        assert!(
+            digest.entries[0].text.contains("Run on build-box: cargo test"),
+            "{}",
+            digest.entries[0].text
+        );
     }
 
     #[test]
