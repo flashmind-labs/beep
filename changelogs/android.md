@@ -11,6 +11,7 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Android: machines reconnect within seconds after the phone wakes instead of waiting out connections that died while it slept.
 - Android: the project page's ⋯ menu no longer closes the moment it opens.
 - Android: Projects no longer scrolls sideways when an open issue or pull request has many labels; the labels wrap under the title.
 - Android: the project page has no blank band above its task field.

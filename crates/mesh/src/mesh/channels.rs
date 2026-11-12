@@ -96,6 +96,40 @@ impl Inner {
         }
     }
 
+    /// Closes every command and subscription connection and forgets failed
+    /// dials, so the next call dials again at once.
+    pub(super) fn reset_channels(&self) {
+        for slot in self
+            .channels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+        {
+            if let Some(cached) = slot
+                .connection
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+            {
+                cached.connection.close(0u32.into(), b"slept");
+            }
+
+            for cached in slot
+                .incoming
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .drain(..)
+            {
+                cached.connection.close(0u32.into(), b"slept");
+            }
+
+            // A dial in progress holds the lock and records its own outcome.
+            if let Ok(mut failed) = slot.dialing.try_lock() {
+                *failed = None;
+            }
+        }
+    }
+
     pub(super) fn prune_channels(&self) {
         let conns = self.conns();
         self.channels

@@ -9,6 +9,10 @@ Earlier releases predate this changelog.
 - Node: agents name machines without apostrophes or symbols, so
   "Alex's Mac Studio" is `alexs-mac-studio` instead of `alex's-mac-studio`.
 
+### Fixed
+
+- Node: on a laptop that sleeps, the node reconnects to the other machines within seconds of waking instead of up to a minute later.
+
 ### Performance
 
 - Node: looking up one session started outside Beep reads only that session's file instead of every Claude Code transcript on the machine, and several are answered in one request.

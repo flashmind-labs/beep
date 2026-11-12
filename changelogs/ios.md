@@ -11,6 +11,7 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- iOS: machines reconnect within seconds after the phone wakes instead of waiting out connections that died while it slept.
 - iOS: Projects no longer scrolls sideways when an open issue or pull request has many labels; the labels wrap under the title.
 - iOS: the project page has no blank band above its task field.
 - iOS: with more than 500 sessions in the lists, the app no longer asks every machine where each session works over and over.
