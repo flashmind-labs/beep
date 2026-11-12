@@ -13,26 +13,26 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt clippy
 ARG BEEP_TEST_DATABASE_URL
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
     cargo fmt --all --check \
     && cargo clippy -p beep-server -p beep-proto --all-targets -- -D warnings \
     && BEEP_TEST_DATABASE_URL="$BEEP_TEST_DATABASE_URL" cargo test -p beep-server -p beep-proto
 
 FROM source AS build
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
     cargo build --release --package beep-server --bin beep-server --bin beep-admin \
     && cp target/release/beep-server target/release/beep-admin /usr/local/bin/
 
 FROM source AS node-build
 # Where `beep-node report` sends a problem report; empty leaves the default.
 ARG BEEP_SERVER_URL
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
     cargo build --release --package beep-node --bin beep-node \
     && cp target/release/beep-node /usr/local/bin/
 
@@ -48,9 +48,9 @@ RUN apt-get update \
 WORKDIR /src
 COPY . .
 ARG BEEP_SERVER_URL
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
     for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do \
         cargo zigbuild --release --locked --package beep-node --bin beep-node --target "$target" \
         && mkdir -p "/dist/$target" \
@@ -69,10 +69,10 @@ RUN apt-get update \
 WORKDIR /src
 COPY . .
 ARG BEEP_SERVER_URL
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/src/target \
-    --mount=type=cache,target=/root/.cache/cargo-xwin \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
+    --mount=type=cache,target=/root/.cache/cargo-xwin,sharing=locked \
     cargo xwin build --release --locked --package beep-node --bin beep-node --target x86_64-pc-windows-msvc \
     && mkdir -p /dist/x86_64-pc-windows-msvc \
     && cp target/x86_64-pc-windows-msvc/release/beep-node.exe /dist/x86_64-pc-windows-msvc/
