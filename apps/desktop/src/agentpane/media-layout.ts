@@ -12,7 +12,8 @@ import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { artifactCount } from "./artifacts.ts";
 import { S } from "../bar/core.ts";
 import { runningCount } from "./running.ts";
-import { P, rememberPane, saveLayout, showTab, FILES, CHANGES, ARTS, RUNNING, SUBS, type MediaTab } from "./media.ts";
+import { hasDeviceTab } from "./device.ts";
+import { P, rememberPane, saveLayout, showTab, FILES, CHANGES, ARTS, RUNNING, SUBS, DEVICE, type MediaTab } from "./media.ts";
 
 /// How far an arrow key moves a divider.
 const ARROW_STEP = 24;
@@ -65,7 +66,7 @@ export const dockHolding = (node: Node | null) => DOCKS.find(d => !!node && !!pa
 
 /// Every tab's id, in the order the tab strips show them.
 export function tabIds() {
-  return [FILES, CHANGES, ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
+  return [FILES, CHANGES, ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...(hasDeviceTab() ? [DEVICE] : []), ...P.tabs.map(t => t.id)];
 }
 
 /// The tabs in each dock, as the shell's width lets them sit.
@@ -82,7 +83,7 @@ export function dockOf(id: string): Dock {
 
 /// One view in a dock: a fixed tab's, or an opened tab's at its revision.
 export type DockView =
-  | { kind: "files" | "changes" | "artifacts" | "running" | "subagents"; hidden: boolean }
+  | { kind: "files" | "changes" | "artifacts" | "running" | "subagents" | "device"; hidden: boolean }
   | { kind: "tab"; tab: MediaTab; rev: number; hidden: boolean };
 
 export interface DockModel {

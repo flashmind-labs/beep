@@ -17,6 +17,7 @@ import { WorktreeMenu } from "./worktree-view.tsx";
 import { FilesView } from "./files-tree.tsx";
 import { ArtifactsView } from "./artifacts-list.tsx";
 import { RunningPane } from "./running-view.tsx";
+import { DevicePane } from "./device-view.tsx";
 import { SubagentsView } from "./subagents-view.tsx";
 import { changesModel, leftChanges, placedChanges } from "./changes.ts";
 import { TextView } from "./text-view.tsx";
@@ -92,6 +93,7 @@ function PaneView({ view }: { view: DockView }) {
     case "changes": return <ChangesView hidden={view.hidden} />;
     case "artifacts": return <ArtifactsView hidden={view.hidden} />;
     case "running": return <RunningPane hidden={view.hidden} />;
+    case "device": return <DevicePane hidden={view.hidden} />;
     case "subagents": return <div className="agpview subs" hidden={view.hidden}><SubagentsView rows={P.subs} /></div>;
     case "tab": return <TabView tab={view.tab} rev={view.rev} hidden={view.hidden} />;
   }

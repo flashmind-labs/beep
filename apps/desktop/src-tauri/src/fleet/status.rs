@@ -480,6 +480,19 @@ impl Status {
             .collect()
     }
 
+    /// The machines that are on and serve `protocol`, this Mac among them
+    /// while its node runs.
+    pub fn offering(&self, protocol: &str) -> Vec<EndpointId> {
+        let local = self.session.is_some();
+        self.shared
+            .peers()
+            .values()
+            .filter(|peer| peer.online || (local && peer.device.id == self.me))
+            .filter(|peer| peer.offers(protocol))
+            .map(|peer| peer.device.id)
+            .collect()
+    }
+
     /// The machines that are on and offer a coding agent that `is_off` does
     /// not switch off. A status report carries no workspace.
     pub fn agent_hosts(&self, is_off: impl Fn(&str) -> bool) -> Vec<AgentHost> {

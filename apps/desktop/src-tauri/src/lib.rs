@@ -165,6 +165,10 @@ pub fn run() {
                     .app_handle()
                     .state::<machines::terminals::Attached>()
                     .clear(window.label());
+                window
+                    .app_handle()
+                    .state::<machines::devices::Attached>()
+                    .clear(window.label());
                 center::window::forget(window.app_handle(), window.label());
                 center::closed(window.app_handle(), window.label());
             }
@@ -389,6 +393,14 @@ pub fn run() {
             machines::list::save_machine_log,
             machines::list::updatable_machines,
             machines::list::update_machine,
+            machines::devices::device_attach,
+            machines::devices::device_boot,
+            machines::devices::device_detach,
+            machines::devices::device_drawn,
+            machines::devices::device_hosts,
+            machines::devices::device_input,
+            machines::devices::device_list,
+            machines::devices::device_shutdown,
             machines::terminals::terminal_attach,
             machines::terminals::terminal_close,
             machines::terminals::terminal_detach,
@@ -785,6 +797,7 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         dir.join("notes.json"),
     )));
     app.manage(machines::terminals::Attached::default());
+    app.manage(machines::devices::Attached::default());
     tauri::async_runtime::spawn(machines::list::retry_unlinks(beep.clone()));
     app.state::<machines::this_mac::Machine>().start();
     app.state::<machines::this_mac::Machine>().sync(&beep);
