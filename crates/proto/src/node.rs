@@ -23,6 +23,7 @@ pub mod subscriptions;
 
 pub mod agent;
 pub mod desktop;
+pub mod device;
 pub mod events;
 pub mod files;
 pub mod harness;
