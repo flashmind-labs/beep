@@ -99,7 +99,8 @@ fn links_bare_addresses() {
         html.contains(r#">https://en.wikipedia.org/wiki/Foo_(bar)</a>)"#),
         "{html}"
     );
-    let html = to_html("[site](https://a.com) and `see https://b.com`\n\n```\nhttps://c.com\n```");
+    let html =
+        to_html("[site](https://a.com) and `see https://b.com`\n\n```sh\ncurl https://c.com\n```");
     assert_eq!(html.matches("<a ").count(), 1, "{html}");
 }
 
@@ -114,6 +115,17 @@ fn links_an_address_in_inline_code() {
     ] {
         assert!(html.contains(&linked), "{html}");
     }
+
+    // A code block that holds one address, and nothing else, links it too.
+    for block in [format!("```\n{url}\n```"), format!("```text\n{url}\n```")] {
+        let html = to_html(&block);
+        assert!(
+            html.contains(&format!(r#"<a href="{url}" rel="noopener noreferrer">"#)),
+            "{html}"
+        );
+    }
+    let html = to_html(&format!("```\n{url}\n{url}\n```"));
+    assert!(!html.contains("<a "), "{html}");
 
     let html = to_html(&format!("Open {url}."));
     assert!(
