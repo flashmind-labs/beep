@@ -8,6 +8,7 @@ let made = 0;
 let replaced = 0;
 let disposed = 0;
 let draws = 0;
+let parsed = 0;
 let unavailable = false;
 let lost = false;
 const visibility = new Set<() => void>();
@@ -25,7 +26,7 @@ class GridRenderer {
 }
 class Terminal {
   resize() {}
-  write() {}
+  write() { parsed++; }
   setColors() {}
   scrollBy() {}
   scrollToBottom() {}
@@ -35,6 +36,8 @@ class Terminal {
 class RenderState { update() {} free() {} }
 class TerminalInput { resize() {} free() {} alternateScreen() { return false; } mouseTracking() { return false; } }
 const loadGhostty = async () => ({});
+const DESKTOP_LIMITS = {};
+const PHONE_LIMITS = {};
 
 function element(): Record<string, unknown> {
   return {
@@ -46,7 +49,7 @@ function element(): Record<string, unknown> {
 
 const frames: (() => void)[] = [];
 Object.assign(globalThis, {
-  terminalRendererTest: { GridRenderer, Terminal, RenderState, TerminalInput, loadGhostty },
+  terminalRendererTest: { GridRenderer, Terminal, RenderState, TerminalInput, loadGhostty, DESKTOP_LIMITS, PHONE_LIMITS },
   document: {
     hidden: false, baseURI: "http://app/", activeElement: null,
     createElement: element,
@@ -66,7 +69,7 @@ WebAssembly.compile = async () => ({}) as WebAssembly.Module;
 
 const stubs = new Map([
   ["./ghostty-render.ts", ["GridRenderer"]],
-  ["./ghostty.ts", ["Terminal", "RenderState", "loadGhostty"]],
+  ["./ghostty.ts", ["Terminal", "RenderState", "loadGhostty", "DESKTOP_LIMITS", "PHONE_LIMITS"]],
   ["./ghostty-input.ts", ["TerminalInput"]],
   ["./touchbar.ts", []],
   ["../ui/tauri.ts", []],
@@ -101,7 +104,7 @@ function runFrames() {
 }
 
 test.beforeEach(() => {
-  made = disposed = draws = replaced = 0;
+  made = disposed = draws = replaced = parsed = 0;
   unavailable = lost = false;
   frames.length = 0;
   (globalThis as unknown as { document: { hidden: boolean } }).document.hidden = false;
@@ -169,5 +172,19 @@ test("a screen without WebGL2 stays usable", async t => {
   runFrames();
   assert.equal(made, 1);
   assert.deepEqual(s.size(), { cols: 80, rows: 24 });
+  s.dispose();
+});
+
+test("a hidden page still parses output, without frames", async () => {
+  const s = await screen();
+  s.fit();
+  const doc = (globalThis as unknown as { document: { hidden: boolean } }).document;
+  doc.hidden = true;
+  for (const handler of visibility) handler();
+  frames.length = 0;
+  s.write(new Uint8Array([0x61]));
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(parsed, 1);
+  assert.equal(frames.length, 0);
   s.dispose();
 });

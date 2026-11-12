@@ -24,6 +24,8 @@ export function makeTerminals(deps: TerminalDeps) {
   /// A line in the app's log: how a terminal's stream went.
   const log = (message: string, info: boolean) => { invoke("log_webview", { message, info }).catch(() => {}); };
   const all = new Map<string, ProjectTerminals>();
+  /// Terminals this view started and has not attached to yet.
+  const opened = new Set<string>();
   /// Live views by terminal id, for the project on show.
   const lives = new Map<string, Live>();
   let unfollow: (() => void) | null = null;
@@ -141,7 +143,7 @@ export function makeTerminals(deps: TerminalDeps) {
 
     if (!live) {
       const screen = makeScreen();
-      live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0, view: newView(), attaches: 0, sent: null };
+      live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0, view: newView(), attaches: 0, sent: null, replay: new Replay(opened.delete(id)) };
       lives.set(id, live);
       const l = live;
       const input = (data: string) => {
@@ -184,6 +186,7 @@ export function makeTerminals(deps: TerminalDeps) {
 
       if (ev.kind === "attached") {
         log(`terminal ${live.id}: attached`, true);
+        live.replay.start(performance.now());
         live.link = "attached";
         live.tries = 0;
         live.screen.setInput(!live.watching);
@@ -194,7 +197,8 @@ export function makeTerminals(deps: TerminalDeps) {
         const bytes = ev.data;
         const { skip, gap } = splice(live.next, ev.at, bytes.length);
         if (gap) live.screen.note("… earlier output was not kept");
-        live.screen.write(bytes.subarray(skip));
+        if (live.replay.is(performance.now())) live.screen.replay(bytes.subarray(skip));
+        else live.screen.write(bytes.subarray(skip));
         live.next = Math.max(live.next, ev.at + bytes.length);
       } else if (ev.kind === "ended") {
         log(`terminal ${live.id}: ended (${ev.state})`, true);
@@ -308,6 +312,7 @@ export function makeTerminals(deps: TerminalDeps) {
 
       t.list = [...(t.list || []), made];
       t.form = null;
+      opened.add(made.id);
       select(name, made.id);
     } catch (e) {
       t.error = reason(e);
@@ -632,6 +637,7 @@ export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Sc
   return {
     el,
     write: data => use(screen => screen.write(data)),
+    replay: data => use(screen => screen.replay(data)),
     note: text => use(screen => screen.note(text)),
     size: () => real?.size() ?? { cols: 80, rows: 24 },
     fit: () => use(screen => screen.fit()),
@@ -654,6 +660,9 @@ export function lazyScreen(load: () => Promise<(el: HTMLElement) => Screen>): Sc
 export interface Screen {
   el: HTMLElement;
   write(data: Uint8Array): void;
+  /// Output from before this view attached: shown, but queries in it are
+  /// not answered, since whoever asked them is long gone.
+  replay(data: Uint8Array): void;
   /// A dim line of our own, such as "… earlier output was not kept".
   note(text: string): void;
   size(): { cols: number; rows: number };
@@ -738,6 +747,8 @@ interface Live {
   attaches: number;
   /// The size the node last got from this view.
   sent: TermSize | null;
+  /// Which output replays what the node kept.
+  replay: Replay;
   /// Let go while the window was hidden, to follow again when it shows.
   paused?: boolean;
 }
@@ -829,6 +840,43 @@ export function terminalTile(
 export function splice(next: number, at: number, len: number): { skip: number; gap: boolean } {
   if (at > next) return { skip: 0, gap: true };
   return { skip: Math.min(next - at, len), gap: false };
+}
+
+/// How long after attaching output still counts as the node's replay of what
+/// it kept, at most, and the pause in output that ends the replay sooner.
+export const REPLAY_MAX_MS = 2000;
+export const REPLAY_GAP_MS = 150;
+
+/// Which output on a stream replays what the node kept from before the view
+/// attached. The node sends that at once; the protocol does not say where it
+/// ends, so a pause in the output or REPLAY_MAX_MS does. A terminal the view
+/// itself just opened has nothing to replay: its first queries are live.
+export class Replay {
+  private until = 0;
+  private last = 0;
+  private opened: boolean;
+
+  constructor(opened: boolean) {
+    this.opened = opened;
+  }
+
+  /// The stream attached at `now`.
+  start(now: number) {
+    this.until = this.opened ? 0 : now + REPLAY_MAX_MS;
+    this.opened = false;
+    this.last = now;
+  }
+
+  /// Whether output arriving at `now` is still the replay.
+  is(now: number): boolean {
+    if (now > this.until || now - this.last > REPLAY_GAP_MS) {
+      this.until = 0;
+      return false;
+    }
+
+    this.last = now;
+    return true;
+  }
 }
 
 /// A terminal's size in cells.

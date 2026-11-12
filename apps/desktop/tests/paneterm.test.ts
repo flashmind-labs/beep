@@ -14,12 +14,16 @@ const ROW: TerminalRow = {
 /// A screen that keeps what reaches it, at a size the test sets.
 function fakeScreen(cols = 100, rows = 30) {
   const shown: string[] = [];
+  const replayed: string[] = [];
   let resized: (size: { cols: number; rows: number }) => void = () => {};
   let escaped: () => void = () => {};
-  const screen: Screen & { shown: string[]; resize(cols: number, rows: number): void; pressEsc(): void } = {
+  const screen: Screen & { shown: string[]; replayed: string[]; resize(cols: number, rows: number): void; pressEsc(): void } = {
     el: {} as HTMLElement,
     shown,
+    replayed,
     write: data => shown.push(new TextDecoder().decode(data)),
+    // Shown like the rest; kept apart too, as its queries go unanswered.
+    replay: data => { const text = new TextDecoder().decode(data); shown.push(text); replayed.push(text); },
     note: text => shown.push(text),
     size: () => ({ cols, rows }),
     fit() {},
@@ -399,4 +403,36 @@ test("stream messages show in order, and a lost one attaches again from what sho
   const again = calls.findLast(c => c.cmd === "terminal_attach")!;
   assert.equal(count("terminal_attach"), 2);
   assert.equal((again.args as { from: number }).from, 6);
+});
+
+test("output replayed on attach is told apart from live output, except for a terminal just opened", t => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  const now = { at: 1000 };
+  t.mock.method(performance, "now", () => now.at);
+  calls.length = 0;
+
+  // A terminal that already ran: what comes at once is the node's replay,
+  // until a pause in the output.
+  const screen = fakeScreen();
+  const term = paneTerm(ROW, screen, { onEnd() {}, onLink() {}, onEscape() {} });
+  const stream = nextAttach();
+  attach(term);
+  stream.send({ kind: "attached" });
+  stream.send(output(0, "old\x1b[c"));
+  now.at += 50;
+  stream.send(output(6, "older"));
+  now.at += 1000;
+  stream.send(output(11, "new"));
+  assert.deepEqual(screen.replayed, ["old\x1b[c", "older"]);
+  assert.deepEqual(screen.shown, ["old\x1b[c", "older", "new"]);
+
+  // One this pane just started has nothing to replay.
+  const fresh = fakeScreen();
+  const opened = paneTerm(ROW, fresh, { onEnd() {}, onLink() {}, onEscape() {} }, true);
+  const first = nextAttach();
+  attach(opened);
+  first.send({ kind: "attached" });
+  first.send(output(0, "\x1b[c"));
+  assert.deepEqual(fresh.replayed, []);
+  assert.deepEqual(fresh.shown, ["\x1b[c"]);
 });
