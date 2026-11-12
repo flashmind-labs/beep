@@ -15,7 +15,7 @@ use std::{
     path::PathBuf,
     sync::{Mutex, PoisonError},
 };
-use tauri::{AppHandle, Manager, State, ipc::Channel};
+use tauri::{AppHandle, State, ipc::Channel};
 use uuid::Uuid;
 
 /// Topics typed in the bar, waiting for the research's page to send them.
@@ -163,7 +163,7 @@ pub async fn export_research(app: AppHandle, beep: Service<'_>, session: Uuid) -
             session_id: session,
         })
         .await?;
-    let to = free_name(&app.path().download_dir()?, &file_name(&pdf.name));
+    let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&pdf.name));
     fs::write(&to, pdf.data).map_err(anyhow::Error::from)?;
     Ok(to)
 }

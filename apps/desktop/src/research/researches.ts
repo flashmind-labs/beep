@@ -11,6 +11,7 @@ import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { latest, STALE } from "../ui/active.ts";
 import { chatAsk } from "../chat/chat-shell.tsx";
+import { savedIn } from "../ui/platform.ts";
 
 // ---------- Research ----------
 
@@ -105,7 +106,7 @@ export async function researchListAction(a: string) {
       RL.error = "";
       RL.mode = "list";
       drawResearches();
-      return notice(`Saved ${to.split("/").pop()} to Downloads`, { path: to });
+      return notice(`Saved ${to.split("/").pop()} to ${savedIn(to)}`, { path: to });
     }
   } catch (e) {
     RL.error = String(e);

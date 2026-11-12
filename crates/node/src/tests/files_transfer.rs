@@ -72,3 +72,51 @@ async fn quitting_saves_the_projects_while_a_peer_hangs() {
     // The project stopped and saved in spite of it.
     assert!(transfers.syncs().status().is_empty());
 }
+
+#[tokio::test]
+async fn a_shared_file_is_fetched_by_the_device_that_asked_and_no_other() {
+    let files = TempDir::new().expect("a temp folder");
+    let state = TempDir::new().expect("a temp folder");
+    let path = files.path().join("clip.mp4");
+    let data = b"frames".repeat(50_000);
+    fs::write(&path, &data).expect("the file is written");
+    let here = bind().await;
+    let asking = bind().await;
+    let other = bind().await;
+    let syncthing = Syncthing::at(vec![state.path().join("syncthing")], None);
+    let (transfers, _served) = Transfers::build(&here, state.path(), Folders::new(&[]), syncthing, true)
+        .await
+        .expect("the transfers start");
+
+    let shared = transfers
+        .share(&path, asking.id())
+        .await
+        .expect("the file is shared");
+    assert_eq!(shared.size, data.len() as u64);
+    let content = HashAndFormat::raw(Hash::from_bytes(shared.hash));
+
+    let store = iroh_blobs::store::mem::MemStore::new();
+    let connection = asking
+        .connect(here.addr(), iroh_blobs::ALPN)
+        .await
+        .expect("the asking device connects");
+    store
+        .remote()
+        .fetch(connection, content)
+        .await
+        .expect("the asking device fetches it");
+    let fetched = store.blobs().get_bytes(content.hash).await.expect("stored");
+    assert_eq!(fetched.as_ref(), data.as_slice());
+
+    // Sharing again renews the lease and gives the same blob.
+    let again = transfers.share(&path, asking.id()).await.expect("shared again");
+    assert_eq!(again, shared);
+
+    let refused = iroh_blobs::store::mem::MemStore::new();
+    let fetched = match other.connect(here.addr(), iroh_blobs::ALPN).await {
+        Ok(connection) => refused.remote().fetch(connection, content).await.is_ok(),
+        Err(_) => false,
+    };
+    assert!(!fetched, "a device that did not ask fetches nothing");
+    transfers.shutdown().await.expect("the transfers stop");
+}

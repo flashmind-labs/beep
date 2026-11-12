@@ -484,6 +484,11 @@ impl Fleet {
         self.me
     }
 
+    /// The endpoint this app reaches the mesh on.
+    pub fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
+    }
+
     /// The mesh, once it is open.
     pub fn mesh(&self) -> Option<Mesh> {
         match &*self.mesh.borrow() {

@@ -194,7 +194,7 @@ function ReplyPicture({ image, images, index }: { image: SentImage; images: read
   }, [file?.id, file?.mime]);
   if (gone) return <span className="drpic gone">{GONE_PIC}</span>;
   const name = file?.name ?? "";
-  return <span className={`drpic${waiting ? " wait" : ""}`}><button className="pic" aria-label={image.caption || name || "Picture"} onClick={() => openViewer([...images], index)}>{src && <img alt="" src={src} onLoad={() => setWaiting(false)} onError={() => setGone(true)} />}</button>{file && <button className="save" aria-label={`Save ${name}`} title="Save to Downloads" onClick={() => void savePic(file)} dangerouslySetInnerHTML={{ __html: ICON.save }} />}</span>;
+  return <span className={`drpic${waiting ? " wait" : ""}`}><button className="pic" aria-label={image.caption || name || "Picture"} onClick={() => openViewer([...images], index)}>{src && <img alt="" src={src} onLoad={() => setWaiting(false)} onError={() => setGone(true)} />}</button>{file && <button className="save" aria-label={`Save ${name}`} title="Save" onClick={() => void savePic(file)} dangerouslySetInnerHTML={{ __html: ICON.save }} />}</span>;
 }
 const ReplyPictures = memo(function ReplyPictures({ images }: { images: readonly SentImage[] }) {
   return <>{images.map((image, index) => <ReplyPicture key={index} image={image} images={images} index={index} />)}</>;

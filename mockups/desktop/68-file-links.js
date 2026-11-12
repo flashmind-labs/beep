@@ -1,4 +1,5 @@
 // File references can open a local file or a downloaded copy in the default app.
+// A path in inline code is a link too; `:24` or `#L24` opens the file at that line.
 (() => {
   D.dAgentFileLinks = () => {
     const previous = S.d.ags;
@@ -7,7 +8,7 @@
     template.innerHTML = D.dAgentSession();
     S.d.ags = previous;
     template.content.querySelector('.dcoderlog').innerHTML = dYou('Update the desktop mockup')
-      + '<div class="dcoderen agent md">Implemented the <a href="mockups/desktop/index.html" data-file-link>mockup</a>: normal conversation, thoughts, tools, and composer.</div>';
+      + '<div class="dcoderen agent md">Implemented the <a href="mockups/desktop/index.html" data-file-link>mockup</a>: normal conversation, thoughts, tools, and composer. The links render in <code class="fref" data-file-link data-line="24" tabindex="0">mockups/desktop/68-file-links.js:24</code>.</div>';
     return template.innerHTML;
   };
   document.addEventListener('contextmenu', event => {
@@ -19,7 +20,7 @@
     menu.className = 'ag-ctx';
     menu.dataset.fileLinkMenu = '';
     menu.setAttribute('role', 'menu');
-    menu.setAttribute('aria-label', link.getAttribute('href'));
+    menu.setAttribute('aria-label', link.getAttribute('href') ?? link.textContent);
     Object.assign(menu.style, { position: 'fixed', left: `${event.clientX}px`, top: `${event.clientY}px`, zIndex: '9999' });
     const fill = items => {
       menu.replaceChildren();
@@ -59,7 +60,8 @@
     };
   });
   document.addEventListener('click', event => {
-    if (event.target.closest('[data-file-link]')) { event.preventDefault(); toast('Opened in Beep'); }
+    const link = event.target.closest('[data-file-link]');
+    if (link) { event.preventDefault(); toast(link.dataset.line ? `Opened in Beep at line ${link.dataset.line}` : 'Opened in Beep'); }
   });
   DESK_SCREENS.find(g => g.group === 'Command center').items.push(['dAgentFileLinks', 'Agent: file references', 'AgentFileLinks']);
   if (location.hash.slice(1) === 'dAgentFileLinks') { S.screen = 'dAgentFileLinks'; render(); }

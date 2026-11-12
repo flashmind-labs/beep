@@ -12,8 +12,8 @@ pub use actions::{
     start_review, update_harness,
 };
 pub use files::{
-    custom_agents, edit_files, folder, image, media, present, read_file, thumb, tree, upload_file,
-    write_file,
+    custom_agents, edit_files, folder, image, media, present, read_file, share, thumb, tree,
+    upload_file, write_file,
 };
 pub use moves::{MoveState, WorktreeMove, move_progress, worktree_move, worktrees};
 pub use query::{
@@ -32,6 +32,9 @@ const READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a picture may take: a whole one is a few MiB, which a link
 /// through a busy relay carries in far more than `READ_TIMEOUT`.
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long sharing a media file may take: the node hashes up to
+/// `MAX_AGENT_FILE` bytes first.
+const SHARE_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to list models: it may start the agent first.
 const MODELS_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to read a diff: git may walk a large checkout.
@@ -140,6 +143,16 @@ pub enum NodeFile {
     /// There is no file at that path.
     Missing,
     /// The node would not read it, saying why.
+    Refused(String),
+}
+
+/// What a node answered when asked to share a media file.
+pub enum NodeShare {
+    /// The device may fetch the raw blob `hash` of `size` bytes.
+    Shared { hash: [u8; 32], size: u64 },
+    /// There is no file at that path.
+    Missing,
+    /// The node would not share it, saying why.
     Refused(String),
 }
 

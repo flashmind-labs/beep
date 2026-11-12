@@ -1,0 +1,3 @@
+.dcoderen code.fref{cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}
+.dcoderen code.fref:hover,.dcoderen code.fref:focus-visible{color:var(--accent)}
+.agcode .ln.on{color:var(--accent);font-weight:600}

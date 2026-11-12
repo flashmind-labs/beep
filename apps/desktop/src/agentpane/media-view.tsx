@@ -7,16 +7,18 @@ import { baseName, resolvePath } from "./media-state.ts";
 import { P, type MediaTab } from "./media.ts";
 import { readError, readFile } from "./read.ts";
 import { noteTab } from "./media-draw.ts";
+import { savedIn } from "../ui/platform.ts";
 
 export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: string | null; label: string }) {
   if (!tab.path) return null;
   const path = tab.path;
   const note = (text: string) => noteTab(tab, text);
-  const open = () => { if (machine) void invoke("agent_file_open", { machineId: machine, path }).catch(error => note(readError(error))); };
+  const session = P.session?.id ?? null;
+  const open = () => { if (machine) void invoke("agent_file_open", { machineId: machine, path, session }).catch(error => note(readError(error))); };
   const save = () => {
     if (!machine) return;
-    void invoke<string>("agent_file_save", { machineId: machine, path }).then(to => {
-      note(`Saved to Downloads as ${baseName(to)}`);
+    void invoke<string>("agent_file_save", { machineId: machine, path, session }).then(to => {
+      note(`Saved to ${savedIn(to)} as ${baseName(to)}`);
       void invoke("reveal_file", { path: to }).catch(() => {});
     }).catch(error => note(readError(error)));
   };
@@ -109,7 +111,7 @@ function sibling(tab: MediaTab) {
     if (!P.session || !dir || /^[a-z]+:/i.test(uri)) return null;
 
     try {
-      return (await readFile(P.session.machine_id, resolvePath(dir, decodeURIComponent(uri)), () => {})).bytes;
+      return (await readFile(P.session.machine_id, resolvePath(dir, decodeURIComponent(uri)), P.session.id, () => {})).bytes;
     } catch {
       return null;
     }

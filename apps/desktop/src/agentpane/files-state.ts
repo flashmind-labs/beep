@@ -3,7 +3,7 @@
 // paths mentioned in a message, files dropped to upload, and the simple
 // highlighting of the text view. No page here, so the tests load it.
 import { esc } from "../ui/format.ts";
-import { extension } from "./media-state.ts";
+import { type FileRef, extension, linkedPath, mediaKind } from "./media-state.ts";
 
 /// How git sees an entry changed (WorkEntry.change).
 export type GitChange = "untracked" | "added" | "modified" | "conflicted";
@@ -211,6 +211,16 @@ const LANGS: Record<string, string> = {
   rb: "Ruby", sh: "Shell", bash: "Shell", zsh: "Shell", toml: "TOML", json: "JSON", yaml: "YAML", yml: "YAML",
   md: "Markdown", html: "HTML", css: "CSS", sql: "SQL", lua: "Lua", txt: "Text",
 };
+
+/// The file an inline code span in a reply names, such as `src/main.rs:12`:
+/// one word ending in an extension, with a folder, a line, or an extension
+/// the pane knows, so `self.mcp` stays code.
+export function codeFile(text: string): FileRef | null {
+  if (!/^(?:~|\.{1,2})?\/?[\w@+-][\w@+.\/-]*\.[a-z][a-z0-9]*(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)?$/i.test(text)) return null;
+  const ref = linkedPath(text);
+  if (!ref) return null;
+  return ref.path.includes("/") || ref.line !== null || languageOf(ref.path) || mediaKind(ref.path) ? ref : null;
+}
 
 /// The language a file is in by its extension, or "".
 export function languageOf(path: string) {

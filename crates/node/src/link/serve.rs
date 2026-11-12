@@ -612,7 +612,8 @@ pub(super) async fn serve_open(
         }
         SessionProtocol::Agents => {
             tx.send(&Opened::Ready {}).await?;
-            crate::agents::serve_sessions(tx, rx, offers.agents, who.id()).await
+            let transfers = offers.transfers.get();
+            crate::agents::serve_sessions(tx, rx, offers.agents, who.id(), transfers).await
         }
         other => match offers.agents.kind(other.as_ref()) {
             Some(kind) => {

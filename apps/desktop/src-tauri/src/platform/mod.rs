@@ -6,8 +6,10 @@ pub(crate) mod energy;
 
 #[cfg(target_os = "ios")]
 pub mod ios_keyboard;
+#[cfg(target_os = "ios")]
+pub(crate) mod ios_share;
 mod open;
-pub(crate) use open::{open, reveal};
+pub(crate) use open::{open, reveal, saves_dir};
 
 pub(crate) mod logfile;
 #[cfg(all(unix, desktop))]

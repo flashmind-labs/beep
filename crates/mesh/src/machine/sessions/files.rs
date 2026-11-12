@@ -1,6 +1,6 @@
 use super::{
-    IMAGE_TIMEOUT, NodeFile, NodeImage, NodeWork, READ_TIMEOUT, Reading, Sessions, WorkRead,
-    WorkWrite, ask, hinted, once,
+    IMAGE_TIMEOUT, NodeFile, NodeImage, NodeShare, NodeWork, READ_TIMEOUT, Reading, SHARE_TIMEOUT,
+    Sessions, WorkRead, WorkWrite, ask, hinted, once,
 };
 use crate::{MeshError, machine::unexpected};
 use beep_proto::{
@@ -59,6 +59,22 @@ pub async fn media<S: Sessions + ?Sized>(
         offset,
     };
     file_reply(once(node, request).await?)
+}
+
+/// Lets this device fetch the media file `path` on the node over
+/// iroh-blobs for a few minutes. The node hashes it first, which for a
+/// large file takes longer than an ordinary read.
+pub async fn share<S: Sessions + ?Sized>(node: &S, path: &str) -> Result<NodeShare, MeshError> {
+    let request = SessionsRequest::Share {
+        path: path.to_owned(),
+    };
+
+    match node.sessions(request, Reading::Once, SHARE_TIMEOUT).await? {
+        SessionsReply::Shared { hash, size } => Ok(NodeShare::Shared { hash, size }),
+        SessionsReply::NoFile {} => Ok(NodeShare::Missing),
+        SessionsReply::Error { message } => Ok(NodeShare::Refused(message)),
+        other => Err(unexpected(&other)),
+    }
 }
 
 /// Part of a file inside a session folder on the node.

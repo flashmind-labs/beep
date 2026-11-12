@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { revealLabel } from "../ui/platform.ts";
 
 export function ResearchNotice({ text, path, bad, busy, reveal }: { text: string; path: string | null; bad: boolean; busy: boolean; reveal(path: string): void }) {
-  return <div className={`dsaved${bad ? " bad" : ""}`} role="status">{busy && <span className="dspin" />}<span>{text}</span>{path && <button className="dbtn" onClick={() => reveal(path)}>Show in Finder</button>}</div>;
+  return <div className={`dsaved${bad ? " bad" : ""}`} role="status">{busy && <span className="dspin" />}<span>{text}</span>{path && <button className="dbtn" onClick={() => reveal(path)}>{revealLabel()}</button>}</div>;
 }
 
 /// The Quote button over the selection, above it unless that leaves the window's top.

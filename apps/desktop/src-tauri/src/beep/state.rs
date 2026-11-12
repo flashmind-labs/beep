@@ -109,6 +109,9 @@ pub struct Saved {
     /// Page zoom of every window, ⌘= ⌘- ⌘0.
     #[serde(default)]
     pub zoom: Zoom,
+    /// The folder saves go to, picked in Settings; Downloads without one.
+    #[serde(default)]
+    pub save_folder: Option<PathBuf>,
 }
 
 fn on() -> bool {
@@ -184,6 +187,7 @@ impl Default for Saved {
             unlinks: Vec::new(),
             signed_out: false,
             zoom: Zoom::default(),
+            save_folder: None,
         }
     }
 }

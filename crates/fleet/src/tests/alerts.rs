@@ -439,3 +439,47 @@ async fn a_machine_that_links_again_ends_the_wait_at_once() {
         .expect("the wait ran");
     assert!(relinked);
 }
+
+#[tokio::test]
+async fn a_notice_names_the_project_its_session_is_in() {
+    use crate::records::{Place, ProjectRecord, place_key, project_key, write};
+
+    let unused = Serves::Asked(Arc::new(Notify::new()));
+    let desktop = dev(None, DeviceKind::Desktop, "Studio", unused).await;
+    let mesh = &desktop.mesh;
+    let other = SecretKey::generate().public();
+    let record = ProjectRecord {
+        url: "https://example.com/org/web".into(),
+        syncthing_files: None,
+        git_auto_recovery: false,
+    };
+    let place = |folder: &str| Place {
+        folder: folder.into(),
+        imported_ms: 0,
+        fork: None,
+    };
+    for name in ["org/web", "org/docs"] {
+        write(mesh, project_key(name), Some(&record))
+            .await
+            .expect("written");
+    }
+    write(
+        mesh,
+        place_key("org/web", desktop.id),
+        Some(&place("/srv/web")),
+    )
+    .await
+    .expect("written");
+    write(
+        mesh,
+        place_key("org/docs", other),
+        Some(&place("/srv/web/docs")),
+    )
+    .await
+    .expect("written");
+
+    let at = |cwd| project_at(mesh, desktop.id, cwd);
+    assert_eq!(at("/srv/web/.worktrees/fix").as_deref(), Some("org/web"));
+    assert_eq!(at("/srv/web/docs").as_deref(), Some("org/web"));
+    assert_eq!(at("/srv/website"), None);
+}

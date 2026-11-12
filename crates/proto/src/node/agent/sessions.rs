@@ -333,6 +333,13 @@ pub enum SessionsRequest {
     ExternalNamed {
         sessions: Vec<ExternalAsk>,
     },
+    /// Lets the asking device fetch the media file `path`, absolute or
+    /// starting `~/`, from the node's blob store for a few minutes. Answered
+    /// with `Shared`, `NoFile` when there is no such file, or `Error`. A node
+    /// from before it closes the stream: read the file with `File` then.
+    Share {
+        path: String,
+    },
 }
 
 /// One session asked for by `SessionsRequest::ExternalNamed`.
@@ -380,6 +387,7 @@ impl SessionsRequest {
             | Self::Models { .. }
             | Self::Harnesses { .. }
             | Self::File { .. }
+            | Self::Share { .. }
             | Self::Folder { .. }
             | Self::ReadFile { .. }
             | Self::CustomAgents { .. }
@@ -587,6 +595,13 @@ pub enum SessionsReply {
     AdaptersInstalling {},
     /// Sent only in response to `EditFiles`.
     FilesEdited {},
+    /// The answer to `Share`: the file's BLAKE3 hash, a raw blob the asking
+    /// device may fetch over iroh-blobs, and its size.
+    Shared {
+        #[serde(with = "serde_bytes")]
+        hash: [u8; 32],
+        size: u64,
+    },
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by

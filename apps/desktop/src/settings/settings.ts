@@ -41,6 +41,10 @@ export interface MacSettings {
   send_on_pause: boolean;
   /// Coding agents notify when they ask something or finish a turn.
   agent_notices: boolean;
+  /// Where saves go now; null when no folder is reachable.
+  save_folder: string | null;
+  /// That folder was picked in Settings rather than Downloads.
+  save_folder_picked: boolean;
 }
 
 /// Settings, This Mac (`mac_control`): whether Beep may use it, where its
@@ -440,6 +444,8 @@ function localView(kind: LocalView): ReactNode {
       voice: (choice: NoticeVoice) => void changeGeneral("voice", "set_notice_voice", { choice }),
       pause: (enabled: boolean) => void changeGeneral("pause", "set_send_on_pause", { enabled }),
       notices: (enabled: boolean) => void changeGeneral("notices", "set_agent_notices", { enabled }),
+      chooseSaves: () => void changeGeneral("saves", "choose_save_folder", {}),
+      useDownloads: () => void changeGeneral("saves", "use_downloads", {}),
       shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
       report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
     }) : null;

@@ -482,6 +482,7 @@ dependencies = [
  "futures",
  "image",
  "iroh",
+ "iroh-blobs",
  "iroh-tickets",
  "log",
  "mac-notification-sys",
