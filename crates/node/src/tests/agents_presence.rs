@@ -95,6 +95,7 @@ async fn a_mesh_follow_reports_open_and_close_without_polling() {
             server_rx,
             serving,
             iroh::SecretKey::generate().public(),
+            None,
         )
         .await
     });
@@ -145,6 +146,7 @@ async fn ask(agents: &Arc<Agents>, request: SessionsRequest) -> SessionsReply {
             server_rx,
             serving,
             iroh::SecretKey::generate().public(),
+            None,
         )
         .await
     });

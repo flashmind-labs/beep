@@ -5,7 +5,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { copy } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 
-export function fileLinkMenu(e: MouseEvent, folder: Omit<FileTarget, "path">, open: (ref: FileRef) => void) {
+export function fileLinkMenu(e: MouseEvent, folder: Omit<FileTarget, "path">, session: string, open: (ref: FileRef) => void) {
   const ref = (e.target as Element).closest<HTMLElement>("a[href], [data-media], [data-made], a[data-path], code[data-file]");
   if (!ref) return;
   const plain = ref.dataset.media ?? ref.dataset.made ?? ref.dataset.path;
@@ -19,7 +19,7 @@ export function fileLinkMenu(e: MouseEvent, folder: Omit<FileTarget, "path">, op
   const root = resolvePath(folder.root, ".").replace(/\/+$/, "");
   const full = resolvePath(root, path);
   const fallback: MenuItem = { label: "Open in default app", on: () => {
-    void invoke("agent_file_open", { machineId: folder.machineId, path: full })
+    void invoke("agent_file_open", { machineId: folder.machineId, path: full, session })
       .catch(error => window.alert(`Could not open file: ${error}`));
   } };
   const update = openMenu(e, path, [...items, fallback]);

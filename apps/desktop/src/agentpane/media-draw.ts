@@ -220,8 +220,8 @@ export function tabMenu(e: MouseEvent, id: string) {
     const rel = t.rel;
     items.push({ label: "Save", on: () => saveWorkFile(rel, note, t.root) });
   } else if (t.path && P.session) {
-    const { machine_id } = P.session, file = t.path;
-    items.push({ label: "Save", on: () => void invoke<string>("agent_file_save", { machineId: machine_id, path: file })
+    const { machine_id, id: session } = P.session, file = t.path;
+    items.push({ label: "Save", on: () => void invoke<string>("agent_file_save", { machineId: machine_id, path: file, session })
       .then(to => { note(`Saved to Downloads as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
       .catch(err => note(readError(err))) });
   }

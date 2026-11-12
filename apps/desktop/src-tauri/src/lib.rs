@@ -230,6 +230,7 @@ pub fn run() {
             agents::media::agent_file,
             agents::media::agent_file_open,
             agents::media::agent_file_save,
+            agents::media::agent_files_forget,
             agents::media::agent_image,
             agents::media::agent_thumb,
             agents::sessions::agent_deletable,
@@ -747,6 +748,17 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         Arc::new(Fleet::observer(endpoint, &mesh))
     };
     app.manage(fleet.clone());
+    let files = Arc::new(agents::file_cache::FileCache::new(
+        handle.path().app_cache_dir()?.join("chat-files"),
+    ));
+    let sweeping = files.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            sweeping.sweep().await;
+            tokio::time::sleep(agents::file_cache::SWEEP_EVERY).await;
+        }
+    });
+    app.manage(files);
     // What the projects pages read, kept for the run of the app.
     app.manage(beep_fleet::Session::new(
         fleet.clone(),

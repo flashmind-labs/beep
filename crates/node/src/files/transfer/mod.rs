@@ -8,7 +8,7 @@ use crate::{
     files::syncthing::Syncthing,
     link::{Protocol, Session},
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::{
     LinkRx, LinkTx,
     transfer::{Content, ContentKind, PROTOCOL, Reply, Request, Stage},
@@ -26,10 +26,12 @@ use iroh_blobs::{
     },
 };
 use serde::{Deserialize, Serialize};
+use crate::lock;
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
@@ -54,6 +56,8 @@ const MAX_RUNNING: usize = 4;
 const GC_IDLE: Duration = Duration::from_secs(5 * 60);
 /// How often progress goes out while bytes move.
 const PROGRESS_EVERY: Duration = Duration::from_secs(1);
+/// How long a device may fetch a file it asked to have shared.
+const SHARE_FOR: Duration = Duration::from_secs(10 * 60);
 
 /// Where a transfer's progress goes: the stream of the one who asked, or
 /// nowhere when the node moves files for its own agent.
@@ -149,6 +153,9 @@ struct Inner {
     /// The free space running fetches hold.
     room: Arc<Room>,
     running: Arc<Semaphore>,
+    /// The files devices asked to have shared, by device and blob, each
+    /// held in the store and granted until its lease ends.
+    shares: Mutex<HashMap<(EndpointId, Hash), Lease>>,
     syncs: Syncs,
     // Dropping the router stops serving blobs; the handle ends the task
     // that answers its events. `None` when the caller serves `Served`.
@@ -162,6 +169,20 @@ pub(crate) struct Offer {
     pub(crate) reply: Reply,
     _offered: offer::Offered,
     _grant: grants::GrantGuard,
+}
+
+/// One shared file, fetchable by one device until `until`.
+struct Lease {
+    until: Instant,
+    _offered: offer::Offered,
+    _grant: grants::GrantGuard,
+}
+
+/// A file `share` made fetchable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Shared {
+    pub(crate) hash: [u8; 32],
+    pub(crate) size: u64,
 }
 
 /// What a source offered and where to write it, as one node's agent hands
@@ -403,6 +424,7 @@ impl Transfers {
                 journal,
                 room,
                 running: Arc::new(Semaphore::new(MAX_RUNNING)),
+                shares: Mutex::default(),
                 syncs,
                 router,
                 _events: events_task,
@@ -437,6 +459,64 @@ impl Transfers {
             reply: offered.reply.clone(),
             _offered: offered,
             _grant: grant,
+        })
+    }
+
+    /// Lets `peer` fetch the file at `path`, already checked and resolved,
+    /// for `SHARE_FOR`, as a device asks to show a media file. Asking again
+    /// renews the lease.
+    pub(crate) async fn share(&self, path: &Path, peer: EndpointId) -> Result<Shared> {
+        let inner = &self.inner;
+        let _permit =
+            inner.running.clone().try_acquire_owned().map_err(|_| {
+                anyhow!("busy: {MAX_RUNNING} transfers are running on this machine")
+            })?;
+        let offered = offer::offer(&inner.store, path, inner.endpoint.addr(), &mut Out::Silent)
+            .await?;
+        let Reply::Offered { content, size, .. } = offered.reply else {
+            bail!("{} could not be shared", path.display());
+        };
+        ensure!(
+            content.kind == ContentKind::File,
+            "{} is not a file",
+            path.display()
+        );
+
+        let hash = offered.content.hash;
+        let grant = inner.grants.grant(peer, offered.content);
+        let until = Instant::now() + SHARE_FOR;
+        let lease = Lease {
+            until,
+            _offered: offered,
+            _grant: grant,
+        };
+        // The lease it replaces drops outside the lock.
+        let replaced = lock(&inner.shares).insert((peer, hash), lease);
+        drop(replaced);
+
+        let held = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            tokio::time::sleep_until(until).await;
+            let Some(inner) = held.upgrade() else {
+                return;
+            };
+            let ended = {
+                let mut shares = lock(&inner.shares);
+                let over = shares
+                    .get(&(peer, hash))
+                    .is_some_and(|lease| lease.until <= Instant::now());
+                over.then(|| shares.remove(&(peer, hash)))
+            };
+
+            if ended.is_some() {
+                drop(ended);
+                inner.collect.notify_one();
+            }
+        });
+
+        Ok(Shared {
+            hash: content.hash,
+            size,
         })
     }
 

@@ -5,15 +5,17 @@ use super::{
     custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder, worktrees,
 };
 use crate::agents::claude::Excerpt;
+use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};
+use beep_proto::{MAX_AGENT_FILE, media_mime};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{self, SessionsReply, SessionsRequest},
     usage::SessionSpend,
 };
 use iroh::EndpointId;
-use std::{fmt::Display, path::PathBuf, sync::Arc, time::Duration};
+use std::{fmt::Display, io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     task::{JoinHandle, spawn_blocking},
     time::{Instant, MissedTickBehavior, interval, timeout},
@@ -164,12 +166,14 @@ fn warn_if_slow_after(what: String, limit: Duration) -> AbortOnDropHandle<()> {
 }
 
 /// Serves one `agents/1` request.
-/// `caller` is the key of whoever opened the stream.
+/// `caller` is the key of whoever opened the stream. `Share` needs the
+/// node's `transfers`.
 pub async fn serve_sessions(
     mut tx: LinkTx,
     mut rx: LinkRx,
     agents: Arc<Agents>,
     caller: EndpointId,
+    transfers: Option<Transfers>,
 ) -> Result<()> {
     let Some(request) = rx.recv::<SessionsRequest>().await? else {
         return Ok(());
@@ -290,6 +294,7 @@ pub async fn serve_sessions(
                 Err(e) => failed(e),
             }
         }
+        SessionsRequest::Share { path } => share_reply(&agents, transfers, caller, &path).await,
         SessionsRequest::Folder {
             root,
             path,
@@ -551,6 +556,51 @@ async fn live_reply(agents: &Agents, session: &str, steer: Option<agent::Steer>)
 fn failed(e: impl Display) -> SessionsReply {
     SessionsReply::Error {
         message: format!("{e:#}"),
+    }
+}
+
+/// Lets `caller` fetch the media file `path` from the node's blob store.
+async fn share_reply(
+    agents: &Agents,
+    transfers: Option<Transfers>,
+    caller: EndpointId,
+    path: &str,
+) -> SessionsReply {
+    let Some(transfers) = transfers else {
+        return failed("this machine's file transfers did not start");
+    };
+
+    if media_mime(path).is_none() {
+        return failed(format!(
+            "{path} is not a picture, video, 3D model or PDF"
+        ));
+    }
+
+    let real = match agents.reachable(path, reach::Access::Read).await {
+        Ok(real) => real,
+        Err(e) => return failed(e),
+    };
+
+    match tokio::fs::metadata(&real).await {
+        Err(e) if e.kind() == ErrorKind::NotFound => return SessionsReply::NoFile {},
+        Err(e) => return failed(format!("could not read {path}: {e}")),
+        Ok(meta) if !meta.is_file() => return failed(format!("{path} is not a file")),
+        Ok(meta) if meta.len() > MAX_AGENT_FILE => {
+            return failed(format!(
+                "{path} is {} MB, over the {} MB that can be shown",
+                meta.len() / (1024 * 1024),
+                MAX_AGENT_FILE / (1024 * 1024)
+            ));
+        }
+        Ok(_) => {}
+    }
+
+    match transfers.share(&real, caller).await {
+        Ok(shared) => SessionsReply::Shared {
+            hash: shared.hash,
+            size: shared.size,
+        },
+        Err(e) => failed(e),
     }
 }
 
