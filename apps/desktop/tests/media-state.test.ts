@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, baseName, isCloseKey, leavesTerminal, moveTab, readLayout, resolvePath, splitTabs, tabDock, zoomAt } from "../src/agentpane/media-state.ts";
+import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, baseName, isCloseKey, leavesTerminal, moveTab, pinchStep, readLayout, resolvePath, splitTabs, tabDock, zoomAt, type Touches } from "../src/agentpane/media-state.ts";
 
 test("a relative path is the session folder's", () => {
   assert.equal(resolvePath("/srv/project", "out/a.glb"), "/srv/project/out/a.glb");
@@ -80,4 +80,13 @@ test("cmd+w is the close key, typed in a terminal too", () => {
   assert.equal(isCloseKey({ key: "W", metaKey: true, shiftKey: false }), true, "caps lock");
   assert.equal(isCloseKey({ key: "w", metaKey: false, shiftKey: false }), false, "the shell gets a plain w");
   assert.equal(isCloseKey({ key: "w", metaKey: true, shiftKey: true }), false);
+});
+
+test("two fingers spreading apart zoom about their midpoint; one finger does not", () => {
+  const touches: Touches = new Map([[1, { x: 0, y: 0 }]]);
+  assert.equal(pinchStep(touches, 1, 0, 0), null);
+
+  touches.set(2, { x: 100, y: 0 });
+  assert.deepEqual(pinchStep(touches, 2, 200, 0), { factor: 2, x: 100, y: 0, dx: 50, dy: 0 });
+  assert.equal(pinchStep(touches, 3, 0, 0), null);
 });

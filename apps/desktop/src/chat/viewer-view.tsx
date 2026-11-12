@@ -7,6 +7,7 @@ import { invoke } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { fileKind, fileSize, GONE_PIC, loadPic, viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
 import { useDialogRef } from "../ui/parts.ts";
+import { pinchStep, zoomAt, type ImageView, type Touches } from "../agentpane/media-state.ts";
 
 function ViewerImage({ picture }: { picture: ViewerPic }) {
   const file = picture.file;
@@ -18,7 +19,52 @@ function ViewerImage({ picture }: { picture: ViewerPic }) {
     void loadPic(file.id, file.mime).then(value => { if (active) { if (value) setUrl(value); else setGone(true); } });
     return () => { active = false; };
   }, [file?.id, file?.mime]);
-  return gone ? <div className="dmuted dcenter dfill">{GONE_PIC}</div> : <img alt={picture.caption ?? ""} src={url ?? undefined} onError={() => setGone(true)} />;
+  const zoom = usePinchZoom();
+  return gone ? <div className="dmuted dcenter dfill">{GONE_PIC}</div> : <img ref={zoom} alt={picture.caption ?? ""} src={url ?? undefined} onError={() => setGone(true)} />;
+}
+
+/// Two fingers zoom the picture about their midpoint and one pans it while
+/// zoomed; a double tap goes back to fitted. Never smaller than fitted.
+function usePinchZoom() {
+  const image = useRef<HTMLImageElement>(null);
+
+  useLayoutEffect(() => {
+    const img = image.current;
+    if (!img) return;
+    const touches: Touches = new Map();
+    let view: ImageView = { scale: 1, x: 0, y: 0, fit: true };
+    const show = (next: ImageView) => {
+      view = next.scale <= 1 ? { scale: 1, x: 0, y: 0, fit: true } : next;
+      img.style.transform = view.fit ? "" : `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+    };
+
+    const down = (event: PointerEvent) => {
+      touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      img.setPointerCapture(event.pointerId);
+    };
+    const move = (event: PointerEvent) => {
+      const last = touches.get(event.pointerId);
+      if (!last) return;
+
+      // The picture's place before the transform, which moves its box by `x`, `y`.
+      const rect = img.getBoundingClientRect(), left = rect.left - view.x, top = rect.top - view.y;
+      const step = pinchStep(touches, event.pointerId, event.clientX, event.clientY);
+
+      if (step) show(zoomAt({ ...view, x: view.x + step.dx, y: view.y + step.dy }, step.factor, step.x - left, step.y - top));
+      else if (touches.size === 1 && !view.fit) show({ ...view, x: view.x + event.clientX - last.x, y: view.y + event.clientY - last.y });
+    };
+    const up = (event: PointerEvent) => { touches.delete(event.pointerId); };
+    const double = () => show({ scale: 1, x: 0, y: 0, fit: true });
+
+    img.addEventListener("pointerdown", down); img.addEventListener("pointermove", move);
+    img.addEventListener("pointerup", up); img.addEventListener("pointercancel", up); img.addEventListener("dblclick", double);
+    return () => {
+      img.removeEventListener("pointerdown", down); img.removeEventListener("pointermove", move);
+      img.removeEventListener("pointerup", up); img.removeEventListener("pointercancel", up); img.removeEventListener("dblclick", double);
+    };
+  }, []);
+
+  return image;
 }
 
 export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) {

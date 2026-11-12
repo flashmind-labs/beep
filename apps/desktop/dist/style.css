@@ -369,7 +369,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .drpic .save:hover { background: var(--accent); color: var(--on-accent) }
 .drpic.gone { border: 1px dashed var(--dim); background: none; color: var(--muted); display: grid; place-items: center; font-size: 12px; text-align: center; padding: 8px }
 .dviewer .vi { flex: 1; min-height: 0; display: flex; align-items: center; gap: 10px; padding: 14px }
-.dviewer .vi img { flex: 1; min-width: 0; height: 100%; object-fit: contain; border-radius: var(--radius-sm) }
+.dviewer .vi { overflow: hidden }
+.dviewer .vi img { flex: 1; min-width: 0; height: 100%; object-fit: contain; border-radius: var(--radius-sm); touch-action: none; transform-origin: 0 0; user-select: none; -webkit-user-drag: none }
 .dviewer .nav { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: var(--elev); color: var(--fg); display: grid; place-items: center; padding: 0; flex: none }
 .dviewer .nav:disabled { opacity: .3 }
 .dviewer .nav.prev svg { transform: rotate(180deg) }
