@@ -5,7 +5,7 @@
 use super::{
     acp::{Line, LineReader},
     unix_now,
-    usage::claude_window,
+    usage::{WEEK_MINUTES, claude_window},
 };
 use crate::run::process::{GroupLeader, STOP_GRACE, own_group};
 use anyhow::{Context, Result, bail};
@@ -166,28 +166,49 @@ async fn write(stdin: &mut ChildStdin, messages: &[Value]) -> Result<()> {
 
 /// The plan in Claude Code's answer to `get_usage`: `rate_limits` holds
 /// each window it has, `utilization` from 0 to 100 and `resets_at` an
-/// RFC 3339 time. A window not opened yet is null.
+/// RFC 3339 time, and `model_scoped` the weekly windows of single models,
+/// such as Fable, each with its `display_name`. A window not opened yet is
+/// null.
 fn claude_plan(usage: &Value, at: u64) -> Option<PlanUsage> {
     if usage["rate_limits_available"] != true {
         return None;
     }
 
     let limits = usage["rate_limits"].as_object()?;
+    let window = |minutes, scope: Option<&str>, value: &Value| {
+        Some(LimitWindow {
+            minutes,
+            used_percent: value.get("utilization")?.as_f64()?.clamp(0.0, 100.0),
+            resets_at: value["resets_at"]
+                .as_str()
+                .and_then(crate::agents::claude::unix_seconds),
+            scope: scope.map(str::to_owned),
+        })
+    };
     let mut windows: Vec<LimitWindow> = limits
         .iter()
         .filter_map(|(kind, value)| {
             let (minutes, scope) = claude_window(kind)?;
-            let used = value.get("utilization")?.as_f64()?;
-            Some(LimitWindow {
-                minutes,
-                used_percent: used.clamp(0.0, 100.0),
-                resets_at: value["resets_at"]
-                    .as_str()
-                    .and_then(crate::agents::claude::unix_seconds),
-                scope: scope.map(str::to_owned),
-            })
+            window(minutes, scope, value)
         })
         .collect();
+    let scoped = limits
+        .get("model_scoped")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| {
+            let name = value["display_name"].as_str()?;
+            window(WEEK_MINUTES, Some(name), value)
+        })
+        .collect::<Vec<_>>();
+
+    for one in scoped {
+        if !windows.iter().any(|known| known.scope == one.scope) {
+            windows.push(one);
+        }
+    }
+
     // A five-hour window not opened yet is all left.
     if !windows.iter().any(|window| window.minutes == 300) {
         windows.push(LimitWindow {
