@@ -2,7 +2,7 @@
 // editors that open its folder.
 import { createElement } from "react";
 import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
-import { windowHooks } from "../bar/core.ts";
+import { PANE, windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
 import { type AgentRow, type AgentPage, type AgentUsage, type OpenAgent, AG, usageLine, agentKind, folderName, where } from "./agents.ts";
 import { hasModes } from "./modepill.ts";
@@ -20,7 +20,7 @@ export function agentHints() {
   const s = AG.page?.session, q = s?.question;
   const slim = (items: readonly Hint[]) => {
     const project = AG.draft ?? (s && windowHooks?.sessionProject?.(s)?.name) ?? null;
-    return { value: hintModel(items), project };
+    return { value: { ...hintModel(items), window: !PANE && !!s && !AG.draft }, project };
   };
   if (AG.draft) return slim([["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
   const mode: readonly Hint[] = hasModes() ? [["⇧Tab", "mode"]] : [];
