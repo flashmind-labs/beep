@@ -193,7 +193,7 @@ async fn a_protocol_connection_that_takes_no_new_stream_is_dialed_again() {
 }
 
 #[tokio::test]
-async fn waking_from_sleep_dials_the_mesh_link_and_protocols_again() {
+async fn reconnecting_dials_the_mesh_link_and_protocols_again() {
     let pair = pair().await;
     let peer = pair.node.me();
     let client = PeerClient::over(pair.controller.clone(), peer);
@@ -201,7 +201,7 @@ async fn waking_from_sleep_dials_the_mesh_link_and_protocols_again() {
     let link = pair.controller.peer(peer).unwrap();
     let commands = pair.controller.command_connection(peer).await.unwrap();
 
-    pair.controller.inner.woke().await;
+    pair.controller.reconnect().await;
     timeout(Duration::from_secs(2), commands.closed())
         .await
         .unwrap();

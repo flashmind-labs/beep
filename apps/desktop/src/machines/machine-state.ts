@@ -88,19 +88,34 @@ export function machineDot(m: Pick<MachineCard, "online" | "agents" | "connectin
   return m.connecting ? { className: "ddot dial", title: "Connecting" } : { className: "ddot off", title: "Offline" };
 }
 
+/// Where the machines that run agents stand, for a list that stays empty until one answers:
+/// one is online (or there are none to wait for), the app is still connecting, or all are off.
+export type MachinesReach = "reached" | "connecting" | "offline";
+
+/// How `machines` stand together; no list read yet counts as connecting.
+export function machinesReach(machines: readonly Pick<MachineCard, "online" | "connecting" | "can_host">[] | null): MachinesReach {
+  if (!machines) return "connecting";
+  const hosts = machines.filter(m => m.can_host !== false);
+  if (!hosts.length || hosts.some(m => m.online)) return "reached";
+  return hosts.some(m => m.connecting) ? "connecting" : "offline";
+}
+
 /// The machines the app is still connecting to, by id, for the session rows on them.
 let connecting: ReadonlySet<string> = new Set();
+let reach: MachinesReach = "connecting";
 const connectingWatchers = new Set<() => void>();
 
 /// Takes which of `machines` are connecting; the watchers hear of a change.
-export function keepConnecting(machines: readonly Pick<MachineCard, "id" | "connecting">[] | null) {
-  const next = new Set((machines ?? []).filter(m => m.connecting).map(m => m.id));
-  if (next.size === connecting.size && [...next].every(id => connecting.has(id))) return;
+export function keepConnecting(machines: readonly Pick<MachineCard, "id" | "online" | "connecting" | "can_host">[] | null) {
+  const next = new Set((machines ?? []).filter(m => m.connecting).map(m => m.id)), nextReach = machinesReach(machines);
+  if (nextReach === reach && next.size === connecting.size && [...next].every(id => connecting.has(id))) return;
   connecting = next;
+  reach = nextReach;
   for (const watch of connectingWatchers) watch();
 }
 
 export const machineConnecting = (id: string) => connecting.has(id);
+export const machinesReachNow = () => reach;
 export function onConnecting(watch: () => void) { connectingWatchers.add(watch); }
 
 /// Where this Mac's own link stands, as `mac_control` gives it.
