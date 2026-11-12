@@ -7,6 +7,50 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.11] - 2026-11-12
+
+### Added
+
+- Desktop: Home opens on a board with four lanes: Needs you, Working, Ready to
+  review and Done today. A project opens on the same board for its own work.
+- Desktop: opening a session from the board grows its card into the session,
+  and going back shrinks it again. Option-Tab slides to the next conversation,
+  and a card that changes lane travels there. None of it plays with Reduce
+  motion on.
+- Desktop: Settings, Appearance picks Board or List for Home and for
+  projects, each on its own. List brings back the sections and rows from
+  before the board.
+- Desktop: New project has a folder for each machine, filled in with its
+  Projects in folder and offering its folders as you type.
+- Desktop: a conversation has a thin scrollbar again, with a tick at each
+  message you sent. Click a tick to jump to that message, or drag the thumb.
+  Hovering a tick shows that message.
+
+### Changed
+
+- Desktop: Running left the sidebar; the Working lane lists what runs.
+- Desktop: a project's sections open from its status strip, which gained
+  Sessions. The list of sections shows beside a section, not on the board.
+- Desktop: a new or imported project goes in each machine's Projects in
+  folder as `<folder>/<org>/<repo>`, instead of a fixed `projects` folder.
+
+### Fixed
+
+- Desktop: an offline machine shows when it was last connected, also after
+  the desktop restarts, instead of when it joined.
+- Desktop: a machine that does not list its sessions in time keeps its rows
+  in Agents and is asked again, instead of its sessions vanishing until the
+  next change.
+- Plan usage shows the weekly limits of single models, such as the Fable only week, next to Opus and Sonnet.
+
+### Performance
+
+- Desktop: an idle desktop starts far fewer background processes. The
+  machine's tool and sign-in check runs once for every open connection,
+  path checks no longer run `git` for each removed worktree, and idle
+  session process and open-file checks run less often.
+- The search for checkouts skips media, app and cache folders such as Pictures, Music, Movies and Library, so it is quicker and macOS does not ask for photo or music access.
+
 ## [0.8.10] - 2026-11-12
 
 ### Changed
