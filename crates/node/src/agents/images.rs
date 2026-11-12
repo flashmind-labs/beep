@@ -8,14 +8,17 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::image_key;
 use serde_json::Value;
 use std::{
+    cmp::Reverse,
     collections::VecDeque,
-    io,
+    fs, io,
     ops::ControlFlow,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 use tokio::sync::Notify;
 
+/// The most subagent transcripts searched for a session's picture.
+const MAX_SUBAGENT_FILES: usize = 64;
 /// The most pictures and bytes kept for one session...
 const SESSION_IMAGES: usize = 16;
 const SESSION_BYTES: usize = 32 * 1024 * 1024;
@@ -175,7 +178,19 @@ impl Images {
     /// The picture `key` in the session file at `path`. Blocks: a session
     /// file can be hundreds of MiB.
     pub(crate) fn find_in_file(&self, path: &Path, key: &str) -> io::Result<Option<Picture>> {
-        self.files.find(path, key)
+        if let Some(found) = self.files.find(path, key)? {
+            return Ok(Some(found));
+        }
+
+        // A Claude subagent's pictures reach its parent's live log but are
+        // written only to `<session>/subagents/agent-<id>.jsonl`.
+        for file in subagent_files(path) {
+            if let Some(found) = self.files.find(&file, key)? {
+                return Ok(Some(found));
+            }
+        }
+
+        Ok(None)
     }
 
     /// The picture `key` of `session`, when kept; it is then the newest.
@@ -187,6 +202,26 @@ impl Images {
         kept.held.push_back(held);
         Some(picture)
     }
+}
+
+/// The transcripts of the subagents of the Claude session at `path`, newest
+/// first, at most `MAX_SUBAGENT_FILES`.
+fn subagent_files(path: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(path.with_extension("").join("subagents")) else {
+        return Vec::new();
+    };
+    let mut files: Vec<_> = entries
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "jsonl"))
+        .map(|entry| {
+            let modified = entry.metadata().and_then(|meta| meta.modified()).ok();
+            (Reverse(modified), entry.path())
+        })
+        .collect();
+
+    files.sort();
+    files.truncate(MAX_SUBAGENT_FILES);
+    files.into_iter().map(|(_, path)| path).collect()
 }
 
 impl Kept {
