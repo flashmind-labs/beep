@@ -26,14 +26,16 @@ fn prompt_substrings_survive_restart_and_stay_per_machine() -> Result<()> {
     let path = dir.path().join("search.sqlite");
     {
         let mut store = Store::open(&path)?;
-        store.replace(
+        store.save(
             &session("a", "build-box", 1),
             &["Please add a retry button".into(), "Retry later".into()],
+            Progress::NEW,
             true,
         )?;
-        store.replace(
+        store.save(
             &session("a", "gpu-box", 2),
             &["RETRY the upload".into()],
+            Progress::NEW,
             true,
         )?;
     }
@@ -63,9 +65,10 @@ fn prompt_substrings_survive_restart_and_stay_per_machine() -> Result<()> {
 fn literal_punctuation_unicode_and_replacements() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
     let session = session("a", "build-box", 1);
-    store.replace(
+    store.save(
         &session,
         &["Find \"quoted\" text with 100% and __ plus café 東京".into()],
+        Progress::NEW,
         true,
     )?;
 
@@ -75,12 +78,22 @@ fn literal_punctuation_unicode_and_replacements() -> Result<()> {
 
     assert!(store.find("' OR 1=1", None)?.is_empty());
     assert!(store.current(&identity(&session), &stamp(&session)?)?);
-    store.replace(&session, &["A different prompt".into()], true)?;
-    assert!(store.find("quoted", None)?.is_empty());
+    store.save(
+        &session,
+        &["A different prompt".into()],
+        Progress::NEW,
+        true,
+    )?;
+    assert_eq!(store.find("quoted", None)?.len(), 1, "later pages only add");
     assert_eq!(store.find("different", None)?.len(), 1);
     store.remove(&identity(&session))?;
     assert!(store.find("different", None)?.is_empty());
-    store.replace(&session, &["A late indexing result".into()], true)?;
+    store.save(
+        &session,
+        &["A late indexing result".into()],
+        Progress::NEW,
+        true,
+    )?;
     assert!(
         store.find("indexing", None)?.is_empty(),
         "deletion wins over an indexing task already in flight"
@@ -92,8 +105,13 @@ fn literal_punctuation_unicode_and_replacements() -> Result<()> {
 fn a_compacted_transcript_keeps_previously_indexed_prompts() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
     let session = session("a", "build-box", 1);
-    store.replace(&session, &["Original request".into()], true)?;
-    store.replace(&session, &["Follow up request".into()], false)?;
+    store.save(&session, &["Original request".into()], Progress::NEW, true)?;
+    store.save(
+        &session,
+        &["Follow up request".into()],
+        Progress::NEW,
+        false,
+    )?;
     assert_eq!(store.find("Original", None)?.len(), 1);
     assert_eq!(store.find("Follow up", None)?.len(), 1);
     Ok(())
@@ -129,16 +147,17 @@ fn accepted_prompts_are_immediate_durable_and_survive_an_older_scan() -> Result<
         let reader = Store::open(&path)?;
         writer.append(&session, "Add a retry button")?;
         assert_eq!(reader.find("retry", None)?.len(), 1);
-        writer.replace(&session, &["Earlier request".into()], true)?;
+        writer.save(&session, &["Earlier request".into()], Progress::NEW, true)?;
         assert_eq!(
             reader.find("retry", None)?.len(),
             1,
             "a scan taken before the send cannot erase it"
         );
         writer.append(&session, "Add a retry button")?;
-        writer.replace(
+        writer.save(
             &session,
             &["Earlier request".into(), "Add a retry button".into()],
+            Progress::NEW,
             true,
         )?;
         assert_eq!(
@@ -174,10 +193,15 @@ fn project_deletion_cascades_and_stale_scans_cannot_restore_it() -> Result<()> {
         store.find("retry", None)?.is_empty(),
         "FTS entries are deleted too"
     );
-    store.replace(&build, &["a stale retry result".into()], true)?;
+    store.save(
+        &build,
+        &["a stale retry result".into()],
+        Progress::NEW,
+        true,
+    )?;
     assert!(!store.append(&gpu, "retry again")?);
     let new = session("never-indexed", "build-box", 2);
-    store.replace(&new, &["new stale retry".into()], true)?;
+    store.save(&new, &["new stale retry".into()], Progress::NEW, true)?;
     assert!(store.find("retry", None)?.is_empty());
     let violations: i64 =
         store
@@ -198,7 +222,10 @@ fn project_deletion_cascades_and_stale_scans_cannot_restore_it() -> Result<()> {
     assert!(
         store
             .0
-            .execute("INSERT INTO sessions VALUES('orphan','','{}',0,999)", [])
+            .execute(
+                "INSERT INTO sessions(id,stamp,data,activity,place) VALUES('orphan','','{}',0,999)",
+                []
+            )
             .is_err()
     );
     store.0.execute(
@@ -291,7 +318,7 @@ fn the_previous_disk_index_is_migrated_and_acquires_project_ownership() -> Resul
 fn unchanged_empty_sessions_are_also_indexed() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
     let session = session("a", "build-box", 1);
-    store.replace(&session, &[], true)?;
+    store.save(&session, &[], Progress::NEW, true)?;
     assert!(store.current(&identity(&session), &stamp(&session)?)?);
     Ok(())
 }
@@ -300,19 +327,22 @@ fn unchanged_empty_sessions_are_also_indexed() -> Result<()> {
 fn terms_match_across_prompts_only_within_one_session() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let mut store = Store::open(&dir.path().join("search.sqlite"))?;
-    store.replace(
+    store.save(
         &session("both", "build-box", 1),
         &["Improve the worktree search bar".into()],
+        Progress::NEW,
         true,
     )?;
-    store.replace(
+    store.save(
         &session("split", "build-box", 2),
         &["Add worktree support".into(), "Polish the bar".into()],
+        Progress::NEW,
         true,
     )?;
-    store.replace(
+    store.save(
         &session("partial", "build-box", 3),
         &["worktree only".into()],
+        Progress::NEW,
         true,
     )?;
     let found = store.find("  BAR worktree bar  ", None)?;
@@ -322,5 +352,69 @@ fn terms_match_across_prompts_only_within_one_session() -> Result<()> {
     assert!(found[0].texts.iter().any(|text| text.contains("bar")));
     assert_eq!(store.find("worktree z", None)?.len(), 0);
     assert_eq!(store.find("wo bar", None)?.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn a_walk_in_progress_is_kept_and_is_not_current() -> Result<()> {
+    let mut store = Store::open(Path::new(":memory:"))?;
+    let session = session("a", "build-box", 1);
+    let id = identity(&session);
+    assert_eq!(store.progress(&id)?, Progress::NEW);
+
+    let walking = Progress {
+        done: Some(0),
+        walk: Some(Walk { top: 600, low: 400 }),
+    };
+    store.save(&session, &["Newest request".into()], walking, false)?;
+    assert_eq!(store.progress(&id)?, walking);
+    assert!(!store.current(&id, &stamp(&session)?)?);
+    assert_eq!(store.find("newest", None)?.len(), 1, "saved page by page");
+
+    let done = Progress {
+        done: Some(600),
+        walk: None,
+    };
+    store.save(&session, &[], done, true)?;
+    assert_eq!(store.progress(&id)?, done);
+    assert!(store.current(&id, &stamp(&session)?)?);
+    Ok(())
+}
+
+#[test]
+fn sessions_indexed_by_schema_one_keep_prompts_and_read_their_newest_page() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("search.sqlite");
+    let indexed = session("a", "build-box", 1);
+    let sent = session("b", "build-box", 1);
+    {
+        let mut store = Store::open(&path)?;
+        store.save(&indexed, &["Original prompt".into()], Progress::NEW, true)?;
+        store.append(&sent, "Sent from here")?;
+        store.0.execute_batch(
+            "ALTER TABLE sessions DROP COLUMN walk_low;
+             ALTER TABLE sessions DROP COLUMN walk_top;
+             ALTER TABLE sessions DROP COLUMN done;
+             UPDATE sessions SET stamp='[\"old\",\"title\"]' WHERE stamp<>'';
+             PRAGMA user_version=1;",
+        )?;
+    }
+    let store = Store::open(&path)?;
+    assert_eq!(store.find("original", None)?.len(), 1);
+    assert_eq!(
+        store.progress(&identity(&indexed))?,
+        Progress {
+            done: None,
+            walk: None
+        }
+    );
+    assert_eq!(store.progress(&identity(&sent))?, Progress::NEW);
+    assert!(!store.current(&identity(&indexed), &stamp(&indexed)?)?);
+    drop(store);
+    assert_eq!(
+        Store::open(&path)?.progress(&identity(&sent))?,
+        Progress::NEW,
+        "opening again changes nothing"
+    );
     Ok(())
 }

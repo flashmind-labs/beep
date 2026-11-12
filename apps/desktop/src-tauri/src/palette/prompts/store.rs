@@ -7,6 +7,8 @@ use beep_proto::{ImportedProject, MachineSession};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{collections::BTreeSet, path::Path};
 
+const SCHEMA: u32 = 2;
+
 pub(super) struct Store(Connection);
 
 pub(super) struct Found {
@@ -26,55 +28,100 @@ impl Store {
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;")?;
         let version: u32 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
-        if version > 1 {
+        if version > SCHEMA {
             bail!("the prompt index uses a newer schema");
         }
 
-        if version == 0 {
-            let legacy: bool = db.query_row(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='sessions')",
-                [],
-                |row| row.get(0),
-            )?;
-            let tx = db.transaction()?;
+        let tx = db.transaction()?;
 
-            if legacy {
-                tx.execute_batch("ALTER TABLE sessions RENAME TO legacy_sessions;")?;
-            }
-
-            tx.execute_batch(include_str!("schema.sql"))?;
-
-            if legacy {
-                tx.execute_batch(
-                    "INSERT INTO sessions(id,stamp,data,activity) SELECT id,stamp,data,activity FROM legacy_sessions;
-                     INSERT OR IGNORE INTO prompt_texts(session,text,words)
-                         SELECT session,text,words FROM prompts WHERE session IN (SELECT id FROM sessions);
-                     DROP TABLE prompts;
-                     DROP TABLE legacy_sessions;",
+        match version {
+            0 => {
+                let legacy: bool = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='sessions')",
+                    [],
+                    |row| row.get(0),
                 )?;
-            }
 
-            tx.pragma_update(None, "user_version", 1)?;
-            tx.commit()?;
-        } else {
-            db.execute_batch(include_str!("schema.sql"))?;
+                if legacy {
+                    tx.execute_batch("ALTER TABLE sessions RENAME TO legacy_sessions;")?;
+                }
+
+                tx.execute_batch(include_str!("schema.sql"))?;
+
+                if legacy {
+                    tx.execute_batch(
+                        "INSERT INTO sessions(id,stamp,data,activity) SELECT id,stamp,data,activity FROM legacy_sessions;
+                         INSERT OR IGNORE INTO prompt_texts(session,text,words)
+                             SELECT session,text,words FROM prompts WHERE session IN (SELECT id FROM sessions);
+                         DROP TABLE prompts;
+                         DROP TABLE legacy_sessions;
+                         UPDATE sessions SET done=NULL WHERE stamp<>'';",
+                    )?;
+                }
+            }
+            // Sessions read whole before keep their prompts; the next read
+            // starts from their newest page instead of the first.
+            1 => tx.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN done INTEGER DEFAULT 0;
+                 ALTER TABLE sessions ADD COLUMN walk_top INTEGER;
+                 ALTER TABLE sessions ADD COLUMN walk_low INTEGER;
+                 UPDATE sessions SET done=NULL WHERE stamp<>'';",
+            )?,
+            _ => tx.execute_batch(include_str!("schema.sql"))?,
         }
 
+        tx.pragma_update(None, "user_version", SCHEMA)?;
+        tx.commit()?;
         Ok(Self(db))
     }
 
+    /// Whether session `id` was fully indexed at `stamp`, or was removed.
     pub fn current(&self, id: &str, stamp: &str) -> Result<bool> {
         if self.removed(id)? {
             return Ok(true);
         }
 
-        let saved: Option<String> = self
+        let saved: Option<bool> = self
             .0
-            .query_row("SELECT stamp FROM sessions WHERE id=?1", [id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT stamp=?2 AND walk_top IS NULL FROM sessions WHERE id=?1",
+                [id, stamp],
+                |row| row.get(0),
+            )
             .optional()?;
-        Ok(saved.as_deref() == Some(stamp))
+        Ok(saved == Some(true))
+    }
+
+    /// How far session `id`'s transcript is indexed.
+    pub fn progress(&self, id: &str) -> Result<Progress> {
+        let saved = self
+            .0
+            .query_row(
+                "SELECT done,walk_top,walk_low FROM sessions WHERE id=?1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<i64>>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((done, top, low)) = saved else {
+            return Ok(Progress::NEW);
+        };
+        let walk = match top.zip(low) {
+            Some((top, low)) => Some(Walk {
+                top: u64::try_from(top)?,
+                low: u64::try_from(low)?,
+            }),
+            None => None,
+        };
+        Ok(Progress {
+            done: done.map(u64::try_from).transpose()?,
+            walk,
+        })
     }
 
     pub fn session(&self, id: &str) -> Result<Option<MachineSession>> {
@@ -259,26 +306,31 @@ impl Store {
         Ok(true)
     }
 
-    pub fn replace(
+    /// Saves one transcript page's prompts with how far the session is
+    /// indexed after it, so an interrupted read resumes from there. The
+    /// stamp is kept only when the read reached the newest entry and what
+    /// it had already indexed: `current`.
+    pub fn save(
         &mut self,
         session: &MachineSession,
         texts: &[String],
-        complete: bool,
+        progress: Progress,
+        current: bool,
     ) -> Result<()> {
         let tx = self.0.unchecked_transaction()?;
+        let finished = current.then(|| stamp(session)).transpose()?;
 
-        if !self.put_session(session, Some(&stamp(session)?))? {
+        if !self.put_session(session, finished.as_deref())? {
             return Ok(());
         }
 
         let id = identity(session);
-
-        if complete {
-            tx.execute(
-                "DELETE FROM prompt_texts WHERE session=?1 AND pending=0",
-                [&id],
-            )?;
-        }
+        let (top, low) = progress.walk.map(|walk| (walk.top, walk.low)).unzip();
+        let column = |at: Option<u64>| at.map(i64::try_from).transpose();
+        tx.execute(
+            "UPDATE sessions SET done=?2,walk_top=?3,walk_low=?4 WHERE id=?1",
+            params![id, column(progress.done)?, column(top)?, column(low)?],
+        )?;
         {
             let mut insert = tx.prepare(
                 "INSERT INTO prompt_texts(session,text,words) VALUES (?1,?2,?3)
@@ -377,12 +429,39 @@ fn retire(db: &Connection, place: &Place) -> Result<()> {
 pub(super) fn identity(session: &MachineSession) -> String {
     format!("{} {}", session.machine_id, session.id)
 }
+/// A session's stamp changes when it has new activity. Stamps of schema 1
+/// also held the title, so those sessions read their newest page once.
 pub(super) fn stamp(session: &MachineSession) -> Result<String> {
-    Ok(serde_json::to_string(&(
-        session.last_activity,
-        &session.title,
-    ))?)
+    Ok(serde_json::to_string(&session.last_activity)?)
 }
+
+/// How far a session's transcript is indexed. Transcript reads go back
+/// from the newest entry, so a read of new entries walks back from the
+/// end until it reaches `done`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Progress {
+    /// Entries before this index are indexed. `None` for a session the
+    /// full reader of schema 1 indexed without keeping the count.
+    pub done: Option<u64>,
+    /// An unfinished walk back toward `done`.
+    pub walk: Option<Walk>,
+}
+
+/// Entries `low..top` are indexed; `top` becomes `done` when the walk
+/// reaches it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Walk {
+    pub top: u64,
+    pub low: u64,
+}
+
+impl Progress {
+    pub const NEW: Self = Self {
+        done: Some(0),
+        walk: None,
+    };
+}
+
 #[cfg(test)]
 #[path = "../../tests/palette_prompts_store.rs"]
 mod tests;

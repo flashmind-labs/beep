@@ -1,6 +1,7 @@
 //! Background prompt indexing over the existing transcript protocol. The
 //! menu reads SQLite, never a machine; unchanged sessions need no reread.
 
+mod schedule;
 mod store;
 
 use super::{index::Entry, lists::PaletteCache, places::Place, projects::session_entry};
@@ -13,37 +14,37 @@ use beep_proto::{
     node::agent::{EntryKind, SessionsReply, SessionsRequest},
 };
 use futures::{StreamExt, stream};
+use schedule::{Due, Pacer, Schedule};
 use std::{
-    collections::HashMap,
     path::Path,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, SystemTime},
 };
-use store::{Store, identity, stamp};
+use store::{Progress, Store, Walk, identity, stamp};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::{
     sync::Notify,
     task::spawn_blocking,
-    time::{sleep, timeout},
+    time::{Instant, timeout},
 };
 
 const PAGE: u32 = 200;
 const IN_FLIGHT: usize = 4;
+/// Pages saved before this keep their progress when it runs out.
 const SESSION_WAIT: Duration = Duration::from_secs(60);
-/// Sessions that could not be read are tried again after this, then less
-/// often up to `RETRY_MOST`.
-const RETRY_FIRST: Duration = Duration::from_secs(30);
-const RETRY_MOST: Duration = Duration::from_secs(600);
 
 pub(crate) struct PromptIndex {
     store: Mutex<Store>,
-    // WAL readers keep answering while a large session is being replaced.
+    // WAL readers keep answering while a large session is being indexed.
     reader: Option<Mutex<Store>>,
     changed: Notify,
     project_changes: AsyncMutex<()>,
-    /// The stamp each session was last found current at, so an unchanged
-    /// session is skipped without asking the store.
-    known: Mutex<HashMap<String, String>>,
+    /// When each session is read next, so an unchanged session is skipped
+    /// without asking the store.
+    schedule: Mutex<Schedule>,
 }
 
 /// What one pass did with a session.
@@ -51,8 +52,11 @@ pub(crate) struct PromptIndex {
 enum Pass {
     Current,
     Indexed,
-    /// Offline or failed: tried again later.
-    Pending,
+    /// Stopped after saving some pages: the next pass goes on.
+    Partial,
+    /// Its machine is offline: read when a pass finds it online.
+    Offline,
+    Failed,
 }
 
 impl PromptIndex {
@@ -71,17 +75,34 @@ impl PromptIndex {
             reader: reader.map(Mutex::new),
             changed: Notify::new(),
             project_changes: AsyncMutex::new(()),
-            known: Mutex::default(),
+            schedule: Mutex::default(),
         })
     }
 
-    fn known(&self) -> MutexGuard<'_, HashMap<String, String>> {
-        self.known.lock().unwrap_or_else(PoisonError::into_inner)
+    fn schedule(&self) -> MutexGuard<'_, Schedule> {
+        self.schedule.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Whether session `id` was found current at `stamp` in this run.
-    fn is_known(&self, id: &str, stamp: &str) -> bool {
-        self.known().get(id).is_some_and(|known| known == stamp)
+    /// The sessions to read now, and when the next of the others is due.
+    fn due(&self, sessions: Vec<MachineSession>) -> (Vec<MachineSession>, Option<Instant>) {
+        let (now, wall) = (Instant::now(), SystemTime::now());
+        let schedule = self.schedule();
+        let mut next = None;
+        let mut due = Vec::new();
+
+        for session in sessions {
+            let idle = wall
+                .duration_since(session.last_activity)
+                .unwrap_or_default();
+
+            match schedule.due(&identity(&session), session.last_activity, idle, now) {
+                Due::Current => {}
+                Due::At(at) => next = sooner(next, at),
+                Due::Now => due.push(session),
+            }
+        }
+
+        (due, next)
     }
 
     fn store(&self) -> MutexGuard<'_, Store> {
@@ -108,7 +129,7 @@ impl PromptIndex {
         let removed = spawn_blocking(move || index.store().sync_projects(&projects)).await??;
 
         if !removed.is_empty() {
-            self.known().clear();
+            self.schedule().clear();
         }
 
         Ok(removed)
@@ -123,7 +144,7 @@ impl PromptIndex {
         let index = self.clone();
         let name = project.to_owned();
         let removed = spawn_blocking(move || index.store().remove_project(&name, &known)).await??;
-        self.known().clear();
+        self.schedule().clear();
         app.state::<PaletteCache>()
             .forget_project(app, project, removed);
         let _ = app.emit("palette-text-changed", ());
@@ -135,7 +156,7 @@ impl PromptIndex {
     }
 
     pub(crate) async fn remove(self: &Arc<Self>, id: String) {
-        self.known().remove(&id);
+        self.schedule().forget(&id);
         let index = self.clone();
         let removed = async {
             spawn_blocking(move || index.store().remove(&id)).await??;
@@ -203,51 +224,69 @@ pub(crate) async fn sent_existing(app: &AppHandle, machine: &str, session: &str,
 pub(super) async fn follow(app: &AppHandle) {
     let index = app.state::<Arc<PromptIndex>>().inner().clone();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
-
-    let mut retry = RETRY_FIRST;
+    let mut pacer = Pacer::default();
+    let mut wake = None;
 
     loop {
-        let sessions = app.state::<PaletteCache>().sessions();
-        let mut work = stream::iter(sessions)
+        pacer.next_pass(&index.changed, wake).await;
+
+        let (due, next) = index.due(app.state::<PaletteCache>().sessions());
+        wake = next;
+        let mut work = stream::iter(due)
             .map(|session| {
                 let index = index.clone();
                 let fleet = fleet.clone();
                 async move {
-                    match timeout(SESSION_WAIT, refresh(&index, &fleet, session)).await {
+                    let (id, activity) = (identity(&session), session.last_activity);
+                    let saved = AtomicBool::new(false);
+                    let pass = match timeout(SESSION_WAIT, refresh(&index, &fleet, session, &saved))
+                        .await
+                    {
                         Ok(Ok(pass)) => pass,
                         Ok(Err(e)) => {
                             log::debug!("indexing session prompts: {e:#}");
-                            Pass::Pending
+                            stopped(&saved)
                         }
-                        Err(_) => Pass::Pending,
-                    }
+                        Err(_) => stopped(&saved),
+                    };
+                    (id, activity, pass)
                 }
             })
             .buffer_unordered(IN_FLIGHT);
-        let mut pending = false;
 
-        while let Some(pass) = work.next().await {
-            pending |= pass == Pass::Pending;
+        while let Some((id, activity, pass)) = work.next().await {
+            match pass {
+                Pass::Current | Pass::Indexed => index.schedule().indexed(id, activity),
+                Pass::Partial => {
+                    index.schedule().progressed(&id);
+                    wake = sooner(wake, Instant::now());
+                }
+                Pass::Offline => {}
+                Pass::Failed => {
+                    let at = index.schedule().failed(id, Instant::now());
+                    wake = sooner(wake, at);
+                }
+            }
 
-            if pass == Pass::Indexed
+            if matches!(pass, Pass::Indexed | Pass::Partial)
                 && let Err(e) = app.emit("palette-text-changed", ())
             {
                 log::warn!("telling the windows prompts changed: {e}");
             }
         }
+    }
+}
 
-        // Failed or offline reads keep their old index and are retried,
-        // less often while they keep failing.
-        if !pending {
-            retry = RETRY_FIRST;
-            index.changed.notified().await;
-            continue;
-        }
+fn sooner(wake: Option<Instant>, at: Instant) -> Option<Instant> {
+    Some(wake.map_or(at, |wake| wake.min(at)))
+}
 
-        tokio::select! {
-            () = sleep(retry) => retry = (retry * 2).min(RETRY_MOST),
-            () = index.changed.notified() => {}
-        }
+/// A read that stopped keeps the pages it saved.
+fn stopped(saved: &AtomicBool) -> Pass {
+    if saved.load(Ordering::Relaxed) {
+        Pass::Partial
+    } else {
+        Pass::Failed
     }
 }
 
@@ -255,97 +294,155 @@ async fn refresh(
     index: &Arc<PromptIndex>,
     fleet: &Fleet,
     session: MachineSession,
+    saved: &AtomicBool,
 ) -> anyhow::Result<Pass> {
     let (id, stamp) = (identity(&session), stamp(&session)?);
-
-    if index.is_known(&id, &stamp) {
-        return Ok(Pass::Current);
-    }
-
     let machine = session.machine_id.parse()?;
 
     if !fleet.online().contains(&machine) {
-        return Ok(Pass::Pending);
+        return Ok(Pass::Offline);
     }
 
-    let saved = index.clone();
-    let (asked, at) = (id.clone(), stamp.clone());
+    let store = index.clone();
 
-    if spawn_blocking(move || saved.store().current(&asked, &at)).await?? {
-        index.known().insert(id, stamp);
+    if spawn_blocking(move || store.store().current(&id, &stamp)).await?? {
         return Ok(Pass::Current);
     }
 
     let client = fleet.client(machine).await?;
-    let read = read_prompts(&client, &session.id).await?;
-    let saved = index.clone();
-    spawn_blocking(move || saved.store().replace(&session, &read.texts, read.complete)).await??;
-    index.known().insert(id, stamp);
+    index_new(&client, index, &session, saved).await?;
     Ok(Pass::Indexed)
 }
 
-struct ReadPrompts {
-    texts: Vec<String>,
-    complete: bool,
-}
-
-async fn read_prompts<S: Sessions + ?Sized>(
+/// Reads the entries of `session` added since it was last indexed, newest
+/// page first, and saves each page as it arrives.
+async fn index_new<S: Sessions + ?Sized>(
     client: &S,
-    session: &str,
-) -> anyhow::Result<ReadPrompts> {
-    let mut before = None;
-    let mut prompts = Vec::new();
-    let mut complete = false;
+    index: &Arc<PromptIndex>,
+    session: &MachineSession,
+    saved: &AtomicBool,
+) -> anyhow::Result<()> {
+    let store = index.clone();
+    let id = identity(session);
+    let mut progress = spawn_blocking(move || store.store().progress(&id)).await??;
+    // A walk left by an earlier read finishes first; the newest page is
+    // read after it.
+    let mut newest = false;
 
     loop {
-        // Include thoughts in the count so the pagination cursor has the
-        // same meaning on every page, then retain only the user's words.
-        let request = SessionsRequest::Transcript {
-            session: session.to_owned(),
-            last: PAGE,
-            thoughts: true,
-            before,
-        };
-        let (entries, earlier) = match client
-            .sessions(request, Reading::Once, Duration::from_secs(10))
-            .await?
-        {
-            SessionsReply::Transcript { entries, earlier } => (entries, earlier),
-            SessionsReply::Error { message } => bail!("{message}"),
-            _ => bail!("the machine did not return a transcript"),
-        };
-        let earlier = u64::from(earlier);
+        let before = progress.walk.map(|walk| walk.low);
+        let (texts, page) = read_page(client, &session.id, before).await?;
+        newest |= before.is_none();
+        progress = advance(progress, page);
+        let current = newest && progress.walk.is_none();
 
-        if !valid_page(before, earlier, entries.len()) {
-            // An older node ignores `before`. Keep the usable latest
-            // page instead of repeatedly appending it forever.
-            break;
+        let store = index.clone();
+        let session = session.clone();
+        spawn_blocking(move || store.store().save(&session, &texts, progress, current)).await??;
+        saved.store(true, Ordering::Relaxed);
+
+        if current {
+            return Ok(());
         }
-
-        prompts.extend(
-            entries
-                .into_iter()
-                .filter(|entry| entry.kind == EntryKind::User)
-                .map(|entry| own_words(&entry.text))
-                .filter(|text| !text.trim().is_empty()),
-        );
-
-        if earlier == 0 {
-            complete = true;
-            break;
-        }
-        before = Some(earlier);
     }
-
-    Ok(ReadPrompts {
-        texts: prompts,
-        complete,
-    })
 }
 
-fn valid_page(before: Option<u64>, earlier: u64, count: usize) -> bool {
-    before
-        .is_none_or(|before| earlier < before && earlier.checked_add(count as u64) == Some(before))
+/// Where a transcript page starts and how many entries it has. Thoughts
+/// are left out of the entries but counted in `earlier`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Page {
+    earlier: u64,
+    entries: u64,
+}
+
+/// The user's prompts on the page before entry `before` (the newest page
+/// when `None`).
+async fn read_page<S: Sessions + ?Sized>(
+    client: &S,
+    session: &str,
+    before: Option<u64>,
+) -> anyhow::Result<(Vec<String>, Page)> {
+    let request = SessionsRequest::Transcript {
+        session: session.to_owned(),
+        last: PAGE,
+        thoughts: false,
+        before,
+    };
+    let (entries, earlier) = match client
+        .sessions(request, Reading::Once, Duration::from_secs(10))
+        .await?
+    {
+        SessionsReply::Transcript { entries, earlier } => (entries, earlier),
+        SessionsReply::Error { message } => bail!("{message}"),
+        _ => bail!("the machine did not return a transcript"),
+    };
+    let page = Page {
+        earlier: u64::from(earlier),
+        entries: entries.len() as u64,
+    };
+    let prompts = entries
+        .into_iter()
+        .filter(|entry| entry.kind == EntryKind::User)
+        .map(|entry| own_words(&entry.text))
+        .filter(|text| !text.trim().is_empty())
+        .collect();
+    Ok((prompts, page))
+}
+
+/// How far the session is indexed once `page` is.
+fn advance(progress: Progress, page: Page) -> Progress {
+    let Some(walk) = progress.walk else {
+        // The newest page. Thoughts are not counted in its entries, so
+        // where it ends is a lower bound and at worst a page is read twice.
+        let end = page.earlier + page.entries;
+
+        return match progress.done {
+            // The full reader of schema 1 read everything before.
+            None => Progress {
+                done: Some(end),
+                walk: None,
+            },
+            Some(done) if page.earlier <= done => Progress {
+                done: Some(done.max(end)),
+                walk: None,
+            },
+            Some(done) => Progress {
+                done: Some(done),
+                walk: Some(Walk {
+                    top: end.max(done),
+                    low: page.earlier,
+                }),
+            },
+        };
+    };
+
+    // A node from before `before` answers with its newest page again, and
+    // past entries a session dropped the answer is empty: either way
+    // nothing older can be read.
+    let reached = !valid_page(walk.low, page) || page.earlier <= progress.done.unwrap_or(0);
+
+    if reached {
+        return Progress {
+            done: Some(walk.top),
+            walk: None,
+        };
+    }
+
+    Progress {
+        walk: Some(Walk {
+            low: page.earlier,
+            ..walk
+        }),
+        ..progress
+    }
+}
+
+fn valid_page(before: u64, page: Page) -> bool {
+    page.earlier < before
+        && page
+            .earlier
+            .checked_add(page.entries)
+            .is_some_and(|end| end <= before)
 }
 
 /// Prompt matches from disk, even when the machine holding the log is offline.
