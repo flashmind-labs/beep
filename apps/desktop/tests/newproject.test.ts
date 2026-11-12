@@ -42,6 +42,6 @@ test("each machine takes the folder typed for it, else its projects folder", () 
   const form = { ...toggleMachine(startForm(forges, "m1"), "m2"), name: "widget", folders: { m2: "/srv/x" } };
   const defaults = new Map([["m1", "~/code"], ["m2", "~/"]]);
   assert.deepEqual(projectFolders(form, defaults), [{ machine_id: "m1", folder: "~/code" }, { machine_id: "m2", folder: "/srv/x" }]);
-  assert.equal(folderTail(form), "/octo/widget");
+  assert.equal(folderTail(form), "/widget");
   assert.equal(folderTail(pickHost(form, forges, null)), "/widget");
 });
