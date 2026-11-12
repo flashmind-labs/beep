@@ -1,8 +1,12 @@
 //! Running issue-host commands and reporting failures across machines.
 
-use super::{HOST_LIMIT, HostExit, IssueHost, IssueSource, Machines, RepoName, Shell, SourceError};
+use super::{
+    HOST_LIMIT, HostExit, HostTimeout, IssueHost, IssueSource, Machines, RepoName, Shell,
+    SourceError, gate::is_unreachable,
+};
 use crate::commands::HostCommand;
 use anyhow::Result;
+use std::future::Future;
 
 /// teacli's exit code for a missing resource.
 const TEACLI_NOT_FOUND: i32 = 3;
@@ -22,10 +26,7 @@ pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
     let out = shell.run(rendered, HOST_LIMIT).await?;
 
     if out.timed_out {
-        anyhow::bail!(
-            "the host command timed out after {} seconds",
-            HOST_LIMIT.as_secs()
-        );
+        return Err(HostTimeout.into());
     }
 
     match out.exit_code {
@@ -49,21 +50,38 @@ pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
     }
 }
 
-/// Runs a host command on each of `items`' shells in turn, so one broken CLI does not hide the
-/// answer. `command` renders the script for an item and `parse` reads what it printed. Gives the
-/// item that answered; when none does, every error, in order.
-pub async fn read_first<S, T>(
-    items: &[S],
-    shell_of: impl Fn(&S) -> &dyn Shell,
-    command: impl Fn(&S) -> String,
+/// Runs `command` against `source`'s host through `machines`' gates, so a host its machine could
+/// not reach is left alone for a while.
+pub async fn run_source(
+    machines: &dyn Machines,
+    source: &IssueSource,
+    repo: &RepoName,
+    command: HostCommand<'_>,
+) -> Result<String> {
+    let rendered = command.render(&source.host, repo);
+    let read = || run_rendered(source.shell.as_ref(), &rendered);
+
+    match machines.gates() {
+        Some(gates) => gates.run(source, read).await,
+        None => read().await,
+    }
+}
+
+/// Runs a host command for each of `items` in turn, so one broken CLI does not hide the answer.
+/// `run` runs the item's command and `parse` reads what it printed. Gives the item that
+/// answered; when none does, every error, in order.
+pub async fn read_first<'s, S, T, F>(
+    items: &'s [S],
+    run: impl Fn(&'s S) -> F,
     parse: impl Fn(&str) -> Result<T>,
-) -> Result<(&S, T), Vec<anyhow::Error>> {
+) -> Result<(&'s S, T), Vec<anyhow::Error>>
+where
+    F: Future<Output = Result<String>>,
+{
     let mut failures = Vec::new();
 
     for item in items {
-        let read = run_rendered(shell_of(item), &command(item))
-            .await
-            .and_then(|out| parse(&out));
+        let read = run(item).await.and_then(|out| parse(&out));
         match read {
             Ok(value) => return Ok((item, value)),
             Err(error) => {
@@ -85,16 +103,17 @@ pub async fn read_any<'s, T>(
     command: HostCommand<'_>,
     parse: impl Fn(&str) -> Result<T>,
 ) -> Result<(&'s IssueSource, T), SourceError> {
-    match read_sources(sources, repo, command, parse).await {
+    match read_sources(machines, sources, repo, command, parse).await {
         Ok(answered) => Ok(answered),
         Err(failures) => {
-            let set_up = set_up_on(sources, repo, &failures).await;
+            let set_up = set_up_on(machines, sources, repo, &failures).await;
             Err(failed_everywhere(machines, sources, &failures, &set_up).await)
         }
     }
 }
 
 pub(super) async fn read_sources<'s, T>(
+    machines: &dyn Machines,
     sources: &'s [IssueSource],
     repo: &RepoName,
     command: HostCommand<'_>,
@@ -102,30 +121,30 @@ pub(super) async fn read_sources<'s, T>(
 ) -> Result<(&'s IssueSource, T), Vec<anyhow::Error>> {
     read_first(
         sources,
-        |source| source.shell.as_ref(),
-        |source| command.render(&source.host, repo),
+        |source| run_source(machines, source, repo, command),
         parse,
     )
     .await
 }
 
 /// For each of the sources that failed, in order, whether its machine has the host set up: it
-/// answers [`HostCommand::WhoAmI`].
+/// answers [`HostCommand::WhoAmI`]. A machine that could not reach the host is not asked, as the
+/// check would fail the same way, and counts as without it.
 pub(super) async fn set_up_on(
+    machines: &dyn Machines,
     sources: &[IssueSource],
     repo: &RepoName,
     failures: &[anyhow::Error],
 ) -> Vec<bool> {
     let mut set_up = Vec::new();
 
-    for source in sources.iter().take(failures.len()) {
-        let whoami = run_host(
-            source.shell.as_ref(),
-            &source.host,
-            repo,
-            HostCommand::WhoAmI,
-        )
-        .await;
+    for (source, failure) in sources.iter().zip(failures) {
+        if is_unreachable(failure) {
+            set_up.push(false);
+            continue;
+        }
+
+        let whoami = run_source(machines, source, repo, HostCommand::WhoAmI).await;
         set_up.push(whoami.is_ok());
     }
 

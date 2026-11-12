@@ -1,9 +1,13 @@
 //! Reading a project's issues host through its machines: which machines can reach it, and trying
 //! each in turn.
 
+mod gate;
 mod host;
 
-pub use host::{clipped, head, host_failed, read_any, read_first, run_host, run_rendered};
+pub use gate::{FIRST_PAUSE, HostGates, LONGEST_PAUSE, Unreachable, is_unreachable};
+pub use host::{
+    clipped, head, host_failed, read_any, read_first, run_host, run_rendered, run_source,
+};
 use host::{failed_everywhere, is_not_found, read_sources, set_up_on};
 
 use crate::{
@@ -45,6 +49,11 @@ pub struct HostExit {
     pub tail: String,
 }
 
+/// A host command that ran longer than [`HOST_LIMIT`].
+#[derive(Debug, Error)]
+#[error("the host command timed out after {} seconds", HOST_LIMIT.as_secs())]
+pub struct HostTimeout;
+
 /// What the issue modules read about one project, kept by the server in Postgres and by the
 /// desktop in its mesh state.
 #[async_trait]
@@ -72,6 +81,11 @@ pub trait Machines: Send + Sync {
 
     /// Every machine's name, for messages; empty when they are unknown.
     async fn names(&self) -> Vec<MachineName>;
+
+    /// The hosts each machine could not reach lately, kept across reads; `None` asks every time.
+    fn gates(&self) -> Option<&HostGates> {
+        None
+    }
 }
 
 /// A machine the project was imported on.
@@ -265,6 +279,7 @@ pub async fn list_open_prs(
         return Ok(Vec::new());
     };
     let read = read_sources(
+        machines,
         &sources,
         store.name(),
         HostCommand::ListOpenPrs,
@@ -274,7 +289,7 @@ pub async fn list_open_prs(
     let (source, mut prs) = match read {
         Ok(answered) => answered,
         Err(failures) => {
-            let set_up = set_up_on(&sources, store.name(), &failures).await;
+            let set_up = set_up_on(machines, &sources, store.name(), &failures).await;
             // teacli answers a repository without pull requests with "not found", which on a
             // machine that has the host set up means none.
             let none =
@@ -295,13 +310,7 @@ pub async fn list_open_prs(
         }
     };
     // Asked on the machine that listed them, whose CLI is known to work.
-    let whoami = run_host(
-        source.shell.as_ref(),
-        &source.host,
-        store.name(),
-        HostCommand::WhoAmI,
-    )
-    .await;
+    let whoami = run_source(machines, source, store.name(), HostCommand::WhoAmI).await;
     let login = match whoami.and_then(|out| parse_login(&out)) {
         Ok(login) => Some(login),
         Err(error) => {
@@ -345,19 +354,22 @@ pub async fn machine_view(
     machines: &dyn Machines,
 ) -> Option<MachineView> {
     let sources = issue_sources(store, machines).await.ok()??;
-    let (source, login) = read_sources(&sources, store.name(), HostCommand::WhoAmI, parse_login)
-        .await
-        .ok()?;
-    let can_push = run_host(
-        source.shell.as_ref(),
-        &source.host,
+    let (source, login) = read_sources(
+        machines,
+        &sources,
         store.name(),
-        HostCommand::CanPush,
+        HostCommand::WhoAmI,
+        parse_login,
     )
     .await
-    .and_then(|out| parse_can_push(&out))
-    .map_err(|error| log::info!("projects: the machine could not say if it can push: {error:#}"))
-    .ok();
+    .ok()?;
+    let can_push = run_source(machines, source, store.name(), HostCommand::CanPush)
+        .await
+        .and_then(|out| parse_can_push(&out))
+        .map_err(|error| {
+            log::info!("projects: the machine could not say if it can push: {error:#}")
+        })
+        .ok();
     let host = match &source.host {
         IssueHost::Github => "github.com".to_owned(),
         IssueHost::Forgejo(host) => host.as_ref().to_owned(),

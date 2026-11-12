@@ -10,6 +10,7 @@ use beep_mesh::{DeviceStatus, Mesh};
 use beep_projects::{
     imports::{hosts::Hosts, machine::Machine},
     is_windows,
+    issues::HostGates,
     model::ForgejoUrl,
     repo_watch::http::HostCalls,
 };
@@ -180,6 +181,8 @@ pub(crate) struct DesktopHosts {
     kept: Arc<HostCalls>,
     /// Each project's checkout remotes and when they were read, for the hosts its runs are on.
     remotes: Arc<Mutex<HashMap<String, KeptRemotes>>>,
+    /// The issue hosts each machine could not reach lately.
+    gates: Arc<HostGates>,
 }
 
 impl DesktopHosts {
@@ -197,6 +200,7 @@ impl DesktopHosts {
             calls: Arc::new(Semaphore::new(MAX_CALLS)),
             kept: Arc::default(),
             remotes: Arc::default(),
+            gates: Arc::default(),
         })
     }
 
@@ -210,6 +214,10 @@ impl DesktopHosts {
 
     pub(crate) fn host_calls(&self) -> &HostCalls {
         &self.kept
+    }
+
+    pub(crate) fn gates(&self) -> &Arc<HostGates> {
+        &self.gates
     }
 
     /// `project`'s remotes as read less than `within` ago.
