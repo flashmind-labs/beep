@@ -182,7 +182,7 @@ test("Research updates retain the composer node, draft and selection", async ({ 
 
 test("research quote and export notices keep their actions", async ({ page }) => {
   const completed = { ...research("Paper example"), status: "done", draft: "Paper", draft_html: "<p>A finding to quote.</p>", sources: [] };
-  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, cached_research: completed, get_research: completed, research_history: [{ role: "assistant", html: "<p>Research complete.</p>" }], research_pending: null, list_researches: [], export_research: "/path/to/paper.pdf" });
+  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, cached_research: completed, get_research: completed, research_history: [{ role: "assistant", html: "<p>Research complete.</p>" }], research_pending: null, list_researches: [], export_research: "/srv/user/Downloads/paper.pdf" });
   await page.evaluate(() => window.__navigation.open({ open_research: { session: "first" } }));
   await page.getByRole("button", { name: "Open the paper" }).click();
   const finding = page.locator(".rs .rdoc p");
@@ -196,7 +196,7 @@ test("research quote and export notices keep their actions", async ({ page }) =>
   const note = page.locator(".rs-pane .dsaved");
   await expect(note).toContainText("Saved paper.pdf to Downloads");
   await note.getByRole("button", { name: "Show in Finder" }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "reveal_file" && call.args.path === "/path/to/paper.pdf"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "reveal_file" && call.args.path === "/srv/user/Downloads/paper.pdf"))).toBe(true);
 });
 
 test("dragging the research divider moves only the pane until it is let go", async ({ page }) => {

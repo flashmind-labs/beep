@@ -119,9 +119,6 @@ body.cbody.mobile
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-            span.bd-switch [aria-label="Layout" role="group"]
-              button [aria-pressed="true" type="button"] "Board"
-              button [aria-pressed="false" type="button"] "List"
           div#sec-needs
             div.bd-lanes
               div.bd-lane
@@ -140,7 +137,7 @@ body.cbody.mobile
                     span "example/widget · build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
               div.bd-lane
                 h4 "Ready to review"

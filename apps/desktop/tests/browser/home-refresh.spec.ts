@@ -39,7 +39,7 @@ test("a burst of Home changes reads Home and draws the sidebar once", async ({ p
   await page.clock.runFor(1000);
   await expect.poll(() => reads(page)).toBe(before + 1);
   await expect(page.locator("#side")).toContainText("Home1");
-  await expect(page.locator("#sec-needs .bd-lane").filter({ hasText: "Working" }).locator(".bd-card")).toHaveCount(1);
+  await expect(page.locator("#sec-needs .bd-lane.hd", { hasText: "Working" })).toHaveText("Working1");
   await page.clock.runFor(2000);
   expect(await reads(page)).toBe(before + 1);
   expect(await sidebarDraws(page)).toBe(1);
