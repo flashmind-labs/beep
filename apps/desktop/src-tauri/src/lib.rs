@@ -813,6 +813,10 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         handle.clone(),
         fleet.clone(),
     ));
+    tauri::async_runtime::spawn(agents::sessions::follow_titles(
+        handle.clone(),
+        fleet.clone(),
+    ));
     #[cfg(desktop)]
     voice::hotkey::start(move |input| voice.on_input(input));
 

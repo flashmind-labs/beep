@@ -3058,6 +3058,7 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
     let desktop = create("desktop").await;
     let other = join(&desktop, DeviceKind::Desktop, "other-desktop").await;
     let machine = desktop.id.to_string();
+    let mut changes = other.mesh.changes();
     session_titles::save(
         &desktop.mesh,
         &machine,
@@ -3067,10 +3068,27 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
     )
     .await
     .expect("title is saved");
-    until(&other.mesh, |mesh| {
-        session_titles::get(mesh, &machine, "codex", "session-1").as_deref() == Some("My title")
+    // The other desktop hears which session took which title, so an open view retitles in place.
+    let retitled = timeout(LIMIT, async {
+        loop {
+            let key = changes.recv().await.expect("mesh changes");
+            if let Some(retitled) = session_titles::changed(&other.mesh, &key) {
+                break retitled;
+            }
+        }
     })
-    .await;
+    .await
+    .expect("title change is announced");
+    assert_eq!(
+        (
+            retitled.machine_id.as_str(),
+            retitled.agent.as_str(),
+            retitled.session.as_str(),
+            retitled.title.as_deref()
+        ),
+        (machine.as_str(), "codex", "session-1", Some("My title"))
+    );
+    assert!(session_titles::changed(&other.mesh, &beep_mesh::Key::Flsh).is_none());
     assert_eq!(
         session_titles::get(&desktop.mesh, &machine, "claude", "session-1"),
         None
