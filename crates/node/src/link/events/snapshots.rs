@@ -104,12 +104,14 @@ struct Projection {
 }
 
 impl Projection {
-    /// The least time to the next read. A topic's own projection keeps its
-    /// gap; a desktop's file read backs off while it comes back unchanged.
+    /// The least time to the next read. A file read, a desktop's or the
+    /// listing behind a folder's `files` topic, backs off while it comes back
+    /// unchanged: an agent writing in a checkout would otherwise run git
+    /// status there four times a second.
     fn gap(&self) -> Duration {
         let gap = self.source.gap();
 
-        if self.query.is_none() || !self.source.backs_off() {
+        if !self.source.backs_off() {
             return gap;
         }
 
