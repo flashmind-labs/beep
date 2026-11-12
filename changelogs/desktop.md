@@ -7,6 +7,18 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.15] - 2026-11-12
+
+### Changed
+
+- Desktop: "Sync coding agent skills" is off until you turn it on.
+- Desktop: a chat code block that holds only one web address, with no language or as text, opens it when clicked, like inline code.
+
+### Performance
+
+- Desktop: opening a session from the board and going back start their move at
+  once instead of stalling first on a long session.
+
 ## [0.8.14] - 2026-11-12
 
 ### Changed

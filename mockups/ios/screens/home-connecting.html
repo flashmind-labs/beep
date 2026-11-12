@@ -74,7 +74,7 @@
       </div>
       <div class="ctabs">
        <div class="on">
-        Overview
+        Board
        </div>
        <div class="">
         PRs and issues
@@ -86,107 +86,34 @@
         Machines
        </div>
       </div>
-      <div class="sec">
-       <h4>
-        Needs you
-        <span>
-         2
-        </span>
-       </h4>
-       <div class="panel">
-        <div class="row">
-         <div class="ag c">
-          <img alt="Claude" src="../../ios/assets/claude.svg"/>
-         </div>
-         <div class="t">
-          <b>
-           Run cargo publish?
-          </b>
-          <span>
-           build-box · acme/app
-          </span>
-         </div>
-         <div class="r">
-          <span class="tag wait">
-           needs you
-          </span>
-         </div>
+      <div class="lanes">
+       <div class="lane">
+        <h4>Needs you<span>2</span></h4>
+        <div class="card">
+         <b>Run cargo publish?</b>
+         <span class="sub"><span class="ag c"><img alt="Claude" src="../../ios/assets/claude.svg"/></span><span>acme/app · build-box</span></span>
+         <span class="ft"><span class="grow"></span><span class="act pri">Answer</span></span>
         </div>
-        <div class="row">
-         <div class="ag x">
-          <img alt="Codex" src="../../ios/assets/codex.svg"/>
-         </div>
-         <div class="t">
-          <b>
-           Review PR #212
-          </b>
-          <span>
-           laptop · acme/app
-          </span>
-         </div>
-         <div class="r">
-          <span class="tag wait">
-           needs you
-          </span>
-         </div>
+        <div class="card">
+         <b>May it push to main?</b>
+         <span class="sub"><span class="ag x"><img alt="Codex" src="../../ios/assets/codex.svg"/></span><span>acme/app · laptop</span></span>
+         <span class="ft"><span class="grow"></span><span class="act pri">Answer</span></span>
         </div>
        </div>
-      </div>
-      <div class="sec">
-       <h4>
-        Running
-        <span>
-         3
-        </span>
-       </h4>
-       <div class="panel">
-        <div class="row wait">
-         <div class="ag c">
-          <img alt="Claude" src="../../ios/assets/claude.svg"/>
-         </div>
-         <div class="t">
-          <b>
-           Retry the sync upload
-          </b>
-          <span>
-           acme/app · @build-box
-          </span>
-         </div>
-         <div class="r">
-          connecting
-         </div>
+       <div class="lane">
+        <h4>Working<span>1</span></h4>
+        <div class="card wait">
+         <b>Retry the sync upload</b>
+         <span class="sub"><span class="ag c"><img alt="Claude" src="../../ios/assets/claude.svg"/></span><span>acme/app · build-box</span></span>
+         <span class="ft">connecting<span class="grow"></span></span>
         </div>
-        <div class="row">
-         <div class="ag g">
-          <img alt="Gemini" src="../../ios/assets/gemini.svg"/>
-         </div>
-         <div class="t">
-          <b>
-           Update the CI cache key
-          </b>
-          <span>
-           acme/web · @laptop
-          </span>
-         </div>
-         <div class="r">
-          12m
-         </div>
-        </div>
-        <div class="row wait">
-         <div class="ag x">
-          <img alt="Codex" src="../../ios/assets/codex.svg"/>
-         </div>
-         <div class="t">
-          <b>
-           Draft release notes
-          </b>
-          <span>
-           acme/app · @build-box
-          </span>
-         </div>
-         <div class="r">
-          connecting
-         </div>
+       </div>
+       <div class="lane">
+        <h4>Ready to review<span>1</span></h4>
+        <div class="card">
+         <b>Update the CI cache key</b>
+         <span class="sub"><span class="ag g"><img alt="Gemini" src="../../ios/assets/gemini.svg"/></span><span>acme/web · laptop</span></span>
+         <span class="ft">12m ago<span class="grow"></span></span>
         </div>
        </div>
       </div>
@@ -243,7 +170,7 @@
     </div>
    </div>
    <figcaption>
-    Home on opening or coming back, drawn from what the phone kept. A hollow dot and "connecting" mark a machine not reached yet; its sessions are dimmed until it answers, then everything updates in place. After 20 seconds without an answer it reads offline.
+    Home on opening or coming back, drawn from what the phone kept. A hollow dot and "connecting" mark a machine not reached yet; its sessions' cards are dimmed until it answers, then everything updates in place. After 20 seconds without an answer it reads offline.
    </figcaption>
   </figure>
  </body>

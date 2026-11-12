@@ -38,6 +38,9 @@ const WORKSPACE_MOCK = (() => {
   const PCOL = ["#f2994a", "#8a9cf0", "#4cb782", "#f2c94c", "#b18ce0"];
   const HOME_TABS = [["overview", "Overview", ""], ["git", "PRs and issues", PRS.length + ISSUES.length], ["machines", "Machines", ""]];
   const IC_PR = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2v9.6M18 16.8V10a3 3 0 00-3-3h-4M13 4.5L10.5 7 13 9.5"/></svg>';
+  const IC_SYNC = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 00-14.6-4.5M4 4v3.5h3.5M4 13a8 8 0 0014.6 4.5M20 20v-3.5h-3.5"/></svg>';
+  // acme/widget's files with two copies: [path, what the other copy is and where].
+  const CONFLICTS = [["notes (conflict 1a2b3c4d).txt", "Another copy of notes.txt · on build-box, studio"], [".git/refs/beep-conflicts/heads/main-5e6f7a8b", "Another commit of main · on build-box"], ["docs/plan (conflict 9fbd5479).md", "Another copy of docs/plan.md · on build-box, studio"]];
   const IC_ISSUE = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>';
   const num = n => `<span class="mono" style="color:var(--d-muted);font-size:11.5px">#${n}</span>`;
   const tag = (cls, t) => `<span class="cc-tag${cls ? " " + cls : ""}">${t}</span>`;
@@ -125,9 +128,9 @@ const WORKSPACE_MOCK = (() => {
       ? `<div class="cc-panel cc-empty"><span>Nothing needs you, and nothing is running.</span></div>`
       : `<div class="cc-panel cc-empty"><b>Nothing running</b><span>Start an agent on this computer, or add a machine to run it there.</span><button class="dbtn small" data-dgo="dAgentNew">Start an agent</button></div>`;
     if (S.d.cc === "old") return csec("Needs you", 1, panel(ln(beepAv(DI.tray), "Send the weekly digest to the team?", "Gmail · Inbox digest", small("Allow", true), 'data-dgo="dWinChat"'))) + csec("Coming up", CC_COMING.length, panel(coming));
-    const conflicts = S.d.sy === "insync" ? "" : fsConflict("notes (conflict 1a2b3c4d).txt", "acme/widget · Another copy of notes.txt · on build-box, studio")
-      + fsConflict(".git/refs/beep-conflicts/heads/main-5e6f7a8b", "acme/widget · Another commit of main · on build-box")
-      + fsConflict("docs/plan (conflict 9fbd5479).md", "acme/widget · Another copy of docs/plan.md · on build-box, studio");
+    // A conflict is a row like the others: Resolve opens Sync, where the copies are compared and kept.
+    const conflict = (path, sub) => ln(IC_SYNC, path, sub, `<button class="dbtn small" data-dgo="dSync">Resolve</button>`, `title="${path}" data-dgo="dSync"`);
+    const conflicts = S.d.sy === "insync" ? "" : CONFLICTS.map(([path, note]) => conflict(path, `acme/widget · ${note}`)).join("");
     const review = ln(IC_PR, "#12 Move the blog to the new theme", "you/site · your review", small("Review"), 'data-toast="Opens pull request on its host"');
     return csec("Needs you", (subscribed() ? 3 : 2) + (conflicts ? 3 : 0), panel(NEEDS() + review + conflicts))
       + (subscribed() ? updates() : "")
@@ -199,5 +202,5 @@ const WORKSPACE_MOCK = (() => {
   const sideItem = DESK_SCREENS.find(g => g.group === "Command center").items.find(it => it[0] === "dHome");
   if (sideItem) sideItem[1] = "Home";
 
-  return { skinned, hc, sec, row, empty, num, tag, csec, panel, ln, small, running, updates, term, box, skinVariants };
+  return { skinned, hc, sec, row, empty, num, tag, csec, panel, ln, small, running, updates, term, box, skinVariants, IC_PR, IC_SYNC, CONFLICTS };
 })();

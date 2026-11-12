@@ -1,0 +1,30 @@
+/* The board: lanes of cards on Home and on a project's front page. Follows center.css. */
+.mac .bd-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start }
+.mac .bd-lane { display: grid; gap: 8px; min-width: 0 }
+.mac .bd-lane > h4 { margin: 0; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--d-dim) }
+.mac .bd-lane > h4 span { font-weight: 500; color: var(--d-muted) }
+.mac .bd-lane > h4 button { all: unset; cursor: pointer }
+.mac .bd-lane > h4 button:hover, .mac .bd-lane > h4 button:focus-visible { color: var(--d-fg) }
+.mac .bd-card { box-sizing: border-box; display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--d-border); border-radius: 8px; background: color-mix(in srgb, var(--d-surface) 82%, transparent); cursor: pointer; min-width: 0; text-align: left }
+.mac .bd-card:hover, .mac .bd-card:focus-visible { border-color: var(--d-muted); outline: 0 }
+.mac .bd-card > b { font-weight: 500; font-size: 13px; line-height: 18px; overflow-wrap: anywhere }
+.mac .bd-card .sub { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--d-muted); min-width: 0 }
+.mac .bd-card .sub > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .bd-card .sub .cc-ag { width: 18px; height: 18px; border-radius: 5px; font-size: 8px; flex: none }
+.mac .bd-card .sub > svg { flex: none }
+.mac .bd-card .ft { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--d-muted); font-variant-numeric: tabular-nums; min-height: 22px }
+.mac .bd-card .ft .sp { flex: 1 }
+.mac .bd-empty { padding: 10px 12px; border: 1px dashed var(--d-border); border-radius: 8px; font-size: 11.5px; color: var(--d-muted) }
+.mac .bd-home { margin-bottom: 14px }
+.mac .bd-pj { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
+.mac .bd-pj .cc-mstrip { margin: 0; flex: none }
+
+/* Navigation motion: one short transition per move, nothing ambient. The sidebar never moves. */
+::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: .2s; animation-timing-function: cubic-bezier(.2, 0, 0, 1) }
+::view-transition-old(root), ::view-transition-new(root) { animation: none }
+/* A card grows into the session's head, and the head back into its card. */
+html[data-bdmove] .mac .dhead { view-transition-name: bd-hero }
+::view-transition-old(bd-hero), ::view-transition-new(bd-hero) { height: 100%; object-fit: cover; object-position: left top }
+/* A card that changes lane travels there. */
+html[data-bdmove=lane]::view-transition-group(*) { animation-duration: .3s }
+html[data-bdmove=lane]::view-transition-old(*), html[data-bdmove=lane]::view-transition-new(*) { animation-duration: .3s; height: 100%; object-fit: cover; object-position: left top }

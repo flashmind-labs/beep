@@ -308,19 +308,46 @@ fn product_rows<'a>(
 }
 
 /// Turns bare `http(s)://` addresses in text into links, as GitHub does,
-/// and inline code that is one address into a link around that code. Text
-/// inside links, code blocks and HTML stays as it is.
+/// and inline code or a plain code block that is one address into a link
+/// around that code. Other text inside links, code blocks and HTML stays as
+/// it is.
 fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
     let mut out = Vec::new();
     let mut in_link = 0usize;
     let mut in_code = false;
+    // In a code block with no language, or a plain text one.
+    let mut in_plain_code = false;
 
     for event in events {
         match &event {
             Event::Start(Tag::Link { .. }) => in_link += 1,
             Event::End(TagEnd::Link) => in_link = in_link.saturating_sub(1),
-            Event::Start(Tag::CodeBlock(_)) => in_code = true,
-            Event::End(TagEnd::CodeBlock) => in_code = false,
+            Event::Start(Tag::CodeBlock(kind)) => {
+                in_code = true;
+                in_plain_code = match kind {
+                    CodeBlockKind::Indented => true,
+                    CodeBlockKind::Fenced(lang) => {
+                        matches!(lang.trim(), "" | "text" | "txt" | "plain" | "url")
+                    }
+                };
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                in_code = false;
+                in_plain_code = false;
+            }
+            Event::Text(text)
+                if in_plain_code && find_url(text.trim()) == Some(0..text.trim().len()) =>
+            {
+                out.push(Event::Start(Tag::Link {
+                    link_type: LinkType::Autolink,
+                    dest_url: text.trim().to_owned().into(),
+                    title: CowStr::Borrowed(""),
+                    id: CowStr::Borrowed(""),
+                }));
+                out.push(event);
+                out.push(Event::End(TagEnd::Link));
+                continue;
+            }
             Event::Code(code) if in_link == 0 && find_url(code) == Some(0..code.len()) => {
                 out.push(Event::Start(Tag::Link {
                     link_type: LinkType::Autolink,

@@ -1,6 +1,6 @@
 // Current app entry points stay together; older proposals remain available.
 {
-  const currentIds = ["dIdeaBoard", "dHome", "dWinProjects", "dWinProject", "dAgents", "dAgentSession", "dTerminals", "dSync", "dWinSettings", "dAddTicket", "dReport"];
+  const currentIds = ["dHome", "dWinProjects", "dWinProject", "dAgents", "dAgentSession", "dTerminals", "dSync", "dWinSettings", "dAddTicket", "dReport"];
   const all = DESK_SCREENS.flatMap(group => group.items);
   const current = currentIds.flatMap(id => {
     const item = all.find(([key]) => key === id);
