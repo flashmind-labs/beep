@@ -6,10 +6,10 @@ use iroh::endpoint::Connection;
 use iroh::{EndpointAddr, EndpointId, Watcher};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::task::{AbortHandle, JoinSet};
 use tokio::time::{Instant, sleep, timeout};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 /// A member that stays away is tried about twice a minute. One that comes
@@ -23,6 +23,10 @@ const STABLE: Duration = Duration::from_secs(5);
 const GRACE: Duration = Duration::from_secs(3);
 /// The larger id lets the smaller dial first, so one dial does the work.
 const HEAD_START: Duration = Duration::from_millis(300);
+/// How often the sleep watch reads the clocks.
+const TICK: Duration = Duration::from_secs(5);
+/// A tick this much later than due means the machine slept.
+const SLEPT: Duration = Duration::from_secs(20);
 
 /// 1 s doubling to `LAST_RETRY`, each shifted by up to a quarter.
 struct Backoff(Duration);
@@ -53,6 +57,9 @@ pub(super) async fn own(inner: Arc<Inner>) {
     let mut closers: JoinSet<usize> = JoinSet::new();
     let mut cutting: BTreeSet<usize> = BTreeSet::new();
     let mut rev = inner.rev.subscribe();
+    // Ends with this task, which the mesh aborts when it closes.
+    let mut watch = JoinSet::new();
+    watch.spawn(watch_sleep(inner.clone()));
 
     loop {
         rev.borrow_and_update();
@@ -238,6 +245,57 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                 }
             }
         }
+    }
+}
+
+/// Notices the machine waking from sleep. QUIC times connections by the
+/// monotonic clock, which stops during sleep on macOS and Linux, so a
+/// connection the peer dropped meanwhile looks alive for its whole idle
+/// timeout after wake. Cutting them dials every peer again at once.
+async fn watch_sleep(inner: Arc<Inner>) {
+    let mut wall = SystemTime::now();
+    let mut mono = Instant::now();
+
+    loop {
+        sleep(TICK).await;
+        let (wall_now, mono_now) = (SystemTime::now(), Instant::now());
+        let passed = wall_now
+            .duration_since(wall)
+            .unwrap_or_default()
+            .max(mono_now - mono);
+        (wall, mono) = (wall_now, mono_now);
+
+        if inner.is_closed() {
+            return;
+        }
+
+        if passed > TICK + SLEPT {
+            info!(
+                slept_s = passed.as_secs(),
+                "woke from sleep; dialing every peer again"
+            );
+            inner.woke().await;
+        }
+    }
+}
+
+impl Inner {
+    /// Drops every connection after a sleep and has iroh probe its paths
+    /// again; the dialers and the next calls connect afresh.
+    pub(crate) async fn woke(&self) {
+        self.endpoint.network_change().await;
+
+        for live in self.conns().values() {
+            live.conn.close(0u32.into(), b"slept");
+        }
+
+        for retired in self.retired().values() {
+            retired.conn.close(0u32.into(), b"slept");
+        }
+
+        self.reset_channels();
+        self.addr_wake.notify_waiters();
+        self.bump();
     }
 }
 

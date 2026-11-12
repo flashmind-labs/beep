@@ -192,6 +192,43 @@ async fn a_protocol_connection_that_takes_no_new_stream_is_dialed_again() {
     assert!(pair.controller.peer(peer).is_some());
 }
 
+#[tokio::test]
+async fn waking_from_sleep_dials_the_mesh_link_and_protocols_again() {
+    let pair = pair().await;
+    let peer = pair.node.me();
+    let client = PeerClient::over(pair.controller.clone(), peer);
+    let _stream = client.open_commands().await.unwrap();
+    let link = pair.controller.peer(peer).unwrap();
+    let commands = pair.controller.command_connection(peer).await.unwrap();
+
+    pair.controller.inner.woke().await;
+    timeout(Duration::from_secs(2), commands.closed())
+        .await
+        .unwrap();
+    let mut changed = pair.controller.updates();
+    let relinked = timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(live) = pair.controller.peer(peer)
+                && live.stable_id() != link.stable_id()
+            {
+                return live;
+            }
+
+            changed.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(relinked.close_reason().is_none());
+
+    let _again = timeout(Duration::from_secs(5), client.open_commands())
+        .await
+        .unwrap()
+        .unwrap();
+    let fresh = pair.controller.command_connection(peer).await.unwrap();
+    assert_ne!(fresh.stable_id(), commands.stable_id());
+}
+
 struct Pair {
     controller: Mesh,
     node: Mesh,

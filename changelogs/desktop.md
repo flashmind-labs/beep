@@ -16,6 +16,7 @@ Other apps have independent versions and changelogs:
 
 ### Fixed
 
+- Desktop: after the Mac wakes from sleep, machines reconnect within seconds instead of staying on connecting for up to a minute, and messages queued meanwhile go out once they do.
 - Desktop: a right-click menu whose lines arrive after it opens stays inside the window instead of running off its edge.
 - Desktop: ⌘M (Ctrl+M on Windows) in a project's task field opens the model picker, as its hint says.
 - Desktop: the folder list in Sync gitignored takes the sheet's full width instead of a small box.
