@@ -1,6 +1,7 @@
 // A coding agent's tool entries, read back from the text the node writes.
 
 import { MEDIA_EXTENSIONS } from "../agentpane/media-state.ts";
+import { codeFile } from "../agentpane/files-state.ts";
 
 const STATUSES = ["pending", "in_progress", "completed", "failed"];
 const LIVE = new RegExp(`^([\\s\\S]*?) \\[(${STATUSES.join("|")})\\](?:\\n([\\s\\S]*))?$`);
@@ -220,6 +221,13 @@ export function linkImagePaths(html: string) {
     });
   });
   return { html: out.join(""), paths };
+}
+
+/// The reply's inline code that names a file (`codeFile`), such as
+/// `src/main.rs:12`, marked for the pane to open; code blocks stay as they are.
+export function linkCodeFiles(html: string) {
+  return html.replace(/(?<!<pre>)<code>([^<&]+)<\/code>/g, (whole, text: string) =>
+    codeFile(text) ? `<code class="fref" data-file="${attr(text)}" role="link" tabindex="0">${text}</code>` : whole);
 }
 
 /// The media files a line of text names, each once, in order: for the

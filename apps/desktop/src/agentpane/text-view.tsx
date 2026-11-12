@@ -48,9 +48,9 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText; rev: nu
     const cut = text.cut || lines > MAX_LINES ? ` · the first ${lines > MAX_LINES ? `${MAX_LINES.toLocaleString()} lines` : shortSize(text.text.length)} shown` : "";
     const about = [rel, lang, text.binary ? "" : `${lines.toLocaleString()} lines`, shortSize(text.size)].filter(Boolean).join(" · ") + cut;
     const style: CSSProperties & Record<"--lnw", string> = { "--lnw": `${String(shown.length).length}ch` };
-    const html = shown.map((line, index) => `<span class="ln">${index + 1}</span>${highlight(line, lang)}`).join("\n");
+    const html = shown.map((line, index) => `<span class="ln${index + 1 === tab.line ? " on" : ""}">${index + 1}</span>${highlight(line, lang)}`).join("\n");
     return { about, style, html };
-  }, [text, rel, lang]);
+  }, [text, rel, lang, tab.line]);
   const preview = tab.preview;
   const source = !preview?.active && !text.binary;
 
@@ -61,6 +61,13 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText; rev: nu
     const frame = requestAnimationFrame(() => { if (code.current) { code.current.scrollTop = saved.top; code.current.scrollLeft = saved.left; } });
     return () => cancelAnimationFrame(frame);
   }, [scrollKey, source]);
+
+  // A link to a line shows that line.
+  useLayoutEffect(() => {
+    if (!source || !tab.line) return;
+    const frame = requestAnimationFrame(() => code.current?.querySelector(".ln.on")?.scrollIntoView({ block: "center" }));
+    return () => cancelAnimationFrame(frame);
+  }, [source, tab.line, html]);
 
   const scrolled = () => { if (scrollKey && code.current) writeView(scrollKey, { top: code.current.scrollTop, left: code.current.scrollLeft }); };
   return <>{preview?.active ? preview.loading ? <div className="agpmsg">Loading preview…</div>

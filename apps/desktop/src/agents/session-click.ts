@@ -95,7 +95,7 @@ export function agentClick(e: MouseEvent) {
   const madeFile = inLog<HTMLElement>("[data-made]");
 
   if (madeFile) {
-    if (!showArtifact(madeFile.dataset.made!)) openLinked(madeFile.dataset.made!);
+    if (!showArtifact(madeFile.dataset.made!)) openLinked({ path: madeFile.dataset.made!, line: null });
     return;
   }
 
@@ -134,6 +134,10 @@ export function agentClick(e: MouseEvent) {
   const fileLink = inLog<HTMLAnchorElement>("a[href]");
   const linkedFile = fileLink && linkedPath(fileLink.getAttribute("href")!);
   if (linkedFile) { openLinked(linkedFile); return; }
+  // Inline code that names a file opens it the same way.
+  const codeRef = inLog("code.fref[data-file]");
+  const codeFile = codeRef && linkedPath(codeRef.dataset.file ?? "");
+  if (codeFile) { openLinked(codeFile); return; }
   // A file the reply names opens its picture, as its thumbnail does, or
   // else the file itself from the machine, in the media pane.
   const link = inLog<HTMLElement>("a.imgl");
@@ -234,7 +238,7 @@ export function openParent() {
 /// Tool rows also open from the keyboard; details stay selectable.
 export function toolKey(event: KeyboardEvent) {
   const target = event.target;
-  if (!(target instanceof HTMLElement) || !target.matches('.dcoderen.tool[data-at][role="button"]') || !sessionBody()?.contains(target) || !["Enter", " "].includes(event.key)) return;
+  if (!(target instanceof HTMLElement) || !target.matches('.dcoderen.tool[data-at][role="button"], code.fref[data-file]') || !sessionBody()?.contains(target) || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
   target.click();
 }

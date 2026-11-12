@@ -8,7 +8,7 @@ import { shownMessage } from "../agents/session-frame.tsx";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { queuePreview } from "./html-preview-state.ts";
-import { baseName, type Dock, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
+import { baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
 import type { ModelView } from "./model3d.ts";
 import { artifactCount, pickArtifact } from "./artifacts.ts";
@@ -80,6 +80,11 @@ export interface MediaTab {
   rel?: string;
   root?: string;
   text?: TreeText;
+  /// The line a link pointed at, marked and scrolled to in the text view.
+  line?: number | null;
+  /// The same file in the session's folder, read when it is not in the
+  /// worktree it was looked for in.
+  elsewhere?: string | null;
   preview?: { active: boolean; loading: boolean; src: string; error: string };
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
@@ -317,21 +322,45 @@ export function previewTab(t: MediaTab) {
   void togglePreview(t);
 }
 
-/// Opens `rel`, a file in the worktree at `root`.
-function openIn(root: string, rel: string) {
-  if (openPath(rel.startsWith("/") ? rel : resolvePath(root, rel))) return;
+/// Opens `rel`, a file in the worktree at `root`, and gives its tab;
+/// `elsewhere` is where else the file may be when it is not there.
+function openIn(root: string, rel: string, elsewhere: string | null = null) {
+  const full = rel.startsWith("/") ? rel : resolvePath(root, rel);
+  const kind = mediaKind(full);
   // A file of the session's own folder keeps its tab through a switch.
-  const id = root === P.session?.cwd ? `text:${rel}` : `text:${root}\n${rel}`;
-  open({ id, kind: "text", name: baseName(rel), path: null, url: null, rel, root });
+  const id = kind ? full : root === P.session?.cwd.replace(/\/+$/, "") ? `text:${rel}` : `text:${root}\n${rel}`;
+
+  if (kind) open({ id, kind, name: baseName(full), path: full, url: null, elsewhere });
+  else open({ id, kind: "text", name: baseName(rel), path: null, url: null, rel, root, elsewhere });
+
+  return P.tabs.find(t => t.id === id) ?? null;
 }
 
-/// Opens the file a link in a reply points at. One outside the session's
-/// folder opens as a tab saying the node would not read it.
-export function openLinked(path: string) {
-  if (openPath(path) || !P.session) return;
-  const cwd = P.session.cwd.replace(/\/+$/, "");
-  const full = resolvePath(cwd, path);
-  openIn(P.session.cwd, full.startsWith(`${cwd}/`) ? full.slice(cwd.length + 1) : full);
+/// Opens the file a link in a reply points at, at its line. A relative
+/// path is read from the worktree the pane shows, else from the session's
+/// folder. One outside the session's folder opens as a tab saying the node
+/// would not read it.
+export function openLinked(ref: FileRef) {
+  const s = P.session;
+  if (!s) return;
+
+  if (ref.path.startsWith("~")) {
+    openPath(ref.path);
+    return;
+  }
+
+  const cwd = s.cwd.replace(/\/+$/, "");
+  const shown = (paneRoot() || cwd).replace(/\/+$/, "");
+  const full = resolvePath(shown, ref.path);
+  const elsewhere = !ref.path.startsWith("/") && shown !== cwd ? resolvePath(cwd, ref.path) : null;
+  const root = [shown, cwd].find(root => full.startsWith(`${root}/`)) ?? cwd;
+  const tab = openIn(root, full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full, elsewhere);
+
+  if (tab && tab.line !== ref.line) {
+    tab.line = ref.line;
+    tab.rev++;
+    draw();
+  }
 }
 
 /// Saves `rel`, a file in the worktree at `root` (the one shown when

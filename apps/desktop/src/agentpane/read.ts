@@ -60,6 +60,7 @@ export async function loadText(t: MediaTab) {
     t.text = await invoke<TreeText>("agent_tree_text", { machineId: s.machine_id, root: t.root ?? s.cwd, path: t.rel });
     t.size = t.text.size;
   } catch (e) {
+    if (lookElsewhere(t)) return loadText(t);
     t.error = readError(e);
   }
 
@@ -67,6 +68,25 @@ export async function loadText(t: MediaTab) {
     touchTab(t);
     if (takeQueuedPreview(t) && t.text && !t.text.binary) void togglePreview(t);
   }
+}
+
+/// Points `t` at the same file in the session's folder when it was looked
+/// for in another worktree; false when there is nowhere else to look.
+function lookElsewhere(t: MediaTab) {
+  const s = P.session, there = t.elsewhere;
+  if (!s || !there) return false;
+
+  t.elsewhere = null;
+  const cwd = s.cwd.replace(/\/+$/, "");
+
+  if (t.kind === "text") {
+    t.root = s.cwd;
+    t.rel = there.startsWith(`${cwd}/`) ? there.slice(cwd.length + 1) : there;
+  } else {
+    t.path = there;
+  }
+
+  return true;
 }
 
 /// Starts a terminal tab's shell; when it exits the tab goes.
@@ -132,6 +152,7 @@ export async function load(t: MediaTab) {
     t.url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime || "application/octet-stream" }));
   } catch (e) {
     if (!P.tabs.includes(t)) return;
+    if (lookElsewhere(t)) return load(t);
     t.error = readError(e);
   }
 

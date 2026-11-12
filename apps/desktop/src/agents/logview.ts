@@ -512,7 +512,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
 function agentReply(en: AgentEntry, at: number): ReplyRow {
   const { text, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
   const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
-  const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkImagePaths(html).html) : html;
+  const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkCodeFiles(AG.log.linkImagePaths(html).html)) : html;
   return { kind: "reply", row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(en.html)) : linked(esc(text))) + pics };
 }
 
