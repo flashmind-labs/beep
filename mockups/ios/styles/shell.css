@@ -103,3 +103,23 @@ button:disabled { cursor: default; }
 .card .act.pri{border-color:transparent;background:var(--accent);color:var(--on-accent)}
 .card.wait{opacity:.55}
 
+
+/* Landscape, as body.mobile under the landscape media query in mobile.css: the tabs are a
+   rail on the left, the top bar and the session head are shorter, and the board's lanes sit
+   side by side. The status bar is hidden; the island sits on the left edge. */
+.gallery-screen.land { width: 846px; height: 520px; }
+.screen.land figure { width: 844px; }
+.screen.land figcaption { max-width: 560px; }
+.ph.land { width: 844px; height: 390px; flex-direction: row; flex-wrap: wrap; padding-left: 44px; }
+.android .ph.land { padding-left: 24px; }
+.ph.land > .cwin { flex: 1 1 100%; height: calc(100% - 20px); }
+.ph.land > .hp { flex: 1 1 100%; height: 20px; }
+.ph.land > .cwin:has(> .tabs) { padding-left: 72px; }
+.ph.land > .cwin > .tabs { position: absolute; left: 0; top: 0; bottom: 0; width: 72px; display: flex; flex-direction: column; justify-content: center; border-top: 0; border-right: 1px solid var(--border); }
+.ph.land .tabs a { min-height: 0; flex: 1; max-height: 60px; }
+.ph.land .top { min-height: 40px; padding-top: 0; padding-bottom: 0; }
+.ph.land .view { padding: 10px 12px; gap: 10px; }
+.ph.land .lanes { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); align-items: start; }
+.ph.land .dhead { flex-wrap: nowrap; padding-top: 4px; padding-bottom: 4px; }
+.ph.land .dhead .hl { flex: 1 1 auto; }
+.ph.land .dhead .chips { flex-wrap: nowrap; overflow: hidden; }

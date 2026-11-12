@@ -24,7 +24,7 @@ import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab } from "./media-draw.ts";
-import { dockHolding, dockOf, docked, paneModel, paneOf, place, setPaneModel, shell, shellResized, shellSize, shownDocks, watchShell, tabIds } from "./media-layout.ts";
+import { dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 export interface FilePart {
@@ -155,7 +155,7 @@ export function startPane(s: PaneSession) {
   // Too narrow for a right dock, its tabs join the bottom one, and back.
   P.watch = frameResize(() => {
     shellResized();
-    if (paneModel.getState().narrow !== (shellSize().width < SIDE_BY_SIDE_MIN)) draw(); else place();
+    if (paneModel.getState().narrow !== (dockWidth() < SIDE_BY_SIDE_MIN)) draw(); else place();
   });
   P.watch.observe(el);
   watchShell(el);
@@ -358,7 +358,7 @@ export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name
   const id = `term:${name}`;
   // While the window is too narrow for a right dock, every tab shows at
   // the bottom and a new one keeps the dock it would have.
-  const narrow = !!shell() && shellSize().width < SIDE_BY_SIDE_MIN;
+  const narrow = !!shell() && dockWidth() < SIDE_BY_SIDE_MIN;
   const newest = terms.at(-1);
   const to = d && !narrow ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
   if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);

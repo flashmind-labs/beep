@@ -221,3 +221,21 @@ body.mobile .agpane .agphead :is(.agtabs, .agaddterm, [data-pact]) { display: no
 body.mobile .bd-lanes { grid-template-columns: minmax(0, 1fr) }
 body.mobile .bd-lane:has(> .bd-empty) { display: none }
 body.mobile .agrail { display: none }
+
+/* Landscape on a phone: the tabs are a rail on the left, the top bar and a session's head are
+   one short line, and the board's lanes sit side by side, so pages keep the little height
+   there is. */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.mobile .cwin { flex-direction: row }
+  body.mobile .cc-main { min-width: 0; min-height: 0; height: 100% }
+  body.mobile .mb-tabs { order: -1; width: 72px; display: flex; flex-direction: column; justify-content: center; border-top: 0; border-right: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom) }
+  body.mobile .mb-tabs button { flex: 1 1 0; max-height: 60px; min-height: 44px }
+  body.mobile .cc-top { min-height: 40px; padding-top: env(safe-area-inset-top); padding-bottom: 0 }
+  body.mobile :is(.mb-back, .nt-bell) { height: 40px }
+  body.mobile .cc-view { padding-top: 10px; gap: 10px }
+  body.mobile .bd-lanes { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) }
+  body.mobile .dhead { flex-wrap: nowrap; padding-top: 4px; padding-bottom: 4px }
+  body.mobile .dhead #agtitle { flex: 1 1 auto }
+  body.mobile .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse) { flex: 0 1 auto; min-width: 0 }
+  body.mobile .dinput textarea { max-height: 72px }
+}

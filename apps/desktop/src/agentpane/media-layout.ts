@@ -68,9 +68,16 @@ export function tabIds() {
   return [FILES, CHANGES, ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...P.tabs.map(t => t.id)];
 }
 
+/// The width the docks lay out in. The phone layout, a phone in landscape included, shows
+/// one pane at a time, so it never has room for a right dock.
+export function dockWidth(): number {
+  if (!shell()) return SIDE_BY_SIDE_MIN;
+  return document.body.classList.contains("mobile") ? 0 : shellSize().width;
+}
+
 /// The tabs in each dock, as the shell's width lets them sit.
 export function docked(): Record<Dock, string[]> {
-  return splitTabs(P.layout, tabIds(), shell() ? shellSize().width : SIDE_BY_SIDE_MIN, P.moved);
+  return splitTabs(P.layout, tabIds(), dockWidth(), P.moved);
 }
 
 /// The dock tab `id` shows in now.
@@ -134,7 +141,7 @@ export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel>
   if (!docks) return;
   if (!el || !box) { setPaneModel({ ...extra, docks }); return; }
   const { width, height } = shellSize();
-  const narrow = width < SIDE_BY_SIDE_MIN;
+  const narrow = dockWidth() < SIDE_BY_SIDE_MIN;
   const split = docked();
   const next = { ...docks };
 
