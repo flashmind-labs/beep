@@ -1,4 +1,5 @@
 import type { AgentRow } from "./agents.ts";
+import { isNativeSession } from "./native-session-state.ts";
 
 export const conversationKey = (s: Pick<AgentRow, "machine_id" | "agent" | "id">) => JSON.stringify([s.machine_id, s.agent, s.id]);
 
@@ -26,6 +27,99 @@ export class ConversationHistory {
   }
 }
 export const conversationHistory = new ConversationHistory();
+
+/// A row of the switcher, and how deep it sits under the session that started it.
+export interface ConversationChoice {
+  row: AgentRow;
+  depth: number;
+}
+
+/// The deepest a row is drawn under its parent.
+const MAX_DEPTH = 3;
+
+/// `rows` in their order, each session started by another right under its
+/// parent, in the order they started. A parent `parentOf` knows that is not
+/// listed (it ended, or runs elsewhere) joins as the head of its group.
+export function groupConversations(rows: readonly AgentRow[], parentOf: (row: AgentRow) => AgentRow | null): ConversationChoice[] {
+  const known = new Map(rows.map(row => [conversationKey(row), row]));
+  const up = new Map<string, string>();
+  const queue = [...known.values()];
+
+  for (const row of queue) {
+    const key = conversationKey(row), parent = parentOf(row);
+    if (!parent || up.has(key)) continue;
+    const parentKey = conversationKey(parent);
+    if (parentKey === key) continue;
+    up.set(key, parentKey);
+
+    if (!known.has(parentKey)) {
+      known.set(parentKey, parent);
+      queue.push(parent);
+    }
+  }
+
+  const kids = new Map<string, AgentRow[]>();
+
+  for (const [key, row] of known) {
+    const parent = up.get(key);
+    if (parent !== undefined) kids.set(parent, [...(kids.get(parent) ?? []), row]);
+  }
+
+  // A loop of parents ends at the first row seen twice.
+  const root = (key: string) => {
+    const seen = new Set([key]);
+    let at = key;
+
+    for (let parent = up.get(at); parent !== undefined && !seen.has(parent); parent = up.get(at)) {
+      seen.add(parent);
+      at = parent;
+    }
+
+    return at;
+  };
+
+  const out: ConversationChoice[] = [];
+  const placed = new Set<string>();
+  const place = (row: AgentRow, depth: number) => {
+    const key = conversationKey(row);
+    if (placed.has(key)) return;
+    placed.add(key);
+    out.push({ row, depth: Math.min(depth, MAX_DEPTH) });
+    const under = [...(kids.get(key) ?? [])].sort((a, b) => (a.started_at ?? 0) - (b.started_at ?? 0));
+    for (const kid of under) place(kid, depth + 1);
+  };
+
+  for (const row of rows) {
+    const top = known.get(root(conversationKey(row)));
+    if (top) place(top, 0);
+  }
+
+  return out;
+}
+
+/// The state a row shows: a subagent the harness runs is done once idle.
+export function conversationState(row: AgentRow): string {
+  if (isNativeSession(row.id) && (row.status === "idle" || row.status === "ended")) return "Done";
+
+  switch (row.status) {
+    case "asking": return "Needs you";
+    case "idle": return "Ready";
+    case "waiting": return "Waiting";
+    case "starting": return "Starting";
+    case "ended": return "Ended";
+    default: return "Working";
+  }
+}
+
+/// The first press from the current conversation passes over the rows under
+/// it, so a quick Option+Tab still returns to the one used before.
+export function firstConversation(choices: readonly ConversationChoice[], index: number, backwards: boolean) {
+  const next = nextConversation(index, choices.length, backwards);
+  if (backwards || index < 0 || index >= choices.length) return next;
+  const depth = choices[index].depth;
+  const after = choices.findIndex((c, i) => i > index && c.depth <= depth);
+  return after < 0 ? next : after;
+}
 
 export function nextConversation(index: number, count: number, backwards: boolean) {
   if (!count) return -1;

@@ -162,6 +162,9 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .conversation-choice[aria-selected="true"] { border-color: var(--accent); background: var(--deep); }
 .conversation-choice:hover { background: var(--deep); }
 .conversation-choice:active { transform: scale(.98); }
+.conversation-choice.sub { grid-template-columns: 24px minmax(0, 1fr) auto; padding: 4px 8px; }
+.conversation-choice.sub .conversation-mark { width: 24px; height: 24px; border-radius: 6px; }
+.conversation-choice.sub .conversation-label b { font-size: 13px; line-height: 18px; }
 .conversation-label { display: grid; min-width: 0; }
 .conversation-label b { font-size: 14px; line-height: 20px; font-weight: 500; }
 .conversation-label b, .conversation-label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

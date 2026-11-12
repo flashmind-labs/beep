@@ -2,7 +2,7 @@ import { answers, calls } from "./dom-env.ts";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
-import { ConversationHistory, conversationKey, isConversationKey, nextConversation } from "../src/agents/conversation-state.ts";
+import { ConversationHistory, conversationKey, conversationState, firstConversation, groupConversations, isConversationKey, nextConversation } from "../src/agents/conversation-state.ts";
 import { initConversationSwitcher } from "../src/agents/conversation-switcher.ts";
 import type { AgentRow } from "../src/agents/agents.ts";
 
@@ -33,6 +33,33 @@ test("latest duplicate wins, ended sessions stay out, and machine and harness id
   assert.deepEqual(rows, [elsewhere, harness]);
   assert.notEqual(conversationKey(a), conversationKey(elsewhere));
   assert.notEqual(conversationKey(a), conversationKey(harness));
+});
+
+test("subagents sit under their parent in the order they started, and a known parent that is not listed heads them", () => {
+  const parent = session("p", { agent: "claude" });
+  const late = session("subagent:claude:p:late", { agent: "claude", status: "working", started_at: 20 });
+  const early = session("subagent:claude:p:early", { agent: "claude", status: "idle", started_at: 10 });
+  const other = session("o");
+  const ended = session("gone", { agent: "claude", status: "ended" });
+  const orphan = session("subagent:claude:gone:x", { agent: "claude", status: "working" });
+  const lost = session("subagent:claude:unknown:y", { agent: "claude", status: "working" });
+  const parents = new Map([[late, parent], [early, parent], [orphan, ended]]);
+  const choices = groupConversations([late, other, parent, early, orphan, lost], row => parents.get(row) ?? null);
+  assert.deepEqual(choices.map(c => [c.row.id, c.depth]), [
+    ["p", 0], ["subagent:claude:p:early", 1], ["subagent:claude:p:late", 1], ["o", 0], ["gone", 0], ["subagent:claude:gone:x", 1], ["subagent:claude:unknown:y", 0],
+  ]);
+  assert.deepEqual(choices.map(c => conversationState(c.row)), ["Ready", "Done", "Working", "Ready", "Ended", "Working", "Working"]);
+  const loop = groupConversations([parent, other], row => row === parent ? other : parent);
+  assert.equal(loop.length, 2);
+});
+
+test("the first press passes over the current conversation's subagents", () => {
+  const rows = [{ depth: 0 }, { depth: 1 }, { depth: 1 }, { depth: 0 }].map((c, i) => ({ row: session(String(i)), ...c }));
+  assert.equal(firstConversation(rows, 0, false), 3);
+  assert.equal(firstConversation(rows, 0, true), 3);
+  assert.equal(firstConversation(rows, 1, false), 2);
+  assert.equal(firstConversation(rows.slice(0, 3), 0, false), 1);
+  assert.equal(firstConversation(rows, -1, false), 0);
 });
 
 test("Option+Tab accepts reverse cycling but excludes other modifiers and composition", () => {

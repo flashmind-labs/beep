@@ -1,7 +1,7 @@
 import { AG, type AgentRow } from "./agents.ts";
 import { sessionVisible } from "./closing.ts";
-import { conversationHistory, conversationKey, isConversationKey, nextConversation } from "./conversation-state.ts";
-import { loadSessions, sessions } from "./sessions.ts";
+import { type ConversationChoice, conversationHistory, conversationKey, firstConversation, groupConversations, isConversationKey, nextConversation } from "./conversation-state.ts";
+import { loadSessions, parentSession, sessions } from "./sessions.ts";
 import { withoutCopies } from "./move-store.ts";
 import { S } from "../bar/core.ts";
 import { createElement } from "react";
@@ -17,11 +17,12 @@ interface SwitcherOptions {
 
 /// Installed once per window, ahead of composer and terminal key handlers.
 export function initConversationSwitcher(options: SwitcherOptions) {
-  let picker: { close(): void; rows: AgentRow[]; index: number; draw(): void } | null = null;
+  let picker: { close(): void; rows: ConversationChoice[]; index: number; draw(): void } | null = null;
   const current = () => options.current ? options.current() : S.view === "agent" && !AG.draft ? AG.page?.session ?? null : null;
   const available = () => {
     const on = current();
-    return conversationHistory.order(withoutCopies([...(options.rows?.() ?? []), ...sessions, ...(on ? [on] : [])]).filter(sessionVisible), on);
+    const rows = conversationHistory.order(withoutCopies([...(options.rows?.() ?? []), ...sessions, ...(on ? [on] : [])]).filter(sessionVisible), on);
+    return groupConversations(rows, row => parentSession(row) ?? null);
   };
   const refresh = () => { void loadSessions().catch(e => console.warn("reading active conversations:", e)); };
   refresh();
@@ -29,9 +30,9 @@ export function initConversationSwitcher(options: SwitcherOptions) {
   function finish(commit: boolean) {
     const p = picker;
     if (!p) return;
-    const selected = p.rows[p.index];
+    const selected = p.rows[p.index]?.row;
     // A close or move arriving while choosing must not reopen a stale row.
-    const live = commit && selected ? available().find(s => conversationKey(s) === conversationKey(selected)) : null;
+    const live = commit && selected ? available().find(c => conversationKey(c.row) === conversationKey(selected))?.row : null;
     p.close();
     const on = current();
     if (live && (!on || conversationKey(live) !== conversationKey(on))) options.open(live);
@@ -46,7 +47,7 @@ export function initConversationSwitcher(options: SwitcherOptions) {
     const { close, render } = openSheet("Switch active conversation", "am-sheet conversation-switcher", { scrim: "conversation-scrim", onClose: () => { open = false; picker = null; } });
     const on = current(), currentKey = on ? conversationKey(on) : null;
     const p = {
-      close, rows, index: currentKey ? rows.findIndex(s => conversationKey(s) === currentKey) : -1,
+      close, rows, index: currentKey ? rows.findIndex(c => conversationKey(c.row) === currentKey) : -1,
       draw() {
         if (!open) return;
         flushSync(() => render(createElement(ConversationSwitcher, {
@@ -63,10 +64,12 @@ export function initConversationSwitcher(options: SwitcherOptions) {
     if (e.isComposing) return;
 
     if (isConversationKey(e)) {
-      if (!picker && !begin()) return;
+      const fresh = !picker;
+      if (fresh && !begin()) return;
+      if (!picker) return;
       e.preventDefault(); e.stopImmediatePropagation();
-      picker!.index = nextConversation(picker!.index, picker!.rows.length, e.shiftKey);
-      picker!.draw();
+      picker.index = fresh ? firstConversation(picker.rows, picker.index, e.shiftKey) : nextConversation(picker.index, picker.rows.length, e.shiftKey);
+      picker.draw();
       return;
     }
 
