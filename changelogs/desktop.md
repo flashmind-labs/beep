@@ -7,6 +7,16 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.10] - 2026-11-12
+
+### Changed
+
+- Desktop: sessions are copied when you continue them on another machine
+  that is online, no longer in the background. Continuing a session from a
+  machine that is off is no longer offered.
+- Desktop: a web address written as inline code in a chat reply or prompt is now
+  a link, including addresses with an IPv6 host.
+
 ## [0.8.9] - 2026-11-12
 
 ### Performance
