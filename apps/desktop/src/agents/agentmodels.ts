@@ -62,3 +62,44 @@ export class SessionPicks extends Map<string, SessionPick> {
     return removed;
   }
 }
+
+export interface ProjectPick extends SessionPick { agent: string }
+
+const PROJECT_PICKS = "beep.projectModels.v1";
+
+/// Read on each use so another window's choices are included.
+function projectPicks(): Map<string, ProjectPick> {
+  const picks = new Map<string, ProjectPick>();
+
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(PROJECT_PICKS) ?? "[]");
+    if (!Array.isArray(saved)) return picks;
+
+    for (const entry of saved) {
+      if (!Array.isArray(entry) || entry.length !== 2) continue;
+      const [project, pick]: readonly unknown[] = entry;
+      if (typeof project === "string" && pick !== null && typeof pick === "object"
+        && "agent" in pick && typeof pick.agent === "string"
+        && "model" in pick && typeof pick.model === "string"
+        && "effort" in pick && (pick.effort === null || typeof pick.effort === "string")) {
+        picks.set(project, { agent: pick.agent, model: pick.model, effort: pick.effort });
+      }
+    }
+  } catch { /* Storage can be unavailable. */ }
+
+  return picks;
+}
+
+export function lastProjectPick(project: string | null): ProjectPick | null {
+  return projectPicks().get(project ?? "") ?? null;
+}
+
+export function keepProjectPick(project: string | null, pick: ProjectPick): void {
+  if (!pick.agent) return;
+  const picks = projectPicks();
+  picks.set(project ?? "", pick);
+
+  try {
+    localStorage.setItem(PROJECT_PICKS, JSON.stringify([...picks]));
+  } catch { /* The current form keeps its choice. */ }
+}

@@ -1,3 +1,4 @@
+import { keepProjectPick, lastProjectPick } from "./agentmodels.ts";
 import { Spinner } from "../ui/kit.tsx";
 import { createElement, createRef, Fragment, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -115,6 +116,7 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "chat", at: Agen
   S.view = "agentnew";
   AG.back = from;
   AG.form = { prompt, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
+  restoreProjectPick();
   AG.error = "";
   AG.busy = false;
   fixedProject = !!at?.project;
@@ -203,7 +205,8 @@ function drawParts() {
     if (f.machine) f.cwd = folderOn(f.cwd, f.machine, f.places);
   }
 
-  f.agent = harnessFor(f.agent, formAgents(), AGENT_ORDER);
+  const preferred = !f.modelFor ? lastProjectPick(f.project ?? null)?.agent : null;
+  f.agent = harnessFor(preferred ?? f.agent, formAgents(), AGENT_ORDER);
   f.effort = keepEffort(f.agent, f.effort);
   syncModel();
   const none = !!AG.hosts && !hosts.length;
@@ -253,9 +256,13 @@ function drawPicker(c: StartComposer) {
     changed: what => {
       if (what === "models") return drawPill(c, false);
       Object.assign(f, { agent: picked.agent, model: picked.model, effort: picked.effort, query: picked.query });
+      if (what !== "agent") keepProjectPick(f.project ?? null, picked);
       if (what === "model") { f.open = null; drawParts(); return c.input.focus(); }
       drawParts();
-      if (what === "agent") focusSearch(el);
+      if (what === "agent") {
+        if (f.agent) keepProjectPick(f.project ?? null, { agent: f.agent, model: f.model ?? "", effort: f.effort ?? null });
+        focusSearch(el);
+      }
     },
   });
 }
@@ -319,6 +326,7 @@ function setProject(name: string | null) {
     f.places = undefined;
     f.cwd = "";
     f.machine = lastMachine(null) || f.machine;
+    restoreProjectPick();
     return;
   }
 
@@ -328,6 +336,7 @@ function setProject(name: string | null) {
   f.project = p.name;
   f.places = p.places;
   f.cwd = folderOn(p.places[0]?.cwd ?? "", f.machine || null, p.places);
+  restoreProjectPick();
   if (!BRANCHES.has(p.name)) loadBranches(p.name);
 }
 
@@ -335,6 +344,7 @@ function setProject(name: string | null) {
 /// else none.
 function projectForFolder() {
   const f = AG.form, machine = f.machine || null;
+  const previous = f.project;
   const p = PROJECTS ? projectAt(PROJECTS, machine, f.cwd) : null;
 
   if (p) {
@@ -345,6 +355,8 @@ function projectForFolder() {
     f.project = null;
     f.places = undefined;
   }
+
+  if (f.project !== previous) restoreProjectPick();
 }
 
 /// The Base menu: the project's branches, the default first, and a row to
@@ -569,12 +581,25 @@ function pickFolder(index: number) {
 
 // ----- Models -----
 
+function restoreProjectPick() {
+  const f = AG.form, saved = lastProjectPick(f.project ?? null);
+  f.agent = saved?.agent ?? null;
+  f.model = saved?.model ?? "";
+  f.effort = saved?.effort ?? null;
+  f.modelFor = "";
+}
+
 /// Keeps the model with the machine and harness it was picked for, and
 /// asks for their models when not known lately.
 function syncModel() {
   const f = AG.form, machine = f.machine || null, agent = f.agent;
   const key = machine && agent ? `${machine}/${agent}` : "";
-  if (f.modelFor !== key) { f.model = ""; f.modelFor = key; }
+  if (f.modelFor !== key) {
+    const saved = !f.modelFor ? lastProjectPick(f.project ?? null) : null;
+    f.model = saved?.agent === agent ? saved.model : "";
+    if (saved?.agent === agent) f.effort = keepEffort(agent, saved.effort);
+    f.modelFor = key;
+  }
   if (!machine || !agent) return;
   modelsOn(machine, agent, () => { if (S.view === "agentnew" && AG.form.modelFor === key && composer) drawPill(composer, false); });
 }

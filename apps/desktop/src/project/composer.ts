@@ -1,3 +1,4 @@
+import { keepProjectPick, lastProjectPick } from "../agents/agentmodels.ts";
 import { StashBar } from "../chat/stash-hints.tsx";
 import { createElement } from "react";
 import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
@@ -151,11 +152,16 @@ function closeBarPicker() {
 function barHarness(place: { machine_id: string } | null) {
   const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
   const offered = host ? [...host.agents].sort(byPreference) : [];
-  const agent = harnessFor(pc.picked.agent || null, offered, AGENT_ORDER);
+  const preferred = !pc.modelFor ? lastProjectPick(pc.project)?.agent : null;
+  const agent = harnessFor(preferred ?? (pc.picked.agent || null), offered, AGENT_ORDER);
   if (agent && agent !== pc.picked.agent) pc.picked.effort = keepEffort(agent, pc.picked.effort);
   pc.picked.agent = agent ?? "";
   const key = host && agent ? `${host.machine_id}/${agent}` : "";
-  if (pc.modelFor !== key) { pc.picked.model = ""; pc.modelFor = key; }
+  if (pc.modelFor !== key) {
+    const saved = !pc.modelFor ? lastProjectPick(pc.project) : null;
+    pc.picked.model = saved?.agent === agent ? saved.model : "";
+    pc.modelFor = key;
+  }
   return { host, offered, agent };
 }
 
@@ -228,6 +234,10 @@ export function drawProjectComp(name: string) {
     finishCopy?.();
     pc.project = name;
     pc.machine = lastMachine(name);
+    const saved = lastProjectPick(name);
+    pc.picked = { agent: saved?.agent ?? "", model: saved?.model ?? "", effort: saved?.effort ?? null, query: "" };
+    pc.modelFor = "";
+    pc.open = false;
     pc.adding = null;
     pc.checkout = DEFAULT_CHECKOUT;
     pc.target = null;
@@ -410,8 +420,11 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     anchor: () => projectComp.harness,
     bounds: () => projectComp.form.closest<HTMLElement>(".agconv") ?? projectComp.form.parentElement,
     changed: what => {
+      if (what !== "models") {
+        p.effort = keepEffort(p.agent, p.effort);
+        keepProjectPick(pc.project, p);
+      }
       if (what === "model") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
-      if (what === "agent") p.effort = keepEffort(p.agent, p.effort);
       if (what !== "models") redrawProjects();
       else if (pc.project) drawProjectComp(pc.project);
       if (what === "agent") focusSearch(el);
