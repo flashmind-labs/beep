@@ -23,6 +23,8 @@ export type TranscriptRow = TurnHeading | ReplyRow | PromptRow | ContextRow | Ac
 export interface Unit {
   key: string;
   rows: () => readonly TranscriptRow[];
+  /// The message the user sent to open the turn, or null.
+  prompt: string | null;
 }
 
 /// A row as drawn and its key in the turn.
@@ -359,6 +361,31 @@ function resized(w: LogWindow) {
 
 /// The room a drawn turn takes, its gap included; a hidden one takes none.
 const sizeOf = (w: LogWindow, el: HTMLElement) => el.hidden ? 0 : el.offsetHeight + w.gap;
+
+/// A message the user sent, for the conversation's scrollbar: its turn and
+/// where it starts, in pixels from the top of what `b` scrolls.
+export interface PromptMark { key: string; top: number; prompt: string }
+
+/// Where each message the user sent starts in `b`, measured turns as drawn and
+/// the others as guessed, as the spacers stand for them.
+export function promptMarks(b: ChatBody): PromptMark[] {
+  const w = bodies.get(b), log = w?.el;
+  if (!w || !log?.isConnected) return [];
+  const sizes = sizesOf(w), marks: PromptMark[] = [];
+  let top = log.getBoundingClientRect().top - b.getBoundingClientRect().top + b.scrollTop;
+
+  w.units.forEach((u, i) => {
+    if (u.prompt) marks.push({ key: u.key, top, prompt: u.prompt });
+    top += sizes[i];
+  });
+
+  return marks;
+}
+
+/// Calls `changed` when the turns drawn in `b`'s log change; returns how to stop.
+export function onLogDrawn(b: ChatBody, changed: () => void) {
+  return bodies.get(b)?.subscribe(changed) ?? (() => {});
+}
 
 function measure(w: LogWindow) {
   for (const key of w.drawn.keys()) {

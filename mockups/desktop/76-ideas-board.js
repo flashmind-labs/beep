@@ -23,6 +23,10 @@
 .mac .bd-card .sub .cc-ag { width: 18px; height: 18px; border-radius: 5px; font-size: 8px; flex: none }
 .mac .bd-card .ft { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--d-muted); font-variant-numeric: tabular-nums }
 .mac .bd-card .ft .sp { flex: 1 }
+.mac .agrail { position: absolute; top: 4px; right: 3px; bottom: 4px; width: 12px }
+.mac .agrail .th { position: absolute; left: 3px; right: 3px; border-radius: 3px; background: color-mix(in srgb, var(--d-fg) 22%, transparent) }
+.mac .agrail .tk { all: unset; position: absolute; left: 0; right: 0; height: 2px; border-radius: 1px; background: var(--d-accent); cursor: pointer }
+.mac .agrail .tk:hover { height: 4px; margin-top: -1px }
 .mac .dseg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--d-border); border-radius: 6px }
 .mac .dseg button { all: unset; cursor: pointer; padding: 0 10px; line-height: 24px; border-radius: 5px; font-size: 12.5px; color: var(--d-muted) }
 .mac .dseg button.on { background: color-mix(in srgb, var(--d-accent) 28%, transparent); color: var(--d-fg) }
@@ -151,6 +155,12 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     head.querySelector(".agtitle").dataset.originalTitle = title;
     head.querySelector(".tt small").textContent = `${name} @ ${where.split(" · ")[0]}`;
     head.style.viewTransitionName = "bd-hero";
+    // The conversation's scrollbar: a tick for each message the user sent; a click jumps there.
+    const body = t.content.querySelector(".dbody");
+    if (body) {
+      body.parentElement.style.position = "relative";
+      body.insertAdjacentHTML("afterend", `<div class="agrail"><div class="th" style="top:62%;height:30%"></div>${[4, 21, 38, 55, 81].map((at, i) => `<button class="tk" style="top:${at}%" title="Your message ${i + 1}"></button>`).join("")}</div>`);
+    }
     return t.innerHTML;
   };
 

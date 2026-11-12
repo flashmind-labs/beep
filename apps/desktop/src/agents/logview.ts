@@ -165,7 +165,7 @@ export function rowInView() {
 }
 
 /// A part of the log that is not a turn, as one; an empty one is hidden.
-const fixed = (key: string, row: TranscriptRow | null): Unit => ({ key, rows: () => row ? [row] : [] });
+const fixed = (key: string, row: TranscriptRow | null): Unit => ({ key, rows: () => row ? [row] : [], prompt: null });
 
 /// What rows just drawn need: their pictures and their live thoughts.
 function drawnRows(b: HTMLElement) {
@@ -572,7 +572,8 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
   const rows = (at: number) => entryRows(p.entries[at - p.earlier], at);
   const entry = (at: number) => p.entries[at - p.earlier];
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
-  return turns.map(t => ({ key: `t${t.key}`, rows: t === lastTurn ? turnRows(t) : keptTurn(t, turnRows(t)) }));
+  const prompt = (t: Turn) => { const said = t.user == null ? null : entry(t.user); return said?.kind === "user" && said.text.trim() ? said.text.trim() : null; };
+  return turns.map(t => ({ key: `t${t.key}`, rows: t === lastTurn ? turnRows(t) : keptTurn(t, turnRows(t)), prompt: prompt(t) }));
 
   /// The rows of a turn before the last: those it had while its entries stay, once none runs.
   function keptTurn(t: Turn, rows: () => TranscriptRow[]): () => readonly TranscriptRow[] {
