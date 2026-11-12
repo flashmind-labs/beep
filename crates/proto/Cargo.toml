@@ -28,7 +28,7 @@ chacha20poly1305 = { version = "0.10", optional = true }
 flashmind-types = { git = "https://github.com/flashmind-labs/flashmind.git" }
 futures = "0.3"
 # Lean for the phone; a node and the server turn on the defaults.
-iroh = { version = "1.3", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
+iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
 log = "0.4"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
 rmp-serde = "1"
