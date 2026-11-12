@@ -264,10 +264,12 @@ const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 /// Plays the page's way in on its box; the compositor runs it, so the page draws as usual.
 function animateIn(box: HTMLElement, back: boolean) {
-  // A move already carries the page in.
-  if (reduceMotion.matches || document.hidden || movePlaying()) return;
+  const move = movePlaying();
+  // The next conversation slides in as a captured page.
+  if (reduceMotion.matches || document.hidden || move === "next") return;
   const phone = document.body.classList.contains("mobile");
-  const { frames, ms } = MOTION[pageMotion(phone, back, phone && canGoBack())];
+  // A card growing into the head, or back, carries the eye: the page under it only fades.
+  const { frames, ms } = MOTION[move ? "fade" : pageMotion(phone, back, phone && canGoBack())];
   for (const running of box.getAnimations()) running.cancel();
   box.animate(frames, { duration: ms, easing: "cubic-bezier(.2, .8, .2, 1)" });
 }

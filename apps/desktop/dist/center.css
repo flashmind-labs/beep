@@ -1057,12 +1057,14 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-board { overflow: auto; min-height: 0; padding: 0 16px 130px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
 @container (max-width: 760px) { .bd-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
 
-/* Moves: one short transition per navigation, never ambient. The sidebar stays still,
-   the page crossfades, and a board card grows into the session's head and back. */
-html[data-move] .cc-main { view-transition-name: page }
+/* Moves: one short transition per navigation, never ambient. A board card grows into the
+   session's head and back, over a page that fades in by itself. Only the card and the head
+   are captured: a captured page is painted again before the first frame, and a heavy
+   session stalls there. The next conversation still slides in as a captured page. */
+:root { view-transition-name: none }
+html[data-move=next] .cc-main { view-transition-name: page }
 html[data-move] .ag-head { view-transition-name: board-hero }
 ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: .2s; animation-timing-function: cubic-bezier(.2, 0, 0, 1) }
-::view-transition-old(root), ::view-transition-new(root) { animation: none }
 ::view-transition-old(board-hero), ::view-transition-new(board-hero) { height: 100%; object-fit: cover; object-position: left top }
 html[data-move=next]::view-transition-old(page) { animation: .2s cubic-bezier(.2, 0, 0, 1) both move-out-up }
 html[data-move=next]::view-transition-new(page) { animation: .2s cubic-bezier(.2, 0, 0, 1) both move-in-up }

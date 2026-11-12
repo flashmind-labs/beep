@@ -3,14 +3,14 @@
 
 export type Move = "open" | "back" | "next";
 
-let playing = false;
+let playing: Move | null = null;
 /// The board card that shares its shape with the open session's head.
 let hero: string | null = null;
 
 export const heroCard = () => hero;
 export function setHeroCard(key: string | null) { hero = key; }
 
-/// True while a move plays, so a page does not also fade itself in.
+/// The move playing, if any, which decides how the page under it comes in.
 export const movePlaying = () => playing;
 
 /// Whether motion may play now: not under reduced motion, nor in a hidden window.
@@ -23,8 +23,8 @@ export const motionAllowed = () =>
 export function withMove(move: Move, step: () => void) {
   if (playing || !motionAllowed() || typeof document.startViewTransition !== "function") return step();
   const root = document.documentElement;
-  const done = () => { playing = false; delete root.dataset.move; };
-  playing = true;
+  const done = () => { playing = null; delete root.dataset.move; };
+  playing = move;
   root.dataset.move = move;
   document.startViewTransition(step).finished.then(done, done);
 }
