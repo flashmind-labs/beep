@@ -147,6 +147,7 @@ async fn imported_folder(machine: Machine, parent: Option<&str>) -> String {
             machine_id: Some(&id),
             folder: None,
             parent,
+            nesting: Nesting::Org,
         },
     )
     .await
@@ -219,8 +220,8 @@ async fn a_new_project_goes_in_each_machines_own_folder() {
     assert_eq!(
         landed,
         [
-            ("a", "/home/me/code/acme/widget"),
-            ("b", "/srv/elsewhere/acme/widget")
+            ("a", "/home/me/code/widget"),
+            ("b", "/srv/elsewhere/widget")
         ]
     );
 }
