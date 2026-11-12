@@ -1,7 +1,9 @@
 import { WINDOWS } from "../ui/platform.ts";
 import { flushSync } from "react-dom";
+import { createStore } from "zustand/vanilla";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { AgentListRow } from "./agents-list-view.tsx";
+import { formatAgo } from "../ui/format.ts";
 import { machineConnecting, onConnecting } from "../machines/machine-state.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
@@ -10,10 +12,10 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // answer it: `agentnew` is the start form, `agent` one session, `agents`
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
-import { nest } from "./nesting-state.ts";
+import { type Nested, nest, splitEnded } from "./nesting-state.ts";
 import { parentSession, ensureSessions, loadSessions, reviewers, sessions, sessionsChanged } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
-import { copies, copiesView, keepCopiesFresh } from "./copies.ts";
+import { copies, copiesView, keepCopiesFresh, type CopiesModel } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
 import type { CheckoutPick } from "./agentpick.ts";
@@ -269,7 +271,6 @@ interface AgentState {
   inflight: OpenAgent | null;
   /// "gone", or an error to show under the log.
   note: string;
-  sel: number;
   /// Polling: what the last answer looked like, when it last changed,
   /// whether it stopped for quiet, and the question an answer is going to.
   sig: string;
@@ -316,7 +317,7 @@ export const AG: AgentState = {
   readError: "", link: LINKED,
   hosts: null, error: "", busy: false,
   form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
-  open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "", sel: 0,
+  open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined, noImages: null,
   opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
@@ -404,7 +405,7 @@ export async function loadAgentHosts() {
 
 export async function renderAgents() {
   S.view = "agents";
-  AG.sel = 0;
+  agentsList.setState({ selected: 0, endedOpen: false });
   keepCopiesFresh(() => S.view === "agents");
   drawAgents(true);
 
@@ -447,39 +448,71 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }): Agent
     : moving ? { kind: "move", label: moving.chip, why: moving.why ?? null }
     : s.status === "asking" ? { kind: "asking" }
     : s.status === "working" || s.status === "running" || s.status === "starting" ? { kind: "running", doing: s.doing || "Working" }
-    : { kind: "plain", label: s.external && s.status !== "ended" ? "In terminal" : cap(s.status) };
+    // The Ended group names the state; its rows say when they last ran.
+    : s.status === "ended" ? { kind: "plain", label: s.last_activity ? formatAgo(s.last_activity, "since") : "Ended" }
+    : { kind: "plain", label: s.external ? "In terminal" : cap(s.status) };
   return { key: `${s.machine_id}\0${s.agent}\0${s.id}`, depth, agent: s.agent, title: s.reviewer ? "Review" : s.title || folder || k.name, sub: sessionSub(s, k.name, folder), tail };
 }
 
-let listPage: BarPageSlot | null = null;
-/// The sessions the list on screen shows, which its rows index. Another page
-/// can replace the shared list without a redraw here.
-let drawn: AgentSession[] = [];
+/// A session in the list and the row it shows as.
+export interface ListedSession { session: AgentSession; row: AgentListRow }
 
-export function drawAgents(loading: boolean) {
-  const list = sessions.filter(sessionVisible), shown = nest([...list, ...reviewers]);
-  drawn = shown.map(n => n.row);
-  AG.sel = Math.min(AG.sel, Math.max(0, drawn.length - 1));
-  const machines = new Set(list.map(s => s.machine_id)).size;
-  const copyRows = copiesView(new Set(list.map(s => s.id)));
-  const sum = loading && !list.length ? "Looking at your machines…" : list.length ? `${list.length} on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
-  const page = listPage?.host.parentElement === bar ? listPage : listPage = openBarPage(() => { listPage = null; });
-  flushSync(() => page.show({ view: "agents", props: {
-    rows: shown.map(sessionRow), showSessions: !!list.length, selected: AG.sel, summary: sum, error: AG.error, copies: copyRows, loading,
-    hints: hintModel([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]]),
-  } }));
-  bar.onclick = e => {
-    if (S.view !== "agents") return;
-    const target = e.target as HTMLElement;
-    const r = target.closest<HTMLElement>("[data-agi]");
-    if (r) return openAgent(drawn[Number(r.dataset.agi)], { back: "agents" });
-    if (target.closest("#agNew")) renderAgentNew("", "agents");
-  };
-  bar.oncontextmenu = e => {
-    const r = S.view === "agents" ? (e.target as HTMLElement).closest<HTMLElement>("[data-agi]") : null;
-    if (r) void sessionMenu(e, drawn[Number(r.dataset.agi)], s => openAgent(s, { back: "agents" }));
-  };
+/// The Every session list: sessions still going, the ended ones folded under
+/// their own group, which row is picked and whether that group is open. The
+/// list view reads it; the session list and the keys write it.
+export interface AgentsListState {
+  live: ListedSession[];
+  ended: ListedSession[];
+  endedOpen: boolean;
+  /// Index into `pickable`.
+  selected: number;
+  loading: boolean;
+  error: string;
+  summary: string;
+  copies: CopiesModel | null;
 }
+
+export const agentsList = createStore<AgentsListState>(() => ({
+  live: [], ended: [], endedOpen: false, selected: 0, loading: false, error: "", summary: "", copies: null,
+}));
+
+/// The rows the arrows and Enter move over: the ended ones only while open.
+export const pickable = (s: AgentsListState) => s.endedOpen ? [...s.live, ...s.ended] : s.live;
+
+let listPage: BarPageSlot | null = null;
+
+/// Reads the sessions into the list's store, and opens its page when another
+/// replaced it.
+export function drawAgents(loading: boolean) {
+  const visible = sessions.filter(sessionVisible), nested = nest([...visible, ...reviewers]);
+  const split = splitEnded(nested, row => !row.reviewer && shownStatus(row) === "ended");
+  const listed = (n: Nested): ListedSession => ({ session: n.row, row: sessionRow(n) });
+  const live = split.live.map(listed), ended = split.ended.map(listed);
+  const going = split.live.filter(n => !n.row.reviewer).map(n => n.row), machines = new Set(going.map(s => s.machine_id)).size;
+  const summary = loading && !nested.length ? "Looking at your machines…"
+    : going.length ? `${going.length} live on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
+
+  agentsList.setState(s => {
+    const next = { ...s, live, ended, loading, summary, error: AG.error, copies: copiesView(new Set(visible.map(r => r.id))) };
+    return { ...next, selected: Math.min(s.selected, Math.max(0, pickable(next).length - 1)) };
+  });
+
+  const page = listPage?.host.parentElement === bar ? listPage : listPage = openBarPage(() => { listPage = null; });
+  flushSync(() => page.show({ view: "agents", props: { hints: hintModel([[ICON.ret, "open"], ["⌘⇧A", "new"], ["esc", "back"]]) } }));
+}
+
+/// Opens the folded group of ended sessions, or folds it; a pick inside it
+/// moves to the last live row.
+export function toggleEnded() {
+  agentsList.setState(s => {
+    const next = { ...s, endedOpen: !s.endedOpen };
+    return { ...next, selected: Math.min(s.selected, Math.max(0, pickable(next).length - 1)) };
+  });
+}
+
+export const openListed = (s: AgentSession) => openAgent(s, { back: "agents" });
+export const listedMenu = (e: MouseEvent, s: AgentSession) => void sessionMenu(e, s, row => openAgent(row, { back: "agents" }));
+export const newFromList = () => renderAgentNew("", "agents");
 
 /// Keys of the agent views; true when one was taken.
 export function agentKeys(e: KeyboardEvent, cmd: boolean) {
@@ -547,17 +580,16 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
   }
 
   if (S.view === "agents") {
-    const n = drawn.length;
+    const list = agentsList.getState(), rows = pickable(list), n = rows.length;
     if (!n) return false;
 
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      AG.sel = (AG.sel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
-      drawAgents(false);
+      agentsList.setState({ selected: (list.selected + (e.key === "ArrowDown" ? 1 : n - 1)) % n });
       return true;
     }
 
-    if (e.key === "Enter") { e.preventDefault(); openAgent(drawn[AG.sel], { back: "agents" }); return true; }
+    if (e.key === "Enter") { e.preventDefault(); openListed(rows[list.selected].session); return true; }
   }
 
   return false;

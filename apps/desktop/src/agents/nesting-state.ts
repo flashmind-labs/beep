@@ -61,3 +61,18 @@ export function childRow(rows: AgentSession[], id: string, key = ""): AgentSessi
   const session = at < 0 ? id : id.slice(0, at), machine = at < 0 ? "" : id.slice(at + 1);
   return rows.find(r => (r.id === session || (key !== "" && r.id === key)) && (!machine || machineName(r.machine_name) === machine));
 }
+
+/// `rows` as `nest` made them, split into the trees with a session still
+/// going and the trees where every session `ended` says ended. A tree stays
+/// whole, so a child never leaves the parent it sits under.
+export function splitEnded(rows: Nested[], ended: (row: AgentSession) => boolean): { live: Nested[]; ended: Nested[] } {
+  const trees: Nested[][] = [];
+
+  for (const n of rows) {
+    if (n.depth === 0 || !trees.length) trees.push([n]);
+    else trees[trees.length - 1].push(n);
+  }
+
+  const done = (tree: Nested[]) => tree.every(n => ended(n.row));
+  return { live: trees.filter(t => !done(t)).flat(), ended: trees.filter(done).flat() };
+}
