@@ -2,7 +2,7 @@ import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
-import { cloneElement, createRef, isValidElement, memo, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from "react";
+import { cloneElement, createRef, isValidElement, memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { fixedTitle } from "../project/projectbar.ts";
@@ -14,6 +14,8 @@ import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-v
 import { MoveBox, MoveHere } from "./move-view.tsx";
 import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, WorkLine } from "./composer-ui.tsx";
 import { cancelContinue, continuing } from "./continue-here.ts";
+import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.ts";
+import { syncJump } from "./logview.ts";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
@@ -180,10 +182,77 @@ export function showSessionFrame(frame: Frame, inPlace: boolean, release: () => 
   draw(owner);
 }
 
-function BodySlot({ body }: { body: HTMLElement }) {
+function BodySlot({ body }: { body: ChatBody }) {
   const host = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { const slot = host.current; slot?.append(body); return () => body.remove(); }, [body]);
-  return <div ref={host} style={{ display: "contents" }} />;
+  useLayoutEffect(() => { const slot = host.current; slot?.prepend(body); return () => body.remove(); }, [body]);
+  return <div ref={host} className="agbodyw"><ConversationRail body={body}/></div>;
+}
+
+/// The conversation's scrollbar: where the view is, and a tick at each message
+/// the user sent. A tick jumps to its message; the thumb drags.
+interface RailView { thumb: { top: number; height: number } | null; ticks: { key: string; top: number; prompt: string }[] }
+const NO_RAIL: RailView = { thumb: null, ticks: [] };
+/// The thumb's least height, in pixels, so a long log keeps one to grab.
+const THUMB_MIN = 24;
+
+function ConversationRail({ body }: { body: ChatBody }) {
+  const rail = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState(NO_RAIL);
+
+  useEffect(() => {
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      const box = rail.current, total = body.scrollHeight, shown = body.clientHeight;
+      if (!box || total <= shown + 1) return setView(NO_RAIL);
+      const height = box.clientHeight, scale = height / total;
+      const thumbHeight = Math.max(THUMB_MIN, shown * scale);
+      const thumbTop = (body.scrollTop / (total - shown)) * (height - thumbHeight);
+      const ticks = promptMarks(body).map(mark => ({ key: mark.key, prompt: mark.prompt, top: Math.min(height - 2, mark.top * scale) }));
+      setView({ thumb: { top: thumbTop, height: thumbHeight }, ticks });
+    };
+    const later = () => { frame ||= requestAnimationFrame(read); };
+    const sized = new ResizeObserver(later);
+    sized.observe(body);
+    body.addEventListener("scroll", later, { passive: true });
+    const drawn = onLogDrawn(body, later);
+    later();
+    return () => { cancelAnimationFrame(frame); sized.disconnect(); body.removeEventListener("scroll", later); drawn(); };
+  }, [body]);
+
+  const jump = (key: string) => {
+    revealLogUnit(body, key);
+    syncJump(body);
+  };
+
+  // A press on the track brings that part of the log into view; one on the thumb drags it.
+  const press = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const box = rail.current, thumb = view.thumb;
+    if (!box || !thumb || event.button !== 0 || (event.target as HTMLElement).closest(".tk")) return;
+    event.preventDefault();
+    const top = box.getBoundingClientRect().top, travel = box.clientHeight - thumb.height;
+    const room = body.scrollHeight - body.clientHeight;
+    const onThumb = event.clientY - top >= thumb.top && event.clientY - top <= thumb.top + thumb.height;
+    const grab = onThumb ? event.clientY - top - thumb.top : thumb.height / 2;
+    const follow = (y: number) => {
+      body.stuck = false;
+      body.scrollTop = travel > 0 ? ((y - top - grab) / travel) * room : 0;
+    };
+    if (!onThumb) follow(event.clientY);
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    const move = (moved: PointerEvent) => follow(moved.clientY);
+    const up = () => { target.removeEventListener("pointermove", move); target.removeEventListener("pointerup", up); target.removeEventListener("pointercancel", up); };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+    target.addEventListener("pointercancel", up);
+  };
+
+  return <div className={view.thumb ? "agrail" : "agrail off"} ref={rail} onPointerDown={press}>
+    {view.thumb && <div className="th" style={{ top: view.thumb.top, height: view.thumb.height }}/>}
+    {view.ticks.map(tick => <button type="button" className="tk" key={tick.key} style={{ top: tick.top }} title={tick.prompt.split("\n")[0].slice(0, 120)}
+      aria-label={`Jump to your message: ${tick.prompt.slice(0, 80)}`} onClick={() => jump(tick.key)}/>)}
+  </div>;
 }
 
 const sameHints = (a: AgentHintsModel, b: AgentHintsModel) => a.project === b.project && a.value.window === b.value.window

@@ -220,3 +220,4 @@ body.mobile .agpane .agphead :is(.agtabs, .agaddterm, [data-pact]) { display: no
 
 body.mobile .bd-lanes { grid-template-columns: minmax(0, 1fr) }
 body.mobile .bd-lane:has(> .bd-empty) { display: none }
+body.mobile .agrail { display: none }
