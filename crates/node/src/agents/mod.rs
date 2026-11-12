@@ -1,5 +1,5 @@
 //! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh, OpenCode) run
-//! over ACP (`Agents`) and the streams the server follows them on; sessions
+//! over ACP (`Agents`) and the streams the caller follows them on; sessions
 //! started outside Beep (`claude`, `found`) and the Beep MCP server (`mcp`).
 
 pub mod tags;
@@ -104,7 +104,7 @@ pub use follow::serve_follow;
     const MAX_KEPT: usize = 64;
     /// The most transcript entries one request reads.
     const MAX_TRANSCRIPT: u32 = 200;
-    /// The most folders `Folders` answers, and how many when the server names
+    /// The most folders `Folders` answers, and how many when the caller names
     /// no number.
     const MAX_FOLDERS: usize = 800;
     const DEFAULT_FOLDERS: usize = 100;
@@ -115,12 +115,12 @@ pub use follow::serve_follow;
     const MAX_ASKED_FOLDERS: usize = 32;
     /// The largest picture `Image` answers, under the link's frame limit.
     const MAX_IMAGE: usize = 7 * 1024 * 1024;
-    /// How often the plans' usage is read while the server follows it, and
+    /// How often the plans' usage is read while the caller follows it, and
     /// the least time between two reads it asks for.
     const PLAN_EVERY: Duration = Duration::from_secs(5 * 60);
     const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
     /// How often the agents' logs are read for what sessions spent, while the
-    /// server follows it.
+    /// caller follows it.
     const SPEND_EVERY: Duration = Duration::from_secs(60);
     /// How long the folders found in the agents' logs are kept.
     const SIGHTED_FOR: Duration = Duration::from_secs(60);
@@ -197,7 +197,7 @@ pub use follow::serve_follow;
         mcp: OnceLock<Arc<Launch>>,
         /// Set once the node is stopping.
         stopping: Arc<AtomicBool>,
-        /// Set once the server sent the user's agent settings, which resumed
+        /// Set once the mesh gave the user's agent settings, which resumed
         /// sessions start with.
         settled: watch::Sender<bool>,
         /// Set once the sessions open before the last stop have been resumed, or

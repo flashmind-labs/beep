@@ -1,7 +1,7 @@
-//! The `agents/1` requests: one answer each, or a stream the server follows.
+//! The `agents/1` requests: one answer each, or a stream the caller follows.
 
 use super::{
-    Agents, AlertHub, Images, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
+    Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
     custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder, worktrees,
 };
 use crate::agents::claude::Excerpt;
@@ -109,7 +109,7 @@ impl Agents {
 }
 
 /// The entries a transcript read answers with: the agent's thoughts only
-/// when the server asked for them, as one that did not would show them as
+/// when the caller asked for them, as one that did not would show them as
 /// unknown entries.
 fn shown_entries(mut entries: Vec<agent::Entry>, thoughts: bool) -> Vec<agent::Entry> {
     if !thoughts {
@@ -134,7 +134,6 @@ fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDr
     let what = match request {
         SessionsRequest::Watch { .. }
         | SessionsRequest::FollowPresence {}
-        | SessionsRequest::FollowImages {}
         | SessionsRequest::FollowAlerts {}
         | SessionsRequest::FollowRuns {}
         | SessionsRequest::FollowUsage { .. } => return None,
@@ -238,7 +237,7 @@ pub async fn serve_sessions(
         SessionsRequest::Watch { sessions } => {
             return agents.external.watch(tx, rx, sessions).await;
         }
-        SessionsRequest::FollowImages {} => return send_images(tx, rx, &agents.images).await,
+        SessionsRequest::FollowImages {} => failed("this node does not send pictures"),
         SessionsRequest::FollowPresence {} => {
             return super::presence::follow(tx, rx, &agents).await;
         }
@@ -585,30 +584,6 @@ async fn work_request(
     }
 }
 
-/// Sends the server each picture a running session newly shows, until it
-/// closes the stream. One too large for a frame is left out: the server
-/// cannot ask for it either.
-async fn send_images(mut tx: LinkTx, mut rx: LinkRx, images: &Images) -> Result<()> {
-    loop {
-        tokio::select! {
-            unsent = images.next_unsent() => {
-                if unsent.picture.data.len() > MAX_IMAGE {
-                    continue;
-                }
-
-                tx.send(&SessionsReply::SessionImage {
-                    session: unsent.session,
-                    mime: unsent.picture.mime.clone(),
-                    data: unsent.picture.data.clone(),
-                })
-                .await?;
-            }
-            // The caller sends nothing more; anything is its goodbye.
-            _ = rx.recv::<SessionsRequest>() => return Ok(()),
-        }
-    }
-}
-
 /// Sends each alert as it comes, until the caller closes the stream.
 async fn send_alerts<T: Clone>(
     mut tx: LinkTx,
@@ -631,9 +606,9 @@ async fn send_alerts<T: Clone>(
     }
 }
 
-/// Sends the server what finished turns spent and each agent's plan
-/// usage, reading the plans every `PLAN_EVERY` and when the server asks,
-/// until the server closes the stream. With `history`, also what sessions
+/// Sends the caller what finished turns spent and each agent's plan
+/// usage, reading the plans every `PLAN_EVERY` and when the caller asks,
+/// until the caller closes the stream. With `history`, also what sessions
 /// spent as the agents' logs tell it, read every `SPEND_EVERY`.
 async fn send_usage(
     mut tx: LinkTx,
@@ -716,7 +691,7 @@ async fn send_usage(
                         last_read = Some(Instant::now());
                     }
                 }
-                // Anything else is the server's goodbye.
+                // Anything else is the caller's goodbye.
                 _ => return Ok(()),
             },
         }

@@ -1,4 +1,4 @@
-//! The stream the server follows one session on.
+//! The stream the caller follows one session on.
 
 use super::{AgentKind, Agents, Begin, Command, Prompt, live};
 use anyhow::{Context, Result};
@@ -251,7 +251,7 @@ pub async fn serve_session(
     }
 }
 
-/// What a stream has told the server, to send only what changed.
+/// What a stream has told the caller, to send only what changed.
 struct Seen {
     state: State,
     question: Option<u32>,
@@ -271,7 +271,7 @@ impl Seen {
         self.state.error.clone().unwrap_or_else(|| "closed".into())
     }
 
-    /// The events that bring the server up to `live`, state first.
+    /// The events that bring the caller up to `live`, state first.
     fn events(&mut self, live: &live::Live) -> Vec<Event> {
         let info = &live.info;
         let mut events = Vec::new();

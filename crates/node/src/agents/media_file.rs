@@ -1,4 +1,4 @@
-//! Media files the server asks for by path, such as a video, 3D model or
+//! Media files the caller asks for by path, such as a video, 3D model or
 //! PDF a coding agent made, read a chunk at a time so the apps can show
 //! them (`SessionsRequest::File`).
 

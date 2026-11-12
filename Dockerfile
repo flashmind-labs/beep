@@ -5,11 +5,6 @@ COPY . .
 
 # CI runs this stage before building the image.
 FROM source AS check
-# The node tests run a fake coding agent written in Python, and the project
-# tests make git worktrees.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 git \
-    && rm -rf /var/lib/apt/lists/*
 RUN rustup component add rustfmt clippy
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \

@@ -1,7 +1,7 @@
 use super::*;
 use std::time::Duration;
 
-use crate::{ShellOutput, model::ForgejoUrl};
+use crate::ShellOutput;
 use reqwest::Client;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Semaphore;
@@ -84,16 +84,12 @@ impl ImportStore for Memory {
 
 struct NoHosts(Arc<Semaphore>);
 
-#[async_trait]
 impl Hosts for NoHosts {
     fn client(&self) -> Result<Client> {
         Ok(beep_proto::https::client().build()?)
     }
     fn calls(&self) -> &Arc<Semaphore> {
         &self.0
-    }
-    async fn is_public(&self, _: &ForgejoUrl) -> bool {
-        false
     }
 }
 

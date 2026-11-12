@@ -24,7 +24,7 @@ impl fmt::Display for TaskId {
     }
 }
 
-/// What the server sends.
+/// What the caller sends.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {

@@ -1,4 +1,4 @@
-//! What the machine has, for `Up::Env`: OS, tools on `PATH`, which CLIs
+//! What the machine has, for `Report::Env`: OS, tools on `PATH`, which CLIs
 //! are signed in, Android emulators.
 
 mod apps;

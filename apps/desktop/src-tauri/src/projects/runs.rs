@@ -12,8 +12,7 @@ use crate::{
 };
 use beep_proto::{
     ApiError, GitHostKind, HostedChecks, HostedRun, HostedRuns, LabeledProjectLists, PrChecks,
-    ProjectRunDetail, ProjectRuns, RunJob, RunLog, RunProgress, RunStep, RunsHost, StepProgress,
-    WorkflowRun,
+    ProjectRunDetail, RunJob, RunLog, RunProgress, RunStep, RunsHost, StepProgress, WorkflowRun,
 };
 use serde::Serialize;
 use std::time::SystemTime;
@@ -125,7 +124,7 @@ pub struct RunRow {
     finished_at: Option<u64>,
     progress: Option<ProgressRow>,
     pull_requests: Vec<u64>,
-    /// The host it ran on; `None` from a server that reads one host.
+    /// The host it ran on; `None` on an opened run, which names its host apart.
     host: Option<String>,
 }
 
@@ -201,7 +200,7 @@ pub struct HostRow {
     synced_at: Option<u64>,
     error: Option<String>,
     rate_limited_until: Option<u64>,
-    /// The repository's web page there; `None` from a server.
+    /// The repository's web page there, when known.
     url: Option<String>,
 }
 
@@ -223,7 +222,7 @@ impl From<RunsHost> for HostRow {
     }
 }
 
-/// The project's runs (ProjectRuns, or HostedRuns with `hosts`).
+/// The project's runs (HostedRuns).
 #[derive(Debug, Serialize)]
 pub struct RunsRow {
     runs: Vec<RunRow>,
@@ -231,21 +230,7 @@ pub struct RunsRow {
     synced_at: Option<u64>,
     error: Option<String>,
     rate_limited_until: Option<u64>,
-    /// Empty from a server that reads one host.
     hosts: Vec<HostRow>,
-}
-
-impl From<ProjectRuns> for RunsRow {
-    fn from(r: ProjectRuns) -> Self {
-        Self {
-            runs: r.runs.into_iter().map(Into::into).collect(),
-            checks: r.checks.into_iter().map(Into::into).collect(),
-            synced_at: ms(r.synced_at),
-            error: r.error,
-            rate_limited_until: ms(r.rate_limited_until),
-            hosts: Vec::new(),
-        }
-    }
 }
 
 impl From<HostedRuns> for RunsRow {

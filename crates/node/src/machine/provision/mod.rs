@@ -85,7 +85,7 @@ impl Provision {
             let checks = provision.clone();
             let checks = tokio::spawn(async move { checks.check_loop().await });
             let _checks = AbortOnDropHandle::new(checks);
-            // Tokens wait for the server: a node that stopped while they
+            // Tokens wait for the mesh: a node that stopped while they
             // were revoked must not keep using them.
             provision.configure_teacli().await;
             let dir = provision.dir.clone();
@@ -205,7 +205,7 @@ impl Provision {
         installed
     }
 
-    /// Serves one `tool-update/1` stream: installs the release the server
+    /// Serves one `tool-update/1` stream: installs the release the caller
     /// names, then has the machine probed again.
     pub(crate) async fn serve_updates(&self, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         let Some(Request::Install { tool, version }) = rx.recv::<Request>().await? else {
@@ -254,7 +254,7 @@ impl Provision {
     }
 
     /// Drops the credentials, from memory and from teacli's config, when
-    /// the server can no longer say they are current.
+    /// the node stops.
     pub async fn forget(&self) {
         spawn_env::set_vars(Vec::new());
         lock(&self.forgejo).clear();

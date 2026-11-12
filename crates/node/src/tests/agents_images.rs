@@ -45,25 +45,3 @@ fn all_sessions_together_stay_under_the_overall_limit() {
     images.keep("s0", big.clone());
     assert_eq!(images.get("s0", &image_key(&big.data)), None, "too big");
 }
-
-#[test]
-fn new_pictures_wait_for_the_server_a_bounded_few() {
-    use futures::FutureExt;
-    let images = Images::default();
-    images.keep_and_send("a1", png(0, 64));
-    images.keep_and_send("a1", png(0, 64));
-    images.keep("a1", png(1, 64));
-    let first = images.next_unsent().now_or_never().expect("waiting");
-    assert_eq!(first.picture.data, png(0, 64).data);
-    assert!(
-        images.next_unsent().now_or_never().is_none(),
-        "a picture the session had, or one only kept, is not sent"
-    );
-
-    for n in 0..MAX_UNSENT + 2 {
-        images.keep_and_send(&format!("s{n}"), png(2, 64 + n));
-    }
-
-    let oldest = images.next_unsent().now_or_never().expect("waiting");
-    assert_eq!(oldest.session, "s2", "the oldest went");
-}

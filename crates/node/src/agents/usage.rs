@@ -1,5 +1,5 @@
 //! What the node's coding agents spent and how much of their plans is left
-//! (`UsageHub`), for the server's `FollowUsage` stream. Plan usage is the
+//! (`UsageHub`), for the caller's `FollowUsage` stream. Plan usage is the
 //! latest report per agent, from `plans` or Claude Code's rate limit events.
 
 use crate::lock;
@@ -14,7 +14,7 @@ use std::{
 };
 use tokio::sync::{Notify, watch};
 
-/// The most turns waiting for the server; the oldest go.
+/// The most turns waiting for the caller; the oldest go.
 const MAX_UNSENT: usize = 500;
 
 /// The plan usage of each agent, by agent.
@@ -39,7 +39,7 @@ impl Default for UsageHub {
 }
 
 impl UsageHub {
-    /// Has `turn` wait for the server.
+    /// Has `turn` wait for the caller.
     pub(crate) fn record(&self, turn: TurnUsage) {
         let mut turns = lock(&self.turns);
         turns.push_back(turn);
@@ -53,7 +53,7 @@ impl UsageHub {
         crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
     }
 
-    /// The oldest turn waiting for the server, once there is one.
+    /// The oldest turn waiting for the caller, once there is one.
     pub(crate) async fn next_turn(&self) -> TurnUsage {
         loop {
             let arrived = self.arrived.notified();

@@ -64,11 +64,7 @@ export interface UsageView {
   limits: PlanLimits[];
   today: Period;
   week: Period;
-  /// Null when the report has no month.
-  month: Period | null;
-  /// The dollars are metered API spend only, subscription use apart; when
-  /// false, every token is priced at API prices.
-  metered?: boolean;
+  month: Period;
 }
 
 export type PeriodKey = "today" | "week" | "month";
@@ -158,21 +154,14 @@ export function asOf(at: number, now: number) {
   return `as of ${Math.floor(hours / 24)} d ago`;
 }
 
-/// "1.1M Codex tokens", one agent after another.
-export function unpricedLine(unpriced: NamedTokens[]) {
-  return unpriced.filter(t => t.tokens > 0).map(t => `${tokenCount(t.tokens)} ${shortName(t.name)} tokens`).join(", ");
-}
-
 /// "Claude Code" for metered use, "Claude Code, subscription" for use a
 /// plan covered.
 export function harnessName(spend: Pick<HarnessSpend, "agent" | "subscription">) {
   return spend.subscription ? `${agentLabel(spend.agent)}, subscription` : agentLabel(spend.agent);
 }
 
-/// What a project row adds after its dollars: its tokens, or on an older
-/// server the tokens no price covered.
-export function projectExtra(spend: Spend, metered: boolean) {
-  if (!metered) return unpricedLine(spend.unpriced);
+/// What a project row adds after its dollars: its tokens.
+export function projectExtra(spend: Spend) {
   const tokens = (spend.subscription ?? []).reduce((sum, t) => sum + t.tokens, spend.metered_tokens ?? 0);
   return tokens ? tokenCount(tokens) : "";
 }

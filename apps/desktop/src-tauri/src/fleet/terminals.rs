@@ -13,7 +13,7 @@ use beep_mesh::{
     },
 };
 use beep_proto::{
-    ApiError, OpenTerminal, StartTerminal, Terminal, TerminalEvent, TerminalOutput, TerminalState,
+    ApiError, OpenTerminal, Terminal, TerminalEvent, TerminalOutput, TerminalState,
     node::{
         LinkRx, LinkTx,
         mesh_state::{StateValue, TerminalRecord},
@@ -250,48 +250,6 @@ pub(crate) fn remote_now(fleet: &Fleet, last: &[Terminal]) -> Vec<Terminal> {
                 .unwrap_or_else(|| view(fleet, &row, TerminalState::Offline {}))
         })
         .collect()
-}
-
-/// Starts a view-only terminal: a background task.
-pub(crate) async fn start(fleet: &Fleet, request: StartTerminal) -> Result<Terminal> {
-    let command = field("command", &request.command)?;
-    let cwd = field("folder", &request.cwd)?;
-    let project = field("project", &request.project)?;
-    let name = match request.name.trim() {
-        "" => command.to_owned(),
-        name => field("name", name)?.to_owned(),
-    };
-    let machine = fleet.member(&request.machine_id).ok_or_else(not_found)?;
-    let machine_name = fleet.name_of(machine);
-    let client = fleet.client(machine).await?;
-    let started = Tasks(&client)
-        .start(command, Some(cwd.to_owned()))
-        .await
-        .map_err(|e| DesktopError::BadRequest(format!("{machine_name}: {e:#}")))?;
-    let row = Row {
-        id: Uuid::new_v4(),
-        record: TerminalRecord {
-            project: project.to_owned(),
-            machine,
-            task: started.0,
-            pty: false,
-            name,
-            command: command.to_owned(),
-            cwd: cwd.to_owned(),
-            started_at: now_ms(),
-        },
-    };
-
-    if let Err(e) = save(fleet, &row).await {
-        // Not kept, so nobody could stop it later.
-        if let Err(stop) = terminals::stop(&client, &row.kept()).await {
-            log::warn!("an unsaved terminal was not stopped: {stop:#}");
-        }
-
-        return Err(e);
-    }
-
-    Ok(view(fleet, &row, TerminalState::Running {}))
 }
 
 /// Opens an interactive terminal on a command, or the shell when none.

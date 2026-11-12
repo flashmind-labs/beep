@@ -224,7 +224,7 @@ pub(super) struct Ledger {
     pub(super) version: u32,
     pub(super) logs: BTreeMap<PathBuf, LogFile>,
     pub(super) databases: BTreeMap<PathBuf, Database>,
-    /// Sessions the server has not heard of as they stand.
+    /// Sessions the caller has not heard of as they stand.
     pub(super) unsent: BTreeSet<SessionKey>,
     /// Whether it changed since it was saved.
     #[serde(skip)]
@@ -275,7 +275,7 @@ impl Ledger {
         Ok(())
     }
 
-    /// The session `key` as the server should keep it from `since` on:
+    /// The session `key` as the caller should keep it from `since` on:
     /// every log's and database's part of it together.
     pub(super) fn report(&self, key: &SessionKey, since: u64) -> Option<SessionSpend> {
         let parts = self

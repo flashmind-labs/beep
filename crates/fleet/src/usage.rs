@@ -9,9 +9,8 @@ use crate::{desk::Desk, error::Result};
 use beep_mesh::MeshError;
 use beep_projects::imports::records::{ImportRow, imported_project_of};
 use beep_proto::{
-    AgentSlug, AgentTokens, HarnessBill, HarnessSpend, ModelId, ModelSpend, PeriodSpend,
-    PlanLimits, PlanWindow, ProjectBill, ProjectSpend, SpendPeriod, SpendReport, UsageReport,
-    UsageView,
+    AgentSlug, AgentTokens, HarnessBill, ModelId, ModelSpend, PlanLimits, PlanWindow, ProjectBill,
+    SpendPeriod, SpendReport,
     node::{
         agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         usage::{HourSpend, PlanUsage, SessionSpend},
@@ -211,32 +210,6 @@ impl Desk {
         crate::projects::MeshStore::new(&self.mesh).rows()
     }
 
-    pub async fn usage(&self) -> Result<UsageView> {
-        let report = self.usage_report().await?;
-        Ok(UsageView {
-            limits: report.limits,
-            today: report.today.projects,
-            harnesses: report.today.harnesses,
-            week: ProjectSpend {
-                project: String::new(),
-                ..report.week.total
-            },
-        })
-    }
-
-    pub async fn usage_report(&self) -> Result<UsageReport> {
-        let said = self.said().await;
-        let imports = self.imports();
-        let (today, week, month) = periods();
-        let rows = |from: i64| Rows::of(&said, &imports, from);
-        Ok(UsageReport {
-            limits: limits(&said),
-            today: period(&rows(today)),
-            week: period(&rows(week)),
-            month: period(&rows(month)),
-        })
-    }
-
     pub async fn spend(&self) -> Result<SpendReport> {
         Ok(self.spend_and_follow().await?.0)
     }
@@ -374,30 +347,6 @@ fn cmp_cost(a: f64, b: f64) -> Ordering {
     b.partial_cmp(&a).unwrap_or(Ordering::Equal)
 }
 
-fn total<'r>(rows: impl Iterator<Item = &'r Row<'r>>, project: &str) -> ProjectSpend {
-    let mut cost_usd = 0.0;
-    let mut unpriced: BTreeMap<&AgentSlug, u64> = BTreeMap::new();
-
-    for row in rows {
-        cost_usd += row.hour.cost_usd;
-
-        if row.hour.unpriced_tokens > 0 {
-            *unpriced.entry(row.agent).or_default() += row.hour.unpriced_tokens;
-        }
-    }
-    ProjectSpend {
-        project: project.to_owned(),
-        cost_usd,
-        unpriced: unpriced
-            .into_iter()
-            .map(|(agent, tokens)| AgentTokens {
-                agent: agent.clone(),
-                tokens,
-            })
-            .collect(),
-    }
-}
-
 /// Tokens by model of `agent`'s rows, the most first.
 fn models<'r>(rows: impl Iterator<Item = &'r Row<'r>>) -> Vec<ModelSpend> {
     let mut by_model: BTreeMap<&ModelId, u64> = BTreeMap::new();
@@ -437,37 +386,6 @@ fn by_agent<'r>(rows: &'r Rows<'_>) -> BTreeMap<&'r AgentSlug, Vec<&'r Row<'r>>>
     }
 
     by
-}
-
-fn period(rows: &Rows<'_>) -> PeriodSpend {
-    let mut projects: Vec<ProjectSpend> = by_project(rows)
-        .into_iter()
-        .map(|(name, rows)| total(rows.into_iter(), name))
-        .filter(|spend| spend.cost_usd > 0.0 || !spend.unpriced.is_empty())
-        .collect();
-    projects.sort_by(|a, b| cmp_cost(a.cost_usd, b.cost_usd));
-    let mut harnesses: Vec<HarnessSpend> = by_agent(rows)
-        .into_iter()
-        .map(|(agent, rows)| {
-            let cost: f64 = rows.iter().map(|row| row.hour.cost_usd).sum();
-            HarnessSpend {
-                agent: agent.clone(),
-                cost_usd: (cost > 0.0).then_some(cost),
-                tokens: rows.iter().map(|row| row.hour.tokens()).sum(),
-                models: models(rows.into_iter()),
-            }
-        })
-        .filter(|harness| harness.tokens > 0)
-        .collect();
-    harnesses.sort_by(|a, b| {
-        cmp_cost(a.cost_usd.unwrap_or(0.0), b.cost_usd.unwrap_or(0.0)).then(b.tokens.cmp(&a.tokens))
-    });
-    PeriodSpend {
-        total: total(rows.0.iter(), ""),
-        tokens: rows.0.iter().map(|row| row.hour.tokens()).sum(),
-        projects,
-        harnesses,
-    }
 }
 
 fn metered(row: &Row<'_>) -> bool {
@@ -530,9 +448,8 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
             if spent == 0 {
                 continue;
             }
-            // A subscription bill carries its use at API prices as an estimate. The
-            // desktop reads this report in process and shows it apart: it is in no
-            // total, and the server's replies keep `None` there.
+            // A subscription bill carries its use at API prices as an estimate,
+            // shown apart: it is in no total.
             let cost: f64 = part.iter().map(|row| row.hour.cost_usd).sum();
             harnesses.push(HarnessBill {
                 agent: agent.clone(),

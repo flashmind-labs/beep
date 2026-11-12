@@ -38,7 +38,7 @@ const MAX_TIMEOUT_SECS: u32 = 60 * 60;
 /// The most requests kept while a command runs.
 const MAX_WAITING: usize = 4;
 
-/// Serves one session stream until the server closes it.
+/// Serves one session stream until the caller closes it.
 pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let mut shell: Option<Shell> = None;
     // Requests that came while a command ran.
@@ -82,7 +82,7 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
                     next = rx.recv::<Request>() => match next {
                         Ok(Some(request)) if waiting.len() < MAX_WAITING => waiting.push_back(request),
                         Ok(Some(_)) => log::debug!("dropped a request: {MAX_WAITING} already wait"),
-                        // The server closed the stream, which cancels the
+                        // The caller closed the stream, which cancels the
                         // command and stops the shell's group.
                         Ok(None) | Err(_) => break None,
                     },

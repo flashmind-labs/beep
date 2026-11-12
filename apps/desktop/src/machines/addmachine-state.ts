@@ -103,8 +103,8 @@ export function timeLeft(expiresAt: number, now: number) {
   return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 }
 
-/// The machine with `id` in `machines`, as node_token_machine names the one
-/// that claimed the token; null until the list has it.
+/// The machine with `id` in `machines`, as ticket_machine names the one
+/// that claimed the ticket; null until the list has it.
 export function machineById<T extends { id: string }>(machines: readonly T[] | null | undefined, id: string | null | undefined) {
   if (!id) return null;
   return (machines || []).find(m => m.id === id) || null;

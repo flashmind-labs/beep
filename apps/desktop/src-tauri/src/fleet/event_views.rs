@@ -123,19 +123,11 @@ pub(crate) fn listen(app: &AppHandle) {
         crate::center::home_sessions::HOME_CHANGED,
         "sessions-changed",
         "agent-title-changed",
-        "work-question",
-        "work-resolved",
-        "group-approval",
-        "approval-answered",
         "reconnected",
     ] {
         let handle = app.clone();
         app.listen(event, move |_| changed(handle.clone(), Topic::new("home")));
     }
-    let handle = app.clone();
-    app.listen("link-state", move |_| {
-        changed(handle.clone(), Topic::new("*"))
-    });
 }
 
 /// Source reads may wait for node projections, so they run outside the stream reader.

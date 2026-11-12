@@ -47,7 +47,6 @@ pub async fn ask(hosts: &dyn Hosts, client: &Client, login: &Login<'_>) -> Optio
         token: login.secret,
     };
     let result = match login.slot {
-        Slot::Forgejo(url) if !hosts.is_public(url).await => Err(HostError::Private(host.clone())),
         Slot::Forgejo(url) => forgejo::items(&caller, url.as_ref()).await,
         _ => github::items(&caller).await,
     };

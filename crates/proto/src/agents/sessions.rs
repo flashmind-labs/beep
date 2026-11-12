@@ -230,22 +230,17 @@ wire_enum! {
     /// message after the running turn, `Cancel` stops the turn and drops
     /// waiting messages, `Close` ends the session and stops the agent.
     /// `PromptImages` is `Prompt` with images after the text, as
-    /// `check_agent_images` allows them; `text` may then be empty. A
-    /// server older than `Feature::AGENT_IMAGES` refuses it, and so does an
-    /// agent that takes no images. `Configure` switches the running session
+    /// `check_agent_images` allows them; `text` may then be empty. An
+    /// agent that takes no images refuses it. `Configure` switches the running session
     /// to `model` and thinking `effort` (either may be `None` to keep it),
-    /// from its next turn; a server older than `Feature::AGENT_CONFIGURE`
-    /// refuses it, and so does a node or agent that cannot switch.
+    /// from its next turn; a node or agent that cannot switch refuses it.
     /// `Steer` is `PromptImages` for the running turn: the node delivers it
     /// once the agent's current tool call finishes rather than after the
-    /// whole turn, and like `Prompt` when no turn runs. A server older than
-    /// `Feature::AGENT_STEER` refuses it. `DropSteers` takes back the steers
+    /// whole turn, and like `Prompt` when no turn runs. `DropSteers` takes back the steers
     /// not yet delivered. `SetMode` switches the running session to `mode`, one
-    /// `GetAgentSessionModes` lists; a server older than `Feature::AGENT_MODES`
-    /// refuses it.
+    /// `GetAgentSessionModes` lists.
     /// `StopTask` stops one of the commands `GetAgentSessionTasks` lists
-    /// without ending the turn; a server older than `Feature::AGENT_TASKS`
-    /// refuses it.
+    /// without ending the turn.
     /// `Cancel` stops only the main agent's turn; `StopAll` also ends the
     /// session's subagents, background commands and the agents it started.
     #[derive(Debug, Clone, PartialEq, Eq)]

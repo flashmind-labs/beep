@@ -1,5 +1,5 @@
 //! Importing a repository onto a machine and making a new project: picking the machine, the
-//! clone or link, and recording it. What the server does around it (starting sync, looking for
+//! clone or link, and recording it. What runs around it (starting sync, looking for
 //! checkouts elsewhere) is behind [`Effects`].
 
 use super::{
@@ -27,7 +27,7 @@ const CLONES_AT_ONCE: usize = 4;
 /// The owner of a project with no git host, as projects are named `owner/repo`.
 const LOCAL_OWNER: &str = "local";
 
-/// What runs around an import and differs between the server and the desktop.
+/// What runs around an import.
 #[async_trait]
 pub trait Effects: Send + Sync {
     /// An import landed on `machine`: look for checkouts on the user's other machines.

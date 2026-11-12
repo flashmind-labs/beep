@@ -1,8 +1,8 @@
 //! `transfer/1`: a file or folder sent from one node to another directly,
-//! over iroh-blobs, with the server only brokering. The server sends the
+//! over iroh-blobs, with the caller only brokering. The caller sends the
 //! source an `Offer` naming the target's key; the source imports the path
 //! and answers `Offered` with what to fetch and from where, and keeps the
-//! offer open until the server closes the stream. The server then sends the
+//! offer open until the caller closes the stream. The caller then sends the
 //! target a `Fetch`; it downloads the content with verified streaming,
 //! writes it into the folder under a hidden partial name and renames it
 //! into place, never replacing a file. A node offers it only when it shares
@@ -21,7 +21,7 @@ pub const MAX_BYTES: u64 = 256 << 30;
 /// The most numbered names tried before a transfer gives up on a name.
 pub const MAX_SUFFIX: u32 = 1000;
 
-/// What the server sends.
+/// What the caller sends.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {

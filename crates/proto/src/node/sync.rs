@@ -1,8 +1,7 @@
 //! `sync/1`: keeping a project's folder in step across the user's machines.
-//! The server says which projects a node syncs, in which folder, and with
+//! The mesh says which projects a node syncs, in which folder, and with
 //! which other nodes; the nodes then exchange their file lists and the
-//! files themselves directly, over iroh, so sync goes on while the server is
-//! down. A node offers it only when it shares folders, and a project's
+//! files themselves directly, over iroh. A node offers it only when it shares folders, and a project's
 //! folder must lie in them.
 //!
 //! Each session is one request and its reply.
@@ -40,7 +39,7 @@ pub const MAX_WAITING: usize = 50;
 /// The most paths one `Skipped` reply lists.
 pub const MAX_SKIPPED: u32 = 1000;
 
-/// What the server sends.
+/// What the caller sends.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {
@@ -178,7 +177,7 @@ pub struct ProjectStatus {
     pub hint: Option<String>,
     /// Why the last scan or fetch failed.
     pub error: Option<String>,
-    /// Paused by the server: nothing moves until it is resumed.
+    /// Paused: nothing moves until it is resumed.
     pub paused: bool,
     /// How far it is through what it brings in line now, while it syncs.
     pub progress: Option<Progress>,
@@ -217,7 +216,7 @@ pub enum State {
     Idle,
     /// It stopped; `error` says why.
     Failed,
-    /// Paused by the server.
+    /// Paused.
     Paused,
     /// A state a newer node reports.
     #[serde(other)]

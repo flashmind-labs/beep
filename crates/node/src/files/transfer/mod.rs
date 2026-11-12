@@ -657,7 +657,7 @@ async fn serve_offer(
     };
     let _grant = inner.grants.grant(peer, offered.content);
     tx.send(&offered.reply).await?;
-    // Open until the server closes the stream or cancels; then the grant
+    // Open until the caller closes the stream or cancels; then the grant
     // and the tags go.
     loop {
         match rx.recv::<Request>().await {

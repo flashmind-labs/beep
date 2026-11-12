@@ -323,7 +323,7 @@ const usage = (() => {
       { agent: "claude", plan: "max", machine_name: machineId, as_of: NOW, windows: [window(300, 38), window(10_080, 76)], credits: [] },
       { agent: "codex", plan: "pro", machine_name: machineId, as_of: NOW, windows: [window(10_080, 20)], credits: [] },
     ],
-    today: period, week: period, month: period, metered: true,
+    today: period, week: period, month: period,
   };
 })();
 

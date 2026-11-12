@@ -1,4 +1,4 @@
-//! The machine's live resources, for `Up::Stats`: free disk where the
+//! The machine's live resources, for `Report::Stats`: free disk where the
 //! user's files live and on its other disks, memory in use and the load
 //! average.
 

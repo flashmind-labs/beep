@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use iroh::EndpointId;
+use iroh_base::EndpointId;
 use secrecy::SecretString;
 use serde::Deserialize;
 

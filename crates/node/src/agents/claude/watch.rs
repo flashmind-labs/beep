@@ -190,7 +190,7 @@ impl Tracker {
 }
 
 /// Serves one `Watch` stream: says which sessions it could not find, then
-/// sends their activity until the server closes the stream.
+/// sends their activity until the caller closes the stream.
 pub(crate) async fn serve(
     mut tx: LinkTx,
     mut rx: LinkRx,

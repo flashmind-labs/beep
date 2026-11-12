@@ -45,29 +45,13 @@ wire_structs! {
         pub synced_at: Option<SystemTime>,
         /// Why its runs could not be read; its runs are the ones read before.
         pub error: Option<String>,
-        /// As `ProjectRuns::rate_limited_until`, for this host.
-        pub rate_limited_until: Option<SystemTime>,
-        /// The repository's web page there, such as `http://forge.example.com:3000/org/repo`;
-        /// `None` from a reader that does not know the server's scheme and port.
-        #[serde(default)]
-        pub url: Option<String>,
-    }
-
-    /// The CI runs of a project's host.
-    pub struct ProjectRuns {
-        /// Newest first.
-        pub runs: Vec<WorkflowRun>,
-        /// How the newest runs of each open pull request stand.
-        pub checks: Vec<PrChecks>,
-        /// When the run list was last read; `None` before the first read.
-        pub synced_at: Option<SystemTime>,
-        /// Why the runs could not be read, for the user, such as a host on the
-        /// user's own network or no token for it. The list is the one read
-        /// before, if any.
-        pub error: Option<String>,
         /// The host's rate limit for the caller's token runs low: live
         /// progress waits until then.
         pub rate_limited_until: Option<SystemTime>,
+        /// The repository's web page there, such as `http://forge.example.com:3000/org/repo`;
+        /// `None` from a reader that does not know the host's scheme and port.
+        #[serde(default)]
+        pub url: Option<String>,
     }
 
     /// One workflow run.
@@ -175,7 +159,7 @@ wire_structs! {
         pub log: Option<RunLog>,
         /// Why the jobs or the log could not be read.
         pub error: Option<String>,
-        /// As in `ProjectRuns`.
+        /// As in `RunsHost`.
         pub rate_limited_until: Option<SystemTime>,
     }
 

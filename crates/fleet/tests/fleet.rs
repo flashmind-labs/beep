@@ -832,21 +832,15 @@ async fn usage_sums_every_machine() {
     let studio = desk(&f.studio, &[(&f.build, &build), (&second, &mac)])
         .await
         .settle(Duration::from_millis(300));
-    let report = studio.usage_report().await.expect("usage reads");
-    assert_eq!(report.today.total.cost_usd, 3.5);
-    assert_eq!(report.today.tokens, 150);
-    assert_eq!(report.week.total.cost_usd, 3.5);
-    assert_eq!(report.today.harnesses.len(), 1);
-    assert_eq!(report.today.harnesses[0].tokens, 150);
-    // The freshest plan reading of an agent wins, and names the machine that read it.
-    assert_eq!(report.limits.len(), 1);
-    assert_eq!(report.limits[0].machine_name, "mac-box");
-    assert_eq!(report.limits[0].windows[0].used_percent, 40.0);
-    let view = studio.usage().await.expect("the view reads");
-    assert_eq!(view.week.cost_usd, 3.5);
     let bill = studio.spend().await.expect("the bill reads");
     assert_eq!(bill.today.cost_usd, 3.5);
     assert_eq!(bill.today.metered_tokens, 150);
+    assert_eq!(bill.week.cost_usd, 3.5);
+    assert_eq!(bill.today.harnesses.len(), 1);
+    // The freshest plan reading of an agent wins, and names the machine that read it.
+    assert_eq!(bill.limits.len(), 1);
+    assert_eq!(bill.limits[0].machine_name, "mac-box");
+    assert_eq!(bill.limits[0].windows[0].used_percent, 40.0);
 }
 
 fn plan_reply(agent: &str, used: f64, at: u64) -> SessionsReply {

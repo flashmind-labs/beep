@@ -36,7 +36,7 @@ impl fmt::Display for ApiError {
 
 impl std::error::Error for ApiError {}
 
-/// Server-side failures are logged here and reach the client only as `Internal`.
+/// Failures are logged here and reach the caller only as `Internal`.
 impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> Self {
         log::warn!("request failed: {e:#}");

@@ -1,4 +1,4 @@
-//! Bytes in and out per ALPN, for `Up::Traffic`.
+//! Bytes in and out per ALPN, for `Report::Traffic`.
 //!
 //! An endpoint hook sees every connection after its handshake, in both
 //! directions and whoever owns it, so iroh-blobs' connections count with the

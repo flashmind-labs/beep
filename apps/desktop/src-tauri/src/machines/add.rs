@@ -1,6 +1,6 @@
 //! The "Add a machine" sheet: a one-time ticket from this Mac that the
 //! machine redeems with `beep-node mesh join <ticket>`. While open, the
-//! sheet polls `node_token_machine` to learn which machine joined with it.
+//! sheet polls `ticket_machine` to learn which machine joined with it.
 //! Only a desktop mints tickets.
 
 use crate::{
@@ -102,14 +102,14 @@ fn qr_svg(data: &str) -> Result<String> {
         .build())
 }
 
-/// The id of the machine that joined with `token`, `None` while it is
+/// The id of the machine that joined with `ticket`, `None` while it is
 /// unused. The desktop records the authenticated key that redeemed the secret.
 #[tauri::command]
-pub async fn node_token_machine(
+pub async fn ticket_machine(
     fleet: State<'_, Arc<Fleet>>,
-    token: String,
+    ticket: String,
 ) -> Result<Option<String>> {
-    let ticket = JoinTicket::parse(&token).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
+    let ticket = JoinTicket::parse(&ticket).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
     let joined = fleet.ready().await?.joined_with(&ticket).await?;
     Ok(joined.map(|id| id.to_string()))
 }

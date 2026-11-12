@@ -8,7 +8,7 @@ use super::{
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 
-/// What the server sends on an `agents/1` stream: one request, one reply.
+/// What the caller sends on an `agents/1` stream: one request, one reply.
 /// A node older than a request closes the stream or answers `Error`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::IntoStaticStr)]
 #[non_exhaustive]
@@ -20,7 +20,7 @@ pub enum SessionsRequest {
         session: String,
         last: u32,
         /// Keep the agent's thoughts, as `EntryKind::Thought` entries. A
-        /// server from before them leaves it out and gets none, so it
+        /// caller from before them leaves it out and gets none, so it
         /// never shows a thought as an unknown entry.
         #[serde(default)]
         thoughts: bool,
@@ -43,7 +43,7 @@ pub enum SessionsRequest {
         session: Option<String>,
     },
     /// Follows these external sessions: `Watching` first, then `Activity`
-    /// as they finish turns or wait for the user, until the server closes
+    /// as they finish turns or wait for the user, until the caller closes
     /// the stream.
     Watch {
         sessions: Vec<String>,
@@ -88,16 +88,14 @@ pub enum SessionsRequest {
     UpdateHarness {
         agent: String,
     },
-    /// Sends each picture a running session's transcript newly shows, as
-    /// `SessionImage` replies, until the server closes the stream; the server
-    /// keeps them so they show while the node is offline. Pictures that came
-    /// while no stream was open wait, a bounded few.
+    /// Refused: no current caller follows pictures. Kept so the request
+    /// numbers stay.
     FollowImages {},
     /// Sends what each finished turn spent, as `TurnUsage` replies, and how
     /// much of each agent's plan is left, as `PlanUsage` replies (all of them
-    /// first, then each time one changes), until the server closes the stream.
+    /// first, then each time one changes), until the caller closes the stream.
     /// Turns that ended while no stream was open wait, a bounded few. On this
-    /// stream the server may later send `RefreshPlanUsage`; anything else is
+    /// stream the caller may later send `RefreshPlanUsage`; anything else is
     /// its goodbye.
     FollowUsage {
         /// Also sends what sessions spent as the agents' own logs on the
@@ -154,7 +152,7 @@ pub enum SessionsRequest {
         folder: String,
     },
     /// Sends what the user would want to hear about the node's sessions, as
-    /// `Alert` replies, until the server closes the stream: a question a
+    /// `Alert` replies, until the caller closes the stream: a question a
     /// session asks, a turn that ended with no prompt queued behind it, and a
     /// session that failed. Alerts that came while no stream was open wait, a
     /// bounded few.

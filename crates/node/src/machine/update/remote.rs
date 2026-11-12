@@ -36,7 +36,7 @@ pub const WAIT_MINUTES: u64 = 30;
 /// The restart an update from Beep waits to run.
 type Waiting = Arc<Mutex<Option<AbortOnDropHandle<()>>>>;
 
-/// `update/1`: what `beep-node update` does, asked by the server. Only the
+/// `update/1`: what `beep-node update` does, asked by the caller. Only the
 /// CLI's node offers it.
 pub struct Updates {
     agents: Arc<Agents>,
@@ -95,15 +95,15 @@ async fn serve(
         tx.send(&event).await?;
         return tx.finish().await;
     };
-    // The answer reaches the server before the restart drops the link. The
-    // binary is installed, so it restarts even when the server is gone.
+    // The answer reaches the caller before the restart drops the link. The
+    // binary is installed, so it restarts even when the caller is gone.
     let answered = async {
         tx.send(&event).await?;
         tx.finish().await
     };
 
     if let Err(e) = answered.await {
-        log::debug!("the server did not read the update's answer: {e:#}");
+        log::debug!("the caller did not read the update's answer: {e:#}");
     }
 
     let limit = Duration::from_secs(if now { 0 } else { WAIT_MINUTES * 60 });

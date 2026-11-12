@@ -173,7 +173,7 @@ wire_structs! {
     pub struct MachineStats {
         /// The `Machine::id` it describes.
         pub id: String,
-        /// When the server got the sample.
+        /// When the sample was received.
         pub sampled_at: SystemTime,
         /// The workspace's volume first, when the machine keeps one, then the
         /// home folder's when it is on another volume.
@@ -188,7 +188,7 @@ wire_structs! {
     pub struct MachineTraffic {
         /// The `Machine::id` it describes.
         pub id: String,
-        /// When the server last got a report.
+        /// When the last report was received.
         pub updated_at: SystemTime,
         /// Key and value, so a new counter needs no new shape.
         pub counters: Vec<TrafficCounter>,
@@ -246,7 +246,7 @@ wire_structs! {
         /// Its key, the `LinkedDevice::id` it signs in with.
         pub id: String,
         pub name: String,
-        /// Connected to the server now.
+        /// Reachable over the mesh now.
         pub online: bool,
         /// When it last connected or reported.
         pub seen_at: SystemTime,
@@ -287,17 +287,6 @@ wire_structs! {
         pub signed_in: bool,
         pub account: Option<String>,
     }
-}
-
-/// Starts `command` in `cwd` on a machine as a background terminal of
-/// `project`, named `name` (the command when empty).
-#[derive(Debug, Clone, PartialEq)]
-pub struct StartTerminal {
-    pub project: String,
-    pub machine_id: String,
-    pub name: String,
-    pub command: String,
-    pub cwd: String,
 }
 
 /// Starts an interactive terminal of `project` (none when empty) on a

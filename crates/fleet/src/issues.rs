@@ -317,23 +317,8 @@ impl ProjectStore for DeskProject {
         &self.name
     }
 
-    /// The desktop has no project agent to set a home checkout up, so the host is read from the
-    /// page the project was imported from.
-    fn issues_role(&self) -> Option<&IssueHost> {
-        None
-    }
-
-    async fn home_machine(&self) -> anyhow::Result<Option<EndpointId>> {
-        Ok(None)
-    }
-
     async fn imports(&self) -> anyhow::Result<Vec<ImportedPlace>> {
         Ok(self.places.clone())
-    }
-
-    /// Tasks that track issues belong to the project agent, which is on the server.
-    async fn tracked_issues(&self, _: &IssueHost) -> anyhow::Result<Vec<u64>> {
-        Ok(Vec::new())
     }
 }
 

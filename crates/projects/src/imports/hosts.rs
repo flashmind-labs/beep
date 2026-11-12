@@ -16,7 +16,6 @@ use crate::{
     model::ForgejoUrl,
 };
 use anyhow::Result;
-use async_trait::async_trait;
 use beep_proto::{GitHostKind, NewRepository, ProjectForge};
 use futures::future::join_all;
 use reqwest::Client;
@@ -27,16 +26,12 @@ use tokio::sync::Semaphore;
 const GITHUB: &str = "github.com";
 const GITHUB_API: &str = "https://api.github.com";
 
-/// What reaching a git host needs from where the code runs: a client, the limit on calls in
-/// flight, and whether a Forgejo server can be reached from here.
-#[async_trait]
+/// What reaching a git host needs from where the code runs: a client and the limit on calls in
+/// flight.
 pub trait Hosts: Send + Sync {
     fn client(&self) -> Result<Client>;
 
     fn calls(&self) -> &Arc<Semaphore>;
-
-    /// Whether every address the server's host resolves to is public, so the server may call it.
-    async fn is_public(&self, url: &ForgejoUrl) -> bool;
 }
 
 /// The Forgejo servers among the user's credentials.
@@ -71,8 +66,8 @@ pub struct Target<'a> {
     pub login: Option<&'a str>,
 }
 
-/// The API `opened` is a token for; `None` for an unreachable local Forgejo or another kind of token.
-pub async fn target_of<'a>(hosts: &dyn Hosts, opened: &'a Opened) -> Option<Target<'a>> {
+/// The API `opened` is a token for; `None` for another kind of token.
+pub fn target_of(opened: &Opened) -> Option<Target<'_>> {
     Some(match &opened.slot {
         Slot::GitHub => Target {
             opened,
@@ -80,17 +75,12 @@ pub async fn target_of<'a>(hosts: &dyn Hosts, opened: &'a Opened) -> Option<Targ
             base: GITHUB_API.to_owned(),
             login: opened.github.as_ref().map(|github| github.login.as_str()),
         },
-        Slot::Forgejo(url) => {
-            if !hosts.is_public(url).await {
-                return None;
-            }
-            Target {
-                opened,
-                api: Api::Forgejo,
-                base: format!("{}/api/v1", url.as_ref()),
-                login: None,
-            }
-        }
+        Slot::Forgejo(url) => Target {
+            opened,
+            api: Api::Forgejo,
+            base: format!("{}/api/v1", url.as_ref()),
+            login: None,
+        },
         _ => return None,
     })
 }
@@ -106,7 +96,7 @@ pub async fn find_fork(
         api,
         base,
         login,
-    } = target_of(hosts, credential_of(repo, credentials)?).await?;
+    } = target_of(credential_of(repo, credentials)?)?;
     let client = match hosts.client() {
         Ok(client) => client,
         Err(e) => {
@@ -169,9 +159,7 @@ async fn forge_row(
 ) -> ProjectForge {
     let name = host.as_str();
     let asked = join_all(accounts.iter().map(|opened| async move {
-        let target = target_of(hosts, opened)
-            .await
-            .ok_or_else(|| HostError::Private(name.to_owned()))?;
+        let target = target_of(opened).ok_or_else(|| HostError::Internal(name.to_owned()))?;
         let caller = Caller {
             client,
             calls: hosts.calls(),
@@ -231,9 +219,8 @@ pub async fn create_repository(
     let host_name = wanted.host_name();
     let opened = credential_of(&wanted, credentials)
         .ok_or_else(|| ImportError::NoToken(host_name.clone()))?;
-    let target = target_of(hosts, opened)
-        .await
-        .ok_or_else(|| ImportError::Forge(HostError::Private(host_name.clone())))?;
+    let target = target_of(opened)
+        .ok_or_else(|| ImportError::Forge(HostError::Internal(host_name.clone())))?;
     let client = hosts.client()?;
     let caller = Caller {
         client: &client,

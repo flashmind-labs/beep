@@ -544,7 +544,7 @@ dependencies = [
  "beep-report",
  "chrono",
  "hex",
- "iroh",
+ "iroh-base",
  "log",
  "reqwest",
  "rmp-serde",

@@ -8,7 +8,7 @@ use beep_proto::report::{
     KEY_HEADER, MAX_AGE, MAX_BODY, SIGNATURE_HEADER, TIME_HEADER, signed_message,
 };
 use beep_report::{Manifest, read_manifest};
-use iroh::{EndpointId, Signature};
+use iroh_base::{EndpointId, Signature};
 use thiserror::Error;
 
 /// Why a report was refused; the text is what the sender sees.

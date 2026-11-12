@@ -1,6 +1,4 @@
 ### Changed
 
-- Android: the assistant, its chats, groups, research, live voice, sign-in and
-  the Beep account, apps, memories, routines, skills, models and project
-  chats are gone. The app works with your machines, projects, coding agents
-  and terminals over the mesh, and Report a Problem still sends reports.
+- Android: Settings shows Agent accounts, where you set the Claude Code token
+  and the Codex API key your machines use.

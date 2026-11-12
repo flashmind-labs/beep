@@ -129,12 +129,6 @@ async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> Option<b
             continue;
         };
 
-        if let Slot::Forgejo(base) = login.slot
-            && !hosts.is_public(base).await
-        {
-            continue;
-        }
-
         let caller = Caller {
             client: &client,
             calls: hosts.calls(),

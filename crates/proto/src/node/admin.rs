@@ -5,8 +5,8 @@
 //! protocol.
 
 pub mod status {
-    //! `status/1`: what a node reports to a peer in its mesh, in place of the
-    //! control stream it keeps with a server. The stream starts with `Open`;
+    //! `status/1`: what a node reports to a peer in its mesh. The stream
+    //! starts with `Open`;
     //! the node answers `Opened`, then sends reports until the peer closes it.
     //! `Offers` comes first, `Env` once probed and again when it changes, `Stats`
     //! about once a minute, `Traffic` the same.
@@ -30,14 +30,14 @@ pub mod status {
 }
 
 pub mod traffic {
-    //! `Up::Traffic`: the bytes a node moved over iroh, to judge compression by.
+    //! `Report::Traffic`: the bytes a node moved over iroh, to judge compression by.
 
     use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
 
     /// Cumulative counters since the node's process started. Reported again in
     /// full each time, so a lost message loses nothing; `started_at_ms` lets the
-    /// server tell a restart, which zeroes them, from a report it has seen part of.
+    /// reader tell a restart, which zeroes them, from a report it has seen part of.
     #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(default)]
     pub struct TrafficReport {
@@ -53,7 +53,7 @@ pub mod traffic {
 pub mod version;
 
 pub mod logs {
-    //! `logs/1`: the node's recent log. The server sends one `Request` per stream
+    //! `logs/1`: the node's recent log. The caller sends one `Request` per stream
     //! and the node answers with one `Reply`.
 
     use serde::{Deserialize, Serialize};
@@ -81,7 +81,7 @@ pub mod logs {
         pub allow_untimed: bool,
     }
 
-    /// What the server sends.
+    /// What the caller sends.
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Request {
         /// The last this many lines, up to `MAX_LINES`.
@@ -101,14 +101,14 @@ pub mod logs {
 
 pub mod search {
     //! `search/1`: where the node looks for git checkouts (`search` in its
-    //! `node.toml`). The server sends one `Request` per stream and the node
+    //! `node.toml`). The caller sends one `Request` per stream and the node
     //! answers with one `Reply`.
 
     use serde::{Deserialize, Serialize};
 
     pub const PROTOCOL: &str = "search/1";
 
-    /// What the server sends.
+    /// What the caller sends.
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[non_exhaustive]
     pub enum Request {
@@ -143,7 +143,7 @@ pub mod shell {
 
     pub const PROTOCOL: &str = "shell/1";
 
-    /// What the server sends.
+    /// What the caller sends.
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[non_exhaustive]
     pub enum Request {
@@ -181,8 +181,8 @@ pub mod update {
     //! machine. Only the beep-node CLI offers it; the Mac app's node updates
     //! with the app.
     //!
-    //! The server sends one `Request::Update`; the node answers with one
-    //! `Event`, finishes the stream, and only then restarts, so the server
+    //! The caller sends one `Request::Update`; the node answers with one
+    //! `Event`, finishes the stream, and only then restarts, so the caller
     //! reads the answer before the connection drops. It restarts once its
     //! agent sessions are idle, or after a wait; new prompts can still start.
 
@@ -190,7 +190,7 @@ pub mod update {
 
     pub const PROTOCOL: &str = "update/1";
 
-    /// What the server sends.
+    /// What the caller sends.
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[non_exhaustive]
     pub enum Request {
@@ -231,7 +231,7 @@ pub mod update {
 pub mod tool_update {
     //! `tool-update/1`: the node installs a newer release of a tool it
     //! provisions (`gh`, `teacli`, `flsh`) into its own `bin` folder, checked
-    //! against the release's published checksums. The server looks up the
+    //! against the release's published checksums. The caller looks up the
     //! newest release and names it; the node answers with one `Reply`.
 
     use serde::{Deserialize, Serialize};
@@ -298,7 +298,7 @@ pub mod tool_update {
         pub latest: String,
     }
 
-    /// What the server sends.
+    /// What the caller sends.
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[non_exhaustive]
     pub enum Request {

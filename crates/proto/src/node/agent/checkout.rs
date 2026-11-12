@@ -19,16 +19,15 @@ pub enum CheckoutPlan {
     NewWorktree { base: Option<String> },
     /// `NewWorktree` on a branch named `branch` (with `-2`, `-3` added
     /// while that is taken) rather than from the prompt. A node from before
-    /// it does not read the start; one that makes it says so with
-    /// `NodeHello::branch_checkouts`.
+    /// it does not read the start.
     NamedWorktree {
         base: Option<String>,
         branch: String,
     },
     /// Starts on the existing branch `branch`: in the worktree that has it
     /// checked out, else in a new one where `worktree_path` puts it, made
-    /// after fetching `branch` from `origin`. Like `NamedWorktree`, only
-    /// for a node with `NodeHello::branch_checkouts`.
+    /// after fetching `branch` from `origin`. Like `NamedWorktree`, a
+    /// node from before it does not read the start.
     BranchWorktree { branch: String },
 }
 

@@ -4,26 +4,21 @@
 
 use crate::{beep::epoch_ms, error::Result, fleet::projects::FleetState};
 use beep_proto::{
-    AgentSlug, AgentTokens, CreditUnit, HarnessBill, HarnessSpend, ModelSpend, PeriodSpend,
-    PlanLimits, PlanWindow, ProjectBill, ProjectSpend, ProviderCredits, SpendPeriod, SpendReport,
-    UsageReport, UsageView,
+    AgentSlug, AgentTokens, CreditUnit, HarnessBill, ModelSpend, PlanLimits, PlanWindow,
+    ProjectBill, ProviderCredits, SpendPeriod, SpendReport,
 };
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 use std::str::FromStr;
 
-/// `UsageReport` as the window reads it, times in milliseconds since the
+/// `SpendReport` as the window reads it, times in milliseconds since the
 /// Unix epoch.
 #[derive(Debug, Serialize)]
 pub struct UsageRow {
     limits: Vec<PlanRow>,
     today: PeriodRow,
     week: PeriodRow,
-    /// `None` when the report has no month.
-    month: Option<PeriodRow>,
-    /// The dollars are metered API spend only, subscription use apart;
-    /// false when the dollars price every token at API prices.
-    metered: bool,
+    month: PeriodRow,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,7 +66,7 @@ pub struct SpendRow {
     project: String,
     cost_usd: f64,
     unpriced: Vec<TokensRow>,
-    /// The tokens of metered use; 0 from an older server.
+    /// The tokens of metered use.
     metered_tokens: u64,
     /// The tokens a subscription covered, by agent.
     subscription: Vec<TokensRow>,
@@ -185,18 +180,6 @@ impl From<AgentTokens> for TokensRow {
     }
 }
 
-impl From<ProjectSpend> for SpendRow {
-    fn from(s: ProjectSpend) -> Self {
-        Self {
-            project: s.project,
-            cost_usd: s.cost_usd,
-            unpriced: s.unpriced.into_iter().map(Into::into).collect(),
-            metered_tokens: 0,
-            subscription: Vec::new(),
-        }
-    }
-}
-
 impl From<ProjectBill> for SpendRow {
     fn from(b: ProjectBill) -> Self {
         Self {
@@ -254,82 +237,7 @@ impl From<SpendReport> for UsageRow {
             limits: r.limits.into_iter().map(Into::into).collect(),
             today: r.today.into(),
             week: r.week.into(),
-            month: Some(r.month.into()),
-            metered: true,
-        }
-    }
-}
-
-impl From<HarnessSpend> for HarnessRow {
-    fn from(h: HarnessSpend) -> Self {
-        Self {
-            agent: h.agent,
-            subscription: false,
-            cost_usd: h.cost_usd,
-            tokens: h.tokens,
-            models: model_rows(h.models),
-        }
-    }
-}
-
-impl From<PeriodSpend> for PeriodRow {
-    fn from(p: PeriodSpend) -> Self {
-        Self {
-            total: p.total.into(),
-            tokens: p.tokens,
-            projects: p.projects.into_iter().map(Into::into).collect(),
-            harnesses: p.harnesses.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl From<UsageReport> for UsageRow {
-    fn from(r: UsageReport) -> Self {
-        Self {
-            limits: r.limits.into_iter().map(Into::into).collect(),
-            today: r.today.into(),
-            week: r.week.into(),
-            month: Some(r.month.into()),
-            metered: false,
-        }
-    }
-}
-
-/// An older server's view: today by project and harness, the week as one
-/// total, no month.
-impl From<UsageView> for UsageRow {
-    fn from(v: UsageView) -> Self {
-        let mut unpriced: Vec<AgentTokens> = Vec::new();
-
-        for tokens in v.today.iter().flat_map(|s| &s.unpriced) {
-            match unpriced.iter_mut().find(|t| t.agent == tokens.agent) {
-                Some(t) => t.tokens += tokens.tokens,
-                None => unpriced.push(tokens.clone()),
-            }
-        }
-
-        let today = PeriodSpend {
-            total: ProjectSpend {
-                project: String::new(),
-                cost_usd: v.today.iter().map(|s| s.cost_usd).sum(),
-                unpriced,
-            },
-            tokens: v.harnesses.iter().map(|h| h.tokens).sum(),
-            projects: v.today,
-            harnesses: v.harnesses,
-        };
-        let week = PeriodSpend {
-            total: v.week,
-            tokens: 0,
-            projects: Vec::new(),
-            harnesses: Vec::new(),
-        };
-        Self {
-            limits: v.limits.into_iter().map(Into::into).collect(),
-            today: today.into(),
-            week: week.into(),
-            month: None,
-            metered: false,
+            month: r.month.into(),
         }
     }
 }

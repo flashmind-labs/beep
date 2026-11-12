@@ -82,7 +82,7 @@ pub(crate) async fn reopen(dir: &Path, terminals: Vec<OpenTerminal>) {
     }
 }
 
-/// Serves one session stream until the server closes it. An `Attach`
+/// Serves one session stream until the caller closes it. An `Attach`
 /// keeps the stream to itself until the terminal ends.
 pub async fn serve(tx: LinkTx, rx: LinkRx) -> Result<()> {
     let mut link = Link { tx, rx };
@@ -92,7 +92,7 @@ pub async fn serve(tx: LinkTx, rx: LinkRx) -> Result<()> {
     serve_with(&TERMINALS, &mut link).await
 }
 
-/// The far side of a `terminal/1` stream: the server, over the link, or
+/// The far side of a `terminal/1` stream: the caller, over the link, or
 /// the node, over the terminal host's socket.
 trait Peer {
     async fn send(&mut self, reply: &Reply) -> Result<()>;

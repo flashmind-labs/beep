@@ -19,7 +19,7 @@ use beep_proto::ApiError;
 use beep_proto::report::{MAX_BODY, PATH, Receipt, report_id};
 use beep_report::Manifest;
 use chrono::{DateTime, NaiveDate};
-use iroh::EndpointId;
+use iroh_base::EndpointId;
 use reqwest::Client;
 use serde::Serialize;
 use tokio::sync::Semaphore;

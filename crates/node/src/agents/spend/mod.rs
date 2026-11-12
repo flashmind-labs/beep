@@ -1,5 +1,5 @@
 //! What coding agent sessions on this machine spent (`Spend`), read from the
-//! agents' own logs, sessions started outside Beep included, for the server's
+//! agents' own logs, sessions started outside Beep included, for the caller's
 //! `FollowUsage` stream.
 
 use beep_proto::node::usage::{Billing, SessionSpend};
@@ -91,10 +91,10 @@ impl Spend {
     }
 
     /// Reads what changed in the logs by `now` (Unix seconds), and gives
-    /// the sessions the server has not heard of as they stand, the newest
+    /// the sessions the caller has not heard of as they stand, the newest
     /// first. Blocking: run it with `spawn_blocking`. A session is reported
     /// whole from the window's start, so one read again replaces itself on
-    /// the server rather than adding to it.
+    /// the caller rather than adding to it.
     pub(crate) fn pass(&self, now: u64) -> Vec<SessionSpend> {
         self.read(now, false)
     }
@@ -107,7 +107,7 @@ impl Spend {
     }
 
     fn read(&self, now: u64, all: bool) -> Vec<SessionSpend> {
-        // On an hour: the server replaces each reported hour whole, so a
+        // On an hour: the caller replaces each reported hour whole, so a
         // window starting within one would shrink it to what came after.
         let since = now.saturating_sub(WINDOW_SECS) / 3600 * 3600;
         let mut guard = lock(&self.ledger);
@@ -201,7 +201,7 @@ impl Spend {
         }
     }
 
-    /// Notes that the server has `spend` as it stands; it is sent again
+    /// Notes that the caller has `spend` as it stands; it is sent again
     /// only once it changes.
     pub(crate) fn sent(&self, spend: &SessionSpend) {
         let Some(agent) = spend.agent.as_ref().parse::<Agent>().ok() else {

@@ -13,7 +13,7 @@ beep-proto = { path = "../proto", features = ["logging", "https"] }
 beep-report = { path = "../report" }
 chrono = "0.4"
 hex = "0.4"
-iroh = "1.4.1"
+iroh-base = { version = "1.4.1", default-features = false, features = ["key"] }
 log = "0.4"
 rmp-serde = "1"
 reqwest = { version = "0.13.5", default-features = false, features = ["http2"] }

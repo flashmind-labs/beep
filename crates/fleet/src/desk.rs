@@ -6,13 +6,11 @@ use crate::{
     error::{FleetError, Result},
     peer::{PeerFound, PeerShell, Peers, probe},
 };
-use async_trait::async_trait;
 use beep_mesh::{DeviceStatus, Mesh, machine::search};
 use beep_projects::{
     imports::{hosts::Hosts, machine::Machine},
     is_windows,
     issues::HostGates,
-    model::ForgejoUrl,
     repo_watch::http::HostCalls,
 };
 use beep_proto::node::{EnvReport, agent::SESSIONS_PROTOCOL, shell};
@@ -270,7 +268,6 @@ impl DesktopHosts {
     }
 }
 
-#[async_trait]
 impl Hosts for DesktopHosts {
     fn client(&self) -> anyhow::Result<Client> {
         Ok(self.client.clone())
@@ -278,12 +275,5 @@ impl Hosts for DesktopHosts {
 
     fn calls(&self) -> &Arc<Semaphore> {
         &self.calls
-    }
-
-    /// Every address is called: the desktop is on the user's own network, which is the point of
-    /// calling a Forgejo server there. The server refuses private addresses because it must not
-    /// probe the network it runs in; a desktop has no such network to protect.
-    async fn is_public(&self, _: &ForgejoUrl) -> bool {
-        true
     }
 }

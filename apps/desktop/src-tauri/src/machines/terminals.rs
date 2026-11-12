@@ -13,8 +13,8 @@ use crate::{
 };
 use beep_mesh::machine::terminals::{Heard, heard};
 use beep_proto::{
-    MAX_TERMINAL_INPUT, OpenTerminal, StartTerminal, Terminal, TerminalEvent, TerminalInput,
-    TerminalOutput, TerminalState,
+    MAX_TERMINAL_INPUT, OpenTerminal, Terminal, TerminalEvent, TerminalInput, TerminalOutput,
+    TerminalState,
     node::terminal::{Reply as PtyReply, Request as PtyRequest, Size},
 };
 use serde::{Deserialize, Serialize};
@@ -131,37 +131,6 @@ pub async fn terminals_all(
 ) -> Result<Option<Vec<TerminalRow>>> {
     let rows = every(&app, &fleet, &held).await?;
     Ok(Some(rows.into_iter().map(Into::into).collect()))
-}
-
-/// The fields of a new terminal, as the form gives them.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NewTerminal {
-    project: String,
-    machine_id: String,
-    name: String,
-    command: String,
-    cwd: String,
-}
-
-#[tauri::command]
-pub async fn terminal_start(fleet: Machines<'_>, terminal: NewTerminal) -> Result<TerminalRow> {
-    let NewTerminal {
-        project,
-        machine_id,
-        name,
-        command,
-        cwd,
-    } = terminal;
-    let request = StartTerminal {
-        project,
-        machine_id,
-        name,
-        command,
-        cwd,
-    };
-    fleet.machine(&request.machine_id)?;
-    Ok(direct::start(&fleet, request).await?.into())
 }
 
 /// The fields of a new interactive terminal, as the form gives them. An

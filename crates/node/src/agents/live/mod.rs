@@ -1,4 +1,4 @@
-//! A session as the daemon keeps it: the compact state the server follows,
+//! A session as the daemon keeps it: the compact state the caller follows,
 //! built from the agent's `session/update` notifications, and the
 //! transcript, which stays here.
 
@@ -28,7 +28,7 @@ use tools::ToolCall;
 const MAX_ENTRIES: usize = 5000;
 /// The longest entry kept.
 const MAX_ENTRY: usize = 16 * 1024;
-/// The longest last message sent to the server.
+/// The longest last message sent to the caller.
 const MAX_LAST_MESSAGE: usize = 4 * 1024;
 /// The most files and plan entries reported.
 const MAX_FILES: usize = 50;

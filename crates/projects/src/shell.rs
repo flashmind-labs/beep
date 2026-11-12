@@ -26,8 +26,8 @@ impl ShellOutput {
     }
 }
 
-/// One machine's shell. The server runs scripts over a node's link and the desktop through a
-/// peer. A script may carry a token, so implementations never log it.
+/// One machine's shell, reached through a peer. A script may carry a token, so implementations
+/// never log it.
 #[async_trait]
 pub trait Shell: Send + Sync {
     async fn run(&self, script: &str, limit: Duration) -> Result<ShellOutput>;

@@ -146,9 +146,8 @@ wire_structs! {
         pub env: Vec<HarnessEnv>,
     }
 
-    /// An env var a harness gets. The server never sends a value back: in
-    /// replies `value` is always `None`. Not for the phone app, which has no
-    /// `SecretText` type.
+    /// An env var a harness gets. In replies `value` is always `None`. Not
+    /// for the phone app, which has no `SecretText` type.
     pub struct HarnessEnv {
         pub name: String,
         pub value: Option<SecretText>,
@@ -166,12 +165,12 @@ wire_structs! {
         pub machines: Vec<AgentMachine>,
     }
 
-    /// A token Beep keeps for a coding agent. The secret stays on the server.
+    /// A token Beep keeps for a coding agent.
     pub struct AgentToken {
         /// The secret's last four characters.
         pub last4: String,
         pub created_at: SystemTime,
-        /// The server can no longer open it; the user has to sign in again.
+        /// Beep can no longer open it; the user has to sign in again.
         pub unreadable: bool,
     }
 
@@ -280,9 +279,8 @@ wire_enum! {
     /// a branch named `branch` rather than from the prompt.
     /// `BranchWorktree` starts on the existing branch `branch`: in the
     /// worktree that has it checked out, else in a new one at
-    /// `.worktrees/<branch>` after fetching it from `origin`. A server
-    /// older than `Feature::BRANCH_WORKTREES` refuses both, and so does a
-    /// node from before them. See `node::agent::CheckoutPlan`.
+    /// `.worktrees/<branch>` after fetching it from `origin`. A node from
+    /// before them refuses both. See `node::agent::CheckoutPlan`.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum AgentCheckoutPlan {
         0 NewBranch { base: Option<String> }
@@ -354,7 +352,7 @@ wire_structs! {
         /// Whether the caller's machines get it.
         pub to_machines: bool,
         pub created_at: SystemTime,
-        /// The server can no longer open it; the user has to enter it again.
+        /// Beep can no longer open it; the user has to enter it again.
         /// Machines do not get it.
         pub unreadable: bool,
     }
@@ -362,7 +360,7 @@ wire_structs! {
 
 wire_enum! {
     /// What checking a credential found. `machine` is the name of the machine
-    /// that reached the server, `None` when Beep's server did. `message`
+    /// that reached the host, `None` when the desktop did. `message`
     /// says what happened, for the user.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum CredentialCheck {
@@ -385,7 +383,7 @@ wire_enum! {
 }
 
 /// The providers an API key can be saved for. On the wire a provider is its
-/// slug, so a newer server can add one without changing a reply's shape.
+/// slug, so a newer app can add one without changing a reply's shape.
 #[derive(
     Debug,
     Clone,

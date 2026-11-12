@@ -137,10 +137,9 @@ impl Live {
         }
     }
 
-    /// Keeps a picture the transcript shows, for the server to ask for,
-    /// and has it sent to the server to keep.
+    /// Keeps a picture the transcript shows, for the apps to ask for.
     pub(crate) fn keep(&self, picture: Picture) {
-        self.images.keep_and_send(&self.info.id, picture);
+        self.images.keep(&self.info.id, picture);
     }
 
     /// The kept picture `key` of this session.

@@ -12,7 +12,7 @@ use beep_proto::report::{
 use beep_report::{Manifest, Period, SendError, Sender, draft, send, zip};
 use beep_server::config::ReportsConfig;
 use beep_server::reports::{Reports, routes};
-use iroh::{EndpointId, SecretKey};
+use iroh_base::{EndpointId, SecretKey};
 use reqwest::StatusCode;
 use tempfile::TempDir;
 use tokio::net::TcpListener;

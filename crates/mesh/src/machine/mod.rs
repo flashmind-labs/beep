@@ -1,7 +1,6 @@
-//! What a desktop or the server asks of one node, and how the node's
-//! answers read to an app: the typed requests, the checks on what an app
-//! may send, and the conversions to the apps' own reply types. Both callers
-//! share it; neither keeps its own copy.
+//! What a desktop asks of one node, and how the node's answers read to an
+//! app: the typed requests, the checks on what an app may send, and the
+//! conversions to the apps' own reply types.
 
 pub mod agent;
 pub mod agent_files;
