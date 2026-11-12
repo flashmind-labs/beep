@@ -62,9 +62,20 @@ pub struct Import<'a> {
     pub machine_id: Option<&'a str>,
     /// Where it goes, absolute or `~/...`; `None` or blank to go under `parent`.
     pub folder: Option<&'a str>,
-    /// The folder it goes under as `<parent>/<org>/<repo>` when `folder` is not given; `None` or blank
-    /// for the machine's projects folder.
+    /// The folder it goes under when `folder` is not given; `None` or blank for the machine's
+    /// projects folder.
     pub parent: Option<&'a str>,
+    /// How it goes under `parent`.
+    pub nesting: Nesting,
+}
+
+/// How an import goes under its parent folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Nesting {
+    /// `<parent>/<org>/<repo>`, as imports go.
+    Org,
+    /// `<parent>/<repo>`, as new projects go.
+    Flat,
 }
 
 /// The machine `machine_id` names, or the one `place::choose` picks.
@@ -148,7 +159,13 @@ pub async fn import(env: &Env<'_>, job: Import<'_>) -> Result<ImportedProject, I
         None => {
             let folder = match &seen {
                 Some(seen) => folder::destination(seen, repo.name()),
-                None => under_parent(machine, job.parent, &[repo.org(), repo.name()]).await?,
+                None => {
+                    let parts = match job.nesting {
+                        Nesting::Org => vec![repo.org(), repo.name()],
+                        Nesting::Flat => vec![repo.name()],
+                    };
+                    under_parent(machine, job.parent, &parts).await?
+                }
             };
             let cloned = run_clone(
                 machine.shell()?,
@@ -253,6 +270,7 @@ pub async fn clone_onto(
                     machine_id: Some(&machine.id),
                     folder: None,
                     parent: folder_of(folders, &machine.id),
+                    nesting: Nesting::Flat,
                 },
             )
         })

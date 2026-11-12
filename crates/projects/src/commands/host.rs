@@ -141,6 +141,34 @@ impl Parts {
 }
 
 impl HostCommand<'_> {
+    /// Whether this only reads, so two at once may share one run.
+    pub fn only_reads(&self) -> bool {
+        match self {
+            Self::ListOwnedIssues
+            | Self::ListOpenIssues
+            | Self::ListOpenPrs
+            | Self::ViewIssue { .. }
+            | Self::ViewPrHead { .. }
+            | Self::ViewThread { .. }
+            | Self::WhoAmI
+            | Self::CanPush
+            | Self::FindIssue { .. }
+            | Self::FindPr { .. }
+            | Self::PrStatus { .. }
+            | Self::Visibility => true,
+            Self::EnsureLabels
+            | Self::CreateIssue { .. }
+            | Self::Relabel { .. }
+            | Self::EditIssue { .. }
+            | Self::CloseIssue { .. }
+            | Self::ReopenIssue { .. }
+            | Self::CommentIssue { .. }
+            | Self::CommentPr { .. }
+            | Self::MergePr { .. }
+            | Self::PostReview { .. } => false,
+        }
+    }
+
     /// The shell command that runs this against `repo` on `host`.
     pub fn render(&self, host: &IssueHost, repo: &RepoName) -> String {
         match host {

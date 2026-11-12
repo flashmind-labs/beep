@@ -2,7 +2,7 @@ import { WINDOWS, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, chats, views, projects, machines) and
 // the sheets that add a machine or a project.
 import { onClosing, visibleRunning } from "../agents/closing.ts";
-import { frontLayout, layoutChanged } from "./lanes-view.tsx";
+import { frontLayout, layoutChanged } from "../ui/skin.ts";
 import { plural, reason } from "../ui/format.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";

@@ -40,7 +40,7 @@ pub enum SourceError {
 }
 
 /// A host command that did not exit 0.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 #[error("the host command exited with {}: {tail}", code.map_or("no code".to_owned(), |code| code.to_string()))]
 pub struct HostExit {
     /// `None` when it was killed or timed out.
@@ -50,7 +50,7 @@ pub struct HostExit {
 }
 
 /// A host command that ran longer than [`HOST_LIMIT`].
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Copy, Error)]
 #[error("the host command timed out after {} seconds", HOST_LIMIT.as_secs())]
 pub struct HostTimeout;
 
@@ -163,7 +163,8 @@ pub async fn issue_source(
 }
 
 /// Every online place to read the project's issues: the home machine, else import machines by
-/// id. `None` without a GitHub or Forgejo host; refused when none is online.
+/// id. The machine that last answered for the host comes first and machines that cannot reach it
+/// now come last. `None` without a GitHub or Forgejo host; refused when none is online.
 pub async fn issue_sources(
     store: &dyn ProjectStore,
     machines: &dyn Machines,
@@ -172,7 +173,7 @@ pub async fn issue_sources(
         return Ok(None);
     };
     let mut seen = Vec::new();
-    let sources: Vec<IssueSource> = found
+    let mut sources: Vec<IssueSource> = found
         .machines
         .iter()
         .filter(|machine| {
@@ -194,6 +195,16 @@ pub async fn issue_sources(
         } else {
             "No machine the project is on is online.".to_owned()
         }));
+    }
+
+    if let Some(gates) = machines.gates() {
+        let preferred = gates.preferred(&found.host);
+        sources.sort_by_key(|source| {
+            (
+                Some(source.machine) != preferred,
+                gates.is_paused(source.machine, &source.host),
+            )
+        });
     }
 
     Ok(Some(sources))

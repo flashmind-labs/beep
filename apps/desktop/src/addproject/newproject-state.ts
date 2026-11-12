@@ -106,11 +106,9 @@ export function goesText(form: NewProjectForm) {
   return form.host !== null && form.machines.length ? "Each machine clones it and keeps it in sync." : "";
 }
 
-/// What follows a machine's folder: `/<owner>/<name>`, or `/<name>` for
-/// Local only.
+/// What follows a machine's folder: `/<name>`.
 export function folderTail(form: NewProjectForm) {
-  const name = form.name.trim() || "my-project";
-  return form.host === null ? `/${name}` : `/${form.owner}/${name}`;
+  return `/${form.name.trim() || "my-project"}`;
 }
 
 /// Where it landed: one line when the folders are the same, else one per machine.

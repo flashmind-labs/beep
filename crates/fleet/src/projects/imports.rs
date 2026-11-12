@@ -7,7 +7,7 @@ use beep_projects::{
     Shell,
     branches::add_worktree,
     imports::{
-        flow::{self, Effects, Env, Import},
+        flow::{self, Effects, Env, Import, Nesting},
         found::{self, MachineFound},
         host_repos::read_hosts,
         hosts::{find_fork, forgejo_of, project_forges},
@@ -104,6 +104,7 @@ impl Desk {
                 machine_id: job.machine_id,
                 folder: job.folder,
                 parent: job.parent,
+                nesting: Nesting::Org,
             },
         )
         .await?;

@@ -23,24 +23,6 @@ export interface BoardCard {
   menu: ((event: MouseEvent) => void) | null;
 }
 
-/// How Home and a project's front page lay out, each on its own: the board, or the
-/// sections and rows before it. Picked in Settings, under Appearance.
-export type FrontLayout = "board" | "list";
-export type FrontPage = "home" | "project";
-const layoutKey = (page: FrontPage) => `beep.layout.${page}`;
-const kept = (page: FrontPage): FrontLayout => { try { return localStorage.getItem(layoutKey(page)) === "list" ? "list" : "board"; } catch { return "board"; } };
-const layouts: Record<FrontPage, FrontLayout> = { home: kept("home"), project: kept("project") };
-export const frontLayout = (page: FrontPage) => layouts[page];
-/// Called when the user picks a layout: every page that shows it draws again.
-export const layoutChanged = new Set<() => void>();
-
-export function setFrontLayout(page: FrontPage, next: FrontLayout) {
-  if (next === layouts[page]) return;
-  layouts[page] = next;
-  try { localStorage.setItem(layoutKey(page), next); } catch { /* kept for this launch only */ }
-  for (const draw of layoutChanged) draw();
-}
-
 /// A card as a row of a list section. A session's row opens with the page move.
 export function CardRow({ card }: { card: BoardCard }) {
   const action = card.action;

@@ -1,13 +1,16 @@
 //! Remembering issue hosts a machine could not reach, so their reads stop for a while instead of
 //! each starting the host's CLI again.
 
-use super::{HostExit, HostTimeout, IssueSource};
-use crate::model::IssueHost;
-use anyhow::Result;
+use super::{HostExit, HostTimeout, IssueSource, run_rendered};
+use crate::{Shell, model::IssueHost};
+use anyhow::{Result, anyhow};
+use futures::{
+    FutureExt,
+    future::{BoxFuture, Shared, WeakShared},
+};
 use iroh::EndpointId;
 use std::{
     collections::HashMap,
-    future::Future,
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
@@ -34,7 +37,8 @@ const NO_CONNECTION: &[&str] = &[
     "dial tcp",
 ];
 
-/// A read that did not reach the host, now or when it was last tried.
+/// A read that did not reach the host, now or when it was last tried. The gate logs it when the
+/// host pauses, so the reads that get it do not.
 #[derive(Debug, Clone, Error)]
 #[error("{0}")]
 pub struct Unreachable(String);
@@ -47,11 +51,25 @@ pub fn is_unreachable(error: &anyhow::Error) -> bool {
 
 /// For each machine and host, whether the host answered when last asked. A host the machine
 /// could not reach is not asked again there for a pause, which doubles with each failure in a
-/// row, and while it is unknown one read asks it and the others wait for that one.
-#[derive(Debug, Default)]
+/// row, and while it is unknown one read asks it and the others wait for that one. A read joins
+/// an identical one under way on the same machine, and the machine that last answered for a host
+/// is asked first.
+#[derive(Default)]
 pub struct HostGates {
-    gates: Mutex<HashMap<HostOnMachine, Arc<watch::Sender<Gate>>>>,
+    known: Mutex<Known>,
 }
+
+#[derive(Default)]
+struct Known {
+    gates: HashMap<HostOnMachine, Arc<watch::Sender<Gate>>>,
+    /// The machine that last answered for each host.
+    answered: HashMap<IssueHost, EndpointId>,
+    /// The reads under way, by machine and command line.
+    reads: HashMap<(EndpointId, String), WeakShared<SharedRead>>,
+}
+
+/// One read that every identical read at the same time waits on.
+type SharedRead = BoxFuture<'static, Result<String, Arc<anyhow::Error>>>;
 
 /// A host as one machine reaches it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -61,47 +79,135 @@ struct HostOnMachine {
 }
 
 impl HostGates {
-    /// Runs `read` against `source`'s host unless the host is paused on its machine, which gives
-    /// the remembered [`Unreachable`] at once.
-    pub async fn run<F>(&self, source: &IssueSource, read: impl Fn() -> F) -> Result<String>
-    where
-        F: Future<Output = Result<String>>,
-    {
-        let gate = self.gate(source);
+    /// Runs `rendered` on `source`'s machine unless its host is paused there, which gives the
+    /// remembered [`Unreachable`] at once. With `join`, for a command that only reads, a read
+    /// identical to one under way waits for that one's answer instead of running the CLI again.
+    pub async fn run(&self, source: &IssueSource, rendered: &str, join: bool) -> Result<String> {
+        let key = HostOnMachine {
+            machine: source.machine,
+            host: source.host.clone(),
+        };
+        let read = if join {
+            self.joined(&key, source.shell.clone(), rendered)
+        } else {
+            gated(
+                self.gate(&key),
+                key.clone(),
+                source.shell.clone(),
+                rendered.to_owned(),
+            )
+            .boxed()
+            .shared()
+        };
+        let result = read.await.map_err(|error| rebuilt(&error));
 
-        loop {
-            let pass = match enter(&gate, Instant::now()) {
-                Enter::Pass(pass) => pass,
-                Enter::Paused(error) => return Err(Unreachable(error).into()),
-                Enter::Wait => {
-                    let mut changed = gate.subscribe();
-                    // The sender is held here, so the channel stays open.
-                    let _ = changed.wait_for(|gate| !gate.is_probing()).await;
-                    continue;
-                }
-            };
-            let result = read().await;
-            let reach = Reach::of(&result);
-            let result = match &reach {
-                Reach::None(error) => Err(Unreachable(error.clone()).into()),
-                _ => result,
-            };
-
-            pass.settle(reach, Instant::now());
-            return result;
+        if result.is_ok() {
+            self.lock().answered.insert(key.host, key.machine);
         }
+
+        result
     }
 
-    fn gate(&self, source: &IssueSource) -> Arc<watch::Sender<Gate>> {
-        let mut gates = self.gates.lock().unwrap_or_else(PoisonError::into_inner);
-        gates
-            .entry(HostOnMachine {
-                machine: source.machine,
-                host: source.host.clone(),
-            })
+    /// The machine that last answered for `host`.
+    pub fn preferred(&self, host: &IssueHost) -> Option<EndpointId> {
+        self.lock().answered.get(host).copied()
+    }
+
+    /// Whether `host` is paused on `machine` now, so a read there would not ask it.
+    pub fn is_paused(&self, machine: EndpointId, host: &IssueHost) -> bool {
+        let key = HostOnMachine {
+            machine,
+            host: host.clone(),
+        };
+        let known = self.lock();
+        known.gates.get(&key).is_some_and(
+            |gate| matches!(&*gate.borrow(), Gate::Paused(paused) if Instant::now() < paused.until),
+        )
+    }
+
+    /// The read of `rendered` on the key's machine under way, else a new one.
+    fn joined(
+        &self,
+        key: &HostOnMachine,
+        shell: Arc<dyn Shell>,
+        rendered: &str,
+    ) -> Shared<SharedRead> {
+        let gate = self.gate(key);
+        let mut known = self.lock();
+        known.reads.retain(|_, read| read.upgrade().is_some());
+        let id = (key.machine, rendered.to_owned());
+
+        if let Some(read) = known.reads.get(&id).and_then(WeakShared::upgrade) {
+            return read;
+        }
+
+        let read = gated(gate, key.clone(), shell, rendered.to_owned())
+            .boxed()
+            .shared();
+        if let Some(weak) = read.downgrade() {
+            known.reads.insert(id, weak);
+        }
+
+        read
+    }
+
+    fn gate(&self, key: &HostOnMachine) -> Arc<watch::Sender<Gate>> {
+        self.lock()
+            .gates
+            .entry(key.clone())
             .or_insert_with(|| Arc::new(watch::Sender::new(Gate::Untried)))
             .clone()
     }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Known> {
+        self.known.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Runs `rendered` through `gate`: at once when the host answers, after the probe under way
+/// when it is unknown, and not at all while it is paused.
+async fn gated(
+    gate: Arc<watch::Sender<Gate>>,
+    key: HostOnMachine,
+    shell: Arc<dyn Shell>,
+    rendered: String,
+) -> Result<String, Arc<anyhow::Error>> {
+    loop {
+        let pass = match enter(&gate, &key, Instant::now()) {
+            Enter::Pass(pass) => pass,
+            Enter::Paused(error) => return Err(Arc::new(Unreachable(error).into())),
+            Enter::Wait => {
+                let mut changed = gate.subscribe();
+                // The sender is held here, so the channel stays open.
+                let _ = changed.wait_for(|gate| !gate.is_probing()).await;
+                continue;
+            }
+        };
+        let result = run_rendered(shell.as_ref(), &rendered).await;
+        let reach = Reach::of(&result);
+        let result = match &reach {
+            Reach::None(error) => Err(Unreachable(error.clone()).into()),
+            _ => result,
+        };
+
+        pass.settle(reach, Instant::now());
+        return result.map_err(Arc::new);
+    }
+}
+
+/// A copy of a shared read's `error`, keeping the kinds the issue code tells apart.
+fn rebuilt(error: &anyhow::Error) -> anyhow::Error {
+    if let Some(unreachable) = error.downcast_ref::<Unreachable>() {
+        return unreachable.clone().into();
+    }
+    if let Some(exit) = error.downcast_ref::<HostExit>() {
+        return exit.clone().into();
+    }
+    if error.downcast_ref::<HostTimeout>().is_some() {
+        return HostTimeout.into();
+    }
+
+    anyhow!("{error:#}")
 }
 
 /// What is known about one host on one machine.
@@ -155,11 +261,15 @@ enum Enter<'g> {
     Wait,
 }
 
-fn enter(gate: &watch::Sender<Gate>, now: Instant) -> Enter<'_> {
+fn enter<'g>(gate: &'g watch::Sender<Gate>, key: &'g HostOnMachine, now: Instant) -> Enter<'g> {
     let mut entered = Enter::Wait;
     gate.send_if_modified(|state| match state {
         Gate::Open => {
-            entered = Enter::Pass(Pass { gate, probe: false });
+            entered = Enter::Pass(Pass {
+                gate,
+                key,
+                probe: false,
+            });
             false
         }
         Gate::Paused(paused) if now < paused.until => {
@@ -172,7 +282,11 @@ fn enter(gate: &watch::Sender<Gate>, now: Instant) -> Enter<'_> {
                 _ => None,
             };
             *state = Gate::Probing { paused };
-            entered = Enter::Pass(Pass { gate, probe: true });
+            entered = Enter::Pass(Pass {
+                gate,
+                key,
+                probe: true,
+            });
             true
         }
         Gate::Probing { .. } => false,
@@ -184,6 +298,7 @@ fn enter(gate: &watch::Sender<Gate>, now: Instant) -> Enter<'_> {
 /// gives its turn to the next waiting read.
 struct Pass<'g> {
     gate: &'g watch::Sender<Gate>,
+    key: &'g HostOnMachine,
     /// Whether other reads wait on this one until it settles.
     probe: bool,
 }
@@ -212,8 +327,35 @@ impl Pass<'_> {
                 }
                 (Reach::Unknown, other) => other.clone(),
             };
+            self.key.log_change(state, &next);
             *state = next;
         });
+    }
+}
+
+impl HostOnMachine {
+    /// Logs the gate going from `before` to `after` when the host paused or answers again, once
+    /// per change rather than once per read.
+    fn log_change(&self, before: &Gate, after: &Gate) {
+        let (machine, host) = (self.machine.fmt_short(), &self.host);
+
+        match (before, after) {
+            (Gate::Probing { paused: Some(_) }, Gate::Paused(paused)) => log::info!(
+                "projects: {machine} still cannot reach {host}, tried again in {} s",
+                pause(paused.failures).as_secs()
+            ),
+            (Gate::Probing { paused: None } | Gate::Open | Gate::Untried, Gate::Paused(paused)) => {
+                log::info!(
+                    "projects: {machine} cannot reach {host}, tried again in {} s: {}",
+                    pause(paused.failures).as_secs(),
+                    paused.error
+                )
+            }
+            (Gate::Probing { paused: Some(_) } | Gate::Paused(_), Gate::Open) => {
+                log::info!("projects: {machine} reaches {host} again")
+            }
+            _ => {}
+        }
     }
 }
 

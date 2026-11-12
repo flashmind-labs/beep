@@ -5,7 +5,7 @@ import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
 import { ProjectBoard } from "./lanes.tsx";
 import type { Lane } from "../center/lanes-state.ts";
-import { frontLayout } from "../center/lanes-view.tsx";
+import { frontLayout } from "../ui/skin.ts";
 import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";

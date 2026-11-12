@@ -2,7 +2,7 @@ import { answers, calls } from "./dom-env.ts";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
-import { ConversationHistory, conversationKey, conversationState, firstConversation, groupConversations, isConversationKey, nextConversation } from "../src/agents/conversation-state.ts";
+import { ConversationHistory, conversationKey, conversationState, firstConversation, groupConversations, isConversationKey, nextConversation, retitle } from "../src/agents/conversation-state.ts";
 import { initConversationSwitcher } from "../src/agents/conversation-switcher.ts";
 import type { AgentRow } from "../src/agents/agents.ts";
 
@@ -119,4 +119,16 @@ test("holding cycles without actions, release opens once, Escape and blur cancel
   assert.deepEqual(opened, [c]);
   assert.ok(!calls.some(call => call.cmd === "session_move"));
   dom.window.close();
+});
+
+test("a saved title retitles only its own session, and a cleared one takes the agent's title back", () => {
+  const open = session("a", { title: "add an issue about router actions" });
+  const change = { machine_id: "machine", agent: "codex", session: "a", title: "Router actions" };
+  assert.equal(retitle(open, change, [])?.title, "Router actions");
+  assert.equal(retitle(open, { ...change, session: "b" }, []), null);
+  assert.equal(retitle(open, { ...change, agent: "claude" }, []), null);
+  assert.equal(retitle(open, { ...change, machine_id: "other" }, []), null);
+  const listed = [session("b", { title: "Other" }), session("a", { title: "Generated title" })];
+  assert.equal(retitle(open, { ...change, title: null }, listed)?.title, "Generated title");
+  assert.equal(retitle(open, { ...change, title: null }, [])?.title, null);
 });

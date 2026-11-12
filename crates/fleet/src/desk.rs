@@ -2,6 +2,7 @@
 //! online, and the git hosts.
 
 use crate::{
+    AsyncMutex,
     error::{FleetError, Result},
     peer::{PeerFound, PeerShell, Peers, probe},
 };
@@ -211,6 +212,8 @@ pub(crate) struct DesktopHosts {
     remotes: Arc<Mutex<HashMap<String, KeptRemotes>>>,
     /// The issue hosts each machine could not reach lately.
     gates: Arc<HostGates>,
+    /// Held by the run reading Home's pull requests and issues.
+    board_run: Arc<AsyncMutex<()>>,
 }
 
 impl DesktopHosts {
@@ -229,6 +232,7 @@ impl DesktopHosts {
             kept: Arc::default(),
             remotes: Arc::default(),
             gates: Arc::default(),
+            board_run: Arc::default(),
         })
     }
 
@@ -246,6 +250,10 @@ impl DesktopHosts {
 
     pub(crate) fn gates(&self) -> &Arc<HostGates> {
         &self.gates
+    }
+
+    pub(crate) fn board_run(&self) -> &AsyncMutex<()> {
+        &self.board_run
     }
 
     /// `project`'s remotes as read less than `within` ago.
