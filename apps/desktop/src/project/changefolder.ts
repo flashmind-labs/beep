@@ -14,7 +14,6 @@ export function changeFolder(project: string, machine: { id: string; name: strin
     project,
     machine,
     from,
-    os: state.home?.machines?.find(x => x.id === machine.id)?.env?.os,
     macId: state.mac?.id || null,
     added: () => { refresh(); loadWhere(project); },
   });

@@ -6,7 +6,7 @@ use crate::{
     peer::{PeerFound, PeerShell, Peers, probe},
 };
 use async_trait::async_trait;
-use beep_mesh::{DeviceStatus, Mesh};
+use beep_mesh::{DeviceStatus, Mesh, machine::search};
 use beep_projects::{
     imports::{hosts::Hosts, machine::Machine},
     is_windows,
@@ -118,6 +118,34 @@ impl Desk {
         Some(self.look(status).await)
     }
 
+    /// Fills in the "Projects in" folder of each machine with a shell, only those among `ids` when
+    /// given; one that does not say keeps its home as the default.
+    pub(crate) async fn learn_projects_in(&self, machines: &mut [Machine], ids: Option<&[&str]>) {
+        let asks: Vec<_> = machines
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.shell.is_some() && ids.is_none_or(|ids| ids.contains(&&*m.id)))
+            .filter_map(|(at, m)| Some((at, m.id.parse::<EndpointId>().ok()?)))
+            .map(|(at, id)| async move {
+                let ask = async {
+                    let client = self.peers.client(id).await?;
+                    Ok::<_, FleetError>(search(&client).await?)
+                };
+                let said = timeout(LOOK, ask)
+                    .await
+                    .unwrap_or_else(|_| Err(FleetError::Refused("no answer in time".to_owned())));
+                (at, said)
+            })
+            .collect();
+
+        for (at, said) in join_all(asks).await {
+            match said {
+                Ok(folder) => machines[at].projects_in = Some(folder),
+                Err(e) => log::info!("{} did not say its projects folder: {e}", machines[at].name),
+            }
+        }
+    }
+
     async fn look(&self, status: DeviceStatus) -> Seen {
         let id: EndpointId = status.device.id;
         let mut machine = Machine {
@@ -126,7 +154,7 @@ impl Desk {
             online: status.online,
             os: None,
             home: None,
-            workspace: None,
+            projects_in: None,
             shell: None,
             sessions: None,
         };

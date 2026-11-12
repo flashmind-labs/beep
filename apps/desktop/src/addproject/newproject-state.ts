@@ -25,12 +25,20 @@ export interface NewProjectForm {
   owner: string;
   isPrivate: boolean;
   machines: string[];
+  /// The folder typed for a machine, by id; one not here takes its default.
+  folders: Readonly<Record<string, string>>;
+}
+
+/// Where `create_project` puts the project on one machine: under `folder`.
+export interface ProjectFolder {
+  machine_id: string;
+  folder: string;
 }
 
 /// The form once the hosts are read: the first host that answered, else
 /// Local only, on `machine` when there is one.
 export function startForm(forges: readonly Forge[], machine: string | undefined): NewProjectForm {
-  const form: NewProjectForm = { name: "", host: null, owner: "", isPrivate: true, machines: machine ? [machine] : [] };
+  const form: NewProjectForm = { name: "", host: null, owner: "", isPrivate: true, machines: machine ? [machine] : [], folders: {} };
   const first = forges.find(f => f.owners.length);
   return first ? pickHost(form, forges, first.host) : form;
 }
@@ -51,6 +59,17 @@ export function toggleMachine(form: NewProjectForm, id: string): NewProjectForm 
   const on = form.machines.includes(id);
   if (form.host === null) return { ...form, machines: on ? [] : [id] };
   return { ...form, machines: on ? form.machines.filter(m => m !== id) : [...form.machines, id] };
+}
+
+/// The folder the project goes under on `machine`: the one typed, else its
+/// default.
+export function folderOn(form: NewProjectForm, machine: string, defaults: ReadonlyMap<string, string>) {
+  return form.folders[machine] ?? defaults.get(machine) ?? "";
+}
+
+/// The folder for each machine picked, as `create_project` takes them.
+export function projectFolders(form: NewProjectForm, defaults: ReadonlyMap<string, string>): ProjectFolder[] {
+  return form.machines.map(machine_id => ({ machine_id, folder: folderOn(form, machine_id, defaults).trim() }));
 }
 
 /// What hosts take as a name. The server checks again.
@@ -83,10 +102,15 @@ export function creatingText(form: NewProjectForm, machineNames: readonly string
 }
 
 /// The note above Create.
-export function goesText(form: NewProjectForm, machineNames: readonly string[]) {
-  if (!machineNames.length) return "";
-  if (form.host === null) return `A git repository in the projects folder on ${machineNames[0]}.`;
-  return "Each machine clones it into its projects folder and keeps it in sync.";
+export function goesText(form: NewProjectForm) {
+  return form.host !== null && form.machines.length ? "Each machine clones it and keeps it in sync." : "";
+}
+
+/// What follows a machine's folder: `/<owner>/<name>`, or `/<name>` for
+/// Local only.
+export function folderTail(form: NewProjectForm) {
+  const name = form.name.trim() || "my-project";
+  return form.host === null ? `/${name}` : `/${form.owner}/${name}`;
 }
 
 /// Where it landed: one line when the folders are the same, else one per machine.

@@ -151,11 +151,12 @@ D.dImportProject = () => {
   const field = typed ? `<span>${repo}</span>` : `<span class="ph">org/repo or https://github.com/org/repo</span>`;
   const picked = !typed ? 0 : mac ? 2 : 1;
   const chips = ["Auto", "build-box", "MacBook Air"].map((c, i) => `<button class="dchip" aria-pressed="${i === picked}" data-toast="${c === "Auto" ? "The server picks a machine" : c}">${c}</button>`).join("");
-  // Folder: the machine's default until Choose… picks one. This computer opens the macOS folder picker;
-  // another machine opens the browser below, listing its folders from its home or workspace.
+  // Folder: the parent the clone goes under as <parent>/<org>/<repo>, the machine's Projects in folder
+  // until edited or Choose… picks one. This computer opens the macOS folder picker; another machine
+  // opens the browser below, listing its folders from its home.
   const folder = !typed ? `<div class="ip-path dim">The default folder on the machine Beep picks</div>`
     : mac ? `<div class="ip-path" title="~/Documents/code/widget">~/Documents/code/widget</div>`
-    : `<div class="ip-path" title="/srv/projects/acme/widget">/srv/projects/acme/widget</div>`;
+    : `<div class="ip-path" title="/srv/code">/srv/code</div>`;
   const choose = `<button class="dbtn quiet"${!typed ? ' disabled style="opacity:.5"' : mac ? ' data-toast="Opens the macOS folder picker"' : ' data-dact="dset:ip:browse"'}>Choose…</button>${mac ? `<button class="dbtn quiet" data-dact="dset:ip:typed">Default</button>` : ""}`;
   const browse = `<div class="ip-browse">
       <div class="at"><button class="dbtn quiet" style="padding:2px 8px;font-size:12px;min-height:0" data-toast="Up to /srv">Up</button><span title="/srv/projects">/srv/projects</span></div>
@@ -180,7 +181,7 @@ D.dImportProject = () => {
     ${v === "browse" ? browse : `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">${folder}${choose}</div>`}
     ${mac ? `<div class="ip-found"><span class="ddot"></span><span>A checkout of acme/widget, imported in place.</span></div>` : ""}
     ${v === "fork" ? `<div class="ip-found" style="font-size:12px;color:var(--d-muted);margin-bottom:8px"><span class="ddot"></span><span>Your fork octo/widget will be cloned, upstream added. Your PR branch fix-retry is made local.</span></div>` : ""}
-    ${typed && !mac && v !== "browse" ? '<div class="ip-to">Goes in /srv/projects/acme/widget.</div>' : ""}
+    ${typed && !mac && v !== "browse" ? '<div class="ip-to">Goes in /srv/code/acme/widget.</div>' : ""}
     <div style="font-size:12.5px;color:var(--d-muted);margin:0 0 14px">${help}</div>
     ${branches}
     ${v === "error" ? `<div style="font-size:13px;color:var(--d-err);margin-bottom:12px">Repository not found, or your tokens cannot read it.</div>` : ""}
@@ -189,7 +190,7 @@ D.dImportProject = () => {
     <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">A large repository takes a few minutes. You can close this; the project shows up once it is in.</div>
     <div style="display:flex"><span style="margin-left:auto"><button class="dbtn quiet" data-dact="dset:pp:list" data-dgo="dProjectsPage">Close</button></span></div>`;
   const done = (there) => `<div style="display:flex;gap:10px;align-items:center;font-size:14px"><span class="ddot"></span><b>${repo} imported</b></div>
-    <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">${there ? "Already there, now listed" : "Cloned"} on build-box in /srv/projects/acme/widget</div>
+    <div style="font-size:12.5px;color:var(--d-muted);margin:8px 0 14px">${there ? "Already there, now listed" : "Cloned"} on build-box in /srv/code/acme/widget</div>
     <button class="dbtn pri" data-dact="dset:pp:one" data-dgo="dProjectsPage">Open project</button>`;
   const body = v === "cloning" ? cloning : v === "done" ? done(false) : v === "there" ? done(true) : form;
   const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:90px;justify-content:center;z-index:5">

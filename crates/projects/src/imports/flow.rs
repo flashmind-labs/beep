@@ -10,7 +10,7 @@ use super::{
     hosts::{Hosts, create_repository, find_fork, forgejo_of},
     link::link_fork,
     machine::Machine,
-    place::{self, Candidate, project_folder},
+    place::{self, Candidate},
     preview::existing_checkout,
     records::{ImportRow, NewImport},
     repo::{RepoRef, valid_part},
@@ -19,7 +19,7 @@ use super::{
 use crate::credentials::Opened;
 use anyhow::Result;
 use async_trait::async_trait;
-use beep_proto::{CheckoutFailure, CreateProject, CreatedProject, ImportedProject};
+use beep_proto::{CheckoutFailure, CreateProject, CreatedProject, ImportedProject, ProjectFolder};
 use futures::{StreamExt, stream};
 
 /// How many machines clone at once.
@@ -60,9 +60,10 @@ pub struct Import<'a> {
     pub repo: &'a str,
     /// The machine's id; `None` lets `place::choose` pick.
     pub machine_id: Option<&'a str>,
-    /// Where it goes, absolute or `~/...`; `None` or blank for the machine's projects folder.
+    /// Where it goes, absolute or `~/...`; `None` or blank to go under `parent`.
     pub folder: Option<&'a str>,
-    /// The folder it goes under as `<parent>/<org>/<repo>` when `folder` is not given.
+    /// The folder it goes under as `<parent>/<org>/<repo>` when `folder` is not given; `None` or blank
+    /// for the machine's projects folder.
     pub parent: Option<&'a str>,
 }
 
@@ -78,21 +79,35 @@ pub fn choose_machine<'a>(
             name: &machine.name,
             online: machine.online,
             shell: machine.shell.is_some(),
-            workspace: machine.online && machine.workspace.is_some(),
         })
         .collect();
     Ok(&machines[place::choose(&candidates, machine_id)?])
 }
 
-/// `<parent>/<org>/<repo>`; blank when `parent` is, so the machine's projects folder is used.
-fn under_parent(parent: &str, repo: &RepoRef) -> String {
-    let parent = parent.trim().trim_end_matches('/');
-
-    if parent.is_empty() {
-        return String::new();
-    }
-
-    format!("{parent}/{}/{}", repo.org(), repo.name())
+/// The absolute folder `parts` name under `parent` on `machine`, or under its projects folder when
+/// `parent` is not given; inside it when another folder already holds that name.
+async fn under_parent(
+    machine: &Machine,
+    parent: Option<&str>,
+    parts: &[&str],
+) -> Result<String, ImportError> {
+    let given = parent.map(str::trim).filter(|parent| !parent.is_empty());
+    let parent = match given {
+        Some(parent) => parent.to_owned(),
+        None => place::projects_root(machine.folders())
+            .ok_or_else(|| ImportError::NoHome(machine.name.clone()))?,
+    };
+    let joined = place::join(&parent, parts);
+    let path = match FolderPath::parse(&joined).and_then(|path| path.ok_or(ImportError::BadFolder))
+    {
+        Ok(path) => path,
+        // The machine's own folder in a form only it reads, such as a Windows path.
+        Err(_) if given.is_none() => return Ok(joined),
+        Err(e) => return Err(e),
+    };
+    let seen = look(machine.shell()?, &machine.name, &path).await?;
+    let name = parts.last().copied().unwrap_or_default();
+    Ok(folder::destination(&seen, name))
 }
 
 /// The recorded import as the wire shows it.
@@ -112,11 +127,7 @@ pub fn project(row: ImportRow, machine_name: String, cloned: bool) -> ImportedPr
 /// checkout, and records it.
 pub async fn import(env: &Env<'_>, job: Import<'_>) -> Result<ImportedProject, ImportError> {
     let repo = RepoRef::parse(job.repo, &forgejo_of(env.credentials))?;
-    let folder = match job.folder.filter(|folder| !folder.trim().is_empty()) {
-        Some(folder) => Some(folder.to_owned()),
-        None => job.parent.map(|parent| under_parent(parent, &repo)),
-    };
-    let picked = match folder.as_deref() {
+    let picked = match job.folder {
         Some(folder) => FolderPath::parse(folder)?,
         None => None,
     };
@@ -137,8 +148,7 @@ pub async fn import(env: &Env<'_>, job: Import<'_>) -> Result<ImportedProject, I
         None => {
             let folder = match &seen {
                 Some(seen) => folder::destination(seen, repo.name()),
-                None => place::checkout_folder(machine.folders(), &repo)
-                    .ok_or_else(|| ImportError::NoHome(machine.name.clone()))?,
+                None => under_parent(machine, job.parent, &[repo.org(), repo.name()]).await?,
             };
             let cloned = run_clone(
                 machine.shell()?,
@@ -217,19 +227,19 @@ pub async fn create_project(
     match &request.repository {
         Some(new) => {
             let repo = create_repository(env.hosts, env.credentials, new, name).await?;
-            Ok(clone_onto(env, &repo, &chosen, None).await)
+            Ok(clone_onto(env, &repo, &chosen, &request.folders).await)
         }
-        None => create_local(env, name, chosen).await,
+        None => create_local(env, name, chosen, &request.folders).await,
     }
 }
 
-/// Imports `repo` onto each machine, under `parent` when given, else its projects folder; those that
-/// landed join sync. A machine that fails is listed and the repository stays.
+/// Imports `repo` onto each machine, under its folder in `folders` when given, else its projects
+/// folder; those that landed join sync. A machine that fails is listed and the repository stays.
 pub async fn clone_onto(
     env: &Env<'_>,
     repo: &RepoRef,
     machines: &[&Machine],
-    parent: Option<&str>,
+    folders: &[ProjectFolder],
 ) -> CreatedProject {
     let url = repo.web_url();
     // Collected first: a stream's `map` closure over borrows is not `Send` enough for the router.
@@ -242,7 +252,7 @@ pub async fn clone_onto(
                     repo: &url,
                     machine_id: Some(&machine.id),
                     folder: None,
-                    parent,
+                    parent: folder_of(folders, &machine.id),
                 },
             )
         })
@@ -286,11 +296,21 @@ pub async fn clone_onto(
     }
 }
 
-/// `git init` in the machine's projects folder, imported there with no git host.
+/// The folder `folders` names for the machine `id`.
+fn folder_of<'a>(folders: &'a [ProjectFolder], id: &str) -> Option<&'a str> {
+    folders
+        .iter()
+        .find(|folder| folder.machine_id == id)
+        .map(|folder| folder.folder.as_str())
+}
+
+/// `git init` under the machine's folder in `folders`, else its projects folder, imported there
+/// with no git host.
 async fn create_local(
     env: &Env<'_>,
     name: &str,
     mut chosen: Vec<&Machine>,
+    folders: &[ProjectFolder],
 ) -> Result<CreatedProject, ImportError> {
     let Some(machine) = chosen.pop() else {
         return Err(ImportError::NoMachine);
@@ -307,8 +327,7 @@ async fn create_local(
         return Err(ImportError::ProjectExists(name.to_owned()));
     }
 
-    let folder = project_folder(machine.folders(), &[name])
-        .ok_or_else(|| ImportError::NoHome(machine.name.clone()))?;
+    let folder = under_parent(machine, folder_of(folders, &machine.id), &[name]).await?;
     super::init::init(machine.shell()?, &machine.name, &folder).await?;
     let saved = env
         .store

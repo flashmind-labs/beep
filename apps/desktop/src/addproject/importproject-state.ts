@@ -41,34 +41,23 @@ function orgAndName(repo: string) {
   return parts.length >= 2 ? parts.slice(-2) : null;
 }
 
-/// The folder projects go under, from where one landed: `folder` less its
-/// `org/repo` ending when it has one, else the folder it sits in.
-export function importRoot(folder: string, name: string): string | null {
-  const clean = folder.replace(/\/+$/, "");
-  const tail = `/${name.replace(/^\/+|\/+$/g, "")}`;
-  const root = clean.endsWith(tail) ? clean.slice(0, -tail.length) : clean.slice(0, clean.lastIndexOf("/"));
-  return root || null;
-}
-
-/// The folder `repo` goes in under `root`, as the last import put its own.
+/// The folder `repo` goes in under `root`: `<root>/<org>/<repo>`.
 export function folderUnder(root: string, repo: string): string | null {
   const parts = orgAndName(repo);
   return parts ? `${root.replace(/\/+$/, "")}/${parts[0]}/${parts[1]}` : null;
 }
 
-/// The machine and the folder projects went under at the last import, kept
-/// across launches so the next import starts there.
-export interface LastImport {
-  machine: string;
-  root: string | null;
+/// Where the project `project` goes under `root`: `<root>/<org>/<repo>`, or
+/// `<root>/<name>` for a local one.
+export function projectUnder(root: string, project: string) {
+  const base = root.replace(/\/+$/, ""), [org, name] = project.split("/");
+  return name && org !== "local" ? `${base}/${org}/${name}` : `${base}/${name || org}`;
 }
 
-/// The parent a project goes under on `machine` before anything is typed: the
-/// last one used there, else the projects folder of `base`, where it starts.
-export function defaultParent(machine: string, base: string | null | undefined, os: string | null | undefined, last: LastImport | null) {
-  if (last?.root && last.machine === machine) return last.root;
-  if (!base) return null;
-  return `${base.replace(/\/+$/, "")}/${os === "linux" ? "projects" : "Projects"}`;
+/// The machine the last import went on, kept across launches so the next
+/// one starts there.
+export interface LastImport {
+  machine: string;
 }
 
 /// What importing into the folder `listing` does, as the line under it says.
