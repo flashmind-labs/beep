@@ -77,7 +77,7 @@ test("a git conflict is merged without rewriting history and the ref kept until 
   const text = conflictPrompt({ path, original: originalOf(path) });
   assert.match(text, /refs\/heads\/feat\/x at once.*refs\/beep-conflicts\/heads\/feat\/x-5e6f7a8b/);
   assert.match(text, /without rewriting history/);
-  assert.match(text, /update-ref -d only if I ask/);
+  assert.match(text, /`git update-ref -d` only if I ask/);
 });
 
 test("a folder Syncthing has reads as waiting for it, not as failed", () => {
