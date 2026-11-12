@@ -17,7 +17,15 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     when practical to reuse compilation results across worktrees. For Rust, set RUSTC_WRAPPER=sccache \
     for the build if no compiler wrapper is already configured. For C or C++, follow the project's \
     build configuration and preserve any existing compiler launcher. Do not install sccache or change \
-    the user's global configuration unless asked.\n\n\
+    the user's global configuration unless asked.";
+
+/// What the agent hears, after the brief, about the Beep chat its replies
+/// show in.
+pub(crate) const CHAT: &str = "Beep: your replies show in the Beep chat, next to a file pane. \
+    Link files as Markdown links with paths relative to this session's folder, such as \
+    [src/main.rs](src/main.rs); a click opens the file in the pane. \
+    Image, video, 3D model (glb, gltf, obj, stl) and PDF paths named in a reply open in the pane \
+    too.\n\n\
     When giving the user text intended to be copied or pasted, such as a prompt, message, \
     or handoff, put that text in a Markdown blockquote (`>`). Keep any explanation outside \
     the quote. Use fenced code blocks for code and commands.\n\n\

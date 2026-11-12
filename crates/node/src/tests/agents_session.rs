@@ -268,7 +268,11 @@ async fn an_agent_that_takes_a_system_prompt_gets_the_brief_in_session_new() {
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
     let sent = sent(&log);
     assert_eq!(sent[1]["method"], "session/new");
-    let brief = format!("Worktree first.\n\n{}", crate::agents::mcp::BRIEF);
+    let brief = format!(
+        "Worktree first.\n\n{}\n\n{}",
+        crate::agents::mcp::BRIEF,
+        crate::agents::mcp::CHAT
+    );
     assert_eq!(
         sent[1]["params"]["systemPrompt"],
         serde_json::json!({"mode": "append", "content": [{"type": "text", "text": brief}]})
@@ -299,7 +303,7 @@ async fn a_resumed_session_gets_the_tools_in_session_load_and_the_brief_in_its_p
         sent[1]["params"]["systemPrompt"],
         serde_json::json!({
             "mode": "append",
-            "content": [{"type": "text", "text": crate::agents::mcp::BRIEF}],
+            "content": [{"type": "text", "text": format!("{}\n\n{}", crate::agents::mcp::BRIEF, crate::agents::mcp::CHAT)}],
         })
     );
     assert_eq!(
@@ -327,7 +331,11 @@ async fn an_agent_without_a_system_prompt_gets_the_whole_brief_in_its_first_prom
     settle(&session).await;
     let sent = sent(&log);
     assert!(sent[1]["params"].get("systemPrompt").is_none());
-    let brief = format!("Worktree first.\n\n{}", crate::agents::mcp::BRIEF);
+    let brief = format!(
+        "Worktree first.\n\n{}\n\n{}",
+        crate::agents::mcp::BRIEF,
+        crate::agents::mcp::CHAT
+    );
     assert_eq!(
         prompt_texts(&sent[2]),
         [crate::agents::tags::context(&brief).as_str(), "go"]
@@ -1206,7 +1214,11 @@ async fn a_resumed_session_keeps_the_rule_in_its_system_prompt() {
     settle(&session).await;
     let sent = sent(&log);
     assert_eq!(sent[1]["method"], "session/load");
-    let system = format!("Worktree first.\n\n{}", crate::agents::mcp::BRIEF);
+    let system = format!(
+        "Worktree first.\n\n{}\n\n{}",
+        crate::agents::mcp::BRIEF,
+        crate::agents::mcp::CHAT
+    );
     assert_eq!(
         sent[1]["params"]["systemPrompt"]["content"][0]["text"],
         system.as_str()

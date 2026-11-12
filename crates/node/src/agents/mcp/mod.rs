@@ -25,7 +25,7 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
-pub(crate) use super::brief::BRIEF;
+pub(crate) use super::brief::{BRIEF, CHAT};
 pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
