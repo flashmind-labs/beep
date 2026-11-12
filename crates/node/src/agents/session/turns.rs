@@ -12,8 +12,9 @@ use crate::agents::{
     made_files,
 };
 use agent_client_protocol::{
-    Agent, ConnectionTo,
-    schema::v1::{CancelNotification, PromptResponse, SessionId, SessionUpdate, ToolCallStatus},
+    Agent,
+    v1::ConnectionTo,
+    v1::schema::{CancelNotification, PromptResponse, SessionId, SessionUpdate, ToolCallStatus},
 };
 use anyhow::Result;
 use beep_proto::node::agent::{AlertKind, EntryKind, State, Status, StopReason};

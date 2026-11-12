@@ -1,8 +1,8 @@
 // ---- Desktop: move a coding agent session to another machine (#237) ----
 // Session header: the machine name is a menu ("Move to"). A turn that runs waits for Stop and move.
 // While moving, steps tick above the composer. Messages stay as drafts and can be stashed. Lists show
-// "laptop to studio" with a Moving chip; a failed move stays on the source with the reason in the row's title;
-// an offline machine with a copy here offers Continue on this Mac.
+// "laptop to studio" with a Moving chip; a failed move stays on the source with the reason in the row's title.
+// A move needs both machines online: nothing is offered for a session whose machine is off.
 (() => {
   const st = document.createElement("style");
   st.textContent = `.mac .dhead { position: relative }
@@ -50,8 +50,6 @@
     mvdonemenu: { base: "idle", cur: "studio", menu: "mvdone", line: "Moved from laptop", image: true },
     mvwtmenu: { base: "idle", cur: "laptop", menu: "idle", wt: true },
     mvwtfail: { base: "idle", cur: "laptop", extra: '<div class="mvs" role="status"><div class="h"><span class="t">Move failed: the uncommitted changes do not apply on studio. Still on laptop, nothing lost.</span><span class="sp"></span><button class="dbtn quiet small" data-toast="Dismissed">Dismiss</button></div></div>' },
-    mvcopy: { base: "idle", cur: "laptop", off: true, extra: '<div class="mvs"><div class="h"><span class="t">Another machine continued this session later. This version is kept</span><span class="sp"></span><button class="dbtn quiet small" data-toast="Continues here from this version">Restore</button><button class="dbtn quiet small" data-toast="Copy discarded">Discard</button></div></div>' },
-    mvoffline: { base: "idle", cur: "laptop", off: true, extra: '<div class="mvs"><div class="h"><span class="t">laptop is offline. Copy from 3 min ago</span><span class="sp"></span><button class="dbtn pri small" data-toast="Continues here from the copy">Continue on this Mac</button></div></div>' },
   };
   const endOf = (html, open) => {
     const i = html.indexOf(open);
@@ -90,28 +88,22 @@
     return html;
   };
   const add = (key, list) => VARIANTS[key].push(...list.map(([l, k, field]) => [l, () => { S.d[field] = k; render(); }, () => S.d[field] === k]));
-  add("dAgentSession", [["Move: menu", "mvmenu", "ags"], ["Move: menu, turn running", "mvmenuturn", "ags"], ["Move: waits for the turn", "mvbar", "ags"], ["Move: conversation copying", "mvmoving", "ags"], ["Move: project files", "mvfiles", "ags"], ["Move: waiting for the source", "mvwait", "ags"], ["Move: resuming", "mvresume", "ags"], ["Move: done", "mvdone", "ags"], ["Machine offline, copy here", "mvoffline", "ags"], ["Move: worktree menu", "mvwtmenu", "ags"], ["Move: changes do not apply", "mvwtfail", "ags"], ["Recoverable copy", "mvcopy", "ags"]]);
+  add("dAgentSession", [["Move: menu", "mvmenu", "ags"], ["Move: menu, turn running", "mvmenuturn", "ags"], ["Move: waits for the turn", "mvbar", "ags"], ["Move: conversation copying", "mvmoving", "ags"], ["Move: project files", "mvfiles", "ags"], ["Move: waiting for the source", "mvwait", "ags"], ["Move: resuming", "mvresume", "ags"], ["Move: done", "mvdone", "ags"], ["Move: worktree menu", "mvwtmenu", "ags"], ["Move: changes do not apply", "mvwtfail", "ags"]]);
 
   // Rows of the session lists: Home's Running and a project's Running (a row and a left-list item).
-  const T = "Fix the device build script", NOTE = "Copy from 3 min before laptop went offline", WHY = "Move failed: studio went offline during the file copy. Still on laptop.";
-  const BTN = '<span class="dbtn small" data-toast="Continues on this Mac from the copy">Continue on this Mac</span>';
+  const T = "Fix the device build script", WHY = "Move failed: studio went offline during the file copy. Still on laptop.";
   const EDIT = {
     mvworktree: s => s.replace(/(<span>[^<]*?)\b(build-box|studio)\b/, '$1fix-login · $2'),
     mvmoving: s => s.replace(/(<span>[^<]*?)\b(build-box|studio)\b/, '$1laptop to studio <span class="cc-tag run">Moving</span>'),
     mvfailed: s => s.replace(/(<span>[^<]*?)\b(build-box|studio)\b/, '$1laptop <span class="cc-tag bad">Move failed</span>').split(`title="${T}"`).join(`title="${T}. ${WHY}"`),
     mvdone: s => s.replace(/(<span>[^<]*?)\b(build-box)\b/, "$1studio"),
-    mvcopy: s => {
-      const side = s.startsWith("<button");
-      const t = s.replace(/(<span>[^<]*?)\b(build-box|studio)\b/, side ? "$1laptop offline" : "$1laptop offline · Copy from 3 min before laptop went offline").split(`title="${T}"`).join(`title="${T}. ${NOTE}"`);
-      return side ? t : t.replace(/<span class="r">[^<]*<\/span>/, `<span class="r">${BTN}</span>`);
-    },
   };
   const rows = (html, f) => html
     .replace(new RegExp(`<div class="cc-row cc-line"[^>]*>(?:(?!</div>)[\\s\\S])*?title="${T}"(?:(?!</div>)[\\s\\S])*</div>`, "g"), s => /build\.yml/.test(s) ? s : f(s))
     .replace(new RegExp(`<button class="pj-li" title="${T}"[\\s\\S]*?</button>`, "g"), f);
   const home = D.dHome;
   D.dHome = (...a) => { const f = EDIT[S.d.cc]; const out = home(...a); return f ? rows(out, f) : out; };
-  add("dHome", [["Session in a worktree", "mvworktree", "cc"], ["Move: moving", "mvmoving", "cc"], ["Move: failed", "mvfailed", "cc"], ["Move: done", "mvdone", "cc"], ["Machine offline, copy here", "mvcopy", "cc"]]);
+  add("dHome", [["Session in a worktree", "mvworktree", "cc"], ["Move: moving", "mvmoving", "cc"], ["Move: failed", "mvfailed", "cc"], ["Move: done", "mvdone", "cc"]]);
 
   // The project page: the same rows in Running, plus the left list.
   const proj = D.dWinProject;
@@ -123,5 +115,5 @@
     try { out = proj(...a); } finally { S.d.pj = k; }
     return rows(out, f);
   };
-  VARIANTS.dWinProject.push(...[["Move: moving", "mvmoving"], ["Move: failed", "mvfailed"], ["Machine offline, copy here", "mvcopy"]].map(([l, k]) => [l, () => { S.d.pj = k; S.d.pjv = "board"; S.d.pbo = ""; render(); }, () => S.d.pj === k]));
+  VARIANTS.dWinProject.push(...[["Move: moving", "mvmoving"], ["Move: failed", "mvfailed"]].map(([l, k]) => [l, () => { S.d.pj = k; S.d.pjv = "board"; S.d.pbo = ""; render(); }, () => S.d.pj === k]));
 })();

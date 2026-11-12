@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM rust:1-slim-trixie AS source
+FROM rust:1.99-slim-trixie AS source
 WORKDIR /src
 COPY . .
 
@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # The static beep-node release binaries for Linux, cross-built with zig:
 # `docker build --target node-dist --output type=local,dest=<dir> .` writes
 # <dir>/<target>/beep-node. The node workflow runs it.
-FROM rust:1-slim-trixie AS node-dist-build
+FROM rust:1.99-slim-trixie AS node-dist-build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3-pip \
     && rm -rf /var/lib/apt/lists/* \
@@ -60,7 +60,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # The Windows build, cross-compiled with cargo-xwin against the MSVC CRT it
 # downloads. `--target node-dist-windows` writes
 # <dir>/x86_64-pc-windows-msvc/beep-node.exe.
-FROM rust:1-slim-trixie AS node-dist-windows-build
+FROM rust:1.99-slim-trixie AS node-dist-windows-build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends clang lld llvm python3-pip \
     && rm -rf /var/lib/apt/lists/* \

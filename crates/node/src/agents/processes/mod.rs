@@ -34,8 +34,9 @@ use windows as os;
 /// would lose its child, and closing the session would leave it running.
 const WATCHED: Duration = Duration::from_secs(1);
 /// How often an idle session reads it, only to keep track of children that
-/// leave the session's group, so closing the session can stop them.
-const UNWATCHED: Duration = Duration::from_secs(15);
+/// leave the session's group, so closing the session can stop them. Each
+/// idle session reads on its own, so this is slow.
+const UNWATCHED: Duration = Duration::from_secs(60);
 
 /// How many topic sources follow `processes` right now.
 static DEMAND: LazyLock<watch::Sender<usize>> = LazyLock::new(|| watch::channel(0).0);

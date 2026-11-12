@@ -360,7 +360,7 @@ const barRows = [
 
 async function openBar(page: Page) {
   const done = { id: "n1", kind: "finished", title: "Codex finished", text: "Done", source: machineId, at: NOW, read: false, done: false, target: { agent: barRows[1] } };
-  await openDesktop(page, false, { agent_sessions: barRows, notes_list: [done], session_moves: [], session_copies: [], agent_tree: listing, agent_view: { ...agentView, session: barRows[0] } });
+  await openDesktop(page, false, { agent_sessions: barRows, notes_list: [done], session_moves: [], agent_tree: listing, agent_view: { ...agentView, session: barRows[0] } });
   await page.goto("https://app.test/index.html");
   await expect(page.locator("#bar")).toBeAttached();
   await page.evaluate(() => window.__navigation.emit("bar-shown", null));

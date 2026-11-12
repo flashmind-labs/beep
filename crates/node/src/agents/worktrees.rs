@@ -63,15 +63,15 @@ pub(super) fn checkout_of(path: &Path) -> Option<PathBuf> {
 }
 
 /// The repository a session folder that is gone was a worktree of: its
-/// [`checkout_of`] when that is a repository now.
+/// [`checkout_of`] when that holds a `.git` now. Every path check asks this
+/// of each session folder, so it reads the file system, never git.
 pub(super) fn checkout_of_gone(folder: &Path) -> Option<PathBuf> {
     if folder.exists() {
         return None;
     }
 
     let checkout = checkout_of(folder)?;
-    git(&checkout, &["rev-parse", "--git-dir"]).ok()?;
-    Some(checkout)
+    checkout.join(".git").exists().then_some(checkout)
 }
 
 /// The worktrees of the repository holding `folder`, already resolved and

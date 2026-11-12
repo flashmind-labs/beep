@@ -96,8 +96,6 @@ async fn source_env() -> Source {
             pi: dir.path().join("pi"),
             flsh: dir.path().join("flsh"),
         },
-        cache: super::cache::Cache::new(dir.path()),
-        limits: super::background::Limits::locate(),
     };
     Source {
         _dir: dir,

@@ -2,9 +2,8 @@
 
 use agent_client_protocol::{
     UntypedMessage,
-    schema::{
-        ProtocolVersion,
-        v1::{
+    schema::ProtocolVersion,
+    v1::schema::{
             AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities,
             CompactionCapabilities, ContentBlock, Implementation, InitializeRequest,
             InitializeResponse, LoadSessionRequest, McpServer, Meta, NewSessionRequest,
@@ -12,7 +11,6 @@ use agent_client_protocol::{
             SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
             SessionConfigSelectOptions, SessionId, SessionModeState, SetSessionConfigOptionRequest,
             SystemPrompt, TextContent,
-        },
     },
 };
 use beep_proto::node::agent::{Effort, ModeOption, ModelOption};

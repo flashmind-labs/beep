@@ -30,7 +30,10 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{process::Command, time::timeout};
-use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use tokio_util::{
+    bytes::Bytes,
+    codec::{Framed, LengthDelimitedCodec},
+};
 
 /// The host's socket, in the node's folder. The node starts the host
 /// detached for its first terminal and finds it here after a restart.
@@ -81,7 +84,7 @@ impl Conn {
         // `rmp_serde`, which refuses a longer array: these messages gain no
         // field while such a host can run (AGENTS.md).
         let body = rmp_serde::to_vec(message)?;
-        self.0.send(body.into()).await?;
+        self.0.send(Into::<Bytes>::into(body)).await?;
         Ok(())
     }
 

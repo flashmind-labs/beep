@@ -25,8 +25,8 @@ pub struct Machine {
     /// `linux`, `macos` or `windows`; `None` before its first report.
     pub os: Option<String>,
     pub home: Option<String>,
-    /// The user's files and code, on the user's own Linux environment.
-    pub workspace: Option<String>,
+    /// Its "Projects in" folder as written, once asked for.
+    pub projects_in: Option<String>,
     /// A shell on it, while it is online and runs commands.
     pub shell: Option<Arc<dyn Shell>>,
     /// Set when it is online and can say which folders its agents worked in.
@@ -36,9 +36,8 @@ pub struct Machine {
 impl Machine {
     pub fn folders(&self) -> Folders<'_> {
         Folders {
-            os: self.os.as_deref(),
             home: self.home.as_deref(),
-            workspace: self.workspace.as_deref(),
+            projects_in: self.projects_in.as_deref(),
         }
     }
 

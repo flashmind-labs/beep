@@ -99,7 +99,30 @@ fn links_bare_addresses() {
         html.contains(r#">https://en.wikipedia.org/wiki/Foo_(bar)</a>)"#),
         "{html}"
     );
-    let html = to_html("[site](https://a.com) and `https://b.com`\n\n```\nhttps://c.com\n```");
+    let html = to_html("[site](https://a.com) and `see https://b.com`\n\n```\nhttps://c.com\n```");
+    assert_eq!(html.matches("<a ").count(), 1, "{html}");
+}
+
+#[test]
+fn links_an_address_in_inline_code() {
+    let url = "http://[2001:db8::1]:8791/desktop/index.html#board";
+    let linked = format!(r#"<a href="{url}" rel="noopener noreferrer"><code>{url}</code></a>"#);
+
+    for html in [
+        to_html(&format!("Open `{url}`.")),
+        user_html(&format!("Open `{url}`.")),
+    ] {
+        assert!(html.contains(&linked), "{html}");
+    }
+
+    let html = to_html(&format!("Open {url}."));
+    assert!(
+        html.contains(&format!(
+            r#"<a href="{url}" rel="noopener noreferrer">{url}</a>."#
+        )),
+        "{html}"
+    );
+    let html = to_html("[`https://a.com`](https://b.com)");
     assert_eq!(html.matches("<a ").count(), 1, "{html}");
 }
 

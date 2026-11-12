@@ -34,6 +34,8 @@ fn main_checkouts_are_found_and_the_rest_left_out() {
     repo("notes/vendored");
     repo("code/web/node_modules/dep");
     repo(".config/plugin");
+    repo("Pictures/shared");
+    repo("Music/stems");
     repo("a/b/c/d/too-deep");
 
     let mut found = checkouts(&home, MAX_DEPTH, WALK_FOR).found;

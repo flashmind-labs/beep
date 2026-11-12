@@ -497,6 +497,13 @@ wire_structs! {
         pub private: bool,
     }
 
+    /// Where `CreateProject` puts the project on one machine.
+    pub struct ProjectFolder {
+        pub machine_id: String,
+        /// The folder it goes under as `<folder>/<name>`, absolute or `~/...`.
+        pub folder: String,
+    }
+
     /// What `CreateProject` did.
     pub struct CreatedProject {
         /// `org/repo`, or `local/<name>` for a project with no git host.

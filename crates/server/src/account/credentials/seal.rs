@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow, ensure};
 use beep_projects::credentials::Slot;
 use chacha20poly1305::{
     ChaCha20Poly1305, Key, KeyInit, Nonce,
-    aead::{Aead, OsRng, Payload, rand_core::RngCore},
+    aead::{Aead, Generate, Payload},
 };
 use iroh::SecretKey;
 use secrecy::{ExposeSecret, SecretBox, SecretString};
@@ -63,13 +63,11 @@ impl CredentialKey {
 
     /// A throwaway key; what it seals is lost when the process ends.
     pub fn random() -> Self {
-        let mut key = [0; 32];
-        OsRng.fill_bytes(&mut key);
-        Self(SecretBox::new(Box::new(key)))
+        Self(SecretBox::new(Box::new(<[u8; 32]>::generate())))
     }
 
     fn cipher(&self) -> ChaCha20Poly1305 {
-        ChaCha20Poly1305::new(Key::from_slice(self.0.expose_secret()))
+        ChaCha20Poly1305::new(&Key::from(*self.0.expose_secret()))
     }
 
     /// `plain` sealed for `owner`: a fresh nonce, then the ciphertext.
@@ -89,12 +87,11 @@ impl CredentialKey {
     }
 
     fn seal_for(&self, aad: &[u8], plain: &SecretString) -> Result<Vec<u8>> {
-        let mut nonce = [0; NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce);
+        let nonce = <[u8; NONCE_LEN]>::try_generate()?;
         let sealed = self
             .cipher()
             .encrypt(
-                Nonce::from_slice(&nonce),
+                &Nonce::from(nonce),
                 Payload {
                     msg: plain.expose_secret().as_bytes(),
                     aad,
@@ -119,7 +116,7 @@ impl CredentialKey {
         let (nonce, sealed) = sealed.split_at(NONCE_LEN);
         let plain = self
             .cipher()
-            .decrypt(Nonce::from_slice(nonce), Payload { msg: sealed, aad })
+            .decrypt(&Nonce::try_from(nonce)?, Payload { msg: sealed, aad })
             .map_err(|_| anyhow!("{id} was sealed with another key or for another owner"))?;
         let plain = String::from_utf8(plain).map_err(|_| anyhow!("{id} is not text"))?;
         Ok(SecretString::from(plain))

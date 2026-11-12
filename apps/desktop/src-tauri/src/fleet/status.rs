@@ -21,6 +21,8 @@ use iroh::EndpointId;
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -28,7 +30,7 @@ use tokio::{
     select,
     sync::{oneshot, watch},
     task::{AbortHandle, JoinHandle, JoinSet},
-    time::{Instant as TokioInstant, sleep_until},
+    time::{Instant as TokioInstant, MissedTickBehavior, interval, sleep_until},
 };
 
 /// How long to wait before following a member whose follow ended without the
@@ -38,6 +40,11 @@ const RETRY: Duration = Duration::from_secs(15);
 /// mesh opens or its link goes: the mesh dials it at once, and a dial gives
 /// up after 10 seconds.
 pub(crate) const CONNECT_WAIT: Duration = Duration::from_secs(20);
+/// When each machine was last seen, kept across restarts so one that is off
+/// is not shown as seen when it joined.
+const SEEN_FILE: &str = "machines-seen.json";
+/// How often the times are written while the mesh is open.
+const REMEMBER: Duration = Duration::from_secs(60);
 
 /// A machine whose clock is off, as the Machines screens read it.
 #[derive(Debug, Serialize)]
@@ -197,6 +204,30 @@ impl Shared {
         }
     }
 
+    /// Gives the machines not seen since this start the time they were seen
+    /// before it.
+    fn recall(&self, remembered: &BTreeMap<EndpointId, SystemTime>) {
+        for (id, peer) in self.peers().iter_mut() {
+            if peer.seen_at.is_none() {
+                peer.seen_at = remembered.get(id).copied();
+            }
+        }
+    }
+
+    /// When each machine was last seen, in Unix milliseconds: now for one
+    /// that is on.
+    fn seen_times(&self) -> BTreeMap<String, u64> {
+        let now = SystemTime::now();
+        self.peers()
+            .iter()
+            .filter_map(|(id, peer)| {
+                let at = if peer.online { now } else { peer.seen_at? };
+                let ms = at.duration_since(UNIX_EPOCH).ok()?.as_millis();
+                Some((id.to_string(), u64::try_from(ms).ok()?))
+            })
+            .collect()
+    }
+
     fn record(&self, id: EndpointId, report: Report) {
         let now = SystemTime::now();
         let mut peers = self.peers();
@@ -252,13 +283,23 @@ pub struct Status {
     session: Option<SessionFn>,
     shared: Arc<Shared>,
     watching: Mutex<Option<Watching>>,
+    /// Where the times machines were seen are kept.
+    seen_file: PathBuf,
+    /// The times read from `seen_file` at start.
+    remembered: BTreeMap<EndpointId, SystemTime>,
 }
 
 impl Status {
-    pub(super) fn new(me: EndpointId, session: Option<SessionFn>) -> Self {
+    /// The status of the mesh `me` is in, keeping when machines were seen
+    /// in `dir`.
+    pub(super) fn new(me: EndpointId, session: Option<SessionFn>, dir: &Path) -> Self {
+        let seen_file = dir.join(SEEN_FILE);
+        let remembered = read_seen(&seen_file);
         Self {
             me,
             session,
+            seen_file,
+            remembered,
             shared: Arc::new(Shared {
                 peers: Mutex::default(),
                 changes: watch::channel(Revision::default()).0,
@@ -273,6 +314,7 @@ impl Status {
         self.stop().await;
         // What the machines reported stays for those that are members still.
         self.shared.refresh(&mesh);
+        self.shared.recall(&self.remembered);
         self.shared.connect_all();
         settle_later(self.shared.clone());
         let (stop, stopped) = oneshot::channel();
@@ -281,6 +323,7 @@ impl Status {
             session: self.session.clone(),
             shared: self.shared.clone(),
             mesh,
+            seen_file: self.seen_file.clone(),
         };
         let task = tokio::spawn(follower.run(stopped));
         *self.watching.lock().unwrap_or_else(PoisonError::into_inner) =
@@ -482,6 +525,7 @@ struct Follower {
     session: Option<SessionFn>,
     shared: Arc<Shared>,
     mesh: Mesh,
+    seen_file: PathBuf,
 }
 
 impl Follower {
@@ -494,6 +538,9 @@ impl Follower {
         // When each follow that ended last did, so it is not started again
         // on every change of the mesh.
         let mut ended: BTreeMap<EndpointId, Instant> = BTreeMap::new();
+        let mut remember = interval(REMEMBER);
+        remember.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut remembered = BTreeMap::new();
 
         loop {
             updates.borrow_and_update();
@@ -549,11 +596,19 @@ impl Follower {
                 // Only while a follow waits to start again; an offline
                 // machine coming back is a mesh update.
                 () = sleep_until(retry.map_or_else(TokioInstant::now, TokioInstant::from_std)), if retry.is_some() => {}
+                _ = remember.tick() => {
+                    let seen = self.shared.seen_times();
+                    if seen != remembered {
+                        write_seen(self.seen_file.clone(), &seen);
+                        remembered = seen;
+                    }
+                }
                 // Sent, or the status is gone.
                 _ = &mut stopped => break,
             }
         }
 
+        write_seen(self.seen_file.clone(), &self.shared.seen_times());
         follows.shutdown().await;
     }
 }
@@ -564,6 +619,31 @@ fn settle_later(shared: Arc<Shared>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(CONNECT_WAIT).await;
         shared.bump_machines();
+    });
+}
+
+/// The times `write_seen` kept; none when the file is missing or unreadable.
+fn read_seen(path: &Path) -> BTreeMap<EndpointId, SystemTime> {
+    let seen: BTreeMap<String, u64> = fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    seen.into_iter()
+        .filter_map(|(id, ms)| Some((id.parse().ok()?, UNIX_EPOCH + Duration::from_millis(ms))))
+        .collect()
+}
+
+/// Writes `seen` off the async workers. Best effort: a lost write only
+/// shows an older time after a restart.
+fn write_seen(path: PathBuf, seen: &BTreeMap<String, u64>) {
+    let bytes = match serde_json::to_vec(seen) {
+        Ok(bytes) => bytes,
+        Err(e) => return log::warn!("could not encode when machines were seen: {e}"),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(e) = crate::beep::sync::write(&path, &bytes) {
+            log::warn!("could not save when machines were seen: {e:#}");
+        }
     });
 }
 

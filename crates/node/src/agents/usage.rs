@@ -210,18 +210,18 @@ pub(crate) fn claude_rate_limit(info: &Value) -> Vec<LimitWindow> {
         .collect()
 }
 
+/// A week, in minutes: the length of Claude Code's weekly windows.
+pub(crate) const WEEK_MINUTES: u32 = 7 * 24 * 60;
+
 /// How long a Claude Code limit window is, in minutes, and what it is
 /// limited to, by its name; `None` for one that is no plan window, such
 /// as overage.
 pub(crate) fn claude_window(kind: &str) -> Option<(u32, Option<&'static str>)> {
-    const WEEK: u32 = 7 * 24 * 60;
     Some(match kind {
         "five_hour" => (5 * 60, None),
-        "seven_day" => (WEEK, None),
-        "seven_day_opus" => (WEEK, Some("Opus")),
-        "seven_day_sonnet" => (WEEK, Some("Sonnet")),
-        // Claude Code's own name for it is the Fable limit.
-        "seven_day_overage_included" => (WEEK, Some("Fable")),
+        "seven_day" => (WEEK_MINUTES, None),
+        "seven_day_opus" => (WEEK_MINUTES, Some("Opus")),
+        "seven_day_sonnet" => (WEEK_MINUTES, Some("Sonnet")),
         _ => return None,
     })
 }

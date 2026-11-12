@@ -1250,8 +1250,9 @@ requests! {
     /// `failed` and the repository stays. Without, runs `git init` on the one
     /// machine given and imports it there. `BadRequest` saying why when nothing
     /// was made: the name is taken or not valid, the token may not create
-    /// there, or a machine is offline.
-    414 CreateProject { name: String, repository: Option<NewRepository>, machine_ids: Vec<String> } => Call<CreatedProject>
+    /// there, or a machine is offline. `folders` names the folder it goes
+    /// under on a machine; one not named takes its projects folder.
+    414 CreateProject { name: String, repository: Option<NewRepository>, machine_ids: Vec<String>, #[serde(default)] folders: Vec<ProjectFolder> } => Call<CreatedProject>
     /// The website address that signs this key in, with a one-time code tied
     /// to it, good for ten minutes. `device` is the name the website shows.
     /// Works on a guest connection and a signed-in one. `BadRequest` on a

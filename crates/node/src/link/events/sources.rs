@@ -18,8 +18,10 @@ use tokio_stream::{
     StreamMap, wrappers::BroadcastStream, wrappers::errors::BroadcastStreamRecvError,
 };
 
-/// How often a changing root without Git metadata asks Git again.
-const GIT_RETRY: Duration = Duration::from_secs(2);
+/// How often a changing root without Git metadata asks Git again. Each try
+/// binds every root of the source again, so a busy folder outside any
+/// repository must not make it run often.
+const GIT_RETRY: Duration = Duration::from_secs(30);
 
 pub(crate) type Registry = AsyncMutex<BTreeMap<Topic, Weak<Source>>>;
 pub(super) type Subscriptions = StreamMap<Topic, Subscription>;

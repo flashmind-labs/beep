@@ -325,6 +325,8 @@ jobs:
             $size = (Get-ChildItem $env:CARGO_TARGET_DIR -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Sum Length).Sum
             if ($size -gt 30GB) { Remove-Item -Recurse -Force $env:CARGO_TARGET_DIR }
           }
+          # The bundle folder keeps the last release's installer too.
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/release/bundle/nsis')
           $config = Join-Path $env:RUNNER_TEMP 'desktop-updater.json'
           '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -Path $config -Encoding ascii
           & ./scripts/build-desktop-windows.ps1 -TauriArgs @('--config', $config, '--', '--locked')

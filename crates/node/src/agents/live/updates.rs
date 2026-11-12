@@ -7,9 +7,9 @@ use super::{
     tools::ToolCall,
 };
 use crate::agents::{compaction::COMPACTED_ENTRY, image_files, images::Picture};
-use agent_client_protocol::schema::{
-    MaybeUndefined,
-    v1::{
+use agent_client_protocol::{
+    schema::MaybeUndefined,
+    v1::schema::{
         AvailableCommandInput, CompactionStatus, CompactionUpdate, ContentBlock, PlanEntryStatus,
         SessionUpdate, ToolCallStatus, ToolKind,
     },

@@ -436,15 +436,21 @@ pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEven
         return;
     }
 
-    // Back from the background: iroh binds and probes its paths again.
+    // Back from the background, or from Control Center, which sends only
+    // focus: the links come back as well.
     #[cfg(mobile)]
-    if matches!(event, WindowEvent::Resumed)
-        && let Some(fleet) = window
-            .app_handle()
-            .try_state::<std::sync::Arc<crate::fleet::Fleet>>()
+    if let Some(fleet) = window
+        .app_handle()
+        .try_state::<std::sync::Arc<crate::fleet::Fleet>>()
     {
-        let fleet = fleet.inner().clone();
-        tauri::async_runtime::spawn(async move { fleet.network_changed().await });
+        match event {
+            WindowEvent::Suspended => fleet.went_away(),
+            WindowEvent::Resumed | WindowEvent::Focused(true) => {
+                let fleet = fleet.inner().clone();
+                tauri::async_runtime::spawn(async move { fleet.came_back().await });
+            }
+            _ => {}
+        }
     }
 
     if let Some((shown, when)) = shown_after(event, || on_screen(window)) {
