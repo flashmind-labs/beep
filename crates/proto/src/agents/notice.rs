@@ -107,8 +107,9 @@ impl Alert {
         }
     }
 
-    /// "Claude Code on build-box asks".
-    pub fn notice_title(&self, machine_name: &str) -> String {
+    /// "org/web: Claude Code on build-box asks", or without the project when the
+    /// session is in none.
+    pub fn notice_title(&self, machine_name: &str, project: Option<&str>) -> String {
         let what = match &self.kind {
             AlertKind::Asks { .. } => "asks",
             AlertKind::TurnEnded { stop_reason, .. } => match stop_reason {
@@ -118,7 +119,12 @@ impl Alert {
             },
             AlertKind::Failed { .. } => "failed",
         };
-        format!("{} on {} {what}", agent_name(&self.agent), machine_name)
+        let said = format!("{} on {} {what}", agent_name(&self.agent), machine_name);
+
+        match project {
+            Some(project) => format!("{project}: {said}"),
+            None => said,
+        }
     }
 
     /// What the session is about, then what happened, on one short line.
