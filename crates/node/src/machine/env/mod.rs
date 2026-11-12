@@ -411,18 +411,34 @@ fn mem_total_mb(meminfo: &str) -> Option<u64> {
     Some(kb / 1024)
 }
 
-/// The Android emulator, on `PATH` or in the SDK a service may not have on it.
-fn emulator() -> Option<PathBuf> {
+/// The Android emulator, on `PATH` or in an SDK a service may not have on
+/// it: the one `ANDROID_HOME` names, else where Android Studio and Homebrew
+/// put it.
+pub(crate) fn emulator() -> Option<PathBuf> {
     which::which("emulator").ok().or_else(|| {
-        ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
+        let named = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
             .iter()
             .filter_map(env::var_os)
-            .map(|sdk| PathBuf::from(sdk).join("emulator/emulator"))
+            .map(PathBuf::from);
+        let home = dirs::home_dir();
+        let usual = [
+            Some(PathBuf::from("/opt/homebrew/share/android-commandlinetools")),
+            home.as_ref().map(|home| home.join("Library/Android/sdk")),
+            home.as_ref().map(|home| home.join("Android/Sdk")),
+            dirs::data_local_dir().map(|local| local.join("Android").join("Sdk")),
+        ];
+        named
+            .chain(usual.into_iter().flatten())
+            .map(|sdk| {
+                sdk.join("emulator")
+                    .join(format!("emulator{}", env::consts::EXE_SUFFIX))
+            })
             .find(|path| path.is_file())
     })
 }
 
-async fn avds() -> Vec<String> {
+/// The AVDs the emulator can start, by name.
+pub(crate) async fn avds() -> Vec<String> {
     let Some(emulator) = emulator() else {
         return Vec::new();
     };

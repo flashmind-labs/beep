@@ -1,0 +1,598 @@
+//! iOS simulators, on macOS: listed, started and stopped with `simctl`, and
+//! shown through an `idb_companion` the stream starts for itself, on a Unix
+//! socket only this node uses.
+
+use super::{Controls as AnyControls, Live, Screen, Turn, Turned, follow, point};
+use crate::{lock, run::process};
+use anyhow::{Context, Result, bail};
+use beep_proto::node::device::{
+    Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, TouchPhase,
+};
+use hyper_util::rt::TokioIo;
+use image::{
+    ImageDecoder, ImageFormat,
+    codecs::jpeg::{JpegDecoder, JpegEncoder},
+};
+use proto::{
+    GetOrientationRequest, HidEvent, Point, TargetDescriptionRequest,
+    VideoStreamRequest,
+    companion_service_client::CompanionServiceClient,
+    get_orientation_response::Orientation,
+    hid_event::{
+        Event, HidButton, HidButtonType, HidDirection, HidKey, HidOrientation, HidOrientationType,
+        HidPress,
+        HidPressAction, HidTouch, hid_press_action::Action,
+    },
+    payload::Source,
+    video_stream_request::{Control, Format, Start},
+    video_stream_response::Output,
+};
+use serde::Deserialize;
+use std::{
+    collections::{BTreeMap, HashMap},
+    io::Cursor,
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::{LazyLock, Mutex},
+    time::Duration,
+};
+use tokio::{
+    net::UnixStream,
+    process::Child,
+    sync::{mpsc, watch},
+    time::timeout,
+};
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::task::AbortOnDropHandle;
+use tonic::transport::{Channel, Endpoint, Uri};
+use tower::service_fn;
+
+#[allow(dead_code, clippy::all, clippy::pedantic)]
+mod proto {
+    tonic::include_proto!("idb");
+}
+
+/// How long a simulator has to finish booting before attaching gives up.
+const BOOT_WAIT: Duration = Duration::from_secs(180);
+/// How long idb_companion has to open its socket.
+const COMPANION_START: Duration = Duration::from_secs(20);
+const FPS: u64 = 30;
+const JPEG_QUALITY: f64 = 0.8;
+/// The quality of a frame turned here, out of 100.
+const JPEG_REENCODED: u8 = 80;
+/// USB HID usage of the left shift key.
+const SHIFT: u64 = 225;
+const NO_COMPANION: &str =
+    "idb_companion is not installed: install it with `brew install facebook/fb/idb-companion`.";
+
+type Client = CompanionServiceClient<Channel>;
+
+/// How this node last turned each simulator, by UDID, for those that do
+/// not say.
+static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Mutex::default);
+
+/// Every available iPhone and iPad simulator.
+pub(super) async fn list() -> Vec<Device> {
+    let text = match simctl(&["list", "devices", "available", "--json"]).await {
+        Ok(text) => text,
+        Err(e) => {
+            log::debug!("no iOS simulators: {e:#}");
+            return Vec::new();
+        }
+    };
+
+    match parse_simulators(&text) {
+        Ok(devices) => devices,
+        Err(e) => {
+            log::warn!("could not read the iOS simulators: {e:#}");
+            Vec::new()
+        }
+    }
+}
+
+/// `xcrun simctl list devices --json`, by runtime.
+#[derive(Deserialize)]
+struct SimctlList {
+    devices: BTreeMap<String, Vec<SimctlDevice>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SimctlDevice {
+    udid: String,
+    name: String,
+    state: String,
+    #[serde(default)]
+    device_type_identifier: String,
+    #[serde(default = "available")]
+    is_available: bool,
+}
+
+fn available() -> bool {
+    true
+}
+
+/// The iPhones and iPads `simctl`'s JSON lists, with their iOS version.
+pub(super) fn parse_simulators(text: &str) -> Result<Vec<Device>> {
+    let list: SimctlList = serde_json::from_str(text)?;
+    let devices = list
+        .devices
+        .into_iter()
+        .filter_map(|(runtime, devices)| Some((ios_version(&runtime)?, devices)))
+        .flat_map(|(os, devices)| {
+            devices
+                .into_iter()
+                .filter(|device| device.is_available && is_phone_or_pad(device))
+                .map(move |device| Device {
+                    id: DeviceId(device.udid),
+                    name: device.name,
+                    platform: Platform::Ios,
+                    state: state(&device.state),
+                    os: Some(os.clone()),
+                })
+        })
+        .collect();
+    Ok(devices)
+}
+
+fn is_phone_or_pad(device: &SimctlDevice) -> bool {
+    let kind = &device.device_type_identifier;
+    kind.contains("iPhone") || kind.contains("iPad")
+}
+
+/// "iOS 26.5" from a runtime such as
+/// `com.apple.CoreSimulator.SimRuntime.iOS-26-5`; `None` for other systems.
+fn ios_version(runtime: &str) -> Option<String> {
+    let version = runtime.rsplit('.').next()?.strip_prefix("iOS-")?;
+    Some(format!("iOS {}", version.replace('-', ".")))
+}
+
+fn state(simctl: &str) -> DeviceState {
+    match simctl {
+        "Booted" => DeviceState::On,
+        "Booting" => DeviceState::Booting,
+        _ => DeviceState::Off,
+    }
+}
+
+pub(super) async fn boot(id: &DeviceId) -> Result<()> {
+    match simctl(&["boot", &id.0]).await {
+        Ok(_) => Ok(()),
+        // Booting one already booted changes nothing.
+        Err(e) if format!("{e:#}").contains("current state: Booted") => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+pub(super) async fn shutdown(id: &DeviceId) -> Result<()> {
+    match simctl(&["shutdown", &id.0]).await {
+        Ok(_) => Ok(()),
+        Err(e) if format!("{e:#}").contains("current state: Shutdown") => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// What `xcrun simctl args` printed; an error with what it said when it
+/// failed.
+async fn simctl(args: &[&str]) -> Result<String> {
+    let mut command = process::command("xcrun");
+    command
+        .arg("simctl")
+        .args(args)
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
+    let output = command.output().await;
+    process::finished("xcrun", &output);
+    let output = output.context("could not run xcrun simctl")?;
+
+    if !output.status.success() {
+        let said = String::from_utf8_lossy(&output.stderr);
+        bail!("simctl {}: {}", args.join(" "), said.trim());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Follows simulator `id`'s screen through an idb_companion of this
+/// stream's own, once the simulator finished booting.
+pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
+    let companion = which::which("idb_companion")
+        .ok()
+        .or_else(|| {
+            ["/opt/homebrew/bin/idb_companion", "/usr/local/bin/idb_companion"]
+                .into_iter()
+                .map(PathBuf::from)
+                .find(|path| path.is_file())
+        })
+        .context(NO_COMPANION)?;
+    timeout(BOOT_WAIT, simctl(&["bootstatus", &id.0]))
+        .await
+        .with_context(|| format!("{id} did not finish booting"))??;
+
+    let companion = Companion::start(&companion, id).await?;
+    let mut client = CompanionServiceClient::new(companion.connect().await?);
+    let described = client
+        .describe(TargetDescriptionRequest::default())
+        .await?
+        .into_inner();
+    let screen = described
+        .target_description
+        .and_then(|target| target.screen_dimensions)
+        .context("idb_companion gave no screen size")?;
+    let longer = screen.width.max(screen.height).max(1);
+    let scale = (f64::from(max_side) / longer as f64).min(1.0);
+
+    let start = VideoStreamRequest {
+        control: Some(Control::Start(Start {
+            fps: FPS,
+            format: Format::Mjpeg.into(),
+            compression_quality: JPEG_QUALITY,
+            scale_factor: scale,
+            ..Start::default()
+        })),
+    };
+    let (requests, waiting) = mpsc::channel(1);
+    requests.send(start).await?;
+    let stream = client
+        .video_stream(ReceiverStream::new(waiting))
+        .await?
+        .into_inner();
+    let turned = Turned::default();
+    turned.set(turn_of(&mut client, id).await);
+    let turn = turned.clone();
+    let mut last = (Vec::new(), Turn::Upright);
+    let show = async move |response: proto::VideoStreamResponse| -> Result<Option<Frame>> {
+        // Held while the stream runs: closing it would stop the video.
+        let _requests = &requests;
+        let Some(Output::Payload(payload)) = response.output else {
+            return Ok(None);
+        };
+        let Some(Source::Data(jpeg)) = payload.source else {
+            return Ok(None);
+        };
+
+        let turn = turn.get();
+
+        if jpeg.is_empty() || (jpeg == last.0 && turn == last.1) {
+            return Ok(None);
+        }
+
+        last = (jpeg.clone(), turn);
+        tokio::task::spawn_blocking(move || turned_frame(jpeg, turn)).await?.map(Some)
+    };
+    let (sender, shown) = watch::channel(Screen::Starting);
+    let work = tokio::spawn(follow(stream, sender, show, "The simulator stopped."));
+    let controls = Controls {
+        client,
+        width: screen.width_points as f64,
+        height: screen.height_points as f64,
+        udid: id.clone(),
+        turned,
+        _companion: companion,
+    };
+    Ok(Live {
+        screen: shown,
+        controls: AnyControls::Ios(Box::new(controls)),
+        _work: AbortOnDropHandle::new(work),
+    })
+}
+
+/// The simulator's JPEG `jpeg` as a frame, turned as the device is.
+fn turned_frame(jpeg: Vec<u8>, turn: Turn) -> Result<Frame> {
+    if turn == Turn::Upright {
+        let (width, height) = JpegDecoder::new(Cursor::new(&jpeg))?.dimensions();
+        return Ok(Frame {
+            jpeg,
+            width,
+            height,
+        });
+    }
+
+    let image = image::load_from_memory_with_format(&jpeg, ImageFormat::Jpeg)?;
+    let image = match turn {
+        Turn::Upright => image,
+        Turn::Left => image.rotate270(),
+        Turn::UpsideDown => image.rotate180(),
+        Turn::Right => image.rotate90(),
+    };
+    let mut jpeg = Vec::new();
+    image.write_with_encoder(JpegEncoder::new_with_quality(&mut jpeg, JPEG_REENCODED))?;
+    Ok(Frame {
+        jpeg,
+        width: image.width(),
+        height: image.height(),
+    })
+}
+
+/// How simulator `id` is turned: as idb_companion says, else as this node
+/// last turned it.
+async fn turn_of(client: &mut Client, id: &DeviceId) -> Turn {
+    let asked = client.get_orientation(GetOrientationRequest {}).await;
+
+    match asked.map(|response| response.into_inner().orientation()) {
+        Ok(Orientation::LandscapeLeft) => Turn::Right,
+        Ok(Orientation::PortraitUpsideDown) => Turn::UpsideDown,
+        Ok(Orientation::LandscapeRight) => Turn::Left,
+        Ok(_) => Turn::Upright,
+        // Simulators from Xcode 26 do not say.
+        Err(_) => lock(&TURNS).get(&id.0).copied().unwrap_or_default(),
+    }
+}
+
+/// An idb_companion for one simulator, killed with the stream that
+/// started it, with its socket in a folder of its own.
+struct Companion {
+    child: Child,
+    socket: PathBuf,
+    _dir: tempfile::TempDir,
+}
+
+impl Companion {
+    async fn start(program: &Path, id: &DeviceId) -> Result<Self> {
+        let dir = tempfile::Builder::new().prefix("beep-idb").tempdir()?;
+        let socket = dir.path().join("idb.sock");
+        let mut command = process::command(program);
+        command
+            .arg("--udid")
+            .arg(&id.0)
+            .arg("--grpc-domain-sock")
+            .arg(&socket)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let started = command.spawn();
+        process::launched(program, &started);
+        let mut child = started.context("could not start idb_companion")?;
+
+        let opened = timeout(COMPANION_START, async {
+            loop {
+                if let Some(status) = child.try_wait()? {
+                    bail!("idb_companion stopped at once ({status})");
+                }
+
+                if tokio::fs::try_exists(&socket).await.unwrap_or(false) {
+                    return Ok(());
+                }
+
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await;
+        opened.context("idb_companion did not open its socket")??;
+
+        Ok(Self {
+            child,
+            socket,
+            _dir: dir,
+        })
+    }
+
+    async fn connect(&self) -> Result<Channel> {
+        let socket = self.socket.clone();
+        // The address is not used: every connection goes to the socket.
+        let channel = Endpoint::from_static("http://localhost")
+            .connect_with_connector(service_fn(move |_: Uri| {
+                let socket = socket.clone();
+                async move { Ok::<_, std::io::Error>(TokioIo::new(UnixStream::connect(socket).await?)) }
+            }))
+            .await
+            .context("could not reach idb_companion")?;
+        Ok(channel)
+    }
+}
+
+impl Drop for Companion {
+    fn drop(&mut self) {
+        // This child only; `kill_on_drop` reaps it.
+        if let Err(e) = self.child.start_kill() {
+            log::debug!("idb_companion was already gone: {e}");
+        }
+    }
+}
+
+/// Input to an attached simulator.
+pub(super) struct Controls {
+    client: Client,
+    /// The screen's size in points, upright.
+    width: f64,
+    height: f64,
+    udid: DeviceId,
+    turned: Turned,
+    _companion: Companion,
+}
+
+impl Controls {
+    pub(super) async fn send(&mut self, input: Input) -> Result<()> {
+        let events = match input {
+            Input::Touch { phase, x, y } => {
+                let (x, y) = self.turned.get().upright(x, y);
+                let (x, y) = point(x, y, self.width, self.height);
+                let direction = match phase {
+                    // idb drags as a run of touches down, then one up.
+                    TouchPhase::Down | TouchPhase::Move => HidDirection::Down,
+                    TouchPhase::Up => HidDirection::Up,
+                };
+                let touch = Action::Touch(HidTouch {
+                    point: Some(Point { x, y }),
+                });
+                vec![press(touch, direction)]
+            }
+            Input::Text { text } => {
+                if text.len() > MAX_TEXT {
+                    bail!("text over {MAX_TEXT} bytes");
+                }
+
+                typed(&text)
+            }
+            Input::Key { key } => tap_key(key_code(key), false),
+            Input::Button {
+                button: Button::Rotate,
+            } => return self.rotate().await,
+            Input::Button { button } => match button_type(button) {
+                Some(button) => {
+                    let button = || Action::Button(HidButton {
+                        button: button.into(),
+                    });
+                    vec![
+                        press(button(), HidDirection::Down),
+                        press(button(), HidDirection::Up),
+                    ]
+                }
+                None => return Ok(()),
+            },
+            other => bail!("unknown input {other:?}"),
+        };
+
+        self.client.hid(futures::stream::iter(events)).await?;
+        Ok(())
+    }
+
+    /// Turns the simulator a quarter turn, with a HID event: setting the
+    /// orientation fails on simulators from Xcode 26.
+    async fn rotate(&mut self) -> Result<()> {
+        let next = self.turned.get().next();
+        let orientation = match next {
+            Turn::Upright => HidOrientationType::Portrait,
+            Turn::Left => HidOrientationType::LandscapeRight,
+            Turn::UpsideDown => HidOrientationType::PortraitUpsideDown,
+            Turn::Right => HidOrientationType::LandscapeLeft,
+        };
+        let event = HidEvent {
+            event: Some(Event::Orientation(HidOrientation {
+                orientation: orientation.into(),
+            })),
+        };
+        self.client.hid(futures::stream::iter([event])).await?;
+        self.turned.set(next);
+        lock(&TURNS).insert(self.udid.0.clone(), next);
+        Ok(())
+    }
+}
+
+impl Turn {
+    /// A quarter turn on.
+    fn next(self) -> Self {
+        match self {
+            Self::Upright => Self::Left,
+            Self::Left => Self::UpsideDown,
+            Self::UpsideDown => Self::Right,
+            Self::Right => Self::Upright,
+        }
+    }
+}
+
+fn press(action: Action, direction: HidDirection) -> HidEvent {
+    HidEvent {
+        event: Some(Event::Press(HidPress {
+            action: Some(HidPressAction {
+                action: Some(action),
+            }),
+            direction: direction.into(),
+        })),
+    }
+}
+
+/// A key pressed and let go, with shift held around it when `shifted`.
+fn tap_key(code: u64, shifted: bool) -> Vec<HidEvent> {
+    let key = |keycode| Action::Key(HidKey { keycode });
+    let tap = [
+        press(key(code), HidDirection::Down),
+        press(key(code), HidDirection::Up),
+    ];
+
+    if !shifted {
+        return tap.into();
+    }
+
+    let mut events = vec![press(key(SHIFT), HidDirection::Down)];
+    events.extend(tap);
+    events.push(press(key(SHIFT), HidDirection::Up));
+    events
+}
+
+/// The key presses that type `text` on a US keyboard. Characters it has no
+/// key for are left out.
+fn typed(text: &str) -> Vec<HidEvent> {
+    text.chars()
+        .filter_map(|c| {
+            let key = us_key(c);
+
+            if key.is_none() {
+                log::debug!("no key types {c:?}");
+            }
+
+            key
+        })
+        .flat_map(|(code, shifted)| tap_key(code, shifted))
+        .collect()
+}
+
+/// The USB HID usage that types `c` on a US keyboard, and whether shift is
+/// held for it.
+fn us_key(c: char) -> Option<(u64, bool)> {
+    const SHIFTED_DIGITS: &str = "!@#$%^&*()";
+    const PUNCTUATION: [(char, char, u64); 11] = [
+        ('-', '_', 45),
+        ('=', '+', 46),
+        ('[', '{', 47),
+        (']', '}', 48),
+        ('\\', '|', 49),
+        (';', ':', 51),
+        ('\'', '"', 52),
+        ('`', '~', 53),
+        (',', '<', 54),
+        ('.', '>', 55),
+        ('/', '?', 56),
+    ];
+    let from = |base: char| u64::from(u32::from(c) - u32::from(base));
+
+    match c {
+        'a'..='z' => Some((4 + from('a'), false)),
+        'A'..='Z' => Some((4 + from('A'), true)),
+        '1'..='9' => Some((30 + from('1'), false)),
+        '0' => Some((39, false)),
+        '\n' => Some((40, false)),
+        '\t' => Some((43, false)),
+        ' ' => Some((44, false)),
+        _ => {
+            if let Some(at) = SHIFTED_DIGITS.chars().position(|digit| digit == c) {
+                return Some((30 + at as u64, true));
+            }
+
+            PUNCTUATION.iter().find_map(|&(plain, shifted, code)| {
+                (c == plain)
+                    .then_some((code, false))
+                    .or((c == shifted).then_some((code, true)))
+            })
+        }
+    }
+}
+
+fn key_code(key: Key) -> u64 {
+    match key {
+        Key::Return => 40,
+        Key::Escape => 41,
+        Key::Delete => 42,
+        Key::Tab => 43,
+        Key::Right => 79,
+        Key::Left => 80,
+        Key::Down => 81,
+        Key::Up => 82,
+    }
+}
+
+/// The simulator's button for `button`, `None` for one an iPhone lacks.
+fn button_type(button: Button) -> Option<HidButtonType> {
+    match button {
+        Button::Home => Some(HidButtonType::Home),
+        Button::Power => Some(HidButtonType::Lock),
+        Button::VolumeUp => Some(HidButtonType::VolumeUp),
+        Button::VolumeDown => Some(HidButtonType::VolumeDown),
+        Button::Back | Button::AppSwitch | Button::Rotate => None,
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/run_device_ios.rs"]
+mod tests;
