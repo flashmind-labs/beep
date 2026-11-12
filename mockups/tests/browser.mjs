@@ -58,9 +58,13 @@ try {
   await page.locator('#index [data-screen="dWinProject"]').click();
   await search.press('Escape');
   const project = page.locator('#desk .project-current');
-  assert.equal(await project.locator('.pj-strip > button').count(), 6);
+  assert.equal(await project.locator('.pj-strip > button').count(), 7);
+  assert.deepEqual(await project.locator('.bd-lane > h4').evaluateAll(heads => heads.map(head => head.firstChild.textContent)),
+    ['Needs you', 'Working', 'Ready to review', 'Done today'], 'A project opens on its board');
+  assert.equal(await project.locator('.pj-li').count(), 0, 'The board stands alone on the front page');
+  await project.locator('.bd-lane > h4 button').filter({ hasText: 'Working' }).click();
   assert.deepEqual(await project.locator('.pj-li.nav').evaluateAll(rows => rows.map(row => row.title)),
-    ['Overview', 'Running', 'Actions', 'Machines', 'Issues', 'Sessions', 'Git']);
+    ['Board', 'Running', 'Actions', 'Machines', 'Issues', 'Sessions', 'Git']);
   assert.equal(await page.locator('#desk .us-pill').count(), 0, 'Usage belongs on Home');
   assert.equal(await project.locator('.pj-ov button.lk').filter({ hasText: 'Actions' }).count(), 0);
   await project.locator('.pj-li.nav[title="Sessions"]').click();
@@ -72,7 +76,18 @@ try {
   assert.equal(await project.locator('.gh-legacy').count(), 0, 'Git uses the full split');
   await project.locator('.gh-back').click();
   assert.equal(await page.evaluate(() => S.screen), 'dWinProject', 'Git returns to the current Project');
-  assert.equal(await project.locator('.pj-li.nav[title="Overview"]').getAttribute('aria-current'), 'true');
+  await project.locator('.bd-lanes').waitFor();
+  await page.evaluate(() => { S.d.frontProject = 'list'; render(); });
+  assert.equal(await project.locator('.pj-li.nav[title="Overview"]').getAttribute('aria-current'), 'true', 'The list layout keeps the Overview');
+  await page.evaluate(() => { S.d.frontProject = ''; S.screen = 'dHome'; render(); });
+  const home = page.locator('#desk .cc-view');
+  assert.equal(await home.getByRole('tab', { selected: true }).textContent(), 'Board');
+  assert.equal(await home.locator('.bd-lane').count(), 4);
+  assert.equal(await page.locator('#desk .cc-side .cc-si').filter({ hasText: 'Running' }).count(), 0, 'Running is a lane on the board, not a page');
+  await page.evaluate(() => { S.d.frontHome = 'list'; render(); });
+  assert.equal(await home.getByRole('tab', { selected: true }).textContent(), 'Overview');
+  assert.equal(await page.locator('#desk .cc-side .cc-si').filter({ hasText: 'Running' }).count(), 1);
+  await page.evaluate(() => { S.d.frontHome = ''; render(); });
   await page.evaluate(() => { S.screen = 'dHome'; render(); });
   const baseline = await page.evaluate(() => JSON.stringify(S.d));
   for (const id of ids) {
@@ -120,7 +135,7 @@ try {
         const target = new URL(href, frame.url()).hash;
         assert.ok(target && await phone.locator(target).count(), `${platform} navigation target ${href} is missing`);
       }
-      const dimensions = await frame.locator('.ph').evaluate(element => ({ width: element.clientWidth, scroll: element.scrollWidth }));
+      const dimensions = await frame.locator('.ph').first().evaluate(element => ({ width: element.clientWidth, scroll: element.scrollWidth }));
       assert.ok(dimensions.scroll <= dimensions.width + 1, `${platform} preview ${index} overflows horizontally`);
     }
     await phone.screenshot({ path: fileURLToPath(new URL(`${platform}.png`, output)), fullPage: true });

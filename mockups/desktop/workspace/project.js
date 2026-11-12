@@ -224,7 +224,7 @@ Error: Process completed with exit code 101.</pre></span>
       + g.items.filter(i => !i.server || serverPreview()).map(i => pjRow(i, lit, !g.title)).join("")).join("");
     const strip = `<div class="cc-mstrip pj-strip" aria-label="Project status">${[
       ["main", "branch", "branches"], ["Actions", "1 running · 1 failed", "actions"], ["2 agents", "running", "running"],
-      ["Machines", "2 of 3", "machines"], ["2 PRs", "1 needs a reply", "overview"], ["2 issues", "open", "issues"],
+      ["Machines", "2 of 3", "machines"], ["2 PRs", "1 needs a reply", "pr41"], ["2 issues", "open", "issues"], ["Sessions", "2 past", "agents"],
     ].map(([label, text, id]) => `<button class="m" ${pick(id)}><b>${label}</b><span${id === "actions" ? ' class="bad"' : ""}>${text}</span></button>`).join("")}</div>`;
     const forgejo = S.d.pjf && sel === "is92";
     const forges = `<button class="dbtn small" title="github.com/acme/widget" data-toast="Opens github.com/acme/widget">GitHub</button><button class="dbtn small" title="forge.example.com/acme/widget" data-toast="Opens forge.example.com/acme/widget">Forgejo</button>`;

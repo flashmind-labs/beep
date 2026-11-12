@@ -35,7 +35,12 @@ const SETTINGS_ACCOUNTS = (() => {
   const skinsHtml = () => {
     const on = S.d.skin || "linear";
     const group = (title, list) => `<div class="dskins"><small>${title}</small><div>${list.map(([id, n, c]) => `<button class="dskin" aria-pressed="${id === on}" ${id === "linear" || id === "paper" || id === "flashmind" ? `data-dact="dset:skin:${id === "linear" ? "" : id}" data-dgo="dAppearance"` : `data-toast="Skin: ${n}"`}><i style="background:${c}"></i>${n}</button>`).join("")}</div></div>`;
-    return group("Dark", SK) + group("Light", SKL);
+    // Home and projects each open on the board or on the list from before it.
+    const layoutPick = (key, name, note) => {
+      const on = S.d[key] === "list" ? "list" : "board";
+      return `<div class="dtoggle"><span><b>${name}</b><small>${note}</small></span><div class="hv-seg" role="radiogroup" aria-label="${name} layout">${[["board", "Board"], ["list", "List"]].map(([id, label]) => `<button role="radio" aria-checked="${id === on}" aria-pressed="${id === on}" data-dact="dset:${key}:${id === "list" ? "list" : ""}" data-dgo="${S.screen}">${label}</button>`).join("")}</div></div>`;
+    };
+    return group("Dark", SK) + group("Light", SKL) + layoutPick("frontHome", "Home", "Lanes of cards, or sections of rows") + layoutPick("frontProject", "Projects", "A project's front page");
   };
 
   // Models

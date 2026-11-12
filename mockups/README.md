@@ -13,7 +13,7 @@ The desktop menu groups screens by feature in collapsible sections. Search match
 - Phones: each platform's `screens/` contains named standalone HTML screens. iOS `styles/` contains the shared phone styles; Android loads those styles and applies its platform rules. Entry pages arrange the screens in a gallery using iframes, which also work from disk.
 - Put reusable artwork in `assets/`. Keep sample machines, paths and projects fictional.
 
-Compare Home with `apps/desktop/src/center/home.ts`, machine columns with `src/machines/table.ts`, settings with `src/settings/`, and phone sizing with `apps/desktop/dist/mobile.css`.
+Home and a project open on the board (`workspace/board.js`), which reads its cards from the list layout's rows; Settings, Appearance switches to the list. Compare the board with `apps/desktop/src/center/lanes-view.tsx`, Home with `apps/desktop/src/center/home.ts`, machine columns with `src/machines/table.ts`, settings with `src/settings/`, and phone sizing with `apps/desktop/dist/mobile.css`.
 
 ## Browser checks
 

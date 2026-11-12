@@ -122,3 +122,11 @@
 @media (prefers-reduced-motion: reduce) { .mac .dcoderlog .dthink.live .lb i { animation: none; color: var(--d-muted) } .mac .dcoderlog .dthink .bd, .mac .dcoderlog .dthink .cv { transition: none } }
 /* The transcript as rows: kind icon, verb, target, detail, status; opened, the body under it. */
 .mac .dcoderlog .dcoderen.tool.rows { display: grid; gap: 1px; margin: -4px -6px }
+
+/* The conversation's scrollbar: a tick per message the user sent, and the message beside a hovered tick. */
+.mac .agrail { position: absolute; top: 4px; bottom: 4px; right: 3px; width: 12px; z-index: 3; cursor: default }
+.mac .agrail .th { position: absolute; left: 3px; right: 3px; border-radius: 3px; background: color-mix(in srgb, var(--d-fg) 16%, transparent) }
+.mac .agrail:hover .th { background: color-mix(in srgb, var(--d-fg) 28%, transparent) }
+.mac .agrail .tk { all: unset; position: absolute; left: 0; right: 0; height: 2px; border-radius: 1px; background: var(--d-accent); opacity: .75; cursor: pointer }
+.mac .agrail .tk:hover, .mac .agrail .tk:focus-visible { opacity: 1; height: 4px; margin-top: -1px }
+.mac .agpeek { position: absolute; right: 18px; width: max-content; max-width: min(420px, 70vw); transform: translateY(-50%); padding: 8px 10px; border: 1px solid var(--d-border); border-radius: 6px; background: var(--d-elev); box-shadow: 0 6px 20px rgb(0 0 0 / .28); font-size: 12.5px; line-height: 18px; color: var(--d-fg); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; pointer-events: none }

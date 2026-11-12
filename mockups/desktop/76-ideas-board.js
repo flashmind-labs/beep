@@ -1,9 +1,7 @@
-// ---- The board (#613): Home's first tab and a project's front page ----
-// Needs you, Working, Ready to review and Done replace Home's Overview, the Running page and
-// the project page. A card opens today's agent view as it is; Option-Tab moves between
-// conversations. Opening and going back morph the card into the agent header (picked 12 Nov).
-// A card that changes lane travels there. A started task flying from the composer to Working
-// is a proposal: the app opens the new session instead.
+// ---- The board (#613): what is not built yet ----
+// The board itself is in workspace/board.js. These are the parts still proposed: a project filter
+// and New agent above Home's lanes, rows by project, a way back to the board with Option-Tab
+// to the next conversation on an opened card, and a started task flying from the composer to Working.
 {
   const st = document.createElement("style");
   st.textContent = `
@@ -12,47 +10,24 @@
 .mac .bd-chip { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 6px; font-size: 12.5px; color: var(--d-muted) }
 .mac .bd-chip[aria-pressed=true] { background: var(--d-elev); color: var(--d-fg) }
 .mac .bd-chip .cc-pdot { width: 7px; height: 7px; border-radius: 2px }
-.mac .bd-lanes { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start }
-.mac .bd-lane { display: grid; gap: 8px; min-width: 0 }
-.mac .bd-lane > h4, .mac .bd-rows h4 { margin: 0; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--d-dim) }
-.mac .bd-lane > h4 span, .mac .bd-rows h4 span { font-weight: 500; color: var(--d-muted) }
-.mac .bd-card { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--d-border); border-radius: 8px; background: color-mix(in srgb, var(--d-surface) 82%, transparent) }
-.mac .bd-card:hover { border-color: var(--d-muted) }
-.mac .bd-card b { font-weight: 500; font-size: 13px; line-height: 18px }
-.mac .bd-card .sub { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--d-muted); min-width: 0; white-space: nowrap; overflow: hidden }
-.mac .bd-card .sub .cc-ag { width: 18px; height: 18px; border-radius: 5px; font-size: 8px; flex: none }
-.mac .bd-card .ft { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--d-muted); font-variant-numeric: tabular-nums }
-.mac .bd-card .ft .sp { flex: 1 }
-.mac .agrail { position: absolute; top: 4px; right: 3px; bottom: 4px; width: 12px }
-.mac .agrail .th { position: absolute; left: 3px; right: 3px; border-radius: 3px; background: color-mix(in srgb, var(--d-fg) 22%, transparent) }
-.mac .agrail .tk { all: unset; position: absolute; left: 0; right: 0; height: 2px; border-radius: 1px; background: var(--d-accent); cursor: pointer }
-.mac .agrail .tk:hover { height: 4px; margin-top: -1px }
-.mac .agpeek { position: absolute; right: 18px; width: max-content; max-width: 360px; transform: translateY(-50%); padding: 8px 10px; border: 1px solid var(--d-border); border-radius: 6px; background: var(--d-elev); font-size: 12.5px; line-height: 18px; color: var(--d-fg) }
-.mac .dseg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--d-border); border-radius: 6px }
-.mac .dseg button { all: unset; cursor: pointer; padding: 0 10px; line-height: 24px; border-radius: 5px; font-size: 12.5px; color: var(--d-muted) }
-.mac .dseg button.on { background: color-mix(in srgb, var(--d-accent) 28%, transparent); color: var(--d-fg) }
+.mac button.bd-card { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 6px; width: 100%; padding: 10px 12px; border: 1px solid var(--d-border); border-radius: 8px; background: color-mix(in srgb, var(--d-surface) 82%, transparent) }
 .mac .bd-card .a { color: #4cb782 } .mac .bd-card .d { color: var(--d-err) }
-.mac .bd-empty { padding: 10px 12px; border: 1px dashed var(--d-border); border-radius: 8px; font-size: 11.5px; color: var(--d-muted) }
+.mac .bd-rows h4 { margin: 0; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--d-dim) }
+.mac .bd-rows h4 span { font-weight: 500; color: var(--d-muted) }
 .mac .bd-rows { display: grid; grid-template-columns: 120px repeat(4, minmax(0, 1fr)); column-gap: 12px; align-items: start }
 .mac .bd-rows > * { padding: 10px 0; border-top: 1px solid var(--d-border); min-width: 0 }
 .mac .bd-rows > .hd { border-top: 0; padding: 0 0 8px }
 .mac .bd-rows > .pj { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500 }
 .mac .bd-back { all: unset; cursor: pointer; font-size: 12.5px; color: var(--d-muted) } .mac .bd-back:hover { color: var(--d-fg) }
-.mac .bd-pj { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
-.mac .bd-pj .cc-mstrip { margin: 0; flex: none }
 .mac .bd-next { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--d-muted) }
 .mac .bd-next kbd { font: 10.5px var(--mono); padding: 1px 5px; border: 1px solid var(--d-border); border-radius: 4px }
 
-/* Navigation motion: one short transition per move, nothing ambient. The sidebar never moves. */
-::view-transition-group(*) { animation-duration: .2s; animation-timing-function: cubic-bezier(.2, 0, 0, 1) }
-::view-transition-old(*), ::view-transition-new(*) { animation-duration: .2s; animation-timing-function: cubic-bezier(.2, 0, 0, 1) }
-::view-transition-old(root), ::view-transition-new(root) { animation: none }
 ::view-transition-old(bd-hero), ::view-transition-new(bd-hero) { height: 100%; object-fit: cover; object-position: left top }
 html[data-bddir=next]::view-transition-old(bd-main) { animation: .2s cubic-bezier(.2, 0, 0, 1) both bd-out-up }
 html[data-bddir=next]::view-transition-new(bd-main) { animation: .2s cubic-bezier(.2, 0, 0, 1) both bd-in-up }
 @keyframes bd-in-up { from { transform: translateY(40px); opacity: 0 } }
 @keyframes bd-out-up { to { transform: translateY(-40px); opacity: 0 } }
-/* A card that changes lane travels there; a started task leaves the composer and lands in Working. */
+/* A started task leaves the composer and lands in Working. */
 html[data-bddir=lane]::view-transition-group(*) { animation-duration: .32s }
 html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-transition-new(*) { animation-duration: .32s; height: 100%; object-fit: cover; object-position: left top }
 `;
@@ -90,7 +65,7 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
 
     return `<button class="bd-card" data-bdgo="open:${index}"${hero(index)}>
       <b>${title}</b>
-      <span class="sub">${ag(agent)}${showProject ? `${project} · ` : ""}${where}</span>
+      <span class="sub">${ag(agent)}<span>${showProject ? `${project} · ` : ""}${where}</span></span>
       ${footer || button ? `<span class="ft">${foot(footer)}<span class="sp"></span>${button ? `<span class="dbtn small${lane === "needs" && agent ? " pri" : ""}">${button}</span>` : ""}</span>` : ""}
     </button>`;
   };
@@ -136,7 +111,7 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
   // The project page keeps its header, status strip and composer; the board replaces the list and overview.
   const project = () => {
     const t = frame(D.dWinProject(), ".pj-repo");
-    const pane = t.content.querySelector(".cc-view");
+    const pane = t.content.querySelector(".cc-view, .bd-pj");
     const strip = pane.querySelector(".pj-strip");
     pane.className = "bd-pj";
     pane.replaceChildren(strip);
@@ -156,22 +131,11 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     head.querySelector(".agtitle").dataset.originalTitle = title;
     head.querySelector(".tt small").textContent = `${name} @ ${where.split(" · ")[0]}`;
     head.style.viewTransitionName = "bd-hero";
-    // The conversation's scrollbar: a tick for each message the user sent; a click jumps there.
-    const body = t.content.querySelector(".dbody");
-    if (body) {
-      body.parentElement.style.position = "relative";
-      body.insertAdjacentHTML("afterend", `<div class="agrail"><div class="th" style="top:62%;height:30%"></div>${[4, 21, 38, 55, 81].map((at, i) => `<button class="tk" style="top:${at}%" title="Your message ${i + 1}"></button>`).join("")}<div class="agpeek" style="top:38%">Run the tests again and fix what fails, then open a PR.</div></div>`);
-    }
     return t.innerHTML;
   };
 
-  // Settings, Appearance: Home and projects each pick the board or the list from before it.
-  const layoutPick = (name, note) => `<div class="dtoggle"><span><b>${name}</b><small>${note}</small></span><span class="dseg"><button class="on">Board</button><button>List</button></span></div>`;
-  const settings = () => home(`<div class="cc-sec"><h4>Settings · Appearance</h4></div><div class="cc-panel" style="padding:4px 12px">${layoutPick("Home", "Lanes of cards, or sections of rows")}${layoutPick("Projects", "A project's front page")}</div>`);
-
   D.dIdeaBoard = () => {
     const v = view();
-    if (v === "settings") return settings();
     if (v === "open") return opened();
     if (v === "project") return project();
     if (v === "rows") return home(`<div class="bd-bar">${newAgent}</div>${rows()}`);
@@ -179,7 +143,7 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
   };
 
   // One place moves between views, so every move gets the same transition.
-  const DEPTH = { all: 0, rows: 0, settings: 0, project: 1, open: 2 };
+  const DEPTH = { all: 0, rows: 0, project: 1, open: 2 };
   const AGENT_CARDS = CARDS.flatMap((c, i) => c[1] ? [i] : []);
   function move(to) {
     const from = view();
@@ -201,7 +165,7 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     document.startViewTransition(change);
   }
 
-  // Lane changes come from agents, not from a click, so the app would batch them and skip them when hidden.
+  // The new card is named before the old view is captured, so it travels from the composer.
   function live(kind, change) {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches || !document.startViewTransition) { change(); return render(); }
     S.d.ixlive = kind;
@@ -210,12 +174,6 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     const done = () => { S.d.ixlive = ""; render(); };
     document.startViewTransition(() => { change(); if (kind === "start") S.d.ixlive = "lane"; render(); }).finished.then(done, done);
   }
-  const ASKING = CARDS.find(c => c[2] === "Clippy fixes in the sync crate");
-  const laneChange = () => live("lane", () => {
-    const asks = ASKING[0] === "working";
-    ASKING.splice(0, 1, asks ? "needs" : "working");
-    ASKING.splice(5, 2, asks ? "" : "31 min", asks ? "Answer" : "");
-  });
   const start = task => live("start", () => CARDS.push(["working", "claude", task, PROJECT, "build-box", "now", ""]));
 
   document.addEventListener("click", event => {
@@ -243,13 +201,12 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
   }, { capture: true });
 
   VARIANTS.dIdeaBoard = [
-    ...[["Board", "all"], ["Project board", "project"], ["Rows by project", "rows"], ["Card opened", "open"], ["Settings: Board or List", "settings"]]
+    ...[["Project filter and New agent", "all"], ["Rows by project", "rows"], ["Card opened: back to the board, next conversation", "open"]]
       .map(([label, key]) => [label, () => move(key === "open" ? `open:${openCard()}` : key), () => view() === key]),
-    ["Play: a card changes lane", () => { if (view() === "open" || view() === "project") S.d.ixb = "all"; laneChange(); }, () => false],
-    ["Proposal: start an agent", () => { S.d.ixb = "project"; start("Bump the SDK to 4.3"); }, () => false],
+    ["Start an agent: the task flies to Working", () => { S.d.ixb = "project"; start("Bump the SDK to 4.3"); }, () => view() === "project"],
   ];
 
-  DESK_SCREENS.unshift({ group: "Ideas (12 Nov)", items: [["dIdeaBoard", "Board (Home and project)", "HomeOverview, ProjectBoard; a card opens the agent view"]] });
+  DESK_SCREENS.unshift({ group: "Ideas (12 Nov)", items: [["dIdeaBoard", "Board: not built yet", "Project filter, rows by project, back to the board, a started task flying to Working"]] });
   if (location.hash.slice(1) === "dIdeaBoard") S.screen = "dIdeaBoard";
   render();
 }
