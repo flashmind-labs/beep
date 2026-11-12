@@ -2,6 +2,19 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.6] - 2026-11-12
+
+### Fixed
+
+- Node: on a flaky network the node no longer climbs to several cores of CPU and gigabytes of memory; the networking library kept retrying the same connection paths in a queue that never stopped growing.
+
+### Performance
+
+- Node: a project that cannot sync on a machine (uncommitted changes, or
+  ahead of the others) no longer keeps machines busy retrying; they wait
+  until it changes.
+- Node: synced files under 16 KB are no longer copied into the sync database, which kept it large and held much of it in memory.
+
 ## [0.6.5] - 2026-11-12
 
 ### Changed
