@@ -33,8 +33,15 @@ pub(crate) fn start(app: AppHandle) -> Option<Sampling> {
         return None;
     }
 
+    let mut sampler = match Sampler::new() {
+        Ok(sampler) => sampler,
+        Err(error) => {
+            log::warn!("resource sampling unavailable: {error}");
+            return None;
+        }
+    };
+
     Some(Sampling(tauri::async_runtime::spawn(async move {
-        let mut sampler = Sampler::default();
         let mut interval = tokio::time::interval(PERIOD);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -118,7 +125,6 @@ struct ProcessSample {
     usage: Usage,
 }
 
-#[derive(Default)]
 struct Sampler {
     system: System,
     previous: HashMap<(Pid, u64), Usage>,
@@ -127,6 +133,15 @@ struct Sampler {
 }
 
 impl Sampler {
+    fn new() -> Result<Self, sysinfo::Error> {
+        Ok(Self {
+            system: System::new()?,
+            previous: HashMap::new(),
+            sampled_at: None,
+            previous_context: None,
+        })
+    }
+
     fn continuous(&self, now: SystemTime, context: Context, power: PowerSource) -> bool {
         self.sampled_at.is_some_and(|last| {
             now.duration_since(last)
