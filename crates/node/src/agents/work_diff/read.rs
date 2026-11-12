@@ -11,6 +11,7 @@ use std::{
     process::{Command, Stdio},
     thread,
 };
+use tempfile::TempDir;
 
 /// The most of git's error kept for the message.
 const MAX_ERROR: usize = 2_000;
@@ -87,10 +88,14 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
         args.push(head);
     }
     args.push("--");
-    stream_git(&dir, &args, |line| parser.line(line))?;
     let working_tree = head.is_none();
+    // Untracked files go into a copy of the index as intent to add, so
+    // git's rename detection sees a file moved without `git add`.
+    let index = working_tree.then(|| untracked_index(&dir)).flatten();
+    let index_path = index.as_ref().map(|index| index.path.as_path());
+    stream_git(&dir, &args, index_path, |line| parser.line(line))?;
 
-    if working_tree {
+    if working_tree && index.is_none() {
         add_untracked(&dir, &mut parser, caps)?;
     }
 
@@ -185,6 +190,52 @@ fn worktree_of(root: &Path, branch: &str) -> Result<Option<PathBuf>> {
     }
 
     Ok(None)
+}
+
+/// A copy of the checkout's index in a temporary folder, with its untracked
+/// files added as intent to add. `None` when there are none, or git refuses.
+struct UntrackedIndex {
+    _dir: TempDir,
+    path: PathBuf,
+}
+
+fn untracked_index(dir: &Path) -> Option<UntrackedIndex> {
+    let list = git(dir, &["ls-files", "--others", "--exclude-standard", "-z"]).ok()?;
+    // A folder here is a repository of its own, which `git add` would embed.
+    let files: Vec<&str> = list
+        .split('\0')
+        .filter(|rel| !rel.is_empty() && !rel.ends_with('/'))
+        .take(MAX_DIFF_FILES + 1)
+        .collect();
+    if files.is_empty() {
+        return None;
+    }
+
+    let current = git(
+        dir,
+        &["rev-parse", "--path-format=absolute", "--git-path", "index"],
+    )
+    .ok()?;
+    let temp = TempDir::new().ok()?;
+    let path = temp.path().join("index");
+    let current = Path::new(current.trim());
+
+    if current.exists() {
+        fs::copy(current, &path).ok()?;
+    }
+
+    let mut args = vec!["add", "--intent-to-add", "--"];
+    args.extend(files);
+    let added = git_command(dir, &args)
+        .env("GIT_INDEX_FILE", &path)
+        .env("GIT_LITERAL_PATHSPECS", "1")
+        .output();
+    crate::run::process::finished("git", &added);
+    if !added.ok()?.status.success() {
+        return None;
+    }
+
+    Some(UntrackedIndex { _dir: temp, path })
 }
 
 /// Adds the files git does not track and does not ignore, as added files.
@@ -299,8 +350,19 @@ pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Result<String> {
 
 /// Hands each line `git <args>` prints in `dir` to `each`, as it comes,
 /// so a long diff is never held whole.
-fn stream_git(dir: &Path, args: &[&str], mut each: impl FnMut(&str)) -> Result<()> {
-    let child = git_command(dir, args)
+fn stream_git(
+    dir: &Path,
+    args: &[&str],
+    index: Option<&Path>,
+    mut each: impl FnMut(&str),
+) -> Result<()> {
+    let mut command = git_command(dir, args);
+
+    if let Some(index) = index {
+        command.env("GIT_INDEX_FILE", index);
+    }
+
+    let child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
