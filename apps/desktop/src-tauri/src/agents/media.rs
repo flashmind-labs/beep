@@ -194,7 +194,7 @@ pub async fn agent_file_save(
     path: String,
 ) -> Result<PathBuf> {
     let data = whole_file(&beep, &fleet, &machine_id, &path).await?;
-    let to = free_name(&app.path().download_dir()?, &file_name(&path));
+    let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&path));
     fs::write(&to, &data).map_err(anyhow::Error::from)?;
     Ok(to)
 }

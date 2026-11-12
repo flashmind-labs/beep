@@ -5,6 +5,7 @@ import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk } from "./chat.ts";
 import { $, bar } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
+import { savesName } from "../ui/platform.ts";
 
 // ---------- Files ----------
 
@@ -168,7 +169,7 @@ export function viewerKeys(e: KeyboardEvent, cmd: boolean) {
 export async function savePic(file: PicFile) {
   try {
     const path = await invoke<string>("save_file", { id: file.id, name: file.name });
-    notice(`Saved ${file.name} to Downloads`, { path });
+    notice(`Saved ${file.name} to ${savesName()}`, { path });
   } catch (e) {
     notice(String(e) === GONE ? GONE_PIC : `Could not save it. ${e}`, { bad: true });
   }
@@ -178,7 +179,7 @@ export async function savePic(file: PicFile) {
 export async function saveUrl(url: string, name: string) {
   try {
     const path = await invoke<string>("save_picture", { name, url });
-    notice(`Saved ${path.split("/").pop()} to Downloads`, { path });
+    notice(`Saved ${path.split("/").pop()} to ${savesName()}`, { path });
   } catch (e) {
     notice(`Could not save it. ${e}`, { bad: true });
   }

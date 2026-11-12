@@ -564,7 +564,7 @@ pub async fn machine_log(beep: Service<'_>, fleet: Machines<'_>, id: String) -> 
 #[tauri::command]
 pub fn save_machine_log(app: AppHandle, name: String, text: String) -> Result<PathBuf> {
     let to = free_name(
-        &app.path().download_dir()?,
+        &crate::platform::saves_dir(&app)?,
         &file_name(&format!("{name}.log")),
     );
     fs::write(&to, text).map_err(anyhow::Error::from)?;

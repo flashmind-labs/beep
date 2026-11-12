@@ -18,6 +18,7 @@ import { VOICE_ICON } from "../bar/live.ts";
 import type { AskFile } from "./attach.ts";
 import { placeReplyElement, placeTurnElement, type Turn, type ApprovalView, type ReplyActions, type RerunView, type Sent, type SentItem, type Source, type StoppedView, type TranscriptState, type TurnView, type WorkLive, type WorkStep, type WorkThought, type WorkView } from "./transcript.ts";
 import { cardKey } from "./agentcard.ts";
+import { savesName } from "../ui/platform.ts";
 
 // A chat's transcript as React draws it: one list of turns, each drawn from
 // its view in the transcript store, then the background work waiting on the
@@ -194,7 +195,7 @@ function ReplyPicture({ image, images, index }: { image: SentImage; images: read
   }, [file?.id, file?.mime]);
   if (gone) return <span className="drpic gone">{GONE_PIC}</span>;
   const name = file?.name ?? "";
-  return <span className={`drpic${waiting ? " wait" : ""}`}><button className="pic" aria-label={image.caption || name || "Picture"} onClick={() => openViewer([...images], index)}>{src && <img alt="" src={src} onLoad={() => setWaiting(false)} onError={() => setGone(true)} />}</button>{file && <button className="save" aria-label={`Save ${name}`} title="Save to Downloads" onClick={() => void savePic(file)} dangerouslySetInnerHTML={{ __html: ICON.save }} />}</span>;
+  return <span className={`drpic${waiting ? " wait" : ""}`}><button className="pic" aria-label={image.caption || name || "Picture"} onClick={() => openViewer([...images], index)}>{src && <img alt="" src={src} onLoad={() => setWaiting(false)} onError={() => setGone(true)} />}</button>{file && <button className="save" aria-label={`Save ${name}`} title={`Save to ${savesName()}`} onClick={() => void savePic(file)} dangerouslySetInnerHTML={{ __html: ICON.save }} />}</span>;
 }
 const ReplyPictures = memo(function ReplyPictures({ images }: { images: readonly SentImage[] }) {
   return <>{images.map((image, index) => <ReplyPicture key={index} image={image} images={images} index={index} />)}</>;

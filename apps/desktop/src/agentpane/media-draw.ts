@@ -22,6 +22,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
 import { type DockModel, type DockView, docked, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
+import { savesName } from "../ui/platform.ts";
 
 // ----- Tabs -----
 
@@ -222,7 +223,7 @@ export function tabMenu(e: MouseEvent, id: string) {
   } else if (t.path && P.session) {
     const { machine_id } = P.session, file = t.path;
     items.push({ label: "Save", on: () => void invoke<string>("agent_file_save", { machineId: machine_id, path: file })
-      .then(to => { note(`Saved to Downloads as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
+      .then(to => { note(`Saved to ${savesName()} as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
       .catch(err => note(readError(err))) });
   }
 

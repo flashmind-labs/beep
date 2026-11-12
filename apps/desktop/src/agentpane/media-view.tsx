@@ -7,6 +7,7 @@ import { baseName, resolvePath } from "./media-state.ts";
 import { P, type MediaTab } from "./media.ts";
 import { readError, readFile } from "./read.ts";
 import { noteTab } from "./media-draw.ts";
+import { savesName } from "../ui/platform.ts";
 
 export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: string | null; label: string }) {
   if (!tab.path) return null;
@@ -16,7 +17,7 @@ export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: s
   const save = () => {
     if (!machine) return;
     void invoke<string>("agent_file_save", { machineId: machine, path }).then(to => {
-      note(`Saved to Downloads as ${baseName(to)}`);
+      note(`Saved to ${savesName()} as ${baseName(to)}`);
       void invoke("reveal_file", { path: to }).catch(() => {});
     }).catch(error => note(readError(error)));
   };
