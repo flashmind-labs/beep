@@ -7,6 +7,20 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.14] - 2026-11-12
+
+### Changed
+
+- Desktop: terminals are drawn with Ghostty's engine on the GPU, so
+  full-screen programs such as btop, neovim and yazi look and respond as in
+  Ghostty, with Kitty images, Nerd Font icons, Powerline shapes and block
+  graphics that meet across cells.
+
+### Fixed
+
+- Desktop: the spinner on the "commands running" line above an agent's message
+  field turns steadily instead of starting over when the line is drawn again.
+
 ## [0.8.13] - 2026-11-12
 
 ### Fixed
