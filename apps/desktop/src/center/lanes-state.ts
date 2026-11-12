@@ -44,6 +44,13 @@ export function byProject<T extends { lane: Lane; project: string | null }>(card
   return [...rows].map(([project, own]) => ({ project, cards: own })).sort((a, b) => rank(a) - rank(b));
 }
 
+/// A card's muted line under its project's heading, without the project's name.
+export function withoutProject(sub: string, project: string | null) {
+  if (project === null) return sub;
+  if (sub === project) return "";
+  return sub.startsWith(`${project} · `) ? sub.slice(project.length + 3) : sub;
+}
+
 /// The sessions that ended since local midnight of `now`, the latest first.
 export function endedToday<T extends { status: string; last_activity: number }>(sessions: readonly T[], now: number): T[] {
   const midnight = new Date(now).setHours(0, 0, 0, 0);

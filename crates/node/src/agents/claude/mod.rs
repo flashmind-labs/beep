@@ -442,10 +442,18 @@ pub(crate) fn refuse_takeover(found: &ExternalSession) -> Option<String> {
         ));
     }
 
-    if found.cwd.is_empty() || !Path::new(&found.cwd).is_dir() {
+    if found.cwd.is_empty() {
         return Some(format!(
-            "session {} ran in a folder that is not here any more",
+            "session {} does not record the folder it ran in",
             found.id
+        ));
+    }
+
+    if !Path::new(&found.cwd).is_dir() {
+        return Some(format!(
+            "session {} last ran in {}, which no longer exists. \
+             Recreate that folder to resume it.",
+            found.id, found.cwd
         ));
     }
 
