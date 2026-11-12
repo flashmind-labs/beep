@@ -2,6 +2,19 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.13] - 2026-11-12
+
+### Changed
+
+- Node: agents learn that file paths relative to their folder open in the
+  desktop's file pane at the line given, and that videos, 3D models and the
+  files they write show there too.
+
+### Performance
+
+- Node: desktops and phones fetch media files from chats over iroh-blobs, so
+  an unchanged file is not sent again.
+
 ## [0.6.12] - 2026-11-12
 
 ### Changed
