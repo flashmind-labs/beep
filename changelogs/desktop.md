@@ -9,6 +9,8 @@ Other apps have independent versions and changelogs:
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-11-12
+
 ### Changed
 
 - Desktop: diagrams in chats use the chat's colors instead of a white card, show at full size, and say what kind of diagram they are. Copy image, PNG and SVG moved into an Export menu next to Source and Copy. Sequence diagrams show each participant once, at the top.
