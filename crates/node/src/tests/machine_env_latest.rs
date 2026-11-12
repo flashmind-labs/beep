@@ -46,3 +46,28 @@ async fn the_report_is_probed_again_after_reprobe() {
         .expect("a second report");
     assert_eq!(runs.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn a_probe_task_lost_with_its_runtime_is_started_again() {
+    let (probes, runs) = counted();
+    let runtime = || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("a runtime")
+    };
+
+    // The first runtime ends before its probing task sees a report taken.
+    runtime().block_on(async {
+        let _follower = probes.follow();
+    });
+
+    runtime().block_on(async {
+        let mut follower = probes.follow();
+        tokio::time::timeout(Duration::from_secs(5), follower.wait_for(Option::is_some))
+            .await
+            .expect("a report in time")
+            .expect("a report");
+    });
+    assert!(runs.load(Ordering::SeqCst) >= 1);
+}
