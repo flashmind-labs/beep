@@ -718,31 +718,30 @@ test("session model choices survive a window reload", async t => {
   assert.equal(new SessionPicks().has("saved-model-session"), false);
 });
 
-test("the running commands line keeps its spinner while the count holds, and a new one goes on in the same turn", t => {
+test("the running commands line keeps its dot while the count holds, and a new one goes on in the same turn", t => {
   openSession("running");
   const line = fieldControl(t, "tasks");
   const task = (id: string, state = "running"): AgentTask => ({ id, name: id, description: "", state, can_stop: true, output_file: null, summary: null, entry: null });
 
   AG.tasks = [task("t1")];
   drawTasks();
-  const spinner = line.querySelector(".dspin");
+  const spinner = line.querySelector(".drun");
   assert.ok(spinner);
   assert.match(line.textContent ?? "", /1 command running/);
 
-  // Another read with the same count, or a different command, leaves the spinner turning.
+  // Another read with the same count, or a different command, leaves the dot in place.
   AG.tasks = [task("t2"), task("t1", "completed")];
   drawTasks();
-  assert.equal(line.querySelector(".dspin"), spinner);
+  assert.equal(line.querySelector(".drun"), spinner);
 
-  // Gone and back, it starts where the page clock is in the turn, not at the top.
+  // Gone and back, a new one shows.
   AG.tasks = [];
   drawTasks();
-  assert.equal(line.querySelector(".dspin"), null);
+  assert.equal(line.querySelector(".drun"), null);
   AG.tasks = [task("t3")];
   drawTasks();
-  const again = line.querySelector<HTMLElement>(".dspin");
+  const again = line.querySelector<HTMLElement>(".drun");
   assert.ok(again && again !== spinner);
-  assert.match(again.style.animationDelay, /^(-\d+|0)ms$/);
   AG.tasks = [];
   drawTasks();
 });

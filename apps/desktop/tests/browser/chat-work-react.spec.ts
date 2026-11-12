@@ -255,7 +255,7 @@ test("streamed tool status updates retain the same row", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "toolEvent"))).toBe("function");
   await page.evaluate(() => Reflect.get(window, "toolEvent")({ kind: "tool_started", call_id: "call-1", name: "web_search", description: "Search example" }));
   const row = page.locator(".tools .tool.row");
-  await expect(row.locator(".dspin")).toBeVisible();
+  await expect(row.locator(".drun")).toBeVisible();
   await row.evaluate(el => Reflect.set(window, "toolRow", el));
   await page.evaluate(() => Reflect.get(window, "toolEvent")({ kind: "tool_result", call_id: "call-1", name: "web_search", success: true, file: null, images: [], products: null, cards: null, chart: null }));
   await expect(row.locator(".dok")).toBeVisible();

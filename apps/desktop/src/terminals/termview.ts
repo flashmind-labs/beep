@@ -127,6 +127,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     const data = typeof bytes === "string" ? bytes : decoder.decode(bytes);
     if (data === "") return;
     parts?.term.scrollToBottom();
+    wake();
     onData(data);
   };
 
@@ -201,7 +202,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     }
 
     parts.state.update(parts.term);
-    renderer.draw(parts.state, parts.term, fullRedraw, { visible: !inputOn || blinkOn, focused: inputOn && focused() });
+    renderer.draw(parts.state, parts.term, fullRedraw, { blinkedOut: inputOn && !blinkOn, focused: inputOn && focused() });
     fullRedraw = false;
   };
 
@@ -438,17 +439,36 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     }
   }, { passive: false });
 
-  const blink = setInterval(() => {
-    if (!inputOn || !focused()) { if (!blinkOn) { blinkOn = true; schedule(); } return; }
-    blinkOn = !blinkOn;
-    schedule();
-  }, BLINK_MS);
+  // The cursor blinks on a timer that runs only while this terminal has the
+  // keys in the focused window; otherwise it stays lit. A window losing focus,
+  // hidden or not, takes focus from the terminal too.
+  let blink: ReturnType<typeof setInterval> | null = null;
+  const blinking = () => {
+    const on = !disposed && inputOn && focused() && document.hasFocus();
+    if (on && blink === null) blink = setInterval(() => { if (!blinking()) return; blinkOn = !blinkOn; schedule(); }, BLINK_MS);
+    else if (!on && blink !== null) { clearInterval(blink); blink = null; }
+
+    if (!on && !blinkOn) { blinkOn = true; schedule(); }
+    return on;
+  };
+  // Focus leaves before the next element takes it.
+  const focusChanged = () => { queueMicrotask(blinking); };
+  el.addEventListener("focusin", focusChanged);
+  el.addEventListener("focusout", focusChanged);
+
+  /// Typing and output show the cursor and start its blink again, so it
+  /// never blinks out while it moves.
+  function wake() {
+    if (blink !== null) { clearInterval(blink); blink = null; }
+    if (!blinkOn) { blinkOn = true; schedule(); }
+    blinking();
+  }
 
   const resized = new ResizeObserver(fitNow);
   resized.observe(el);
   // A zoom changes the size of a cell, not always of the element.
   window.addEventListener(ZOOMED, fitNow);
-  const visibility = () => { fitNow(); schedule(); };
+  const visibility = () => { fitNow(); blinking(); schedule(); };
   document.addEventListener("visibilitychange", visibility);
 
   if (bar) {
@@ -460,6 +480,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     el,
     write: data => {
       pending.push({ data, quiet: false });
+      wake();
       schedule();
     },
     replay: data => {
@@ -482,6 +503,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
       inputOn = on;
       keys.readOnly = !on;
       blinkOn = true;
+      blinking();
       layout();
       schedule();
     },
@@ -490,7 +512,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
       cancelAnimationFrame(frame);
       clearTimeout(parseTimer);
       clearTimeout(animation);
-      clearInterval(blink);
+      if (blink !== null) clearInterval(blink);
       resized.disconnect();
       window.removeEventListener(ZOOMED, fitNow);
       document.removeEventListener("visibilitychange", visibility);

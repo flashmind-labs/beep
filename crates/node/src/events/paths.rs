@@ -71,10 +71,7 @@ impl Paths {
                             EventKind::Create(_)
                                 | EventKind::Remove(_)
                                 | EventKind::Modify(notify::event::ModifyKind::Name(_))
-                        ) && event
-                            .paths
-                            .iter()
-                            .any(|path| roots.iter().any(|root| root.starts_with(path))))
+                        ) && event.paths.iter().any(|path| loses_watch(&roots, path)))
                 }) {
                     invalidated.store(true, Ordering::Release);
                 }
@@ -273,6 +270,19 @@ fn affects(root: &Path, path: &Path) -> bool {
     }
 
     root.starts_with(path)
+}
+
+/// Whether replacing `path` drops a watch: it is, or holds, a root no other
+/// root outside it covers. Git replaces a checkout's `.git/index` on most
+/// commands, and the recursive watch of the checkout still covers it, so that
+/// alone does not rebuild every watch and read every root again.
+fn loses_watch(roots: &[PathBuf], path: &Path) -> bool {
+    roots.iter().any(|root| {
+        root.starts_with(path)
+            && !roots
+                .iter()
+                .any(|other| other != root && root.starts_with(other) && !other.starts_with(path))
+    })
 }
 
 fn existing(root: &Path) -> Result<(PathBuf, RecursiveMode)> {

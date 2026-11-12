@@ -30,7 +30,7 @@ function runningStatus(row: RunningRow, home: HomeView) {
   const working = row.kind === "agent" && ["working", "running", "starting"].includes(row.status);
   // Shown as last seen until its machine answers.
   const waiting = row.kind === "agent" && !!home.machines?.some(m => m.id === row.machine_id && m.connecting);
-  const status = moving ? <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span> : closing || (row.status === "asking" ? <span className="chip wait">needs you</span> : working ? <span className="cc-running"><span className="dspin" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
+  const status = moving ? <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span> : closing || (row.status === "asking" ? <span className="chip wait">needs you</span> : working ? <span className="cc-running"><span className="drun" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
   return { foot: waiting ? <span className="cc-wait">connecting</span> : status, waiting, why: moving?.why ?? null };
 }
 

@@ -28,6 +28,7 @@ const MAX_KEPT: usize = 1024;
 
 static CHECKOUTS: LazyLock<Kept<Option<Checkout>>> = LazyLock::new(Kept::default);
 static COMMITS: LazyLock<Kept<Option<u64>>> = LazyLock::new(Kept::default);
+static HEADS: LazyLock<Kept<Option<String>>> = LazyLock::new(Kept::default);
 
 /// A git checkout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +101,18 @@ pub(crate) fn last_commit(root: &Path) -> Option<u64> {
             .parse()
             .ok()
     })
+}
+
+/// The commit checked out at `root`, as `ask` names it, kept while `HEAD`
+/// and the ref it names keep their stamps. File sync asks this several times
+/// in each scan. A missing answer is asked again each time: the ref can
+/// arrive before its commit does.
+pub(crate) fn head(root: &Path, ask: impl FnOnce() -> Option<String>) -> Option<String> {
+    let Some(files) = GitFiles::above(root) else {
+        return ask();
+    };
+    let stamp = files.stamp(&files.head_files());
+    HEADS.found(root, stamp, ask)
 }
 
 /// The checkout's main folder: the one holding the shared `.git`, else the
@@ -241,14 +254,23 @@ impl<T: Clone> Kept<T> {
     /// The answer kept for `key` while its files still have `stamp`, else
     /// what `ask` says now, kept. The lock is not held while `ask` runs.
     fn get(&self, key: &Path, stamp: Stamp, ask: impl FnOnce() -> T) -> T {
-        if let Some(entry) = lock(&self.entries).get(key)
-            && entry.stamp == stamp
-            && entry.at.elapsed() < KEPT_FOR
-        {
-            return entry.value.clone();
+        if let Some(value) = self.kept(key, &stamp) {
+            return value;
         }
 
         let value = ask();
+        self.keep(key, stamp, value.clone());
+        value
+    }
+
+    fn kept(&self, key: &Path, stamp: &Stamp) -> Option<T> {
+        lock(&self.entries)
+            .get(key)
+            .filter(|entry| entry.stamp == *stamp && entry.at.elapsed() < KEPT_FOR)
+            .map(|entry| entry.value.clone())
+    }
+
+    fn keep(&self, key: &Path, stamp: Stamp, value: T) {
         let mut entries = lock(&self.entries);
 
         if entries.len() >= MAX_KEPT {
@@ -260,10 +282,22 @@ impl<T: Clone> Kept<T> {
             Entry {
                 stamp,
                 at: Instant::now(),
-                value: value.clone(),
+                value,
             },
         );
-        value
+    }
+}
+
+impl<T: Clone> Kept<Option<T>> {
+    /// As [`Kept::get`], keeping only an answer that found something.
+    fn found(&self, key: &Path, stamp: Stamp, ask: impl FnOnce() -> Option<T>) -> Option<T> {
+        if let Some(Some(value)) = self.kept(key, &stamp) {
+            return Some(value);
+        }
+
+        let value = ask()?;
+        self.keep(key, stamp, Some(value.clone()));
+        Some(value)
     }
 }
 

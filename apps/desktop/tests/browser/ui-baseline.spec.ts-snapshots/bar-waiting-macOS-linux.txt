@@ -32,7 +32,7 @@ body
             span "Still running"
             small "project · build-box · now"
           span.run [title="Running tests"]
-            span.dspin
+            span.drun
             span.tx "Running tests"
         button#wt-3.dchat [aria-selected="false" data-wti="3" role="option" tabindex="-1"]
           span style(display)

@@ -54,7 +54,7 @@
       { id: "pr38", lead: pnum(38), t: "Bump the sync crate", sub: "you · 9 d · ready · CI passing", tags: ["deps"], r: chip("done", "ready") }] },
   ];
   const RUNNING = [
-    { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: '<span class="cc-running"><span class="dspin" role="img" aria-label="Working"></span>now</span>' },
+    { id: "run0", open: "dAgentSession", lead: hc("claude"), t: "Swipeable approval strip", sub: "build-box · fix-approval", r: '<span class="cc-running"><span class="drun" role="img" aria-label="Working"></span>now</span>' },
     { id: "run1", open: "dAgentSession", lead: hc("codex"), t: "Fix the device build script", sub: "studio · main", r: "3m ago" },
   ];
   const ITEMS = LIST.flatMap(g => g.items);
