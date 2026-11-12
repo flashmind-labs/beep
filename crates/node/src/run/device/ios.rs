@@ -63,7 +63,7 @@ const JPEG_REENCODED: u8 = 80;
 /// USB HID usage of the left shift key.
 const SHIFT: u64 = 225;
 const NO_COMPANION: &str =
-    "idb_companion is not installed: install it with `brew install facebook/fb/idb-companion`.";
+    "idb_companion is not installed: install it with `brew install meta/fb/idb-companion`.";
 
 type Client = CompanionServiceClient<Channel>;
 
@@ -202,6 +202,7 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
             ["/opt/homebrew/bin/idb_companion", "/usr/local/bin/idb_companion"]
                 .into_iter()
                 .map(PathBuf::from)
+                .chain(dirs::home_dir().map(|home| home.join(".local/bin/idb_companion")))
                 .find(|path| path.is_file())
         })
         .context(NO_COMPANION)?;
