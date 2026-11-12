@@ -40,8 +40,8 @@ function ActionButton({ action, title }: { action: CardAction; title: string }) 
   return <button type="button" className={`dbtn small${action.primary ? " pri" : ""}`} onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</button>;
 }
 
-/// Home's rows, a project each: what a project's name opens, or null when it has no page.
-export type ProjectRows = (project: string) => (() => void) | null;
+/// Home's rows, a project each: its dot's color, and what its name opens; null when it has neither.
+export type ProjectRows = (project: string) => { color: string | null; open: (() => void) | null };
 
 /// A card as a row of a list section. A session's row opens with the page move.
 export function CardRow({ card }: { card: BoardCard }) {
@@ -70,10 +70,9 @@ export function Board({ cards, more, rows }: { cards: readonly BoardCard[]; more
 
   if (rows) {
     return <div className="bd-rows" ref={box}>
-      <span className="hd"/>
       {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
-      {byProject(cards).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", page = row.project === null ? null : rows(row.project); return <Fragment key={row.project ?? ""}>
-        <b className="pj" title={name}>{page ? <button type="button" onClick={page}>{name}</button> : name}</b>
+      {byProject(cards).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
+        <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <button type="button" onClick={head.open}>{name}</button> : <span>{name}</span>}</h3>
         {LANES.map(({ lane }) => <div className="bd-lane" key={lane}>{own[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</div>)}
       </Fragment>; })}
     </div>;

@@ -12,7 +12,7 @@ import { sessionMenu } from "../agents/sessionmenu.ts";
 import { conflictList, conflictSub } from "../project/filesync.ts";
 import { fsync } from "../project/sections.ts";
 import { syncProjects } from "../project/syncpage.ts";
-import { HarnessIcon, Icon } from "../ui/icons.tsx";
+import { HarnessIcon, Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { type HomeView, needsLine } from "./home-state.ts";
 import { answerChat, cardKey, homeSessions, dismissUpdates, openAsking, openUpdate, scheduleText, whenOf } from "./home.ts";
 import { itemChips, newestFirst, projectsWithOpen, reviewStart, waitsOnYou } from "./openitems-state.ts";
@@ -130,8 +130,12 @@ export function HomeOverview({ home }: { home: HomeView }) {
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
   const coming = home.coming_up, updates = home.updates;
   const empty = !cards.length && !updates?.length && !coming?.length;
-  const imported = new Set((home.projects || []).map(project => project.name));
-  const rows = (project: string) => imported.has(project) ? () => { go("projects", { project }); } : null;
+  // A row's dot matches the project's in the sidebar.
+  const listed = projectRows() || [];
+  const rows = (project: string) => {
+    const at = listed.findIndex(row => row.name === project);
+    return { color: at < 0 ? null : PROJECT_COLORS[at % PROJECT_COLORS.length], open: listed[at]?.imported ? () => { go("projects", { project }); } : null };
+  };
   return <>
     {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{needs.map(card => <CardRow key={card.key} card={card}/>)}</Section>
       : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows}/></div>}

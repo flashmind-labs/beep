@@ -17,13 +17,13 @@
 .mac .bd-empty { padding: 10px 12px; border: 1px dashed var(--d-border); border-radius: 8px; font-size: 11.5px; color: var(--d-muted) }
 .mac .bd-home { margin-bottom: 14px }
 .mac .bd-pick { display: inline-flex; align-items: center; gap: 3px }
-.mac .bd-rows { display: grid; grid-template-columns: 132px repeat(4, minmax(0, 1fr)); column-gap: 12px; align-items: start }
-.mac .bd-rows > * { padding: 10px 0; border-top: 1px solid var(--d-border); min-width: 0 }
-.mac .bd-rows > .hd { border-top: 0; padding: 0 0 8px }
+.mac .bd-rows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 12px; align-items: start }
+.mac .bd-rows > * { min-width: 0 }
+.mac .bd-rows > .hd { padding: 0 0 8px }
+.mac .bd-rows > .pj { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 0 8px; border-top: 1px solid var(--d-border); font-weight: 600; font-size: 13px; line-height: 18px }
 .mac .bd-rows > .pj button { all: unset; cursor: pointer }
 .mac .bd-rows > .pj button:hover { text-decoration: underline }
-.mac .bd-rows > .bd-lane:not(.hd) { max-height: 236px; overflow-y: auto; scrollbar-width: thin }
-.mac .bd-rows > .pj { padding-top: 20px; font-weight: 500; font-size: 13px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mac .bd-rows > .bd-lane:not(.hd) { max-height: 236px; overflow-y: auto; scrollbar-width: thin; padding-bottom: 12px }
 .mac .bd-pj { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
 .mac .bd-pj .cc-mstrip { margin: 0; flex: none }
 

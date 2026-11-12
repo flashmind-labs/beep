@@ -35,8 +35,9 @@ const BOARD_MOCK = (() => {
     const rank = name => name === null ? 2 : cards.some(c => projectOf(c) === name && c.lane === "needs") ? 0 : 1;
     names.sort((a, b) => rank(a) - rank(b));
 
-    return `<div class="bd-rows"><span class="hd"></span>${LANES.map(([lane, title]) => `<div class="bd-lane hd"><h4>${more[lane] ? `<button ${more[lane]}>${title}</button>` : title}<span>${cards.filter(c => c.lane === lane).length || ""}</span></h4></div>`).join("")}
-      ${names.map(name => `<b class="pj">${name ? `<button data-dgo="dWinProject">${name}</button>` : "Other"}</b>${LANES.map(([lane]) => `<div class="bd-lane">${cards.filter(c => c.lane === lane && projectOf(c) === name).map(c => card(c, cards.indexOf(c))).join("")}</div>`).join("")}`).join("")}</div>`;
+    const color = name => ({ "acme/widget": "var(--d-coral)", "acme/api": "#6FA8DC", "you/site": "#B18CE0" })[name];
+    return `<div class="bd-rows">${LANES.map(([lane, title]) => `<div class="bd-lane hd"><h4>${more[lane] ? `<button ${more[lane]}>${title}</button>` : title}<span>${cards.filter(c => c.lane === lane).length || ""}</span></h4></div>`).join("")}
+      ${names.map(name => `<h3 class="pj">${name ? `<span class="cc-pdot" style="background:${color(name)}"></span><button data-dgo="dWinProject">${name}</button>` : "Other"}</h3>${LANES.map(([lane]) => `<div class="bd-lane">${cards.filter(c => c.lane === lane && projectOf(c) === name).map(c => card(c, cards.indexOf(c))).join("")}</div>`).join("")}`).join("")}</div>`;
   };
   const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
 
