@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end tests: real beep-server and beep-node processes on Boat VMs.
+# End-to-end tests: real beep-node processes and a headless desktop on Boat
+# VMs, over the mesh with no server.
 #
 #   tests/e2e/e2e.sh [scenario|all] [action]
 #
@@ -46,7 +47,7 @@ action="${2:-run}"
 
 case "$scenario" in
   all) chosen=("${SCENARIOS[@]}") ;;
-  -h|--help|help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help|help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   *)
     [[ -f "$E2E/$scenario/run.sh" ]] || { echo "unknown scenario: $scenario" >&2; exit 2; }
     chosen=("$scenario") ;;

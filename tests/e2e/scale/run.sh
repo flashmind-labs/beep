@@ -2,7 +2,7 @@
 # Sync at scale: tens of thousands of files, a deep tree, a whole-tree
 # delete, and how long each takes.
 #
-# Topology as in the sync scenario: server, node-a and node-b, one project
+# Topology as in the sync scenario: desk, node-a and node-b, one project
 # synced on both nodes.
 #   1. node-a makes tree-a: 20000 small files in a tree 8 folders deep and
 #      300 files of 1 MB. node-b must end up with the same files (sha256 of
@@ -74,7 +74,7 @@ grow(){
     if awk -v s="$(since "$t0")" -v l="$LIMIT" 'BEGIN { exit !(s > l) }'; then
       fail "$to holds $n of $WANT files of $dir after $LIMIT s"
       [[ -z "$want_digest" ]] && wait "$gen"
-      probe sync-status "$PROJECT" | sed 's/^/   /'
+      sync_status | sed 's/^/   /'
       return 1
     fi
 
@@ -85,8 +85,8 @@ grow(){
   pass "$to holds all $WANT files of $dir, same sha256, after $full s"
   measure "$label: first file" "$first" s max "$first_budget"
   measure "$label: all files" "$full" s max "$full_budget"
-  wait_for 120 "both in sync" in_sync && pass "the server sees both in sync" \
-    || { fail "the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
+  wait_for 120 "both in sync" in_sync && pass "the desktop sees both in sync" \
+    || { fail "the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
 }
 
 fresh_world
@@ -143,8 +143,8 @@ for role in node-a node-b; do
   fi
 done
 
-wait_for 120 "both in sync" in_sync && pass "the server sees both in sync" \
-  || { fail "the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
+wait_for 120 "both in sync" in_sync && pass "the desktop sees both in sync" \
+  || { fail "the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
 
 fd_mark
 

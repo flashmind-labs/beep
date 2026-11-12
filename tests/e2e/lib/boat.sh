@@ -1,10 +1,10 @@
 # Boat sandbox fleet for the e2e scenarios (https://boat.dev). Sourced by
 # tests/e2e/e2e.sh after lib/common.sh.
 #
-# One fleet serves every scenario: a `server` VM (beep-server, Postgres in
-# Docker, the beep-probe that plays the phone) and two node VMs, `node-a` and
-# `node-b`. $FLEET records `id role` per line, written as each VM is made, so
-# teardown finds every billed VM even after a half-finished provision.
+# One fleet serves every scenario: a `desk` VM (e2e_desktop, a headless
+# desktop that owns the mesh) and two node VMs, `node-a` and `node-b`.
+# $FLEET records `id role` per line, written as each VM is made, so teardown
+# finds every billed VM even after a half-finished provision.
 #
 # Every VM is made with --no-env: none of the account's stored secrets reach
 # it. Nothing is hosted or forwarded: iroh only dials out (relays and hole
@@ -15,7 +15,7 @@
 
 export BOAT_NO_UPDATE=1
 
-ROLES=(server node-a node-b)
+ROLES=(desk node-a node-b)
 
 # provision : make the roles $FLEET does not have yet, in parallel.
 provision(){

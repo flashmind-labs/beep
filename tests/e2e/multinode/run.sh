@@ -15,7 +15,7 @@
 #      copy, and a delete must never remove an edit.
 #   3. Offline catch-up: node-d stops while the others add, edit, delete and
 #      rename. It starts and must reach their manifest, no deleted file may
-#      return, and the server must say in sync only once it really is.
+#      return, and the desktop must say in sync only once it really is.
 set -uo pipefail
 
 E2E="$(cd "$(dirname "$0")/.." && pwd)"
@@ -56,11 +56,11 @@ show_manifests(){
     on "$role" "cd $P && find . -type f ! -path '*/.beep-*' | wc -l" | sed "s/^/   $role files: /"
   done
 
-  probe sync-status "$PROJECT" | sed 's/^/   /'
+  sync_status | sed 's/^/   /'
 }
 
 # converged <seconds> <what> : all four hold one manifest and report in sync.
-# Returns 1 when the files differ, 2 when they match but the server does not
+# Returns 1 when the files differ, 2 when they match but the desktop does not
 # say so: the two are different findings.
 converged(){
   if ! poll "$1" all_same; then
@@ -70,14 +70,14 @@ converged(){
   fi
 
   poll 120 in_sync && return 0
-  fail "$2: the files match but the server does not see all four in sync"
+  fail "$2: the files match but the desktop does not see all four in sync"
   show_manifests
   return 2
 }
 
-# status_of <role> : the server's line for a node, without its machine id.
+# status_of <role> : the desktop's line for a node, without project and name.
 status_of(){
-  probe sync-status "$PROJECT" | awk -v id="${MACHINE[$1]}" '$1 == id { $1 = ""; print }'
+  sync_status | awk -v name="$1" '$2 == name { $1 = $2 = ""; sub(/^ +/, ""); print }'
 }
 
 # moment <seconds ahead> : a wall-clock time for every node to act at.
@@ -229,7 +229,7 @@ done
 offline=0
 
 for i in $(seq 1 30); do
-  n="$(probe sync-status "$PROJECT" | awk '$2 == "offline" { n++ } END { print n + 0 }')"
+  n="$(sync_status | awk '$3 == "offline" { n++ } END { print n + 0 }')"
   offline=$((offline + n))
   sleep 1
 done
@@ -249,7 +249,7 @@ on node-a "cd $P && find . -type f ! -path '*/.beep-*' | LC_ALL=C sort" > "$WORK
 stop_node node-d
 note "node-d is stopped"
 offline_state="$(status_of node-d)"
-note "server on node-d while stopped: $offline_state"
+note "desktop on node-d while stopped: $offline_state"
 on node-a "cd $P/base && for i in \$(seq 1 30); do echo \"edited by a\" > d0/sub/f\$i.txt; done
 rm -r d1; for i in \$(seq 1 40); do rm d2/sub/f\$i.txt; done
 mkdir -p new-a/x/y/z; for i in \$(seq 1 1000); do echo \"new a \$i\" > new-a/x/y/z/f\$i.txt; done
@@ -272,7 +272,7 @@ want="$(digest node-a)"
 on node-a "cd $P && find . -type f ! -path '*/.beep-*' | LC_ALL=C sort" > "$WORK/after"
 LC_ALL=C comm -23 "$WORK/before" "$WORK/after" > "$WORK/deleted"
 note "$(wc -l < "$WORK/after") files expected on node-d, $(wc -l < "$WORK/deleted") deleted while it was off"
-[[ "$offline_state" == *in_sync* ]] && fail "the server said node-d is in sync while it was stopped: $offline_state"
+[[ "$offline_state" == *in_sync* ]] && fail "the desktop said node-d is in sync while it was stopped: $offline_state"
 
 t0="$(now)"
 start_node node-d
@@ -307,7 +307,7 @@ while awk -v s="$(since "$t0")" 'BEGIN { exit !(s < 900) }'; do
 done
 
 if [[ -n "$real_sync" ]]; then
-  pass "node-d holds the others' manifest and the server says in sync, after $real_sync s"
+  pass "node-d holds the others' manifest and the desktop says in sync, after $real_sync s"
   measure "multinode: offline catch-up" "$real_sync" s max "${E2E_BUDGET_MULTI_CATCHUP-60}"
 else
   fail "node-d did not reach a real in sync (have $(digest node-d), want $want)"
@@ -315,14 +315,14 @@ else
 fi
 
 if [[ "$false_sync" == 0 ]]; then
-  pass "the server never said in sync while node-d was missing files"
+  pass "the desktop never said in sync while node-d was missing files"
 else
-  fail "the server said in sync $false_sync time(s) while node-d was missing files"
+  fail "the desktop said in sync $false_sync time(s) while node-d was missing files"
 fi
 
-[[ "$seen_syncing" == 1 ]] && note "the server showed node-d syncing during catch-up"
+[[ "$seen_syncing" == 1 ]] && note "the desktop showed node-d syncing during catch-up"
 # Files and status must also agree the other way: right files, status follows.
-if poll 60 in_sync; then pass "the server sees all four in sync"; else fail "the server does not see all four in sync"; show_manifests; fi
+if poll 60 in_sync; then pass "the desktop sees all four in sync"; else fail "the desktop does not see all four in sync"; show_manifests; fi
 # A delete that came back would come back after the first rounds settle.
 sleep 30
 returned=0
