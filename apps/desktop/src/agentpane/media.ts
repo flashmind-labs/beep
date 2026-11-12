@@ -268,12 +268,18 @@ export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> 
 /// Shows tab `id`, unfolding its dock, and gives the pane the keys.
 export function focusTab(id: string) {
   const d = dockOf(id);
+  leaveLog();
   P.layout.hidden[d] = false;
   saveLayout();
   P.on[d] = id;
   rememberPane();
   draw();
   paneOf(d)?.focus({ preventScroll: true });
+}
+
+/// On a phone, which shows one pane at a time, a tab being shown takes the screen from the log.
+function leaveLog() {
+  if (paneModel.getState().phone) setPaneModel({ log: false });
 }
 
 /// ⌘2, ⌘3, ⌘4: the pane's Files, Changes or Artifacts tab (`n` from 0). False
@@ -466,6 +472,7 @@ export function closeFocusedTab() {
 /// Shows the Files tab, unfolding its dock.
 export function showFiles() {
   const d = dockOf(FILES);
+  leaveLog();
   P.on[d] = FILES;
   P.layout.hidden[d] = false;
   draw();
@@ -492,6 +499,7 @@ export function showArtifact(path?: string) {
   if (path && !pickArtifact(path)) return false;
   if (!artifactCount()) return false;
   const d = dockOf(ARTS);
+  leaveLog();
   P.on[d] = ARTS;
   P.layout.hidden[d] = false;
   saveLayout();
