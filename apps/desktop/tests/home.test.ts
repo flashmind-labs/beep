@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type MacControl, machineDisk, machineProjects, thisMacRow } from "../src/machines/machine-state.ts";
+import { type MacControl, machineDisk, machineProjects, machinesReach, thisMacRow } from "../src/machines/machine-state.ts";
 import { byRecent, remotePath, runningKey, runningLine, runningWhen, sameSession } from "../src/agents/running-state.ts";
 
 test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
@@ -109,4 +109,14 @@ test("telemetry replaces only its machine stats and preserves samples newer than
   assert.equal(updated.running, home.running);
   assert.equal(updated.projects, home.projects);
   assert.equal(home.machines[0].stats.load, 1, "the prior Home response stays untouched");
+});
+
+test("an empty list says connecting until a machine that runs agents answers", () => {
+  const host = (online: boolean, connecting: boolean) => ({ online, connecting, can_host: true });
+  const phone = { online: true, connecting: false, can_host: false };
+  assert.equal(machinesReach(null), "connecting");
+  assert.equal(machinesReach([phone, host(false, true), host(false, false)]), "connecting");
+  assert.equal(machinesReach([phone, host(false, true), host(true, false)]), "reached");
+  assert.equal(machinesReach([phone, host(false, false)]), "offline");
+  assert.equal(machinesReach([phone]), "reached");
 });

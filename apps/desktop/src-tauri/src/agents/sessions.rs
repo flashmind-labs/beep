@@ -49,6 +49,10 @@ const SCAN_FRESH: Duration = Duration::from_secs(30);
 /// How long the held session lists stand before a read lists every machine
 /// again. Until then each machine's change replaces only its own rows.
 const SESSIONS_FRESH: Duration = Duration::from_secs(30);
+/// The first wait before a machine that did not list its sessions is asked
+/// again; it doubles up to `RELIST_LAST`.
+const RELIST_FIRST: Duration = Duration::from_secs(1);
+const RELIST_LAST: Duration = Duration::from_secs(16);
 
 /// A machine that can run a coding agent.
 #[derive(Debug, Serialize)]
@@ -347,6 +351,8 @@ fn same_session(old: &MachineSession, new: &MachineSession) -> bool {
 /// `machine` said its sessions changed: they are listed again, from its
 /// subscription, and replace its rows alone, so the other machines are not
 /// asked. A change that comes while it is listed has it listed once more.
+/// One that does not answer keeps its rows and is asked again while it is
+/// online, waiting longer each time.
 pub(crate) async fn machine_changed(app: &AppHandle, machine: EndpointId) {
     let held = app.state::<Outside>();
     let id = machine.to_string();
@@ -364,14 +370,24 @@ pub(crate) async fn machine_changed(app: &AppHandle, machine: EndpointId) {
     }
 
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    let mut pause = RELIST_FIRST;
+
     loop {
-        if let Some(rows) = direct::sessions_of(&fleet, machine).await {
-            let list = if machine == fleet.id() {
-                &held.local
-            } else {
-                &held.sessions
-            };
-            list.replace(rows, |row| row.machine_id == id);
+        match direct::sessions_of(&fleet, machine).await {
+            Some(rows) => {
+                let list = if machine == fleet.id() {
+                    &held.local
+                } else {
+                    &held.sessions
+                };
+                list.replace(rows, |row| row.machine_id == id);
+            }
+            None if pause <= RELIST_LAST && fleet.online().contains(&machine) => {
+                tokio::time::sleep(pause).await;
+                pause *= 2;
+                continue;
+            }
+            None => log::info!("the sessions of {id} were not listed"),
         }
 
         let mut relisting = held
@@ -415,13 +431,38 @@ pub(crate) async fn machine_sessions(
         held.local.keep(listed.clone());
         listed
     };
-    let (b, f) = (beep.clone(), fleet.clone());
+    let (a, b, f, kept) = (
+        app.clone(),
+        beep.clone(),
+        fleet.clone(),
+        held.sessions.clone(),
+    );
     sessions.extend(held.sessions.refreshed_after(
         app,
         async move {
             let (peers, server) =
                 tokio::join!(direct::peer_sessions(&f), b.call(ListAgentSessions {}));
-            let mut sessions = peers;
+            let mut sessions = peers.sessions;
+            // A machine that did not say keeps its rows: one being connected
+            // to shows them as connecting, one that did not answer is asked
+            // again.
+            let unsaid: Vec<String> = peers
+                .unanswered
+                .iter()
+                .chain(&peers.connecting)
+                .map(ToString::to_string)
+                .collect();
+            sessions.extend(
+                kept.last()
+                    .into_iter()
+                    .filter(|session| unsaid.contains(&session.machine_id)),
+            );
+
+            for machine in peers.unanswered {
+                let a = a.clone();
+                tauri::async_runtime::spawn(async move { machine_changed(&a, machine).await });
+            }
+
             sessions.extend(
                 extra(server)
                     .into_iter()

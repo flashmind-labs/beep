@@ -17,6 +17,7 @@ import { openUrl } from "./openitems.ts";
 import { state } from "./state.ts";
 import { go, openResearch } from "./views.ts";
 import { formatAgo } from "../ui/format.ts";
+import { machinesReach } from "../machines/machine-state.ts";
 import { LineRow, Section } from "../ui/kit.tsx";
 
 function Action({ label, action, className = "small" }: { label: ReactNode; action(): void; className?: string }) {
@@ -51,6 +52,13 @@ export function HomeOverview({ home }: { home: HomeView }) {
     {!!updates?.length && <Section id="sec-updates" title="Updates" count={updates.length} action={<button className="dbtn quiet small" type="button" onClick={() => dismissUpdates(updates.map(u => u.id))}>Clear</button>}>{updates.map(update => <LineRow key={update.id} lead={<span className="cc-ag beep">{update.app_name?.slice(0, 1).toUpperCase() || <span style={{ display: "contents" }}><Icon name="beep" /></span>}</span>} title={update.summary} sub={update.app_name ? `${update.app_name} · ${formatAgo(update.at, "day")}` : formatAgo(update.at, "day")} textTitle="Ask Beep about this" onOpen={() => { void openUpdate(update); }} right={<button className="dbtn quiet" type="button" aria-label="Dismiss" style={{ padding: "2px 6px" }} onClick={event => { event.stopPropagation(); dismissUpdates([update.id]); }}><Icon name="close" /></button>} />)}</Section>}
     {!!running?.length && <Section id="sec-running" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "agents")}>Running</button>} count={running.length}>{byRecent(running).map(row => <Running key={runningKey(row)} row={row} home={home} />)}</Section>}
     {!!coming?.length && <Section id="sec-coming" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "routines")}>Coming up</button>} count={coming.length}>{coming.slice(0, 5).map(row => { const when = whenOf(row.next_run_at); return <LineRow key={row.id} lead={<span className="cc-when"><b>{when.time}</b>{when.day}</span>} title={row.label.trim() || row.prompt.trim() || "Routine"} sub={scheduleText(row.schedule)} onOpen={() => go("pane", "routines")} />; })}</Section>}
-    {empty && <div className="cc-panel cc-empty">{!state.subscribed ? <><b>{!state.home && !S.server ? "Start an agent" : "Nothing running"}</b><span>{!state.home && !S.server ? "Your machines connect in the background." : "Start an agent on this computer, or add a machine to run it there."}</span><button type="button" className="dbtn small" onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</button></> : <span>Nothing needs you, and nothing is running.</span>}</div>}
+    {empty && <Empty home={home} />}
   </>;
+}
+
+/// Nothing to show: nothing runs, or no machine has answered yet.
+function Empty({ home }: { home: HomeView }) {
+  const reach = machinesReach(home.machines ?? []);
+  if (reach !== "reached") return <div className="cc-panel cc-empty"><span>{reach === "connecting" ? "Connecting to your machines…" : "No machine is online."}</span></div>;
+  return <div className="cc-panel cc-empty">{!state.subscribed ? <><b>{!state.home && !S.server ? "Start an agent" : "Nothing running"}</b><span>{!state.home && !S.server ? "Your machines connect in the background." : "Start an agent on this computer, or add a machine to run it there."}</span><button type="button" className="dbtn small" onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</button></> : <span>Nothing needs you, and nothing is running.</span>}</div>;
 }

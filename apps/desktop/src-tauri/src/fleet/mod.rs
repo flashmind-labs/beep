@@ -39,6 +39,8 @@ use iroh::{Endpoint, EndpointId, protocol::Router};
 use mesh::Serving;
 pub(crate) use parents::SessionParent;
 pub use status::{ClockOff, Status};
+#[cfg(mobile)]
+use std::time::SystemTime;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
@@ -69,6 +71,11 @@ pub(crate) fn extra<T>(result: Result<Vec<T>>) -> Vec<T> {
 
 /// How long a call to another machine waits for the mesh to open.
 const OPENING: Duration = Duration::from_secs(10);
+/// How long a phone app may stay in the background before its links are
+/// dialed again when it comes back. iOS suspends an app a few seconds after
+/// it leaves the screen.
+#[cfg(mobile)]
+const AWAY: Duration = Duration::from_secs(10);
 
 /// How long a join waits for the last handles to the old mesh to drop: calls
 /// that were running when it began.
@@ -190,6 +197,10 @@ pub struct Fleet {
     serving: Mutex<Option<Arc<Serving>>>,
     /// A phone's answer to the mesh and join protocols, held while the mesh is in use.
     observing: Mutex<Option<Router>>,
+    /// Since when the phone app is in the background, by the wall clock, which
+    /// also runs while the phone sleeps.
+    #[cfg(mobile)]
+    away: Mutex<Option<SystemTime>>,
     /// One `join` at a time.
     joining: AsyncMutex<()>,
     /// The account move running now, which holds the mesh.
@@ -255,6 +266,7 @@ impl Fleet {
             dir: dir.to_owned(),
             mesh: watch::channel(Opened::Opening).0,
             observing: Mutex::default(),
+            away: Mutex::default(),
             joining: AsyncMutex::new(()),
             move_task: Mutex::default(),
             releases: ToolReleases::default(),
@@ -665,13 +677,42 @@ impl Fleet {
             .map_err(|_| DesktopError::Offline(self.name_of(machine)))
     }
 
-    /// Tells iroh the network may have changed, so it binds and probes its
-    /// paths again. A phone app calls it when it comes back: iOS may have
-    /// dropped its sockets while it was suspended, and Android does not
-    /// report network changes to native code.
+    /// Notes the phone app going to the background.
     #[cfg(mobile)]
-    pub(crate) async fn network_changed(&self) {
-        self.endpoint.network_change().await;
+    pub(crate) fn went_away(&self) {
+        self.away
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert_with(SystemTime::now);
+    }
+
+    /// The phone app is back. iroh binds and probes its paths again: iOS may
+    /// have dropped its sockets while the app was suspended, and Android
+    /// does not report network changes to native code. After `AWAY` the
+    /// links may be dead while they look open, so each is dialed again.
+    #[cfg(mobile)]
+    pub(crate) async fn came_back(&self) {
+        let away = self
+            .away
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+            .map(|since| since.elapsed().unwrap_or_default());
+
+        match away {
+            Some(away) if away >= AWAY => self.reconnect().await,
+            Some(_) => self.endpoint.network_change().await,
+            None => {}
+        }
+    }
+
+    /// The network changed, or the links may be dead: iroh probes the
+    /// network again and every machine is dialed at once.
+    pub(crate) async fn reconnect(&self) {
+        match self.mesh() {
+            Some(mesh) => mesh.reconnect().await,
+            None => self.endpoint.network_change().await,
+        }
     }
 
     /// `machine` as a member of the mesh, or this Mac. `None` for a machine

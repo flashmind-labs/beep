@@ -1,5 +1,5 @@
 //! Pairing a phone: it is a mesh observer, so the first launch has no mesh and takes a
-//! desktop's phone ticket. On a desktop these commands do nothing.
+//! desktop's phone ticket. On a desktop the pairing commands do nothing.
 
 use super::Machines;
 use crate::error::Result;
@@ -37,4 +37,11 @@ pub async fn mobile_pair(fleet: Machines<'_>, ticket: String, name: Option<Strin
             "only a phone pairs with a ticket".into(),
         ))
     }
+}
+
+/// The phone moved to another network, as its webview heard: every machine is dialed again.
+#[tauri::command]
+pub async fn mobile_network_changed(fleet: Machines<'_>) -> Result<()> {
+    fleet.reconnect().await;
+    Ok(())
 }

@@ -373,6 +373,7 @@ pub fn run() {
             chat::sessions::unshare_session,
             fleet::phone::mobile_paired,
             fleet::phone::mobile_pair,
+            fleet::phone::mobile_network_changed,
             machines::add::mesh_join,
             machines::add::mesh_invite,
             machines::add::machine_search,

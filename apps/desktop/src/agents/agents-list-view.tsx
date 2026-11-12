@@ -4,6 +4,7 @@ import { Spinner } from "../ui/kit.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { AGENT_ICON, agentsList, listedMenu, newFromList, openListed, toggleEnded, type ListedSession } from "./agents.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
+import type { MachinesReach } from "../machines/machine-state.ts";
 
 export interface AgentListRow { key: string; depth: number; agent: string; title: string; sub: string; tail: { kind: "review" } | { kind: "move"; label: string; why: string | null } | { kind: "asking" } | { kind: "running"; doing: string } | { kind: "plain"; label: string } | { kind: "connecting" } }
 
@@ -26,9 +27,18 @@ export function AgentsList({ hints }: { hints: HintViewModel }) {
         {list.endedOpen && list.ended.map((entry, index) => row(entry, list.live.length + index, true))}
       </div>}
     </div>
-    {!any && !list.loading && <div className="dempty"><span className="dicon"><Icon /></span><b className="dbig">No sessions running.</b><span className="dmuted dblock">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>}
+    {!any && !list.loading && <Empty reach={list.reach} />}
     <HintView value={hints} />
   </>;
+}
+
+/// No session listed: none runs, or no machine has answered yet.
+function Empty({ reach }: { reach: MachinesReach }) {
+  switch (reach) {
+    case "connecting": return <div className="dempty"><span className="ddot dial" /><b className="dbig">Connecting to your machines…</b></div>;
+    case "offline": return <div className="dempty"><span className="ddot off" /><b className="dbig">No machine is online.</b></div>;
+    case "reached": return <div className="dempty"><span className="dicon"><Icon /></span><b className="dbig">No sessions running.</b><span className="dmuted dblock">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>;
+  }
 }
 
 function SessionRow({ index, entry, gone, picked, pickedRef }: { index: number; entry: ListedSession; gone: boolean; picked: boolean; pickedRef: React.RefObject<HTMLButtonElement | null> | null }) {

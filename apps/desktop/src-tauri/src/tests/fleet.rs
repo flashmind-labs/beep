@@ -610,6 +610,7 @@ async fn one_peer_that_never_answers_does_not_hold_the_others() {
         "{:?}",
         started.elapsed()
     );
-    assert_eq!(found.len(), 1, "{found:?}");
-    assert_eq!(found[0].machine_name, "Quick");
+    assert_eq!(found.sessions.len(), 1, "{:?}", found.sessions);
+    assert_eq!(found.sessions[0].machine_name, "Quick");
+    assert_eq!(found.unanswered, vec![slow_id]);
 }
