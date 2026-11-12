@@ -6,8 +6,9 @@
   and going back shrinks it again. Option-Tab slides to the next conversation,
   and a card that changes lane travels there. None of it plays with Reduce
   motion on.
-- Desktop: a Board / List switch on Home and on a project's front page brings
-  back the sections and rows from before the board. The choice is kept.
+- Desktop: Settings, Appearance picks Board or List for Home and for
+  projects, each on its own. List brings back the sections and rows from
+  before the board.
 
 ### Changed
 

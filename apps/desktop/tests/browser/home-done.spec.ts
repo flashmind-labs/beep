@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
 test("Home lists the sessions that ended today under Done today", async ({ page }) => {
@@ -13,34 +13,34 @@ test("Home lists the sessions that ended today under Done today", async ({ page 
   await expect(done.getByText("Session old")).toHaveCount(0);
 });
 
-test("the layout switch turns Home's board into the list and back, and is kept", async ({ page }) => {
-  const now = Date.now();
-  const running = [{ kind: "agent", machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", title: "Fix the build", cwd: "/srv/project",
-    status: "working", doing: null, started_at: now - 60_000, last_activity: now, external: false }];
-  const home = { machines: [], projects: [], running, needs_you: [], coming_up: null, updates: [] };
-  await openDesktop(page, false, { center_home: home, projects_sessions: [] });
-  await expect(page.locator(".bd-lane", { hasText: "Working" }).getByText("Fix the build")).toBeVisible();
+/// Picks `layout` for `name` in Settings, under Appearance, and closes Settings.
+async function pickLayout(page: Page, name: string, layout: string) {
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Appearance", exact: true }).click();
+  await settings.getByRole("radiogroup", { name: `${name} layout` }).getByRole("radio", { name: layout, exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(settings).toHaveCount(0);
+}
 
-  await page.getByRole("button", { name: "List", exact: true }).click();
+test("Appearance picks the board or the list for Home and for projects, each on its own", async ({ page }) => {
+  await openDesktop(page, false, { settings: { name: "build-box", version: "0.9.0", autostart: false, notice_voice: "off", send_on_pause: false, agent_notices: false },
+    list_credentials: [], list_github_accounts: [], agent_accounts: { claude: null, codex_key: null, machines: [] } });
+  await expect(page.locator("#sec-needs .bd-lanes")).toBeVisible();
+
+  await pickLayout(page, "Home", "List");
+  expect(await page.evaluate(() => [localStorage.getItem("beep.layout.home"), localStorage.getItem("beep.layout.project")])).toEqual(["list", null]);
+  await page.locator("#side").getByRole("button", { name: "Home", exact: true }).click();
   await expect(page.locator(".bd-lanes")).toHaveCount(0);
-  await expect(page.locator("#sec-running").getByText("Fix the build")).toBeVisible();
+  await expect(page.locator("#sec-running")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("beep.frontLayout"))).toBe("list");
+  await expect(page.locator("#side").getByRole("button", { name: "Running" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Board", exact: true }).click();
-  await expect(page.locator(".bd-lane", { hasText: "Working" }).getByText("Fix the build")).toBeVisible();
-});
-
-test("the layout switch turns a project's board into its Overview beside the list", async ({ page }) => {
-  await openDesktop(page);
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".pj-board .bd-lanes")).toBeVisible();
 
-  await page.locator(".pj-strip").getByRole("button", { name: "List", exact: true }).click();
+  await pickLayout(page, "Projects", "List");
   await expect(page.locator(".pj-board")).toHaveCount(0);
   await expect(page.locator(".pj-split .pj-ov")).toBeVisible();
   await expect(page.locator(".pj-list").getByRole("button", { name: "Overview" })).toHaveAttribute("aria-current", "true");
-
-  await page.locator(".pj-strip").getByRole("button", { name: "Board", exact: true }).click();
-  await expect(page.locator(".pj-board .bd-lanes")).toBeVisible();
 });

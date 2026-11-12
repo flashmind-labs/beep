@@ -23,25 +23,22 @@ export interface BoardCard {
   menu: ((event: MouseEvent) => void) | null;
 }
 
-/// How Home and a project's front page lay out: the board, or the sections and rows before it.
+/// How Home and a project's front page lay out, each on its own: the board, or the
+/// sections and rows before it. Picked in Settings, under Appearance.
 export type FrontLayout = "board" | "list";
-const LAYOUT_KEY = "beep.frontLayout";
-let layout: FrontLayout = "board";
-try { if (localStorage.getItem(LAYOUT_KEY) === "list") layout = "list"; } catch { /* the board */ }
-export const frontLayout = () => layout;
-/// Called when the user switches the layout: every page that shows it draws again.
+export type FrontPage = "home" | "project";
+const layoutKey = (page: FrontPage) => `beep.layout.${page}`;
+const kept = (page: FrontPage): FrontLayout => { try { return localStorage.getItem(layoutKey(page)) === "list" ? "list" : "board"; } catch { return "board"; } };
+const layouts: Record<FrontPage, FrontLayout> = { home: kept("home"), project: kept("project") };
+export const frontLayout = (page: FrontPage) => layouts[page];
+/// Called when the user picks a layout: every page that shows it draws again.
 export const layoutChanged = new Set<() => void>();
 
-function setLayout(next: FrontLayout) {
-  if (next === layout) return;
-  layout = next;
-  try { localStorage.setItem(LAYOUT_KEY, next); } catch { /* kept for this launch only */ }
+export function setFrontLayout(page: FrontPage, next: FrontLayout) {
+  if (next === layouts[page]) return;
+  layouts[page] = next;
+  try { localStorage.setItem(layoutKey(page), next); } catch { /* kept for this launch only */ }
   for (const draw of layoutChanged) draw();
-}
-
-export function LayoutSwitch() {
-  return <span className="bd-switch" role="group" aria-label="Layout">{(["board", "list"] as const).map(key =>
-    <button type="button" key={key} aria-pressed={key === layout} onClick={() => setLayout(key)}>{key === "board" ? "Board" : "List"}</button>)}</span>;
 }
 
 /// A card as a row of a list section. A session's row opens with the page move.
@@ -104,21 +101,25 @@ function places(box: HTMLElement) {
 /// changed lane, and nothing plays under reduced motion or in a hidden window.
 function useTravel(cards: readonly BoardCard[]) {
   const box = useRef<HTMLDivElement>(null);
-  const last = useRef<{ lanes: string; before: Places | null }>({ lanes: "", before: null });
+  const last = useRef<{ lanes: string; before: Places | null; laneOf: Map<string, Lane> }>({ lanes: "", before: null, laneOf: new Map() });
   const lanes = cards.map(card => `${card.key}\n${card.lane}`).join("\n\n");
 
   if (lanes !== last.current.lanes) {
     const shown = box.current?.offsetParent ? box.current : null;
-    last.current = { lanes, before: last.current.lanes && shown && motionAllowed() && !movePlaying() ? places(shown).found : null };
+    last.current = { lanes, before: last.current.lanes && shown && motionAllowed() && !movePlaying() ? places(shown).found : null, laneOf: last.current.laneOf };
   }
 
   useLayoutEffect(() => {
-    const before = last.current.before, target = box.current;
+    const before = last.current.before, target = box.current, was = last.current.laneOf;
     last.current.before = null;
+    last.current.laneOf = new Map(cards.map(card => [card.key, card.lane]));
     if (!before || !target) return;
     const after = places(target);
 
+    // Only a card that changed lane travels: one that a new card pushed down just moves.
+    const moved = new Set(cards.filter(card => was.has(card.key) && was.get(card.key) !== card.lane).map(card => card.key));
     for (const [key, { dx, dy }] of travelled(before, after.found)) {
+      if (!moved.has(key)) continue;
       after.nodes.get(key)?.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 300, easing: "cubic-bezier(.2, 0, 0, 1)" });
     }
   });

@@ -5,7 +5,7 @@ import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
 import { ProjectBoard } from "./lanes.tsx";
 import type { Lane } from "../center/lanes-state.ts";
-import { LayoutSwitch, frontLayout } from "../center/lanes-view.tsx";
+import { frontLayout } from "../center/lanes-view.tsx";
 import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
@@ -232,7 +232,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   // Too many to list at the left: the row opens them at the right.
   project.push({ key: "issues", title: "Issues", sub: issueNote || `${issueItems.length} open`, detail: () => [] });
   // The front page: the board alone, or the Overview beside the list.
-  const board = frontLayout() === "board";
+  const board = frontLayout("project") === "board";
   const overview = board ? null : projectOverview(p, running, { run: runItems, prs: prItems, issues: issueItems, prNote: hostNote(prs, thr.prsError(pid), "No open pull requests."), issueNote }, machineTile(rows, sync));
   top.unshift({ key: "overview", title: board ? "Board" : "Overview", sub: "", detail: () => overview ? [hostPart(overview)] : [] });
   groups.unshift({ title: "", items: top });
@@ -272,10 +272,9 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: "Sessions", text: past.length ? `${past.length} past` : "", key: "agents" },
   ];
   renderProjectShell(currentShell);
-  const front = !pa.tile || pa.tile === "overview";
-  const strip = createElement("div", { className: "cc-mstrip pj-strip" }, createElement(ProjectStatus, { cells, openTile, end: front ? createElement(LayoutSwitch) : null }));
+  const strip = createElement("div", { className: "cc-mstrip pj-strip" }, createElement(ProjectStatus, { cells, openTile }));
   // A picked row a filter hides keeps the list on screen, so the filter can be cleared.
-  if (board && front) {
+  if (board && (!pa.tile || pa.tile === "overview")) {
     const pulls = prLines.flatMap(l => {
       const lane: Lane | null = l.needs_reply ? "needs" : l.review === "ready" ? "review" : null;
       return lane ? [{ key: `pr:${l.pr.number}`, lane, number: l.pr.number, title: l.pr.title, sub: prMeta(l, ms => formatAgo(ms, "short")).join(" · ") }] : [];

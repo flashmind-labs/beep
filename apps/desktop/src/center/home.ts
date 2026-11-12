@@ -135,7 +135,7 @@ function page(home: HomeView) {
   const { machines, running } = home;
   const projects = projectRows() || [], git = state.git;
   const tabs: { key: HomeTab; label: string; count: number | null; on: boolean }[] = [
-    { key: "overview", label: frontLayout() === "list" ? "Overview" : "Board", count: null, on: true },
+    { key: "overview", label: frontLayout("home") === "list" ? "Overview" : "Board", count: null, on: true },
     { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError },
     { key: "machines", label: "Machines", count: null, on: !!machines },
   ];

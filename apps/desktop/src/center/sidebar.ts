@@ -93,7 +93,7 @@ export function drawSide() {
     { svg: IC.home, label: "Home", count: home?.needs_you.length ?? 0, current: location === "home", hot: true, open: () => go("home") },
   ];
   // The board has every session; the list keeps its own page of them.
-  if (home?.running && frontLayout() === "list") links.push({ svg: IC.run, label: "Running", count: visibleRunning(home.running).length, current: paneOn().view === "agents", open: () => go("pane", "agents") });
+  if (home?.running && frontLayout("home") === "list") links.push({ svg: IC.run, label: "Running", count: visibleRunning(home.running).length, current: paneOn().view === "agents", open: () => go("pane", "agents") });
   const terms = allTerms.list(ALL);
   if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });
   if (syncProjects().length) links.push({ svg: IC.sync, label: "Sync", count: syncConflicts(), current: location === "sync", hot: true, open: () => go("sync") });
