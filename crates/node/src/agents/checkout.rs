@@ -20,15 +20,13 @@ use tokio::task::spawn_blocking;
 pub(super) const MAIN_CHECKOUT_RULE: &str = "Beep: this folder is a git repository's main checkout. Before you change any file, \
     create a new branch and a git worktree for it under the repository's .worktrees/ folder, \
     both named for the work, and use that single worktree for all changes in this session. \
-    Do not create a new worktree for each change. Work that changes nothing stays here. A \
-    merge uses git merge --ff-only by default, keeping every commit without a merge commit. \
+    Do not create a new worktree for each change. Work that changes nothing stays here. \
     After a merge, remove the worktree and its folder with everything left in it (build \
     output and other artifacts), delete the branch and close the issues the merge resolves. \
     You may then create a new worktree for further changes in this session.";
 /// The rule for an agent in a linked git worktree.
 pub(super) const WORKTREE_RULE: &str = "Beep: this folder is a git worktree. Use this single worktree for all changes and \
-    commits in this session. Do not create a new worktree for each change. A merge uses git \
-    merge --ff-only by default, keeping every commit without a merge commit. After a merge, \
+    commits in this session. Do not create a new worktree for each change. After a merge, \
     remove the worktree and its folder with everything left in it (build output and other \
     artifacts), delete the branch and close the issues the merge resolves. You may then \
     create a new worktree for further changes in this session.";
@@ -105,8 +103,7 @@ impl Made {
         match self.start {
             Start::NewBranch => format!(
                 "Beep: Beep made the branch {branch} for this session in this checkout. Commit on it here \
-                    and make no worktree. A merge uses git merge --ff-only by default, keeping every \
-                    commit without a merge commit. After a merge, delete the branch."
+                    and make no worktree. After a merge, delete the branch."
             ),
             Start::NewWorktree | Start::AddedWorktree => format!(
                 "Beep: Beep made the worktree {folder} on the branch {branch} for this session. \
