@@ -48,9 +48,12 @@ function onIos(): boolean {
   return APPLE && onPhone();
 }
 
-/// The folder saved files go to, as the user knows it.
-export function savesName(): "Files" | "Downloads" {
-  return onIos() ? "Files" : "Downloads";
+/// The folder a save at `path` went to, as the user knows it: Files on
+/// iOS, otherwise the folder's own name.
+export function savedIn(path: string): string {
+  if (onIos()) return "Files";
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.at(-2) ?? "Downloads";
 }
 
 /// The button after a save: Finder on a computer, the share sheet on iOS.

@@ -25,7 +25,7 @@ import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab } from "./media-draw.ts";
 import { dockHolding, dockOf, docked, paneModel, paneOf, place, setPaneModel, shell, shellResized, shellSize, shownDocks, watchShell, tabIds } from "./media-layout.ts";
-import { savesName } from "../ui/platform.ts";
+import { savedIn } from "../ui/platform.ts";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
 export interface FilePart {
@@ -371,7 +371,7 @@ export function saveWorkFile(rel: string, note: (text: string) => void, root = p
   if (!s) return;
   note(`Saving ${baseName(rel)}…`);
   invoke<string>("agent_tree_save", { machineId: s.machine_id, root, path: rel })
-    .then(to => { note(`Saved to ${savesName()} as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
+    .then(to => { note(`Saved to ${savedIn(to)} as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
     .catch(e => note(readError(e)));
 }
 

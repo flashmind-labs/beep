@@ -9,8 +9,9 @@ pub(crate) fn open(target: impl AsRef<std::ffi::OsStr>) -> crate::error::Result<
     Ok(())
 }
 
-/// Where a saved file goes: Downloads, or on an iPhone the app's Documents
-/// folder, which the Files app shows under "On My iPhone".
+/// Where a saved file goes: the folder picked in Settings, or Downloads
+/// when none is or it is gone. On an iPhone, the app's Documents folder,
+/// which the Files app shows under "On My iPhone".
 pub(crate) fn saves_dir<R: Runtime>(app: &AppHandle<R>) -> crate::error::Result<PathBuf> {
     #[cfg(target_os = "ios")]
     {
@@ -20,7 +21,15 @@ pub(crate) fn saves_dir<R: Runtime>(app: &AppHandle<R>) -> crate::error::Result<
     }
     #[cfg(not(target_os = "ios"))]
     {
-        Ok(app.path().download_dir()?)
+        let picked = app
+            .try_state::<std::sync::Arc<crate::beep::Beep>>()
+            .and_then(|beep| beep.save_folder())
+            .filter(|folder| folder.is_dir());
+
+        match picked {
+            Some(folder) => Ok(folder),
+            None => Ok(app.path().download_dir()?),
+        }
     }
 }
 

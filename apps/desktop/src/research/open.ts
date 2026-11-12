@@ -1,4 +1,4 @@
-import { commandKey, savesName } from "../ui/platform.ts";
+import { commandKey, savedIn } from "../ui/platform.ts";
 import { createElement, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import { ResearchHead } from "./head-view.tsx";
 import { ResearchTabs } from "./tabs-view.tsx";
@@ -374,7 +374,7 @@ async function exportPdf() {
 
   try {
     const path = await invoke<string>("export_research", { session });
-    notice(`Saved ${path.split("/").pop()} to ${savesName()}`, { path });
+    notice(`Saved ${path.split("/").pop()} to ${savedIn(path)}`, { path });
   } catch (err) {
     notice(String(err), { bad: true });
   }

@@ -5,7 +5,7 @@ import { IMAGE_TYPES } from "./compose-text.ts";
 import { focusAsk } from "./chat.ts";
 import { $, bar } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
-import { savesName } from "../ui/platform.ts";
+import { savedIn } from "../ui/platform.ts";
 
 // ---------- Files ----------
 
@@ -165,21 +165,21 @@ export function viewerKeys(e: KeyboardEvent, cmd: boolean) {
   else if (cmd && key === "q") invoke("quit");
 }
 
-/// Saves a picture Beep sent to Downloads and says where it went.
+/// Saves a picture Beep sent to the save folder and says where it went.
 export async function savePic(file: PicFile) {
   try {
     const path = await invoke<string>("save_file", { id: file.id, name: file.name });
-    notice(`Saved ${file.name} to ${savesName()}`, { path });
+    notice(`Saved ${file.name} to ${savedIn(path)}`, { path });
   } catch (e) {
     notice(String(e) === GONE ? GONE_PIC : `Could not save it. ${e}`, { bad: true });
   }
 }
 
-/// Saves a picture held as a data URL to Downloads and says where it went.
+/// Saves a picture held as a data URL to the save folder and says where it went.
 export async function saveUrl(url: string, name: string) {
   try {
     const path = await invoke<string>("save_picture", { name, url });
-    notice(`Saved ${path.split("/").pop()} to ${savesName()}`, { path });
+    notice(`Saved ${path.split("/").pop()} to ${savedIn(path)}`, { path });
   } catch (e) {
     notice(`Could not save it. ${e}`, { bad: true });
   }

@@ -20,7 +20,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { loadClocks } from "./clock.ts";
 import { openSignIn } from "./signin.ts";
 import { type AdapterInstall } from "./adapters-state.ts";
-import { savesName } from "../ui/platform.ts";
+import { savedIn } from "../ui/platform.ts";
 
 // ---------- Machines ----------
 
@@ -275,7 +275,7 @@ async function readLog(id: string) {
 async function saveLog(m: Machine) {
   try {
     const path = await invoke<string>("save_machine_log", { name: m.name, text: log?.text ?? "" });
-    notice(`Saved ${path.split("/").pop()} to ${savesName()}`, { path });
+    notice(`Saved ${path.split("/").pop()} to ${savedIn(path)}`, { path });
   } catch (e) {
     notice(`Could not save it. ${e}`, { bad: true });
   }

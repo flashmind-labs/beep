@@ -269,6 +269,8 @@ pub fn run() {
             bar::app::open_url,
             bar::app::quit,
             bar::app::set_agent_notices,
+            bar::app::choose_save_folder,
+            bar::app::use_downloads,
             bar::app::set_autostart,
             bar::app::set_mac_control,
             bar::app::set_notice_voice,
