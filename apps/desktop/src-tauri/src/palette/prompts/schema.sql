@@ -18,7 +18,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     stamp TEXT NOT NULL,
     data TEXT NOT NULL,
     activity INTEGER NOT NULL,
-    place INTEGER REFERENCES places(id) ON DELETE CASCADE
+    place INTEGER REFERENCES places(id) ON DELETE CASCADE,
+    -- Transcript entries before this index are indexed; NULL for a session
+    -- the full reader of schema 1 indexed without keeping the count.
+    done INTEGER DEFAULT 0,
+    -- A walk back from walk_top toward done that has reached walk_low.
+    walk_top INTEGER,
+    walk_low INTEGER
 );
 CREATE INDEX IF NOT EXISTS sessions_place ON sessions(place);
 CREATE TABLE IF NOT EXISTS removed (id TEXT PRIMARY KEY);
