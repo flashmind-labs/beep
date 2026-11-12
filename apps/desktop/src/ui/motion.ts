@@ -52,7 +52,7 @@ export const swipePlaying = () => swiped;
 /// the events a trackpad keeps sending after the fingers lift.
 export function trackpadSwipe(pages: SwipePages) {
   let phase: "idle" | "aim" | "follow" | "spent" = "idle";
-  let x = 0, y = 0, last = 0;
+  let x = 0, y = 0, last = 0, dx = 0;
   let scrolls: Record<Swipe, boolean> | null = null;
   let to: Swipe = "back";
   let rest: ReturnType<typeof setTimeout> | undefined;
@@ -89,18 +89,18 @@ export function trackpadSwipe(pages: SwipePages) {
     rest = setTimeout(settle, REST_MS);
     const page = main();
     if (!page || !motionAllowed()) return;
-    page.style.willChange = "transform";
-    page.style.transform = `translateX(${to === "back" ? travel : -travel}px)`;
+    dx = to === "back" ? travel : -travel;
+    const { transform, clipPath } = shifted(dx);
+    Object.assign(page.style, { willChange: "transform", transform, clipPath });
   }, { passive: true });
 
   /// The fingers stopped short: the page goes back to its place.
   function settle() {
     phase = "idle";
     const page = main();
-    if (!page || !page.style.transform) return;
-    page.animate([{ transform: page.style.transform }, { transform: "none" }], { duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" });
-    page.style.transform = "";
-    page.style.willChange = "";
+    if (!page || dx === 0) return;
+    page.animate([shifted(dx), shifted(0)], { duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    still(page);
   }
 
   /// The page slides the rest of the way out, then the next one comes in from the other side.
@@ -118,13 +118,28 @@ export function trackpadSwipe(pages: SwipePages) {
     };
     if (!page || !motionAllowed()) return step();
 
-    const out = page.animate([{ transform: page.style.transform || "none", opacity: 1 }, { transform: `translateX(${to === "back" ? SWIPE_PX + 60 : -SWIPE_PX - 60}px)`, opacity: 0 }], { duration: 90, easing: "ease-in", fill: "forwards" });
-    page.style.transform = "";
-    page.style.willChange = "";
-    const land = () => { step(); out.cancel(); };
+    const out = page.animate([{ ...shifted(dx), opacity: 1 }, { ...shifted(to === "back" ? SWIPE_PX + 60 : -SWIPE_PX - 60), opacity: 0 }], { duration: 90, easing: "ease-in", fill: "forwards" });
+    still(page);
+    const land = () => {
+      step();
+      out.cancel();
+      // The page coming in stays inside the main area too.
+      page.style.clipPath = "inset(0)";
+      const coming = document.getAnimations().filter(a => a.effect instanceof KeyframeEffect && a.effect.target?.matches(".cc-box"));
+      void Promise.allSettled(coming.map(a => a.finished)).then(() => { if (phase !== "follow") page.style.clipPath = ""; });
+    };
     out.finished.then(land, land);
   }
+
+  function still(page: HTMLElement) {
+    dx = 0;
+    Object.assign(page.style, { willChange: "", transform: "", clipPath: "" });
+  }
 }
+
+/// The page moved `dx` sideways and cut where it would cross the sidebar, whose background
+/// lets it show through.
+const shifted = (dx: number) => ({ transform: `translateX(${dx}px)`, clipPath: `inset(0 0 0 ${Math.max(0, -dx)}px)` });
 
 /// Whether something from `target` up can still scroll each way, and so takes the swipe.
 function scrollsSideways(target: EventTarget | null): Record<Swipe, boolean> {

@@ -198,13 +198,16 @@ const BOARD_MOCK = (() => {
     }
     return false;
   };
-  let phase = "idle", x = 0, y = 0, last = 0, forward = false, rest;
+  let phase = "idle", x = 0, y = 0, last = 0, dx = 0, forward = false, rest;
+  // The moved page is cut where it would cross the sidebar, whose background lets it show through.
+  const shifted = by => ({ transform: `translateX(${by}px)`, clipPath: `inset(0 0 0 ${Math.max(0, -by)}px)` });
   const settle = () => {
     phase = "idle";
     const el = page();
-    if (!el.style.transform) return;
-    el.animate([{ transform: el.style.transform }, { transform: "none" }], { duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" });
-    el.style.transform = "";
+    if (!dx) return;
+    el.animate([shifted(dx), shifted(0)], { duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    dx = 0;
+    Object.assign(el.style, { transform: "", clipPath: "" });
   };
   const leave = () => {
     phase = "spent";
@@ -214,12 +217,13 @@ const BOARD_MOCK = (() => {
       stepping = true;
       go(visited[here]);
       stepping = false;
-      if (!still()) page().animate([{ opacity: .3, transform: `translateX(${-56 * side}px)` }, { opacity: 1, transform: "none" }], { duration: 200, easing: "cubic-bezier(.2, .8, .2, 1)" });
+      if (!still()) page().animate([{ opacity: .3, ...shifted(-56 * side) }, { opacity: 1, ...shifted(0) }], { duration: 200, easing: "cubic-bezier(.2, .8, .2, 1)" });
     };
     if (still()) return step();
     const el = page();
-    const out = el.animate([{ transform: el.style.transform || "none", opacity: 1 }, { transform: `translateX(${(SWIPE_PX + 60) * side}px)`, opacity: 0 }], { duration: 90, easing: "ease-in", fill: "forwards" });
-    el.style.transform = "";
+    const out = el.animate([{ ...shifted(dx), opacity: 1 }, { ...shifted((SWIPE_PX + 60) * side), opacity: 0 }], { duration: 90, easing: "ease-in", fill: "forwards" });
+    Object.assign(el.style, { transform: "", clipPath: "" });
+    dx = 0;
     const land = () => { step(); out.cancel(); };
     out.finished.then(land, land);
   };
@@ -246,7 +250,7 @@ const BOARD_MOCK = (() => {
     clearTimeout(rest);
     if (travel >= SWIPE_PX) return leave();
     rest = setTimeout(settle, REST_MS);
-    if (!still()) page().style.transform = `translateX(${forward ? -travel : travel}px)`;
+    if (!still()) Object.assign(page().style, shifted(dx = forward ? -travel : travel));
   }, { passive: true });
 
   return { layout, lanes, card, mark, button };
