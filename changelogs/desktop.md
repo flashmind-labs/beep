@@ -7,6 +7,31 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.8] - 2026-11-12
+
+### Added
+
+- Desktop: when a coding agent has replied but a background subagent or
+  command still runs, the session shows what it waits for, such as "Waiting
+  for 1 subagent · Upgrade all deps · 12 min", in place of "Working". A
+  click opens that subagent or the Running tab.
+
+### Changed
+
+- Desktop: a Claude Code turn that was cut off shows a grey "Interrupted" note instead of a message from you.
+- Desktop: the Option+Tab switcher lists a session's subagents indented under
+  it, in the order they started, each with its own state. A quick Option+Tab
+  still returns to the last conversation.
+- Desktop: an agent review session is named `Review #<number>` and keeps that
+  name. A pull request an agent already reviewed shows Open review, which opens
+  that conversation from any window or machine; Review again in the row's menu
+  sends the next review to the same session.
+
+### Fixed
+
+- Desktop: spinners and live updates in a window no longer stop when another
+  Beep window, such as the bar, hides.
+
 ## [0.8.7] - 2026-11-12
 
 ### Added
