@@ -7,6 +7,24 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.19] - 2026-11-12
+
+### Added
+
+- Desktop: Start on the first-run screen checks this computer for Git,
+  Node.js, Claude Code and Codex, installs what is missing with one Set up
+  button, then opens each agent's sign-in. Any item can be skipped.
+
+### Changed
+
+- Desktop: Settings shows Agent accounts, where you set the Claude Code token
+  and the Codex API key your machines use.
+- Desktop: Home's board names each project above its row, with the project's
+  dot, so the cards get the full width and no longer repeat the project's
+  name.
+- Desktop: a link to an HTML file in an agent's reply opens the page rendered
+  in the file pane; Source shows its code.
+
 ## [0.8.18] - 2026-11-12
 
 ### Added

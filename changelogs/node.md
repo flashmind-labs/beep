@@ -2,6 +2,19 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.15] - 2026-11-12
+
+### Added
+
+- Node: installs Node.js into its own folder without an admin password, and
+  Git with Homebrew or the Xcode tools on macOS or winget on Windows, when a
+  desktop asks during setup.
+
+### Changed
+
+- Node: resuming a Claude Code session whose folder was deleted names that
+  folder and says to recreate it.
+
 ## [0.6.14] - 2026-11-12
 
 ### Added
