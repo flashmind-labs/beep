@@ -7,6 +7,34 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.17] - 2026-11-12
+
+### Added
+
+- Desktop: a file path an agent writes in inline code, such as
+  `src/main.rs:42`, opens in the file pane, and a line number in a file link
+  scrolls to and marks that line.
+- Desktop: Settings > General has "Save files to", for choosing the folder
+  saved files go to on macOS, Windows and Linux. Downloads stays the default.
+
+### Changed
+
+- Desktop: a coding agent notification names its project first, such as
+  "org/web: Claude Code on build-box finished".
+- Desktop: a relative file link opens the file from the worktree the agent
+  works in, falling back to the session's folder.
+
+### Fixed
+
+- Desktop: each project remembers its selected coding agent, model and thinking level.
+
+### Performance
+
+- Desktop: a picture, video, 3D model or PDF opened from a chat downloads
+  once and opens from the local copy after that while it is unchanged. An
+  interrupted download resumes. Closing the session deletes the files only it
+  opened, and files not opened for a day are removed.
+
 ## [0.8.16] - 2026-11-12
 
 ### Added
