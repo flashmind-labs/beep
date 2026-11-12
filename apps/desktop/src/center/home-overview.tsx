@@ -111,7 +111,7 @@ function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[]): B
 const DONE_SHOWN = 8;
 
 export function HomeOverview({ home }: { home: HomeView }) {
-  const list = frontLayout() === "list";
+  const list = frontLayout("home") === "list";
   const needs = needsCards(home), running = runningCards(home);
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
   const coming = home.coming_up, updates = home.updates;

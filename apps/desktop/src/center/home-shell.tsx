@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { LayoutSwitch } from "./lanes-view.tsx";
 import { plural } from "../ui/format.ts";
 import { IC } from "../ui/icons.tsx";
 import { machineDisk, machineDot, type MachineCard, type MacRow } from "../machines/machine-state.ts";
@@ -33,7 +32,7 @@ export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, error
     <div className="cc-tabs" role="tablist">{tabs.map(tab =>
       <button key={tab.key} type="button" role="tab" aria-selected={tab.key === selected} onClick={() => open(tab.key)}>
         {tab.label}{!!tab.count && <span className="n">{tab.count}</span>}
-      </button>)}{selected === "overview" && <LayoutSwitch/>}</div>
+      </button>)}</div>
     {error && <div className="cc-note"><span className="ddot bad" /><span className="cc-err">Could not refresh: {error}</span></div>}
     {unavailable ? <div className="cc-note"><span className="ddot off" /><span>Machines and running sessions aren't available for this account or server.</span></div> : !!offline.length && <div className="cc-note"><span className="ddot bad" /><span><b>{offline.join(", ")} {offline.length === 1 ? "is" : "are"} offline.</b> Their sessions left Running now. They come back when beep-node runs there again.</span></div>}
     {content}

@@ -254,8 +254,9 @@ function pageMotion(phone: boolean, back: boolean, hasBack: boolean): PageMotion
 }
 
 const MOTION: Record<PageMotion, { frames: Keyframe[]; ms: number }> = {
-  // Opacity only, so popovers measured while it plays land where they belong.
-  fade: { frames: [{ opacity: 0 }, { opacity: 1 }], ms: 150 },
+  // Opacity only, so popovers measured while it plays land where they belong. It starts
+  // half drawn and short, so the page reads as there at once.
+  fade: { frames: [{ opacity: .5 }, { opacity: 1 }], ms: 100 },
   push: { frames: [{ opacity: .6, transform: "translateX(28%)" }, { opacity: 1, transform: "none" }], ms: 240 },
   pop: { frames: [{ opacity: .6, transform: "translateX(-22%)" }, { opacity: 1, transform: "none" }], ms: 220 },
 };
