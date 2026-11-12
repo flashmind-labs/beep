@@ -42,3 +42,21 @@ export function isMobile(): boolean {
   if (typeof window === "undefined") return false;
   return mobileLayout({ width: window.innerWidth, coarse: window.matchMedia("(pointer: coarse)").matches, phone: onPhone() });
 }
+
+/// iPhone and iPad, where saves go to the app's folder in Files.
+function onIos(): boolean {
+  return APPLE && onPhone();
+}
+
+/// The folder a save at `path` went to, as the user knows it: Files on
+/// iOS, otherwise the folder's own name.
+export function savedIn(path: string): string {
+  if (onIos()) return "Files";
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.at(-2) ?? "Downloads";
+}
+
+/// The button after a save: Finder on a computer, the share sheet on iOS.
+export function revealLabel(): "Share" | "Show in Finder" {
+  return onIos() ? "Share" : "Show in Finder";
+}

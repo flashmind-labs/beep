@@ -21,6 +21,7 @@ import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClip
 import { confirmSheet, renameSheet } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AMBIENT_MS, ambient, paneShown } from "../ui/active.ts";
+import { savedIn } from "../ui/platform.ts";
 
 /// The type a row of the tree drags as, its path relative to the session's folder.
 export const PATH_TYPE = "application/x-beep-path";
@@ -717,8 +718,8 @@ async function saveItems() {
 
   try {
     const to = await invoke<string>("agent_tree_save_many", { machineId: at.machineId, root: at.root, paths });
-    if (F.key === at.key) note("Saved to Downloads.");
+    if (F.key === at.key) note(`Saved to ${savedIn(to)}.`);
     await invoke("reveal_file", { path: to });
-  } catch (e) { if (F.key === at.key) note(`Download stopped: ${e}. Downloads may contain incomplete files.`); }
+  } catch (e) { if (F.key === at.key) note(`Download stopped: ${e}. The save folder may contain incomplete files.`); }
   finally { if (F.key === at.key) { F.busy = false; draw(); } }
 }

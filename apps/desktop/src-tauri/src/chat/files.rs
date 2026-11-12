@@ -66,21 +66,30 @@ pub async fn save_file(
     name: String,
 ) -> Result<PathBuf> {
     let from = cached_file(&app, &beep, &id, &name).await?;
-    let to = free_name(&app.path().download_dir()?, &file_name(&name));
+    let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&name));
     fs::copy(&from, &to).map_err(anyhow::Error::from)?;
     Ok(to)
 }
 
-/// Shows a file `save_file` put in Downloads in Finder.
+/// Shows a file a save put in Downloads in Finder, or on an iPhone opens
+/// the share sheet for it.
 #[tauri::command]
-pub fn reveal_file(app: AppHandle, path: PathBuf) -> Result<()> {
-    let downloads = app.path().download_dir()?;
+pub fn reveal_file(app: AppHandle, window: tauri::WebviewWindow, path: PathBuf) -> Result<()> {
+    let saves = crate::platform::saves_dir(&app)?;
 
-    if path.parent() != Some(downloads.as_path()) || !path.is_file() {
+    if path.parent() != Some(saves.as_path()) || !path.exists() {
         return Err(DesktopError::BadRequest("not a saved file".into()));
     }
 
-    crate::platform::reveal(&path)?;
+    #[cfg(target_os = "ios")]
+    window.with_webview(move |webview| {
+        crate::platform::ios_share::share(webview.view_controller(), &path)
+    })?;
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = window;
+        crate::platform::reveal(&path)?;
+    }
     Ok(())
 }
 
@@ -136,7 +145,10 @@ pub fn save_picture(app: AppHandle, name: String, url: String) -> Result<PathBuf
     let bytes = STANDARD
         .decode(data)
         .map_err(|_| DesktopError::BadRequest("bad picture".into()))?;
-    let to = free_name(&app.path().download_dir()?, &picture_name(&name, mime));
+    let to = free_name(
+        &crate::platform::saves_dir(&app)?,
+        &picture_name(&name, mime),
+    );
     fs::write(&to, bytes).map_err(anyhow::Error::from)?;
     Ok(to)
 }

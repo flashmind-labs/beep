@@ -25,6 +25,7 @@ const SETTINGS_ACCOUNTS = (() => {
       + `<div class="dchips" role="radiogroup" aria-label="When I stop talking" style="margin:6px 0 10px"><button class="dchip" role="radio" aria-checked="${!word}" aria-pressed="${!word}" data-dact="dset:vsend:pause">Send when I stop talking</button><button class="dchip" role="radio" aria-checked="${word}" aria-pressed="${word}" data-dact="dset:vsend:word">Wait until I say “send”</button></div>`
       + dt("Coding agent notifications", agn ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting", swi(agn, "Coding agent notifications", `data-dact="dset:agnoff:${S.d.agnoff ? "" : "1"}"`))
       + dt("Project sync", S.d.projectSyncOff ? "Paused for every project on all machines. Turn on to reconcile your projects." : "Sync projects across all your machines. Turning off keeps existing files in place.", swi(!S.d.projectSyncOff, "Project sync", `data-dact="dset:projectSyncOff:${S.d.projectSyncOff ? "" : "1"}"`))
+      + dt("Save files to", S.d.saveDir || "~/Downloads", `${S.d.saveDir ? '<button class="dbtn quiet" data-dact="dset:saveDir:">Use Downloads</button>' : ""}<button class="dbtn" data-dact="dset:saveDir:~/Work/Beep saves">Choose…</button>`)
       + dt("Keyboard shortcuts", "Every shortcut, by where it works", '<button class="dbtn" data-dgo="dShortcuts">Show…</button>')
       + dt("Report a problem", "Collect logs from your machines and send them to us", '<button class="dbtn" data-dgo="dReport">Report…</button>');
   };

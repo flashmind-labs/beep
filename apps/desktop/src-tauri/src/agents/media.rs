@@ -252,7 +252,7 @@ pub async fn agent_file_save(
         path: &path,
         session: session.as_deref(),
     };
-    let to = free_name(&app.path().download_dir()?, &file_name(&path));
+    let to = free_name(&crate::platform::saves_dir(&app)?, &file_name(&path));
 
     if let Some(cached) = cached(&app, &beep, &fleet, &cache, asked).await? {
         cache.export(cached, &to).await?;
