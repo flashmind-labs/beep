@@ -4,9 +4,8 @@ import { closingNote } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { byRecent, runningKey, runningLine, runningWhen, type RunningRow } from "../agents/running-state.ts";
-import { sessions } from "../agents/sessions.ts";
 import { sessionVisible } from "../agents/closing.ts";
-import { Board, type BoardCard } from "./lanes-view.tsx";
+import { Board, CardRow, frontLayout, type BoardCard } from "./lanes-view.tsx";
 import { endedToday, laneOf } from "./lanes-state.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { conflictList, conflictSub } from "../project/filesync.ts";
@@ -14,7 +13,7 @@ import { fsync } from "../project/sections.ts";
 import { syncProjects } from "../project/syncpage.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { type HomeView, needsLine } from "./home-state.ts";
-import { answerChat, cardKey, dismissUpdates, openAsking, openUpdate, scheduleText, whenOf } from "./home.ts";
+import { answerChat, cardKey, homeSessions, dismissUpdates, openAsking, openUpdate, scheduleText, whenOf } from "./home.ts";
 import { itemChips, newestFirst, waitsOnYou } from "./openitems-state.ts";
 import { openUrl } from "./openitems.ts";
 import { state } from "./state.ts";
@@ -35,9 +34,8 @@ function runningStatus(row: RunningRow, home: HomeView) {
 
 const sessionKey = (s: { machine_id: string; id: string }) => runningKey({ kind: "agent", ...s });
 
-/// Everything on Home's board: what waits on the user, then every session by its lane.
-function boardCards(home: HomeView): BoardCard[] {
-  const projects = home.projects || [];
+/// What waits on the user: questions and approvals, pull requests, sync conflicts.
+function needsCards(home: HomeView): BoardCard[] {
   const cards: BoardCard[] = [];
 
   for (const need of home.needs_you) {
@@ -70,21 +68,35 @@ function boardCards(home: HomeView): BoardCard[] {
     }
   }
 
-  const shown = new Set(cards.map(card => card.key));
+  return cards;
+}
 
-  for (const row of byRecent(visibleRunning(home.running))) {
-    const key = runningKey(row);
-    if (shown.has(key)) continue;
-    shown.add(key);
+/// Everything that runs, the latest first.
+function runningCards(home: HomeView): BoardCard[] {
+  const projects = home.projects || [];
+  return byRecent(visibleRunning(home.running)).map(row => {
     const { title, sub } = row.kind === "agent" ? runningLineAt(row, projects) : runningLine(row, projects);
     const status = runningStatus(row, home);
-    cards.push({ key, lane: row.kind === "agent" ? laneOf(row.status) : "working", session: row.kind === "agent", lead: row.kind === "agent" ? <HarnessIcon agent={row.agent} /> : null,
+    return { key: runningKey(row), lane: row.kind === "agent" ? laneOf(row.status) : "working", session: row.kind === "agent", lead: row.kind === "agent" ? <HarnessIcon agent={row.agent} /> : null,
       title, sub, foot: status.foot, action: null, dim: status.waiting, hint: status.why,
       open: () => row.kind === "research" ? openResearch(row.session) : go("pane", { agent: row }),
-      menu: row.kind === "agent" ? event => { void sessionMenu(event, row, s => go("pane", { agent: s })); } : null });
+      menu: row.kind === "agent" ? event => { void sessionMenu(event, row, s => go("pane", { agent: s })); } : null };
+  });
+}
+
+/// Home's board: what waits on the user, then every session once, by its lane.
+function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[]): BoardCard[] {
+  const projects = home.projects || [];
+  const shown = new Set(needs.map(card => card.key));
+  const cards = [...needs];
+
+  for (const card of running) {
+    if (shown.has(card.key)) continue;
+    shown.add(card.key);
+    cards.push(card);
   }
 
-  for (const session of endedToday(sessions.filter(sessionVisible), Date.now()).slice(0, DONE_SHOWN)) {
+  for (const session of endedToday(homeSessions().filter(sessionVisible), Date.now()).slice(0, DONE_SHOWN)) {
     const key = sessionKey(session);
     if (shown.has(key)) continue;
     const { title, sub } = runningLine({ kind: "agent", ...session }, projects);
@@ -99,12 +111,16 @@ function boardCards(home: HomeView): BoardCard[] {
 const DONE_SHOWN = 8;
 
 export function HomeOverview({ home }: { home: HomeView }) {
-  const cards = boardCards(home);
+  const list = frontLayout() === "list";
+  const needs = needsCards(home), running = runningCards(home);
+  const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
   const coming = home.coming_up, updates = home.updates;
   const empty = !cards.length && !updates?.length && !coming?.length;
   return <>
-    {!!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/></div>}
+    {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{needs.map(card => <CardRow key={card.key} card={card}/>)}</Section>
+      : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }}/></div>}
     {!!updates?.length && <Section id="sec-updates" title="Updates" count={updates.length} action={<button className="dbtn quiet small" type="button" onClick={() => dismissUpdates(updates.map(u => u.id))}>Clear</button>}>{updates.map(update => <LineRow key={update.id} lead={<span className="cc-ag beep">{update.app_name?.slice(0, 1).toUpperCase() || <span style={{ display: "contents" }}><Icon name="beep" /></span>}</span>} title={update.summary} sub={update.app_name ? `${update.app_name} · ${formatAgo(update.at, "day")}` : formatAgo(update.at, "day")} textTitle="Ask Beep about this" onOpen={() => { void openUpdate(update); }} right={<button className="dbtn quiet" type="button" aria-label="Dismiss" style={{ padding: "2px 6px" }} onClick={event => { event.stopPropagation(); dismissUpdates([update.id]); }}><Icon name="close" /></button>} />)}</Section>}
+    {list && !!running.length && <Section id="sec-running" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "agents")}>Running</button>} count={running.length}>{running.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
     {!!coming?.length && <Section id="sec-coming" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "routines")}>Coming up</button>} count={coming.length}>{coming.slice(0, 5).map(row => { const when = whenOf(row.next_run_at); return <LineRow key={row.id} lead={<span className="cc-when"><b>{when.time}</b>{when.day}</span>} title={row.label.trim() || row.prompt.trim() || "Routine"} sub={scheduleText(row.schedule)} onOpen={() => go("pane", "routines")} />; })}</Section>}
     {empty && <div className="cc-panel cc-empty">{!state.subscribed ? <><b>{!state.home && !S.server ? "Start an agent" : "Nothing running"}</b><span>{!state.home && !S.server ? "Your machines connect in the background." : "Start an agent on this computer, or add a machine to run it there."}</span><button type="button" className="dbtn small" onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</button></> : <span>Nothing needs you, and nothing is running.</span>}</div>}
   </>;

@@ -119,6 +119,9 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+            span.bd-switch [aria-label="Layout" role="group"]
+              button [aria-pressed="true" type="button"] "Board"
+              button [aria-pressed="false" type="button"] "List"
           div#sec-needs
             div.bd-lanes
               div.bd-lane

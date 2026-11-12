@@ -88,6 +88,9 @@ body.cbody
           div.cc-tabs [role="tablist"]
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+            span.bd-switch [aria-label="Layout" role="group"]
+              button [aria-pressed="true" type="button"] "Board"
+              button [aria-pressed="false" type="button"] "List"
           div#sec-updates
             div.cc-sec
               h4 "Updates"

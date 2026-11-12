@@ -23,6 +23,9 @@
 .mac .bd-card .sub .cc-ag { width: 18px; height: 18px; border-radius: 5px; font-size: 8px; flex: none }
 .mac .bd-card .ft { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--d-muted); font-variant-numeric: tabular-nums }
 .mac .bd-card .ft .sp { flex: 1 }
+.mac .bd-switch { display: flex; align-items: center; gap: 2px; margin-left: auto }
+.mac .bd-switch button { all: unset; cursor: pointer; padding: 2px 8px; border-radius: 5px; font-size: 11.5px; line-height: 18px; color: var(--d-muted) }
+.mac .bd-switch button[aria-pressed="true"] { background: var(--d-elev, rgba(255,255,255,.08)); color: var(--d-fg) }
 .mac .bd-card .a { color: #4cb782 } .mac .bd-card .d { color: var(--d-err) }
 .mac .bd-empty { padding: 10px 12px; border: 1px dashed var(--d-border); border-radius: 8px; font-size: 11.5px; color: var(--d-muted) }
 .mac .bd-rows { display: grid; grid-template-columns: 120px repeat(4, minmax(0, 1fr)); column-gap: 12px; align-items: start }
@@ -99,6 +102,9 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
   const rows = () => `<div class="bd-rows"><span class="hd"></span>${LANES.map(([key, name]) => `<h4 class="hd">${name}<span>${cardsIn(key).length}</span></h4>`).join("")}
     ${PROJECTS.map(([name, color]) => `<span class="pj"><span class="cc-pdot" style="background:${color}"></span>${name}</span>${LANES.map(([key]) => `<div class="bd-lane">${cardsIn(key, name).map(c => card(c, false)).join("")}</div>`).join("")}`).join("")}</div>`;
 
+  // Board or List: List is the Home and project page from before the board, kept as a choice.
+  const layoutSwitch = list => `<span class="bd-switch" role="group" aria-label="Layout"><button aria-pressed="true">Board</button><button aria-pressed="false" data-dgo="${list}">List</button></span>`;
+
   // The board lives in the real window: a current screen is rendered, then changed in place.
   const frame = (html, current) => {
     const t = document.createElement("template");
@@ -120,6 +126,7 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     const pane = t.content.querySelector(".cc-view");
     const tabs = pane.querySelector(".cc-tabs");
     tabs.querySelector("button").firstChild.textContent = "Board";
+    tabs.insertAdjacentHTML("beforeend", layoutSwitch("dHome"));
     pane.replaceChildren(pane.querySelector(".cc-mstrip"), tabs);
     pane.insertAdjacentHTML("beforeend", body);
     return t.innerHTML;
@@ -131,6 +138,7 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     const pane = t.content.querySelector(".cc-view");
     const strip = pane.querySelector(".pj-strip");
     pane.className = "bd-pj";
+    strip.insertAdjacentHTML("beforeend", layoutSwitch("dWinProject"));
     pane.replaceChildren(strip);
     pane.insertAdjacentHTML("beforeend", lanes(PROJECT));
     if (S.d.ixlive === "start") t.content.querySelector(".cc-pjc .box").style.viewTransitionName = `bd-card-${CARDS.length}`;

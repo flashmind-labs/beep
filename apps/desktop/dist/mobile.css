@@ -86,7 +86,7 @@ body.mobile .pj-split.picked:not(.gh-layout) > .pj-list { display: none }
 body.mobile .pj-split.gh-layout { grid-template-rows: auto minmax(0, 1fr) }
 body.mobile .pj-split > .pj-det { padding-bottom: 12px }
 body.mobile .pj-strip { margin: 8px 12px; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none }
-body.mobile .pj-cols, body.mobile .pj-cols.pj-half, body.mobile .in-cols, body.mobile .dtwo { grid-template-columns: minmax(0, 1fr) }
+body.mobile .pj-cols, body.mobile .pj-cols.pj-half, body.mobile .pj-ov, body.mobile .in-cols, body.mobile .dtwo { grid-template-columns: minmax(0, 1fr) }
 body.mobile .pj-grid { grid-template-columns: minmax(0, 1fr) }
 /* The Projects overview stays inside the screen: headings and outside items wrap, the
    header's buttons are icons and the search takes the full width. */
