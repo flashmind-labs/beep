@@ -7,7 +7,7 @@
 import { shownMessage } from "../agents/session-frame.tsx";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
-import { queuePreview } from "./html-preview-state.ts";
+import { isHtmlFile, queuePreview } from "./html-preview-state.ts";
 import { baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
 import type { ModelView } from "./model3d.ts";
@@ -362,6 +362,9 @@ export function openLinked(ref: FileRef) {
   const elsewhere = !ref.path.startsWith("/") && shown !== cwd ? resolvePath(cwd, ref.path) : null;
   const root = [shown, cwd].find(root => full.startsWith(`${root}/`)) ?? cwd;
   const tab = openIn(root, full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full, elsewhere);
+
+  // An HTML page shows rendered; Source switches to its code.
+  if (tab?.kind === "text" && tab.rel && isHtmlFile(tab.rel) && !tab.preview) previewTab(tab);
 
   if (tab && tab.line !== ref.line) {
     tab.line = ref.line;
