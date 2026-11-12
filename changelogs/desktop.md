@@ -7,6 +7,22 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.18] - 2026-11-12
+
+### Added
+
+- Desktop: audio files (MP3, M4A, AAC, WAV, FLAC, Ogg, Opus) named in an agent's reply or opened from Files play in the side pane.
+- Desktop: a two-finger swipe sideways on the trackpad goes back or forward.
+  The page follows the fingers and comes back if they stop short.
+
+### Changed
+
+- Desktop: Home's board has a row for each project, with the projects that
+  wait on you first. A project's name opens it, a cell shows about two cards
+  and scrolls to the rest, and a project's sync conflicts share one card.
+- Desktop: the Review button of a pull request on the board is a menu: Open
+  shows it on its host, and Review with agent starts an agent's review.
+
 ## [0.8.17] - 2026-11-12
 
 ### Added
