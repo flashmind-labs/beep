@@ -442,14 +442,18 @@ export function showFiles() {
 }
 
 /// Shows the Running tab, unfolding its dock; on a phone it fills the screen.
-export function showRunning() {
-  if (!shell() || !tabIds().includes(RUNNING)) return;
-  if (paneModel.getState().phone) return pickPhoneTab(RUNNING);
+export const showRunning = () => showList(RUNNING);
+/// Shows the Subagents tab the same way.
+export const showSubagents = () => showList(SUBS);
 
-  const d = dockOf(RUNNING);
+function showList(id: typeof RUNNING | typeof SUBS) {
+  if (!shell() || !tabIds().includes(id)) return;
+  if (paneModel.getState().phone) return pickPhoneTab(id);
+
+  const d = dockOf(id);
   P.layout.hidden[d] = false;
   saveLayout();
-  showTab(d, RUNNING);
+  showTab(d, id);
 }
 
 /// Shows the Artifacts tab, unfolding its dock, on the artifact at `path`

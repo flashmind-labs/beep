@@ -2,7 +2,7 @@
 import { S } from "../bar/core.ts";
 import { openViewer } from "../chat/media.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
-import { openLinked, openPath, openPicture, showArtifact } from "../agentpane/media.ts";
+import { openLinked, openPath, openPicture, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode } from "./turnrows.ts";
 import { AG } from "./agents.ts";
@@ -18,6 +18,21 @@ import { readError } from "../agentpane/read.ts";
 import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent } from "./session.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
+
+/// Opens the conversation of the subagent whose call is entry `at`; false when it has none to open.
+function openNative(at: number) {
+  const entry = AG.page && AG.log ? AG.page.entries[at - AG.page.earlier] : null;
+  if (!AG.page || !AG.log || !entry) return false;
+
+  const { title, status, output } = AG.log.parseTool(AG.log.imageLines(entry.text).text);
+  const child = AG.log.subagent(output);
+  const row = child?.session && nativeSession(AG.page.session, child.session, title.split("\n")[0], status);
+  if (!row) return false;
+
+  keepNativeSession(row, AG.page.session);
+  openAgent(row, { back: AG.back });
+  return true;
+}
 
 export function agentClick(e: MouseEvent) {
   if (S.view !== "agent") return;
@@ -45,14 +60,13 @@ export function agentClick(e: MouseEvent) {
   const summary = target.closest<HTMLElement>("[data-subsummary]");
   if (summary) { const at = Number(summary.dataset.subsummary); AG.steps.set(at, !AG.steps.get(at)); drawAgentBody(); return; }
   const sub = inLogOrPane<HTMLElement>("[data-native]");
+  if (sub) { openNative(Number(sub.dataset.native)); return; }
+  // The line of what a replied turn waits for opens its oldest subagent, or the Running tab.
+  const wait = inLog<HTMLElement>("[data-wait]");
 
-  if (sub && AG.page && AG.log) {
-    const entry = AG.page.entries[Number(sub.dataset.native) - AG.page.earlier];
-    if (!entry) return;
-    const { title, status, output } = AG.log.parseTool(AG.log.imageLines(entry.text).text);
-    const child = AG.log.subagent(output);
-    const row = child?.session && nativeSession(AG.page.session, child.session, title.split("\n")[0], status);
-    if (row) { keepNativeSession(row, AG.page.session); openAgent(row, { back: AG.back }); }
+  if (wait) {
+    if (wait.dataset.wait === "running") showRunning();
+    else if (!openNative(Number(wait.dataset.wait))) showSubagents();
     return;
   }
 
