@@ -58,7 +58,7 @@ function Tail({ tail }: { tail: AgentListRow["tail"] }) {
     case "move": return <span className={`dstate ${tail.label === "Moving" ? "run" : "ask"}`} title={tail.why ?? undefined}>{tail.label}</span>;
     case "asking": return <span className="dstate ask">Needs you</span>;
     case "connecting": return <span className="w" title="Shown as last seen until its machine answers">Connecting</span>;
-    case "running": return <span className="run" title={tail.doing}><Spinner /><span className="tx">{tail.doing}</span></span>;
+    case "running": return <span className="run" title={tail.doing}><Spinner dot /><span className="tx">{tail.doing}</span></span>;
     case "plain": return <span className="w">{tail.label}</span>;
   }
 }

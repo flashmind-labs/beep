@@ -365,10 +365,11 @@ async fn a_kept_lookup_of_one_outside_session_is_not_read_again_on_every_change(
     assert_eq!(snapshots.due(), Some(started + SESSION_GAP));
 }
 
-/// A desktop's read of a folder that keeps coming back the same waits
-/// longer each time, up to a bound, and reads promptly again once it changes.
+/// A read of a folder that keeps coming back the same, a desktop's or a
+/// `files` topic's own, waits longer each time, up to a bound, and reads
+/// promptly again once it changes.
 #[test]
-fn an_unchanged_file_read_backs_off_and_a_topic_projection_does_not() {
+fn an_unchanged_file_read_backs_off() {
     let source = Source::Read(Read::Sessions(Box::new(SessionsRequest::ReadFile {
         root: "/srv/project".into(),
         path: "a.txt".into(),
@@ -389,7 +390,7 @@ fn an_unchanged_file_read_backs_off_and_a_topic_projection_does_not() {
     assert_eq!(projection(Some(1), 0).gap(), READ_GAP);
     assert_eq!(projection(Some(1), 1).gap(), READ_GAP * 2);
     assert_eq!(projection(Some(1), 50).gap(), READ_GAP * 8);
-    assert_eq!(projection(None, 50).gap(), READ_GAP);
+    assert_eq!(projection(None, 50).gap(), READ_GAP * 8);
     let list = Projection {
         source: Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
         ..projection(Some(1), 50)

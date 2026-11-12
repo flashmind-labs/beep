@@ -123,13 +123,11 @@ test("a stale running-chat read cannot replace a newer status", async ({ page })
 });
 
 
-test("running agents and chats show turning spinners that pause while the window is hidden", async ({ page }) => {
+test("an answering chat shows a still dot, not a spinner", async ({ page }) => {
   await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, list_sessions: [{ id: "chat-one", title: "Example chat", pinned: false, updated_at: 1 }], list_groups: [], active_runs: ["chat-one"] });
   const row = page.locator("#side .cc-chat").filter({ has: page.getByRole("button", { name: "Example chat" }) });
   await expect(row.locator(".cc-run")).toBeVisible();
-  await expect(row.locator(".cc-run")).toHaveCSS("animation-name", "spin");
-  await page.evaluate(() => document.documentElement.setAttribute("data-hidden", ""));
-  await expect(row.locator(".cc-run")).toHaveCSS("animation-play-state", "paused");
+  await expect(row.locator(".cc-run")).toHaveCSS("animation-name", "none");
 });
 
 test("project counts line up with the counts of the links above", async ({ page }) => {

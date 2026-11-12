@@ -442,7 +442,8 @@ async function startFromBar() {
   redrawProjects();
 
   try {
-    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, error => c.update({ error }));
+    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, progress => c.update({ progress }));
+    if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, chat: null, model, effort, checkout, images });
     if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
@@ -455,6 +456,7 @@ async function startFromBar() {
   } catch (e) {
     c.update({ error: reason(e) });
   } finally {
+    c.update({ progress: "" });
     pc.starting = false;
     redrawProjects();
   }

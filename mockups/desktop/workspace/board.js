@@ -11,7 +11,7 @@ const BOARD_MOCK = (() => {
 
   const layout = page => S.d[page === "home" ? "frontHome" : "frontProject"] === "list" ? "list" : "board";
   const mark = agent => `<span class="cc-ag ${agent}">${agent === "codex" ? "CX" : "CC"}</span>`;
-  const working = when => `<span class="cc-running"><span class="dspin" role="img" aria-label="Working"></span>${when}</span>`;
+  const working = when => `<span class="cc-running"><span class="drun" role="img" aria-label="Working"></span>${when}</span>`;
   const button = (label, attrs, primary = false) => `<button class="dbtn small${primary ? " pri" : ""}" ${attrs}>${label}</button>`;
 
   // A card: its title, who and where, then what it waits for or since when. Only a card that

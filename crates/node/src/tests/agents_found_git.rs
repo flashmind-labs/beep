@@ -180,3 +180,38 @@ fn a_folder_with_no_git_above_is_in_no_checkout() {
         assert_eq!(last_commit(root.path()), None);
     }
 }
+
+/// HEAD is asked of git once while its files stay as they are, again after a
+/// commit, and again each time while there is no commit yet.
+#[test]
+fn a_head_is_kept_until_a_commit_and_a_missing_one_is_not() {
+    if !has_git() {
+        eprintln!("skipped: no git");
+        return;
+    }
+
+    let root = tempfile::tempdir().expect("a temp folder");
+    let repo = paths::canonicalize(root.path()).expect("a real path");
+    run(&repo, &["init", "-q"]);
+    let asks = std::cell::Cell::new(0);
+    let read = || {
+        head(&repo, || {
+            asks.set(asks.get() + 1);
+            git(&repo, &["rev-parse", "-q", "--verify", "HEAD^{commit}"]).map(|said| said.trim().to_owned())
+        })
+    };
+
+    assert_eq!(read(), None);
+    assert_eq!(read(), None);
+    assert_eq!(asks.get(), 2);
+
+    run(&repo, &["commit", "-q", "--allow-empty", "-m", "one"]);
+    let first = read().expect("a commit");
+    assert_eq!(read().as_deref(), Some(first.as_str()));
+    assert_eq!(asks.get(), 3);
+
+    run(&repo, &["commit", "-q", "--allow-empty", "-m", "two"]);
+    let second = read().expect("a commit");
+    assert_ne!(second, first);
+    assert_eq!(asks.get(), 4);
+}
