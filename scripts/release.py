@@ -13,7 +13,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from changelog import freeze, notes
+from changelog import freeze, unreleased
 
 
 @dataclass(frozen=True, order=True)
@@ -192,10 +192,11 @@ def release(root: Path, releases: list[tuple[App, Version]], urls: list[str]):
         for app, version in releases:
             app.write_version(tree, version)
 
+        frozen = []
         for app, version in releases:
-            freeze(tree / app.changelog, str(version))
+            frozen += [str(path.relative_to(tree)) for path in freeze(tree / app.changelog, str(version))]
 
-        files = [app.changelog for app in apps] + [app.manifest for app in apps] + update_locks(tree, apps)
+        files = [app.changelog for app in apps] + frozen + [app.manifest for app in apps] + update_locks(tree, apps)
         changed = set(git(tree, "diff", "--name-only").splitlines())
 
         if changed - set(files):
@@ -250,7 +251,7 @@ def main():
     urls = refresh(root, args.remote)
     releases = plan(root, apps, args.level)
     for app in apps:
-        notes((root / app.changelog).read_text(), "Unreleased")
+        unreleased(root / app.changelog)
 
     for app, version in releases:
         print(f"{app.name}: {app.version(root)} -> {version} ({app.prefix}-v{version})", flush=True)

@@ -96,17 +96,22 @@ and wire representations independently. Prefer explicit
 
 ## Changelog
 
-Every agent must add user-visible changes under `[Unreleased]` before finishing
-work: desktop in `changelogs/desktop.md`, other apps in `changelogs/node.md`,
-`changelogs/android.md`, `changelogs/ios.md`, or `changelogs/server.md`.
-Record shared changes in each affected app. Use `Added`, `Changed`, `Fixed`,
-`Security`, then `Performance`; write from the user's view and name the platform.
-Skip internal churn. Never invent past release notes or edit published entries.
+Every agent must record user-visible changes before finishing work, as a new
+file per change in `changelogs/unreleased/<app>/` (`desktop`, `node`,
+`android`, `ios` or `server`), named after the issue or branch, such as
+`579-ghostty-terminals.md`. Never edit another change's file or the
+`changelogs/<app>.md` files, so branches do not conflict. Record shared changes
+in each affected app. A file holds `### Added`, `### Changed`, `### Fixed`,
+`### Security` or `### Performance` sections of `- ` items; write from the
+user's view and name the platform. Skip internal churn. Never invent past
+release notes or edit published entries. Check with
+`python3 scripts/changelog.py check`.
 
-Release preparation moves each app's Unreleased notes into a dated version
-entry. All release paths must freeze the matching changelog. Desktop and node
-release pages and desktop updater feeds use those notes. Keep an empty
-Unreleased section for the next changes. Never publish without release notes.
+Release preparation (`python3 scripts/changelog.py freeze <version> --path
+changelogs/<app>.md`) collects an app's files into a dated version entry in
+`changelogs/<app>.md` and deletes them. All release paths must freeze the
+matching changelog. Desktop and node release pages and desktop updater feeds
+use those notes. Never publish without release notes.
 
 ## Releases and deployment
 
