@@ -7,6 +7,7 @@ use beep_proto::node::{
     files, logs,
     process::{self, TaskId},
     search,
+    setup::{self, Need},
     shell::{self, Event},
     sign_in,
     tool_update::{self, Tool},
@@ -239,6 +240,31 @@ pub async fn install_tool(client: &PeerClient, tool: Tool, version: &str) -> Res
     match exchange(client, TOOL_INSTALL, tool_update::PROTOCOL, &request, words).await? {
         tool_update::Reply::Installed {} => Ok(()),
         tool_update::Reply::Failed { reason } => Err(said(reason)),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// Has the node install `need`: `true` once it is installed, `false` when
+/// the system finishes it in a window of its own, such as the Xcode tools
+/// dialog on macOS.
+pub async fn set_up(client: &PeerClient, need: Need) -> Result<bool, MeshError> {
+    let words = Words {
+        silent: "the install took too long",
+        closed: "the node closed the install without an answer",
+    };
+
+    match exchange(
+        client,
+        TOOL_INSTALL,
+        setup::PROTOCOL,
+        &setup::Request::Install { need },
+        words,
+    )
+    .await?
+    {
+        setup::Reply::Installed {} => Ok(true),
+        setup::Reply::Started {} => Ok(false),
+        setup::Reply::Failed { reason } => Err(said(reason)),
         other => Err(unexpected(&other)),
     }
 }

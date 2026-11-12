@@ -122,16 +122,16 @@
       if (k === "git") return suRow(name, sub, `Installed · v${version}`, OK);
       if (st === "ready") return suRow(name, sub, "Not installed", MUTED, skip(k));
       if (st === "installing") return k === "node" ? suRow(name, sub, "Installed · v24.11.0", OK)
-        : k === "claude" ? suRow(name, sub, '<span class="dspin"></span>Installing', MUTED) : suRow(name, sub, "Waiting", MUTED);
+        : k === "claude" ? suRow(name, sub, '<span class="dspin"></span>Installing', MUTED) : suRow(name, sub, "Not installed", MUTED);
       if (st === "signin") return k === "node" ? suRow(name, sub, "Installed · v24.11.0", OK)
         : k === "claude" ? suRow(name, sub, "Signed in as you@example.com", OK)
-        : suRow(name, sub, '<span class="dspin"></span>Waiting for your browser', MUTED, ' <button class="dbtn quiet small" data-toast="Opens the Codex sign-in page again">Open again</button>');
+        : suRow(name, sub, '<span class="dspin"></span>Signing in', MUTED);
       return suRow(name, sub, k === "node" ? "Installed · v24.11.0" : "Signed in as you@example.com", OK);
     }).join("");
     const missing = SU_TOOLS.filter(([k]) => k !== "git" && !S.d["suskip_" + k]).length;
-    const foot = st === "ready" ? `<button class="dbtn pri" data-dact="dset:su:installing" data-dgo="dNoServer"${missing ? "" : " disabled"}>Set up</button><span style="font-size:12px;color:var(--d-muted)">Installs ${missing}, then opens each sign-in.</span><span style="margin-left:auto"><button class="dbtn quiet" ${go("ns", "first")}>Later</button></span>`
-      : st === "installing" ? `<button class="dbtn pri" disabled>Setting up…</button><span style="font-size:12px;color:var(--d-muted)">Installing Claude Code (2 of 3)</span><span style="margin-left:auto"><button class="dbtn quiet" data-dact="dset:su:ready" data-dgo="dNoServer">Cancel</button></span>`
-      : st === "signin" ? `<button class="dbtn pri" disabled>Signing in…</button><span style="font-size:12px;color:var(--d-muted)">Signing in to Codex</span><span style="margin-left:auto"><button class="dbtn quiet" ${go("ns", "first")}>Later</button></span>`
+    const foot = st === "ready" ? `<button class="dbtn pri" data-dact="dset:su:installing" data-dgo="dNoServer"${missing ? "" : " disabled"}>Set up</button><span style="font-size:12px;color:var(--d-muted)">Installs what is missing, then signs in.</span><span style="margin-left:auto"><button class="dbtn quiet" ${go("ns", "first")}>Later</button></span>`
+      : st === "installing" ? `<button class="dbtn pri" disabled>Setting up…</button><span style="font-size:12px;color:var(--d-muted)">Installing Claude Code</span><span style="margin-left:auto"><button class="dbtn quiet" ${go("ns", "first")}>Later</button></span>`
+      : st === "signin" ? `<button class="dbtn pri" disabled>Setting up…</button><span style="font-size:12px;color:var(--d-muted)">Signing in to Codex in the sheet above</span><span style="margin-left:auto"><button class="dbtn quiet" ${go("ns", "first")}>Later</button></span>`
       : `<button class="dbtn pri" ${go("ns", "first")}>Open Beep</button><span style="font-size:12px;color:var(--d-muted)">This computer is ready to run agents.</span>`;
     return frOver(`<div style="display:grid;gap:8px">${FR_LOGO}<div><b style="font-size:16px">Set up this computer</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:2px">What Beep needs to run coding agents here.</div></div></div>
       <div style="border:1px solid var(--d-border);border-radius:10px;overflow:hidden;margin-top:4px">${rows.replace('border-top:1px solid var(--d-border)', '')}</div>

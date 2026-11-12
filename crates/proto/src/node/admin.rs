@@ -228,6 +228,61 @@ pub mod update {
     }
 }
 
+pub mod setup {
+    //! `setup/1`: the node installs what its agents need and the machine
+    //! lacks: Git, or Node.js into the node's own folder so npm can install
+    //! the coding agents without an admin password. The node answers with
+    //! one `Reply`.
+
+    use serde::{Deserialize, Serialize};
+    use strum::{Display, EnumString, IntoStaticStr};
+
+    pub const PROTOCOL: &str = "setup/1";
+
+    /// Something the node can install for its agents.
+    #[derive(
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Hash,
+        Serialize,
+        Deserialize,
+        Display,
+        EnumString,
+        IntoStaticStr,
+    )]
+    #[serde(rename_all = "snake_case")]
+    #[strum(serialize_all = "snake_case")]
+    pub enum Need {
+        Git,
+        Node,
+    }
+
+    /// What the desktop sends.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[non_exhaustive]
+    pub enum Request {
+        Install { need: Need },
+    }
+
+    /// What the node answers.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[non_exhaustive]
+    pub enum Reply {
+        Installed {},
+        /// The system finishes the install in a window of its own, such as
+        /// the Xcode tools dialog on macOS; the machine's report shows it
+        /// once it is done.
+        Started {},
+        /// In words for the user.
+        Failed {
+            reason: String,
+        },
+    }
+}
+
 pub mod tool_update {
     //! `tool-update/1`: the node installs a newer release of a tool it
     //! provisions (`gh`, `teacli`, `flsh`) into its own `bin` folder, checked

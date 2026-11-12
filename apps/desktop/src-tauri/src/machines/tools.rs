@@ -10,6 +10,7 @@ use beep_proto::{
     Machine, ToolUpdate, UpdateMachineTool,
     node::{
         harness::{harness, is_newer, parse_version},
+        setup::Need,
         tool_update::Tool,
     },
 };
@@ -207,6 +208,20 @@ pub async fn update_machine_tool(
         .ok_or_else(|| DesktopError::BadRequest(format!("No update found for {named}.")))?;
     direct::update_tool(&fleet, machine, named, &latest).await?;
     Ok(latest)
+}
+
+/// Has `machine_id` install `need` (`git` or `node`) for its agents: `true`
+/// once installed, `false` when the system finishes it in a window of its
+/// own, such as the Xcode tools dialog on macOS.
+#[tauri::command]
+pub async fn machine_set_up(fleet: Machines<'_>, machine_id: String, need: Need) -> Result<bool> {
+    let machine = fleet
+        .member(&machine_id)
+        .ok_or_else(|| DesktopError::BadRequest("The machine is not in the mesh.".into()))?;
+    let client = fleet.client(machine).await?;
+    beep_mesh::machine::set_up(&client, need)
+        .await
+        .map_err(|e| DesktopError::BadRequest(format!("Could not install {need}: {e:#}")))
 }
 
 /// Updates coding agent `agent` on `machine`; gives the version it reports

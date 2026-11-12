@@ -52,6 +52,8 @@ host! {
         ToolUpdate,
         #[strum(serialize = "tool-update/flsh")]
         FlshUpdate,
+        #[strum(serialize = "setup/1")]
+        Setup,
         #[strum(serialize = "events/1")]
         Events,
         #[strum(serialize = "peer-commands/1")]
