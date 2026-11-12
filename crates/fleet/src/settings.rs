@@ -64,7 +64,7 @@ fn version(index: usize, saved: &SavedVersion) -> InstructionsVersion {
 }
 
 impl Desk {
-    /// Whether coding agent skills sync across the mesh, enabled until changed.
+    /// Whether coding agent skills sync across the mesh, off until turned on.
     pub fn skill_sync_enabled(&self) -> bool {
         read::<SkillSync>(&self.mesh, &Key::SkillSync)
             .unwrap_or_default()

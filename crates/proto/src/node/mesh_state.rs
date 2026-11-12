@@ -25,16 +25,10 @@ pub struct SyncSpec {
 }
 
 /// `skills/sync`: whether coding agent skills sync across the mesh.
-/// An absent record keeps syncing enabled.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// An absent record keeps syncing off.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkillSync {
     pub enabled: bool,
-}
-
-impl Default for SkillSync {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
 }
 
 /// `settings/project-sync`: a master pause without discarding project preferences.
