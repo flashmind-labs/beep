@@ -223,7 +223,7 @@ impl Fleet {
         let session = peers.local_session();
         Self {
             me,
-            status: Status::new(me, Some(session.clone())),
+            status: Status::new(me, Some(session.clone()), dir),
             session: Some(session),
             endpoint,
             dir: dir.to_owned(),
@@ -249,7 +249,7 @@ impl Fleet {
         let me = endpoint.id();
         Self {
             me,
-            status: Status::new(me, None),
+            status: Status::new(me, None, dir),
             session: None,
             endpoint,
             dir: dir.to_owned(),
