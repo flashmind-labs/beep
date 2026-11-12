@@ -4,7 +4,7 @@ import { openDesktop } from "./harness.ts";
 
 const rows = Array.from({ length: 20 }, (_, index) => ({ id: `agent-${index}`, machine_id: "build-box", machine_name: "Build box", agent: "codex", title: `Agent ${index}`, cwd: "/srv/project", status: "working", doing: "Working", started_at: index, last_activity: index, external: false, question: null }));
 test("agent list refresh preserves its rows, focus and scroll", async ({ page }) => {
-  await openDesktop(page, false, { agent_sessions: rows, session_moves: [], session_copies: [] });
+  await openDesktop(page, false, { agent_sessions: rows, session_moves: [] });
   await page.goto("https://app.test/index.html");
   const bundle = await build({ entryPoints: ["tests/browser/agents-bar-fixture.ts"], bundle: true, write: false, platform: "browser", format: "iife" });
   await page.addScriptTag({ content: bundle.outputFiles[0].text });

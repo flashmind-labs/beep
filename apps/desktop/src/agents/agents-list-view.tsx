@@ -4,7 +4,6 @@ import { Spinner } from "../ui/kit.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { AGENT_ICON, agentsList, listedMenu, newFromList, openListed, toggleEnded, type ListedSession } from "./agents.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
-import { actOnCopy, type CopiesModel } from "./copies.ts";
 
 export interface AgentListRow { key: string; depth: number; agent: string; title: string; sub: string; tail: { kind: "review" } | { kind: "move"; label: string; why: string | null } | { kind: "asking" } | { kind: "running"; doing: string } | { kind: "plain"; label: string } | { kind: "connecting" } }
 
@@ -26,9 +25,8 @@ export function AgentsList({ hints }: { hints: HintViewModel }) {
         {list.ended.length > 0 && <button className="dagfold" aria-expanded={list.endedOpen} onClick={toggleEnded}><span className="chev" aria-hidden>{list.endedOpen ? "▾" : "▸"}</span>Ended<span className="n">{list.ended.length}</span></button>}
         {list.endedOpen && list.ended.map((entry, index) => row(entry, list.live.length + index, true))}
       </div>}
-      {list.copies && <Copies value={list.copies} />}
     </div>
-    {!any && !list.copies && !list.loading && <div className="dempty"><span className="dicon"><Icon /></span><b className="dbig">No sessions running.</b><span className="dmuted dblock">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>}
+    {!any && !list.loading && <div className="dempty"><span className="dicon"><Icon /></span><b className="dbig">No sessions running.</b><span className="dmuted dblock">Start one here, ask Beep in a chat, or run Claude Code in a terminal on a linked machine.</span></div>}
     <HintView value={hints} />
   </>;
 }
@@ -57,7 +55,3 @@ function Tail({ tail }: { tail: AgentListRow["tail"] }) {
 
 const Icon = () => <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: AGENT_ICON }} />;
 
-/// The copies this computer keeps of other machines' sessions.
-function Copies({ value }: { value: CopiesModel }) {
-  return <div className="dlist dcopies">{value.error && <div className="derr dpadx">{value.error}</div>}{value.rows.map(row => <div className="dchat copy" key={row.key} data-cpk={row.key}><span className="t"><span>{row.title}</span><small>{row.sub}</small></span>{row.buttons.map(b => <button key={b.act} className={`dbtn ${b.pri ? "pri" : "quiet"} small`} data-cpact={b.act} disabled={b.busy} onClick={() => actOnCopy(row.key, b.act)}>{b.label}</button>)}</div>)}</div>;
-}

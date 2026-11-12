@@ -171,17 +171,6 @@ async fn land(
         match now {
             Target::Landed => {
                 detach(env, record).await;
-                // It lives on the target now: a note that it was continued
-                // here no longer holds.
-                let (cache, agent, id) =
-                    (env.cache.clone(), record.agent.clone(), record.id.clone());
-                if let Err(e) = spawn_blocking(move || cache.clear_continued(&agent, &id)).await {
-                    log::warn!(
-                        "the note that session {} continued here stays: {e}",
-                        record.id
-                    );
-                }
-
                 return env
                     .state
                     .save(&record.id, &Saved::over(record.at, Phase::Done, None))

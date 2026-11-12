@@ -19,7 +19,7 @@ const tree = { folders: [{ path: "", entries: [{ name: "src", folder: true, size
 const notes = [{ id: "n1", kind: "finished", title: "Codex finished", text: "Done", source: "build-box", at: now, read: false, done: false, target: target(rows[1]) }];
 
 async function openBar(page: Page, sessions: unknown[]) {
-  await openDesktop(page, false, { agent_sessions: sessions, notes_list: notes, session_moves: [], session_copies: [], agent_tree: tree });
+  await openDesktop(page, false, { agent_sessions: sessions, notes_list: notes, session_moves: [], agent_tree: tree });
   await page.goto("https://app.test/index.html");
   await expect(page.locator("#bar")).toBeAttached();
 }

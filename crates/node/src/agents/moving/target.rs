@@ -6,10 +6,10 @@ use super::{
     Env, Harness,
     dial::dial,
     flsh,
-    offers::project_folder,
+    folder::project_folder,
     progress::{Tracker, show},
     read::{self, Refused},
-    resume::{Arrival, Folders as ResumeFolders, How, Workspace, resume},
+    resume::{Arrival, Folders as ResumeFolders, Workspace, resume},
     saved::{MadeWorktree, Phase, Saved},
     worktree::{self, Undone, Work},
 };
@@ -277,7 +277,6 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         id: &record.id,
         mode: record.mode.clone(),
         from: record.from,
-        how: How::Moved,
     };
     let placed = ResumeFolders {
         old: folders.old.clone(),
@@ -505,9 +504,7 @@ async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read:
             agent: record.agent.clone(),
             id: &record.id,
             copy,
-            kind: read::Kind::Move {
-                worktree: record.worktree.is_some(),
-            },
+            worktree: record.worktree.is_some(),
         },
     )
     .await;

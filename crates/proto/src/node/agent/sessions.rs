@@ -221,7 +221,9 @@ pub enum SessionsRequest {
     },
     /// The copies of other machines' sessions this node keeps, and the
     /// versions that lost to another machine's. Answered with `Copies`; a
-    /// node from before background copies closes the stream.
+    /// node from before background copies closes the stream. Nodes keep no
+    /// copies now and answer with none; `ContinueCopy` is refused and
+    /// `DiscardCopy` does nothing.
     Copies {},
     /// Runs the copy of session `session` of `agent` here, in the project's
     /// checkout on this node; with `lost`, the version set aside at that

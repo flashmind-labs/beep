@@ -4,8 +4,7 @@
 //! `saved` keeps.
 
 use super::{
-    Env, MAX_MOVES, background,
-    cache::Cache,
+    Env, MAX_MOVES,
     dial::watch_target,
     progress::Target,
     saved::{Folder, valid_id},
@@ -20,7 +19,12 @@ use beep_proto::node::{
     mesh_state::{SessionMove, StateValue},
 };
 use iroh::Endpoint;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -48,6 +52,31 @@ fn has_room(running: &HashMap<String, Running>) -> bool {
         < MAX_MOVES
 }
 
+/// Takes away the copies background copying left in `<state>/sessions/`,
+/// and its notes; a version that lost to another machine's is the user's
+/// and stays.
+fn drop_copies(state_dir: &Path) {
+    let Ok(agents) = fs::read_dir(state_dir.join("sessions")) else {
+        return;
+    };
+
+    for agent in agents.flatten() {
+        for session in fs::read_dir(agent.path()).into_iter().flatten().flatten() {
+            for file in fs::read_dir(session.path()).into_iter().flatten().flatten() {
+                if !file.file_name().to_string_lossy().starts_with("lost-") {
+                    let _ = fs::remove_file(file.path());
+                }
+            }
+
+            let _ = fs::remove_dir(session.path());
+        }
+
+        let _ = fs::remove_dir(agent.path());
+    }
+
+    let _ = fs::remove_dir(state_dir.join("sessions"));
+}
+
 /// Follows the mesh's move records until the node stops.
 pub(crate) async fn follow(
     mesh: Mesh,
@@ -56,13 +85,13 @@ pub(crate) async fn follow(
     agents: Arc<Agents>,
     syncs: Option<Syncs>,
 ) {
+    let old = dir.clone();
+    let _ = tokio::task::spawn_blocking(move || drop_copies(&old)).await;
     let Some(roots) = StoreRoots::locate() else {
         log::warn!("not moving sessions: no home folder to find the agents' stores in");
         return;
     };
     let env = Arc::new(Env {
-        cache: Cache::new(&dir),
-        limits: background::Limits::locate(),
         agents,
         mesh,
         endpoint,
@@ -71,8 +100,6 @@ pub(crate) async fn follow(
         roots,
     });
     env.agents.moves.use_env(Arc::downgrade(&env));
-    // Owned here: the copies stop with the node.
-    let _copying = AbortOnDropHandle::new(tokio::spawn(background::run(env.clone())));
     let mut updates = env.mesh.updates();
     let mut running: HashMap<String, Running> = HashMap::new();
     // A move cancelled while the node was down left its worktree: taken back

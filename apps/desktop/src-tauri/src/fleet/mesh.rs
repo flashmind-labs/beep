@@ -82,7 +82,7 @@ impl Drop for Settle<'_> {
 }
 
 impl Serving {
-    /// Serves the mesh, joins and session reads (moves, background copies)
+    /// Serves the mesh, joins and session reads for moves
     /// on `endpoint` at once. Connections for blobs and sync wait for
     /// `start_services`.
     pub(super) fn spawn(endpoint: &Endpoint, peers: &Peers) -> Self {

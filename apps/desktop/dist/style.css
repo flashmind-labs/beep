@@ -1366,10 +1366,6 @@ button.dachip:hover { border-color: var(--border-hi) }
 .dagscroll { flex: 1 1 auto; min-height: 0; overflow: auto; scrollbar-width: none; display: flex; flex-direction: column }
 .dagscroll::-webkit-scrollbar { display: none }
 .dagscroll > .dlist { flex: none; overflow: visible }
-.dcopies { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border) }
-.dchat.copy { cursor: default }
-.dchat.copy .t small { color: var(--muted) }
-.dchat.copy .dbtn { flex: none }
 
 .agrunninglist { flex: 1; min-height: 0; overflow: auto; padding: 4px }
 .agrunningrow { cursor: default }

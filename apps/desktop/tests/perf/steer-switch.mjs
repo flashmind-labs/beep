@@ -16,7 +16,7 @@ const browser = await playwright().chromium.launch({ executablePath: process.env
 try {
   const page = await browser.newPage();
   await page.setContent('<div id="bar" data-mode="window"></div>');
-  await page.evaluate(stubInit, JSON.stringify({ agent_tasks: [], session_moves: [], session_copies: [], editors: [] }));
+  await page.evaluate(stubInit, JSON.stringify({ agent_tasks: [], session_moves: [], editors: [] }));
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
     window.__pages = Object.fromEntries(["first", "second"].map(id => [id, {

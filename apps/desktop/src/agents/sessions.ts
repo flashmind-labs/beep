@@ -3,7 +3,6 @@ import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { Changes } from "../ui/pagecache.ts";
 import type { AgentRow, AgentSession } from "./agents.ts";
 import { parentRow } from "./nesting-state.ts";
-import { loadCopies } from "./copies.ts";
 import { refreshMoves, withoutCopies } from "./move-store.ts";
 
 /// Every session on the user's machines, as the last `loadSessions` read it.
@@ -54,8 +53,6 @@ export function ensureSessions(): Promise<AgentSession[]> {
 /// while another read is out waits for that one, so pages that ask together
 /// cost one request. A failed read rejects and leaves `sessions` as it was.
 export function loadSessions() {
-  // The copies are read with the sessions: whether a machine is off changes.
-  void loadCopies();
   if (loading) return loading;
   changes.read("");
   loading = Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])

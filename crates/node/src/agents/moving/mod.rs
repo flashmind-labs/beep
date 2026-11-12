@@ -3,8 +3,6 @@
 //! reading a transcript from the machine that ran it (`beep-sessions/1`).
 
 mod alpn;
-mod background;
-mod cache;
 mod claude;
 mod codex;
 mod dial;
@@ -12,7 +10,6 @@ mod flsh;
 mod folder;
 mod follow;
 mod json;
-mod offers;
 mod pi;
 mod progress;
 mod read;
@@ -35,7 +32,7 @@ mod tests;
 
 pub use alpn::SessionsAlpn;
 pub(crate) use follow::follow;
-pub(crate) use offers::project_folder;
+pub(crate) use folder::project_folder;
 pub(crate) use progress::Moves;
 pub use read::ALPN as SESSIONS_ALPN;
 
@@ -59,8 +56,6 @@ struct Env {
     syncs: Option<Syncs>,
     state: Folder,
     roots: StoreRoots,
-    cache: cache::Cache,
-    limits: background::Limits,
 }
 
 impl Env {
