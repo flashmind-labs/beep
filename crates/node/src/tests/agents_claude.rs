@@ -19,7 +19,9 @@ fn only_a_stopped_session_in_a_folder_that_exists_is_taken_over() {
     found.presence = Presence::Stopped;
     assert_eq!(refuse_takeover(&found), None);
     found.cwd = "/no/such/folder/here".into();
-    assert!(refuse_takeover(&found).is_some());
+    let refused = refuse_takeover(&found).unwrap();
+    assert!(refused.contains("/no/such/folder/here"), "{refused}");
+    assert!(refused.contains("Recreate that folder"), "{refused}");
 }
 
 #[test]
