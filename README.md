@@ -4,7 +4,7 @@ Desktops, phones and `beep-node`s form a signed mesh over iroh. The only
 server is `beep-server`, which receives the apps' problem reports.
 
 ```text
-crates/proto/           Wire types and framing
+crates/proto/           Node and mesh wire types and framing
 crates/mesh/            Signed membership, tickets and replicated state
 crates/fleet/           Desktop-side projects, credentials and settings
 crates/node/            beep-node: agents, files, sync and processes

@@ -1,14 +1,18 @@
-//! What a coding-agent notice is about, as a computer reads it from
-//! `Notice::session_id`.
-//!
-//! Phones get coding-agent notices with an empty `session_id`, which they
-//! open as Beep itself. A computer gets the same notice with this key in
-//! `session_id` instead, so a click opens the session and Allow or Deny
-//! answers its question. The `Notice` keeps its shape; a computer from
-//! before the key reads it as no chat and opens Home.
+//! A coding-agent notice, and the key in its `session_id` that says which
+//! session it is about, so a click opens the session and Allow or Deny
+//! answers its question.
 
 use crate::node::agent::{Alert, AlertKind, StopReason};
 use std::{fmt, path::Path, str::FromStr};
+
+/// A notification about a coding-agent session.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Notice {
+    pub title: String,
+    pub body: String,
+    /// An `AgentNoticeKey`, or empty for a notice about no session.
+    pub session_id: String,
+}
 
 /// The prefix of every key, which no chat or group id has.
 const PREFIX: &str = "agent:";

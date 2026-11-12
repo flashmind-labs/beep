@@ -3,7 +3,7 @@
 use std::fmt;
 
 wire_enum! {
-    /// Why the server refused or failed a request.
+    /// Why a request was refused or failed.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum ApiError {
         0 BadRequest { message: String }
@@ -14,16 +14,7 @@ wire_enum! {
     }
 }
 
-/// The `Conflict` message for a prompt sent while the server restarts. An
-/// app sends it again, with the same `request_id`, once it reconnects.
-pub const RESTARTING: &str = "the server is restarting";
-
 impl ApiError {
-    /// A prompt refused because the server is restarting.
-    pub fn is_restarting(&self) -> bool {
-        matches!(self, Self::Conflict { message } if message == RESTARTING)
-    }
-
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::BadRequest {
             message: message.into(),

@@ -335,10 +335,6 @@ async fn stream(
                     title: alert.notice_title(&key.machine_name),
                     body: alert.notice_body(),
                     session_id: key.to_string(),
-                    app: None,
-                    approval: None,
-                    changed: false,
-                    group: false,
                 };
                 let options = match alert.kind {
                     beep_proto::node::agent::AlertKind::Asks { question } => question.options,

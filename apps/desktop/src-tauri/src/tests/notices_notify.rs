@@ -12,10 +12,6 @@ fn agent_notice(question: Option<u32>) -> (Notice, AgentNoticeKey) {
         title: "Claude Code on build-box asks".into(),
         body: "Run the tests?".into(),
         session_id: key.to_string(),
-        app: None,
-        approval: None,
-        changed: false,
-        group: false,
     };
     (notice, key)
 }

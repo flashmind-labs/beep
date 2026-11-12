@@ -118,8 +118,7 @@ pub enum SessionsRequest {
         path: String,
         offset: u64,
     },
-    /// The folder `path` inside the working folder `root`, as `ListWorkFolder`
-    /// asks it. Answered with `Folder`, or `Error` saying why, for a path
+    /// The folder `path` inside the working folder `root`. Answered with `Folder`, or `Error` saying why, for a path
     /// outside `root` among others.
     Folder {
         root: String,
@@ -149,7 +148,7 @@ pub enum SessionsRequest {
         data: Vec<u8>,
     },
     /// The custom agents the harnesses define for the project folder `folder`
-    /// and in the node's home, as `ListCustomAgents` asks them. Answered with
+    /// and in the node's home. Answered with
     /// `CustomAgents`, or `Error` saying why.
     CustomAgents {
         folder: String,
@@ -160,7 +159,7 @@ pub enum SessionsRequest {
     /// session that failed. Alerts that came while no stream was open wait, a
     /// bounded few.
     FollowAlerts {},
-    /// What changed in the checkout `ask.root`, as `GetWorkDiff` asks it.
+    /// What changed in the checkout `ask.root`.
     /// Answered with `Diff`, or `Error` saying why.
     Diff {
         ask: DiffAsk,
@@ -418,7 +417,7 @@ impl SessionsRequest {
     }
 }
 
-/// What `SessionsRequest::Diff` reads, as `GetWorkDiff` names it.
+/// What `SessionsRequest::Diff` reads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiffAsk {
     /// The folder in the checkout, absolute or starting `~/`.

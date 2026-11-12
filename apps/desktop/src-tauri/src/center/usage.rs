@@ -19,11 +19,10 @@ pub struct UsageRow {
     limits: Vec<PlanRow>,
     today: PeriodRow,
     week: PeriodRow,
-    /// `None` from a server from before `GetUsageReport`.
+    /// `None` when the report has no month.
     month: Option<PeriodRow>,
     /// The dollars are metered API spend only, subscription use apart;
-    /// false from a server from before `GetSpendReport`, whose dollars
-    /// price every token at API prices.
+    /// false when the dollars price every token at API prices.
     metered: bool,
 }
 

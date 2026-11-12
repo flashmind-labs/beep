@@ -2,7 +2,7 @@
 //! only the user can read.
 
 use anyhow::{Context, Result};
-use beep_proto::link::MAX_NAME;
+use beep_proto::MAX_MACHINE_NAME;
 use iroh::SecretKey;
 use secrecy::{ExposeSecret, SecretBox};
 #[cfg(target_os = "macos")]
@@ -81,7 +81,7 @@ pub fn computer_name() -> String {
     let mut name = std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "Computer".into());
-    name.truncate(name.floor_char_boundary(MAX_NAME));
+    name.truncate(name.floor_char_boundary(MAX_MACHINE_NAME));
     name
 }
 

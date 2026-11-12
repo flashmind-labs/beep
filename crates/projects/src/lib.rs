@@ -1,4 +1,4 @@
-//! Project code the server and the desktop share: the shell commands for git and host work, the
+//! Project code the node and the desktop share: the shell commands for git and host work, the
 //! parsers for their output, and the names they use.
 
 pub mod branches;

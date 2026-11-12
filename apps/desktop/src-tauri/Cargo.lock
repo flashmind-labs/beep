@@ -671,11 +671,8 @@ name = "beep-proto"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.23.1",
  "blake3",
  "bytes",
- "curve25519-dalek",
- "ed25519-dalek",
  "flashmind-types",
  "futures",
  "iroh",

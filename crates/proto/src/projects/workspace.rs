@@ -3,7 +3,7 @@
 /// The largest file `WriteWorkFile` writes.
 pub const MAX_WORK_UPLOAD: u64 = 64 * 1024 * 1024;
 
-/// The most entries one `ListWorkFolder` gives.
+/// The most entries one listed folder gives.
 pub const MAX_WORK_ENTRIES: usize = 2000;
 
 /// The most levels one `ListWorkTree` reads.
@@ -13,7 +13,7 @@ pub const MAX_TREE_DEPTH: u32 = 6;
 /// folders past it.
 pub const MAX_TREE_ENTRIES: usize = 5000;
 
-ffi_structs! {
+wire_structs! {
     /// Folders of a session's working folder, as `ListWorkTree` reads them.
     #[derive(Eq)]
     pub struct WorkTree {
@@ -24,7 +24,7 @@ ffi_structs! {
         pub truncated: bool,
     }
 
-    /// One folder of a session's working folder, as `ListWorkFolder` reads it.
+    /// One folder of a session's working folder.
     #[derive(Eq)]
     pub struct WorkFolder {
         /// The folder, relative to the root, `""` for the root.
@@ -52,7 +52,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// How git sees a file changed, as `WorkEntry::change` marks it. A
     /// folder takes the strongest of what is under it, the last here first.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,8 +76,8 @@ pub const MAX_DIFF_SHOWN_LINES: u32 = 50_000;
 /// The most files a `WorkDiff` lists; `WorkDiff::more` counts the rest.
 pub const MAX_DIFF_FILES: usize = 1_000;
 
-ffi_structs! {
-    /// What changed in a checkout, as `GetWorkDiff` reads it.
+wire_structs! {
+    /// What changed in a checkout.
     #[derive(Eq)]
     pub struct WorkDiff {
         /// The folder the diff was read in, absolute: a branch's worktree
@@ -137,7 +137,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// How a `DiffFile` changed.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum DiffStatus {
@@ -149,7 +149,7 @@ ffi_enum! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// What a `DiffLine` is: unchanged context, added or removed.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum DiffLineKind {
@@ -159,7 +159,7 @@ ffi_enum! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// Why a `DiffFile` comes without its lines: past
     /// [`MAX_DIFF_FILE_LINES`], a lockfile asked without `lockfiles`, or
     /// past [`MAX_DIFF_LINES`] with the files before it.
@@ -170,4 +170,44 @@ ffi_enum! {
         1 Lockfile {}
         2 OverTotal {}
     }
+}
+
+/// `path` inside the working folder `root` and the folders under it,
+/// `depth` levels down in all (1 is `path` alone, at most
+/// [`MAX_TREE_DEPTH`]). Folders git ignores are listed but not read into
+/// unless `ignored`, and the walk stops past [`MAX_TREE_ENTRIES`] entries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListWorkTree {
+    pub machine_id: String,
+    pub root: String,
+    pub path: String,
+    pub ignored: bool,
+    pub depth: u32,
+}
+
+/// Up to `len` bytes, at most [`AGENT_FILE_CHUNK`](crate::AGENT_FILE_CHUNK),
+/// of the file `path` inside `root` from `offset`: any kind of file, for
+/// the Files tab to show or save.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReadWorkFile {
+    pub machine_id: String,
+    pub root: String,
+    pub path: String,
+    pub offset: u64,
+    pub len: u32,
+}
+
+/// Part of a file to write into `root`, for files dropped on a session.
+/// The first part (`offset` 0) makes the folders on the way and takes a
+/// free name beside `path`; later parts send the path it took. Parts come
+/// in order until `offset` plus the part is `size`, at most
+/// [`MAX_WORK_UPLOAD`]. Never replaces a file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WriteWorkFile {
+    pub machine_id: String,
+    pub root: String,
+    pub path: String,
+    pub offset: u64,
+    pub size: u64,
+    pub data: Vec<u8>,
 }

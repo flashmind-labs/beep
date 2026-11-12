@@ -2,9 +2,8 @@
 
 use std::time::SystemTime;
 
-ffi_structs! {
-    /// One of the caller's GitHub accounts, as `ListGitHubAccounts` lists it.
-    /// The token stays on the server.
+wire_structs! {
+    /// One of the user's GitHub accounts, without its token.
     pub struct GitHubAccount {
         /// The same id as its `Credential::id`.
         pub id: String,
@@ -22,7 +21,7 @@ ffi_structs! {
         pub unreadable: bool,
     }
 
-    /// What `ListGitItems` found.
+    /// Open pull requests and issues found on the git hosts.
     pub struct GitItems {
         pub items: Vec<GitItem>,
         /// Every git host in the caller's credentials, whether it answered or
@@ -30,14 +29,14 @@ ffi_structs! {
         pub hosts: Vec<GitHost>,
     }
 
-    /// What `ListLabeledGitItems` found.
+    /// `GitItems` with their labels.
     pub struct LabeledGitItems {
         pub found: GitItems,
         /// The label names of each of `found.items`, in its order.
         pub labels: Vec<Vec<String>>,
     }
 
-    /// One git host `ListGitItems` asked.
+    /// One git host asked for `GitItems`.
     pub struct GitHost {
         /// `github.com`, or a Forgejo server's host, such as `git.example.com`.
         pub host: String,
@@ -49,7 +48,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// What kind of server a git host is.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum GitHostKind {
@@ -58,8 +57,8 @@ ffi_enum! {
     }
 }
 
-ffi_structs! {
-    /// An open pull request or issue, as `ListGitItems` lists it.
+wire_structs! {
+    /// An open pull request or issue.
     pub struct GitItem {
         /// As `GitHost::host`.
         pub host: String,
@@ -88,7 +87,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// Whether an item is a pull request or an issue.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]
     #[strum(serialize_all = "snake_case")]
@@ -98,7 +97,7 @@ ffi_enum! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// How a pull request's reviews stand. `None` for an issue, a PR with
     /// no deciding review yet, or a host that does not say.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::IntoStaticStr)]

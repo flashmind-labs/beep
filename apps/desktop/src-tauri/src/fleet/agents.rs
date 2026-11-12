@@ -490,7 +490,6 @@ pub(crate) async fn preview_machine(
         cwd,
         prompt: prompt.clone(),
         needs,
-        chat: None,
         model: None,
         effort: None,
         checkout: None,

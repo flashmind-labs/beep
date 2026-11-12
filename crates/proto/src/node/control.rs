@@ -62,7 +62,7 @@ pub struct NodeHello {
 /// What `NodeHello::setup` carries.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodeSetup {
-    /// The token as `setup::SetupToken` writes it.
+    /// The setup token as text, such as `bk1-0f3ka-...`.
     pub token: String,
     /// The name the user gave on the machine, which wins over the token's.
     /// Without either, the machine is called by the hello's `name`.

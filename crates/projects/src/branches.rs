@@ -117,7 +117,7 @@ pub async fn add_worktree(
     }
 }
 
-/// The checkout's default branch and its branches, for `ListProjectBranches`.
+/// The checkout's default branch and its branches.
 pub async fn read_branches(
     shell: &dyn Shell,
     folder: &str,

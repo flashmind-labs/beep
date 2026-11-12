@@ -125,15 +125,7 @@ server, and before stopping or recreating it. The on-prem bundle is retired.
 
 ## Wire compatibility
 
-Released phones must keep working. App messages use named msgpack:
-
-- Add fields with `#[serde(default)]`; never rename or retype fields, or remove
-  fields a released app sends or reads.
-- Add reply enum or `AppEvent` variants only behind a new request. Never reuse
-  request numbers or change request path names.
-- Keep the fixtures in `crates/proto/tests/wire/named/` unchanged. Create a
-  fixture for each new request with `BEEP_WIRE_BLESS=1 cargo test -p beep-proto compat`.
-
+Released phones, desktops and nodes must keep working together over the mesh.
 Node and mesh messages use positional msgpack. Append fields with
 `#[serde(default)]`; never insert, reorder, retype or remove fields, or use
 `skip_serializing_if` or `to_vec_named`. Read using
@@ -159,7 +151,7 @@ and `just report-solved <reference>` manage stored reports.
 - `crates/mesh`: signed membership, tickets and replicated state.
 - `crates/fleet`: desktop-side projects, credentials, settings and mesh operations.
 - `crates/node`: agents and their MCP tools, files and sync, mesh, machines and processes.
-- `crates/proto`: app messages and wire compatibility fixtures.
+- `crates/proto`: node and mesh messages, the data types they carry, and the lenient reader.
 - `crates/server`: the problem report receiver.
 - `apps/desktop/src`: UI grouped by feature; `*-state.ts` contains tested logic.
   `apps/desktop/src-tauri/src` contains the desktop commands and mesh integration.

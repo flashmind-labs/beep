@@ -9,7 +9,7 @@ publish = false
 anyhow = "1"
 # HTTP behind a proxy that holds TLS.
 axum = { version = "0.8", features = ["http2"] }
-beep-proto = { path = "../proto", features = ["logging", "client"] }
+beep-proto = { path = "../proto", features = ["logging", "https"] }
 beep-report = { path = "../report" }
 chrono = "0.4"
 hex = "0.4"

@@ -1,11 +1,14 @@
 //! The user's machines: their state, tools, updates and terminals.
 
-use crate::{AttachTerminal, Duplex, node};
+use crate::node;
 use std::time::SystemTime;
 use uuid::Uuid;
 
-ffi_structs! {
-    /// A tool on a machine with a newer release (`ListToolUpdates`).
+/// The longest name a machine gives itself, in bytes.
+pub const MAX_MACHINE_NAME: usize = 64;
+
+wire_structs! {
+    /// A tool on a machine with a newer release.
     #[derive(Eq)]
     pub struct ToolUpdate {
         /// Its `Machine::id`.
@@ -18,20 +21,7 @@ ffi_structs! {
         pub latest: String,
     }
 
-    /// `AddMachineOverSsh`'s answer, which is always a failure now.
-    #[derive(Eq)]
-    pub struct SshAdd {
-        /// Always `None`.
-        pub machine_id: Option<String>,
-        /// Always empty.
-        pub system: String,
-        /// Why it did nothing.
-        pub error: String,
-        /// Always empty.
-        pub output: Vec<String>,
-    }
-
-    /// A machine `UpdateMachine` can update (`ListUpdatableMachines`).
+    /// A machine whose beep-node can be updated.
     #[derive(Eq)]
     pub struct UpdatableMachine {
         /// Its `Machine::id`.
@@ -40,7 +30,7 @@ ffi_structs! {
         pub agent_sessions: u32,
     }
 
-    /// What `UpdateMachine` did.
+    /// What updating a machine did.
     #[derive(Eq)]
     pub struct MachineUpdate {
         /// The beep-node version it ran.
@@ -79,7 +69,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// How a terminal stands. `Exited` ended on its own (`code` is `None`
     /// when a signal ended it); `Offline` is not known while its machine
     /// is offline; `Gone` is no longer on its machine, such as after a
@@ -95,8 +85,8 @@ ffi_enum! {
     }
 }
 
-ffi_structs! {
-    /// A terminal and the last of its output, as `GetTerminal` gives it.
+wire_structs! {
+    /// A terminal and the last of its output.
     pub struct TerminalOutput {
         pub terminal: Terminal,
         /// Oldest first.
@@ -106,17 +96,13 @@ ffi_structs! {
     }
 }
 
-impl Duplex for AttachTerminal {
-    type Up = TerminalInput;
-}
-
 wire_enum! {
-    /// What `AttachTerminal` streams. `Output` is the terminal's output
+    /// What an attached terminal streams. `Output` is the terminal's output
     /// from byte `at`, raw, escape sequences and all; an `at` past the
     /// asked `from` means the bytes in between were no longer kept.
     /// `Ended` says how it stood when the stream ended: it stopped, or its
     /// machine went offline. `ViewOnly` is a terminal that takes no input,
-    /// to read with `GetTerminal` instead.
+    /// to read its output instead.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum TerminalEvent {
         0 Output { at: u64, data: serde_bytes::ByteBuf }
@@ -126,7 +112,7 @@ wire_enum! {
 }
 
 wire_enum! {
-    /// What the client sends after `AttachTerminal`: keys typed, at most
+    /// What the client sends to an attached terminal: keys typed, at most
     /// `MAX_TERMINAL_INPUT` bytes at a time, or the terminal's new size.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum TerminalInput {
@@ -138,8 +124,8 @@ wire_enum! {
 /// The most one `TerminalInput::Keys` may carry.
 pub const MAX_TERMINAL_INPUT: usize = node::terminal::MAX_INPUT;
 
-ffi_structs! {
-    /// A folder on one of the caller's machines, as `ListMachineFolder` reads it.
+wire_structs! {
+    /// A folder on one of the user's machines, for choosing where a project goes.
     pub struct MachineFolder {
         /// Its absolute path on the machine.
         pub path: String,
@@ -157,15 +143,7 @@ ffi_structs! {
         pub origin: Option<String>,
     }
 
-    /// A setup token as `CreateNodeToken` made it.
-    pub struct NodeToken {
-        /// The token as text, such as `bk1-0f3ka-...`.
-        pub token: String,
-        pub expires_at: SystemTime,
-    }
-
-    /// The apps, graphics cards and abilities of one machine, as
-    /// `ListMachineDetails` lists them.
+    /// The apps, graphics cards and abilities of one machine.
     pub struct MachineDetails {
         /// The `Machine::id` it describes.
         pub id: String,
@@ -191,7 +169,7 @@ ffi_structs! {
         pub driver: Option<String>,
     }
 
-    /// A machine's live resources, as `ListMachineStats` lists them.
+    /// A machine's live resources.
     pub struct MachineStats {
         /// The `Machine::id` it describes.
         pub id: String,
@@ -206,8 +184,7 @@ ffi_structs! {
         pub load: Option<f64>,
     }
 
-    /// What a machine moved over iroh since it first reported, as
-    /// `ListMachineTraffic` lists it.
+    /// What a machine moved over iroh since it first reported.
     pub struct MachineTraffic {
         /// The `Machine::id` it describes.
         pub id: String,
@@ -233,7 +210,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// What a machine can be asked to do.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
     #[strum(serialize_all = "lowercase")]
@@ -263,7 +240,7 @@ impl MachineCapability {
     }
 }
 
-ffi_structs! {
+wire_structs! {
     /// A machine running beep-node, and what it last reported.
     pub struct Machine {
         /// Its key, the `LinkedDevice::id` it signs in with.
@@ -310,4 +287,31 @@ ffi_structs! {
         pub signed_in: bool,
         pub account: Option<String>,
     }
+}
+
+/// Starts `command` in `cwd` on a machine as a background terminal of
+/// `project`, named `name` (the command when empty).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StartTerminal {
+    pub project: String,
+    pub machine_id: String,
+    pub name: String,
+    pub command: String,
+    pub cwd: String,
+}
+
+/// Starts an interactive terminal of `project` (none when empty) on a
+/// machine: `command` in `cwd` (the machine's workspace, else its home
+/// folder, when empty), or the user's shell when `command` is empty, in a
+/// pseudo-terminal of `cols` by `rows` cells, named `name` (the command,
+/// or "shell", when empty).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenTerminal {
+    pub project: String,
+    pub machine_id: String,
+    pub name: String,
+    pub command: String,
+    pub cwd: String,
+    pub cols: u32,
+    pub rows: u32,
 }

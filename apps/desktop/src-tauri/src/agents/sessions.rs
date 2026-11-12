@@ -522,7 +522,6 @@ pub async fn agent_start(
         cwd,
         prompt,
         needs: Vec::new(),
-        chat: None,
         model,
         effort: effort.map(Into::into),
         checkout: checkout.map(Into::into),

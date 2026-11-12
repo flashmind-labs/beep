@@ -60,10 +60,6 @@ pub(crate) fn opening(app: &AppHandle, title: &str, body: &str, target: CenterTa
         title: title.to_owned(),
         body: body.to_owned(),
         session_id: String::new(),
-        app: None,
-        approval: None,
-        changed: false,
-        group: false,
     };
     show(app, &notice, target);
 }

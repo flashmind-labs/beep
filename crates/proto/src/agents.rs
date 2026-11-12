@@ -11,6 +11,6 @@ mod usage;
 pub use flsh::*;
 pub use harnesses::*;
 pub use ids::{AgentSlug, ModelId, SessionId};
-pub use notice::{AgentNoticeKey, NotAgentKey, agent_name};
+pub use notice::{AgentNoticeKey, NotAgentKey, Notice, agent_name};
 pub use sessions::*;
 pub use usage::*;

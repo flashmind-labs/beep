@@ -4,7 +4,7 @@ use crate::{AgentSlug, ModelId};
 use std::time::SystemTime;
 
 wire_structs! {
-    /// What `GetUsageReport` gives.
+    /// Plan limits and token use for the usage window.
     pub struct UsageReport {
         /// As in `UsageView`.
         pub limits: Vec<PlanLimits>,
@@ -27,7 +27,7 @@ wire_structs! {
         pub harnesses: Vec<HarnessSpend>,
     }
 
-    /// What `GetUsage` gives.
+    /// Plan limits and token use per agent.
     pub struct UsageView {
         /// One per agent whose plan a machine reported, the freshest report
         /// of any machine: Claude Code, then Codex.
@@ -106,7 +106,7 @@ wire_structs! {
         pub tokens: u64,
     }
 
-    /// What `GetSpendReport` gives.
+    /// Spend by project, harness and model.
     pub struct SpendReport {
         /// As in `UsageView`.
         pub limits: Vec<PlanLimits>,
@@ -164,7 +164,7 @@ wire_structs! {
     }
 }
 
-ffi_structs! {
+wire_structs! {
     /// A provider's credit snapshot, with decimal amounts encoded as strings.
     pub struct ProviderCredits {
         pub provider: String,

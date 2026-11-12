@@ -1,6 +1,6 @@
 //! What the machine calls itself.
 
-use beep_proto::link::MAX_NAME;
+use beep_proto::MAX_MACHINE_NAME;
 
 /// The name when the host has none to give.
 const NO_HOSTNAME: &str = "Machine";
@@ -15,7 +15,7 @@ pub async fn host_name() -> String {
         .unwrap_or_default();
     let name = name.split('.').next().unwrap_or_default();
 
-    if name.is_empty() || name.len() > MAX_NAME {
+    if name.is_empty() || name.len() > MAX_MACHINE_NAME {
         return NO_HOSTNAME.to_owned();
     }
 
