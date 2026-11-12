@@ -70,13 +70,22 @@ impl Probes {
         let latest = self.latest.subscribe();
 
         if !self.running.swap(true, Ordering::SeqCst) {
-            tokio::spawn(self.clone().keep_probing());
+            tokio::spawn(Self::keep_probing(Unfinished(Some(self.clone()))));
         }
 
         latest
     }
 
-    async fn keep_probing(self: Arc<Self>) {
+    /// A task dropped with its runtime, even before it first ran, never
+    /// reaches `stop`: `guard` then lets the next follower start a new one.
+    async fn keep_probing(mut guard: Unfinished) {
+        if let Some(probes) = guard.0.clone() {
+            probes.probe_while_followed().await;
+        }
+        guard.0 = None;
+    }
+
+    async fn probe_while_followed(&self) {
         let mut signed_in = crate::machine::sign_in::signed_in();
         signed_in.mark_unchanged();
 
@@ -117,6 +126,17 @@ impl Probes {
         self.running.store(false, Ordering::SeqCst);
 
         self.latest.receiver_count() == 0 || self.running.swap(true, Ordering::SeqCst)
+    }
+}
+
+/// Marks the probing task stopped when it is dropped before it ends.
+struct Unfinished(Option<Arc<Probes>>);
+
+impl Drop for Unfinished {
+    fn drop(&mut self) {
+        if let Some(probes) = self.0.take() {
+            probes.running.store(false, Ordering::SeqCst);
+        }
     }
 }
 
