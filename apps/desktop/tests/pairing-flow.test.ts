@@ -15,7 +15,7 @@ test("an unpaired phone mounts pairing before window startup and closes after pa
     if (cmd === "mobile_paired") return false;
     if (cmd === "mobile_pair") paired = args.ticket ?? "";
     return null;
-  }, Channel: class {} }, event: { listen: async () => () => {} } } });
+  }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, cleanup } = await import("@testing-library/react");
   const { pairing } = await import("../src/center/pairing.ts");
   try {

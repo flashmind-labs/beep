@@ -22,7 +22,7 @@ test("instructions keep editing and focus while saving and preserve later change
     if (cmd === "instructions_save") { savedArgs = args; return new Promise<typeof initial>((resolve, reject) => { finish = resolve; fail = reject; }); }
     if (cmd === "instructions_versions") return [initial];
     return null;
-  }, Channel: class {} }, event: { listen: async () => () => {} } } });
+  }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
   const { instructionsPage } = await import("../src/settings/instructions.ts");

@@ -24,12 +24,14 @@ export const nativeEvent = (name: string, payload?: unknown) => {
 g.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 g.MutationObserver = class { observe() {} };
 g.HTMLTextAreaElement = class { get value() { return ""; } set value(_v: string) {} };
+async function listen(name: string, receive: (event: { payload: unknown }) => void) {
+  let listeners = nativeListeners.get(name);
+  if (!listeners) nativeListeners.set(name, listeners = new Set());
+  listeners.add(receive);
+  return () => listeners.delete(receive);
+}
 g.__TAURI__ = {
   core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); return answers[cmd] ?? (cmd === "mesh_watch" ? new Promise(() => {}) : null); }, Channel: class {} },
-  event: { listen: async (name: string, receive: (event: { payload: unknown }) => void) => {
-    let listeners = nativeListeners.get(name);
-    if (!listeners) nativeListeners.set(name, listeners = new Set());
-    listeners.add(receive);
-    return () => listeners.delete(receive);
-  } },
+  event: { listen },
+  webviewWindow: { getCurrentWebviewWindow: () => ({ listen }) },
 };

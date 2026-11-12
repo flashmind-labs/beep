@@ -10,7 +10,7 @@ test("batches desktop timings without sending command arguments", async () => {
         Channel: class {},
         invoke: async (cmd: string, args?: Record<string, unknown>) => { calls.push({ cmd, args }); return null; },
       },
-      event: { listen: async () => () => {} },
+      event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) },
     },
     addEventListener: (name: string, cb: () => void) => events.set(name, cb),
   } });

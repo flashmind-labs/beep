@@ -16,7 +16,7 @@ let frameId = 0;
 export function runFrames() { const due = [...frames.values()]; frames.clear(); for (const frame of due) frame(); }
 const raf = (callback: () => void) => { frames.set(++frameId, callback); return frameId; };
 const cancel = (id: number) => { frames.delete(id); };
-const tauri = { core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); if (cmd === "mesh_watch" && !(cmd in answers)) return new Promise(() => {}); return answers[cmd] ?? null; }, Channel: class {} }, event: { listen: async () => () => {} } };
+const tauri = { core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); if (cmd === "mesh_watch" && !(cmd in answers)) return new Promise(() => {}); return answers[cmd] ?? null; }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } };
 Object.defineProperty(win, "__TAURI__", { value: tauri });
 // Libraries ask the window, not the global, for frames.
 Object.assign(win, { requestAnimationFrame: raf, cancelAnimationFrame: cancel });

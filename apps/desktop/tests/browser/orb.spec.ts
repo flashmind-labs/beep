@@ -13,9 +13,11 @@ test("orb keeps cards mounted while live events arrive", async ({ page }) => {
   });
   await page.addInitScript(() => {
     const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    const listen = async (name: string, handler: (event: { payload: unknown }) => void) => { handlers.set(name, handler); return () => handlers.delete(name); };
     Object.assign(window, { __orbEvent: (name: string, payload: unknown) => handlers.get(name)?.({ payload }), __TAURI__: {
       core: { invoke: async (command: string) => command === "live_approval" || command === "list_apps" ? [] : null, Channel: class {} },
-      event: { listen: async (name: string, handler: (event: { payload: unknown }) => void) => { handlers.set(name, handler); return () => handlers.delete(name); } },
+      event: { listen },
+      webviewWindow: { getCurrentWebviewWindow: () => ({ listen }) },
     } });
   });
   await page.goto("https://app.test/orb.html");

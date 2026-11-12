@@ -253,4 +253,5 @@ g.HTMLTextAreaElement = FakeElement;
 g.__TAURI__ = {
   core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); if (cmd === "mesh_watch" && !(cmd in answers)) return new Promise(() => {}); return answers[cmd] ?? null; }, Channel: class {} },
   event: { listen: async () => () => {} },
+  webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) },
 };

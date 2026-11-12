@@ -12,7 +12,7 @@ test("model view sends one command per action and unmounts when another page ope
   const calls: string[] = [];
   const models = { choices: [{ id: "a", name: "Example A", input_price: null, output_price: null, sees_images: true, default: true }, { id: "b", name: "Example B", input_price: null, output_price: null, sees_images: true, default: false }], selected: "a", thinking: "medium", auto: false, auto_available: true };
   let holdAuto = false, releaseAuto: () => void = () => {};
-  Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string) => { calls.push(cmd); if (cmd === "set_auto_model" && holdAuto) await new Promise<void>(resolve => { releaseAuto = resolve; }); return models; }, Channel: class {} }, event: { listen: async () => () => {} } } });
+  Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string) => { calls.push(cmd); if (cmd === "set_auto_model" && holdAuto) await new Promise<void>(resolve => { releaseAuto = resolve; }); return models; }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { MODELS, renderModel, modelKeys } = await import("../src/settings/model.ts");
   const { S } = await import("../src/bar/core.ts");

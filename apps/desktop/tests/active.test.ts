@@ -8,7 +8,7 @@ let visibility = "hidden";
 Object.assign(globalThis, {
   window: {
     addEventListener: events.addEventListener.bind(events),
-    __TAURI__: { event: { listen: async (name: string, fn: () => void) => { native.set(name, fn); return () => {}; } } },
+    __TAURI__: { webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async (name: string, fn: () => void) => { native.set(name, fn); return () => {}; } }) } },
   },
   document: {
     hasFocus: () => focused,

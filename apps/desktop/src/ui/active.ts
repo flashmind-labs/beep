@@ -130,8 +130,10 @@ function setHidden(hidden: boolean, event: string) {
 // Each goes only to its own window. Tests load the pure helpers that read
 // this with no page, so it hooks in only where there is one.
 if (typeof window !== "undefined") {
+  // `event.listen` would also hear other windows hiding and pause this one.
+  const own = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
   for (const [name, hidden] of [["center-hidden", true], ["center-shown", false], ["bar-hidden", true], ["bar-shown", false]] as const) {
-    void window.__TAURI__.event.listen(name, () => { nativeHidden = hidden; setHidden(hidden, name); });
+    void own.listen(name, () => { nativeHidden = hidden; setHidden(hidden, name); });
   }
 
   document.addEventListener("visibilitychange", () => { lastEvent = "visibilitychange"; changed(); });

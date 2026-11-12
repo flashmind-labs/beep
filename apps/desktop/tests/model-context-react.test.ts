@@ -20,7 +20,7 @@ test("model context keeps focus and drafts through updates and saves overrides",
     if (cmd === "agent_models") return { pick: "listed", current: null, models: [{ id: "alpha", name: "Alpha", description: null, context_window: 1000, max_context_window: 2000 }] };
     if (cmd === "harness_model_compacts") return [];
     return null;
-  }, Channel: class {} }, event: { listen: async () => () => {} } } });
+  }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { invoke } = await import("../src/ui/tauri.ts");
   const { render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
   const panel = modelContextPanel(invoke);
