@@ -34,7 +34,7 @@ export type CardAction =
 
 function ActionButton({ action, title }: { action: CardAction; title: string }) {
   if (action.kind === "menu") {
-    return <button type="button" className="dbtn small bd-pick" aria-haspopup="menu" onClick={event => openMenu(event.nativeEvent, title, action.items)}>{action.label}<Icon name="caretDown"/></button>;
+    return <button type="button" className="dbtn small bd-pick" aria-haspopup="menu" onClick={event => { event.stopPropagation(); openMenu(event.nativeEvent, title, action.items); }}>{action.label}<Icon name="caretDown"/></button>;
   }
 
   return <button type="button" className={`dbtn small${action.primary ? " pri" : ""}`} onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</button>;
