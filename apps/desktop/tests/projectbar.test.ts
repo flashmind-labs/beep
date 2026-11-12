@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addHosts, barPlace, barPrompt, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt } from "../src/project/projectbar.ts";
+import { addHosts, barPlace, barPrompt, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewSession, reviewTitle } from "../src/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },
@@ -91,6 +91,23 @@ test("reviewPrompt reads the reviews already there; again, it reviews what chang
   assert.match(again, /which of your earlier comments are fixed/);
   assert.match(again, /git pull --ff-only/);
   assert.doesNotMatch(reviewPrompt(PR, "github", true, true), /git pull/);
-  const pr = { kind: "pr" as const, number: 41, branch: "fix/login", review: { number: 41, earlier: { machine_id: "b", agent: "codex", id: "s1" } } };
+  const pr = { kind: "pr" as const, number: 41, branch: "fix/login", review: { number: 41, earlier: { machine_id: "b", machine_name: "build-box", agent: "codex", id: "s1", cwd: "/w", status: "ended", external: false } } };
   assert.deepEqual(targetCheckout(pr), { label: "Earlier review", sub: "PR #41" });
+});
+
+test("a PR's review session is found by its fixed name, the newest on any machine", () => {
+  const row = (id: string, title: string | null, last_activity: number) => ({ id, title, last_activity });
+  const listed = [row("a", "Review #41", 10), row("b", "Review #41", 30), row("c", "Review #410", 50), row("d", "PR #41 login copy review", 60), row("e", null, 70)];
+  assert.equal(reviewTitle(41), "Review #41");
+  assert.equal(reviewSession(listed, 41)?.id, "b");
+  assert.equal(reviewSession(listed, 410)?.id, "c");
+  assert.equal(reviewSession(listed, 42), null);
+  assert.equal(reviewSession([], 41), null);
+});
+
+test("only a review session's name is fixed", () => {
+  assert.ok(fixedTitle("Review #41"));
+  assert.ok(!fixedTitle("Review #41 again"));
+  assert.ok(!fixedTitle("PR #41 login copy review"));
+  assert.ok(!fixedTitle(null));
 });

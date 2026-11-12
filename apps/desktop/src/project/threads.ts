@@ -9,6 +9,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { PageCache, REFRESH_MS, freshness, type Freshness, type SectionStore } from "../ui/pagecache.ts";
 import type { ChecksRow } from "./runs.ts";
 import type { ThreadActions } from "./threaddetail-view.tsx";
+import type { ReviewSession } from "./projectbar.ts";
 
 /// An open issue no task tracks (IssueRow).
 export interface IssueRow {
@@ -249,6 +250,9 @@ export interface RepoActs {
   workOn: (issue: IssueRow) => void;
   continuePr: (pr: PullRequestRow) => Promise<void>;
   reviewPr: (pr: PullRequestRow) => Promise<void>;
+  /// The session that reviewed the PR before, which Open review opens.
+  reviewOf: (pr: PullRequestRow) => ReviewSession | null;
+  openReview: (s: ReviewSession) => void;
 }
 
 /// What the window hands `makeThreads`. `openChat(chatId)` shows a chat in
@@ -467,7 +471,9 @@ export function makeThreads(deps: ThreadDeps) {
     buttons.push({ key: "continue", label: s.busy.has(`c${n}`) ? "Reading…" : "Continue", primary: !l.needs_reply, disabled: s.busy.has(`c${n}`), title: "Start a coding agent on this pull request's branch", run: () => { void act(agent.project_id, `c${n}`, () => ctx.continuePr(l.pr)); } });
     const branch = l.branch;
     if (branch && ctx.review) buttons.push({ key: "review", label: "Review", primary: false, disabled: false, title: "", run: () => ctx.review?.(branch) });
-    buttons.push({ key: "agent-review", label: s.busy.has(`a${n}`) ? "Reading…" : "Agent review", primary: false, disabled: s.busy.has(`a${n}`), title: "Starts an agent that reviews this PR and posts its comments on it", run: () => { void act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)); } });
+    const reviewed = ctx.reviewOf(l.pr);
+    if (reviewed) buttons.push({ key: "open-review", label: "Open review", primary: false, disabled: false, title: "Opens the agent's review of this PR. Right-click to review it again.", run: () => ctx.openReview(reviewed) });
+    else buttons.push({ key: "agent-review", label: s.busy.has(`a${n}`) ? "Reading…" : "Agent review", primary: false, disabled: s.busy.has(`a${n}`), title: "Starts an agent that reviews this PR and posts its comments on it", run: () => { void act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)); } });
     return actsEl(s, [`r${n}`, `c${n}`, `a${n}`], buttons);
   }
 
@@ -498,7 +504,9 @@ export function makeThreads(deps: ThreadDeps) {
       items.push({ label: "Review", on: () => ctx.review!(branch) });
     }
 
-    items.push({ label: "Agent review", on: () => void act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)) });
+    const reviewed = ctx.reviewOf(l.pr);
+    if (reviewed) items.push({ label: "Open review", on: () => ctx.openReview(reviewed) });
+    items.push({ label: reviewed ? "Review again" : "Agent review", on: () => void act(agent.project_id, `a${n}`, () => ctx.reviewPr(l.pr)) });
     openMenu(e, `#${n} ${l.pr.title}`, items);
   }
 

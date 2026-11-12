@@ -15,7 +15,7 @@ import { commandKey } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.ts";
 import { pageAgent } from "./agent.ts";
-import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, nextBarMachine, reviewKey, reviewPrompt, type ReviewSession, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
+import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.ts";
@@ -363,9 +363,10 @@ export async function continuePr(name: string, pr: PullRequestRow) {
   fillBar(name, `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, { kind: "pr", number: pr.number, branch: head.branch });
 }
 
-/// Agent review: fills the bar with a review prompt. A fork's branch is not
-/// on `origin`, so that review starts on a new worktree from the default
-/// branch and reads the diff through the forge CLI.
+/// Agent review, or Review again: fills the bar with a review prompt, which
+/// goes to the session that reviewed the PR before when there is one. A
+/// fork's branch is not on `origin`, so that review starts on a new worktree
+/// from the default branch and reads the diff through the forge CLI.
 export async function reviewPr(name: string, pr: PullRequestRow) {
   const agent = pageAgent(state.agents, name, state.subscribed);
   if (!agent) return;
@@ -428,7 +429,7 @@ async function startFromBar() {
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
-  if (t?.review?.earlier) return continueReview(p.name, t.review.number, t.review.earlier, text);
+  if (t?.review?.earlier) return continueReview(t.review.number, t.review.earlier, text);
   const was = barExisting(p.name, place);
   const { agent } = barHarness(place);
   const model = pc.picked.model.trim() || null, effort = pc.picked.effort;
@@ -450,7 +451,7 @@ async function startFromBar() {
     barAttachments.clear();
     pc.target = null;
     keepMachine(p.name, place.machine_id);
-    if (t?.review) keepReview(p.name, t.review.number, started.session);
+    if (t?.review) nameReview(started.session, t.review.number);
     go("pane", { agent: started.session, adopt: true });
   } catch (e) {
     c.update({ error: reason(e) });
@@ -460,24 +461,26 @@ async function startFromBar() {
   }
 }
 
-/// The session that last reviewed PR `number` of `project`, while it is still listed.
-function earlierReview(project: string, number: number): ReviewSession | null {
-  let kept: ReviewSession | null = null;
-  try { kept = JSON.parse(localStorage.getItem(reviewKey(project, number)) ?? "null"); } catch { /* none kept */ }
-  if (!kept) return null;
-  const listed = sessions.find(s => s.machine_id === kept.machine_id && s.agent === kept.agent && s.id === kept.id);
-  return listed ? kept : null;
+/// The session that last reviewed PR `number` of `project`, found by its
+/// name among the project's sessions on every machine, as it is now.
+export function earlierReview(project: string, number: number): ReviewSession | null {
+  const found = reviewSession(state.sessions.get(project) ?? [], number);
+  return found && (sameSession(found) ?? found);
 }
 
-function keepReview(project: string, number: number, s: ReviewSession) {
-  try { localStorage.setItem(reviewKey(project, number), JSON.stringify({ machine_id: s.machine_id, agent: s.agent, id: s.id })); } catch { /* the next review starts a new session */ }
+const sameSession = (s: ReviewSession) => sessions.find(l => l.machine_id === s.machine_id && l.agent === s.agent && l.id === s.id) ?? null;
+
+/// Names a review session for its PR, which finds it for the next review.
+function nameReview(s: ReviewSession, number: number) {
+  invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title: reviewTitle(number) })
+    .catch(e => console.warn("review title:", e));
 }
 
 /// Sends the review to the session that reviewed the PR before, resuming it
 /// when it ended, and opens it.
-async function continueReview(project: string, number: number, earlier: ReviewSession, text: string) {
+async function continueReview(number: number, earlier: ReviewSession, text: string) {
   const c = projectComp;
-  const listed = sessions.find(s => s.machine_id === earlier.machine_id && s.agent === earlier.agent && s.id === earlier.id);
+  const listed = sameSession(earlier);
   const at = { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id };
   c.update({ error: "" });
   pc.starting = true;
@@ -491,7 +494,7 @@ async function continueReview(project: string, number: number, earlier: ReviewSe
 
     if (!session || session.status === "ended") {
       session = (await invoke<Started>("agent_resume", { ...at, prompt: "" })).session;
-      keepReview(project, number, session);
+      if (session.id !== earlier.id) nameReview(session, number);
     }
 
     await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });

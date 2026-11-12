@@ -9,7 +9,7 @@ import { invoke, Channel, listen } from "../ui/tauri.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
 import { pageAgent, workerSession, type ProjectAgent } from "./agent.ts";
-import type { BarTarget } from "./projectbar.ts";
+import type { BarTarget, ReviewSession } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.ts";
 import type { AgentHost} from "../agents/agents.ts";
@@ -31,7 +31,7 @@ import { currentLocation, ownChats, go, drawTop } from "../center/views.ts";
 import { reloadChats } from "../center/sidebar.ts";
 import { openTile } from "./split.ts";
 import { AG } from "../agents/agents.ts";
-import { barOn, drawProjectComp, workOnIssue, continuePr, reviewPr, fixRun, fixConflict } from "./composer.ts";
+import { barOn, drawProjectComp, workOnIssue, continuePr, reviewPr, earlierReview, fixRun, fixConflict } from "./composer.ts";
 import { redrawSync } from "./syncpage.ts";
 import { loadProjectAgent, openSyncRepair } from "./loads.ts";
 import { drawProjects } from "./page.ts";
@@ -212,6 +212,8 @@ export function repoActs(p: Project): RepoActs {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
     reviewPr: (pr: PullRequestRow) => reviewPr(p.name, pr),
+    reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
+    openReview: (session: ReviewSession) => go("pane", { agent: session }),
     checks: agent ? runs.checks(agent.project_id) : null,
     showRun: (run: number, host?: string | null) => {
       if (!agent) return;

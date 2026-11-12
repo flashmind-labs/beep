@@ -5,6 +5,7 @@ import { SHORTCUTS } from "../ui/shortcuts.ts";
 import { cloneElement, createRef, isValidElement, memo, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
+import { fixedTitle } from "../project/projectbar.ts";
 import { createPortal, flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { ChatBody } from "../ui/turn.ts";
@@ -94,7 +95,7 @@ interface SessionHeadProps {
 }
 
 export function SessionHead({ agent, title, folder, branch, openProject, cwd, machine, usage, moveKey, saveTitle }: SessionHeadProps) {
-  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
 }
 
 /// Redraws the session head with `change`; false when the frame shows no session head.
