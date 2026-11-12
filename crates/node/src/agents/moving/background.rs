@@ -10,7 +10,7 @@
 
 use super::{
     Env,
-    cache::{Entry, Meta, evictions},
+    cache::{Cache, Entry, Meta, evictions},
     dial::dial,
     offers::{Project, harness_of, is_recent, now_secs, projects_of},
     read::{Ask, Kind, Offer, Reply, Request, pull},
@@ -25,16 +25,18 @@ use beep_proto::{
         link,
     },
 };
-use iroh::EndpointId;
+use futures::{StreamExt, stream::FuturesUnordered};
+use iroh::{EndpointId, endpoint::Connection};
 use std::{
-    cmp::Ordering,
+    cmp::{Ordering, Reverse},
     collections::HashMap,
     fs::{self, File},
+    hash::{DefaultHasher, Hash, Hasher},
     io::Read,
     path::Path,
     path::PathBuf,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{task::spawn_blocking, time::sleep};
 
@@ -50,6 +52,9 @@ const NOTE_ROOM: u64 = 1024;
 const PARTIAL_FOR: Duration = Duration::from_secs(24 * 3600);
 /// The most copies brought up to date in one pass.
 const MAX_FETCHES: usize = 16;
+/// How long passes are skipped after one that found no room, when nothing
+/// it saw changed: copies age out and sessions appear here without a sign.
+const RECHECK: Duration = Duration::from_secs(10 * 60);
 
 /// What bounds the copying; the defaults unless the environment says.
 #[derive(Debug, Clone, Copy)]
@@ -74,12 +79,18 @@ impl Limits {
 
 /// Copies until the node stops.
 pub(super) async fn run(env: Arc<Env>) {
+    let mut stalled = None;
+
     loop {
         sleep(env.limits.every).await;
 
-        if let Err(e) = pass(&env).await {
-            log::debug!("background copies: {e:#}");
-        }
+        stalled = match pass(&env, stalled).await {
+            Ok(next) => next,
+            Err(e) => {
+                log::debug!("background copies: {e:#}");
+                None
+            }
+        };
     }
 }
 
@@ -93,18 +104,50 @@ fn busy(env: &Env) -> bool {
     })
 }
 
-async fn pass(env: &Env) -> Result<()> {
+/// What a pass's work depends on: the sessions offered, the cache and its
+/// cap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Seen {
+    /// A hash of the offers worth copying, with the machine of each.
+    offers: u64,
+    /// The cache's count of changes.
+    changes: u64,
+    cap: u64,
+}
+
+/// A pass left sessions out for want of room, having seen `seen`.
+#[derive(Debug, Clone, Copy)]
+struct Stalled {
+    seen: Seen,
+    at: Instant,
+}
+
+impl Stalled {
+    /// A pass that would see `seen` at `now` would find no room either.
+    fn skips(&self, seen: &Seen, now: Instant) -> bool {
+        self.seen == *seen && now.duration_since(self.at) < RECHECK
+    }
+}
+
+/// The offers of one machine, with the connection they came on.
+struct Listed {
+    peer: EndpointId,
+    connection: Connection,
+    offers: Vec<Offer>,
+}
+
+/// One pass; returns what it saw when it left sessions out for want of room,
+/// for the next to skip while nothing changes.
+async fn pass(env: &Env, stalled: Option<Stalled>) -> Result<Option<Stalled>> {
     let projects = projects_of(&env.mesh);
 
     // With no project to copy for, the session stores are not walked; old
     // copies still go.
     if projects.is_empty() {
-        tidy(env, &Locals(HashMap::new())).await;
-        return Ok(());
+        let mut room = Room::read(env).await?;
+        tidy(env, &mut room, &Locals(HashMap::new())).await?;
+        return Ok(None);
     }
-
-    let locals = locals(env).await;
-    tidy(env, &locals).await;
 
     let waits = busy(env);
 
@@ -120,126 +163,276 @@ async fn pass(env: &Env) -> Result<()> {
     }
 
     if waits {
-        return Ok(());
+        let locals = locals(env).await;
+        let mut room = Room::read(env).await?;
+        tidy(env, &mut room, &locals).await?;
+        return Ok(stalled);
     }
 
-    let me = env.mesh.me();
-    let peers: Vec<EndpointId> = env
-        .mesh
-        .code_hosts()
-        .into_iter()
-        .filter(|status| status.online && status.device.id != me)
-        .map(|status| status.device.id)
+    let listed = list(env, &projects).await;
+    let seen = Seen {
+        offers: offers_hash(&listed),
+        changes: env.cache.changes(),
+        cap: env.limits.cap,
+    };
+
+    if stalled.is_some_and(|stalled| stalled.skips(&seen, Instant::now())) {
+        close(&listed);
+        return Ok(stalled);
+    }
+
+    let locals = locals(env).await;
+    let mut room = Room::read(env).await?;
+    tidy(env, &mut room, &locals).await?;
+    let mut queue: Vec<(&Listed, &Offer)> = listed
+        .iter()
+        .flat_map(|one| one.offers.iter().map(move |offer| (one, offer)))
         .collect();
+    // Newest first: once one finds no room, none after it can.
+    queue.sort_by_key(|(_, offer)| Reverse(offer.last_activity));
     let mut fetched = 0;
     let mut no_room = 0;
+    let mut cut_short = false;
 
-    for peer in peers {
+    for (one, offer) in queue {
         if busy(env) || fetched >= MAX_FETCHES {
+            cut_short = true;
             break;
-        }
-
-        if let Err(e) = from_peer(env, &projects, &locals, peer, &mut fetched, &mut no_room).await {
-            log::debug!("background copies from {peer}: {e:#}");
-        }
-    }
-
-    if no_room > 0 {
-        log::info!("not copying {no_room} sessions: the cache is full");
-    }
-
-    Ok(())
-}
-
-/// Takes away the copies that are too old, or that this machine has a
-/// session of its own for.
-async fn tidy(env: &Env, locals: &Locals) {
-    let cache = env.cache.clone();
-    let Ok(entries) = spawn_blocking(move || cache.entries()).await else {
-        return;
-    };
-    let now = now_secs();
-
-    for entry in entries {
-        let Some(copy) = &entry.copy else {
-            // A pull that stopped before it noted anything is picked up by
-            // the next one; one left for a day is not.
-            if entry.copy_bytes > 0
-                && env
-                    .cache
-                    .idle_secs(&entry.agent, &entry.id)
-                    .is_some_and(|idle| idle > PARTIAL_FOR.as_secs())
-            {
-                let cache = env.cache.clone();
-                let _ = spawn_blocking(move || cache.remove(&entry.agent, &entry.id, false)).await;
-            }
-            continue;
-        };
-        let held_here = locals.has(&entry.id);
-
-        if held_here || !is_recent(copy.last_activity, now) {
-            let cache = env.cache.clone();
-            let _ = spawn_blocking(move || cache.remove(&entry.agent, &entry.id, false)).await;
-        }
-    }
-}
-
-async fn from_peer(
-    env: &Env,
-    projects: &[Project],
-    locals: &Locals,
-    peer: EndpointId,
-    fetched: &mut usize,
-    no_room: &mut usize,
-) -> Result<()> {
-    let connection = dial(env, peer).await?;
-    let offers = {
-        let (send, recv) = connection.open_bi().await?;
-        let (mut tx, mut rx) = link(send, recv);
-        tx.send(&Request::List {}).await?;
-
-        match rx.recv::<Reply>().await? {
-            Some(Reply::Offers { offers }) => offers,
-            Some(Reply::Refused { message }) => bail!("it refused the list: {message}"),
-            _ => bail!("it did not answer the list"),
-        }
-    };
-    let now = now_secs();
-
-    for offer in offers {
-        if *fetched >= MAX_FETCHES || busy(env) {
-            break;
-        }
-
-        if harness_of(offer.agent.as_ref()).is_none() {
-            continue;
-        }
-
-        if !is_recent(offer.last_activity, now) || !projects.iter().any(|p| p.name == offer.project)
-        {
-            continue;
         }
 
         let done = match locals.get(&offer.id) {
-            Some(local) => settle(env, peer, &offer, local).await,
-            None => fetch(env, &connection, peer, &offer, fetched).await,
+            Some(local) => settle(env, one.peer, offer, local).await,
+            None => fetch(env, &mut room, &one.connection, one.peer, offer, &mut fetched).await,
         };
 
         match done {
-            Err(e) if e.is::<CacheFull>() => *no_room += 1,
-            Err(e) => log::debug!("session {} not copied from {peer}: {e:#}", offer.id),
+            Err(e) if e.is::<CacheFull>() => no_room += 1,
+            Err(e) => log::debug!("session {} not copied from {}: {e:#}", offer.id, one.peer),
             Ok(()) => {}
         }
     }
 
-    connection.close(0u32.into(), b"done");
+    close(&listed);
+
+    if no_room == 0 || cut_short {
+        return Ok(None);
+    }
+
+    log::info!("not copying {no_room} sessions: the cache is full");
+    Ok(Some(Stalled {
+        seen: Seen {
+            changes: env.cache.changes(),
+            ..seen
+        },
+        at: Instant::now(),
+    }))
+}
+
+/// The offers worth copying of every other machine online, asked together.
+async fn list(env: &Env, projects: &[Project]) -> Vec<Listed> {
+    let me = env.mesh.me();
+    let now = now_secs();
+    let mut asked: FuturesUnordered<_> = env
+        .mesh
+        .code_hosts()
+        .into_iter()
+        .filter(|status| status.online && status.device.id != me)
+        .map(|status| async move {
+            let peer = status.device.id;
+            (peer, list_one(env, peer).await)
+        })
+        .collect();
+    let mut listed = Vec::new();
+
+    while let Some((peer, got)) = asked.next().await {
+        let (connection, mut offers) = match got {
+            Ok(got) => got,
+            Err(e) => {
+                log::debug!("background copies from {peer}: {e:#}");
+                continue;
+            }
+        };
+        offers.retain(|offer| {
+            harness_of(offer.agent.as_ref()).is_some()
+                && is_recent(offer.last_activity, now)
+                && projects.iter().any(|p| p.name == offer.project)
+        });
+        listed.push(Listed {
+            peer,
+            connection,
+            offers,
+        });
+    }
+
+    // In one order whichever machine answers first, for `offers_hash`.
+    listed.sort_by_key(|one| *one.peer.as_bytes());
+    listed
+}
+
+async fn list_one(env: &Env, peer: EndpointId) -> Result<(Connection, Vec<Offer>)> {
+    let connection = dial(env, peer).await?;
+    let (send, recv) = connection.open_bi().await?;
+    let (mut tx, mut rx) = link(send, recv);
+    tx.send(&Request::List {}).await?;
+
+    match rx.recv::<Reply>().await? {
+        Some(Reply::Offers { offers }) => Ok((connection, offers)),
+        Some(Reply::Refused { message }) => bail!("it refused the list: {message}"),
+        _ => bail!("it did not answer the list"),
+    }
+}
+
+fn offers_hash(listed: &[Listed]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+
+    for one in listed {
+        one.peer.as_bytes().hash(&mut hasher);
+
+        for offer in &one.offers {
+            let Offer {
+                agent,
+                id,
+                project,
+                path,
+                last_activity,
+                size,
+                hash,
+            } = offer;
+            (agent, id, project, path, last_activity, size, hash).hash(&mut hasher);
+        }
+    }
+
+    hasher.finish()
+}
+
+fn close(listed: &[Listed]) {
+    for one in listed {
+        one.connection.close(0u32.into(), b"done");
+    }
+}
+
+/// The cache as one pass sees it: read once when the pass starts, then kept
+/// up to date with what the pass changes, so no session reads it again.
+struct Room {
+    entries: Vec<Entry>,
+    cap: u64,
+    /// A session found no room, and none as old as it can either.
+    full: bool,
+}
+
+impl Room {
+    fn new(entries: Vec<Entry>, cap: u64) -> Self {
+        Self {
+            entries,
+            cap,
+            full: false,
+        }
+    }
+
+    async fn read(env: &Env) -> Result<Self> {
+        let cache = env.cache.clone();
+        let entries = spawn_blocking(move || cache.entries()).await?;
+        Ok(Self::new(entries, env.limits.cap))
+    }
+
+    fn get(&self, agent: &AgentSlug, id: &str) -> Option<&Entry> {
+        self.entries
+            .iter()
+            .find(|entry| entry.agent == *agent && entry.id == id)
+    }
+
+    /// The oldest copies to take away once the bytes `offer` adds are here;
+    /// fails when they could not fit even then. Once not even a note fits
+    /// after every copy older than `offer` goes, it fails for every session.
+    fn make_room(&mut self, offer: &Offer) -> Result<Vec<(AgentSlug, String)>, CacheFull> {
+        if self.full {
+            return Err(CacheFull);
+        }
+
+        let held = self
+            .get(&offer.agent, &offer.id)
+            .map_or(0, |entry| entry.copy_len);
+        // The note kept beside the copy counts too.
+        let need = offer.size.saturating_sub(held) + NOTE_ROOM;
+        let own = Some((&offer.agent, offer.id.as_str()));
+
+        if let Some(gone) = evictions(&self.entries, self.cap, need, offer.last_activity, own) {
+            return Ok(gone);
+        }
+
+        // Too big alone, or the cache is full for its age; a session no newer
+        // needs at least a note's room and may take away no more.
+        self.full = evictions(&self.entries, self.cap, NOTE_ROOM, offer.last_activity, None)
+            .is_none();
+        Err(CacheFull)
+    }
+
+    /// Takes in what the cache now holds of the sessions `keys`: `fresh`,
+    /// read again from the disk, for those that kept a folder.
+    fn replace(&mut self, keys: &[(AgentSlug, String)], fresh: Vec<Entry>) {
+        self.entries
+            .retain(|entry| !keys.iter().any(|(agent, id)| entry.agent == *agent && entry.id == *id));
+        self.entries.extend(fresh);
+    }
+}
+
+/// Takes away the copies of the sessions `gone`, and reads again what is
+/// left of them: a version that lost stays.
+fn evict(cache: &Cache, gone: &[(AgentSlug, String)]) -> Vec<Entry> {
+    gone.iter()
+        .filter_map(|(agent, id)| {
+            cache.remove(agent, id, false);
+            cache.entry(agent, id)
+        })
+        .collect()
+}
+
+/// Takes away the copies that are too old, or that this machine has a
+/// session of its own for.
+async fn tidy(env: &Env, room: &mut Room, locals: &Locals) -> Result<()> {
+    let now = now_secs();
+    let mut gone = Vec::new();
+    let mut partial = Vec::new();
+
+    for entry in &room.entries {
+        let key = (entry.agent.clone(), entry.id.clone());
+
+        match &entry.copy {
+            Some(copy) if locals.has(&entry.id) || !is_recent(copy.last_activity, now) => {
+                gone.push(key);
+            }
+            Some(_) => {}
+            // A pull that stopped before it noted anything is picked up by
+            // the next one; one left for a day is not.
+            None if entry.copy_bytes > 0 => partial.push(key),
+            None => {}
+        }
+    }
+
+    if gone.is_empty() && partial.is_empty() {
+        return Ok(());
+    }
+
+    let cache = env.cache.clone();
+    let (gone, fresh) = spawn_blocking(move || {
+        gone.extend(partial.into_iter().filter(|(agent, id)| {
+            cache
+                .idle_secs(agent, id)
+                .is_some_and(|idle| idle > PARTIAL_FOR.as_secs())
+        }));
+        let fresh = evict(&cache, &gone);
+        (gone, fresh)
+    })
+    .await?;
+    room.replace(&gone, fresh);
     Ok(())
 }
 
 /// Brings the copy of `offer` up to date.
 async fn fetch(
     env: &Env,
-    connection: &iroh::endpoint::Connection,
+    room: &mut Room,
+    connection: &Connection,
     peer: EndpointId,
     offer: &Offer,
     fetched: &mut usize,
@@ -248,13 +441,15 @@ async fn fetch(
         bail!("not a session name");
     };
 
-    if let Some(meta) = env.cache.meta(&offer.agent, &offer.id)
-        && is_held(&meta, offer, peer)
+    if let Some(meta) = room
+        .get(&offer.agent, &offer.id)
+        .and_then(|entry| entry.copy.as_ref())
+        && is_held(meta, offer, peer)
     {
         return Ok(());
     }
 
-    let evict = make_room(env, offer, &copy).await?;
+    let evicted = room.make_room(offer)?;
 
     if let Some(dir) = copy.parent() {
         tokio::fs::create_dir_all(dir).await?;
@@ -276,14 +471,6 @@ async fn fetch(
     )
     .await?;
     *fetched += 1;
-    // Only a pull that went through makes room: a failed one costs nothing.
-    let cache = env.cache.clone();
-    spawn_blocking(move || {
-        for (agent, id) in &evict {
-            cache.remove(agent, id, false);
-        }
-    })
-    .await?;
     let hash = hash_of(&copy).await?;
     let meta = Meta {
         from: peer,
@@ -296,11 +483,21 @@ async fn fetch(
         fetched_at: now_secs(),
     };
     let (cache, agent, id) = (env.cache.clone(), offer.agent.clone(), offer.id.clone());
-    spawn_blocking(move || cache.save_meta(&agent, &id, &meta)).await??;
+    // Only a pull that went through makes room: a failed one costs nothing.
+    let (keys, fresh) = spawn_blocking(move || -> std::io::Result<_> {
+        let mut fresh = evict(&cache, &evicted);
+        cache.save_meta(&agent, &id, &meta)?;
+        fresh.extend(cache.entry(&agent, &id));
+        let mut keys = evicted;
+        keys.push((agent, id));
+        Ok((keys, fresh))
+    })
+    .await??;
+    room.replace(&keys, fresh);
 
     if pulled.restarted {
         // The older copy kept beside the new one counts against the cap.
-        trim_after_restart(env, offer).await?;
+        trim_after_restart(env, room, offer).await?;
     }
 
     Ok(())
@@ -323,28 +520,28 @@ fn is_held(meta: &Meta, offer: &Offer, peer: EndpointId) -> bool {
 /// After a pull that started over: the cache holds the new copy and the old
 /// one beside it. Older copies of other sessions go to bring it under the
 /// cap, and the old one with them if that is not enough.
-async fn trim_after_restart(env: &Env, offer: &Offer) -> Result<()> {
-    let (cache, cap) = (env.cache.clone(), env.limits.cap);
-    let (agent, id, activity) = (offer.agent.clone(), offer.id.clone(), offer.last_activity);
-    spawn_blocking(move || {
-        let entries = cache.entries();
-        let own = Some((&agent, id.as_str()));
-
-        match evictions(&entries, cap, 0, activity, own) {
-            Some(gone) => {
-                for (other, key) in &gone {
-                    cache.remove(other, key, false);
-                }
-            }
-            None => cache.drop_diverged(&agent, &id),
+async fn trim_after_restart(env: &Env, room: &mut Room, offer: &Offer) -> Result<()> {
+    let own = Some((&offer.agent, offer.id.as_str()));
+    let gone = evictions(&room.entries, room.cap, 0, offer.last_activity, own);
+    let (cache, agent, id) = (env.cache.clone(), offer.agent.clone(), offer.id.clone());
+    let (keys, fresh) = spawn_blocking(move || match gone {
+        Some(gone) => {
+            let fresh = evict(&cache, &gone);
+            (gone, fresh)
+        }
+        None => {
+            cache.drop_diverged(&agent, &id);
+            let fresh = cache.entry(&agent, &id).into_iter().collect();
+            (vec![(agent, id)], fresh)
         }
     })
     .await?;
+    room.replace(&keys, fresh);
     Ok(())
 }
 
 /// No room in the cache for a copy, even after taking away older ones.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct CacheFull;
 
 impl std::fmt::Display for CacheFull {
@@ -354,26 +551,6 @@ impl std::fmt::Display for CacheFull {
 }
 
 impl std::error::Error for CacheFull {}
-
-/// The oldest copies to take away once the bytes `offer` adds are here; fails
-/// when they could not fit even then.
-async fn make_room(env: &Env, offer: &Offer, copy: &Path) -> Result<Vec<(AgentSlug, String)>> {
-    let held = tokio::fs::metadata(copy).await.map_or(0, |meta| meta.len());
-    // The note kept beside the copy counts too.
-    let need = offer.size.saturating_sub(held) + NOTE_ROOM;
-    let (cache, cap, activity) = (env.cache.clone(), env.limits.cap, offer.last_activity);
-    let (agent, id) = (offer.agent.clone(), offer.id.clone());
-    let gone = spawn_blocking(move || {
-        let entries: Vec<Entry> = cache.entries();
-        evictions(&entries, cap, need, activity, Some((&agent, id.as_str())))
-    })
-    .await?;
-
-    match gone {
-        Some(gone) => Ok(gone),
-        None => Err(CacheFull.into()),
-    }
-}
 
 /// A session this machine has a transcript of already, and another machine
 /// offers too. When the user continued it here from a copy and the other
@@ -609,3 +786,7 @@ async fn locals(env: &Env) -> Locals {
             .collect(),
     )
 }
+
+#[cfg(test)]
+#[path = "../../tests/agents_moving_background.rs"]
+mod tests;

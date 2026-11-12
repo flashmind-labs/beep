@@ -17,6 +17,7 @@ fn entry(id: &str, activity: u64, bytes: u64) -> Entry {
             fetched_at: 0,
         }),
         lost: Vec::new(),
+        copy_len: bytes,
         copy_bytes: bytes,
         lost_bytes: 0,
     }
@@ -57,6 +58,7 @@ fn a_version_that_lost_is_never_evicted_and_counts_against_the_cap() {
     let mut kept = entry("a", 10, 100);
     kept.copy = None;
     kept.lost = vec![5];
+    kept.copy_len = 0;
     kept.copy_bytes = 0;
     kept.lost_bytes = 800;
     let held = [kept, entry("b", 10, 100)];
