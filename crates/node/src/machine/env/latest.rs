@@ -10,7 +10,11 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
-use tokio::{sync::watch, time::Instant};
+use tokio::{
+    runtime::{Handle, Runtime},
+    sync::watch,
+    time::Instant,
+};
 
 /// How often the machine is probed again while followed.
 pub(crate) const REPROBE: Duration = Duration::from_secs(10 * 60);
@@ -29,10 +33,27 @@ pub(crate) struct Probes {
     /// Whether the probing task runs.
     running: AtomicBool,
     probe: Probe,
+    /// Where the probing task runs; `None` for the caller's runtime.
+    runtime: Option<Handle>,
 }
 
-static MACHINE: LazyLock<Arc<Probes>> =
-    LazyLock::new(|| Probes::new(|| Box::pin(super::probe())));
+/// The machine's probing task runs here, so it outlives the runtime of
+/// whichever caller started it; `None` when no thread could be started.
+static RUNTIME: LazyLock<Option<Runtime>> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_name("beep-probe")
+        .enable_all()
+        .build()
+        .inspect_err(|e| log::warn!("starting the probe thread failed: {e}"))
+        .ok()
+});
+
+static MACHINE: LazyLock<Arc<Probes>> = LazyLock::new(|| {
+    let mut probes = Probes::build(|| Box::pin(super::probe()));
+    probes.runtime = RUNTIME.as_ref().map(Runtime::handle).cloned();
+    Arc::new(probes)
+});
 
 /// This machine's probes.
 pub(crate) fn machine() -> &'static Arc<Probes> {
@@ -55,14 +76,20 @@ pub(crate) async fn fresh() -> EnvReport {
 }
 
 impl Probes {
+    #[cfg(test)]
     pub(crate) fn new(
         probe: impl Fn() -> BoxFuture<'static, EnvReport> + Send + Sync + 'static,
     ) -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new(Self::build(probe))
+    }
+
+    fn build(probe: impl Fn() -> BoxFuture<'static, EnvReport> + Send + Sync + 'static) -> Self {
+        Self {
             latest: watch::channel(None).0,
             running: AtomicBool::new(false),
             probe: Arc::new(probe),
-        })
+            runtime: None,
+        }
     }
 
     /// Follows the latest report, starting the probing task if it stopped.
@@ -70,7 +97,12 @@ impl Probes {
         let latest = self.latest.subscribe();
 
         if !self.running.swap(true, Ordering::SeqCst) {
-            tokio::spawn(Self::keep_probing(Unfinished(Some(self.clone()))));
+            let task = Self::keep_probing(Unfinished(Some(self.clone())));
+
+            match &self.runtime {
+                Some(runtime) => drop(runtime.spawn(task)),
+                None => drop(tokio::spawn(task)),
+            }
         }
 
         latest
