@@ -11,14 +11,15 @@ test("first run remembers Start and closes the screen when another machine is li
   }
   let machines = ["local"];
   Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string) => cmd === "list_machines" ? machines : null, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
-  const { act, fireEvent, screen, cleanup } = await import("@testing-library/react");
+  const { act, fireEvent, screen, cleanup, waitFor } = await import("@testing-library/react");
   const { firstRun } = await import("../src/center/firstrun.ts");
   try {
     await act(async () => { await firstRun(); });
     const start = screen.getByRole("button", { name: /^Start/ });
     assert.equal(dom.window.document.activeElement, start);
+    // Start looks for this computer first, then leaves when it has nothing to set up.
     fireEvent.click(start);
-    assert.equal(dom.window.localStorage.getItem("beep.firstRunDone"), "1");
+    await waitFor(() => assert.equal(dom.window.localStorage.getItem("beep.firstRunDone"), "1"));
     assert.equal(dom.window.document.querySelector(".fr-scrim"), null);
     // Linked, with the mesh still opening: the screen never shows.
     dom.window.localStorage.clear();

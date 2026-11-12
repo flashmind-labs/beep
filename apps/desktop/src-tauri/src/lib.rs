@@ -304,6 +304,7 @@ pub fn run() {
             machines::terminals::terminals_list,
             machines::tools::tool_updates,
             machines::tools::update_machine_tool,
+            machines::tools::machine_set_up,
             machines::sign_in::machine_sign_in,
             palette::prompts::center_find_prompts,
             palette::lists::center_palette_index,
