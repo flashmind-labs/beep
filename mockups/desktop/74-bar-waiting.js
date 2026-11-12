@@ -26,11 +26,31 @@
     const sel = Math.min(S.d.sel || 0, rows.length - 1);
     const mark = s => q ? s.replace(new RegExp(q, "i"), m => `<mark>${m}</mark>`) : s;
     const need = ROWS.filter(r => r[5] === "ask" || r[5] === "done").length;
-    const list = rows.map((r, i) => `<button class="dchat" role="option" aria-selected="${i === sel}" data-dact="dset:ags:${r[6]}" data-dgo="dAgentSession">${av(r[0])}<span class="t"><span>${mark(r[1])}</span><small>${[mark(r[2]), r[3], r[4]].join(" · ")}</small></span>${tail(r)}</button>`).join("");
+    const list = rows.map((r, i) => `<button class="dchat" role="option" aria-selected="${i === sel}" data-dact="dset:ags:${r[6]}" data-dgo="dBarSession">${av(r[0])}<span class="t"><span>${mark(r[1])}</span><small>${[mark(r[2]), r[3], r[4]].join(" · ")}</small></span>${tail(r)}</button>`).join("");
     return deskScene(dBar(`<div class="dhead"><span class="tt"><b>Sessions</b><small>${q ? `Filter: ${q}` : `${need} waiting for you`}</small></span><button class="dbtn" data-dgo="dAgentNew">New<kbd>⌘N</kbd></button></div>
       <div class="dlist top" role="listbox" aria-label="Sessions" tabindex="0">${list}</div>`
       + dHints([[DI.ret, "open"], ["↑↓", "move"], ["⌘N", "new agent"], ["esc", q ? "clear" : "to hide"]])));
   };
   VARIANTS.dWaiting = dv("wt", [["Waiting list", "list"], ["Filtering", "filter"], ["Nothing recent", "empty"]]);
-  DESK_SCREENS.find(g => g.group === "Floating bar").items.unshift(["dWaiting", "Waiting for you", "Bar on Option double tap"]);
+  // A session opened in the bar starts with its pane folded to a strip under
+  // the conversation; the strip or ⌘2 ⌘3 ⌘4 unfold it for this visit. ⌘O, or
+  // the button in the key row, hands the session to the main window.
+  D.dBarSession = () => {
+    const open = S.d.bs === "unfolded", saved = S.d.ags;
+    S.d.ags = "idle";
+    const t = document.createElement("template");
+    t.innerHTML = D.dAgentSession();
+    S.d.ags = saved;
+    const head = t.content.querySelector("#aguse").closest(".dhead"), shell = t.content.querySelector(".ag-shell");
+    head.querySelector(".agedit")?.remove();
+    shell.classList.add("dock-bottom");
+    if (!open) {
+      shell.querySelectorAll(".ag-pane, .ag-div").forEach(el => el.remove());
+      shell.insertAdjacentHTML("beforeend", '<button class="ag-pstrip" data-dact="dset:bs:unfolded" title="Show the pane"><span>Files</span><small>Changes 3</small></button>');
+    }
+    shell.querySelector(".dhints.slim").insertAdjacentHTML("beforeend", '<button class="win" data-dgo="dAgentSession"><kbd>⌘O</kbd>open in window</button>');
+    return deskScene(dBar(`${head.outerHTML}<div class="dbarag" style="container-type:inline-size;display:flex;flex-direction:column;height:560px">${shell.outerHTML}</div>`));
+  };
+  VARIANTS.dBarSession = dv("bs", [["Pane folded", "folded"], ["Pane unfolded", "unfolded"]]);
+  DESK_SCREENS.find(g => g.group === "Floating bar").items.unshift(["dWaiting", "Waiting for you", "Bar on Option double tap"], ["dBarSession", "Session in the bar", "Pane folded, ⌘O to the window"]);
 })();
