@@ -86,7 +86,7 @@ required-features = ["cli"]
 agent-client-protocol = { version = "3.6", features = ["unstable_end_turn_token_usage", "unstable_session_system_prompt"], optional = true }
 anyhow = "1"
 bao-tree = { version = "0.17", optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 beep-mesh = { path = "../mesh", optional = true }
 # Reads CI runs as the desktop does.
 beep-projects = { path = "../projects", optional = true }

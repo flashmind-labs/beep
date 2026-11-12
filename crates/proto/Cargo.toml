@@ -19,7 +19,7 @@ logging = ["dep:tracing", "dep:tracing-log", "dep:tracing-subscriber"]
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 blake3 = "1"
 curve25519-dalek = "5"
 ed25519-dalek = "3"

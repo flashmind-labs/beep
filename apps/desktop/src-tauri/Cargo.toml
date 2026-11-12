@@ -22,7 +22,7 @@ open = "5"
 which = "8"
 async-trait = "0.1"
 ammonia = "4"
-base64 = "0.22"
+base64 = "0.23"
 beep-fleet = { path = "../../../crates/fleet" }
 beep-live = { path = "../../../crates/live" }
 beep-mesh = { path = "../../../crates/mesh" }
