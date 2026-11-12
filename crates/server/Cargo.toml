@@ -5,74 +5,27 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 
-[features]
-default = ["pdf"]
-# Research papers as PDFs, typeset with Typst. Builds that do not need them
-# can leave it out with `--no-default-features`.
-pdf = ["dep:pulldown-cmark", "dep:mitex", "dep:typst", "dep:typst-layout", "dep:typst-pdf", "dep:typst-kit"]
-
 [dependencies]
 anyhow = "1"
-async-trait = "0.1"
-# The apps' HTTP; TLS is the proxy's in front.
+# HTTP behind a proxy that holds TLS.
 axum = { version = "0.8", features = ["http2"] }
-base64 = "0.23"
-beep-mesh = { path = "../mesh", features = ["thumbs"] }
-beep-proto = { path = "../proto", features = ["logging", "client", "http2", "seal"] }
-beep-projects = { path = "../projects" }
+beep-proto = { path = "../proto", features = ["logging", "client"] }
 beep-report = { path = "../report" }
-blake3 = "1"
-bytes = "1"
-chacha20poly1305 = "0.11"
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
-flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", default-features = false, features = ["core", "llm", "mcp", "composio", "cron", "memory-postgres", "subagent", "mistral-realtime", "http-compression", "http2", "request-compression"] }
-futures = "0.3"
+chrono = "0.4"
 hex = "0.4"
-serde_bytes = "0.11"
-rmp-serde = "1"
 iroh = "1.4.1"
-rust_decimal = "1"
+log = "0.4"
+rmp-serde = "1"
+reqwest = { version = "0.13.5", default-features = false, features = ["http2"] }
 rusty-s3 = "0.11"
-reqwest = { version = "0.13.5", default-features = false, features = ["form", "json", "stream", "http2"] }
 secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml = "0.9"
 thiserror = "2"
-strum = { version = "0.28", features = ["derive"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls"] }
-sqlx-core = { version = "0.8.6", features = ["migrate"] }
-# chrono, json, migrate and uuid go on the driver: as sqlx features they drag its
-# SQLite driver into resolution, which clashes with
-# flashmind's rusqlite over libsqlite3-sys.
-sqlx-postgres = { version = "0.8.6", features = ["chrono", "json", "migrate", "uuid"] }
 tokio = { version = "1", features = ["full"] }
-url = { version = "2", features = ["serde"] }
-tokio-util = { version = "0.7", features = ["codec", "io", "rt"] }
-# Composio trigger events arrive over a Pusher websocket.
-tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 toml = "1"
-log = "0.4"
-uuid = { version = "1", features = ["v4", "v5", "serde"] }
-html2text = "0.17"
-imagesize = "0.15"
-# Thumbnails of coding agents' pictures.
-image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
-jsonwebtoken = { version = "11.1", features = ["aws_lc_rs"] }
-qrcode = { version = "0.14", default-features = false }
-# A research's paper as a PDF (the `pdf` feature): Markdown read with pulldown-cmark, its LaTeX math
-# turned into Typst's with mitex, typeset by Typst with its bundled fonts.
-pulldown-cmark = { version = "0.13", default-features = false, optional = true }
-mitex = { version = "0.2", optional = true }
-typst = { version = "0.15", optional = true }
-typst-layout = { version = "0.15", optional = true }
-typst-pdf = { version = "0.15", optional = true }
-typst-kit = { version = "0.15", default-features = false, features = ["embedded-fonts"], optional = true }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-beep-projects = { path = "../projects", features = ["testing"] }
-async-stream = "0.3"
-# The network tests make the TLS connections the server's endpoint sets up for.
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tempfile = "3"

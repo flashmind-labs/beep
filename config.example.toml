@@ -1,55 +1,20 @@
-# The server's identity, which apps sign their sessions for. Generated on first run if the file does not exist.
-secret_key = ".dev/iroh-key"
-# Postgres with pgvector. Falls back to the DATABASE_URL environment variable.
-# `just test-db` starts one locally.
-database_url = "postgres://beep:beep@127.0.0.1:55432/beep"
-model = "openrouter:openai/gpt-6-luna"
-# Other models users can pick for their own turns.
-# model_choices = ["openrouter:z-ai/glm-5.3-flash", "openrouter:anthropic/claude-sonnet-5.5"]
-# Auto: Jev picks each prompt's thinking on the user's model. Users have it
-# on until they turn it off; without an entry here it is unavailable.
-# auto_models."openrouter:openai/gpt-6-luna" = "Every prompt"
-# Describes images for models without vision. Defaults to `model` when it sees images.
-# vision_model = "openrouter:z-ai/glm-5.3-flash"
-provider_key = "sk-or-v1-YOUR-KEY-HERE"
-# Optional: enable Firecrawl web search.
-# firecrawl_key = "fc-YOUR-KEY-HERE"
-# Optional: OpenAI key for memory embeddings; OpenRouter is used without it.
-# openai_key = "sk-YOUR-KEY-HERE"
-# Optional: enable Composio integration for third-party tools.
-# composio_key = "YOUR-COMPOSIO-KEY"
-# Sends the browser back to the phone app once an app connects.
-# composio_callback_url = "beep://apps/connected"
-# Optional: a Firebase service account key file. With it the server wakes
-# phones it cannot reach over iroh, sealed so Google cannot read them.
-# fcm_credentials = ".dev/fcm-service-account.json"
-# Optional: researches, started from the Mac. A lead plans with the user,
-# then scouts, a critic and a writer work in the background, each on its
-# own model. Every model must be offered.
-# [research]
-# lead = { model = "openrouter:anthropic/claude-sonnet-5.5", thinking = "medium" }
-# scout = { model = "openrouter:deepseek/deepseek-v4.1-flash-1017", thinking = "low" }
-# critic = { model = "openrouter:openai/gpt-6-luna" }
-# writer = { model = "openrouter:anthropic/claude-haiku-5.5" }
-# scout_choices = ["openrouter:z-ai/glm-5.3-flash"]
-# Optional: the model project chats plan on (a new request, a re-plan).
-# Worker reports and checks run on the chat's default. It must be offered.
-# [project]
-# planner = { model = "openrouter:anthropic/claude-sonnet-5.5", thinking = "high" }
+# beep-server receives the apps' problem reports.
 
-# Agents that read admins' chats once they go quiet or a task in them ends:
-# memories, skills, and findings on where Beep failed (ListFindings).
-# [watchers]
-# model = "openrouter:anthropic/claude-haiku-5.5"
-# quiet_minutes = 30
-# concurrency = 2
-# [watchers.improvement]
-# enabled = true
-# model = "openrouter:z-ai/glm-5.3-flash"
-# timeout_secs = 120
+# Where the HTTP listens. Put a proxy that holds TLS in front of it.
+# http_listen = "127.0.0.1:47122"
+# Where the daily log files go.
+# log_dir = "logs"
 
-# Hosted sign-in through a website. Unknown keys then sign in there instead of
-# making their own account. Not with [instance].
-# [login]
-# website = "https://example.com"
-# website_key = "<the website's Ed25519 public key, 32 bytes as hex>"
+[reports]
+# A local folder, for development. `r2` wins when both are set.
+folder = ".dev/reports"
+# Reports one key may send per day.
+# per_key_per_day = 20
+# blocked_keys = []
+# blocked_ips = []
+
+# [reports.r2]
+# account_id = "YOUR-ACCOUNT-ID"
+# bucket = "beep-reports"
+# access_key_id = "YOUR-KEY-ID"
+# secret_access_key = "YOUR-SECRET"

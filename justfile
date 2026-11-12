@@ -1,8 +1,6 @@
 set dotenv-load
 
 server_config := ".dev/android-server.toml"
-# The local Postgres `test-db` starts, which the server tests use.
-test_db_url := "postgres://beep:beep@127.0.0.1:55432/beep"
 
 # Serve the platform mockups on localhost
 mockups port="8000":
@@ -148,12 +146,6 @@ release *apps:
     if [[ $# == 0 ]]; then set -- all; fi
     uv run --script scripts/release.py patch "$@"
 
-# Deploy the Cloudflare Worker behind https share and invite links. Needs
-# CLOUDFLARE_ACCOUNT_ID in .env: the account that holds flashmind.com.
-links-deploy:
-    test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "Set CLOUDFLARE_ACCOUNT_ID in .env"; exit 1; }
-    cd deploy/links && npx wrangler deploy
-
 # Format, lint and test the desktop app
 desktop-check:
     cd apps/desktop && npm ci --silent && npm run build && npm run check
@@ -219,39 +211,10 @@ restart-server:
 stop-server:
     -pkill -f "beep-server {{server_config}}"
 
-# Start a local Postgres with pgvector for the server and the tests
-test-db:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Disposable and tuned for speed: data in memory, nothing synced to disk,
-    # and connections for every test thread. An older beep-pg is replaced.
-    if ! docker inspect -f '{{{{.Config.Cmd}}' beep-pg 2>/dev/null | grep -q fsync=off; then
-        docker rm -f beep-pg >/dev/null 2>&1 || true
-        docker run -d --name beep-pg -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep \
-            -p 127.0.0.1:55432:5432 --tmpfs /var/lib/postgresql/data --shm-size 1g pgvector/pgvector:pg17 \
-            -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=1000 >/dev/null
-    fi
-    docker start beep-pg >/dev/null
-    until docker exec beep-pg pg_isready -h 127.0.0.1 -U beep >/dev/null 2>&1; do sleep 1; done
-    echo "export BEEP_TEST_DATABASE_URL={{test_db_url}}"
-
-# Run the server tests against the local Postgres
-test: test-db
-    BEEP_TEST_DATABASE_URL={{test_db_url}} cargo test -p beep-server
-
 # End-to-end tests on Boat VMs: `just e2e` runs every scenario, `just e2e
 # sync` one. It makes the VMs, runs, and deletes them (see tests/e2e/README.md).
 e2e scenario="all" action="run":
     tests/e2e/e2e.sh {{scenario}} {{action}}
-
-# Print app tools' arguments: `just tool-schema GMAIL_MOVE_TO_TRASH
-# FASTMAIL_DELETE_EMAIL`, or `just tool-schema --list outlook` for a toolkit.
-tool-schema *args:
-    uv run -q --with 'psycopg[binary]' --with httpx python -I scripts/tool-schema.py --config {{server_config}} {{args}}
-
-# Model spend per kind of turn and the costliest user-days: just usage [days]
-usage days="14":
-    uv run -q --with 'psycopg[binary]' python -I scripts/usage.py --config {{server_config}} {{days}}
 
 # Problem reports in R2, newest first: just reports
 reports:
@@ -264,28 +227,6 @@ report id:
 # Delete a solved report's zip and manifest: just report-solved R-ABC...
 report-solved id:
     uv run -q --with boto3 python -I scripts/reports.py --config {{server_config}} solved {{id}}
-
-# Run the prompt evals against the real model in the dev config. They cost
-# money. `just eval search` runs the cases whose name contains "search".
-eval filter="": test-db
-    BEEP_TEST_DATABASE_URL={{test_db_url}} BEEP_EVAL="{{filter}}" \
-        cargo test -p beep-server --test evals -- --ignored --nocapture
-
-# Follow-up chips for fixed turns, each graded by a judge model: just eval-followups [filter]
-eval-followups filter="":
-    BEEP_EVAL="{{filter}}" cargo test -p beep-server --test followups -- --ignored --nocapture
-
-# The group leak gate on fixed replies, judged by Jev: just eval-leak [filter]
-eval-leak filter="":
-    BEEP_EVAL="{{filter}}" cargo test -p beep-server --test leak -- --ignored --nocapture
-
-# The reply gates on fixed replies, judged by Jev: just eval-gates [filter]
-eval-gates filter="":
-    BEEP_EVAL="{{filter}}" cargo test -p beep-server --test gates -- --ignored --nocapture
-
-# List the OpenRouter models Beep could use, newest first: just models [max-output-price] [filter]
-models *args:
-    cargo run -q --package beep-server --bin beep-models -- {{args}}
 
 # Tail server logs
 logs:
