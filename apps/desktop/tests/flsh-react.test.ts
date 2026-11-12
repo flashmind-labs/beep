@@ -17,7 +17,7 @@ test("flsh routing preserves edits and focus during save and reuses the panel on
     if (cmd === "flsh_settings_get") { reads++; return saved; }
     if (cmd === "flsh_settings_save") { submitted = args.settings; return new Promise<void>(resolve => { finish = resolve; }); }
     return null;
-  }, Channel: class {} }, event: { listen: async () => () => {} } } });
+  }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
   const { flshPanel } = await import("../src/settings/flsh.ts");

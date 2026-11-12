@@ -33,6 +33,7 @@ type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
   core: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown>; Channel: new <T>() => { onmessage(message: T): void } };
   event: { listen(name: string, handler: NativeHandler): Promise<() => void> };
+  webviewWindow: { getCurrentWebviewWindow(): { listen(name: string, handler: NativeHandler): Promise<() => void> } };
 }
 
 declare global { interface Window { __navigation: NavigationHarness } }
@@ -165,6 +166,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       registered.add(handler);
       return () => { registered.delete(handler); };
     } },
+    webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (name, handler) => boundary.event.listen(name, handler) }) },
   };
   Object.defineProperty(window, "__TAURI__", { value: boundary });
   const harness: NavigationHarness = {

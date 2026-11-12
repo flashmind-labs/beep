@@ -19,5 +19,5 @@ Object.assign(globalThis, {
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: view.navigator });
 Object.defineProperty(view, "__TAURI__", { value: {
   core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); if (cmd === "mesh_watch") return new Promise(() => {}); return null; }, Channel: class {} },
-  event: { listen: async () => () => {} },
+  event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) },
 } });

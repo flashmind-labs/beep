@@ -17,7 +17,7 @@ test("a late invitation from a closed sheet cannot replace the new ticket", asyn
     if (cmd === "mesh_watch") return new Promise(() => {});
     if (cmd === "mac_control") return { enabled: true, status: "connected", error: null };
     return null;
-  }, Channel: class {} }, event: { listen: async () => () => {} } } });
+  }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { openAddMachine, closeAddMachine } = await import("../src/machines/addmachine.ts");
   let closed = 0;

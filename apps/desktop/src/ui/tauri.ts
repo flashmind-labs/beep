@@ -19,6 +19,10 @@ interface TauriGlobal {
   event: {
     listen<T = unknown>(event: string, handler: (event: TauriEvent<T>) => void): Promise<() => void>;
   };
+  webviewWindow: {
+    /// Its `listen` hears only events sent to this window; `event.listen` hears them for every window.
+    getCurrentWebviewWindow(): { listen<T = unknown>(event: string, handler: (event: TauriEvent<T>) => void): Promise<() => void> };
+  };
 }
 
 declare global {

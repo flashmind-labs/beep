@@ -27,7 +27,7 @@ test("provider save retains edits made while the command is in flight", async ()
     if (cmd === "harness_settings_save") return new Promise<void>(resolve => { finish = resolve; });
     if (cmd === "harness_settings_all" || cmd === "harness_model_compacts") return [];
     return null;
-  }, Channel: class {} }, event: { listen: async () => () => {} } } });
+  }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
   const { providersPage } = await import("../src/settings/providers.ts");

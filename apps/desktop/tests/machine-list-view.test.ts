@@ -11,7 +11,7 @@ test("machine list retains focused rows through live updates and routes actions"
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
-  Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async () => null, Channel: class {} }, event: { listen: async () => () => {} } } });
+  Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async () => null, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
   const { MachineList } = await import("../src/machines/list-view.tsx");
   let selected = "", added = 0, linked = 0, remove = "", retried = "";

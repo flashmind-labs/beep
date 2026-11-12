@@ -55,6 +55,7 @@ export const stubInit = serialized => {
       Channel: class { onmessage() {} },
     },
     event: { listen: async (name, h) => { if (!handlers.has(name)) handlers.set(name, []); handlers.get(name).push(h); return () => {}; } },
+    webviewWindow: { getCurrentWebviewWindow: () => ({ listen: window.__TAURI__.event.listen }) },
     window: { getCurrentWindow: () => ({ label: "center", onFocusChanged: async () => () => {}, setFocus: async () => {} }) },
   };
   window.__errors = [];
