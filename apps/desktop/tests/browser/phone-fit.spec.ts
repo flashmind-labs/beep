@@ -21,6 +21,9 @@ async function openPhone(page: Page) {
   await expect(page.locator("body")).toHaveClass(/mobile/);
 }
 
+/// Waits for the page's way in (center/views.ts) to finish, so boxes sit where they stay.
+const settled = (page: Page) => page.evaluate(() => Promise.all([...document.querySelectorAll(".cc-box")].flatMap(box => box.getAnimations().map(a => a.finished))));
+
 const tab = (page: Page, name: string) => page.getByRole("navigation", { name: "Sections" }).getByRole("button", { name, exact: true });
 
 /// The window's sideways overflow, and boxes that scroll sideways without being meant to.
@@ -57,6 +60,7 @@ test("phone agent rows show their harness and truncate, with New in the header",
   await expect(rows.nth(1).locator(".dcoderav")).toHaveClass(/codex/);
   await expect(page.locator("#agNew")).toBeHidden();
   await expect(page.locator(".cc-top .ag-new-top")).toBeVisible();
+  await settled(page);
 
   const width = await page.evaluate(() => document.documentElement.clientWidth);
   for (const box of await rows.locator(".t > span").evaluateAll(spans => spans.map(span => span.getBoundingClientRect().right))) expect(box).toBeLessThanOrEqual(width);
