@@ -29,8 +29,22 @@ const WALK_FOR: Duration = Duration::from_secs(5 * 60);
 const QUICK_DEPTH: usize = 3;
 /// How long a quick look again may take: the Add a project sheet waits for it.
 const QUICK_FOR: Duration = Duration::from_secs(8);
-/// Folders never worth walking into.
-const PRUNED: &[&str] = &["node_modules", "target", "Library"];
+/// Folders never worth walking into: build output, app data, and media,
+/// which on macOS would also ask for access to the photos and music.
+/// Hidden folders are skipped by the walker already.
+const PRUNED: &[&str] = &[
+    "node_modules",
+    "target",
+    "Library",
+    "Applications",
+    "AppData",
+    "Pictures",
+    "Movies",
+    "Music",
+    "Videos",
+    "Public",
+    "snap",
+];
 /// The checkouts the last whole walk found, in the node's folder.
 const FILE: &str = "checkouts.json";
 
