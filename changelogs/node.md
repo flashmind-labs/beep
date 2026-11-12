@@ -2,6 +2,12 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.11] - 2026-11-12
+
+### Changed
+
+- Node: coding agent skills sync only after a desktop turns skill sync on.
+
 ## [0.6.10] - 2026-11-12
 
 ### Fixed
