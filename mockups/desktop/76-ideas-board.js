@@ -27,6 +27,7 @@
 .mac .agrail .th { position: absolute; left: 3px; right: 3px; border-radius: 3px; background: color-mix(in srgb, var(--d-fg) 22%, transparent) }
 .mac .agrail .tk { all: unset; position: absolute; left: 0; right: 0; height: 2px; border-radius: 1px; background: var(--d-accent); cursor: pointer }
 .mac .agrail .tk:hover { height: 4px; margin-top: -1px }
+.mac .agpeek { position: absolute; right: 18px; width: max-content; max-width: 360px; transform: translateY(-50%); padding: 8px 10px; border: 1px solid var(--d-border); border-radius: 6px; background: var(--d-elev); font-size: 12.5px; line-height: 18px; color: var(--d-fg) }
 .mac .dseg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--d-border); border-radius: 6px }
 .mac .dseg button { all: unset; cursor: pointer; padding: 0 10px; line-height: 24px; border-radius: 5px; font-size: 12.5px; color: var(--d-muted) }
 .mac .dseg button.on { background: color-mix(in srgb, var(--d-accent) 28%, transparent); color: var(--d-fg) }
@@ -159,7 +160,7 @@ html[data-bddir=lane]::view-transition-old(*), html[data-bddir=lane]::view-trans
     const body = t.content.querySelector(".dbody");
     if (body) {
       body.parentElement.style.position = "relative";
-      body.insertAdjacentHTML("afterend", `<div class="agrail"><div class="th" style="top:62%;height:30%"></div>${[4, 21, 38, 55, 81].map((at, i) => `<button class="tk" style="top:${at}%" title="Your message ${i + 1}"></button>`).join("")}</div>`);
+      body.insertAdjacentHTML("afterend", `<div class="agrail"><div class="th" style="top:62%;height:30%"></div>${[4, 21, 38, 55, 81].map((at, i) => `<button class="tk" style="top:${at}%" title="Your message ${i + 1}"></button>`).join("")}<div class="agpeek" style="top:38%">Run the tests again and fix what fails, then open a PR.</div></div>`);
     }
     return t.innerHTML;
   };
