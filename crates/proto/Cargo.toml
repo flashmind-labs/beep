@@ -24,7 +24,7 @@ blake3 = "1"
 curve25519-dalek = "5"
 ed25519-dalek = "3"
 bytes = "1"
-chacha20poly1305 = { version = "0.10", optional = true }
+chacha20poly1305 = { version = "0.11", optional = true }
 flashmind-types = { git = "https://github.com/flashmind-labs/flashmind.git" }
 futures = "0.3"
 # Lean for the phone; a node and the server turn on the defaults.

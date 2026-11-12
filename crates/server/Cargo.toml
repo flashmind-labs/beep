@@ -23,7 +23,7 @@ beep-projects = { path = "../projects" }
 beep-report = { path = "../report" }
 blake3 = "1"
 bytes = "1"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", default-features = false, features = ["core", "llm", "mcp", "composio", "cron", "memory-postgres", "subagent", "mistral-realtime", "http-compression", "http2", "request-compression"] }
