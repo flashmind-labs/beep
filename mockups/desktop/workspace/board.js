@@ -1,7 +1,8 @@
 // ---- The board (#613): Home's first tab and a project's front page ----
 // Follows center/lanes-view.tsx, center/home-overview.tsx and project/lanes.tsx. Needs you,
 // Working, Ready to review and Done today take the place of Home's sections and of the project's
-// list and Overview. Settings, Appearance picks Board or List for each page; List is the layout
+// list and Overview. Home gives each project a row of its own (#653), and a pull request that asks
+// for a review has a menu on its button: Open, Review with agent (#654). Settings, Appearance picks Board or List for each page; List is the layout
 // the earlier files draw, so the cards here are read from its rows and stay in step with them.
 const BOARD_MOCK = (() => {
   document.head.insertAdjacentHTML("beforeend", '<link rel="stylesheet" href="workspace/board.css">');
@@ -27,6 +28,18 @@ const BOARD_MOCK = (() => {
     return `<div class="bd-lane"><h4>${more[lane] ? `<button ${more[lane]}>${title}</button>` : title}<span>${own.length || ""}</span></h4>${own.map(c => card(c, cards.indexOf(c))).join("") || '<div class="bd-empty">Nothing here</div>'}</div>`;
   }).join("")}</div>`;
 
+  // Home's rows: a project that waits on the user first, the cards of no project last.
+  const projectOf = c => /^[\w.-]+\/[\w.-]+/.exec(parsed(c.sub).content.textContent.trim())?.[0] ?? null;
+  const rows = (cards, more = {}) => {
+    const names = [...new Set(cards.map(projectOf))];
+    const rank = name => name === null ? 2 : cards.some(c => projectOf(c) === name && c.lane === "needs") ? 0 : 1;
+    names.sort((a, b) => rank(a) - rank(b));
+
+    return `<div class="bd-rows"><span class="hd"></span>${LANES.map(([lane, title]) => `<div class="bd-lane hd"><h4>${more[lane] ? `<button ${more[lane]}>${title}</button>` : title}<span>${cards.filter(c => c.lane === lane).length || ""}</span></h4></div>`).join("")}
+      ${names.map(name => `<b class="pj">${name ?? "Other"}</b>${LANES.map(([lane]) => `<div class="bd-lane">${cards.filter(c => c.lane === lane && projectOf(c) === name).map(c => card(c, cards.indexOf(c))).join("")}</div>`).join("")}`).join("")}</div>`;
+  };
+  const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+
   const parsed = html => { const t = document.createElement("template"); t.innerHTML = html; return t; };
   const section = (root, title) => [...root.querySelectorAll(".cc-sec")].find(sec => sec.querySelector("h4")?.firstChild?.textContent.trim() === title)?.parentElement ?? null;
   const goOf = row => ["dact", "dgo", "toast"].flatMap(k => row.dataset[k] ? [`data-${k}="${row.dataset[k]}"`] : []).join(" ");
@@ -44,7 +57,9 @@ const BOARD_MOCK = (() => {
 
     for (const row of needs?.querySelectorAll(".cc-row.cc-line") ?? []) {
       const { right, ...rest } = line(row);
-      cards.push({ ...rest, lane: "needs", action: right.innerHTML });
+      // A review can be read on the host or handed to an agent.
+      const review = right.textContent.trim() === "Review";
+      cards.push({ ...rest, lane: "needs", action: review ? `<button class="dbtn small bd-pick" data-toast="Menu: Open, Review with agent">Review${CARET}</button>` : right.innerHTML });
     }
 
     for (const row of running?.querySelectorAll(".cc-row.cc-line") ?? []) {
@@ -81,7 +96,7 @@ const BOARD_MOCK = (() => {
     if (!cards) return t.innerHTML;
 
     const needs = section(view, "Needs you"), running = section(view, "Running");
-    (needs || running).insertAdjacentHTML("beforebegin", `<div class="bd-home" id="sec-needs">${lanes(cards, { working: 'data-dgo="dAgents"', done: 'data-dgo="dAgents"' })}</div>`);
+    (needs || running).insertAdjacentHTML("beforebegin", `<div class="bd-home" id="sec-needs">${rows(cards, { working: 'data-dgo="dAgents"', done: 'data-dgo="dAgents"' })}</div>`);
     needs?.remove();
     running?.remove();
     return t.innerHTML;

@@ -1,20 +1,24 @@
 // The board: Needs you, Working, Ready to review and Done today. Home shows
-// every project's cards and a project page its own.
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+// every project's cards, a row for each project, and a project page its own.
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
+import { Icon } from "../ui/icons.tsx";
 import { LineRow, onRowKey } from "../ui/kit.tsx";
+import { openMenu, type MenuAction } from "../ui/menu.ts";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
-import { LANES, byLane, travelled, type Lane } from "./lanes-state.ts";
+import { LANES, byLane, byProject, travelled, type Lane } from "./lanes-state.ts";
 
 export interface BoardCard {
   key: string;
   lane: Lane;
+  /// The project whose row holds it on Home; null for a card of no project.
+  project: string | null;
   lead: ReactNode;
   title: string;
   sub: ReactNode;
   foot: ReactNode;
   /// The one button of a card that waits on the user.
-  action: { label: string; primary: boolean; run(): void } | null;
+  action: CardAction | null;
   /// True for a session, whose card grows into the session's head.
   session: boolean;
   dim: boolean;
@@ -23,16 +27,30 @@ export interface BoardCard {
   menu: ((event: MouseEvent) => void) | null;
 }
 
+/// What a card's button does: one thing, or a menu of them.
+export type CardAction =
+  | { kind: "run"; label: string; primary: boolean; run(): void }
+  | { kind: "menu"; label: string; items: readonly MenuAction[] };
+
+function ActionButton({ action, title }: { action: CardAction; title: string }) {
+  if (action.kind === "menu") {
+    return <button type="button" className="dbtn small bd-pick" aria-haspopup="menu" onClick={event => openMenu(event.nativeEvent, title, action.items)}>{action.label}<Icon name="caretDown"/></button>;
+  }
+
+  return <button type="button" className={`dbtn small${action.primary ? " pri" : ""}`} onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</button>;
+}
+
 /// A card as a row of a list section. A session's row opens with the page move.
 export function CardRow({ card }: { card: BoardCard }) {
   const action = card.action;
   const open = card.session ? () => { setHeroCard(null); withMove("open", card.open); } : card.open;
   return <LineRow lead={card.lead} title={card.title} sub={card.sub} dim={card.dim} rowTitle={card.hint ?? undefined} onOpen={open} onContext={card.menu ?? undefined}
-    right={action ? <button type="button" className={`dbtn ${action.primary ? "pri " : ""}small`} onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</button> : card.foot}/>;
+    right={action ? <ActionButton action={action} title={card.title}/> : card.foot}/>;
 }
 
-/// `more` makes a lane's title open the full list behind it.
-export function Board({ cards, more }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>> }) {
+/// `more` makes a lane's title open the full list behind it. `rows` gives
+/// each project a row of its own under the lanes' titles.
+export function Board({ cards, more, rows }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: boolean }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
   const [, redraw] = useState(0);
@@ -45,8 +63,21 @@ export function Board({ cards, more }: { cards: readonly BoardCard[]; more: Part
     withMove("open", card.open);
   };
 
+  const heading = (lane: Lane, title: string) => <h4>{more[lane] ? <button type="button" onClick={more[lane]}>{title}</button> : title}<span>{lanes[lane].length || ""}</span></h4>;
+
+  if (rows) {
+    return <div className="bd-rows" ref={box}>
+      <span className="hd"/>
+      {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
+      {byProject(cards).map(row => { const own = byLane(row.cards), name = row.project ?? "Other"; return <Fragment key={row.project ?? ""}>
+        <b className="pj" title={name}>{name}</b>
+        {LANES.map(({ lane }) => <div className="bd-lane" key={lane}>{own[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</div>)}
+      </Fragment>; })}
+    </div>;
+  }
+
   return <div className="bd-lanes" ref={box}>{LANES.map(({ lane, title }) => <div className="bd-lane" key={lane}>
-    <h4>{more[lane] ? <button type="button" onClick={more[lane]}>{title}</button> : title}<span>{lanes[lane].length || ""}</span></h4>
+    {heading(lane, title)}
     {lanes[lane].length ? lanes[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>) : <div className="bd-empty">Nothing here</div>}
   </div>)}</div>;
 }
@@ -60,7 +91,7 @@ function Card({ card, open }: { card: BoardCard; open(): void }) {
     <b>{card.title}</b>
     <span className="sub">{card.lead}<span>{card.sub}</span></span>
     {(card.foot || action) && <span className="ft">{card.foot}<span className="sp"/>
-      {action && <button type="button" className={`dbtn small${action.primary ? " pri" : ""}`} onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</button>}
+      {action && <ActionButton action={action} title={card.title}/>}
     </span>}
   </div>;
 }
