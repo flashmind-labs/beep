@@ -7,6 +7,41 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.16] - 2026-11-12
+
+### Added
+
+- Desktop: the machine page offers updates for coding agents (Codex, Claude
+  Code, pi, OpenCode, Gemini) next to gh, teacli and flsh, checked hourly
+  against their newest release.
+- Desktop: the usage pill in the header shows Claude's weekly model limits,
+  such as Fable, next to the plan's own percentage.
+
+### Changed
+
+- Desktop: an agent on another machine can send files to a desktop instead of
+  being refused.
+
+### Fixed
+
+- Desktop: a terminal in a pane that gets narrower fits the pane again
+  instead of cutting off the right side of its lines.
+- Desktop: the terminal cursor stays visible while you type or output
+  arrives, and a cursor a program sets to steady no longer blinks.
+- Desktop: a file attached to a new agent shows its upload progress in grey
+  instead of red, reaches 100%, then says the agent is starting.
+
+### Performance
+
+- Desktop: working agents, running commands, CI runs and research show a still
+  dot instead of a turning spinner, so an idle window with agents at work no
+  longer redraws every frame. The thinking sweep stops while the window is
+  hidden, and a terminal cursor blinks only while its window has focus.
+- Desktop: the built-in node runs git less often while agents work: a git
+  command no longer makes it rewatch every folder and read them all again,
+  file sync reads the checked-out commit once per change, and a folder's file
+  list waits longer between reads while it stays the same.
+
 ## [0.8.15] - 2026-11-12
 
 ### Changed
