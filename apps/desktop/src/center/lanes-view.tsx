@@ -6,7 +6,7 @@ import { Icon } from "../ui/icons.tsx";
 import { LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.ts";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
-import { LANES, byLane, byProject, travelled, type Lane } from "./lanes-state.ts";
+import { LANES, byLane, byProject, travelled, withoutProject, type Lane } from "./lanes-state.ts";
 
 export interface BoardCard {
   key: string;
@@ -73,7 +73,7 @@ export function Board({ cards, more, rows }: { cards: readonly BoardCard[]; more
       {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
       {byProject(cards).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
         <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <button type="button" onClick={head.open}>{name}</button> : <span>{name}</span>}</h3>
-        {LANES.map(({ lane }) => <div className="bd-lane" key={lane}>{own[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</div>)}
+        {LANES.map(({ lane }) => <div className="bd-lane" key={lane}>{own[lane].map(card => <Card key={card.key} card={typeof card.sub === "string" ? { ...card, sub: withoutProject(card.sub, row.project) } : card} open={() => open(card)}/>)}</div>)}
       </Fragment>; })}
     </div>;
   }

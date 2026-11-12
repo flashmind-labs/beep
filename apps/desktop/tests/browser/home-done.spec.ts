@@ -23,6 +23,8 @@ test("Home's board gives each project a row, and a review is opened on its host 
   // Above its row, the full width of the board.
   const [name, board] = await Promise.all([page.locator(".bd-rows > .pj").first().boundingBox(), page.locator(".bd-rows").boundingBox()]);
   expect(name?.width).toBe(board?.width);
+  // The heading names the project, so the card does not.
+  await expect(page.locator(".bd-card", { hasText: "#12 Move the blog" }).locator(".sub")).toHaveText("your review");
   await page.locator(".bd-card", { hasText: "#12 Move the blog" }).getByRole("button", { name: "Review" }).click();
   await expect(page.getByRole("menuitem", { name: "Open", exact: true })).toBeVisible();
   await page.getByRole("menuitem", { name: "Review with agent" }).click();
