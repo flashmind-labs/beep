@@ -273,7 +273,9 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 retry = RETRY;
                 apply = true;
             }
-            () = sleep(retry), if task.retries_on_timer() => {
+            // A Git wait is cleared by a change; edits thrown away by hand
+            // are not one, so it is still checked now and then.
+            () = sleep(if task.waits_for_change() { MAX_RETRY } else { retry }), if task.pending > 0 => {
                 retry = (retry * 2).min(MAX_RETRY);
                 apply = true;
             }
@@ -387,11 +389,6 @@ impl Task {
     /// the watcher reports, or a peer's commits, which the pulls report.
     pub(super) fn waits_for_change(&self) -> bool {
         self.waits_for_git() && !self.git_held
-    }
-
-    /// Whether work left undone is tried again on a timer.
-    pub(super) fn retries_on_timer(&self) -> bool {
-        self.pending > 0 && !self.waits_for_change()
     }
 
     /// Keeps what the folder holds in the store, for peers to fetch, under
