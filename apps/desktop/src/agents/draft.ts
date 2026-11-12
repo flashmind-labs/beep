@@ -51,7 +51,7 @@ function drawFrame(project: string) {
   const body: ChatBody = document.createElement("div");
   body.className = "dbody agdraft-body"; body.id = "agbody";
   const draft = host = document.createElement("div"); draft.id = "agdraft"; body.append(draft);
-  const openProject = () => windowHooks?.goBack({ view: "projects", arg: { project } });
+  const openProject = () => windowHooks?.goBack({ view: "projects", arg: { project } }, true);
   machine.setState("", true);
   showSessionFrame({ head: createElement(DraftHead, { project, openProject, machine }), field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
   draftMessage.current = projectComp.input;

@@ -13,8 +13,12 @@ import type { CenterTarget } from "../../src/project/projectwindow.ts";
 interface BrowserSession extends RunningAgent { question: null }
 interface Fixture { project: ProjectRow; sessions: [BrowserSession, BrowserSession]; home: HomeView; streaming: boolean }
 interface NativeCall { command: string; args: Record<string, unknown> }
+/// A project opened on one row of its list. The project page reads `tile` as the
+/// window's own navigation passes it; no native target carries it.
+type ProjectTileTarget = { projects: { project: string; tile: string } };
+
 interface NavigationHarness {
-  open(target: CenterTarget): void;
+  open(target: CenterTarget | ProjectTileTarget): void;
   ready(): boolean;
   processes(rows: RunningProcess[]): void;
   worktrees(rows: Tree[]): void;
@@ -97,7 +101,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   const interests = (value: unknown): { machine: string | null; topic: string }[] => Array.isArray(value) ? value.filter((v: unknown): v is { machine: string | null; topic: string } => v !== null && typeof v === "object" && "machine" in v && (v.machine === null || typeof v.machine === "string") && "topic" in v && typeof v.topic === "string") : [];
   const calls: NativeCall[] = [];
   const handlers = new Map<string, Set<NativeHandler>>();
-  let pending: CenterTarget | null = null;
+  let pending: CenterTarget | ProjectTileTarget | null = null;
   let pendingReads = 0;
   const answers: Record<string, unknown> = {
     status: { link: "unlinked", signed_out: true, server: false, live: false, session: null },

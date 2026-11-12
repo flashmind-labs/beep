@@ -54,7 +54,7 @@ test("overview card keeps focus through pin updates and opens by keyboard", asyn
   await expect(card).toHaveAttribute('data-identity', 'kept');
   await expect(card).toBeFocused();
   await card.press('Enter');
-  await expect(page.locator('.pj-split')).toBeVisible();
+  await expect(page.locator('.pj-strip')).toBeVisible();
   await expect(page.locator('.cc-view[data-project]')).toHaveAttribute('data-project', projectName);
 });
 
@@ -158,7 +158,7 @@ test("the overview keeps its group rows through a visit to a project and back", 
   await expect(card).toBeVisible();
   await card.evaluate(el => { (el as HTMLElement).dataset.identity = "kept"; Reflect.set(window, "overviewCard", el); });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await expect(page.locator(".pj-split")).toBeVisible();
+  await expect(page.locator(".pj-strip")).toBeVisible();
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
   // Opening a project can reorder the cards by recency, so the marked card is found by its marker.
   await expect(page.locator('.pj-card[data-identity="kept"]')).toHaveCount(1);

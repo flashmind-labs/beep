@@ -1,5 +1,5 @@
 import { drawHomeComposer } from "./home-composer.tsx";
-// Home: its tabs, the Needs you, Updates, Running and Coming up sections, and the Connecting page before Home first loads.
+// Home: its tabs, the board, the Updates and Coming up sections, and the Connecting page before Home first loads.
 import { invoke, Channel } from "../ui/tauri.ts";
 import { connectProblem } from "./connect.ts";
 import { pane } from "../bar/pane.ts";
@@ -16,6 +16,8 @@ import { ensureAllTerms } from "../terminals/view.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
 import { onPlaces } from "../agents/place.ts";
+import { ensureSessions, loadSessions, sessionsChanged, sessionsRead } from "../agents/sessions.ts";
+import { ambient } from "../ui/active.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
 import { createElement } from "react";
@@ -131,7 +133,7 @@ function page(home: HomeView) {
   const { machines, running } = home;
   const projects = projectRows() || [], git = state.git;
   const tabs: { key: HomeTab; label: string; count: number | null; on: boolean }[] = [
-    { key: "overview", label: "Overview", count: null, on: true },
+    { key: "overview", label: "Board", count: null, on: true },
     { key: "git", label: "PRs and issues", count: git?.items.length ?? 0, on: !!git?.hosts?.length || projects.length > 0 || !!state.gitError },
     { key: "machines", label: "Machines", count: null, on: !!machines },
   ];
@@ -186,6 +188,11 @@ export function draw() {
   drawHomeComposer();
 }
 
+// The Done today lane reads the shared sessions again while Home shows, seldom: it is not live.
+const DONE_REREAD_MS = 5000;
+const rereadSessions = ambient(() => loadSessions(), DONE_REREAD_MS, () => currentLocation()?.view === "home");
+sessionsChanged.add(() => rereadSessions());
+sessionsRead.add(() => draw());
 onPlaces(() => draw());
 onMoves(() => draw());
 onClosing(() => draw());
@@ -199,6 +206,7 @@ export const homeView: CenterView<"home"> = {
     draw();
     ensureHome();
     ensureAllTerms();
+    void ensureSessions().catch(e => console.warn("sessions:", e));
 
     // Forge changes reach Home only while it shows, so the open items read
     // again on opening once they are old or failed.

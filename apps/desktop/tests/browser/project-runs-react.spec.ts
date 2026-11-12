@@ -5,8 +5,7 @@ test("workflow run retains focus while details update", async ({ page }) => {
   const run = { id: 42, number: 42, workflow: 'Build', title: 'Example run', branch: 'main', event: 'push', actor: 'Example', state: 'failed', url: 'https://example.test/run/42', started_at: 1, finished_at: 2, progress: null, pull_requests: [], host: 'github.com' };
   const detail = { run, jobs: [{ id: 1, name: 'Test', state: 'failed', started_at: 1, finished_at: 2, steps: [{ number: 1, name: 'Run tests', state: 'failed', started_at: 1, finished_at: 2 }], url: 'https://example.test/log' }], log: { job: 'Test', step: 'Run tests', text: 'Example failure', truncated: false }, error: null, rate_limited_until: null };
   await openDesktop(page, false, { center_project_runs: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null }, center_project_run: detail });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Actions"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "actions" } }), projectName);
   const header = page.locator('.rr-head').filter({ hasText: 'Build #42' });
   await expect(header).toBeVisible();
   await header.focus();
@@ -28,8 +27,7 @@ test("workflow filters retain host labels and show read errors", async ({ page }
   const run = (id: number, state: string, host: string) => ({ id, number: id, workflow: 'Build', title: `Run ${id}`, branch: 'main', event: 'push', actor: 'Example', state, url: `https://example.test/run/${id}`, started_at: 1, finished_at: 2, progress: null, pull_requests: [], host });
   const hosts = [{ host: 'github.com', kind: 'github', repo: 'example/widget', primary: true, synced_at: null, error: null, rate_limited_until: null }, { host: 'forge.example.test', kind: 'forgejo', repo: 'example/widget', primary: false, synced_at: null, error: 'Unavailable', rate_limited_until: null }];
   await openDesktop(page, false, { center_project_runs: { runs: [run(1, 'failed', 'github.com'), run(2, 'passed', 'forge.example.test')], checks: [], hosts, synced_at: null, error: 'Some runs could not be read', rate_limited_until: null } });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Actions"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "actions" } }), projectName);
   const section = page.locator('#sec-actions');
   await expect(section).toContainText('Some runs could not be read');
   await expect(section).toContainText('Forgejo: Unavailable');
@@ -44,8 +42,7 @@ test("workflow filters retain host labels and show read errors", async ({ page }
 test("showing the window again restarts the project's Actions", async ({ page }) => {
   const run = { id: 7, number: 7, workflow: 'Build', title: 'Example run', branch: 'main', event: 'push', actor: 'Example', state: 'passed', url: 'https://example.test/run/7', started_at: 1, finished_at: 2, progress: null, pull_requests: [], host: 'github.com' };
   await openDesktop(page, false, { center_project_runs: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null } });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Actions"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "actions" } }), projectName);
   await expect(page.locator('#sec-actions')).toContainText('Build #7');
   const following = () => page.evaluate(() => {
     const sent = window.__navigation.calls().filter(call => call.command === 'mesh_watch' || call.command === 'mesh_topics').at(-1)?.args.topics;

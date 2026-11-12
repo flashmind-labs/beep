@@ -19,20 +19,23 @@ test("project without a project agent retains its session and machine sections",
   await expect(row).toBeFocused();
   await expect(layout.locator('#sec-custom-agents')).toHaveCSS('margin-top', '14px');
   await page.evaluate(() => { window.__navigation.emit('link-state', 'unlinked'); window.__navigation.notify('projects'); });
-  await expect(page.locator('.pj-split')).toBeVisible();
-  await expect(page.locator('.pj-split #sec-sessions .pv-row')).toContainText('Past session');
+  const sessionsCell = page.locator('.pj-strip button').filter({ hasText: 'Sessions' });
+  await expect(page.locator('.pj-board .bd-lanes')).toBeVisible();
+  await expect(sessionsCell).toContainText('1 past');
   const agentReads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'center_projects').length);
   await page.evaluate(() => window.__navigation.emit('link-state', 'linked'));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'center_projects').length)).toBeGreaterThan(agentReads);
   await page.evaluate(() => window.__navigation.notify('projects'));
   await expect(layout.locator('#sec-sessions .pv-row')).toContainText('Past session');
   await page.evaluate(() => { window.__navigation.emit('link-state', 'unlinked'); window.__navigation.notify('projects'); });
-  await expect(page.locator('.pj-split #sec-sessions .pv-row')).toContainText('Past session');
+  await expect(page.locator('.pj-board .bd-lanes')).toBeVisible();
+  await sessionsCell.click();
+  await expect(page.locator('.pj-split > .pj-det .pv-row')).toContainText('Past session');
 });
 
 test("project navigation keeps scroll and focus while the selected section changes", async ({ page }) => {
   await openDesktop(page);
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "running" } }), projectName);
   const nav = page.locator(".pj-split:not(.gh-layout) > .pj-list");
   const running = nav.locator('.pj-li[title="Running"]');
   await expect(running).toBeVisible();
@@ -49,7 +52,10 @@ test("project navigation keeps scroll and focus while the selected section chang
   await expect(nav.locator('.pj-li[title="Machines"]')).toHaveAttribute("aria-current", "true");
   await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
   await expect(page.locator(".gh-nav")).toBeVisible();
+  // Back from Git is the board; the list returns with the next tile, still the same rows.
   await page.locator(".gh-back").click();
+  await expect(page.locator(".pj-board .bd-lanes")).toBeVisible();
+  await page.locator(".pj-strip button").filter({ hasText: "Machines" }).click();
   await expect(nav).toBeVisible();
   await expect(running).toHaveAttribute("data-identity", "kept");
 });
@@ -63,9 +69,12 @@ test("project pull request controls keep keyboard focus and row menus work", asy
   const issues = [{ number: 3, title: "Example issue", url: "https://example.test/issues/3", author: "Example", opened_at: now, comments: 0, labels: ["bug"] }];
   await openDesktop(page, false, { center_project_lists: { issues, prs, issues_error: null, prs_error: null, synced_at: now }, center_project_threads: [], center_thread_chats: [] });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "2 PRs" }).click();
   const nav = page.locator(".pj-split:not(.gh-layout) > .pj-list");
   const first = nav.locator('.pj-li[title="First PR"]');
-  await expect(first).toBeVisible();
+  // The picked request stays in the list under the label filter below. Its title is clicked, not its label.
+  await first.locator(".t > b").click();
+  await expect(first).toHaveAttribute("aria-current", "true");
   const order = nav.getByRole("button", { name: "Newest first" });
   await order.focus();
   await page.keyboard.press("Enter");
@@ -91,12 +100,12 @@ test("switching projects creates navigation for the active project", async ({ pa
   const first = { name: projectName, url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 };
   const second = { ...first, name: "example/other", url: "https://example.test/example/other", folder: "/srv/other" };
   await openDesktop(page, false, { center_home: { machines: [], projects: [first, second], running: [], needs_you: [], coming_up: null, updates: null } });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), first.name);
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "machines" } }), first.name);
   const nav = page.locator(".pj-split:not(.gh-layout) > .pj-list");
   const firstRow = nav.locator('.pj-li[title="Machines"]');
   await expect(firstRow).toBeVisible();
   await firstRow.evaluate(el => { el.dataset.projectIdentity = "first"; });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), second.name);
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "machines" } }), second.name);
   await expect(nav.locator('.pj-li[title="Machines"]')).toBeVisible();
   await expect(nav.locator('.pj-li[title="Machines"]')).not.toHaveAttribute("data-project-identity", "first");
   await nav.locator('.pj-li[title="Machines"]').click();

@@ -5,8 +5,7 @@ test("custom agents keep focus on redraw and retain prompt and start actions", a
   const machines = [{ id: "build-box", name: "build-box", online: true, folder: "/srv/project", checking: false, checked_at: 1 }];
   const agent = { name: "Reviewer", harness: "codex", scope: "project", description: "Reviews changes", model: null, tools: [], color: "blue", path: ".codex/agents/reviewer.md", prompt: "Review the work.", prompt_cut: false, error: null };
   await openDesktop(page, false, { project_machines: machines, custom_agents: [agent], agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   await page.getByRole('tab', { name: /^Agents/ }).click();
   const row = page.locator('#sec-custom-agents .ca-row');
   await expect(row).toContainText('Reviewer');

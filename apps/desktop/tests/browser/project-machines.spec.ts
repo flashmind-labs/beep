@@ -28,8 +28,7 @@ const responses = {
 
 async function openMachines(page: Page) {
   await openDesktop(page, false, responses);
-  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
-  await page.locator('.pj-li[title="Machines"]').click();
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
   await expect(page.locator(".pm-machine")).toHaveCount(4);
 }
 
@@ -77,8 +76,7 @@ test("pause operates on the combined view and offline checkouts hide folder chan
 test("Git controls retain their state and send one pull", async ({ page }) => {
   const git = { machine_id: "studio", branch: "main", upstream: "origin/main", ahead: 1, behind: 2, error: null };
   await openDesktop(page, false, { ...responses, project_git_state: [git] });
-  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
-  await page.locator('.pj-li[title="Machines"]').click();
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
   const studio = page.getByRole("article", { name: "studio", exact: true });
   const pull = studio.getByRole("button", { name: "Pull 2 commits" });
   await expect(pull).toBeEnabled();
@@ -117,8 +115,7 @@ test("sync and terminal events refresh the combined machine sections", async ({ 
 
 test("machine actions and terminals remain available without detailed sync support", async ({ page }) => {
   await openDesktop(page, false, { ...responses, project_sync_detail: null });
-  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
-  await page.locator('.pj-li[title="Machines"]').click();
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
   await expect(page.locator(".pm-machine")).toHaveCount(4);
   await expect(page.getByRole("article", { name: "build-box", exact: true })).toContainText("cargo watch");
   await expect(page.getByRole("button", { name: "Remove from studio", exact: true })).toBeEnabled();
@@ -129,8 +126,7 @@ test("handoff retries errors and keeps its native request after closing", async 
   const projects = machines.slice(0, 2).map(machine => ({ name: projectName, url: "https://example.test/example/widget", machine_id: machine.id, machine_name: machine.name, folder: machine.folder, cloned: true, imported_at: 1 }));
   const git = machines.slice(0, 2).map(machine => ({ machine_id: machine.id, machine_name: machine.name, branch: "main", upstream: null, ahead: 0, behind: 0, error: null }));
   await openDesktop(page, false, { ...responses, center_home: { machines: [], projects, running: [], needs_you: [], coming_up: null, updates: null }, project_git_state: git });
-  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
-  await page.locator('.pj-li[title="Machines"]').click();
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
   await page.getByRole("article", { name: "build-box", exact: true }).getByRole("button", { name: "Bring work here" }).click();
   const sheet = page.getByRole("dialog", { name: "Bring uncommitted work" });
   const bring = sheet.getByRole("button", { name: "Bring work from studio" });

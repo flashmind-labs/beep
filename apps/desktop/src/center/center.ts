@@ -35,6 +35,7 @@ import { reloadGroup, paneOn, reloadChats, openProjects, openProjectWindow, addP
 import "../research/page.ts";
 import "../research/open.ts";
 import { escUp } from "./escup-state.ts";
+import { setHeroCard, withMove } from "../ui/motion.ts";
 import { openTile } from "../project/split.ts";
 import { pa } from "../project/sections.ts";
 import { AG } from "../agents/agents.ts";
@@ -48,7 +49,7 @@ import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { guardClicks } from "../ui/clickguard.ts";
 import { reason } from "../ui/format.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
-import { projectOf, repoOf } from "../agents/running-state.ts";
+import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { followToolUpdates } from "../machines/machines.ts";
 import { dialogOpen } from "../ui/parts.ts";
@@ -59,7 +60,8 @@ followToolUpdates();
 initConversationSwitcher({
   current: () => currentLocation()?.view === "pane" && paneOn().view === "agent" && !AG.draft ? AG.page?.session ?? null : null,
   rows: () => (state.home?.running ?? []).filter(row => row.kind === "agent"),
-  open: agent => { go("pane", { agent }); },
+  // The next conversation slides in, and Back from it returns to that session's card.
+  open: agent => { setHeroCard(runningKey({ kind: "agent", ...agent })); withMove("next", () => { go("pane", { agent }); }); },
 });
 
 // ---------- Keys ----------
@@ -181,7 +183,13 @@ pane.connect({
   },
   embedView,
   newAgent: newAgentHere,
-  goBack: (from: BackTo) => goTo(from),
+  // The session shrinks back into its card on the board.
+  goBack(from: BackTo, move: boolean) {
+    if (!move) return void goTo(from);
+    const session = AG.page?.session;
+    if (session) setHeroCard(runningKey({ kind: "agent", ...session }));
+    withMove("back", () => { goTo(from); });
+  },
   chatTop(session) {
     const t = threadChats?.get(session);
     return t ? threadCard(t) : null;

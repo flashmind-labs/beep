@@ -16,16 +16,16 @@ test("hiding the window sends its UI timings once, with fixed labels and no cont
   // Page fades under the blocked frames below would report long frames after the flush.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openDesktop(page);
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
   const side = page.locator("#side");
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await expect(page.locator(".pj-strip")).toBeVisible();
   await side.getByRole("button", { name: "Home", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
 
   // A click whose handler blocks, and a long task with no input.
   await page.evaluate(() => document.addEventListener("click", () => { const end = performance.now() + 600; while (performance.now() < end); }, { once: true }));
-  await page.getByRole("tab", { name: "Overview" }).click();
+  await page.getByRole("tab", { name: "Board" }).click();
   await page.evaluate(() => { const end = performance.now() + 250; while (performance.now() < end); });
   await page.waitForTimeout(300);
 

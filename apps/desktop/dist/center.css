@@ -426,12 +426,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-det .cc-sec > h4 + small { margin-right: auto }
 .pj-det .pj-labels { padding: 0; gap: 6px; margin-bottom: 12px }
 .pj-det .pj-labels .pj-tag { font-size: 11.5px; line-height: 18px; padding: 2px 10px; border-radius: var(--radius-sm) }
-.pj-ov { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start }
-.pj-ov > div { display: grid; gap: 18px; min-width: 0 }
-.pj-ov .cc-sec:not(:first-child) { margin-top: 0 }
-.pj-ov .r { display: flex; gap: 4px; align-items: center }
-.pj-ov .r .pj-tag { margin-left: 0 }
-@media (max-width: 1000px) { .pj-ov { grid-template-columns: minmax(0, 1fr) } }
 .pj-det > * { flex: none }
 /* A pull request or issue: its head, then the description and comments. */
 .pj-dh { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--border) }
@@ -1036,3 +1030,35 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .side-collapsed .cc-si .open { justify-content: center; padding: 0 }
 .side-collapsed .cc-si:focus-visible, .side-collapsed .cc-org:focus-visible, .side-collapsed .cc-si .open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 .side-collapsed .cc-side > .cc-brand { justify-content: center; padding: 0 }
+
+/* The board: Home's first tab and a project's front page. */
+.bd-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start }
+.bd-lane { display: grid; gap: 8px; min-width: 0 }
+.bd-lane > h4 { margin: 0; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--dim) }
+.bd-lane > h4 span { font-weight: 500; color: var(--muted) }
+.bd-lane > h4 button { all: unset; cursor: pointer }
+.bd-lane > h4 button:hover, .bd-lane > h4 button:focus-visible { color: var(--fg) }
+.bd-card { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); cursor: pointer; min-width: 0 }
+.bd-card:hover, .bd-card:focus-visible { border-color: var(--muted); outline: 0 }
+.bd-card > b { font-weight: 500; font-size: 13px; line-height: 18px; overflow-wrap: anywhere }
+.bd-card .sub { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); min-width: 0 }
+.bd-card .sub > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.bd-card .sub .cc-ag { width: 18px; height: 18px; border-radius: 5px; flex: none }
+.bd-card .sub .cc-ag svg { width: 11px; height: 11px }
+.bd-card .ft { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 22px }
+.bd-card .ft .sp { flex: 1 }
+.bd-empty { padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 11.5px; color: var(--muted) }
+.pj-board { overflow: auto; min-height: 0; padding: 0 16px 130px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
+@container (max-width: 760px) { .bd-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+
+/* Moves: one short transition per navigation, never ambient. The sidebar stays still,
+   the page crossfades, and a board card grows into the session's head and back. */
+html[data-move] .cc-main { view-transition-name: page }
+html[data-move] .ag-head { view-transition-name: board-hero }
+::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: .2s; animation-timing-function: cubic-bezier(.2, 0, 0, 1) }
+::view-transition-old(root), ::view-transition-new(root) { animation: none }
+::view-transition-old(board-hero), ::view-transition-new(board-hero) { height: 100%; object-fit: cover; object-position: left top }
+html[data-move=next]::view-transition-old(page) { animation: .2s cubic-bezier(.2, 0, 0, 1) both move-out-up }
+html[data-move=next]::view-transition-new(page) { animation: .2s cubic-bezier(.2, 0, 0, 1) both move-in-up }
+@keyframes move-in-up { from { transform: translateY(40px); opacity: 0 } }
+@keyframes move-out-up { to { transform: translateY(-40px); opacity: 0 } }

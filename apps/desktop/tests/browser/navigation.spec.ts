@@ -14,7 +14,7 @@ test.afterEach(async ({ page }) => { expect(pageErrors.get(page) ?? []).toEqual(
 test("Escape restores the project's Running section after repeated native notifications", async ({ page }) => {
   await openProject(page);
   const running = page.locator('.pj-li[title="Running"]');
-  await running.click();
+  await page.locator(".pj-strip button").filter({ hasText: "running" }).click();
   await expect(running).toHaveAttribute("aria-current", "true");
   await notification(page, "notice-one", "First notification");
   await notification(page, "notice-two", "Second notification");
@@ -30,13 +30,13 @@ test("a notification opened from a project draft returns to that project", async
   await expect(page.locator("#agdraft textarea")).toBeFocused();
   await notification(page, "notice-one", "First notification");
   await page.keyboard.press("Escape");
-  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await expect(page.locator(".pj-strip")).toBeVisible();
   await expect(page.locator("#title")).toContainText("widget");
 });
 
 async function openProject(page: Page): Promise<void> {
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await expect(page.locator(".pj-strip")).toBeVisible();
 }
 
 async function notification(page: Page, id: string, title: string): Promise<void> {
@@ -144,16 +144,16 @@ test("route changes and history preserve retained scroll", async ({ page }, info
     Object.defineProperty(window, "scrollTo", { configurable: true, value: (...args: unknown[]) => { (window as any).__routeScrolls++; return Reflect.apply(original, window, args); } });
   });
   const home = page.locator("#view");
-  const top = await home.evaluate(element => { const panel = element.querySelector<HTMLElement>(".cc-panel"); if (panel) panel.style.minHeight = "2000px"; element.scrollTop = 300; return element.scrollTop; });
+  const top = await home.evaluate(element => { const panel = element.querySelector<HTMLElement>("#sec-needs"); if (panel) panel.style.minHeight = "2000px"; element.scrollTop = 300; return element.scrollTop; });
   expect(top).toBeGreaterThan(0);
   await openProject(page);
   await expect.poll(() => page.evaluate(() => (window as any).__TSR_ROUTER__?.state.resolvedLocation?.pathname)).toBe("/projects");
   const modifier = info.project.name === "Windows" ? "Control" : "Meta";
   await page.keyboard.press(`${modifier}+[`);
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
   await expect(home).toHaveJSProperty("scrollTop", top);
   await page.keyboard.press(`${modifier}+]`);
-  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await expect(page.locator(".pj-strip")).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).__TSR_ROUTER__?.state.resolvedLocation?.pathname)).toBe("/projects");
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   expect(await page.evaluate(() => (window as any).__routeScrolls)).toBe(0);

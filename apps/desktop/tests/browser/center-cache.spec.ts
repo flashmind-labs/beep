@@ -21,14 +21,14 @@ async function round(page: Page) {
   await side.getByRole("button", { name: "Sync", exact: true }).click();
   await expect(page.locator(".cc-view:visible").getByText("18 files")).toBeVisible();
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await expect(page.locator(".cc-view:visible .pj-board .bd-lanes")).toBeVisible();
   await side.getByRole("button", { name: "Home", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
 }
 
 test("pages opened again draw what the window holds without reading", async ({ page }) => {
   await openDesktop(page, false, responses);
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
   await round(page);
   // Let the first reads and the idle prefetch settle.
   await page.waitForTimeout(5000);
@@ -49,7 +49,7 @@ test("pages opened again draw what the window holds without reading", async ({ p
   // Opening the project after it reads its terminals, the one section that changed.
   const opened = await mark(page);
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await expect(page.locator('.pj-li[title="Running"]')).toBeVisible();
+  await expect(page.locator(".cc-view:visible .pj-board .bd-lanes")).toBeVisible();
   await page.waitForTimeout(1500);
   expect(await reads(page, opened)).toEqual(["terminals_list"]);
 });

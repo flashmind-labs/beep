@@ -1,8 +1,10 @@
 import { moveStore } from "../agents/move-store.ts";
-import { createElement, Fragment, type ReactNode } from "react";
+import { createElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
-import { ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
+import { ProjectNavigation, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
+import { ProjectBoard } from "./lanes.tsx";
+import type { Lane } from "../center/lanes-state.ts";
 import { ProjectTasks } from "./tasks-view.tsx";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
@@ -13,7 +15,7 @@ import { formatAgo, plural } from "../ui/format.ts";
 import { projectPastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { agentFor, pageAgent } from "./agent.ts";
 import { FreshNote, NeedsYou, Parts, hostPart, retainedHost, threadsParts, viewPart, type PagePart } from "./page-view.tsx";
-import { terminalTile, type TerminalRow } from "../terminals/terminals.ts";
+import { terminalTile } from "../terminals/terminals.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { taskTile, machineTile, askingSessions } from "./board.ts";
 import { issueMeta, prChip, prMeta } from "./threads.ts";
@@ -32,21 +34,17 @@ import { runningLineAt } from "../agents/place.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Chip, EmptyPanel, ErrorNote } from "../ui/kit.tsx";
 
-/// The project's navigation and Overview stay mounted in their own elements while
-/// other tiles show, so their rows, focus and scroll survive a visit to Git or Running.
+/// The project's navigation stays mounted in its own element while other tiles
+/// show, so its rows, focus and scroll survive a visit to Git or Running.
 interface ProjectShell {
   project: string;
   navigation: HTMLElement;
-  overview: HTMLElement;
   navView: ReactNode;
-  overviewView: ReactNode;
-  overviewScroll: Map<string, number>;
 }
 let shell: ProjectShell | null = null;
 
 function renderProjectShell(current: ProjectShell) {
-  showWindowParts([{ part: "project-shell", host: null, identity: current.project, content: createElement(Fragment, null,
-    createPortal(current.navView, current.navigation, "navigation"), createPortal(current.overviewView, current.overview, "overview")) }]);
+  showWindowParts([{ part: "project-shell", host: null, identity: current.project, content: createPortal(current.navView, current.navigation, "navigation") }]);
 }
 export function disposeProjectShell() {
   if (!shell) return;
@@ -56,7 +54,7 @@ export function disposeProjectShell() {
 function projectShell(project: string) {
   if (shell?.project === project) return shell;
   disposeProjectShell();
-  shell = { project, navigation: retainedHost("pj-list"), overview: retainedHost("pj-ov"), navView: null, overviewView: null, overviewScroll: new Map() };
+  shell = { project, navigation: retainedHost("pj-list"), navView: null };
   return shell;
 }
 
@@ -71,12 +69,6 @@ export function splitOn(p: Project) {
 /// stops the polling of every other item. With `draw` false the caller
 /// draws.
 export function openTile(key: string | null, draw = true) {
-  const current = shell;
-  const scrolls = ["#sec-sessions .pj-scroll", ".pj-ov-issues"];
-  if (draw && current?.overview.isConnected) for (const selector of scrolls) {
-    const element = current.overview.querySelector<HTMLElement>(selector);
-    if (element) current.overviewScroll.set(selector, element.scrollTop);
-  }
   if (!draw && key === null) {
     disposeProjectShell();
   }
@@ -88,10 +80,6 @@ export function openTile(key: string | null, draw = true) {
   if (!draw) return;
   redrawProjects();
   boxOf("projects")?.querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });
-  if ((key === "overview" || key === null) && current) for (const selector of scrolls) {
-    const element = current.overview.querySelector<HTMLElement>(selector), top = current.overviewScroll.get(selector);
-    if (element && top !== undefined) element.scrollTop = top;
-  }
 }
 
 /// One row of the split's list: it shows its detail at the right, or with
@@ -200,7 +188,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   ] });
   const num = (n: number) => createElement("span", { className: "num" }, `#${n}`);
   const prs = thr.prs(pid), issues = thr.issues(pid);
-  const prItems: SplitItem[] = thr.prLines(agent, acts).map(l => {
+  const prLines = thr.prLines(agent, acts);
+  const prItems: SplitItem[] = prLines.map(l => {
     const chip = prChip(l), pr = l.pr;
     return {
       key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(l, ms => formatAgo(ms, "short")).join(" · "), tags: pr.labels,
@@ -227,8 +216,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const issueNote = hostNote(issues, thr.issuesError(pid), "No open issues.");
   // Too many to list at the left: the row opens them at the right.
   project.push({ key: "issues", title: "Issues", sub: issueNote || `${issueItems.length} open`, detail: () => [] });
-  const overview = projectOverview(p, running, { run: runItems, prs: prItems, issues: issueItems, prNote: hostNote(prs, thr.prsError(pid), "No open pull requests."), issueNote }, machineTile(rows, sync));
-  top.unshift({ key: "overview", title: "Overview", sub: "", detail: () => [hostPart(overview)] });
+  // The board is the project's front page; the list shows beside every other row's detail.
+  top.unshift({ key: "overview", title: "Board", sub: "", detail: () => [] });
   groups.unshift({ title: "", items: top });
   // A review opens from Branches and an issue from Issues, each keeping its row lit.
   const all = groups.flatMap(g => g.items);
@@ -261,11 +250,24 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: "Actions", text: runs.tile(pid).count || "", key: "actions", bad: runs.tile(pid).rows[0]?.chip?.text === "failed" },
     { label: plural(running.length, "agent", "agents"), text: "running", key: "running" },
     { label: "Machines", text: machineTile(rows, sync).count || "", key: "machines" },
-    { label: plural(prItems.length, "PR", "PRs"), text: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "open", key: "overview" },
+    { label: plural(prItems.length, "PR", "PRs"), text: waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} a reply` : "open", key: prFilter.items[0]?.key ?? prItems[0]?.key ?? "overview" },
     { label: plural(issueItems.length, "issue", "issues"), text: "open", key: "issues" },
+    { label: "Sessions", text: past.length ? `${past.length} past` : "", key: "agents" },
   ];
   renderProjectShell(currentShell);
   const strip = createElement("div", { className: "cc-mstrip pj-strip" }, createElement(ProjectStatus, { cells, openTile }));
+  // A picked row a filter hides keeps the list on screen, so the filter can be cleared.
+  if (!pa.tile || pa.tile === "overview") {
+    const pulls = prLines.flatMap(l => {
+      const lane: Lane | null = l.needs_reply ? "needs" : l.review === "ready" ? "review" : null;
+      return lane ? [{ key: `pr:${l.pr.number}`, lane, number: l.pr.number, title: l.pr.title, sub: prMeta(l, ms => formatAgo(ms, "short")).join(" · ") }] : [];
+    });
+    return [viewPart("strip", strip), viewPart("board", createElement(Parts, { className: "pj-board", parts: [
+      ...(error ? [viewPart("error", createElement(ErrorNote, { text: `Could not refresh the project: ${error}` }))] : []), ...(cards ? [cards] : []),
+      viewPart("lanes", createElement(ProjectBoard, { project: p.name, running, pulls, past, openTile })),
+    ] }))];
+  }
+
   return [viewPart("strip", strip), viewPart("split", createElement(Parts, { className: `${history ? "pj-split gh-layout" : "pj-split"}${pa.tile ? " picked" : ""}`,
     parts: [hostPart(history ? history.navigation : currentShell.navigation), det] }))];
 }
@@ -282,18 +284,4 @@ function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): Pag
 
   const note = list.freshness && (list.freshness.spin || list.freshness.text) ? [viewPart("session-note", createElement(FreshNote, { freshness: list.freshness, className: " ss-updating" }))] : [];
   return [tabs, list.rows ? hostPart(sessionsHost(p.name, list.rows)) : viewPart("session-empty", createElement(EmptyPanel, { text: list.empty ?? "" })), ...note];
-}
-
-/// The agent view with terminal `t`, one of project `name`, in a pane tab with the keys.
-function openTerminal(name: string, t: TerminalRow) {
-  go("pane", { draft: { project: name, machine: t.machine_id, terminal: t } });
-}
-
-/// The project's Overview: what runs and ran on the left, the open work on
-/// the right, each title opening that row of the list. Issues scroll in their box.
-function projectOverview(p: Project, running: RunningAgent[], open: { run: SplitItem[]; prs: SplitItem[]; issues: SplitItem[]; prNote: string | undefined; issueNote: string | undefined }, where: ReturnType<typeof machineTile>) {
-  const current = projectShell(p.name);
-  current.overviewView = createElement(ProjectOverview, { ...open, machines: where, terminals: terms.list(p.name) || [],
-    session: sessionsList(p, running), openTile, openTerminal: terminal => openTerminal(p.name, terminal) });
-  return current.overview;
 }

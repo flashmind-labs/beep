@@ -213,7 +213,7 @@ test("project page", async ({ page }) => {
 
 test("project sessions", async ({ page }) => {
   await openProject(page);
-  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await page.locator(".pj-strip button").filter({ hasText: "Sessions" }).click();
   await expect(page.locator(".pj-det .pv-row").filter({ hasText: "Past session 3" })).toBeVisible();
   await baseline(page, "project-sessions");
 });

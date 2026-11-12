@@ -5,8 +5,7 @@ test("issue detail keeps comment draft, caret and scroll during project refresh"
   const now = Date.now(), issue = { number: 1, title: "Example issue", url: "https://example.test/issues/1", author: "Author", opened_at: now, comments: 1, labels: [] };
   const detail = { kind: "issue", number: 1, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [{ author: "Writer", at: now, html: "<p>Existing comment</p>" }], earlier: 0, review: "none", checks: null };
   await openDesktop(page, false, { center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_project_threads: [], center_thread_chats: [], center_thread_detail: detail });
-  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
-  await page.locator('.pj-list .pj-li[title="Issues"]').click();
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
   await page.locator('.pj-det .pj-li[title="Example issue"]').click();
   const pane = page.locator(".pj-split > .pj-det"), input = pane.locator(".pj-reply textarea");
   await expect(input).toBeVisible();

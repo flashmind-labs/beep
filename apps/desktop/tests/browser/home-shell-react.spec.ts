@@ -5,7 +5,7 @@ test("Home refresh retains its tab, focus, content and scroll", async ({ page })
   const home = { machines: [], projects: [], running: [], needs_you: [], coming_up: null,
     updates: Array.from({ length: 40 }, (_, id) => ({ id, summary: `Update ${id}`, app: "app", app_name: "App", at: 1 })) };
   await openDesktop(page, false, { center_home: home });
-  const tab = page.getByRole("tab", { name: "Overview" });
+  const tab = page.getByRole("tab", { name: "Board" });
   await expect(tab).toBeVisible();
   await page.evaluate(() => {
     const view = document.querySelector<HTMLElement>("#view")!;

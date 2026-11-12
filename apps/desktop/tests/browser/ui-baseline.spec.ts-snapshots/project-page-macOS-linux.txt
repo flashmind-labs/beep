@@ -18,11 +18,6 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
-          button.cc-si [aria-label="Running" title="Running" type="button"]
-            span.sidebar-icon style(display)
-              svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-            span.tt "Running"
-            span.n "2"
         div.cc-grp.projects
           h3
             button.cc-gt [type="button"] "Projects"
@@ -117,9 +112,45 @@ body.cbody
             button.dbtn.quiet.small [type="button"] "Add a machine"
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
           div.cc-tabs [role="tablist"]
-            button [aria-selected="true" role="tab" type="button"] "Overview"
+            button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div#sec-needs
+            div.bd-lanes
+              div.bd-lane
+                h4 "Needs you"
+                  span
+                div.bd-empty "Nothing here"
+              div.bd-lane
+                h4
+                  button [type="button"] "Working"
+                  span "1"
+                div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
+                  b "Fix the login redirect"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "example/widget · build-box"
+                  span.ft
+                    span.cc-running "now"
+                      span.dspin [aria-label="Working" role="img"]
+                    span.sp
+              div.bd-lane
+                h4 "Ready to review"
+                  span "1"
+                div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
+                  b "Update the changelog"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "example/gadget · build-box"
+                  span.ft "10m ago"
+                    span.sp
+              div.bd-lane
+                h4
+                  button [type="button"] "Done today"
+                  span
+                div.bd-empty "Nothing here"
           div#sec-updates
             div.cc-sec
               h4 "Updates"
@@ -142,28 +173,6 @@ body.cbody
                 span.r
                   button.dbtn.quiet [aria-label="Dismiss" type="button"] style(padding-bottom,padding-left,padding-right,padding-top)
                     svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-          div#sec-running
-            div.cc-sec
-              h4
-                button.dbtn.lk [type="button"] "Running"
-                span.n "2"
-            div.cc-panel
-              div.cc-line.cc-row
-                span.cc-ag.codex.mark
-                  svg [aria-hidden="true" viewBox="0 0 24 24"]
-                button.t [title="Fix the login redirect" type="button"]
-                  b "Fix the login redirect"
-                  span "example/widget · build-box"
-                span.r
-                  span.cc-running "now"
-                    span.dspin [aria-label="Working" role="img"]
-              div.cc-line.cc-row
-                span.cc-ag.codex.mark
-                  svg [aria-hidden="true" viewBox="0 0 24 24"]
-                button.t [title="Update the changelog" type="button"]
-                  b "Update the changelog"
-                  span "example/gadget · build-box"
-                span.r "10m ago"
         form#home-comp.cc-comp style(display;display:none)
           input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep, or start an agent on a machine" spellcheck="false" type="text" value] value=""
           span#home-err.cc-err [role="status"]
@@ -190,150 +199,85 @@ body.cbody
             button.m [type="button"]
               b "0 issues"
               span "open"
-          div.pj-split
-            div.pj-list
-              button.nav.pj-li [aria-current="true" title="Overview" type="button"]
-                span.t
-                  b "Overview"
-                span.c
-              button.nav.pj-li [title="Running" type="button"]
-                span.t
-                  b "Running"
-                span.c "1"
-              hr
-              button.nav.pj-li [title="Actions" type="button"]
-                span.t
-                  b "Actions"
-                span.c
-              button.nav.pj-li [title="Machines" type="button"]
-                span.t
-                  b "Machines"
-                span.c "1/1"
-              button.nav.pj-li [title="Issues" type="button"]
-                span.t
-                  b "Issues"
-                span.c "The server needs an update before it lists these."
-              hr
-              button.nav.pj-li [title="Sessions" type="button"]
-                span.t
-                  b "Sessions"
-                span.c "6 past"
-              button.nav.pj-li [title="Git" type="button"]
-                span.t
-                  b "Git"
-                span.c "History and worktrees"
-              h4 "Pull requests"
-              div.note "The server needs an update before it lists these."
-              div.pj-ctl
-                span.seg
-                  button.dbtn.on.quiet.small [aria-pressed="true" type="button"] "Any time"
-                  button.dbtn.quiet.small [aria-pressed="false" type="button"] "Today"
-                  button.dbtn.quiet.small [aria-pressed="false" type="button"] "Yesterday"
-                  button.dbtn.quiet.small [aria-pressed="false" type="button"] "This week"
-                span.sp
-                button.dbtn.quiet.small [type="button"] "Newest first"
-            div.pj-det
-              div.pj-ov
-                div
-                  div
-                    div.cc-sec
-                      h4
-                        button.dbtn.lk [type="button"] "Running"
-                        span.n "1"
-                    div.cc-panel
-                      div.cc-line.cc-row
-                        span.cc-ag.codex.mark
-                          svg [aria-hidden="true" viewBox="0 0 24 24"]
-                        button.t [title="Fix the login redirect" type="button"]
-                          b "Fix the login redirect"
-                          span "example/widget · build-box"
-                        span.r
-                          span.cc-running "now"
-                            span.drun [aria-label="Working" role="img"]
-                  div#sec-sessions
-                    div.cc-sec
-                      h4 "Past sessions"
-                        span.n "6"
-                    div style(display)
-                      div.cc-panel
-                        div.pj-scroll style(max-height)
-                          button.pv-row [data-key="build-box:past-0"]
-                            span.t "Past session 1"
-                            span.m
-                              span.cc-ag.codex.mark [title="Codex"]
-                                svg [aria-hidden="true" viewBox="0 0 24 24"]
-                              span "ended"
-                              span "build-box"
-                              span "project"
-                              span "1 h"
-                          button.pv-row [data-key="build-box:past-1"]
-                            span.t "Past session 2"
-                            span.m
-                              span.cc-ag.codex.mark [title="Codex"]
-                                svg [aria-hidden="true" viewBox="0 0 24 24"]
-                              span "ended"
-                              span "build-box"
-                              span "project"
-                              span "2 h"
-                          button.pv-row [data-key="build-box:past-2"]
-                            span.t "Past session 3"
-                            span.m
-                              span.cc-ag.codex.mark [title="Codex"]
-                                svg [aria-hidden="true" viewBox="0 0 24 24"]
-                              span "ended"
-                              span "build-box"
-                              span "project"
-                              span "3 h"
-                          button.pv-row [data-key="build-box:past-3"]
-                            span.t "Past session 4"
-                            span.m
-                              span.cc-ag.codex.mark [title="Codex"]
-                                svg [aria-hidden="true" viewBox="0 0 24 24"]
-                              span "ended"
-                              span "build-box"
-                              span "project"
-                              span "4 h"
-                          button.pv-row [data-key="build-box:past-4"]
-                            span.t "Past session 5"
-                            span.m
-                              span.cc-ag.codex.mark [title="Codex"]
-                                svg [aria-hidden="true" viewBox="0 0 24 24"]
-                              span "ended"
-                              span "build-box"
-                              span "project"
-                              span "5 h"
-                          button.pv-row [data-key="build-box:past-5"]
-                            span.t "Past session 6"
-                            span.m
-                              span.cc-ag.codex.mark [title="Codex"]
-                                svg [aria-hidden="true" viewBox="0 0 24 24"]
-                              span "ended"
-                              span "build-box"
-                              span "project"
-                              span "6 h"
-                  div
-                    div.cc-sec
-                      h4
-                        button.dbtn.lk [type="button"] "Machines"
-                        span.n "1/1"
-                    div.cc-panel
-                      div.cc-line.cc-row [title="build-box: /srv/project"]
-                        span.ddot
-                        button.t [title="build-box" type="button"]
-                          b "build-box"
-                          span "project"
-                        span.r
-                div
-                  div
-                    div.cc-sec
-                      h4 "Pull requests"
-                    div.cc-empty.cc-panel
-                      span "The server needs an update before it lists these."
-                  div
-                    div.cc-sec
-                      h4 "Issues"
-                    div.cc-empty.cc-panel
-                      span "The server needs an update before it lists these."
+            button.m [type="button"]
+              b "Sessions"
+              span "6 past"
+          div.pj-board
+            div.bd-lanes
+              div.bd-lane
+                h4 "Needs you"
+                  span
+                div.bd-empty "Nothing here"
+              div.bd-lane
+                h4
+                  button [type="button"] "Working"
+                  span "1"
+                div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
+                  b "Fix the login redirect"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "example/widget · build-box"
+                  span.ft
+                    span.cc-running "now"
+                      span.drun [aria-label="Working" role="img"]
+                    span.sp
+              div.bd-lane
+                h4 "Ready to review"
+                  span
+                div.bd-empty "Nothing here"
+              div.bd-lane
+                h4
+                  button [type="button"] "Done today"
+                  span "6"
+                div.bd-card [data-card="agent:build-box:past-0" role="button" tabindex="0"]
+                  b "Past session 1"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "project · build-box"
+                  span.ft "1 h ago"
+                    span.sp
+                div.bd-card [data-card="agent:build-box:past-1" role="button" tabindex="0"]
+                  b "Past session 2"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "project · build-box"
+                  span.ft "2 h ago"
+                    span.sp
+                div.bd-card [data-card="agent:build-box:past-2" role="button" tabindex="0"]
+                  b "Past session 3"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "project · build-box"
+                  span.ft "3 h ago"
+                    span.sp
+                div.bd-card [data-card="agent:build-box:past-3" role="button" tabindex="0"]
+                  b "Past session 4"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "project · build-box"
+                  span.ft "4 h ago"
+                    span.sp
+                div.bd-card [data-card="agent:build-box:past-4" role="button" tabindex="0"]
+                  b "Past session 5"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "project · build-box"
+                  span.ft "5 h ago"
+                    span.sp
+                div.bd-card [data-card="agent:build-box:past-5" role="button" tabindex="0"]
+                  b "Past session 6"
+                  span.sub
+                    span.cc-ag.codex.mark
+                      svg [aria-hidden="true" viewBox="0 0 24 24"]
+                    span "project · build-box"
+                  span.ft "6 h ago"
+                    span.sp
         form.cc-pjc
           div.box
             div.ag-att [hidden]
