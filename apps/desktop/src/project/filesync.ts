@@ -392,9 +392,9 @@ export function conflictPrompt(c: Pick<Conflict, "path" | "original">) {
   if (git) {
     return [
       `Two machines committed to ${git.original} at once, and file sync kept the other side as ${git.ref}.`,
-      `Inspect it with git log and git diff against ${git.original} and say what differs. Merge it into the branch without rewriting history: no reset, rebase or force. Do not push.`,
+      `Inspect it with \`git log\` and \`git diff\` against ${git.original} and say what differs. Merge it into the branch without rewriting history: no reset, rebase or force. Do not push.`,
       "If the two sides contradict, ask me which to keep before merging.",
-      `Delete ${git.ref} with git update-ref -d only if I ask you to.`,
+      `Delete ${git.ref} with \`git update-ref -d\` only if I ask you to.`,
     ].join("\n");
   }
 
