@@ -3,6 +3,9 @@
 
 mod apps;
 mod gpu;
+mod latest;
+
+pub(crate) use latest::{Probes, fresh, machine};
 
 use crate::agents::locate;
 use crate::files::syncthing::Syncthing;
