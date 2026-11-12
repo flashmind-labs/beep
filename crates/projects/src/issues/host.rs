@@ -2,7 +2,7 @@
 
 use super::{
     HOST_LIMIT, HostExit, HostTimeout, IssueHost, IssueSource, Machines, RepoName, Shell,
-    SourceError, gate::is_unreachable,
+    SourceError, Unreachable, gate::is_unreachable,
 };
 use crate::commands::HostCommand;
 use anyhow::Result;
@@ -51,7 +51,7 @@ pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
 }
 
 /// Runs `command` against `source`'s host through `machines`' gates, so a host its machine could
-/// not reach is left alone for a while.
+/// not reach is left alone for a while and identical reads at once run the CLI once.
 pub async fn run_source(
     machines: &dyn Machines,
     source: &IssueSource,
@@ -59,17 +59,17 @@ pub async fn run_source(
     command: HostCommand<'_>,
 ) -> Result<String> {
     let rendered = command.render(&source.host, repo);
-    let read = || run_rendered(source.shell.as_ref(), &rendered);
 
     match machines.gates() {
-        Some(gates) => gates.run(source, read).await,
-        None => read().await,
+        Some(gates) => gates.run(source, &rendered, command.only_reads()).await,
+        None => run_rendered(source.shell.as_ref(), &rendered).await,
     }
 }
 
 /// Runs a host command for each of `items` in turn, so one broken CLI does not hide the answer.
 /// `run` runs the item's command and `parse` reads what it printed. Gives the item that
-/// answered; when none does, every error, in order.
+/// answered; when none does, every error, in order. A host a gate found unreachable was logged by
+/// the gate, so it is not logged again here.
 pub async fn read_first<'s, S, T, F>(
     items: &'s [S],
     run: impl Fn(&'s S) -> F,
@@ -85,7 +85,10 @@ where
         match read {
             Ok(value) => return Ok((item, value)),
             Err(error) => {
-                log::info!("projects: reading failed on one machine: {error:#}");
+                if error.downcast_ref::<Unreachable>().is_none() {
+                    log::info!("projects: reading failed on one machine: {error:#}");
+                }
+
                 failures.push(error);
             }
         }

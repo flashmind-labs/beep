@@ -6,23 +6,24 @@
 use crate::{
     desk::Desk,
     error::Result,
-    issues::project_names,
     open_items::{AT_ONCE, Access, Learned, ProjectRead, accounts_of, merge, repos_of},
 };
 use beep_projects::{
     credentials::{Slot, last4},
     git_items::{
+        access::Repo,
         board::{Answer, Login, OpenedItems, ask, combine},
-        host::Found,
+        host::{Found, HostError},
     },
     imports::hosts::Hosts,
+    issues::host_of_url,
 };
-use beep_proto::{GitHost, LabeledProjectLists};
+use beep_proto::{GitHost, GitHostKind, LabeledProjectLists};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     hash::{DefaultHasher, Hash, Hasher},
     sync::{Mutex, PoisonError},
     time::{Duration, Instant},
@@ -39,6 +40,9 @@ const FRESH_AFTER_ERROR: Duration = Duration::from_secs(60);
 struct HostRead {
     host: GitHost,
     found: Vec<Found>,
+    /// The search got no connection to the host from this Mac.
+    #[serde(skip)]
+    unreached: bool,
 }
 
 /// What Home's list is made of, to keep between runs. It holds no token: the key that says which
@@ -54,6 +58,10 @@ pub struct GitKept {
     /// Why the last read of a project failed. Not kept: a new run tries again.
     #[serde(skip)]
     failed: BTreeMap<String, String>,
+    /// The hosts a machine read a project's lists from in this run. A host this Mac cannot reach
+    /// is no error while a machine reaches it.
+    #[serde(skip)]
+    reached: BTreeSet<String>,
 }
 
 impl GitKept {
@@ -67,6 +75,7 @@ impl GitKept {
                 ..Access::default()
             },
             failed: BTreeMap::new(),
+            reached: BTreeSet::new(),
         }
     }
 
@@ -100,9 +109,17 @@ impl GitKept {
             .hosts
             .iter()
             .flatten()
-            .map(|read| Answer {
-                host: read.host.clone(),
-                result: Ok(read.found.clone()),
+            .map(|read| {
+                let mut host = read.host.clone();
+
+                if read.unreached && self.reached.contains(&host.host) {
+                    host.error = None;
+                }
+
+                Answer {
+                    host,
+                    result: Ok(read.found.clone()),
+                }
             })
             .collect();
         let lists = self.projects.iter().map(|(name, lists)| ProjectRead {
@@ -126,6 +143,7 @@ impl GitKept {
             return;
         };
         let before = self.hosts[index].take().map(|read| read.found);
+        let unreached = matches!(result, Err(HostError::Unreachable(_)));
         let found = match result {
             Ok(found) => found,
             Err(e) => {
@@ -133,13 +151,19 @@ impl GitKept {
                 before.unwrap_or_default()
             }
         };
-        self.hosts[index] = Some(HostRead { host, found });
+        self.hosts[index] = Some(HostRead {
+            host,
+            found,
+            unreached,
+        });
     }
 
-    /// Takes a project's lists. One that failed keeps the lists it had before, beside the error.
-    fn take_project(&mut self, read: ProjectRead) {
+    /// Takes a project's lists, read from `host`. One that failed keeps the lists it had before,
+    /// beside the error.
+    fn take_project(&mut self, read: ProjectRead, host: Option<&str>) {
         match read.result {
             Ok(lists) => {
+                self.reached.extend(host.map(str::to_owned));
                 self.failed.remove(&read.name);
                 self.projects.insert(read.name, lists);
             }
@@ -239,7 +263,17 @@ impl Desk {
             .filter(|login| matches!(login.slot, Slot::GitHub | Slot::Forgejo(_)))
             .filter(|login| !login.secret.expose_secret().is_empty())
             .collect();
-        let mut names = project_names(&self.mesh);
+        // The host each project is on, as the searches name it.
+        let hosts: HashMap<String, String> = crate::records::projects(&self.mesh)
+            .into_iter()
+            .map(|stored| {
+                let host = Repo::try_from(stored.record.url.as_str())
+                    .map(|repo| repo.host)
+                    .unwrap_or_default();
+                (stored.name, host)
+            })
+            .collect();
+        let mut names: Vec<String> = hosts.keys().cloned().collect();
         names.sort();
         let key: Vec<String> = logins
             .iter()
@@ -249,6 +283,13 @@ impl Desk {
             })
             .chain(names.iter().map(|name| format!("project/{name}")))
             .collect();
+        if let Some(update) = fresh(&key) {
+            return Ok(update);
+        }
+
+        // Runs at once would read every project again each: one reads, the others take its list.
+        let _run = self.hosts.board_run().lock().await;
+
         if let Some(update) = fresh(&key) {
             return Ok(update);
         }
@@ -272,7 +313,10 @@ impl Desk {
         for (index, login) in logins.iter().enumerate() {
             steps.push(
                 async move {
-                    let answer = ask(&self.hosts, client, login).await;
+                    let answer = match self.unreached(login) {
+                        Some(answer) => Some(answer),
+                        None => ask(&self.hosts, client, login).await,
+                    };
                     Step::Host { index, answer }
                 }
                 .boxed(),
@@ -297,7 +341,7 @@ impl Desk {
                     reading -= 1;
                     let repos = repos_of(std::slice::from_ref(&read));
                     let name = read.name.clone();
-                    sources.take_project(read);
+                    sources.take_project(read, hosts.get(&name).map(String::as_str));
 
                     if !repos.is_empty() {
                         steps.push(
@@ -325,6 +369,31 @@ impl Desk {
             update: update.clone(),
         });
         Ok(update)
+    }
+}
+
+impl Desk {
+    /// The answer for a Forgejo `login` whose host this Mac's own CLI cannot reach now, without
+    /// asking: its address is the same here, and the host is tried again when the pause ends.
+    fn unreached(&self, login: &Login<'_>) -> Option<Answer> {
+        let Slot::Forgejo(url) = login.slot else {
+            return None;
+        };
+        let host = host_of_url(url.as_ref())?;
+
+        if !self.hosts.gates().is_paused(self.local, &host) {
+            return None;
+        }
+
+        Some(Answer {
+            host: GitHost {
+                host: url.host(),
+                kind: GitHostKind::Forgejo {},
+                account: login.account.map(ToOwned::to_owned),
+                error: None,
+            },
+            result: Err(HostError::Unreachable(url.host())),
+        })
     }
 }
 
