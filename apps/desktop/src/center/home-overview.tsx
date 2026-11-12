@@ -72,14 +72,14 @@ function needsCards(home: HomeView): BoardCard[] {
       action: item.review_requested ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
   }
 
+  // A project's conflicts share one card: the Sync page lists them.
   for (const project of syncProjects()) {
-    const detail = fsync.detail(project);
-
-    for (const conflict of conflictList(detail)) {
-      cards.push({ key: `${project}:${conflict.path}`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
-        title: conflict.path, sub: conflictSub(project, conflict, detail?.machines ?? []), foot: null,
-        action: { kind: "run", label: "Resolve", primary: false, run: () => go("sync") }, dim: false, hint: conflict.path, open: () => go("sync"), menu: null });
-    }
+    const detail = fsync.detail(project), conflicts = conflictList(detail), first = conflicts[0];
+    if (!first) continue;
+    const one = conflicts.length === 1;
+    cards.push({ key: `${project}:conflicts`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
+      title: one ? first.path : `${conflicts.length} files have two copies`, sub: one ? conflictSub(project, first, detail?.machines ?? []) : project, foot: null,
+      action: { kind: "run", label: "Resolve", primary: false, run: () => go("sync") }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open: () => go("sync"), menu: null });
   }
 
   return cards;
@@ -130,9 +130,11 @@ export function HomeOverview({ home }: { home: HomeView }) {
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
   const coming = home.coming_up, updates = home.updates;
   const empty = !cards.length && !updates?.length && !coming?.length;
+  const imported = new Set((home.projects || []).map(project => project.name));
+  const rows = (project: string) => imported.has(project) ? () => { go("projects", { project }); } : null;
   return <>
     {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{needs.map(card => <CardRow key={card.key} card={card}/>)}</Section>
-      : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={!isMobile()}/></div>}
+      : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows}/></div>}
     {!!updates?.length && <Section id="sec-updates" title="Updates" count={updates.length} action={<button className="dbtn quiet small" type="button" onClick={() => dismissUpdates(updates.map(u => u.id))}>Clear</button>}>{updates.map(update => <LineRow key={update.id} lead={<span className="cc-ag beep">{update.app_name?.slice(0, 1).toUpperCase() || <span style={{ display: "contents" }}><Icon name="beep" /></span>}</span>} title={update.summary} sub={update.app_name ? `${update.app_name} · ${formatAgo(update.at, "day")}` : formatAgo(update.at, "day")} textTitle="Ask Beep about this" onOpen={() => { void openUpdate(update); }} right={<button className="dbtn quiet" type="button" aria-label="Dismiss" style={{ padding: "2px 6px" }} onClick={event => { event.stopPropagation(); dismissUpdates([update.id]); }}><Icon name="close" /></button>} />)}</Section>}
     {list && !!running.length && <Section id="sec-running" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "agents")}>Running</button>} count={running.length}>{running.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
     {!!coming?.length && <Section id="sec-coming" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "routines")}>Coming up</button>} count={coming.length}>{coming.slice(0, 5).map(row => { const when = whenOf(row.next_run_at); return <LineRow key={row.id} lead={<span className="cc-when"><b>{when.time}</b>{when.day}</span>} title={row.label.trim() || row.prompt.trim() || "Routine"} sub={scheduleText(row.schedule)} onOpen={() => go("pane", "routines")} />; })}</Section>}

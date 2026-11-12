@@ -26,6 +26,19 @@ test("Home's board gives each project a row, and a review is opened on its host 
   await expect(page.locator("textarea").first()).toHaveValue(/^Review PR https:\/\/example\.test\/other\/site\/pull\/12/);
 });
 
+test("a row's project name opens the project, and a full cell scrolls", async ({ page }) => {
+  const pull = (number: number) => ({ host: "example.test", repo: projectName, number, kind: "pull_request", title: `Pull ${number}`, url: `https://example.test/${projectName}/pull/${number}`,
+    updated_at: number, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0 });
+  await openDesktop(page, false, { git_items: { items: [1, 2, 3, 4].map(pull), hosts: [] } });
+
+  const cell = page.locator(".bd-rows > .bd-lane:not(.hd)").first();
+  await expect(cell.locator(".bd-card")).toHaveCount(4);
+  expect(await cell.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+
+  await page.locator(".bd-rows > .pj").getByRole("button", { name: projectName }).click();
+  await expect(page.locator(".pj-board")).toBeVisible();
+});
+
 /// Picks `layout` for `name` in Settings, under Appearance, and closes Settings.
 async function pickLayout(page: Page, name: string, layout: string) {
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();

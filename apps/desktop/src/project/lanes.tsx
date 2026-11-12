@@ -48,5 +48,5 @@ export function ProjectBoard({ project, running, pulls, past, openTile }: {
       foot: formatAgo(session.last_activity, "since"), action: null, dim: false, hint: null, open: () => go("pane", { agent: { kind: "agent", ...session } }), menu: null });
   }
 
-  return <Board cards={cards} more={{ working: () => openTile("running"), done: () => openTile("agents") }} rows={false}/>;
+  return <Board cards={cards} more={{ working: () => openTile("running"), done: () => openTile("agents") }} rows={null}/>;
 }

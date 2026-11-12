@@ -40,6 +40,9 @@ function ActionButton({ action, title }: { action: CardAction; title: string }) 
   return <button type="button" className={`dbtn small${action.primary ? " pri" : ""}`} onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</button>;
 }
 
+/// Home's rows, a project each: what a project's name opens, or null when it has no page.
+export type ProjectRows = (project: string) => (() => void) | null;
+
 /// A card as a row of a list section. A session's row opens with the page move.
 export function CardRow({ card }: { card: BoardCard }) {
   const action = card.action;
@@ -50,7 +53,7 @@ export function CardRow({ card }: { card: BoardCard }) {
 
 /// `more` makes a lane's title open the full list behind it. `rows` gives
 /// each project a row of its own under the lanes' titles.
-export function Board({ cards, more, rows }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: boolean }) {
+export function Board({ cards, more, rows }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: ProjectRows | null }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
   const [, redraw] = useState(0);
@@ -69,8 +72,8 @@ export function Board({ cards, more, rows }: { cards: readonly BoardCard[]; more
     return <div className="bd-rows" ref={box}>
       <span className="hd"/>
       {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
-      {byProject(cards).map(row => { const own = byLane(row.cards), name = row.project ?? "Other"; return <Fragment key={row.project ?? ""}>
-        <b className="pj" title={name}>{name}</b>
+      {byProject(cards).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", page = row.project === null ? null : rows(row.project); return <Fragment key={row.project ?? ""}>
+        <b className="pj" title={name}>{page ? <button type="button" onClick={page}>{name}</button> : name}</b>
         {LANES.map(({ lane }) => <div className="bd-lane" key={lane}>{own[lane].map(card => <Card key={card.key} card={card} open={() => open(card)}/>)}</div>)}
       </Fragment>; })}
     </div>;

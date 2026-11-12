@@ -36,7 +36,7 @@ const BOARD_MOCK = (() => {
     names.sort((a, b) => rank(a) - rank(b));
 
     return `<div class="bd-rows"><span class="hd"></span>${LANES.map(([lane, title]) => `<div class="bd-lane hd"><h4>${more[lane] ? `<button ${more[lane]}>${title}</button>` : title}<span>${cards.filter(c => c.lane === lane).length || ""}</span></h4></div>`).join("")}
-      ${names.map(name => `<b class="pj">${name ?? "Other"}</b>${LANES.map(([lane]) => `<div class="bd-lane">${cards.filter(c => c.lane === lane && projectOf(c) === name).map(c => card(c, cards.indexOf(c))).join("")}</div>`).join("")}`).join("")}</div>`;
+      ${names.map(name => `<b class="pj">${name ? `<button data-dgo="dWinProject">${name}</button>` : "Other"}</b>${LANES.map(([lane]) => `<div class="bd-lane">${cards.filter(c => c.lane === lane && projectOf(c) === name).map(c => card(c, cards.indexOf(c))).join("")}</div>`).join("")}`).join("")}</div>`;
   };
   const CARET = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
 
@@ -70,6 +70,13 @@ const BOARD_MOCK = (() => {
       chip?.remove();
       const asks = S.d.bdasks && rest.title === ASKS;
       cards.push({ ...rest, sub: sub.innerHTML.trim(), lane: asks ? "needs" : "working", foot: asks ? "" : chip ? chip.outerHTML : rest.dim ? right.innerHTML : working(right.innerHTML), action: asks ? button("Answer", rest.go, true) : "" });
+    }
+    // A project's conflicts share one card: the Sync page lists them.
+    const conflicts = cards.filter(c => /Resolve/.test(c.action || ""));
+    if (conflicts.length > 1) {
+      const name = projectOf(conflicts[0]);
+      cards.splice(cards.indexOf(conflicts[0]), 0, { ...conflicts[0], title: `${conflicts.length} files have two copies`, sub: name ?? "", hint: "" });
+      for (const c of conflicts) cards.splice(cards.indexOf(c), 1);
     }
     if (!running || S.d.cc === "old") return cards;
 
