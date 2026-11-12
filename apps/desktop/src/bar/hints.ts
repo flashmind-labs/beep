@@ -1,5 +1,6 @@
 import { attachedCount } from "../chat/attach.ts";
-import { drawQueue, openInWindow } from "../chat/chat.ts";
+import { drawQueue, openAgentInWindow, openInWindow } from "../chat/chat.ts";
+import { AG } from "../agents/agents.ts";
 import { forRoutine } from "../chat/approval-cards.ts";
 import { $, bar, here, PANE, queued, S } from "./core.ts";
 import { linkChip } from "../settings/server-state.ts";
@@ -59,7 +60,7 @@ export type HintAction = "window" | "model" | "link";
 
 export function runHint(action: HintAction) {
   switch (action) {
-    case "window": return openInWindow(S.session);
+    case "window": return S.view === "agent" && AG.page ? openAgentInWindow(AG.page.session) : openInWindow(S.session);
     case "model": return renderModel();
     case "link": return S.link === "revoked" ? renderRevoked() : S.signedOut ? renderSettings() : renderLink();
   }

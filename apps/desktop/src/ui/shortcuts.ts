@@ -85,7 +85,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
     { keys: "⌘2", does: "Files" },
     { keys: "⌘3", does: "Changes" },
     { keys: "⌘4", does: "Artifacts" },
-    { keys: "⌘O", does: "Open folder in the editor" },
+    { keys: "⌘O", does: "Open folder in the editor, or from the bar the session in the window" },
     { keys: "⇧esc", does: "Zoom the pane" },
     { keys: "⌃tab", does: "Next tab" },
     { keys: "⌃⇧tab", does: "Previous tab" },

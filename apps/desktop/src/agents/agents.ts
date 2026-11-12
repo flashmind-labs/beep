@@ -20,11 +20,11 @@ import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentn
 import { preloadModels } from "./agentpicker.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, OutboxRow, Waiting } from "./agentqueue.ts";
-import { drawQueue, renderChat } from "../chat/chat.ts";
+import { drawQueue, openAgentInWindow, renderChat } from "../chat/chat.ts";
 import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
 import { draftEsc } from "./draft-state.ts";
-import { type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
+import { type AgentReturn, bar, PANE, S, windowHooks } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { renderWaiting } from "../bar/waiting.ts";
 import { openSession } from "../chat/history.ts";
@@ -528,7 +528,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     if (cmd && e.key === ".") { e.preventDefault(); interruptAgent(); return true; }
 
     // ⌘T a terminal in the pane, ⌘N one like the terminal on screen, ⌘1 focuses chat, ⌘2 ⌘3 ⌘4 the pane's Files,
-    // Changes and Artifacts, ⌘O the folder in the editor. ⌘U opens or folds every thought, ⌘Y
+    // Changes and Artifacts, ⌘O the session in the window from the bar, else the folder in the editor. ⌘U opens or folds every thought, ⌘Y
     // every command, ⇧⌘Y the last one. They work from the field and from a terminal: none edits text.
     if (cmd && !e.altKey && (WINDOWS || !e.ctrlKey) && !e.isComposing) {
       const k = e.key.toLowerCase();
@@ -548,7 +548,11 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       }
 
       if (!e.shiftKey && (k === "2" || k === "3" || k === "4")) { e.preventDefault(); showPaneTab(Number(k) - 2); return true; }
-      if (k === "o" && !e.shiftKey) { e.preventDefault(); openEditorKey(); return true; }
+      if (k === "o" && !e.shiftKey) {
+        e.preventDefault();
+        if (!PANE && AG.page && !AG.draft) void openAgentInWindow(AG.page.session); else openEditorKey();
+        return true;
+      }
     }
 
     const target = e.target, field = agentMessage.current, inField = !!field && target === field;

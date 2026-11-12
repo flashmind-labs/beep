@@ -143,6 +143,7 @@ export function startPane(s: PaneSession) {
   const saved = readView(viewKey(s.machine_id, s.id));
   P.layout = loadLayout();
   if (saved && typeof saved === "object" && "layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
+  foldInBar();
   P.subs = [];
   P.subCount = 0;
   P.moved.clear();
@@ -185,11 +186,17 @@ export function startPane(s: PaneSession) {
       }
     }
     if ("layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
+    foldInBar();
     if ("zoom" in saved && (saved.zoom === "right" || saved.zoom === "bottom")) P.zoom = saved.zoom;
   }
   draw();
   paneReleased = false;
   rememberPane();
+}
+
+/// The bar opens a session with its docks folded, the conversation first.
+function foldInBar() {
+  if (!PANE) P.layout.hidden = { right: true, bottom: true };
 }
 
 /// The pane's session changes with its frame as it is: the empty view's place

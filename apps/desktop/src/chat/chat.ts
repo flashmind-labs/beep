@@ -5,7 +5,8 @@ import { flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { updateChatNavigation } from "./navigation-view.tsx";
 import { createChatBody, disposeChatBody, transcriptShown } from "./transcript.ts";
-import { AG } from "../agents/agents.ts";
+import { AG, type AgentRow } from "../agents/agents.ts";
+import { mainTarget } from "../project/projectwindow.ts";
 import { attach, attached, drawAttached, unattach } from "./attach.ts";
 import { composeField } from "./compose.ts";
 import { $, bar, here, live, PANE, queued, S } from "../bar/core.ts";
@@ -138,3 +139,5 @@ export function toWindow(target: unknown) {
 }
 /// Opens chat `id` (null for a new one) in the window.
 export const openInWindow = (id: string | null | undefined) => toWindow({ chat: { session: id ?? null } });
+/// Opens agent session `session` in the window.
+export const openAgentInWindow = (session: AgentRow) => toWindow(mainTarget({ view: "pane", arg: { agent: session } }));
