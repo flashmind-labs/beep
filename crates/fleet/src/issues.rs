@@ -11,8 +11,8 @@ use crate::{
 use async_trait::async_trait;
 use beep_mesh::Mesh;
 use beep_projects::issues::{
-    ImportedPlace, MachineName, MachineView, Machines, ProjectStore, issue_view, list_open,
-    list_open_prs, machine_view, pull_request_head, pull_request_view,
+    HostGates, ImportedPlace, MachineName, MachineView, Machines, ProjectStore, issue_view,
+    list_open, list_open_prs, machine_view, pull_request_head, pull_request_view,
 };
 use beep_projects::model::plain_path;
 use beep_projects::{
@@ -60,11 +60,11 @@ impl Desk {
             && store.is_on(self.local)
             && let Some(local) = self.local_machine().await
         {
-            return Ok((store, DeskMachines::of(&[local])));
+            return Ok((store, DeskMachines::of(&[local], self.hosts.gates())));
         }
 
         let machines = self.machines_among(&store.machine_ids()).await;
-        Ok((store, DeskMachines::of(&machines)))
+        Ok((store, DeskMachines::of(&machines, self.hosts.gates())))
     }
 
     /// Runs `read` against what reading the project's host needs, asking this Mac alone when the
@@ -297,10 +297,11 @@ impl ProjectStore for DeskProject {
 pub(crate) struct DeskMachines {
     shells: HashMap<EndpointId, Arc<dyn Shell>>,
     names: Vec<MachineName>,
+    gates: Arc<HostGates>,
 }
 
 impl DeskMachines {
-    pub(crate) fn of(machines: &[Machine]) -> Self {
+    pub(crate) fn of(machines: &[Machine], gates: &Arc<HostGates>) -> Self {
         let mut shells = HashMap::new();
         let mut names = Vec::new();
 
@@ -316,7 +317,11 @@ impl DeskMachines {
                 shells.insert(id, shell.clone());
             }
         }
-        Self { shells, names }
+        Self {
+            shells,
+            names,
+            gates: gates.clone(),
+        }
     }
 }
 
@@ -328,5 +333,9 @@ impl Machines for DeskMachines {
 
     async fn names(&self) -> Vec<MachineName> {
         self.names.clone()
+    }
+
+    fn gates(&self) -> Option<&HostGates> {
+        Some(&self.gates)
     }
 }

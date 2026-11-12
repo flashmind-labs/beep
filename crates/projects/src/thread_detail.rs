@@ -5,7 +5,7 @@ use crate::{
     commands::{ChecksState, HostCommand, checks_of, json, text},
     issues::{
         Machines, ProjectStore, SourceError, clipped, host_failed, issue_source, issue_sources,
-        read_any, run_host,
+        read_any, run_source,
     },
     model::IssueHost,
 };
@@ -70,7 +70,7 @@ pub async fn comment(
         GitItemKind::PullRequest {} => HostCommand::CommentPr { number, body },
         GitItemKind::Issue {} => HostCommand::CommentIssue { number, body },
     };
-    run_host(source.shell.as_ref(), &source.host, store.name(), command)
+    run_source(machines, &source, store.name(), command)
         .await
         .map_err(|error| host_failed(&error))?;
     Ok(())

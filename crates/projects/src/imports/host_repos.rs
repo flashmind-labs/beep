@@ -168,8 +168,7 @@ struct Run {
 async fn read_any(runs: &[Run], parse: fn(&str) -> Result<Vec<Listed>>) -> Result<Vec<Listed>> {
     match read_first(
         runs,
-        |run| run.shell.as_ref(),
-        |run| run.command.clone(),
+        |run| run_rendered(run.shell.as_ref(), &run.command),
         parse,
     )
     .await
