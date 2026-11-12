@@ -278,6 +278,7 @@ pub fn run() {
             machines::add::mesh_invite,
             machines::add::machine_search,
             machines::add::ticket_machine,
+            bar::app::open_log,
             machines::add::set_machine_search,
             machines::list::list_machines,
             machines::list::machine_log,
@@ -568,6 +569,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     )?);
     let opening = fleet.clone();
     tauri::async_runtime::spawn(async move { opening.run().await });
+    let cleaning = fleet.clone();
+    tauri::async_runtime::spawn(async move { cleaning.drop_api_keys().await });
     app.manage(machine);
     app.manage(machines::list::MachineLists::default());
     app.manage(projects::live::Followed::default());

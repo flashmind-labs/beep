@@ -138,6 +138,15 @@ const WORKSPACE_MOCK = (() => {
     return template.innerHTML;
   };
   D.dHome = () => {
+    if (S.d.cc === "connecting" || S.d.cc === "stuck") {
+      const pulse = `<div class="cc-pulse"><i></i><i></i><i></i></div>`;
+      const body = S.d.cc === "stuck"
+        ? `<div class="cc-conn">${pulse}<b>Still connecting to your machines</b><span style="max-width:46ch">No answer from your machines for 40 seconds. Still trying.</span>
+          <div style="display:flex;gap:8px"><button class="dbtn pri" data-toast="Retrying now">Retry now</button><button class="dbtn" data-toast="Opens ~/Library/Logs/Beep">Show log</button></div></div>`
+        : `<div class="cc-conn">${pulse}<b>Connecting to your machines…</b></div>`;
+      const main = `<div class="cc-top"><h2>Home</h2><small>Wednesday, 4 November</small></div><div class="cc-view" style="display:flex">${body}</div>`;
+      return window.__mrmOver(skinned(ccWin(homeSide({ bare: true }), main)));
+    }
     if (S.d.cc === "startup") {
       const main = `<div class="cc-top"><h2>Home</h2><small>Wednesday, 4 November</small></div>
         <div class="cc-view"><div class="cc-mstrip"><button class="dbtn quiet small" data-dgo="dAddMachine">${CC_IC.plus} Add a machine</button></div>
@@ -166,7 +175,7 @@ const WORKSPACE_MOCK = (() => {
     ["Startup", () => { Object.assign(S.d, { cc: "startup", htab: "overview", mrm: "", tm: "" }); render(); }, () => S.d.cc === "startup"],
     ["Connecting, kept view", () => { Object.assign(S.d, { cc: "cached", mrm: "", tm: "" }); render(); }, () => S.d.cc === "cached"],
     ["PRs filtered by a label", () => { Object.assign(S.d, { htab: "git", hlp: "perf", cc: "default", mrm: "" }); render(); }, () => S.d.htab === "git" && !!S.d.hlp],
-    ccVariant("Empty", "empty"), ccVariant("Node offline", "offline"),
+    ccVariant("Empty", "empty"), ccVariant("Node offline", "offline"), ccVariant("Connecting", "connecting"), ccVariant("Still connecting", "stuck"),
     ...VARIANTS.dHome, ...skinVariants];
   const sideItem = DESK_SCREENS.find(g => g.group === "Command center").items.find(it => it[0] === "dHome");
   if (sideItem) sideItem[1] = "Home";

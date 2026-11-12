@@ -6,7 +6,8 @@ import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, go } from "./views.ts";
 import { openAddMachine, projectRows } from "./sidebar.ts";
-import { ensureHome } from "./refresh.ts";
+import { ensureHome, refresh } from "./refresh.ts";
+import { ConnectingView } from "./connecting-view.tsx";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { ensureAllTerms } from "../terminals/view.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
@@ -79,9 +80,18 @@ function page(home: HomeView) {
 /// True once the first Home has been waited for too long.
 export function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
 
+/// Before Home first loads: the dots, then Retry and Show log once the wait is long.
+function drawConnecting() {
+  const secs = Math.round((Date.now() - state.since) / 1000);
+  placeWindowParts({ home: createElement(ConnectingView, { stuck: stuck(), text: `No answer from your machines for ${secs} seconds. Still trying.`,
+    retry: () => { void refresh(); drawConnecting(); },
+    log: () => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); } }) });
+}
+
 export function draw() {
   // A hidden Home draws when it is shown: its mount refreshes.
   if (currentLocation()?.view && currentLocation()?.view !== "home") return;
+  if (!state.home) return drawConnecting();
   const home = homeForDisplay(state.home), view = windowHost("view");
   const top = view.scrollTop;
   placeWindowParts({ home: createElement(HomeShell, page(home)) });

@@ -105,7 +105,8 @@ pub fn open_url(url: String) -> Result<()> {
     open(&url)
 }
 
-/// Shows the app's log folder in Finder, for the tray's Show log.
+/// Shows the app's log folder in Finder, for Show log in the tray and on Home.
+#[tauri::command]
 pub fn open_log() -> Result<()> {
     let dir = logfile::dir().ok_or_else(|| DesktopError::BadRequest("no home folder".into()))?;
     open(&dir)
