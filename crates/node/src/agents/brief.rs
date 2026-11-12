@@ -21,7 +21,7 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
 
 /// What the agent hears, after the brief, about the Beep chat its replies
 /// show in.
-pub(crate) const CHAT: &str = "Beep: your replies show in the Beep chat, next to a file pane. \
+pub(crate) const CHAT: &str = "Your replies show in the Beep chat, next to a file pane. \
     Link files as Markdown links with paths relative to this session's folder, such as \
     [src/main.rs](src/main.rs); a click opens the file in the pane. \
     Image, video, 3D model (glb, gltf, obj, stl) and PDF paths named in a reply open in the pane \
