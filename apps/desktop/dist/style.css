@@ -707,6 +707,7 @@ button.dachip:hover { border-color: var(--border-hi) }
 .agpstage.img img { position: absolute; left: 0; top: 0; transform: translate3d(var(--x, 0), var(--y, 0), 0) scale(var(--scale, 1)); transform-origin: 0 0; max-width: none; image-rendering: auto; user-select: none; -webkit-user-drag: none }
 .agpstage.img.drag img, .agpstage.img.zooming img { will-change: transform }
 .agpstage video { max-width: 100%; max-height: 100%; outline: 0 }
+.agpstage.audio audio { width: min(100% - 24px, 520px); outline: 0 }
 .agpstage.pdf { display: flex } .agpstage.pdf iframe { flex: 1; border: 0; background: #fff }
 .agpstage.model canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none }
 .agpmsg { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 20px; font-size: 13px; color: var(--muted); text-align: center }

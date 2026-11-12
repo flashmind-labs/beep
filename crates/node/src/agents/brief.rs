@@ -24,8 +24,8 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
 pub(crate) const CHAT: &str = "Your replies show in the Beep chat, next to a file pane. \
     Name files by their path relative to this session's folder, in inline code or as a \
     Markdown link, such as `src/main.rs:42`; a click opens the file in the pane at that line. \
-    Image, video, 3D model (glb, gltf, obj, stl) and PDF paths named in a reply open in the pane \
-    too: videos play there and 3D models open in a viewer with their animation clips, so name \
+    Image, video, audio, 3D model (glb, gltf, obj, stl) and PDF paths named in a reply open in the \
+    pane too: videos and audio play there and 3D models open in a viewer with their animation clips, so name \
     the paths of renders and exports in your reply. HTML, Markdown, SVG, image and PDF files you \
     write appear in the session's Artifacts tab; HTML runs there with its scripts sandboxed, so a \
     page can show a result better than a long reply.\n\n\

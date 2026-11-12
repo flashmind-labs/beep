@@ -572,7 +572,7 @@ async fn share_reply(
 
     if media_mime(path).is_none() {
         return failed(format!(
-            "{path} is not a picture, video, 3D model or PDF"
+            "{path} is not a picture, video, audio file, 3D model or PDF"
         ));
     }
 

@@ -30,18 +30,41 @@ export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: s
 export function VideoView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
   const [meta, setMeta] = useState(fileSize(tab.size));
   const [failed, setFailed] = useState(false);
-  const video = (node: HTMLVideoElement | null) => {
-    if (node) { tab.video = node; return; }
-    if (tab.video) tab.videoAt = tab.video.currentTime;
-    tab.video = null;
-  };
-  return <>{failed ? <div className="agpmsg">This video does not play here. Open it in QuickTime instead.</div> : <div className="agpstage"><video ref={video} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
-    const node = event.currentTarget, seconds = Math.round(node.duration);
-    const time = Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · ` : "";
-    setMeta(`${time}${node.videoWidth}×${node.videoHeight} · ${fileSize(tab.size)}`);
-    if (tab.videoAt) { node.currentTime = tab.videoAt; tab.videoAt = 0; }
+  return <>{failed ? <div className="agpmsg">This video does not play here. Open it in QuickTime instead.</div> : <div className="agpstage"><video ref={node => keepPlayer(tab, node)} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
+    const node = event.currentTarget;
+    setMeta(`${duration(node.duration)}${node.videoWidth}×${node.videoHeight} · ${fileSize(tab.size)}`);
+    resume(tab, node);
   }} onError={() => setFailed(true)} onEnded={event => event.currentTarget.load()} /></div>}
   <div className="agpacts"><span className="meta">{tab.note ?? meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open in QuickTime" /></div></>;
+}
+
+/// An audio tab, kept playing across docks like a video.
+export function AudioView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
+  const [meta, setMeta] = useState(fileSize(tab.size));
+  const [failed, setFailed] = useState(false);
+  return <>{failed ? <div className="agpmsg">This audio does not play here. Open it in another app instead.</div> : <div className="agpstage audio"><audio ref={node => keepPlayer(tab, node)} controls preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
+    const node = event.currentTarget;
+    setMeta(`${duration(node.duration)}${fileSize(tab.size)}`);
+    resume(tab, node);
+  }} onError={() => setFailed(true)} /></div>}
+  <div className="agpacts"><span className="meta">{tab.note ?? meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open" /></div></>;
+}
+
+/// Keeps a tab's player, and where it stood when its view went.
+function keepPlayer(tab: MediaTab, node: HTMLMediaElement | null) {
+  if (node) { tab.player = node; return; }
+  if (tab.player) tab.playerAt = tab.player.currentTime;
+  tab.player = null;
+}
+
+function resume(tab: MediaTab, node: HTMLMediaElement) {
+  if (tab.playerAt) { node.currentTime = tab.playerAt; tab.playerAt = 0; }
+}
+
+/// `m:ss · ` for a length in seconds, or "" when it is not known.
+function duration(length: number) {
+  const seconds = Math.round(length);
+  return Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · ` : "";
 }
 
 export function PdfView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
