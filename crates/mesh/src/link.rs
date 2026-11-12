@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{Notify, Semaphore, watch};
 use tokio::task::JoinSet;
-use tokio::time::{Instant, sleep_until, timeout};
+use tokio::time::{Instant, sleep, sleep_until, timeout};
 use tracing::{debug, warn};
 
 const OPS_PER_FRAME: usize = 128;
@@ -35,6 +35,11 @@ const DRAIN: Duration = Duration::from_secs(3);
 /// How long it stays after its last stream ends, so the peer can read the
 /// end of it before the connection goes.
 const LINGER: Duration = Duration::from_secs(2);
+/// How often a link checks that packets still arrive. iroh pings each path
+/// every 5 s and QUIC every 10 s, so a live link never stays quiet longer.
+const BEAT: Duration = Duration::from_secs(5);
+/// Quiet checks in a row before a link is given up and dialed again.
+const MISSED: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) enum Frame {
@@ -64,7 +69,11 @@ pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointI
     let started = Instant::now();
     tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), "mesh link started");
     metrics::counter!("beep_mesh_links_started_total").increment(1);
-    if let Err(e) = run(&inner, &conn, peer, dialer).await {
+    let beat = tokio::spawn(heartbeat(conn.clone()));
+    let ended = run(&inner, &conn, peer, dialer).await;
+    beat.abort();
+
+    if let Err(e) = ended {
         debug!("link ended: {e}");
         tracing::info!(peer = %peer.fmt_short(), connection = conn.stable_id(), error = %e, "mesh link ended");
     } else {
@@ -73,6 +82,49 @@ pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointI
 
     metrics::histogram!("beep_mesh_link_seconds").record(started.elapsed().as_secs_f64());
     unregister(&inner, &conn, peer);
+}
+
+/// Closes `conn` once nothing arrived for `MISSED` beats, so the dialer
+/// connects again instead of waiting out the idle timeout.
+async fn heartbeat(conn: Connection) {
+    let mut beat = Beat::new(conn.stats().udp_rx.datagrams);
+
+    loop {
+        sleep(BEAT).await;
+
+        if beat.quiet(conn.stats().udp_rx.datagrams) {
+            warn!(peer = %conn.remote_id().fmt_short(), connection = conn.stable_id(), "mesh link stopped answering; dialing again");
+            conn.close(0u32.into(), b"no answer");
+            return;
+        }
+    }
+}
+
+/// Counts the beats in a row with no new packets.
+struct Beat {
+    received: u64,
+    missed: u32,
+}
+
+impl Beat {
+    fn new(received: u64) -> Self {
+        Self {
+            received,
+            missed: 0,
+        }
+    }
+
+    /// Takes the packet count at a beat; true once `MISSED` beats in a row
+    /// saw none arrive.
+    fn quiet(&mut self, received: u64) -> bool {
+        self.missed = if received == self.received {
+            self.missed + 1
+        } else {
+            0
+        };
+        self.received = received;
+        self.missed >= MISSED
+    }
 }
 
 fn unregister(inner: &Inner, conn: &Connection, peer: EndpointId) {
@@ -538,3 +590,7 @@ async fn streams(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/link.rs"]
+mod tests;

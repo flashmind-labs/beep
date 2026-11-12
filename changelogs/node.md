@@ -11,6 +11,7 @@ Earlier releases predate this changelog.
 
 ### Fixed
 
+- Node: a connection to a machine that stops answering is dropped and dialed again after about 15 seconds instead of 30.
 - Node: on a laptop that sleeps, the node reconnects to the other machines within seconds of waking instead of up to a minute later.
 
 ### Performance
