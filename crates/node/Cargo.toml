@@ -115,14 +115,14 @@ log = { version = "0.4", optional = true }
 notify = { version = "8", optional = true }
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
 portable-pty = { version = "0.9", optional = true }
-rand = { version = "0.9", optional = true }
+rand = { version = "0.10", optional = true }
 regex = { version = "1", optional = true }
 # `beep-node update` downloads releases, and the CI watch asks GitHub, with
 # the client setup from `beep_proto::https`.
 reqwest = { version = "0.13.5", default-features = false, optional = true }
 rmp = { version = "0.8", optional = true }
 rmp-serde = { version = "1", optional = true }
-roxmltree = { version = "0.20", optional = true }
+roxmltree = { version = "0.21", optional = true }
 # flsh keeps its sessions in SQLite; the same version flashmind uses.
 rusqlite = { version = "0.40", features = ["bundled"], optional = true }
 secrecy = { version = "0.10", optional = true }
