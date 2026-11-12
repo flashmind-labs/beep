@@ -35,7 +35,7 @@ impl ProtocolHandler for Open {
             check: &|_, _| true,
             updates: None,
         };
-        let _ = super::read::serve(tx, rx, &self.0, "laptop", access, &[]).await;
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
         Ok(())
     }
@@ -92,7 +92,7 @@ async fn read_from(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
             agent: AgentSlug::CODEX,
             id,
             copy,
-            kind: super::read::Kind::Move { worktree: false },
+            worktree: false,
         },
     )
     .await
@@ -219,7 +219,7 @@ impl ProtocolHandler for Strict {
             check: &|_, _| false,
             updates: None,
         };
-        let _ = super::read::serve(tx, rx, &self.0, "laptop", access, &[]).await;
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
         connection.closed().await;
         Ok(())
     }
@@ -380,33 +380,35 @@ async fn a_session_the_source_is_finishing_with_reads_as_running_until_it_lets_g
 }
 
 #[tokio::test]
-async fn a_background_read_of_a_session_no_project_offers_is_refused() {
+async fn an_older_nodes_background_list_and_copy_are_refused() {
     let source = source(&header(""));
     let server = serving(&source.agents).await;
-    let mine = TempDir::new().expect("a temp folder");
-    let copy = mine.path().join("copy.jsonl");
     let client = endpoint().await;
-    let connection = client
-        .connect(server.endpoint().addr(), ALPN)
-        .await
-        .expect("connects");
-    let (send, recv) = connection.open_bi().await.expect("a stream");
-    let (tx, rx) = link(send, recv);
-    // The server offers the sessions of no project, so no session is offered.
-    let err = pull(
-        tx,
-        rx,
-        super::read::Ask {
+    let asks = [
+        super::read::Request::List {},
+        super::read::Request::Copy {
             agent: AgentSlug::CODEX,
-            id: ID,
-            copy: &copy,
-            kind: super::read::Kind::Background { rate: 1 << 30 },
+            id: ID.into(),
+            from: 0,
+            prefix_hash: Vec::new(),
         },
-    )
-    .await
-    .expect_err("refused");
-    assert!(format!("{err:#}").contains("not offered"), "{err:#}");
-    assert!(!copy.exists());
+    ];
+
+    for ask in asks {
+        // The test server answers one stream per connection.
+        let connection = client
+            .connect(server.endpoint().addr(), ALPN)
+            .await
+            .expect("connects");
+        let (send, recv) = connection.open_bi().await.expect("a stream");
+        let (mut tx, mut rx) = link(send, recv);
+        tx.send(&ask).await.expect("sent");
+        let reply = rx.recv::<super::read::Reply>().await.expect("an answer");
+        assert!(
+            matches!(reply, Some(super::read::Reply::Refused { .. })),
+            "{reply:?}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -428,7 +430,7 @@ async fn a_worktree_read_before_the_source_registered_the_worktree_reads_as_runn
                     agent: AgentSlug::CODEX,
                     id: ID,
                     copy: &copy,
-                    kind: super::read::Kind::Move { worktree },
+                    worktree,
                 },
             )
             .await
@@ -489,7 +491,7 @@ async fn a_live_read_refuses_what_the_snapshot_cannot_read_before_the_source_sto
             agent: AgentSlug::CODEX,
             id: ID,
             copy: &copy,
-            kind: super::read::Kind::Move { worktree: true },
+            worktree: true,
         },
     )
     .await
@@ -529,7 +531,7 @@ async fn a_read_the_source_stops_answering_fails_instead_of_waiting_forever() {
         agent: AgentSlug::CODEX,
         id: ID,
         copy: &copy,
-        kind: super::read::Kind::Move { worktree: false },
+        worktree: false,
     };
     let quiet = Duration::from_millis(300);
     let err = tokio::time::timeout(
@@ -580,7 +582,7 @@ async fn read_flsh(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
         agent: AgentSlug::from("flsh"),
         id,
         copy,
-        kind: super::read::Kind::Move { worktree: false },
+        worktree: false,
     };
     pull(tx, rx, ask).await
 }

@@ -99,7 +99,7 @@ test("holding cycles without actions, release opens once, Escape and blur cancel
   tab();
   assert.match(picked()!, /c/);
   assert.deepEqual(opened, []);
-  assert.ok(calls.every(call => ["agent_sessions", "session_moves", "session_copies", "log_webview"].includes(call.cmd)));
+  assert.ok(calls.every(call => ["agent_sessions", "session_moves", "log_webview"].includes(call.cmd)));
   send("keyup", { key: "Tab" });
   assert.ok(document.querySelector('[role="dialog"]'));
   send("keyup", { key: "Alt", altKey: false });

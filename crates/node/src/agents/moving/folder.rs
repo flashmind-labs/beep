@@ -1,9 +1,26 @@
-//! A folder as a transcript names it: a path, or a `file://` URI.
+//! A folder as a transcript names it: a path, or a `file://` URI; and the
+//! folder a mesh project has on a machine.
 
+use beep_mesh::{Key, Mesh};
+use beep_proto::node::mesh_state::{Place, StateValue, SyncSpec};
+use iroh::EndpointId;
 use std::{
     fmt::Write,
     path::{Path, PathBuf},
 };
+
+/// The folder `project` has on `machine`: from its `sync/<name>` record when
+/// that names the machine, else from the machine's place record. A project
+/// imported on one machine at a time has only the place records.
+pub(crate) fn project_folder(mesh: &Mesh, project: &str, machine: &EndpointId) -> Option<String> {
+    mesh.get(&Key::Sync(project.to_owned()))
+        .and_then(|bytes| SyncSpec::from_bytes(&bytes).ok())
+        .and_then(|mut spec| spec.folders.remove(machine))
+        .or_else(|| {
+            let bytes = mesh.get(&Key::Project(format!("{project}/{machine}")))?;
+            Place::from_bytes(&bytes).ok().map(|place| place.folder)
+        })
+}
 
 /// A session's folders before and after moving between machines.
 #[derive(Clone)]

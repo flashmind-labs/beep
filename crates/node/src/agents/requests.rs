@@ -458,25 +458,13 @@ pub async fn serve_sessions(
                 Err(e) => failed(e),
             }
         }
-        SessionsRequest::Copies {} => SessionsReply::Copies {
-            copies: agents.moves.copies().await,
+        // Asked by apps from before background copies were removed: this
+        // node keeps no copies.
+        SessionsRequest::Copies {} => SessionsReply::Copies { copies: Vec::new() },
+        SessionsRequest::ContinueCopy { .. } => SessionsReply::Error {
+            message: "this machine no longer keeps copies of other machines' sessions".into(),
         },
-        SessionsRequest::ContinueCopy {
-            agent,
-            session,
-            lost,
-        } => match agents.moves.continue_copy(&agent, &session, lost).await {
-            Ok(()) => SessionsReply::CopyDone {},
-            Err(e) => failed(e),
-        },
-        SessionsRequest::DiscardCopy {
-            agent,
-            session,
-            lost,
-        } => {
-            agents.moves.discard_copy(&agent, &session, lost).await;
-            SessionsReply::CopyDone {}
-        }
+        SessionsRequest::DiscardCopy { .. } => SessionsReply::CopyDone {},
         SessionsRequest::Harnesses { refresh } => SessionsReply::Harnesses {
             report: agents.harnesses(refresh).await,
         },

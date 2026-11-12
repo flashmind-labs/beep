@@ -10,8 +10,8 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { reason } from "../ui/format.ts";
-import { lastImport } from "../addproject/importproject.ts";
-import { defaultParent } from "../addproject/importproject-state.ts";
+import { projectsIn } from "../addproject/importproject.ts";
+import { projectUnder } from "../addproject/importproject-state.ts";
 import { browseStart, copyLine, destination, shortName, type CopyLine } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { plainPath, type MachineFolder } from "./projects-state.ts";
@@ -20,8 +20,6 @@ import { plainPath, type MachineFolder } from "./projects-state.ts";
 interface AddToMachine {
   project: string;
   machine: { id: string; name: string };
-  /// `linux`, `macos` or `windows`, once the machine has said.
-  os: string | null | undefined;
   /// This Mac's machine id: there Choose… opens the macOS folder picker.
   macId: string | null;
   /// The folder was made and the machine joined the sync.
@@ -128,8 +126,7 @@ export function openAddToMachine(o: AddToMachine) {
   }
 
   // The field starts at the machine's default, unless the user got there first.
-  read(null, listing => {
-    const parent = defaultParent(machine.id, listing.path, o.os, lastImport());
-    if (!folder) folder = `${parent}/${name}`;
+  void projectsIn(machine.id).then(root => {
+    if (open && !folder) { folder = projectUnder(root, project); draw(); }
   });
 }

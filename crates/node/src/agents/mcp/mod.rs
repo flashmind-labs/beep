@@ -8,7 +8,7 @@ use crate::{
     link::Offers,
     link::local_socket::{self, Listener},
 };
-use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
+use agent_client_protocol::v1::schema::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::tools::{Reply, Request, Tool};
 use serde::Deserialize;

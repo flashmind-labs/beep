@@ -59,7 +59,7 @@ fn helper_names_are_bounded() {
 
 #[test]
 fn sampler_tracks_itself_and_discards_a_resume_gap() {
-    let mut sampler = Sampler::default();
+    let mut sampler = Sampler::new().expect("sysinfo supports this platform");
     sampler.sample(Context::Hidden);
     let pid = Pid::from_u32(std::process::id());
     assert!(sampler.previous.keys().any(|(tracked, _)| *tracked == pid));
@@ -82,7 +82,7 @@ fn sampler_tracks_itself_and_discards_a_resume_gap() {
 #[test]
 #[ignore]
 fn sampling_cost() {
-    let mut sampler = Sampler::default();
+    let mut sampler = Sampler::new().expect("sysinfo supports this platform");
     let mut durations = Vec::new();
 
     for _ in 0..60 {
@@ -104,12 +104,16 @@ fn transitions_and_clock_gaps_start_a_fresh_baseline() {
     let sampler = Sampler {
         sampled_at: now.checked_sub(PERIOD),
         previous_context: Some((Context::Hidden, PowerSource::Battery)),
-        ..Sampler::default()
+        ..Sampler::new().expect("sysinfo supports this platform")
     };
     assert!(sampler.continuous(now, Context::Hidden, PowerSource::Battery));
     assert!(!sampler.continuous(now, Context::Visible, PowerSource::Battery));
     assert!(!sampler.continuous(now, Context::Hidden, PowerSource::External));
     assert!(!sampler.continuous(now + PERIOD * 3, Context::Hidden, PowerSource::Battery));
     assert!(!sampler.continuous(now - PERIOD * 3, Context::Hidden, PowerSource::Battery));
-    assert!(!Sampler::default().continuous(now, Context::Hidden, PowerSource::Battery));
+    assert!(
+        !Sampler::new()
+            .expect("sysinfo supports this platform")
+            .continuous(now, Context::Hidden, PowerSource::Battery)
+    );
 }

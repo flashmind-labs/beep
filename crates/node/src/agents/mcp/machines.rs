@@ -374,7 +374,7 @@ async fn device_lines(mesh: &Mesh) -> Vec<String> {
         let env = if !can_host {
             None
         } else if status.device.id == me {
-            Some(env::probe().await)
+            Some(env::fresh().await)
         } else if status.online {
             peer_env(mesh, status.device.id).await
         } else {

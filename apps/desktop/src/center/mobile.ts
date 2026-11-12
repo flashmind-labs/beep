@@ -1,7 +1,8 @@
 // The phone layout (spec: tauri-mobile): a bottom tab bar, Back in the top bar in place of
 // the sidebar, and long-press for the menus the desktop opens on right-click. The CSS is
 // mobile.css, scoped to `body.mobile`; this file sets the class and draws the bars.
-import { isMobile } from "../ui/platform.ts";
+import { isMobile, onPhone } from "../ui/platform.ts";
+import { invoke } from "../ui/tauri.ts";
 import { createElement } from "react";
 import { MobileTabs, MobileBack, HideKeyboard } from "./mobile-view.tsx";
 import { placeWindowParts, removeWindowPart, showWindowParts } from "./window-root.ts";
@@ -302,6 +303,28 @@ function dropKeyboard() {
   removeWindowPart("mobile-keyboard");
 }
 
+/// A phone that moves to another network dials its machines again: Android tells native code
+/// nothing, and links over the old network can look open while dead. A quality estimate that
+/// changes on the same network is no move.
+function watchNetwork() {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const moved = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => void invoke("mobile_network_changed").catch(e => console.warn("network change:", e)), 1000);
+  };
+  window.addEventListener("online", moved);
+
+  const connection: unknown = Reflect.get(navigator, "connection");
+  if (!(connection instanceof EventTarget)) return;
+  let kind: unknown = Reflect.get(connection, "type");
+  connection.addEventListener("change", () => {
+    const now: unknown = Reflect.get(connection, "type");
+    if (now === kind) return;
+    kind = now;
+    moved();
+  });
+}
+
 export function initMobile() {
   mounted = true;
   drawMobile(at());
@@ -313,4 +336,5 @@ export function initMobile() {
   swipeBack();
   keyboard();
   tips(document);
+  if (onPhone()) watchNetwork();
 }

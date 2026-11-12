@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chacha20poly1305::{
     ChaCha20Poly1305, Key, KeyInit, Nonce,
-    aead::{Aead, OsRng, rand_core::RngCore},
+    aead::{Aead, Generate},
 };
 use curve25519_dalek::MontgomeryPoint;
 use ed25519_dalek::{SigningKey, VerifyingKey};
@@ -34,14 +34,13 @@ fn cipher(
     input[POINT_LEN..2 * POINT_LEN].copy_from_slice(one_off.as_bytes());
     input[2 * POINT_LEN..].copy_from_slice(to.as_bytes());
     let key = blake3::derive_key(KEY_CONTEXT, &input);
-    Ok(ChaCha20Poly1305::new(Key::from_slice(&key)))
+    Ok(ChaCha20Poly1305::new(&Key::from(key)))
 }
 
 /// `notice` sealed to the phone `to`, as base64 text for a push's data field.
 pub fn seal(to: &EndpointId, notice: &Notice) -> Result<String> {
     let to = VerifyingKey::from_bytes(to.as_bytes())?.to_montgomery();
-    let mut secret = [0; 32];
-    OsRng.fill_bytes(&mut secret);
+    let secret = <[u8; 32]>::try_generate()?;
     let one_off = MontgomeryPoint::mul_base_clamped(secret);
     let cipher = cipher(to.mul_clamped(secret), &one_off, &to)?;
     let plain = crate::http::encode(notice)?;

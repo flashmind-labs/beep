@@ -18,7 +18,7 @@ use crate::{
     machine::provision::spawn_env::{self, Scope},
     run::process::{command, own_group},
 };
-use agent_client_protocol::schema::v1::McpServer;
+use agent_client_protocol::v1::schema::McpServer;
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{

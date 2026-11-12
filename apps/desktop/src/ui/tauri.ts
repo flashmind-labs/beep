@@ -46,7 +46,7 @@ export function logInfo(message: string) {
 
 type Timing = { kind: "page" | "data" | "command"; name: string; ms: number; outcome: "ok" | "error" | "timeout" };
 const TIMED_COMMANDS = new Set([
-  "machine_clocks", "project_sync_detail", "agent_worktrees", "session_copies", "session_moves", "session_move_progress",
+  "machine_clocks", "project_sync_detail", "agent_worktrees", "session_moves", "session_move_progress",
   "agent_view", "agent_modes", "agent_tasks", "agent_sessions", "agent_hosts", "center_home",
   "project_sync", "project_overview", "center_project", "project_git_state", "center_project_lists",
   "center_project_issues", "center_project_pull_requests", "center_project_runs",

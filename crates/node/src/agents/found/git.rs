@@ -62,6 +62,7 @@ fn ask_checkout(dir: &Path) -> Option<Checkout> {
 /// checkout or git is missing. Three runs of git: call it from a blocking
 /// task, and not for every update.
 pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
+    GitFiles::above(dir)?;
     let said = git(dir, &["rev-parse", "--show-toplevel", "--git-common-dir"])?;
     let mut lines = said.lines();
     let top = PathBuf::from(lines.next()?.trim());

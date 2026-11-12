@@ -14,7 +14,7 @@ use crate::{
     machine::provision::spawn_env::{self, Scope},
     run::process::{GroupLeader, STOP_GRACE, command, own_group},
 };
-use agent_client_protocol::{Client, ConnectionTo};
+use agent_client_protocol::{Client, v1::ConnectionTo};
 use anyhow::{Context, Result};
 use beep_proto::node::agent::{ModelList, ModelOption, ModelPick};
 use std::{
@@ -180,7 +180,7 @@ async fn ask(child: &mut tokio::process::Child, cwd: &Path) -> Result<Offered> {
     // An oversized answer is dropped, and the request then fails.
     let (oversized, _reports) = mpsc::channel(1);
     let answer = Client
-        .builder()
+        .v1()
         .name("beep-node")
         .connect_with(
             acp::transport(stdin, stdout, oversized),

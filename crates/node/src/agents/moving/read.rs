@@ -9,7 +9,6 @@
 
 use super::{
     Harness,
-    offers::{Project, offers},
     progress::Target,
     worktree::{self, MAX_BUNDLE, MAX_PATCH, Work, snapshot},
 };
@@ -63,11 +62,10 @@ pub(crate) enum Request {
         #[serde(default)]
         worktree: bool,
     },
-    /// What this machine offers for background copies: its sessions of the
-    /// mesh's projects, active in the last 30 days.
+    /// Asked by nodes from before background copies were removed; refused.
+    /// Kept so the requests after it keep their place on the wire.
     List {},
-    /// As `Read`, for a background copy: any mesh member may ask, for a
-    /// session `List` offers. Nothing of a worktree is sent.
+    /// As `List`.
     Copy {
         agent: AgentSlug,
         id: String,
@@ -113,7 +111,9 @@ pub(crate) enum Reply {
     Refused {
         message: String,
     },
-    /// The answer to `List`.
+    /// Was the answer to `List`; never sent now. Kept so the replies after
+    /// it keep their place on the wire.
+    #[allow(dead_code)]
     Offers {
         offers: Vec<Offer>,
     },
@@ -140,11 +140,10 @@ pub(super) enum Asked {
     Read,
     /// A source asks the target how the move stands.
     State,
-    /// Any mesh member lists what this machine offers, or copies one.
-    Background,
 }
 
-/// A session this machine offers other machines a background copy of.
+/// A session a node offered for a background copy, in the unused `Offers`
+/// reply.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Offer {
     pub(crate) agent: AgentSlug,
@@ -223,7 +222,6 @@ pub(super) async fn serve(
     agents: &Agents,
     me: &str,
     mut access: Access<'_>,
-    projects: &[Project],
 ) -> Result<()> {
     let refuse = |message: &str| Reply::Refused {
         message: message.to_owned(),
@@ -331,46 +329,9 @@ pub(super) async fn serve(
             tx.send(&Reply::BundleEnd {}).await?;
             tx.finish().await
         }
-        Some(Request::List {}) => {
-            if !access.allows(Asked::Background, "").await {
-                return tx.send(&refuse("not in the mesh")).await;
-            }
-
-            let offers = offers(agents, projects).await;
-            tx.send(&Reply::Offers { offers }).await?;
-            tx.finish().await
-        }
-        Some(Request::Copy {
-            agent,
-            id,
-            from,
-            prefix_hash,
-        }) => {
-            if !access.allows(Asked::Background, &id).await {
-                return tx.send(&refuse("not in the mesh")).await;
-            }
-            // Only what `List` offers: a session of a mesh project.
-            let offered = offers(agents, projects)
+        Some(Request::List {} | Request::Copy { .. }) => {
+            tx.send(&refuse("this machine no longer makes background copies"))
                 .await
-                .iter()
-                .any(|offer| offer.id == id && offer.agent == agent);
-            if !offered {
-                return tx.send(&refuse("that session is not offered")).await;
-            }
-
-            let found = match locate(agents, me, &agent, &id).await {
-                Ok(found) => found,
-                Err(message) => return tx.send(&Reply::Refused { message }).await,
-            };
-            let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
-
-            match send_after(&mut tx, &found, from, &prefix_hash, live, None).await {
-                Ok(_) => tx.finish().await,
-                Err(e) => {
-                    let message = format!("{e:#}");
-                    tx.send(&Reply::Refused { message }).await
-                }
-            }
         }
         Some(Request::State { id, at }) => {
             if !access.allows(Asked::State, &id).await {
@@ -538,17 +499,8 @@ pub(crate) struct Ask<'a> {
     pub(crate) agent: AgentSlug,
     pub(crate) id: &'a str,
     pub(crate) copy: &'a Path,
-    pub(crate) kind: Kind,
-}
-
-/// Whose copy it is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Kind {
-    /// The target of a move reads the session; `worktree` asks for the
-    /// worktree's commit and uncommitted work as well.
-    Move { worktree: bool },
-    /// A background copy, at most `rate` bytes a second.
-    Background { rate: u64 },
+    /// Asks for the worktree's commit and uncommitted work as well.
+    pub(crate) worktree: bool,
 }
 
 /// Brings the copy at `ask.copy` up to date from the stream of a source.
@@ -568,23 +520,15 @@ pub(super) async fn pull_within(
         agent,
         id,
         copy,
-        kind,
+        worktree,
     } = ask;
     let (from, prefix_hash) = held(copy).await?;
-    let request = match kind {
-        Kind::Move { worktree } => Request::Read {
-            agent,
-            id: id.to_owned(),
-            from,
-            prefix_hash,
-            worktree,
-        },
-        Kind::Background { .. } => Request::Copy {
-            agent,
-            id: id.to_owned(),
-            from,
-            prefix_hash,
-        },
+    let request = Request::Read {
+        agent,
+        id: id.to_owned(),
+        from,
+        prefix_hash,
+        worktree,
     };
     tx.send(&request).await?;
     let (start, file_name) = match next(&mut rx, quiet).await? {
@@ -616,14 +560,6 @@ pub(super) async fn pull_within(
         match next(&mut rx, quiet).await? {
             Some(Reply::Chunk { data }) => {
                 out.write_all(&data).await?;
-
-                if let Kind::Background { rate } = kind {
-                    // Receiving slowly slows the sender through the
-                    // connection's flow control: a background copy never
-                    // takes the link.
-                    let secs = data.len() as f64 / rate.max(1) as f64;
-                    tokio::time::sleep(Duration::from_secs_f64(secs)).await;
-                }
             }
             Some(Reply::Work { head }) => {
                 work = Some(Work {

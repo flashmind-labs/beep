@@ -414,17 +414,14 @@ pub fn restart(exe: &Path) -> Result<Restart> {
 /// What `restart` does for `exe`, done later with `Plan::run`. Only an
 /// older unit or plist is written again.
 pub fn restart_plan(exe: &Path) -> Result<Plan> {
-    let plain = |restart| Plan {
-        restart,
-        reload: false,
-    };
+    let plain = |restart| Plan { restart };
 
     match present()? {
         Some(Manager::Systemd) => systemd::plan(exe, systemd::Scope::User).map(plain),
         Some(Manager::SystemdSystem) => systemd::plan(exe, systemd::Scope::System).map(plain),
         Some(Manager::OpenRc) => initd::plan(exe, initd::Init::OpenRc).map(plain),
         Some(Manager::SysVInit) => initd::plan(exe, initd::Init::SysV).map(plain),
-        Some(Manager::Launchd) => launchd::plan(exe),
+        Some(Manager::Launchd) => launchd::plan(exe).map(plain),
         Some(Manager::TaskScheduler) => windows::plan(exe).map(plain),
         None => Ok(plain(Restart::NotInstalled)),
     }
@@ -434,17 +431,12 @@ pub fn restart_plan(exe: &Path) -> Result<Plan> {
 #[derive(Debug)]
 pub struct Plan {
     pub restart: Restart,
-    /// The plist was written again, so launchd loads it anew.
-    reload: bool,
 }
 
 impl Plan {
     #[cfg(test)]
     pub(crate) fn new(restart: Restart) -> Self {
-        Self {
-            restart,
-            reload: false,
-        }
+        Self { restart }
     }
 
     /// Restarts the service when planned, saying what it did.
@@ -456,7 +448,7 @@ impl Plan {
             }
             Restart::Restarted(Manager::OpenRc) => initd::restart(initd::Init::OpenRc)?,
             Restart::Restarted(Manager::SysVInit) => initd::restart(initd::Init::SysV)?,
-            Restart::Restarted(Manager::Launchd) => launchd::restart(self.reload)?,
+            Restart::Restarted(Manager::Launchd) => launchd::restart()?,
             Restart::Restarted(Manager::TaskScheduler) => windows::restart()?,
             _ => {}
         }

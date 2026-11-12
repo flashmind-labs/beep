@@ -1,8 +1,8 @@
 [package]
 name = "beep-node"
-version = "0.6.7"
+version = "0.6.9"
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.99"
 publish = false
 
 [features]
@@ -83,10 +83,10 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
-agent-client-protocol = { version = "3.6", features = ["unstable_end_turn_token_usage", "unstable_session_system_prompt"], optional = true }
+agent-client-protocol = { version = "5.2", features = ["unstable_end_turn_token_usage"], optional = true }
 anyhow = "1"
 bao-tree = { version = "0.17", optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 beep-mesh = { path = "../mesh", optional = true }
 # Reads CI runs as the desktop does.
 beep-projects = { path = "../projects", optional = true }
@@ -115,16 +115,16 @@ log = { version = "0.4", optional = true }
 notify = { version = "8", optional = true }
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
 portable-pty = { version = "0.9", optional = true }
-rand = { version = "0.9", optional = true }
+rand = { version = "0.10", optional = true }
 regex = { version = "1", optional = true }
 # `beep-node update` downloads releases, and the CI watch asks GitHub, with
 # the client setup from `beep_proto::https`.
 reqwest = { version = "0.13.5", default-features = false, optional = true }
 rmp = { version = "0.8", optional = true }
 rmp-serde = { version = "1", optional = true }
-roxmltree = { version = "0.20", optional = true }
-# flsh keeps its sessions in SQLite; the same version flashmind uses.
-rusqlite = { version = "0.40", features = ["bundled"], optional = true }
+roxmltree = { version = "0.21", optional = true }
+# flsh keeps its sessions in SQLite.
+rusqlite = { version = "0.42", features = ["bundled"], optional = true }
 secrecy = { version = "0.10", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_bytes = { version = "0.11", optional = true }
@@ -145,7 +145,7 @@ toml_edit = { version = "0.25", optional = true }
 tracing = { version = "0.1", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 which = { version = "8", optional = true }
-zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }

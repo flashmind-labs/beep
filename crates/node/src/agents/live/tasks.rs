@@ -3,7 +3,7 @@
 
 use super::{Live, MAX_LINE, MAX_TASKS, content::cut, tools::ToolCall};
 use crate::agents::acp::AsyncTask;
-use agent_client_protocol::schema::v1::{Meta, ToolCallId};
+use agent_client_protocol::v1::schema::{Meta, ToolCallId};
 use beep_proto::node::agent::{Task, TaskState};
 
 /// The task type of a turn the agent started on its own, which is not a

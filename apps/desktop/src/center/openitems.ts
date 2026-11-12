@@ -3,7 +3,6 @@ import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
-import { folderUnder } from "../addproject/importproject-state.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.ts";
 import { projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
@@ -43,27 +42,25 @@ function importRepo(p: OpenRepo) {
   return p.host === "github.com" ? p.repo : p.url;
 }
 
-/// Where Import puts it: the last machine and folder used, else the server's
-/// default on the first online machine.
-function importPlace(p: OpenRepo) {
+/// The machine Import puts it on, in its projects folder: the last one used,
+/// else the first online.
+function importMachine() {
   const machines = (state.home?.machines || []).filter(m => m.online && m.can_host !== false);
   const last = lastImport();
-  const machine = machines.find(m => m.id === last?.machine) || machines[0] || null;
-  const folder = machine && last?.root && machine.id === last.machine ? folderUnder(last.root, importRepo(p)) : null;
-  return { machine, folder };
+  return machines.find(m => m.id === last?.machine) || machines[0] || null;
 }
 
-export function importTitle(p: OpenRepo) {
-  const { machine, folder } = importPlace(p);
+export function importTitle() {
+  const machine = importMachine();
   if (!machine) return "No machine is online; Import opens the sheet";
-  return `Imports on ${machine.name}${folder ? `, into ${folder}` : ""}. Right-click for Import with settings…`;
+  return `Imports on ${machine.name}. Right-click for Import with settings…`;
 }
 
 /// Imports from the row with the last machine and folder; the row turns
 /// into the project once it is in. With no machine online, the sheet.
 export async function quickImport(p: OpenRepo) {
   if (rowImports.get(p.key) === "busy") return;
-  const { machine, folder } = importPlace(p);
+  const machine = importMachine();
   if (!machine) return importWithSettings(p);
   rowImports.set(p.key, "busy");
   draw();
@@ -73,7 +70,7 @@ export async function quickImport(p: OpenRepo) {
     if (!state.found) await loadFound();
     const here = foundFor(state.found, p.repo);
     if (here) await importFound(here);
-    else keepLastImport(await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder, worktrees: [] }));
+    else keepLastImport(await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder: null, worktrees: [] }));
     rowImports.delete(p.key);
     await refresh();
   } catch (e) {
@@ -86,15 +83,14 @@ export async function quickImport(p: OpenRepo) {
 }
 
 /// The Import a project sheet for the row's repository, on the last
-/// machine and folder used.
+/// machine used.
 function importWithSettings(p: OpenRepo) {
-  const { machine, folder } = importPlace(p);
+  const machine = importMachine();
   openImportProject({
     machines: (state.home?.machines || []).filter(m => m.can_host !== false),
     macId: state.mac?.id || null,
     repo: importRepo(p),
     machine: machine?.id ?? null,
-    folder,
     onDone: () => refresh(),
   });
 }

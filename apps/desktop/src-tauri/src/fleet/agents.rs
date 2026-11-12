@@ -145,14 +145,46 @@ pub(crate) async fn local_sessions(fleet: &Fleet) -> Vec<MachineSession> {
     .await
 }
 
-/// Beep's sessions on the other online machines of the mesh.
-pub(crate) async fn peer_sessions(fleet: &Fleet) -> Vec<MachineSession> {
+/// Beep's sessions on the other machines of the mesh, and the machines that
+/// may have some but did not say: online ones that did not answer in time,
+/// and those still being connected to.
+pub(crate) struct PeerSessions {
+    pub(crate) sessions: Vec<MachineSession>,
+    pub(crate) unanswered: Vec<EndpointId>,
+    pub(crate) connecting: Vec<EndpointId>,
+}
+
+/// Beep's sessions on the other online machines of the mesh, a few machines
+/// at once.
+pub(crate) async fn peer_sessions(fleet: &Fleet) -> PeerSessions {
     let me = fleet.id();
-    let peers = fleet.online().into_iter().filter(|m| *m != me).collect();
-    each(fleet, peers, MACHINE_LIMIT, |client, host| async move {
-        listed(fleet, &client, &host).await
-    })
-    .await
+    let asks: Vec<_> = fleet
+        .online()
+        .into_iter()
+        .filter(|machine| *machine != me)
+        .map(|machine| async move {
+            let listed = timeout(MACHINE_LIMIT, sessions_of(fleet, machine)).await;
+            (machine, listed.ok().flatten())
+        })
+        .collect();
+    let answers: Vec<_> = stream::iter(asks)
+        .buffer_unordered(IN_FLIGHT)
+        .collect()
+        .await;
+    let mut found = PeerSessions {
+        sessions: Vec::new(),
+        unanswered: Vec::new(),
+        connecting: fleet.status().connecting(),
+    };
+
+    for (machine, listed) in answers {
+        match listed {
+            Some(sessions) => found.sessions.extend(sessions),
+            None => found.unanswered.push(machine),
+        }
+    }
+
+    found
 }
 
 /// Beep's sessions on `machine` alone, for its change to replace only its

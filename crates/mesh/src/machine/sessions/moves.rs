@@ -1,9 +1,9 @@
-use super::{NodeWork, READ_TIMEOUT, Reading, Sessions, UPDATE_TIMEOUT, once};
+use super::{NodeWork, READ_TIMEOUT, Reading, Sessions, once};
 use crate::{
     MeshError,
     machine::{said, unexpected},
 };
-use beep_proto::node::agent::{CopyView, MoveProgress, SessionsReply, SessionsRequest, Worktree};
+use beep_proto::node::agent::{MoveProgress, SessionsReply, SessionsRequest, Worktree};
 
 /// What a node says of a session's move to it.
 pub enum MoveState {
@@ -78,74 +78,6 @@ pub async fn worktree_move<S: Sessions + ?Sized>(
             Ok(WorktreeMove::NeedsUpdate)
         }
         Err(e) => Err(e),
-    }
-}
-
-/// What a node says of the copies of other machines' sessions it keeps.
-pub enum NodeCopies {
-    Listed(Vec<CopyView>),
-    /// The node is from before background copies.
-    NeedsUpdate,
-}
-
-/// The copies the node keeps, and the versions that lost to another machine's.
-pub async fn copies<S: Sessions + ?Sized>(node: &S) -> Result<NodeCopies, MeshError> {
-    match node
-        .sessions(SessionsRequest::Copies {}, Reading::Followed, READ_TIMEOUT)
-        .await
-    {
-        Ok(SessionsReply::Copies { copies }) => Ok(NodeCopies::Listed(copies)),
-        Ok(SessionsReply::Error { message }) => Err(said(message)),
-        Ok(other) => Err(unexpected(&other)),
-        // A node from before it closes the stream.
-        Err(MeshError::Link(e)) => {
-            tracing::debug!("node did not answer a copies request; error={e:#}");
-            Ok(NodeCopies::NeedsUpdate)
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// Runs the node's copy of a session, or its version set aside at `lost`.
-pub async fn continue_copy<S: Sessions + ?Sized>(
-    node: &S,
-    agent: &str,
-    session: &str,
-    lost: Option<u64>,
-) -> Result<NodeWork<()>, MeshError> {
-    let request = SessionsRequest::ContinueCopy {
-        agent: agent.to_owned(),
-        session: session.to_owned(),
-        lost,
-    };
-
-    match node
-        .sessions(request, Reading::Once, UPDATE_TIMEOUT)
-        .await?
-    {
-        SessionsReply::CopyDone {} => Ok(NodeWork::Done(())),
-        SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
-        other => Err(unexpected(&other)),
-    }
-}
-
-/// Throws away the node's copy of a session, or its version set aside at `lost`.
-pub async fn discard_copy<S: Sessions + ?Sized>(
-    node: &S,
-    agent: &str,
-    session: &str,
-    lost: Option<u64>,
-) -> Result<(), MeshError> {
-    let request = SessionsRequest::DiscardCopy {
-        agent: agent.to_owned(),
-        session: session.to_owned(),
-        lost,
-    };
-
-    match once(node, request).await? {
-        SessionsReply::CopyDone {} => Ok(()),
-        SessionsReply::Error { message } => Err(said(message)),
-        other => Err(unexpected(&other)),
     }
 }
 

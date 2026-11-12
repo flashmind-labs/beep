@@ -1,10 +1,10 @@
 //! The node as a macOS LaunchAgent: started at login and restarted when it
 //! stops, with its output in the user's Logs folder.
 
-use super::{Launch, Manager, Plan, Restart, escape, run};
+use super::{Launch, Manager, Restart, escape, run};
 use anyhow::{Context, Result};
 use std::{
-    fs,
+    env, fs,
     io::ErrorKind,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -64,36 +64,72 @@ pub(super) fn start() -> Result<()> {
     run("launchctl", &["kickstart", &service])
 }
 
-/// Restarts the loaded service; `reload` loads its rewritten plist anew.
-pub(super) fn restart(reload: bool) -> Result<()> {
+/// Reloads the service so it starts the new binary at its path, in a
+/// helper of its own: run from the service, the bootout stops this process.
+///
+/// A LaunchAgent registered at login carries a code requirement pinned to
+/// its binary's ad hoc cdhash. `kickstart -k` on a replaced binary is
+/// refused with `OS_REASON_CODESIGNING` and the agent stays down; loading it
+/// anew records the new binary. Should it still not run, a kickstart
+/// starts it.
+pub(super) fn restart() -> Result<()> {
     let domain = domain()?;
     let service = format!("{domain}/{LABEL}");
-    if reload {
-        bootout(&service);
-        run(
-            "launchctl",
-            &["bootstrap", &domain, &plist_path()?.display().to_string()],
-        )
-    } else {
-        run("launchctl", &["kickstart", "-k", &service])
+    let plist = plist_path()?.display().to_string();
+    let log = log_path()?;
+    let log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log)
+        .with_context(|| format!("opening {}", log.display()))?;
+    let mut helper = Command::new("/bin/sh");
+    helper
+        .args(["-c", RELOAD, "reload", &domain, &service, &plist])
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().context("opening the log")?)
+        .stderr(log);
+    // launchd stops the service's process group, not this one.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut helper, 0);
+    let mut child = helper.spawn().context("starting the reload")?;
+
+    // The service's own node is stopped by the reload; it does not wait.
+    if env::var_os("XPC_SERVICE_NAME").is_some_and(|name| name == LABEL) {
+        return Ok(());
     }
+
+    let status = child.wait().context("waiting for the reload")?;
+    anyhow::ensure!(status.success(), "{LABEL} did not start again");
+    Ok(())
 }
 
+/// `restart`'s helper, given the domain, the service and the plist.
+const RELOAD: &str = r#"
+domain=$1 service=$2 plist=$3
+running() { launchctl print "$service" 2>/dev/null | grep -q "state = running"; }
+launchctl bootout "$service" 2>/dev/null
+i=0
+while launchctl print "$service" >/dev/null 2>&1 && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done
+launchctl enable "$service"
+launchctl bootstrap "$domain" "$plist"
+i=0
+while ! running && [ $i -lt 10 ]; do sleep 1; i=$((i+1)); done
+running || launchctl kickstart "$service"
+sleep 2
+running
+"#;
+
 /// What `restart` would do, without doing it.
-pub(super) fn plan(exe: &Path) -> Result<Plan> {
-    let plain = |restart| Plan {
-        restart,
-        reload: false,
-    };
+pub(super) fn plan(exe: &Path) -> Result<Restart> {
     let path = plist_path()?;
     let plist = match fs::read_to_string(&path) {
         Ok(plist) => plist,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(plain(Restart::NotInstalled)),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Restart::NotInstalled),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
 
     if !runs(&plist, exe) {
-        return Ok(plain(Restart::OtherBinary(path)));
+        return Ok(Restart::OtherBinary(path));
     }
 
     let service = format!("{}/{LABEL}", domain()?);
@@ -105,21 +141,16 @@ pub(super) fn plan(exe: &Path) -> Result<Plan> {
         .status()
         .is_ok_and(|status| status.success());
     // A plist from an older node gets this one's settings, keeping its
-    // arguments and PATH. launchd reads it again only when loaded anew.
-    let newer = refreshed(&plist);
-
-    if let Some(newer) = &newer {
+    // arguments and PATH; `restart` loads it anew.
+    if let Some(newer) = refreshed(&plist) {
         fs::write(&path, newer).with_context(|| format!("writing {}", path.display()))?;
     }
 
     if !loaded {
-        return Ok(plain(Restart::Stopped(Manager::Launchd)));
+        return Ok(Restart::Stopped(Manager::Launchd));
     }
 
-    Ok(Plan {
-        restart: Restart::Restarted(Manager::Launchd),
-        reload: newer.is_some(),
-    })
+    Ok(Restart::Restarted(Manager::Launchd))
 }
 
 /// The folder the plist passes as `--dir`.

@@ -16,7 +16,7 @@ import { Chip } from "../ui/kit.tsx";
 function Import({ repo }: { repo: OpenRepo }) {
   const current = rowImports.get(repo.key);
   if (current === "busy") return <span className="age"><span className="dspin" /> Importing…</span>;
-  return <>{current && <><span className="chip bad" title={current.error}>Import failed</span>{" "}</>}<button type="button" className="dbtn small" title={importTitle(repo)} onClick={event => { event.stopPropagation(); void quickImport(repo); }}>Import</button></>;
+  return <>{current && <><span className="chip bad" title={current.error}>Import failed</span>{" "}</>}<button type="button" className="dbtn small" title={importTitle()} onClick={event => { event.stopPropagation(); void quickImport(repo); }}>Import</button></>;
 }
 function Item({ item, repo, filter, list }: { item: GitItemRow; repo: OpenRepo | null; filter: LabelFilter; list: string }) {
   const selected = item.kind === "issue" ? issueSelection(list, item.url) : null;

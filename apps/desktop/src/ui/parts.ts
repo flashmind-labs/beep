@@ -118,6 +118,8 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
   };
   const keys = (e: KeyboardEvent) => {
     if (openSheets.at(-1) !== root) return;
+    // Esc closes an open suggestion menu first; its field handles that.
+    if (e.key === "Escape" && document.activeElement?.getAttribute("aria-expanded") === "true") return;
     if (options.onKey?.(e) || e.key !== "Escape") return;
     e.preventDefault();
     e.stopImmediatePropagation();

@@ -2,7 +2,7 @@
 name = "beep-server"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.99"
 publish = false
 
 [features]
@@ -16,14 +16,14 @@ anyhow = "1"
 async-trait = "0.1"
 # The apps' HTTP; TLS is the proxy's in front.
 axum = { version = "0.8", features = ["http2"] }
-base64 = "0.22"
+base64 = "0.23"
 beep-mesh = { path = "../mesh", features = ["thumbs"] }
 beep-proto = { path = "../proto", features = ["logging", "client", "http2", "seal"] }
 beep-projects = { path = "../projects" }
 beep-report = { path = "../report" }
 blake3 = "1"
 bytes = "1"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 flashmind = { git = "https://github.com/flashmind-labs/flashmind.git", default-features = false, features = ["core", "llm", "mcp", "composio", "cron", "memory-postgres", "subagent", "mistral-realtime", "http-compression", "http2", "request-compression"] }
@@ -33,7 +33,7 @@ serde_bytes = "0.11"
 rmp-serde = "1"
 iroh = "1.4.1"
 rust_decimal = "1"
-rusty-s3 = "0.8"
+rusty-s3 = "0.11"
 reqwest = { version = "0.13.5", default-features = false, features = ["form", "json", "stream", "http2"] }
 secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -56,10 +56,10 @@ toml = "1"
 log = "0.4"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 html2text = "0.17"
-imagesize = "0.14"
+imagesize = "0.15"
 # Thumbnails of coding agents' pictures.
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
-jsonwebtoken = "9.3"
+jsonwebtoken = { version = "11.1", features = ["aws_lc_rs"] }
 qrcode = { version = "0.14", default-features = false }
 # A research's paper as a PDF (the `pdf` feature): Markdown read with pulldown-cmark, its LaTeX math
 # turned into Typst's with mitex, typeset by Typst with its bundled fonts.

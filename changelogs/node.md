@@ -2,6 +2,24 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.9] - 2026-11-12
+
+### Changed
+
+- Node: sessions from other machines are no longer copied in the
+  background. A session is copied when you continue it on another machine,
+  and both machines must be online. Copies left from earlier versions are
+  deleted on start. Versions of a session that lost to another machine's
+  are kept on disk.
+
+## [0.6.8] - 2026-11-12
+
+### Performance
+
+- Node: background session copying reads its cache once per pass, stops
+  trying sessions once the cache is full, and skips passes while nothing
+  changed, instead of rescanning the cache for every session it skips.
+
 ## [0.6.7] - 2026-11-12
 
 ### Changed

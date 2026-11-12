@@ -1,9 +1,6 @@
 //! Serves `beep-sessions/1` to the mesh's devices.
 
-use super::{
-    offers::projects_of,
-    read::{Access, Asked, serve},
-};
+use super::read::{Access, Asked, serve};
 use crate::{agents::Agents, link::Membership};
 use beep_mesh::{Key, Mesh};
 use beep_proto::node::mesh_state::{SessionMove, StateValue};
@@ -49,11 +46,6 @@ pub(super) fn permits(
     ask: Asked,
     id: &str,
 ) -> bool {
-    // Background copies need no move: the peer is in the mesh.
-    if ask == Asked::Background {
-        return true;
-    }
-
     let Some(record) = record.filter(|record| record.id == id) else {
         return false;
     };
@@ -61,7 +53,6 @@ pub(super) fn permits(
     match ask {
         Asked::Read => record.from == me && record.to == peer,
         Asked::State => record.to == me && record.from == peer,
-        Asked::Background => true,
     }
 }
 
@@ -121,10 +112,9 @@ impl ProtocolHandler for SessionsAlpn {
                             mesh.is_member(peer)
                                 && permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
                         };
-                        let projects = projects_of(&mesh);
                         let me = name_of_me(&mesh);
                         let access = Access { check: &allow, updates };
-                        serve(tx, rx, &agents, &me, access, &projects).await
+                        serve(tx, rx, &agents, &me, access).await
                     });
                 }
                 Some(ended) = streams.join_next() => {

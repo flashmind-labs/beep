@@ -7,6 +7,32 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.10] - 2026-11-12
+
+### Changed
+
+- Desktop: sessions are copied when you continue them on another machine
+  that is online, no longer in the background. Continuing a session from a
+  machine that is off is no longer offered.
+- Desktop: a web address written as inline code in a chat reply or prompt is now
+  a link, including addresses with an IPv6 host.
+
+## [0.8.9] - 2026-11-12
+
+### Performance
+
+- Desktop: copying other machines' sessions in the background no longer
+  causes CPU spikes every minute when the copy cache is full.
+- Desktop: a GitHub or Forgejo host that a machine cannot reach is no longer
+  asked again for every issue and pull request list. Beep waits a minute
+  before trying it again on that machine, then longer up to 15 minutes, so
+  startup no longer spends minutes of CPU on failed host commands.
+- Desktop: the palette's prompt search reads only a session's new
+  transcript entries, once the session has been quiet for a minute, instead
+  of rereading whole transcripts every 30 seconds. A slow link keeps the
+  pages it already read, and a session that fails to load waits longer
+  before the next try.
+
 ## [0.8.8] - 2026-11-12
 
 ### Added

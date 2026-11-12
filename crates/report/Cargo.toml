@@ -2,7 +2,7 @@
 name = "beep-report"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.99"
 publish = false
 
 [dependencies]
@@ -21,7 +21,7 @@ strum = { version = "0.28", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "time", "macros", "process", "io-util"] }
 url = "2"
-zip = { version = "4", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "test-util", "net", "io-util"] }

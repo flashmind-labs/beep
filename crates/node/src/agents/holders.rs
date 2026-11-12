@@ -19,10 +19,18 @@ use tokio::{
     time::Instant,
 };
 
-/// How long an answer stands while its file is not written and its holder
-/// runs: a process that opens a session without writing to it shows within
-/// it. Checks of every file due within half of it run together.
+/// How long an answer stands while its recently written file is not written
+/// again: a process that opens a session without writing to it shows within
+/// it. Checks of every file due within half its time run together.
 const KEPT_FOR: Duration = Duration::from_secs(10);
+/// How long an answer stands for a file its holder keeps open: its writes
+/// need no check, and its exit ends the answer sooner.
+const HELD_KEPT_FOR: Duration = Duration::from_secs(60);
+/// How long a file must go unwritten to count as quiet.
+const QUIET: Duration = Duration::from_secs(10 * 60);
+/// How long an answer stands for a quiet file nothing holds: a session
+/// left that long is rarely opened again before it is written.
+const QUIET_KEPT_FOR: Duration = Duration::from_secs(2 * 60);
 /// How long a file nobody asked about stays known.
 const FORGET_AFTER: Duration = Duration::from_secs(5 * 60);
 /// How long after a check failed the next one may run.
@@ -158,7 +166,7 @@ struct Known {
 impl Known {
     /// Whether the answer still stands for the file as `now` sees it.
     fn stands(&self, seen: &Seen) -> bool {
-        if self.checked.elapsed() >= KEPT_FOR || self.seen.real != seen.real {
+        if self.checked.elapsed() >= self.kept_for() || self.seen.real != seen.real {
             return false;
         }
 
@@ -168,6 +176,21 @@ impl Known {
             // A write means a process may have opened it.
             Holding::Closed => self.seen == *seen,
             Holding::Unknown => false,
+        }
+    }
+
+    /// How long the answer stands once checked.
+    fn kept_for(&self) -> Duration {
+        let quiet = self
+            .seen
+            .modified
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age >= QUIET);
+
+        match self.holding {
+            Holding::Open(_) => HELD_KEPT_FOR,
+            Holding::Closed if quiet => QUIET_KEPT_FOR,
+            Holding::Closed | Holding::Unknown => KEPT_FOR,
         }
     }
 }
@@ -269,7 +292,7 @@ async fn pass(
     // Known files due within half the time go along: one scan costs about
     // the same for one file as for many.
     for (file, old) in known.iter() {
-        if !due.contains_key(file) && old.checked.elapsed() >= KEPT_FOR / 2 {
+        if !due.contains_key(file) && old.checked.elapsed() >= old.kept_for() / 2 {
             due.insert(file.clone(), old.seen.clone());
         }
     }

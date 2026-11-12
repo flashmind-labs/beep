@@ -3,7 +3,7 @@
 //! transcript, which stays here.
 
 use super::{acp::Prompt, images::Images, usage::UsageHub};
-use agent_client_protocol::schema::v1::{CompactionId, ToolCallId, ToolKind};
+use agent_client_protocol::v1::schema::{CompactionId, ToolCallId, ToolKind};
 use beep_proto::node::{
     agent::{AgentCommand, Entry, SessionInfo, StopReason},
     usage::ModelTokens,

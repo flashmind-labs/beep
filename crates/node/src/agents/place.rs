@@ -20,7 +20,7 @@ const KEPT: Duration = Duration::from_secs(10 * 60);
 /// a clone there writes no file this looks at.
 const KEPT_NONE: Duration = Duration::from_secs(60);
 /// The most folders kept; a full cache is emptied.
-const MAX_KEPT: usize = 256;
+const MAX_KEPT: usize = 1024;
 
 /// What the lookup of a folder found, and when.
 struct Answer {

@@ -4,7 +4,7 @@ import { createStore } from "zustand/vanilla";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { AgentListRow } from "./agents-list-view.tsx";
 import { formatAgo } from "../ui/format.ts";
-import { machineConnecting, onConnecting } from "../machines/machine-state.ts";
+import { machineConnecting, machinesReachNow, onConnecting, type MachinesReach } from "../machines/machine-state.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
 // session's log and messages, and every session. Entry: this file.
@@ -15,7 +15,6 @@ import type { ProviderCredits } from "../ui/credits.ts";
 import { type Nested, nest, splitEnded } from "./nesting-state.ts";
 import { parentSession, ensureSessions, loadSessions, reviewers, sessions, sessionsChanged } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
-import { copies, copiesView, keepCopiesFresh, type CopiesModel } from "./copies.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
 import type { CheckoutPick } from "./agentpick.ts";
@@ -406,7 +405,6 @@ export async function loadAgentHosts() {
 export async function renderAgents() {
   S.view = "agents";
   agentsList.setState({ selected: 0, endedOpen: false });
-  keepCopiesFresh(() => S.view === "agents");
   drawAgents(true);
 
   try {
@@ -436,7 +434,6 @@ const rereadAgents = ambient(async () => {
 sessionsChanged.add(() => rereadAgents());
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 onMoves(() => { if (S.view === "agents") drawAgents(false); });
-copies.subscribe(() => { if (S.view === "agents") drawAgents(false); });
 onClosing(() => { if (S.view === "agents") drawAgents(false); });
 onConnecting(() => { if (S.view === "agents") drawAgents(false); });
 
@@ -469,11 +466,12 @@ export interface AgentsListState {
   loading: boolean;
   error: string;
   summary: string;
-  copies: CopiesModel | null;
+  /// Whether a machine answered, for the empty list to tell none running from not connected yet.
+  reach: MachinesReach;
 }
 
 export const agentsList = createStore<AgentsListState>(() => ({
-  live: [], ended: [], endedOpen: false, selected: 0, loading: false, error: "", summary: "", copies: null,
+  live: [], ended: [], endedOpen: false, selected: 0, loading: false, error: "", summary: "", reach: "connecting",
 }));
 
 /// The rows the arrows and Enter move over: the ended ones only while open.
@@ -489,11 +487,14 @@ export function drawAgents(loading: boolean) {
   const listed = (n: Nested): ListedSession => ({ session: n.row, row: sessionRow(n) });
   const live = split.live.map(listed), ended = split.ended.map(listed);
   const going = split.live.filter(n => !n.row.reviewer).map(n => n.row), machines = new Set(going.map(s => s.machine_id)).size;
+  const reach = machinesReachNow();
   const summary = loading && !nested.length ? "Looking at your machines…"
-    : going.length ? `${going.length} live on ${machines} ${machines === 1 ? "machine" : "machines"}` : "Nothing running";
+    : going.length ? `${going.length} live on ${machines} ${machines === 1 ? "machine" : "machines"}`
+    // Until a machine answers, nothing is known to run.
+    : reach === "reached" ? "Nothing running" : "";
 
   agentsList.setState(s => {
-    const next = { ...s, live, ended, loading, summary, error: AG.error, copies: copiesView(new Set(visible.map(r => r.id))) };
+    const next = { ...s, live, ended, loading, summary, error: AG.error, reach };
     return { ...next, selected: Math.min(s.selected, Math.max(0, pickable(next).length - 1)) };
   });
 

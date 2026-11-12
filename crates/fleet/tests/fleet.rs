@@ -153,11 +153,26 @@ impl FakeNode {
         })
     }
 
-    fn prints_for(&self, command: &str) -> &'static str {
-        self.prints
-            .iter()
-            .find(|(word, _)| command.contains(word))
-            .map_or("BEEP_IMPORT: cloned\n", |(_, out)| *out)
+    /// What `command` prints: its line in `prints`, else a folder that is not there yet, else a
+    /// clone that lands.
+    fn prints_for(&self, command: &str) -> String {
+        if let Some((_, out)) = self.prints.iter().find(|(word, _)| command.contains(word)) {
+            return (*out).to_owned();
+        }
+
+        if !command.contains("BEEP_FOLDER:") {
+            return "BEEP_IMPORT: cloned\n".to_owned();
+        }
+
+        let word = command
+            .lines()
+            .next()
+            .and_then(|line| line.strip_prefix("d="));
+        let path = word
+            .unwrap_or_default()
+            .replace(['\'', '"'], "")
+            .replace("$HOME", "/home/user");
+        format!("BEEP_FOLDER: missing {path}\n")
     }
 
     async fn serve(&self, mut tx: LinkTx, mut rx: LinkRx) {
@@ -197,7 +212,7 @@ impl FakeNode {
             }
             "shell/1" => {
                 while let Ok(Some(Request::Run { command, .. })) = rx.recv::<Request>().await {
-                    let text = self.prints_for(&command).to_owned();
+                    let text = self.prints_for(&command);
                     self.ran.lock().expect("log").push(command);
                     let done = Event::Done {
                         exit_code: Some(0),

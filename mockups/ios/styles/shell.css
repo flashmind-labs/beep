@@ -40,6 +40,7 @@ svg{display:block;flex:none}
 /* Connecting: a machine shown from what the app kept, not reached yet. A static ring, no animation. */
 .dd.wait{background:transparent;box-shadow:inset 0 0 0 1.5px var(--dim)}
 .mstrip .m.wait b{color:var(--muted)}
+.empty{display:grid;justify-items:center;gap:8px;padding:28px 24px 32px;text-align:center}.empty b{font-size:14px;font-weight:600;color:var(--muted)}
 .row.wait .t,.row.wait .ag{opacity:.55}
 .ctabs{display:flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
 .ctabs div{flex:1;min-height:36px;display:flex;align-items:center;justify-content:center;gap:4px;padding:0 6px;border-radius:var(--radius-sm);white-space:nowrap;font-size:13px;color:var(--muted)}

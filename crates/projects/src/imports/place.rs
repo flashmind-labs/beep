@@ -2,41 +2,58 @@
 
 use super::{ImportError, repo::RepoRef};
 
-/// What the server knows of a machine's folders.
+/// What is known of a machine's folders.
 #[derive(Debug, Clone, Copy)]
 pub struct Folders<'a> {
-    /// `linux`, `macos` or `windows`; `None` before its first report.
-    pub os: Option<&'a str>,
     pub home: Option<&'a str>,
-    /// The user's files and code, on the user's own Linux environment.
-    pub workspace: Option<&'a str>,
+    /// Its "Projects in" folder as written, absolute or under `~`.
+    pub projects_in: Option<&'a str>,
 }
 
-/// `<workspace or home>/projects/<org>/<repo>` on Linux, else `~/Projects/<org>/<repo>`; `None` without a home.
+/// The folder new projects go under: the machine's "Projects in" folder with `~` expanded, else
+/// its home; `None` when that needs a home it has not reported.
+pub fn projects_root(folders: Folders<'_>) -> Option<String> {
+    let Some(projects_in) = folders.projects_in.map(str::trim).filter(|f| !f.is_empty()) else {
+        return folders.home.map(str::to_owned);
+    };
+    let Some(rest) = projects_in.strip_prefix('~') else {
+        return Some(projects_in.to_owned());
+    };
+
+    if !rest.is_empty() && !rest.starts_with(['/', '\\']) {
+        return Some(projects_in.to_owned());
+    }
+
+    let home = folders.home?;
+    let rest = rest.trim_start_matches(['/', '\\']);
+
+    if rest.is_empty() {
+        return Some(home.to_owned());
+    }
+
+    Some(join(home, &[rest]))
+}
+
+/// `<projects root>/<org>/<repo>`; `None` without a home.
 pub fn checkout_folder(folders: Folders<'_>, repo: &RepoRef) -> Option<String> {
     project_folder(folders, &[repo.org(), repo.name()])
 }
 
-/// `parts` under the machine's projects folder; `None` without a home.
+/// `parts` under the machine's projects root; `None` without a home.
 pub fn project_folder(folders: Folders<'_>, parts: &[&str]) -> Option<String> {
-    let linux = match folders.os {
-        Some(os) => os == "linux",
-        // Only a Linux node runs with a workspace.
-        None => folders.workspace.is_some(),
-    };
-    let (base, projects) = if linux {
-        (folders.workspace.or(folders.home)?, "projects")
-    } else {
-        (folders.home?, "Projects")
-    };
+    Some(join(&projects_root(folders)?, parts))
+}
+
+/// `parts` under `base`, with the separator `base` uses.
+pub fn join(base: &str, parts: &[&str]) -> String {
     let sep = if base.contains('\\') && !base.contains('/') {
         '\\'
     } else {
         '/'
     };
-    let mut all = vec![base.trim_end_matches(sep), projects];
+    let mut all = vec![base.trim_end_matches(sep)];
     all.extend_from_slice(parts);
-    Some(all.join(&sep.to_string()))
+    all.join(&sep.to_string())
 }
 
 /// What the chooser knows of one of the user's machines.
@@ -47,11 +64,9 @@ pub struct Candidate<'a> {
     pub online: bool,
     /// Online and runs commands.
     pub shell: bool,
-    /// The user's environment, with a workspace.
-    pub workspace: bool,
 }
 
-/// The machine to import onto, by index: `wanted`, else the environment, else the only online one.
+/// The machine to import onto, by index: `wanted`, else the only online one.
 pub fn choose(candidates: &[Candidate<'_>], wanted: Option<&str>) -> Result<usize, ImportError> {
     if let Some(id) = wanted.map(str::trim).filter(|id| !id.is_empty()) {
         let at = candidates
@@ -74,9 +89,6 @@ pub fn choose(candidates: &[Candidate<'_>], wanted: Option<&str>) -> Result<usiz
     let able: Vec<usize> = (0..candidates.len())
         .filter(|&at| candidates[at].shell)
         .collect();
-    if let Some(&at) = able.iter().find(|&&at| candidates[at].workspace) {
-        return Ok(at);
-    }
 
     match able[..] {
         [] => Err(ImportError::NoneOnline),

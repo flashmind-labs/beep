@@ -35,7 +35,6 @@ use serde::de::IgnoredAny;
 use std::{
     collections::BTreeSet,
     fmt::Write,
-    future::Future,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -67,8 +66,6 @@ const REPORT: &str = "report ";
 /// How long a channel may wait for its opening frame.
 pub(super) const CHANNEL_OPEN_WAIT: Duration = Duration::from_secs(10);
 
-/// How often the machine is probed again for changes.
-const REPROBE: Duration = Duration::from_secs(10 * 60);
 /// How often free disk and memory are sampled and the traffic counters
 /// read. Each is sent only when it changed.
 const RESAMPLE: Duration = Duration::from_secs(60);
@@ -456,8 +453,8 @@ impl Peers {
         JoinAlpn(self.clone())
     }
 
-    /// The `beep-sessions/1` handler: the other machine of a move, and
-    /// background copies, read this node's sessions through it.
+    /// The `beep-sessions/1` handler: the other machine of a move reads
+    /// this node's sessions through it.
     pub fn sessions_handler(&self) -> SessionsAlpn {
         let offers = self.inner.offers();
         SessionsAlpn::new(offers.agents.clone(), offers.mesh.clone())
@@ -775,30 +772,26 @@ impl ProtocolHandler for JoinAlpn {
 /// Serves `status/1`: the offers, then the machine's reports until the peer
 /// closes the stream.
 pub(crate) async fn status(tx: LinkTx, rx: LinkRx, offers: Offers) -> Result<()> {
-    status_with(tx, rx, offers, env::probe).await
+    status_with(tx, rx, offers, env::machine()).await
 }
 
-/// `status` with the way to probe the machine given. A probe runs a dozen
-/// commands and can take half a minute: it runs beside the loop, so the
-/// peer's close and the stats and traffic reports are not held up by it.
-async fn status_with<P, F>(mut tx: LinkTx, mut rx: LinkRx, offers: Offers, probe: P) -> Result<()>
-where
-    P: Fn() -> F,
-    F: Future<Output = EnvReport> + Send + 'static,
-{
+/// `status` with the machine's probes given. Every stream follows the one
+/// shared probe: it sends the latest report at once and each new one, so a
+/// stream never starts a probe of its own.
+async fn status_with(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    offers: Offers,
+    probes: &Arc<env::Probes>,
+) -> Result<()> {
     // An agent whose adapter the node installed later is offered then.
     let mut kinds = offers.agents.kinds_changed();
     kinds.mark_unchanged();
-    // A sign-in from a desktop is reported at once.
-    let mut signed_in = crate::machine::sign_in::signed_in();
-    signed_in.mark_unchanged();
     let mut adapters = offers.agents.adapters_changed();
     adapters.mark_unchanged();
     tx.send(&Report::Offers(offers.names())).await?;
-    let mut reprobe = interval(REPROBE);
-    reprobe.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    reprobe.tick().await;
-    let mut probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
+    let mut probed = probes.follow();
+    probed.mark_changed();
     let mut resample = interval(RESAMPLE);
     resample.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut reported = None;
@@ -815,21 +808,12 @@ where
             Ok(()) = kinds.changed() => {
                 tx.send(&Report::Offers(offers.names())).await?;
             }
-            _ = reprobe.tick(), if probing.is_none() => {
-                probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
-            }
-            Ok(()) = signed_in.changed(), if probing.is_none() => {
-                probing = Some(AbortOnDropHandle::new(tokio::spawn(probe())));
-            }
-            Some(probed) = async { probing.as_mut()?.await.into() }, if probing.is_some() => {
-                probing = None;
+            Ok(()) = probed.changed() => {
+                let now = probed.borrow_and_update().as_ref().map(|probed| probed.report.clone());
 
-                match probed {
-                    Ok(now) => {
-                        let now = EnvReport { adapters: offers.agents.adapter_installs(), ..now };
-                        send_env(&mut tx, &mut reported, now).await?;
-                    }
-                    Err(e) => log::warn!("probing the machine failed: {e}"),
+                if let Some(now) = now {
+                    let now = EnvReport { adapters: offers.agents.adapter_installs(), ..now };
+                    send_env(&mut tx, &mut reported, now).await?;
                 }
             }
             // An adapter install started or ended: said with the last probe.
