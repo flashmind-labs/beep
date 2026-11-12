@@ -3,6 +3,7 @@
 use super::control::NODE_ALPN_NAMED;
 use crate::lenient;
 use anyhow::{Context, Result};
+use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use serde::{Serialize, de::DeserializeOwned};
@@ -155,7 +156,7 @@ impl LinkTx {
             Encoding::Compact => rmp_serde::to_vec(message)?,
             Encoding::Named => rmp_serde::to_vec_named(message)?,
         };
-        self.framed.send(body.into()).await?;
+        self.framed.send(Into::<Bytes>::into(body)).await?;
         Ok(())
     }
 

@@ -78,7 +78,9 @@ mod platform {
         let pid = Pid::from_raw(i32::try_from(pid)?).context("invalid process id")?;
 
         match pidfd_open(pid, PidfdFlags::NONBLOCK) {
-            Ok(fd) => Ok(Registration(Some(AsyncFd::new(fd)?))),
+            // SAFETY: the `OwnedFd` moves into the `AsyncFd`, which owns it
+            // until it drops, so the descriptor stays open and unchanged.
+            Ok(fd) => Ok(Registration(Some(unsafe { AsyncFd::register(fd) }?))),
             Err(rustix::io::Errno::SRCH) => Ok(Registration(None)),
             Err(error) => Err(error.into()),
         }
