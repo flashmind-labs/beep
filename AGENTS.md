@@ -107,6 +107,13 @@ user's view and name the platform. Skip internal churn. Never invent past
 release notes or edit published entries. Check with
 `python3 scripts/changelog.py check`.
 
+```markdown
+### Fixed
+
+- Desktop: a terminal stream that lost a message attaches again instead of
+  stopping.
+```
+
 Release preparation (`python3 scripts/changelog.py freeze <version> --path
 changelogs/<app>.md`) collects an app's files into a dated version entry in
 `changelogs/<app>.md` and deletes them. All release paths must freeze the
