@@ -100,18 +100,56 @@
   const frTicket = () => frOver(S.d.frlink ? `<div>${FR_LOGO}</div><div><b style="font-size:16px">Link another desktop</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:4px;line-height:1.45">On your other desktop, open Machines, then Add a machine, choose Desktop and copy the ticket. This computer then shares its machines, projects and keys.</div></div>
       <input id="jt" aria-label="Ticket" placeholder="Paste a ticket" style="${MONO};width:100%;box-sizing:border-box">
       <div style="display:flex;gap:8px;align-items:center"><button class="dbtn pri" disabled>Link</button><button class="dbtn quiet" data-dact="dset:frlink:" data-dgo="dNoServer">Back</button></div>` : `<div style="display:grid;gap:8px">${FR_LOGO}<div><b style="font-size:16px">Welcome to Beep</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:2px">Run coding agents on your machines.</div></div></div>
-      ${frBig("Start", "Use Beep on this computer. You can add machines later.", go("ns", "first"), true)}
+      ${frBig("Start", "Use Beep on this computer. You can add machines later.", go("ns", "setup"), true)}
       ${frBig("Link another desktop", "You already use Beep on another computer. Share its machines, projects and keys with this one.", 'data-dact="dset:frlink:1" data-dgo="dNoServer"', false)}`);
+  // First run, after Start: set up this computer. One button installs what is missing, then
+  // opens each sign-in in the browser in turn. Every row can be skipped.
+  const SU_TOOLS = [
+    ["git", "Git", "2.47.1", "Projects and commits"],
+    ["node", "Node.js", "", "Needed to install the agents"],
+    ["claude", "Claude Code", "", "Coding agent"],
+    ["codex", "Codex", "", "Coding agent"],
+  ];
+  const suRow = (name, sub, status, tone, action) => `<div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--d-border)">
+      <div style="min-width:0"><b style="font-size:13px;font-weight:600">${name}</b><div style="font-size:12px;color:var(--d-muted)">${sub}</div></div>
+      <div style="display:flex;gap:8px;align-items:center;white-space:nowrap;font-size:12.5px;color:${tone}">${status}${action || ""}</div></div>`;
+  const OK = "var(--d-emerald)", MUTED = "var(--d-muted)";
+  const skip = k => S.d["suskip_" + k] ? "" : ` <button class="dbtn quiet small" data-dact="dset:suskip_${k}:1" data-dgo="dNoServer">Skip</button>`;
+  const frSetup = () => {
+    const st = S.d.su || "ready";
+    const rows = SU_TOOLS.map(([k, name, version, sub]) => {
+      if (S.d["suskip_" + k]) return suRow(name, sub, "Skipped", MUTED);
+      if (k === "git") return suRow(name, sub, `Installed · v${version}`, OK);
+      if (st === "ready") return suRow(name, sub, "Not installed", MUTED, skip(k));
+      if (st === "installing") return k === "node" ? suRow(name, sub, "Installed · v24.11.0", OK)
+        : k === "claude" ? suRow(name, sub, '<span class="dspin"></span>Installing', MUTED) : suRow(name, sub, "Waiting", MUTED);
+      if (st === "signin") return k === "node" ? suRow(name, sub, "Installed · v24.11.0", OK)
+        : k === "claude" ? suRow(name, sub, "Signed in as you@example.com", OK)
+        : suRow(name, sub, '<span class="dspin"></span>Waiting for your browser', MUTED, ' <button class="dbtn quiet small" data-toast="Opens the Codex sign-in page again">Open again</button>');
+      return suRow(name, sub, k === "node" ? "Installed · v24.11.0" : "Signed in as you@example.com", OK);
+    }).join("");
+    const missing = SU_TOOLS.filter(([k]) => k !== "git" && !S.d["suskip_" + k]).length;
+    const foot = st === "ready" ? `<button class="dbtn pri" data-dact="dset:su:installing" data-dgo="dNoServer"${missing ? "" : " disabled"}>Set up</button><span style="font-size:12px;color:var(--d-muted)">Installs ${missing}, then opens each sign-in.</span><span style="margin-left:auto"><button class="dbtn quiet" ${go("ns", "first")}>Later</button></span>`
+      : st === "installing" ? `<button class="dbtn pri" disabled>Setting up…</button><span style="font-size:12px;color:var(--d-muted)">Installing Claude Code (2 of 3)</span><span style="margin-left:auto"><button class="dbtn quiet" data-dact="dset:su:ready" data-dgo="dNoServer">Cancel</button></span>`
+      : st === "signin" ? `<button class="dbtn pri" disabled>Signing in…</button><span style="font-size:12px;color:var(--d-muted)">Signing in to Codex</span><span style="margin-left:auto"><button class="dbtn quiet" ${go("ns", "first")}>Later</button></span>`
+      : `<button class="dbtn pri" ${go("ns", "first")}>Open Beep</button><span style="font-size:12px;color:var(--d-muted)">This computer is ready to run agents.</span>`;
+    return frOver(`<div style="display:grid;gap:8px">${FR_LOGO}<div><b style="font-size:16px">Set up this computer</b><div style="font-size:12.5px;color:var(--d-muted);margin-top:2px">What Beep needs to run coding agents here.</div></div></div>
+      <div style="border:1px solid var(--d-border);border-radius:10px;overflow:hidden;margin-top:4px">${rows.replace('border-top:1px solid var(--d-border)', '')}</div>
+      <div style="display:flex;gap:10px;align-items:center">${foot}</div>`);
+  };
   D.dNoServer = () => {
     const v = S.d.ns || "first";
     if (v === "bar") return nsBar();
     if (v === "tray") return nsTray();
     if (v === "ticket") return frTicket();
+    if (v === "setup") return frSetup();
     const pages = { first: () => nsHome(false), home: () => nsHome(true), projects: nsProjects, project: nsProject, machines: nsMachines, agents: nsAgents, terminals: nsTerminals, settings: nsSettings };
     return (pages[v] || pages.first)();
   };
   VARIANTS.dNoServer = [["First run: Home", "first"], ["Home with machines", "home"], ["Projects", "projects"], ["One project, no agent panel", "project"], ["Machines", "machines"], ["Settings", "settings"], ["Bar", "bar"], ["Tray", "tray"], ["First run: ticket", "ticket"]]
     .map(([l, k]) => [l, () => { S.d.ns = k; render(); }, () => (S.d.ns || "first") === k]);
+  VARIANTS.dNoServer.push(...[["Setup: ready", "ready"], ["Setup: installing", "installing"], ["Setup: signing in", "signin"], ["Setup: done", "done"]]
+    .map(([l, k]) => [l, () => { S.d.ns = "setup"; S.d.su = k; render(); }, () => S.d.ns === "setup" && S.d.su === k]));
 
   // Add a machine by ticket. The ticket works once and lasts an hour.
   const line = (txt, toast) => `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px"><div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${MONO}">${txt}</div><button class="dbtn" data-toast="${toast}" style="flex:none">Copy</button></div>`;
