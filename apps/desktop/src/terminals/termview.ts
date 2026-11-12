@@ -127,6 +127,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     const data = typeof bytes === "string" ? bytes : decoder.decode(bytes);
     if (data === "") return;
     parts?.term.scrollToBottom();
+    wake();
     onData(data);
   };
 
@@ -201,7 +202,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     }
 
     parts.state.update(parts.term);
-    renderer.draw(parts.state, parts.term, fullRedraw, { visible: !inputOn || blinkOn, focused: inputOn && focused() });
+    renderer.draw(parts.state, parts.term, fullRedraw, { blinkedOut: inputOn && !blinkOn, focused: inputOn && focused() });
     fullRedraw = false;
   };
 
@@ -438,11 +439,20 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     }
   }, { passive: false });
 
-  const blink = setInterval(() => {
+  const tick = () => {
     if (!inputOn || !focused()) { if (!blinkOn) { blinkOn = true; schedule(); } return; }
     blinkOn = !blinkOn;
     schedule();
-  }, BLINK_MS);
+  };
+  let blink = setInterval(tick, BLINK_MS);
+
+  /// Typing and output show the cursor and start its blink again, so it
+  /// never blinks out while it moves.
+  function wake() {
+    clearInterval(blink);
+    blink = setInterval(tick, BLINK_MS);
+    if (!blinkOn) { blinkOn = true; schedule(); }
+  }
 
   const resized = new ResizeObserver(fitNow);
   resized.observe(el);
@@ -460,6 +470,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
     el,
     write: data => {
       pending.push({ data, quiet: false });
+      wake();
       schedule();
     },
     replay: data => {

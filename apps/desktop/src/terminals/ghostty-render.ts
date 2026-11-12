@@ -22,8 +22,8 @@ export interface Theme {
 
 /// How the cursor is shown this frame.
 export interface CursorLook {
-  /// Off while the cursor blinks out, or the screen takes no keys.
-  visible: boolean;
+  /// In the off half of a blink; a steady cursor stays drawn.
+  blinkedOut: boolean;
   /// Keys go to this screen; else a block cursor is drawn hollow.
   focused: boolean;
 }
@@ -199,7 +199,8 @@ export class GridRenderer {
     const colors = state.currentColors();
     const cols = this.cols;
 
-    const cursor = look.visible ? state.cursor() : null;
+    const shown = state.cursor();
+    const cursor = shown !== null && shown.blinking && look.blinkedOut ? null : shown;
     const build = (all: boolean) => {
       this.atlas.reset = false;
       state.forEachRow(all, this.row, (y, row) => {
