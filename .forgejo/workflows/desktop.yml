@@ -318,7 +318,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:CARGO_TARGET_DIR = Join-Path $env:GITHUB_WORKSPACE 'target/desktop-windows'
+          # Kept between runs, so a build only recompiles what changed. The
+          # workspace is deleted after every job. Past 30 GB, start over.
+          $env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA 'beep-desktop-target'
+          if (Test-Path $env:CARGO_TARGET_DIR) {
+            $size = (Get-ChildItem $env:CARGO_TARGET_DIR -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Sum Length).Sum
+            if ($size -gt 30GB) { Remove-Item -Recurse -Force $env:CARGO_TARGET_DIR }
+          }
           $config = Join-Path $env:RUNNER_TEMP 'desktop-updater.json'
           '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -Path $config -Encoding ascii
           & ./scripts/build-desktop-windows.ps1 -TauriArgs @('--config', $config, '--', '--locked')
