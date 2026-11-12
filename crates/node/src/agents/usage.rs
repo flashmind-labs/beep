@@ -220,6 +220,8 @@ pub(crate) fn claude_window(kind: &str) -> Option<(u32, Option<&'static str>)> {
         "seven_day" => (WEEK, None),
         "seven_day_opus" => (WEEK, Some("Opus")),
         "seven_day_sonnet" => (WEEK, Some("Sonnet")),
+        // Claude Code's own name for it is the Fable limit.
+        "seven_day_overage_included" => (WEEK, Some("Fable")),
         _ => return None,
     })
 }

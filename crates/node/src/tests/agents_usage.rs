@@ -38,3 +38,20 @@ fn a_rate_limit_event_updates_its_windows_only() {
     assert_eq!(plan.windows[1].used_percent, 2.0);
     assert_eq!(plan.windows[1].resets_at, Some(300));
 }
+
+#[test]
+fn claude_fable_window_is_kept_as_the_weekly_fable_limit() {
+    let event = json!({
+        "unifiedWindows": {
+            "seven_day": {"utilization": 0.39, "resetsAt": 300},
+            "seven_day_overage_included": {"utilization": 0.12, "resetsAt": 400},
+        },
+    });
+    let windows = claude_rate_limit(&event);
+
+    assert_eq!(windows.len(), 2);
+    assert_eq!(windows[0].scope, None);
+    assert_eq!(windows[1].scope.as_deref(), Some("Fable"));
+    assert_eq!(windows[1].minutes, 7 * 24 * 60);
+    assert_eq!(windows[1].used_percent, 12.0);
+}
