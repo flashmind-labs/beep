@@ -12,7 +12,7 @@ test("machine availability notes update without replacing the composer", async (
   const env = startDom();
   try {
     const { makeStartComposer } = await import("../src/agents/start-composer.ts");
-    const c = makeStartComposer({ actions }); env.dom.window.document.body.append(c.form);
+    const c = makeStartComposer({ place: () => null, actions }); env.dom.window.document.body.append(c.form);
     c.input.value = "Keep this draft"; c.input.focus();
     c.setNotes(createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false, openMachines }));
     assert.match(c.form.textContent ?? "", /Looking for machines/);
@@ -30,7 +30,7 @@ test("new agent choices retain controls across updates", async () => {
   const env = startDom();
   try {
     const { makeStartComposer } = await import("../src/agents/start-composer.ts");
-    const c = makeStartComposer({ projectPicker: true, actions }); env.dom.window.document.body.append(c.form);
+    const c = makeStartComposer({ place: () => null, projectPicker: true, actions }); env.dom.window.document.body.append(c.form);
     const choices = (machine: string) => ({ project: createElement(ProjectChoice, { name: "Project" }), machine, folder: createElement(FolderChoice, { checkout: false, label: "Home", detail: "~/work" }) });
     c.setChoiceContents(choices("First"));
     const folder = c.choice("folder"), project = c.choice("project"), machine = c.choice("host");
@@ -46,7 +46,7 @@ test("new agent choices retain controls across updates", async () => {
 test("start composers consume Enter once and preserve Shift+Enter and composition", async () => {
   const env = startDom();
   const { makeStartComposer } = await import("../src/agents/start-composer.ts");
-  const composer = makeStartComposer({ actions });
+  const composer = makeStartComposer({ place: () => null, actions });
   env.dom.window.document.body.append(composer.form);
   let submitted = 0;
   composer.form.requestSubmit = () => { submitted++; };
@@ -80,7 +80,7 @@ test("start composers consume Enter once and preserve Shift+Enter and compositio
 test("project choices keep one owner across busy and layout changes", async () => {
   const env = startDom();
   const { makeStartComposer } = await import("../src/agents/start-composer.ts");
-  const composer = makeStartComposer({ presentation: "compact", externalChoices: true, actions });
+  const composer = makeStartComposer({ place: () => null, presentation: "compact", externalChoices: true, actions });
   env.dom.window.document.body.append(composer.form);
   try {
     composer.setChoices(createElement("button", { "data-test-choice": "machine" }, "Machine"));

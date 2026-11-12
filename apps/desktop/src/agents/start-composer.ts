@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { createDocumentView } from "../ui/document-root.tsx";
 import { StartComposerView, type ChoiceContents, type StartComposerActions, type StartComposerNodes, type StartComposerState } from "./start-composer-view.tsx";
 import { nextSessionIntro } from "./session-intro.ts";
+import { bindMentionMenu, type MenuPlace } from "./mentionmenu.ts";
 
 type Presentation = "compact" | "centered";
 
@@ -15,13 +16,15 @@ interface Options {
   /// The task field's tooltip.
   title?: string;
   actions: StartComposerActions;
+  /// Where the task field's `/` and `@` menus look; null offers none.
+  place: () => MenuPlace | null;
 }
 
 /// One composer form for the life of its page. The form moves between hosts
 /// (a project page and the empty agent view) and keeps its draft, caret and
 /// focus, so React owns what is inside it and callers change it through
 /// `update` and the setters.
-export function makeStartComposer({ projectPicker = false, externalChoices = false, presentation = "centered", ids = false, title = "Enter starts, Shift+Enter adds a line", actions }: Options) {
+export function makeStartComposer({ projectPicker = false, externalChoices = false, presentation = "centered", ids = false, title = "Enter starts, Shift+Enter adds a line", actions, place }: Options) {
   const form = document.createElement("form"), choices = document.createElement("span");
   form.className = "cc-pjc";
   choices.className = "choices";
@@ -73,6 +76,7 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
   }
 
   draw();
+  if (nodes.input) bindMentionMenu(nodes.input, place);
   const required = <T,>(value: T | null): T => { if (!value) throw new Error("Start composer did not mount"); return value; };
   const view = (key: "choiceView" | "attachmentView" | "uploadPicker" | "notes" | "footer" | "under" | "extras" | "picker" | "harness") => (node: ReactNode) => update({ [key]: node });
 

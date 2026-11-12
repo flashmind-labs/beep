@@ -7,6 +7,7 @@ import { AMBIENT_MS, latest, STALE } from "../ui/active.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
 import { makeStartComposer } from "../agents/start-composer.ts";
+import { menuPlaceFor } from "../agents/mentionmenu.ts";
 import { sessionPicks } from "../agents/session.ts";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -45,6 +46,7 @@ export const projectComp = (() => {
   const composer = makeStartComposer({
     presentation: "compact", externalChoices: true, title: "Enter starts, Shift+Enter adds a line, Shift+Tab switches machines",
     actions: { submit: () => void startFromBar(), harness: toggleBarPicker, keyDown: switchMachine, files: files => barAttachments.take(files) },
+    place: barMenuPlace,
   });
   const { form, harness, pick } = composer;
   const actions = {
@@ -76,6 +78,13 @@ export const projectComp = (() => {
   }, true);
   return { ...composer, renderChoices };
 })();
+
+/// Where the bar's `/` and `@` menus look: its machine's checkout, with the
+/// commands of the harness picked there.
+function barMenuPlace() {
+  const p = barProject(), place = p && !pc.adding && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  return place && pc.picked.agent ? menuPlaceFor(place.machine_id, pc.picked.agent, place.cwd) : null;
+}
 
 /// Shift+Tab in the task field moves the bar to the project's next machine.
 function switchMachine(e: KeyboardEvent) {

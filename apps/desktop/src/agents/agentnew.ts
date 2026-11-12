@@ -4,6 +4,7 @@ import { flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { startAttachments } from "./start-attachments.ts";
 import { makeStartComposer, type StartComposer } from "./start-composer.ts";
+import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
@@ -157,6 +158,10 @@ function drawFrame() {
     actions: {
       submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, files: files => attachments.take(files),
       input: value => { AG.form.prompt = value; if (AG.error === "prompt") { AG.error = ""; drawParts(); } },
+    },
+    place: () => {
+      const f = AG.form;
+      return S.view === "agentnew" && f.machine && f.agent && f.cwd ? menuPlaceFor(f.machine, f.agent, f.cwd) : null;
     },
   });
   attachments = startAttachments(c, text => { AG.error = text; c.update({ error: text }); }, () => drawParts());
