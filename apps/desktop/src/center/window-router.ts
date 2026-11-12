@@ -59,8 +59,10 @@ export class WindowHistory {
   }
   back(current: Location) { return this.step(current, false); }
   forward(current: Location) { return this.step(current, true); }
+  /// Whether there is a page that way.
+  has(forward: boolean) { return forward ? this.index < this.entries.length - 1 : this.index > 0; }
   private step(current: Location, forward: boolean): Location | null {
-    if (forward ? this.index >= this.entries.length - 1 : this.index <= 0) return null;
+    if (!this.has(forward)) return null;
     this.history.replace(paths[current.view], { page: current });
     if (forward) this.history.forward(); else this.history.back();
     return this.history.location.state.page ?? null;

@@ -2,6 +2,17 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.14] - 2026-11-12
+
+### Added
+
+- Node: serves audio files to the desktop's agent pane, so they play there.
+
+### Fixed
+
+- Node: images a Claude Code subagent took load in its parent session's log
+  after the node restarts, instead of staying empty tiles.
+
 ## [0.6.13] - 2026-11-12
 
 ### Changed
