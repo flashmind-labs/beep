@@ -1,4 +1,5 @@
 import type { TerminalRow } from "./terminals.ts";
+import { Button } from "../ui/kit.tsx";
 
 export type TerminalControlLink = "attaching" | "attached" | "detached" | "ended" | "view_only";
 export function TerminalHeader({ terminal, state, link, watching, focus, toggle, detach, attach, stop }: {
@@ -7,10 +8,10 @@ export function TerminalHeader({ terminal, state, link, watching, focus, toggle,
 }) {
   const following = link === "attached" || link === "attaching", canAttach = link === "detached" || (link === "ended" && terminal.state === "offline");
   return <><span><b>{terminal.name}</b> {terminal.machine_name} · {terminal.cwd}</span><span className="tm-st">{state}</span>
-    <button type="button" className="dbtn small" title="Focus terminal (Shift+Esc)" onClick={focus}>Focus</button>
-    {following && <><button type="button" className="dbtn small" title={watching ? "Type into the terminal again" : "Stop typing into it, keep watching"} onClick={toggle}>{watching ? "Take control" : "View only"}</button><button type="button" className="dbtn small" title="Stop following it here; it keeps running" onClick={detach}>Detach</button></>}
-    {canAttach && <button type="button" className="dbtn small pri" onClick={attach}>Attach</button>}
-    <button type="button" className="dbtn small warn" onClick={stop}>{terminal.state === "running" ? "Kill…" : "Close"}</button></>;
+    <Button small title="Focus terminal (Shift+Esc)" onClick={focus}>Focus</Button>
+    {following && <><Button small title={watching ? "Type into the terminal again" : "Stop typing into it, keep watching"} onClick={toggle}>{watching ? "Take control" : "View only"}</Button><Button small title="Stop following it here; it keeps running" onClick={detach}>Detach</Button></>}
+    {canAttach && <Button look="primary" small onClick={attach}>Attach</Button>}
+    <Button danger small onClick={stop}>{terminal.state === "running" ? "Kill…" : "Close"}</Button></>;
 }
 
 export function TerminalFooter({ active, label, started }: { active: boolean; label: string; started: string }) {

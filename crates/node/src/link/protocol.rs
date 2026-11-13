@@ -40,6 +40,8 @@ host! {
         Shell,
         #[strum(serialize = "skills/1")]
         Skills,
+        #[strum(serialize = "skill-library/1")]
+        SkillLibrary,
         #[strum(serialize = "process/1")]
         Tasks,
         #[strum(serialize = "terminal/1")]

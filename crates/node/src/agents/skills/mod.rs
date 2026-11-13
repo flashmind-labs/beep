@@ -4,14 +4,16 @@
 //! synced (`compare`). Copies edited apart are a conflict: it is logged and
 //! told to the desktop, and no file changes until the user keeps one copy
 //! (`Request::Keep`, sent to the machine holding it). Deletes never spread,
-//! and Beep's own installed skills stay out of it.
+//! and Beep's own installed skills and the skills libraries
+//! installed stay out of it.
 
 mod compare;
-mod disk;
+pub(crate) mod disk;
 mod follow;
 
 pub(crate) use follow::{follow, serve};
 
+use super::skill_library::Libraries;
 use beep_mesh::{Key, Mesh};
 use beep_proto::node::{
     mesh_state::{SkillSync, StateValue},
@@ -43,6 +45,8 @@ pub struct Skills {
     picks: Arc<watch::Sender<BTreeMap<String, String>>>,
     /// Rung when another machine says its skills changed.
     nudge: Arc<Notify>,
+    /// The skill libraries installed here, which this sync leaves out.
+    libraries: Libraries,
 }
 
 impl Default for Skills {
@@ -53,6 +57,7 @@ impl Default for Skills {
             conflicts: Arc::new(watch::Sender::new(Vec::new())),
             picks: Arc::new(watch::Sender::new(BTreeMap::new())),
             nudge: Arc::new(Notify::new()),
+            libraries: Libraries::default(),
         }
     }
 }
@@ -68,5 +73,9 @@ impl Skills {
 
     pub(crate) fn home(&self) -> Option<&PathBuf> {
         self.home.as_ref()
+    }
+
+    pub(crate) fn libraries(&self) -> &Libraries {
+        &self.libraries
     }
 }

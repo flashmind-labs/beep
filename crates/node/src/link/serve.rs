@@ -86,7 +86,10 @@ pub async fn serve(
     };
     let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
     traffic.measure_endpoint(endpoint.metrics().clone());
-    let _diagnostics = match super::diagnostics::start(&endpoint, &state.dir.join("metrics.log")) {
+    let diagnostics = super::diagnostics::install().and_then(|recorder| {
+        super::diagnostics::start(recorder, &endpoint, &state.dir.join("metrics.log"))
+    });
+    let _diagnostics = match diagnostics {
         Ok(task) => Some(task),
         Err(e) => {
             log::warn!("metrics unavailable: {e:#}");
@@ -527,6 +530,7 @@ fn node_may_open(protocol: &SessionProtocol) -> bool {
         SessionProtocol::Status
             | SessionProtocol::Tools
             | SessionProtocol::Skills
+            | SessionProtocol::SkillLibrary
             | SessionProtocol::Transcripts
             | SessionProtocol::Device
     )
@@ -585,6 +589,10 @@ pub(super) async fn serve_open(
             let desktop = !matches!(who, Who::Node { .. });
             let mesh = offers.mesh.get().context("this node is not in a mesh")?;
             crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
+        }
+        SessionProtocol::SkillLibrary => {
+            tx.send(&Opened::Ready {}).await?;
+            crate::agents::skill_library::serve(tx, rx, offers.skills).await
         }
         SessionProtocol::Tasks => {
             tx.send(&Opened::Ready {}).await?;

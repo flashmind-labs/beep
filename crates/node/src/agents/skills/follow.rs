@@ -68,6 +68,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     let mut pass = Passes {
         mesh: mesh.clone(),
         home,
+        dir,
         seen,
         hashes: Hashes::default(),
         asked: None,
@@ -172,6 +173,8 @@ fn online(mesh: &Mesh) -> BTreeSet<EndpointId> {
 struct Passes {
     mesh: Mesh,
     home: PathBuf,
+    /// The node's own folder.
+    dir: PathBuf,
     seen: Seen,
     /// The skill folders' hashes, so an unchanged one is not read again.
     hashes: Hashes,
@@ -372,12 +375,16 @@ impl Passes {
         self.asked = Some(Instant::now());
     }
 
-    /// The skills on disk now.
+    /// The skills on disk now, without the ones a skill library installed.
     async fn scan(&mut self) -> Option<Scan> {
         let home = self.home.clone();
+        let dir = self.dir.clone();
+        let libraries = self.skills.libraries.clone();
         let mut hashes = mem::take(&mut self.hashes);
         let scanned = spawn_blocking(move || {
-            let scan = disk::scan(&home, &mut hashes);
+            let mut scan = disk::scan(&home, &mut hashes);
+            let installed = libraries.global_names(&dir);
+            scan.listed.retain(|listed| !installed.contains(&listed.name));
             (scan, hashes)
         })
         .await;

@@ -1,4 +1,4 @@
-import { Spinner } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";
 import { Fragment, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { FieldMenu } from "./composer-ui.tsx";
@@ -95,5 +95,5 @@ export function StartComposerView({ nodes, choices, projectPicker, externalChoic
 }
 
 export function NewAgentNotes({ waiting, none, noMachine, openMachines }: { waiting: boolean; none: boolean; noMachine: boolean; openMachines(): void }) {
-  return <div className="agnew-notes"><div className="agc-why" id="agwhy" hidden={!noMachine}>{noMachine && <><span className="ddot off" /><span>Pick a machine to start.</span></>}</div><div id="aghelp">{waiting ? <div className="agc-note"><Spinner /> Looking for machines…</div> : none ? <div className="agc-help"><b>No machine can run an agent yet</b><ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Open Add a machine and run the <code>beep-node mesh join</code> command it shows there.</li></ol><div><button type="button" className="dbtn" id="agmachines" onClick={openMachines}>Machines settings</button></div></div> : null}</div></div>;
+  return <div className="agnew-notes"><div className="agc-why" id="agwhy" hidden={!noMachine}>{noMachine && <><span className="ddot off" /><span>Pick a machine to start.</span></>}</div><div id="aghelp">{waiting ? <div className="agc-note"><Spinner /> Looking for machines…</div> : none ? <div className="agc-help"><b>No machine can run an agent yet</b><ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Open Add a machine and run the <code>beep-node mesh join</code> command it shows there.</li></ol><div><Button id="agmachines" onClick={openMachines}>Machines settings</Button></div></div> : null}</div></div>;
 }

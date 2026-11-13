@@ -140,7 +140,7 @@ impl External {
     }
 
     /// The sessions in the Claude Code folder `root`.
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     pub(crate) fn at(root: &Path) -> Self {
         Self {
             store: OnceLock::from(discover::Store::at(root)),

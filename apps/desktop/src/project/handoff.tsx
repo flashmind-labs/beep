@@ -4,6 +4,7 @@ import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.ts";
 import { reason } from "../ui/format.ts";
 import type { Project } from "./projects-state.ts";
+import { Button } from "../ui/kit.tsx";
 
 export function openHandoff(project: Project, to: string, changed: () => void) {
   let closed = false;
@@ -27,5 +28,5 @@ function Handoff({ project, to, closed, changed }: { project: Project; to: strin
   };
   return <><div className="am-head"><b>Bring uncommitted work</b><kbd>esc</kbd></div>
     <div className="am-sub">Destination: {destination?.name ?? "this machine"}. Both checkouts must be at the same commit and the destination must be clean. Edits arrive unstaged; the source copy stays intact. Ignored files stay on their machine.</div>
-    <div className="am-sub">{status}</div>{project.machines.filter(place => place.id !== to).map(source => <button type="button" className="dbtn" key={source.id} disabled={busy} onClick={() => void bring(source.id)}>Bring work from {source.name}</button>)}</>;
+    <div className="am-sub">{status}</div>{project.machines.filter(place => place.id !== to).map(source => <Button key={source.id} disabled={busy} onClick={() => void bring(source.id)}>Bring work from {source.name}</Button>)}</>;
 }

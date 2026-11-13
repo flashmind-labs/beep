@@ -8,6 +8,7 @@ import { filterProjects, whereRows, forgeLinks, projectLine, REMOVE_PROJECT, typ
 import { overviewGroups, overviewSub } from "./overview-state.ts";
 import { openMenu, type MenuAction } from "../ui/menu.ts";
 import { openProjectMenu } from "./syncthing.ts";
+import { openProjectSkills } from "./project-skills.tsx";
 import { editorsFor } from "./editors.ts";
 import { ProjectEditors } from "./header-view.tsx";
 import { createElement, type ReactNode } from "react";
@@ -144,6 +145,7 @@ export const projectsView: CenterView<"projects"> = {
         const items: MenuAction[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
         if (!windowProject && !onPhone()) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(project.name) });
         if (project.imported) items.push({ label: "Rename…", on: () => renameProject(project) });
+        items.push({ label: "Skills…", on: () => openProjectSkills(project.name) });
         if (project.imported) openProjectMenu(event.nativeEvent, project, items, { label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) }, () => { whereDue.add(project.name); revalidate(project.name); });
         else openMenu(event.nativeEvent, project.name, items);
       } }, "⋯"));

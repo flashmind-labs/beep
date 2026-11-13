@@ -156,7 +156,7 @@ Error: Process completed with exit code 101.</pre></span>
     ? `<button class="pj-li nav" title="${i.t}"${i.id === lit ? ' aria-current="true"' : ""} ${pick(i.id)}><span class="t"><b>${i.t}</b></span><span class="c">${i.sub}</span></button>`
     : `<button class="pj-li" title="${i.t}"${i.id === lit ? ' aria-current="true"' : ""} ${i.open ? `data-dgo="${i.open}"` : pick(i.id)}><span class="lead">${i.lead || ""}</span><span class="t"><b>${i.t}</b><span>${i.sub}${(i.tags || []).map(l => `<i class="pj-tag lab">${l}</i>`).join("")}</span></span>${i.r ? `<span class="r">${i.r}</span>` : ""}</button>`;
   // Issues list at the right; one issue opens there with a way back.
-  details.issues = () => __listCtl("pji", true) + `<div class="pj-labels">${ISSUE_LABELS.map(l => `<button class="pj-tag lab" data-toast="Filter: ${l}">${l}</button>`).join("")}</div><div class="pj-rows">${PJ_ISSUES.map(i => S.d.pjis ? `<div class="pj-prow"><label><input type="checkbox"${i.id === "is92" ? " checked" : ""} aria-label="Pick #${i.t}"></label>${pjRow(i)}</div>` : pjRow(i)).join("")}</div>` + __listStart("pji", [["acme/widget", "#92 Auto-sync the SDK docs", ""]]);
+  details.issues = () => __listCtl("pji", true) + `<div class="pj-labels">${ISSUE_LABELS.map(l => `<button class="pj-tag lab" data-toast="Filter: ${l}">${l}</button>`).join("")}</div><div class="pj-rows">${PJ_ISSUES.map(i => S.d.pjis ? `<div class="pj-prow"><label><input type="checkbox" class="dcheck"${i.id === "is92" ? " checked" : ""} aria-label="Pick #${i.t}"></label>${pjRow(i)}</div>` : pjRow(i)).join("")}</div>` + __listStart("pji", [["acme/widget", "#92 Auto-sync the SDK docs", ""]]);
   for (const id of ["is92", "is53"]) {
     const page = details[id];
     details[id] = () => `<button class="dbtn quiet small pj-back" ${pick("issues")}>All issues</button>` + page();
@@ -175,7 +175,7 @@ Error: Process completed with exit code 101.</pre></span>
     const toggle = (label, on, act) => `<button class="mi" role="menuitemcheckbox" aria-checked="${on}" data-dact="${act}" data-dgo="dWinProject"><b>${label}</b>${check(on)}</button>`;
     const sep = '<div role="separator" style="height:1px;margin:4px 3px;background:var(--d-border)"></div>';
     const beep = S.d.stFiles === "off";
-    return `<div class="dmenu" role="menu" aria-label="acme/widget" style="left:auto;top:44px;right:12px;z-index:9;width:290px"><button class="mi" role="menuitem" data-toast="Pin"><b>Pin</b></button>${S.screen === "dWinProjectWindow" ? "" : '<button class="mi" role="menuitem" data-dgo="dWinProjectWindow"><b>Open in New Window</b></button>'}<button class="mi" role="menuitem" data-dact="dset:renameproject:1" data-dgo="dWinProject"><b>Rename…</b></button>${sep}<div role="group" aria-label="Sync on all machines"><div style="padding:4px 9px 3px;font-size:11.5px;color:var(--d-muted)">Sync on all machines</div>${toggle("Preserve edits before Git sync", !!S.d.gitrecovery, `dset:gitrecovery:${S.d.gitrecovery ? "" : "1"}`)}${toggle("Sync ignored folders", !!S.d.igs, S.d.igs ? "dset:igs:" : "dset:igsform:1")}${S.d.igs ? '<button class="mi" role="menuitem" data-dact="dset:igsform:1" data-dgo="dWinProject"><b>Choose ignored folders…</b></button>' : ""}<button class="mi" role="menuitem" data-dact="dset:stFiles:${beep ? "on" : "off"}" data-dgo="dWinProject"><b>${beep ? "Use Syncthing instead of Beep sync" : "Use Beep sync instead of Syncthing"}</b></button></div>${sep}<button class="mi" role="menuitem" data-toast="Remove project"><b style="color:var(--d-err)">Remove project…</b></button></div>`;
+    return `<div class="dmenu" role="menu" aria-label="acme/widget" style="left:auto;top:44px;right:12px;z-index:9;width:290px"><button class="mi" role="menuitem" data-toast="Pin"><b>Pin</b></button>${S.screen === "dWinProjectWindow" ? "" : '<button class="mi" role="menuitem" data-dgo="dWinProjectWindow"><b>Open in New Window</b></button>'}<button class="mi" role="menuitem" data-dact="dset:renameproject:1" data-dgo="dWinProject"><b>Rename…</b></button><button class="mi" role="menuitem" data-dact="dset:pskills:1" data-dgo="dWinProject"><b>Skills…</b></button>${sep}<div role="group" aria-label="Sync on all machines"><div style="padding:4px 9px 3px;font-size:11.5px;color:var(--d-muted)">Sync on all machines</div>${toggle("Preserve edits before Git sync", !!S.d.gitrecovery, `dset:gitrecovery:${S.d.gitrecovery ? "" : "1"}`)}${toggle("Sync ignored folders", !!S.d.igs, S.d.igs ? "dset:igs:" : "dset:igsform:1")}${S.d.igs ? '<button class="mi" role="menuitem" data-dact="dset:igsform:1" data-dgo="dWinProject"><b>Choose ignored folders…</b></button>' : ""}<button class="mi" role="menuitem" data-dact="dset:stFiles:${beep ? "on" : "off"}" data-dgo="dWinProject"><b>${beep ? "Use Syncthing instead of Beep sync" : "Use Beep sync instead of Syncthing"}</b></button></div>${sep}<button class="mi" role="menuitem" data-toast="Remove project"><b style="color:var(--d-err)">Remove project…</b></button></div>`;
   };
   // The composer always names a real machine: the last picked while it has a checkout and an
   // agent, else the first such machine. With none, it reads "Add to a machine" and picking one
@@ -227,6 +227,7 @@ Error: Process completed with exit code 101.</pre></span>
       if (footer) footer.innerHTML = '<span class="ddot"></span> <b>2</b> of 3 machines online';
     }
     const page = skinned(ccWin(side.innerHTML, main));
+    if (S.d.pskills) return ccSheetOver(page, SETTINGS_SKILLS.projectSheet());
     if (S.d.renameproject === "1") return ccSheetOver(page, `<form class="pr-form" onsubmit="return false">
       <div class="am-head"><b>Rename project</b><kbd>esc</kbd></div>
       <label class="pr-label" for="project-name">Project name</label><input id="project-name" class="gp-field pr-name" value="acme/widget">
@@ -235,11 +236,11 @@ Error: Process completed with exit code 101.</pre></span>
       ].map(([host, url, key]) => {
         const done = !!S.d.renamePartial && key === "github";
         const selected = !done && !!S.d[`renameRepo_${key}`];
-        return `<div class="pr-repository"><label class="pr-option"><input type="checkbox" ${selected ? "checked" : ""} ${done ? "disabled" : ""} data-dact="dset:renameRepo_${key}:${selected ? "" : "1"}" data-dgo="dWinProject"><span>${host}<small>${done ? url.replace("widget", "new-widget") : url}</small></span>${done ? '<span class="pr-host-saved">Renamed</span>' : ""}</label>${selected ? `<div class="pr-repository-fields"><label class="pr-label" for="repo-${key}">Repository name on ${host}</label><input id="repo-${key}" class="gp-field" value="${S.d.renamePartial ? "new-widget" : "widget"}"></div>` : ""}${S.d.renamePartial && key === "forgejo" ? '<div class="pr-host-error">Repository administration access is required.</div>' : ""}</div>`;
+        return `<div class="pr-repository"><label class="pr-option"><input type="checkbox" class="dcheck" ${selected ? "checked" : ""} ${done ? "disabled" : ""} data-dact="dset:renameRepo_${key}:${selected ? "" : "1"}" data-dgo="dWinProject"><span>${host}<small>${done ? url.replace("widget", "new-widget") : url}</small></span>${done ? '<span class="pr-host-saved">Renamed</span>' : ""}</label>${selected ? `<div class="pr-repository-fields"><label class="pr-label" for="repo-${key}">Repository name on ${host}</label><input id="repo-${key}" class="gp-field" value="${S.d.renamePartial ? "new-widget" : "widget"}"></div>` : ""}${S.d.renamePartial && key === "forgejo" ? '<div class="pr-host-error">Repository administration access is required.</div>' : ""}</div>`;
       }).join("")}</div>
       <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:renameproject:" data-dgo="dWinProject">Cancel</button><button class="dbtn pri" data-dact="dset:renameproject:" data-dgo="dWinProject" data-toast="Project renamed">${S.d.renamePartial ? "Retry failed" : "Rename"}</button></div></form>`).replace('width:min(520px,86%)', 'width:min(440px,86%)');
     if (S.d.igsform === "1") return ccSheetOver(page, `<div class="am-head"><b>Sync gitignored</b><kbd>esc</kbd></div>
-      <label class="am-line"><input type="checkbox" checked>Sync selected ignored folders on all machines</label>
+      <label class="am-line"><input type="checkbox" class="dcheck" checked>Sync selected ignored folders on all machines</label>
       <label class="am-label" for="ignored-folders">Folders relative to the project, one per line</label><textarea id="ignored-folders" class="ip-path ip-list" rows="4">assets/models
 data/captures</textarea>
       <div class="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>
@@ -263,7 +264,7 @@ data/captures</textarea>
     const target = S.d.pmremove || "mini-box";
     return ccSheetOver(page, `<div class="am-head"><b>Remove acme/widget from ${target}?</b><kbd>esc</kbd></div>
       <div class="am-msg">It stops syncing to ${target} and leaves the project's machines.</div>
-      <label class="am-sub" style="display:flex;gap:8px;align-items:center"><input type="checkbox"${del ? " checked" : ""} data-dact="dset:pwr:${del ? "confirm" : "delete"}" data-dgo="${back}">Also delete the folder on ${target}</label>
+      <label class="am-sub" style="display:flex;gap:8px;align-items:center"><input type="checkbox" class="dcheck"${del ? " checked" : ""} data-dact="dset:pwr:${del ? "confirm" : "delete"}" data-dgo="${back}">Also delete the folder on ${target}</label>
       <div class="am-sub"><code>${target === "studio" ? "/srv/widget" : "/srv/project/widget"}</code> ${del ? "is deleted on ${target} once it stops syncing there. The other machines keep their copies." : "stays on disk as it is."}</div>${err}
       <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:pwr:" data-dgo="${back}">Cancel</button><button class="dbtn warn" data-dact="dset:pwr:" data-dgo="${back}" data-toast="${del ? `Project removed from ${target}. Folder deleted there.` : `Project removed from ${target}. Its folder stays.`}">${del ? "Remove and delete" : "Remove"}</button></div>`);
   };
@@ -296,7 +297,10 @@ data/captures</textarea>
     ["Rename repository", () => { S.d.renameproject = "1"; S.d.renameRepo_github = "1"; S.d.renameRepo_forgejo = "1"; render(); }, () => !!S.d.renameproject && !!S.d.renameRepo_github],
     ["Rename project", () => { S.d.renameproject = "1"; render(); }, () => !!S.d.renameproject],
     ["Project menu", () => { S.d.psel = "overview"; S.d.pmenu = "1"; render(); }, () => !!S.d.pmenu],
-    ...skinVariants].map(([l, f, on]) => [l, () => { S.d.renameproject = ""; S.d.renameRepo_github = ""; S.d.renameRepo_forgejo = ""; S.d.renamePartial = ""; if (l !== "Project menu") S.d.pmenu = ""; f(); }, on]);
+    ["Project skills", () => { S.d.psel = "overview"; S.d.pskills = "1"; S.d.pskillsGit = ""; render(); }, () => S.d.pskills === "1" && !S.d.pskillsGit],
+    ["Project skills, choosing single skills", () => { S.d.psel = "overview"; S.d.pskills = "open"; render(); }, () => S.d.pskills === "open"],
+    ["Project skills, committed to Git", () => { S.d.psel = "overview"; S.d.pskills = "1"; S.d.pskillsGit = "commit"; render(); }, () => S.d.pskills === "1" && S.d.pskillsGit === "commit"],
+    ...skinVariants].map(([l, f, on]) => [l, () => { S.d.renameproject = ""; S.d.renameRepo_github = ""; S.d.renameRepo_forgejo = ""; S.d.renamePartial = ""; S.d.pskills = ""; if (l !== "Project menu") S.d.pmenu = ""; f(); }, on]);
   D.dProjectMachines = () => {
     S.d.psel = "machines";
     return D.dWinProject();

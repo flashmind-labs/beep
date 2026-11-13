@@ -5,6 +5,7 @@ import { AgentQueue } from "./queue-view.tsx";
 import { AgentStopFace } from "./mode-view.tsx";
 import type { OutboxRow, Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
+import { Button } from "../ui/kit.tsx";
 
 // What the session's composer shows around its field: the queued steers,
 // attachments, the mention menu, the background work line, the pills and
@@ -153,5 +154,5 @@ function MenuRows({ rows, index, pick }: Menu) {
 
 export function StopButton({ stop }: { stop(): void }) {
   const { shown, stopping } = useStore(fieldUi, state => state.stop);
-  return <button className="dbtn" id="agstop" aria-label="Stop the turn" title="Stop main turn (subagents keep running)" style={shown ? undefined : { display: "none" }} disabled={stopping} onClick={stop}><AgentStopFace stopping={stopping} /></button>;
+  return <Button id="agstop" aria-label="Stop the turn" title="Stop main turn (subagents keep running)" style={shown ? undefined : { display: "none" }} disabled={stopping} onClick={stop}><AgentStopFace stopping={stopping} /></Button>;
 }

@@ -17,6 +17,7 @@ import { cancelContinue, continuing } from "./continue-here.ts";
 import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.ts";
 import { conversationAppearance } from "../ui/conversation-appearance.ts";
 import { syncJump } from "./logview.ts";
+import { Button } from "../ui/kit.tsx";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
@@ -150,16 +151,16 @@ export const shownMessage = () => [agentMessage.current, draftMessage.current].f
 function ContinueHere({ target, start }: ContinueHereProps) {
   const state = useStore(continuing);
   const shown = state.kind !== "none" && state.key === target ? state : null;
-  if (shown?.kind === "waiting") return <><button className="dbtn" id="agcontinue" disabled><span className="dspin" />Waiting for the turn to end</button><button className="dbtn quiet" onClick={cancelContinue}>Cancel</button></>;
-  if (shown?.kind === "closing") return <button className="dbtn" id="agcontinue" disabled><span className="dspin" />Closing it there</button>;
-  return <>{shown?.kind === "failed" && <span className="derr">{shown.message}</span>}<button className="dbtn" id="agcontinue" onClick={start}>Continue here</button></>;
+  if (shown?.kind === "waiting") return <><Button id="agcontinue" disabled><span className="dspin" />Waiting for the turn to end</Button><Button look="quiet" onClick={cancelContinue}>Cancel</Button></>;
+  if (shown?.kind === "closing") return <Button id="agcontinue" disabled><span className="dspin" />Closing it there</Button>;
+  return <>{shown?.kind === "failed" && <span className="derr">{shown.message}</span>}<Button id="agcontinue" onClick={start}>Continue here</Button></>;
 }
 
 export function SessionField({ mode, name, banner, moveKey, continueHere, attach, send, stop, openParent }: SessionFieldProps) {
   const input = agentMessage, dropping = useFieldDrop();
-  if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><button className="dbtn" id="agnativeparent" onClick={openParent}>Open parent</button></div>;
+  if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><Button id="agnativeparent" onClick={openParent}>Open parent</Button></div>;
   if (mode === "readonly") return continueHere ? <div className="dmuted dbanner dtakeover"><span>{banner}</span><ContinueHere {...continueHere} /></div> : <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><button className="dbtn" id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
+  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals

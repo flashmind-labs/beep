@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
 import { modelContextPanel } from "../src/settings/model-context.ts";
-import { ModelContextView } from "../src/settings/model-context-view.tsx";
 
 test("model context keeps focus and drafts through updates and saves overrides", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", { url: "https://app.test" });
@@ -23,6 +22,7 @@ test("model context keeps focus and drafts through updates and saves overrides",
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { invoke } = await import("../src/ui/tauri.ts");
   const { render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
+  const { ModelContextView } = await import("../src/settings/model-context-view.tsx");
   const panel = modelContextPanel(invoke);
   try {
     const view = render(createElement(ModelContextView, { panel, machine: "one", agent: "codex" }));

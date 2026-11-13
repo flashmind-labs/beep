@@ -23,6 +23,7 @@ host! {
     pub mod claude;
     pub(crate) mod found;
     pub mod mcp;
+    pub(crate) mod skill_library;
     pub mod skills;
 
 pub(crate) mod follow;

@@ -7,7 +7,7 @@ import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/term
 import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.ts";
-import { EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
+import { Button, EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
 import { FreshNote } from "./page-view.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import type { SessionRow } from "./projects-state.ts";
@@ -66,7 +66,7 @@ function OverviewRow({ item, openTile }: { item: SplitItem; openTile: (key: stri
 }
 
 function OverviewBox({ title, count, open, children }: { title: string; count: number | string; open: () => void; children: ReactNode }) {
-  return <Section id="" title={<button type="button" className="dbtn lk" onClick={open}>{title}</button>} count={count}>{children}</Section>;
+  return <Section id="" title={<Button className="lk" onClick={open}>{title}</Button>} count={count}>{children}</Section>;
 }
 
 export function ProjectOverview({ run, prs, issues, prNote, issueNote, machines, terminals, session, openTile, openTerminal }: {
@@ -83,7 +83,7 @@ export function ProjectOverview({ run, prs, issues, prNote, issueNote, machines,
     {!!terminals.length && <OverviewBox title="Terminals" count={terminals.length} open={() => openTile("machines")}>{terminals.slice(0, 5).map(terminal => <LineRow key={`${terminal.machine_id}:${terminal.id}`} lead={<span className={`ddot${terminal.state === "running" ? "" : " off"}`}/>} title={terminal.name} sub={<>{terminal.machine_name} · {terminalWhere(terminal)}</>} right={terminalNote(terminal, ms => formatAgo(ms, "short"))} rowTitle={`${terminal.machine_name}: ${terminal.command} in ${terminal.cwd}`} onOpen={() => openTerminal(terminal)} />)}</OverviewBox>}
   </div><div>
     {prs.length ? <OverviewBox title="Pull requests" count={prs.length} open={() => openTile(prs[0].key)}>{rows(prs.slice(0, 5))}</OverviewBox> : empty("Pull requests", prNote)}
-    {issues.length ? <div id=""><div className="cc-sec"><h4><button type="button" className="dbtn lk" onClick={() => openTile("issues")}>Issues</button><span className="n">{issues.length}</span></h4></div><div className="cc-panel pj-scroll pj-ov-issues">{rows(issues)}</div></div> : empty("Issues", issueNote)}
+    {issues.length ? <div id=""><div className="cc-sec"><h4><Button className="lk" onClick={() => openTile("issues")}>Issues</Button><span className="n">{issues.length}</span></h4></div><div className="cc-panel pj-scroll pj-ov-issues">{rows(issues)}</div></div> : empty("Issues", issueNote)}
   </div></>;
 }
 

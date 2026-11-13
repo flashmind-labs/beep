@@ -120,6 +120,11 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-rows
               div.bd-lane.hd
@@ -173,8 +178,13 @@ body.cbody
       div.cc-box
         div.cc-view [data-project]
           div style(display)
-            div.pj-find [data-rac]
-              input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-focus-visible="true" data-focused="true" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value="gadget"] value="gadget" (focused)
+            div.pj-toolbar
+              div.pj-find [data-rac]
+                input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-focus-visible="true" data-focused="true" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value="gadget"] value="gadget" (focused)
+              button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                span "Default"
+                svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3
                 button.pj-fold [aria-expanded="true" type="button"]

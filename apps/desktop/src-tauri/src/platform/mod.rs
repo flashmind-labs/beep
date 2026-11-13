@@ -15,6 +15,7 @@ pub(crate) mod logfile;
 #[cfg(all(unix, desktop))]
 pub(crate) mod login_path;
 pub(crate) mod metrics;
+pub(crate) mod startup;
 #[cfg(all(desktop, not(target_os = "macos")))]
 pub(crate) mod update;
 #[cfg(target_os = "macos")]

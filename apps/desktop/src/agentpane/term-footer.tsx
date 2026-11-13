@@ -4,6 +4,7 @@ import { closeTab, type MediaTab } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { readError } from "./read.ts";
 import { attach, detachTerm, killTerm, termStatus, type PaneTerm } from "./terminal.ts";
+import { Button } from "../ui/kit.tsx";
 
 /// A terminal tab: its live screen, and a footer to attach again or stop it.
 /// The screen draws itself, so its element stays a native child of the view;
@@ -38,5 +39,5 @@ function TermFooter({ tab, term }: { tab: MediaTab; term: PaneTerm }) {
     items.push({ label: term.row.state === "running" && term.link !== "ended" ? "Kill…" : "Close", warn: true, on: close });
     openMenu(event.nativeEvent, tab.name, items);
   };
-  return <div className="agpacts" onContextMenu={menu}><span className="meta mono">{tab.note ?? termStatus(term, term.row.machine_name)}</span><span className="sp" /><button className="dbtn" data-tattach="1" hidden={term.link !== "detached"} onClick={reattach}>Attach</button><button className="dbtn warn" data-tkill="1" onClick={close}>Close</button></div>;
+  return <div className="agpacts" onContextMenu={menu}><span className="meta mono">{tab.note ?? termStatus(term, term.row.machine_name)}</span><span className="sp" /><Button data-tattach="1" hidden={term.link !== "detached"} onClick={reattach}>Attach</Button><Button danger data-tkill="1" onClick={close}>Close</Button></div>;
 }
