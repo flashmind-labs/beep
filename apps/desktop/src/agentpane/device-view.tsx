@@ -189,10 +189,11 @@ function Screen({ device }: { device: Device | null }) {
 }
 
 function note(screen: ScreenState, device: Device | null) {
+  // A device shut down ends its view too; being off says why.
+  if (device?.state === "Off") return `${device.name} is off.`;
   if (screen.kind === "ended") return <>{screen.reason}<button type="button" className="dbtn" onClick={showAgain}>Show again</button></>;
   if (!device) return null;
   if (device.state === "Booting") return <><span className="dspin" />Booting {device.name}…</>;
-  if (device.state === "Off") return `${device.name} is off.`;
   return <><span className="dspin" />Connecting…</>;
 }
 
