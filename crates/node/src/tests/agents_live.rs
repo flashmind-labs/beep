@@ -1309,3 +1309,30 @@ fn a_live_claude_spawn_shows_its_requested_model() {
             .contains("[agent] general-purpose\n[model] sonnet")
     }));
 }
+
+#[test]
+fn automatic_titles_are_cleaned_on_updates_and_restore() {
+    let tagged = crate::agents::tags::from_session("parent", "Parent task", "Fix the upload queue.\nDetails");
+    let mut session = live_titled(&tagged);
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": tagged})));
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": "<from-session id=\"parent\""})));
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": "task ".repeat(40)})));
+    assert!(session.info.title.as_ref().unwrap().chars().count() <= 80);
+}
+
+#[test]
+fn streamed_prompt_titles_wait_for_complete_headers() {
+    let mut session = live();
+
+    for chunk in ["<from-", "session id=\"parent\" name=\"Parent", " task\">\n", "Fix the upload queue.", "\n</from-session>"] {
+        session.apply(&update(json!({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": chunk}})));
+        if chunk.contains("queue") || chunk.contains("</from-session>") {
+            assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+        } else {
+            assert_eq!(session.info.title, None);
+        }
+    }
+}

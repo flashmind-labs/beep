@@ -2,7 +2,7 @@
 //! keeps on this machine (`Stores`), for suggesting projects to import and
 //! listing an imported project's sessions.
 
-use crate::agents::{cut, place::of_folder};
+use crate::agents::place::of_folder;
 use beep_proto::{
     AgentSlug,
     node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder},
@@ -48,8 +48,6 @@ const MAX_LOOKUPS: usize = 400;
 const MAX_FIRST_LINE: u64 = 512 * 1024;
 /// How much of a session file is read for its first prompt or its name.
 const MAX_HEAD: u64 = 1024 * 1024;
-/// The longest title or prompt kept.
-const MAX_TITLE: usize = 300;
 /// A session written this recently may still run.
 const RECENT: Duration = Duration::from_secs(3 * 60);
 
@@ -592,9 +590,7 @@ fn head_lines(path: &Path) -> io::Result<impl Iterator<Item = String>> {
 /// A prompt as a title: trimmed, cut short, and none for text an agent
 /// wraps in tags, such as its own context.
 fn prompt_title(text: &str) -> Option<String> {
-    let said = crate::agents::tags::said(text);
-    let text = said.trim();
-    (!text.is_empty() && !text.starts_with('<')).then(|| cut(text, MAX_TITLE))
+    crate::agents::tags::title(text)
 }
 
 fn unix(at: SystemTime) -> u64 {

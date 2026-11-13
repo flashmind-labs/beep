@@ -59,8 +59,10 @@ pub(super) struct Said {
 
 impl Said {
     /// The title to show: the user's, else the generated one.
-    pub(super) fn title(&self) -> Option<&str> {
-        self.custom_title.as_deref().or(self.title.as_deref())
+    pub(super) fn title(&self) -> Option<String> {
+        self.custom_title
+            .clone()
+            .or_else(|| self.title.as_deref().and_then(tags::title))
     }
 
     pub(super) fn prompt(&self) -> Option<&str> {
@@ -1130,10 +1132,23 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn imported_automatic_titles_are_cleaned_but_custom_titles_stay() {
+        let tagged = tags::from_session("parent", "Parent task", "Fix the upload queue.");
+        let mut digest = Digest::read(&serde_json::json!({"type": "ai-title", "aiTitle": tagged}).to_string());
+        let gist = Gist::of(digest, 0, 0, Vec::new());
+        assert_eq!(gist.said.title().as_deref(), Some("Fix the upload queue."));
+
+        let custom = "Custom title ".repeat(10).trim().to_owned();
+        digest = Digest::read(&serde_json::json!({"type": "custom-title", "customTitle": custom}).to_string());
+        let gist = Gist::of(digest, 0, 0, Vec::new());
+        assert_eq!(gist.said.title().as_deref(), Some(custom.as_str()));
+    }
+
+    #[test]
     fn a_transcript_reads_as_prompts_text_and_tool_lines() {
         let digest = Digest::read(FIXTURE);
         assert_eq!(digest.said.cwd.as_deref(), Some("/srv/project"));
-        assert_eq!(digest.said.title(), Some("Fix the flaky test"));
+        assert_eq!(digest.said.title().as_deref(), Some("Fix the flaky test"));
         assert_eq!(digest.said.prompt(), Some("now run the whole suite"));
         assert_eq!(
             digest.said.last_message.as_deref(),
