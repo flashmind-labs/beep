@@ -2561,30 +2561,62 @@ async fn an_image_sent_during_resume_waits_for_image_capabilities() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
         let fifo = dir.join("initialized");
-        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
-        let adapter = IMAGES_ADAPTER.replacen(
-            "read -r line; log \"$1\"",
-            "read -r line; log \"$1\"; read -r ready < \"$3\"",
-            1,
-        ).replace("reply '{\"sessionId\":\"s\"}'", "reply '{}'");
-        let adapter = adapter.replace(r#"agentCapabilities\":{"#, r#"agentCapabilities\":{\"loadSession\":true,"#);
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let adapter = IMAGES_ADAPTER
+            .replacen(
+                "read -r line; log \"$1\"",
+                "read -r line; log \"$1\"; read -r ready < \"$3\"",
+                1,
+            )
+            .replace("reply '{\"sessionId\":\"s\"}'", "reply '{}'");
+        let adapter = adapter.replace(
+            r#"agentCapabilities\":{"#,
+            r#"agentCapabilities\":{\"loadSession\":true,"#,
+        );
         let mut kind = script("codex", &adapter, &dir.join("sent.jsonl"));
-        kind.args.extend([images.to_string(), fifo.display().to_string()]);
+        kind.args
+            .extend([images.to_string(), fifo.display().to_string()]);
         let session = Session::start(Start {
             prompt: None,
             resume: Some("s".into()),
             ..start_on(&kind, dir, None)
-        }).unwrap();
-        session.order(Command::Steer(shot())).await.expect("accepted while initializing");
+        })
+        .unwrap();
+        session
+            .order(Command::Steer(shot()))
+            .await
+            .expect("accepted while initializing");
         assert_eq!(session.info().state.status, Status::Starting);
-        tokio::task::spawn_blocking(move || std::fs::write(fifo, "go\n")).await.unwrap().unwrap();
-        until(&session, |live| live.info.turns == 1 || live.status() == Status::Ended).await;
-        let sent: Vec<Value> = std::fs::read_to_string(dir.join("sent.jsonl")).unwrap()
-            .lines().map(|line| serde_json::from_str(line).unwrap()).collect();
-        let prompt = sent.iter().find(|line| line["method"] == "session/prompt").expect("prompt delivered");
+        tokio::task::spawn_blocking(move || std::fs::write(fifo, "go\n"))
+            .await
+            .unwrap()
+            .unwrap();
+        until(&session, |live| {
+            live.info.turns == 1 || live.status() == Status::Ended
+        })
+        .await;
+        let sent: Vec<Value> = std::fs::read_to_string(dir.join("sent.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let prompt = sent
+            .iter()
+            .find(|line| line["method"] == "session/prompt")
+            .expect("prompt delivered");
         let blocks = prompt["params"]["prompt"].as_array().unwrap();
         assert_eq!(blocks.iter().any(|block| block["type"] == "image"), images);
         assert_eq!(session.info().turns, 1);
         session.close().await;
     }
 }
+
+#[cfg(unix)]
+#[path = "agents_session_v2.rs"]
+mod v2;

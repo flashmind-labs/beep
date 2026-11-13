@@ -41,6 +41,7 @@ mod actor;
 mod orders;
 mod sccache;
 mod turns;
+mod v2;
 
 use actor::Actor;
 
@@ -272,6 +273,8 @@ impl Session {
             alerts,
             stopping,
         } = start;
+        let protocol = super::acp::Protocol::from_env(&kind.env)?;
+
         // Only a new session takes the default model and a thinking level. A
         // resumed one takes the model it ran on, when the caller kept it.
         let model = model.or_else(|| kind.default_model.clone().filter(|_| resume.is_none()));
@@ -358,6 +361,13 @@ impl Session {
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
             acp_session: None,
+            protocol,
+            foreground: false,
+            ready_for_prompts: false,
+            initial_v2_state: None,
+            compacting_v2: false,
+            accepting_v2: false,
+            idle_v2: None,
             takes_images: None,
             takes_steering: false,
             steering: None,
@@ -383,6 +393,7 @@ impl Session {
             model,
             effort,
             thinking: None,
+            mode_config: None,
             switch: None,
             bypass_mode: known.and_then(|known| known.bypass_mode),
             first_mode: mode,
