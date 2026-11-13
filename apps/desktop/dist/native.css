@@ -343,3 +343,17 @@ body.mobile .aguse > span + span { margin-left: 10px }
 body:not(.mobile) :is(.agphead, .agdevhead) { --ctl-h: 20px }
 body:not(.mobile) .agtab { gap: 4px; padding-inline: 6px 5px; font-size: 9.5px; letter-spacing: .05em }
 body:not(.mobile) .agtab > svg { width: 12px; height: 12px }
+
+/* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
+body:not(.mobile) .cc-mstrip { gap: 4px; border: 0; background: none; overflow: visible }
+body:not(.mobile) .cc-mstrip > .m { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); background: var(--ctl-fill) }
+body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .bd-empty, .pj-card .line, .pj-card .h small, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
+body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.bd-card, .pj-card):hover, body:not(.mobile) .bd-card:focus-visible { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 7%, transparent) }
+body:not(.mobile) .bd-empty { padding: 4px 2px; border: 0; color: var(--dim) }
+body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
+body:not(.mobile) .pj-list hr { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
+body:not(.mobile) :is(.pj-li[aria-current="true"], .tl-it[aria-current="true"]) { border-color: transparent; background: var(--ctl-fill-hi) }
+body:not(.mobile) .tl-it[aria-current="true"] { box-shadow: inset 2px 0 var(--accent) }
