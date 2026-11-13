@@ -49,6 +49,8 @@ export interface MentionState {
   error: string;
 }
 
+/// How long a failed upload stays said, as the field shows it (agentAttachError).
+const ERROR_SHOWN_MS = 5000;
 const freshMentions = (): MentionState => ({ paths: [], uploads: [], pending: new Set(), ask: null, files: new Map(), reading: 0, images: [], sending: false, error: "" });
 const conversations = new Map<string, MentionState>();
 let current = freshMentions();
@@ -147,6 +149,7 @@ export async function uploadDropped(files: File[], folder: string | null = null,
 
 async function uploadFiles(files: File[], folder: string | null, root: string, preview: boolean, batch: UploadBatch, state: MentionState, session: ReturnType<typeof paneSession>) {
   const uploaded: { file: File; path: string }[] = [];
+  state.error = "";
 
   for (const f of files) {
     try {
@@ -164,8 +167,11 @@ async function uploadFiles(files: File[], folder: string | null, root: string, p
       }
     } catch (e) {
       batch.failed = true;
-      state.error = `${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`;
-      if (state === current) MN.error(state.error);
+      const message = `${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`;
+      state.error = message;
+      if (state === current) MN.error(message);
+      // The field shows it for a few seconds; the conversation forgets it then too, so it does not come back.
+      setTimeout(() => { if (state.error === message) state.error = ""; }, ERROR_SHOWN_MS);
     } finally {
       state.reading--;
     }

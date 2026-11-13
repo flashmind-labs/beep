@@ -35,3 +35,13 @@ test("prose, pasted content and code keep literal references; small batches need
     assert.equal(node.querySelector(".attachment-file")?.textContent, "main.ts");
   } finally { env.close(); }
 });
+
+test("a message that shows its pictures names only its other files", () => {
+  const env = startDom();
+  try {
+    const node = env.dom.window.document.createElement("div");
+    node.innerHTML = compactPromptAttachments('<p>See these.</p><p>@/path/to/shot.png @src/main.ts</p><p>@"/path/to/second shot.JPG"</p>', true);
+    assert.deepEqual([...node.querySelectorAll(".attachment-file")].map(chip => chip.textContent), ["main.ts"]);
+    assert.equal(node.querySelectorAll("p").length, 1);
+  } finally { env.close(); }
+});

@@ -434,7 +434,7 @@ function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   // A message just sent has no HTML until the next read: its text shows meanwhile.
   const html = en.html ?? (words ? words.split(/\n\s*\n/).map(part => `<p>${esc(part).replace(/\n/g, "<br>")}</p>`).join("") : "");
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
-  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), html: compactPromptAttachments(said), pictures: names.map(entryPic).join("") };
+  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), html: compactPromptAttachments(said, names.length > 0), pictures: names.map(entryPic).join("") };
   return [...others, prompt];
 }
 

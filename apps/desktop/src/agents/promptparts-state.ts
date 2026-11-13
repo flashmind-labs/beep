@@ -60,8 +60,11 @@ export function sessionMessageTitle(name: string): string {
   return "";
 }
 
+const PICTURE = /\.(?:png|jpe?g|gif|webp|heic|bmp|tiff?)$/i;
+
 /// Fold standalone file-reference paragraphs without changing the stored prompt.
-export function compactPromptAttachments(html: string): string {
+/// With `pictured`, the message shows its pictures itself, so their files get no chip.
+export function compactPromptAttachments(html: string, pictured = false): string {
   if (!html.includes("@")) return html;
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -71,8 +74,10 @@ export function compactPromptAttachments(html: string): string {
     const text = paragraph.textContent?.trim() ?? "";
     const references = [...text.matchAll(/@(?:"([^"\n]+)"|([^\s"]+))/g)];
     if (!references.length || text.replace(/@(?:"[^"\n]+"|[^\s"]+)/g, "").trim()) continue;
-    const paths = references.map(match => match[1] ?? match[2]);
-    if (paths.some(path => !/[\\/.]/.test(path))) continue;
+    const named = references.map(match => match[1] ?? match[2]);
+    if (named.some(path => !/[\\/.]/.test(path))) continue;
+    const paths = pictured ? named.filter(path => !PICTURE.test(path)) : named;
+    if (!paths.length) { paragraph.remove(); continue; }
 
     const items = document.createElement("div");
     items.className = "attachment-items";
