@@ -21,8 +21,11 @@ a[href] { cursor: pointer }
 /* Your message is a rounded block across the column, without the "You" over it. */
 body:not(.mobile) .dcoderen.user { padding: 9px 12px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 7%, transparent) }
 /* The "You" goes; the time it was sent stays, at the block's end. */
-body:not(.mobile) .dcoderen.user > b { display: flex; justify-content: flex-end; font-size: 0; line-height: 0 }
-body:not(.mobile) .dcoderen.user > b time { line-height: 12px }
+/* The send time takes no line of its own: it sits in the top right corner over the block, shown on hover. */
+body:not(.mobile) .dcoderen.user { position: relative }
+body:not(.mobile) .dcoderen.user > b { position: absolute; top: 4px; right: 8px; font-size: 0; line-height: 0; opacity: 0; transition: opacity .12s; pointer-events: none }
+body:not(.mobile) .dcoderen.user:hover > b { opacity: 1 }
+body:not(.mobile) .dcoderen.user > b time { padding: 1px 5px; border-radius: 4px; background: var(--elev); line-height: 14px }
 /* Words the agent said on the way read quieter than its answer. */
 body:not(.mobile) .dcoderen.agent:has(+ .dcoderturn) { color: var(--muted) }
 
