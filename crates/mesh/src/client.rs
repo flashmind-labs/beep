@@ -381,7 +381,7 @@ impl PeerClient {
     pub async fn open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
         let channel = self.channel_for(protocol).await?;
         let opened = timeout(OPEN_TIMEOUT, async {
-            let (tx, mut rx) = self.begin(protocol, channel.as_ref()).await?;
+            let (tx, mut rx) = self.begin(protocol, channel.as_ref(), OPEN_TIMEOUT).await?;
             self.confirmed(&mut rx, protocol).await?;
             Ok((tx, rx))
         })
@@ -403,7 +403,7 @@ impl PeerClient {
     ) -> Result<(LinkTx, LinkRx), MeshError> {
         let channel = self.channel_for(protocol).await?;
         let opened = timeout(OPEN_TIMEOUT, async {
-            let (mut tx, mut rx) = self.begin(protocol, channel.as_ref()).await?;
+            let (mut tx, mut rx) = self.begin(protocol, channel.as_ref(), OPEN_TIMEOUT).await?;
             let sent = tx.send(first).await;
             self.confirmed(&mut rx, protocol).await?;
             sent.map_err(MeshError::Link)?;
@@ -424,9 +424,10 @@ impl PeerClient {
         &self,
         protocol: &str,
         channel: Option<&Connection>,
+        open_timeout: Duration,
     ) -> Result<(LinkTx, LinkRx), MeshError> {
         if let Some(connection) = channel {
-            return timeout(OPEN_TIMEOUT, async {
+            return timeout(open_timeout, async {
                 let (send, recv) = connection
                     .open_bi()
                     .await
@@ -444,7 +445,7 @@ impl PeerClient {
         }
 
         match &self.via {
-            Via::Peer(open_bi) => timeout(OPEN_TIMEOUT, async {
+            Via::Peer(open_bi) => timeout(open_timeout, async {
                 let (mut tx, rx) = open_bi().await?;
                 send_open(&mut tx, protocol).await?;
                 Ok((tx, rx))
@@ -527,6 +528,61 @@ impl PeerClient {
                 ))
             }
         }
+    }
+
+    /// Sends one transfer request with an inactivity limit on each stream read
+    /// and write. Slow transfers can take longer than `idle` while bytes move.
+    pub async fn call_idle<Q: Serialize, R: DeserializeOwned>(
+        &self,
+        idle: Duration,
+        protocol: &str,
+        request: &Q,
+    ) -> Result<R, MeshError> {
+        let mut timing = CallTiming::new(protocol, self.peer);
+        let result = async {
+            let channel = self.channel_for(protocol).await?;
+            let (mut tx, mut rx) = self.begin(protocol, channel.as_ref(), idle).await?;
+            tx.set_idle_timeout(idle);
+            rx.set_idle_timeout(idle);
+
+            tx.send(request).await.map_err(MeshError::Link)?;
+            answer(&mut rx, protocol).await?;
+            timing.phase = "reply";
+            timing.phase_started = Instant::now();
+
+            rx.recv().await.map_err(MeshError::Link)?.ok_or_else(|| {
+                MeshError::Link(
+                    io::Error::new(ErrorKind::UnexpectedEof, "the node closed the stream").into(),
+                )
+            })
+        }
+        .await;
+
+        timing.outcome = match &result {
+            Ok(_) => "ok",
+            Err(MeshError::Link(error))
+                if error.chain().any(|cause| {
+                    cause.is::<Elapsed>()
+                        || cause
+                            .downcast_ref::<io::Error>()
+                            .is_some_and(|error| error.kind() == ErrorKind::TimedOut)
+                }) =>
+            {
+                "timeout"
+            }
+            Err(_) => "error",
+        };
+
+        result.map_err(|error| {
+            if timing.outcome == "timeout" {
+                MeshError::Link(anyhow::Error::new(error).context(format!(
+                    "the transfer made no progress for {} seconds",
+                    idle.as_secs()
+                )))
+            } else {
+                error
+            }
+        })
     }
 
     /// Sends one request and yields the replies until the node finishes the

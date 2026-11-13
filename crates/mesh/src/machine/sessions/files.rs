@@ -195,7 +195,7 @@ pub async fn upload_file<S: Sessions + ?Sized>(
         size: write.size,
         data: write.data,
     };
-    let reply = hinted(once(node, request).await, "upload temporary attachments")?;
+    let reply = once(node, request).await?;
 
     match reply {
         SessionsReply::Written { path } => Ok(NodeWork::Done(path)),

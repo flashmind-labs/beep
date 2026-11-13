@@ -9,7 +9,9 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::io;
 use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf, duplex};
+use tokio_io_timeout::{TimeoutReader, TimeoutWriter};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 /// The largest message either side reads.
@@ -72,11 +74,11 @@ impl AsyncRead for In {
 
 /// Sends messages on one stream of the node link.
 pub struct LinkTx {
-    framed: FramedWrite<Out, LengthDelimitedCodec>,
+    framed: FramedWrite<Pin<Box<TimeoutWriter<Out>>>, LengthDelimitedCodec>,
 }
 
 /// Reads messages from one stream of the node link.
-pub struct LinkRx(FramedRead<In, LengthDelimitedCodec>);
+pub struct LinkRx(FramedRead<Pin<Box<TimeoutReader<In>>>, LengthDelimitedCodec>);
 
 /// Both ends of an in-memory stream pair: what the caller holds and what
 /// the node's session gets.
@@ -99,28 +101,33 @@ pub fn local_link() -> LocalLink {
     LocalLink {
         caller: (
             LinkTx::new(Out::Local(to_node)),
-            LinkRx(FramedRead::new(In::Local(from_node), codec())),
+            LinkRx::new(In::Local(from_node)),
         ),
         node: (
             LinkTx::new(Out::Local(node_writes)),
-            LinkRx(FramedRead::new(In::Local(node_reads), codec())),
+            LinkRx::new(In::Local(node_reads)),
         ),
     }
 }
 
 /// A stream whose messages are compact, as every stream of the mesh is.
 pub fn link(send: SendStream, recv: RecvStream) -> (LinkTx, LinkRx) {
-    (
-        LinkTx::new(Out::Net(send)),
-        LinkRx(FramedRead::new(In::Net(recv), codec())),
-    )
+    (LinkTx::new(Out::Net(send)), LinkRx::new(In::Net(recv)))
 }
 
 impl LinkTx {
     fn new(out: Out) -> Self {
         Self {
-            framed: FramedWrite::new(out, codec()),
+            framed: FramedWrite::new(Box::pin(TimeoutWriter::new(out)), codec()),
         }
+    }
+
+    /// Limits inactivity between writes, without limiting the whole message.
+    pub fn set_idle_timeout(&mut self, idle: Duration) {
+        self.framed
+            .get_mut()
+            .as_mut()
+            .set_timeout_pinned(Some(idle));
     }
 
     pub async fn send<T: Serialize>(&mut self, message: &T) -> Result<()> {
@@ -131,13 +138,13 @@ impl LinkTx {
 
     /// Finishes the stream. On the network it waits until the peer read all
     /// of it or stopped reading; on an in-process link it returns at once.
-    pub async fn finish(self) -> Result<()> {
-        match self.framed.into_inner() {
-            Out::Net(mut send) => {
+    pub async fn finish(mut self) -> Result<()> {
+        match self.framed.get_mut().as_mut().get_pin_mut().get_mut() {
+            Out::Net(send) => {
                 send.finish()?;
                 send.stopped().await?;
             }
-            Out::Local(mut pipe) => pipe.shutdown().await?,
+            Out::Local(pipe) => pipe.shutdown().await?,
         }
 
         Ok(())
@@ -145,6 +152,18 @@ impl LinkTx {
 }
 
 impl LinkRx {
+    fn new(input: In) -> Self {
+        Self(FramedRead::new(
+            Box::pin(TimeoutReader::new(input)),
+            codec(),
+        ))
+    }
+
+    /// Limits inactivity between reads, including within a message frame.
+    pub fn set_idle_timeout(&mut self, idle: Duration) {
+        self.0.get_mut().as_mut().set_timeout_pinned(Some(idle));
+    }
+
     /// The next message, `None` once the peer finished the stream.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
         self.recv_with(lenient::from_slice).await
@@ -167,3 +186,7 @@ impl LinkRx {
         Ok(Some(message))
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/node_stream.rs"]
+mod tests;

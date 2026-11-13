@@ -29,6 +29,8 @@ use tracing::Instrument;
 
 /// How long an ordinary read of the node's sessions may take.
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long an upload may go without sending or receiving bytes.
+const UPLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a picture may take: a whole one is a few MiB, which a link
 /// through a busy relay carries in far more than `READ_TIMEOUT`.
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -92,8 +94,19 @@ impl Sessions for PeerClient {
             SessionsRequest::Transcript { .. } => "transcript",
             _ => "other",
         };
+        let span = tracing::info_span!("agent_request", operation);
+        if matches!(
+            request,
+            SessionsRequest::UploadFile { .. } | SessionsRequest::WriteFile { .. }
+        ) {
+            return self
+                .call_idle(UPLOAD_IDLE_TIMEOUT, SESSIONS_PROTOCOL, &request)
+                .instrument(span)
+                .await;
+        }
+
         self.call_within(limit, SESSIONS_PROTOCOL, &request)
-            .instrument(tracing::info_span!("agent_request", operation))
+            .instrument(span)
             .await
     }
 }
