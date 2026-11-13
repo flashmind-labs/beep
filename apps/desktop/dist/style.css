@@ -541,7 +541,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agpeek { position: absolute; right: 18px; width: max-content; max-width: min(420px, 70vw); transform: translateY(-50%); padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--elev); box-shadow: 0 6px 20px rgb(0 0 0 / .28); font-size: 12.5px; line-height: 18px; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; pointer-events: none }
 .dagjump:hover { border-color: var(--border-hi) }
 /* Code blocks in replies, with a copy button; tables. */
-.dcoderen.agent.md pre.dcode { position: relative; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); overflow: auto }
+.dcoderen.agent.md pre.dcode { position: relative; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); overflow: hidden }
+.dcoderen.agent.md pre.dcode > code { display: block; overflow-x: auto; white-space: pre; overflow-wrap: normal }
 .dcoderen.agent.md pre.dcode .dcopy { all: unset; position: absolute; top: 5px; right: 6px; padding: 0 7px; border-radius: 5px; border: 1px solid var(--border); background: var(--elev); font: 11px/18px var(--body); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity .15s }
 .dcoderen.agent.md pre.dcode:hover .dcopy, .dcoderen.agent.md pre.dcode .dcopy:focus-visible { opacity: 1 }
 .dcoderen.agent.md pre.dcode .dcopy:hover { color: var(--fg) }
