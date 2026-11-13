@@ -174,16 +174,14 @@ body.cbody
             div#agcomposer.agc-wrap
               form.cc-pjc.centered
                 section.agc-intro
-                  canvas.dither-art [aria-hidden="true" height="600" width="1180"]
-                  h3 [aria-label="What should we put on the screen?"]
+                  canvas.dither-art [aria-hidden="true" height="640" width="1500"]
+                  h3 [aria-label="What are we building today?"]
                     span [aria-hidden="true"]
                       span.agc-word style(--word) "What"
-                      span.agc-word style(--word) "should"
+                      span.agc-word style(--word) "are"
                       span.agc-word style(--word) "we"
-                      span.agc-word style(--word) "put"
-                      span.agc-word style(--word) "on"
-                      span.agc-word style(--word) "the"
-                      span.agc-word style(--word) "screen?"
+                      span.agc-word style(--word) "building"
+                      span.agc-word style(--word) "today?"
                   p "A fresh idea. A tricky bug. A place to start."
                 div#agbox.box
                   div.ag-att [hidden]

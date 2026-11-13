@@ -81,7 +81,7 @@ function scene(u: number, v: number, aspect: number): { light: number; warmth: n
 }
 
 /// The picture thins out toward its edges, so it has no frame.
-const edgeFade = (u: number, v: number) => ramp(0, 0.28, u) * ramp(1, 0.72, u) * ramp(0, 0.12, v) * ramp(0.86, 0.6, v);
+const edgeFade = (u: number, v: number) => ramp(0, 0.28, u) * ramp(1, 0.72, u) * ramp(0, 0.12, v) * ramp(0.72, 0.58, v);
 const ramp = (from: number, to: number, value: number) => {
   const t = Math.min(1, Math.max(0, (value - from) / (to - from)));
   return t * t * (3 - 2 * t);
