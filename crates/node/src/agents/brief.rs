@@ -1,23 +1,20 @@
 //! What the agent hears ahead of its first prompt.
 
 /// What the agent hears ahead of its first prompt.
-pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other \
-    machines. list_machines says which machines there are, whether each is online, its OS, \
-    what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents: pick the \
-    machine whose tools fit the work. harness_info gives a harness's model IDs, default model \
-    and thinking levels. list_projects lists project names and their checkouts on each machine. \
-    remote_run runs a command there, never on your own machine; job_status and \
-    cancel follow a background command. \
-    sync_project syncs Git commits for repositories, selected ignored folders through file sync, and files for non-Git folders. Other uncommitted Git edits require an explicit handoff; sync_project never copies them. \
-    read_session_transcript reads a coding session on this or another machine by session ID, with pagination. \
-    send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; \
-    give project to start in a named project's checkout. Replies arrive automatically in your session; \
-    agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. review has your changes reviewed by a reviewer agent and gives its findings. ask_user asks the user a question and waits \
-    for the answer. For Rust, C, or C++ builds, check whether sccache is installed and use it \
-    when practical to reuse compilation results across worktrees. For Rust, set RUSTC_WRAPPER=sccache \
-    for the build if no compiler wrapper is already configured. For C or C++, follow the project's \
-    build configuration and preserve any existing compiler launcher. Do not install sccache or change \
-    the user's global configuration unless asked.";
+pub(crate) const BRIEF: &str = "The `beep` MCP server's tools reach the user's other machines and the Beep app:
+- list_machines: the user's machines, whether each is online, its OS, what it can do (Xcode, Android, GPU, Docker, Blender) and its coding agents. Pick the machine whose tools fit the work.
+- harness_info: a harness's model IDs, default model and thinking levels.
+- list_projects: project names and their checkouts on each machine.
+- remote_run: runs a command on another machine, never on your own. job_status and cancel follow a background command.
+- sync_project: syncs Git commits for repositories, selected ignored folders through file sync, and files for non-Git folders. Other uncommitted Git edits require an explicit handoff; sync_project never copies them.
+- read_session_transcript: reads a coding session on this or another machine by session ID, with pagination.
+- send_files: copies files to another machine.
+- start_agent: starts another coding agent, of any harness, on any machine, linked to you. Give project to start in a named project's checkout. Replies arrive automatically in your session.
+- agent_status, send_to_agent, stop_agent, list_agents: follow your own agents. The user answers their permission questions.
+- review: has your changes reviewed by a reviewer agent and gives its findings.
+- ask_user: asks the user a question and waits for the answer.
+
+For Rust, C, or C++ builds, check whether sccache is installed and use it when practical to reuse compilation results across worktrees. For Rust, set RUSTC_WRAPPER=sccache for the build if no compiler wrapper is already configured. For C or C++, follow the project's build configuration and preserve any existing compiler launcher. Do not install sccache or change the user's global configuration unless asked.";
 
 /// What the agent hears, after the brief, about the Beep chat its replies
 /// show in.

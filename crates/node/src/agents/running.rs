@@ -45,6 +45,12 @@ impl Agents {
             .is_some_and(|session| session.live.borrow().status() != Status::Ended)
     }
 
+    /// The folder `session` works in, if it is one of this node's.
+    pub(crate) fn folder_of(&self, session: &str) -> Option<PathBuf> {
+        self.get(session)
+            .map(|session| PathBuf::from(session.info().cwd))
+    }
+
     /// Puts `question` to the user in `session` and waits for the answer.
     /// Fails when the session ends or its turn is cancelled first.
     pub(crate) async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {

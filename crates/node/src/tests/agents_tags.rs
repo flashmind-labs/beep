@@ -1,5 +1,8 @@
 use super::*;
 
+/// A brief as Beep wrote it bare, before the tags.
+pub(crate) const BARE_BRIEF: &str = "Beep: the `beep` MCP server's tools reach the user's other machines. remote_run runs a command there. ask_user asks the user a question and waits for the answer. For Rust, C, or C++ builds, check whether sccache is installed. Do not install sccache or change the user's global configuration unless asked.";
+
 #[test]
 fn tags_read_back_as_written() {
     let text = format!(
@@ -63,7 +66,7 @@ fn untagged_text_is_the_users() {
 
 #[test]
 fn a_bare_brief_becomes_context() {
-    let brief = BRIEF;
+    let brief = BARE_BRIEF;
     let kept = cut(brief, MAX_CONTEXT);
     assert_eq!(bare_block(brief), context(brief));
     assert_eq!(bare_block("ok"), "ok");

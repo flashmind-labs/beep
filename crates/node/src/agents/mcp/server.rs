@@ -2,7 +2,10 @@
 //! transport speaks it. Calls run side by side, a few at a time, so a long
 //! `remote_run` does not hold up the next call.
 
-use super::catalog::{self, ASK_USER, READ_TRANSCRIPT, REMOTE_RUN};
+use super::{
+    catalog::{self, ASK_USER, READ_TRANSCRIPT, REMOTE_RUN},
+    media::Media,
+};
 use crate::agents::{Answered, Asking, Line, LineReader};
 use anyhow::Result;
 use beep_proto::node::{
@@ -45,6 +48,10 @@ pub(crate) trait Backend: Sync {
     /// Whether `session` is a temporary reviewer, which is offered
     /// `submit_review`.
     fn reviewer(&self, session: &str) -> bool;
+    /// The media tools `session` gets from the saved API keys.
+    fn media(&self, _session: &str) -> Option<Media> {
+        None
+    }
 }
 
 /// Serves MCP for `session` until the reader ends and every call is
@@ -60,6 +67,7 @@ where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    let media = backend.media(session);
     let mut lines = LineReader::new(reader, MAX_MESSAGE);
     let mut running = FuturesUnordered::new();
     let mut open = true;
@@ -73,7 +81,7 @@ where
                 }
                 Some(Line::Text(text)) if text.trim().is_empty() => {}
                 Some(Line::Text(text)) => match serde_json::from_str::<Value>(&text) {
-                    Ok(message) => running.push(answer(backend, session, message)),
+                    Ok(message) => running.push(answer(backend, session, media.as_ref(), message)),
                     Err(e) => {
                         let error = failure(Value::Null, -32700, &format!("not JSON: {e}"));
                         write(&mut writer, &error).await?;
@@ -107,7 +115,12 @@ fn failure(id: Value, code: i32, message: &str) -> Value {
 }
 
 /// The answer to one message; `None` for a notification or a response.
-async fn answer<B: Backend>(backend: &B, session: &str, message: Value) -> Option<Value> {
+async fn answer<B: Backend>(
+    backend: &B,
+    session: &str,
+    media: Option<&Media>,
+    message: Value,
+) -> Option<Value> {
     let method = message.get("method")?.as_str()?.to_owned();
     let id = message.get("id")?.clone();
     let params = message.get("params").cloned().unwrap_or(Value::Null);
@@ -117,21 +130,27 @@ async fn answer<B: Backend>(backend: &B, session: &str, message: Value) -> Optio
             let version = asked
                 .filter(|asked| VERSIONS.contains(asked))
                 .unwrap_or(VERSIONS[0]);
+            let brief = media.and_then(Media::brief).unwrap_or_default();
             success(
                 id,
                 json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": super::BRIEF,
+                    "instructions": format!("{}{brief}", super::BRIEF),
                 }),
             )
         }
         "ping" => success(id, json!({})),
-        "tools/list" => success(
-            id,
-            json!({ "tools": catalog::tools(backend.reviewer(session)) }),
-        ),
+        "tools/list" => {
+            let mut tools = catalog::tools(backend.reviewer(session));
+
+            if let (Some(listed), Some(media)) = (tools.as_array_mut(), media) {
+                listed.extend(media.listed());
+            }
+
+            success(id, json!({ "tools": tools }))
+        }
         "tools/call" => {
             let name = params
                 .get("name")
@@ -141,7 +160,13 @@ async fn answer<B: Backend>(backend: &B, session: &str, message: Value) -> Optio
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let called = call(backend, session, name, args).await;
+            let called = match media.filter(|media| media.offers(name)) {
+                Some(media) => {
+                    let (text, failed) = media.call(name, args).await;
+                    Called { text, failed }
+                }
+                None => call(backend, session, name, args).await,
+            };
             success(
                 id,
                 json!({
