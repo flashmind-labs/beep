@@ -4,7 +4,7 @@
 .mac .cc-pjc .box { border: 1px solid var(--d-border); border-radius: var(--radius); background: color-mix(in srgb, var(--d-elev) 92%, transparent); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .mac .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--d-emerald) 60%, transparent) }
 .mac .cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
-.mac .cc-pjc input, .mac .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--d-fg); font: inherit; font-size: 14px; caret-color: var(--d-emerald); padding: 0; min-width: 0; user-select: text }
+.mac .cc-pjc input, .mac .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--d-fg); font: inherit; font-size: 14px; caret-color: var(--d-emerald); padding: 0; min-width: 0; -webkit-user-select: text; user-select: text }
 .mac .cc-pjc input::placeholder, .mac .cc-pjc textarea::placeholder { color: var(--d-dim) }
 .mac .cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
 .mac .cc-pjc .sp { flex: 1 }

@@ -58,7 +58,7 @@
 .mac .gh-hunk { padding: 8px 12px; font-family: var(--mono); font-size: 12px; line-height: 16px; background: color-mix(in srgb, var(--d-fg) 4%, transparent); color: var(--d-muted) }
 .mac .gh-code-row { display: grid; grid-template-columns: 24px 24px 12px minmax(max-content, 1fr); gap: 4px; padding: 0 8px; font-family: var(--mono); font-size: 12px; line-height: 24px; min-width: max-content }
 .mac .gh-code-row > span { color: var(--d-muted); text-align: right; user-select: none }
-.mac .gh-code-row code { font: inherit; white-space: pre; padding-left: 8px; user-select: text }
+.mac .gh-code-row code { font: inherit; white-space: pre; padding-left: 8px }
 .mac .gh-code-row.add { background: #192a20 }
 .mac .gh-code-row.add code { color: #b5d5be }
 .mac .gh-code-row.del { background: #301e20 }
