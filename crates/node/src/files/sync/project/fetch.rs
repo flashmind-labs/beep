@@ -16,7 +16,10 @@ use iroh_blobs::{
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     io::SeekFrom,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -83,6 +86,9 @@ pub(super) struct Fetcher {
     /// one, the store's collector deletes it between rounds, or after a fetch
     /// dropped on a pause, and the file starts over.
     unfinished: Mutex<HashMap<Hash, TempTag>>,
+    /// The bytes fetches have received since the node started, for the
+    /// progress of a round while one large file comes.
+    received: AtomicU64,
 }
 
 impl Fetcher {
@@ -93,7 +99,13 @@ impl Fetcher {
             blobs: AsyncMutex::default(),
             down: Mutex::default(),
             unfinished: Mutex::default(),
+            received: AtomicU64::new(0),
         }
+    }
+
+    /// The bytes fetches have received so far.
+    pub(super) fn received(&self) -> u64 {
+        self.received.load(Ordering::Relaxed)
     }
 
     /// Forgets what came of the blobs the list no longer wants.
@@ -151,12 +163,18 @@ impl Fetcher {
                     continue;
                 }
             };
+            let mut counted = 0;
             let fetched = fetch_within(
                 &self.parts.store,
                 connection.clone(),
                 content,
                 STALL,
                 &self.shared.stop,
+                |bytes| {
+                    let more = bytes.saturating_sub(counted);
+                    counted = counted.max(bytes);
+                    self.received.fetch_add(more, Ordering::Relaxed);
+                },
             )
             .await;
 
@@ -409,13 +427,14 @@ pub(super) async fn read_store(store: &Store, hash: Hash, limit: u64) -> Result<
 /// Copies blob `hash` from a peer into `out`, giving the hash of what was
 /// written. The blobs protocol checks every chunk against `hash`.
 /// Fetches `content` into `store` over `connection`, failing when no data
-/// comes for `stall`.
+/// comes for `stall`. `on_bytes` hears the bytes received so far.
 pub(super) async fn fetch_within(
     store: &Store,
     connection: Connection,
     content: HashAndFormat,
     stall: Duration,
     stop: &CancellationToken,
+    mut on_bytes: impl FnMut(u64),
 ) -> Result<()> {
     let items = store.remote().fetch(connection, content).stream();
     let mut items = std::pin::pin!(items);
@@ -428,7 +447,7 @@ pub(super) async fn fetch_within(
         };
 
         match item {
-            Some(GetProgressItem::Progress(_)) => {}
+            Some(GetProgressItem::Progress(bytes)) => on_bytes(bytes),
             Some(GetProgressItem::Done(_)) => return Ok(()),
             Some(GetProgressItem::Error(e)) => bail!("{e}"),
             None => bail!("the fetch ended early"),

@@ -466,6 +466,12 @@ impl Task {
         });
     }
 
+    /// Publishes how far the round is, leaving what waits as it was.
+    pub(super) fn show_progress(&self, meter: &Meter) {
+        let progress = meter.progress();
+        self.shared.publish(move |status| status.progress = Some(progress));
+    }
+
     /// Publishes how the project stands; progress shows only while a round
     /// runs, and `show` sets it then.
     pub(super) fn publish_status(&self, state: Option<SyncState>) {
