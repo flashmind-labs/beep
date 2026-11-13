@@ -29,6 +29,8 @@ export interface ComposeOptions {
   images?: (files: File[]) => unknown;
   /// Grows the field with its lines, up to this height in pixels.
   grow?: number;
+  /// Takes the last attachment off the message: a Backspace at the start of the field.
+  removeLast?: () => void;
 }
 
 interface Field {
@@ -255,6 +257,12 @@ function key(field: HTMLTextAreaElement, e: KeyboardEvent) {
   if ((e.key !== "Backspace" && e.key !== "Delete") || e.isComposing) return;
   const at = field.selectionStart;
   if (at !== field.selectionEnd) return;
+
+  if (at === 0 && e.key === "Backspace") {
+    f.opts.removeLast?.();
+    return;
+  }
+
   const p = pillAt(pillsIn(field.value), at, e.key === "Backspace");
   if (!p) return;
   e.preventDefault();

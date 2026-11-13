@@ -25,6 +25,13 @@ function removeImage(i: number) {
   agentMessage.current?.focus();
 }
 
+/// Takes the last chip off the message.
+export function removeLastAttachment() {
+  const loose = MN.paths.findLastIndex(path => !AG.att.some(image => image.original === path));
+  if (loose >= 0) removeMention(loose);
+  else if (AG.att.length) removeImage(AG.att.length - 1);
+}
+
 export function AgentAttachments() {
   const ask = MN.ask, there = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { if (ask) queueMicrotask(() => { if (MN.ask === ask) there.current?.focus(); }); }, [ask]);

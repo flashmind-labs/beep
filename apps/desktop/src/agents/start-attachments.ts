@@ -49,6 +49,12 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     add, images, files,
     /// Files pasted or dropped on the composer, which keeps the focus.
     take(dropped: File[]) { void add(dropped).then(() => c.input.focus()); },
+    /// Takes the last chip off the composer.
+    removeLast() {
+      const loose = files.pending.findLastIndex(entry => !images.some(image => image.original === entry.file));
+      if (loose >= 0) remove("file", loose);
+      else if (images.length) remove("image", images.length - 1);
+    },
     get reading() { return reading > 0; },
     get count() { return images.length + files.pending.length; },
     setBusy(value: boolean) { locked = value; drawPicker(); },
