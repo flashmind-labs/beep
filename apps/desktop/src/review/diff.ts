@@ -161,15 +161,14 @@ export async function loadFull(v: Viewer, f: DiffFile) {
     if (seq !== v.seq) return;
     const view = v.state.view;
     if (view) v.set({ view: withLoaded(view, got.files) });
+    v.set({ folded: new Map(v.state.folded).set(f.path, false) });
+    reconcile(v, new Set([f.path]));
   } catch (e) {
     if (seq !== v.seq) return;
     v.set({ error: `Could not read ${f.path}: ${reasonOf(e)}` });
   } finally {
     setPending(v, f.path, false);
   }
-
-  v.set({ folded: new Map(v.state.folded).set(f.path, false) });
-  reconcile(v, new Set([f.path]));
 }
 
 /// Shows more context around hunks of file `f`, or takes it away again.
@@ -213,7 +212,13 @@ export async function sendReview(v: Viewer) {
   if (sending || !draft.length) return;
   const sent = draft.slice();
   v.set({ sending: true, error: "" });
-  const why = await v.src.review.send(reviewText(v.src.review.heading(), view?.files ?? [], sent));
+  let why: string;
+
+  try {
+    why = await v.src.review.send(reviewText(v.src.review.heading(), view?.files ?? [], sent));
+  } catch (error) {
+    why = reasonOf(error);
+  }
 
   if (why) v.set({ sending: false, error: why });
   else {

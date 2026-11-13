@@ -12,7 +12,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // `review` tool) become comments too, once.
 import {
   type CanStart, type ReviewRun,
-  doneNote, findingsOf, mergeComments, reviewBase, runState, toComments, whyNot,
+  doneNote, findingsOf, hostsAfterRead, mergeComments, reviewBase, runState, toComments, whyNot,
 } from "./feedback-state.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
@@ -63,6 +63,8 @@ const attached = new Map<string, Attached>();
 let lastPick: Pick<Picked, "agent" | "model" | "effort"> | null = null;
 /// The machines that run coding agents, as last read.
 let hosts: AgentHost[] | null = null;
+/// Whether the last read failed, so an empty list does not mean offline.
+let hostsFailed = false;
 let hostsAsked = 0;
 /// How long the machines read lasts.
 const HOSTS_MS = 30_000;
@@ -71,8 +73,8 @@ function readHosts(done: () => void) {
   if (hosts && Date.now() - hostsAsked < HOSTS_MS) return;
   hostsAsked = Date.now();
   invoke<AgentHost[]>("agent_hosts")
-    .then(list => { hosts = list; void picker().then(p => p.preloadModels(list)); done(); })
-    .catch(e => { console.warn("agent hosts:", e); hosts ??= []; done(); });
+    .then(list => { ({ hosts, failed: hostsFailed } = hostsAfterRead(hosts, list)); void picker().then(p => p.preloadModels(list)); done(); })
+    .catch(e => { console.warn("agent hosts:", e); ({ hosts, failed: hostsFailed } = hostsAfterRead(hosts, null)); done(); });
 }
 
 // ----- Reviews already taken -----
@@ -239,7 +241,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   const host = () => (o.machine ? hosts?.find(h => h.machine_id === o.machine!.id) ?? null : null);
   const why = () => {
     const v = o.view();
-    const c: CanStart = { machine: o.machine, root: v ? v.root : null, hosts, changes: !!v?.files.length };
+    const c: CanStart = { machine: o.machine, root: v ? v.root : null, hosts, hostsFailed, changes: !!v?.files.length };
     return whyNot(c);
   };
 

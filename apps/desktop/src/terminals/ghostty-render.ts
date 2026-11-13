@@ -32,8 +32,8 @@ export interface CursorLook {
 const RECT_FLOATS = 9;
 /// Floats per glyph: rect, atlas rect (u, v, w, h), colour (r, g, b, coloured).
 const GLYPH_FLOATS = 12;
-/// Underline, strikethrough and overline.
-const DECORATIONS_PER_CELL = 3;
+/// Underline (two lines when double), strikethrough and overline.
+const DECORATIONS_PER_CELL = 4;
 const ATLAS_SIZE = 2048;
 /// The character kitty's Unicode placeholders put in each cell of an image.
 const KITTY_PLACEHOLDER = 0x10eeee;
@@ -307,7 +307,7 @@ export class GridRenderer {
         }
       }
       if (attrs & Attr.STRIKETHROUGH) rect(decorations, d + 2, left, top + Math.round(ch / 2), cw * span, line, row.fg[x], 1, Kind.SOLID);
-      if (attrs & Attr.OVERLINE) rect(decorations, d + 2, left, top, cw * span, line, row.fg[x], 1, Kind.SOLID);
+      if (attrs & Attr.OVERLINE) rect(decorations, d + 3, left, top, cw * span, line, row.fg[x], 1, Kind.SOLID);
     }
 
     this.bg.dirty(y * cols, cols);

@@ -107,6 +107,8 @@ async function openIssue(b: HTMLButtonElement) {
   try {
     answer(asked, { type: "issued", url: await invoke<string>("report_issue", issueArgs()) });
   } catch (e) {
+    // A failure draws the same tree, so React would not clear this itself.
+    b.disabled = false;
     answer(asked, { type: "failed", error: String(e) });
   }
 }
