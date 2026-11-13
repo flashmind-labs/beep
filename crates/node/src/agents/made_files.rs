@@ -34,7 +34,8 @@ pub(crate) fn note(paths: &[String]) -> String {
 /// The files under `cwd` of the Artifacts kinds last written at or after
 /// `since`, newest first, relative to `cwd` with `/` between folders. Left
 /// out: `written` (the files the turn's edits named, absolute or relative
-/// to `cwd`), `.git`, links, and whatever project sync leaves out. Blocks.
+/// to `cwd`), `.git`, `.beep` (including legacy uploads), links, and whatever
+/// project sync leaves out. Blocks.
 pub(crate) fn find(cwd: &Path, since: SystemTime, written: &[PathBuf]) -> Vec<String> {
     let rules = match Rules::load(cwd) {
         Ok(rules) => rules,
@@ -65,7 +66,7 @@ pub(crate) fn find(cwd: &Path, since: SystemTime, written: &[PathBuf]) -> Vec<St
             };
             let name = entry.file_name();
 
-            if name == ".git" || kind.is_symlink() {
+            if name == ".git" || name == ".beep" || kind.is_symlink() {
                 continue;
             }
 
