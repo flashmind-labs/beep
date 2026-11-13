@@ -279,10 +279,6 @@ body.cbody
                         div.fs-m
                           span "18 files"
                           span "1.0 KB"
-                      hr
-                      div.pm-terminal-head
-                        span "Terminals"
-                        small "None running"
                 div.cc-sec
                   h4 "Conflicts"
                   small "edited on two machines at once"
