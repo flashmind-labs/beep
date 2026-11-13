@@ -7,6 +7,13 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.27] - 2026-11-13
+
+### Fixed
+
+- Desktop: App labels and controls no longer select text accidentally; chat messages and editable fields remain selectable.
+- Desktop: Clicking the emulator no longer shows a blue focus border.
+
 ## [0.8.26] - 2026-11-13
 
 ### Fixed
