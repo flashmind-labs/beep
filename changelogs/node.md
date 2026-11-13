@@ -2,6 +2,13 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.19] - 2026-11-13
+
+### Changed
+
+- Node: an agent that takes no images gets a message's text without them, rather
+  than the message being refused.
+
 ## [0.6.18] - 2026-11-13
 
 ### Fixed

@@ -7,6 +7,18 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.23] - 2026-11-13
+
+### Added
+
+- Desktop: Backspace at the start of a coding agent's message field removes the last
+  attached picture or file.
+
+### Changed
+
+- Desktop: a picture attached to a coding agent message uploads in full, like other files,
+  and the agent gets a small preview with the message. It is no longer shrunk.
+
 ## [0.8.22] - 2026-11-13
 
 ### Added
