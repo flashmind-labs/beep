@@ -28,7 +28,7 @@ const PHONE = { width: 375, height: 812 };
 test.describe.configure({ mode: "parallel" });
 test.use({ timezoneId: "UTC", locale: "en-US" });
 test.beforeEach(async ({ page, browserName }, info) => {
-  test.skip(browserName !== "chromium" || info.project.name !== "macOS", "The baseline is recorded once, on Chromium");
+  test.skip(!process.env.WK && (browserName !== "chromium" || info.project.name !== "macOS"), "The baseline is recorded once, on Chromium");
   await page.clock.setFixedTime(NOW);
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
 });
@@ -137,7 +137,7 @@ async function baseline(page: Page, name: string, root = "body") {
 }
 
 async function openAgent(page: Page, responses: Record<string, unknown> = {}) {
-  await openDesktop(page, false, { agent_view: agentView, agent_tree: listing, ...responses });
+  await openDesktop(page, false, { agent_view: agentView, agent_tree: listing, agent_usage: { context: { used: 250_000, size: 1_000_000 }, tokens: 54_200_000, cost_usd: 34.9 }, ...responses });
   await page.evaluate(target => window.__navigation.open({ agent: target }), session);
   await expect(page.getByText("The query string now survives the redirect.")).toBeVisible();
 }
@@ -338,6 +338,19 @@ test("agent with commands running and messages queued", async ({ page }) => {
   await openAgent(page, { agent_view: { ...agentView, queued: steers.length, queued_messages: steers }, agent_tasks: tasks, agent_steer: [] });
   await expect(page.locator(".ag-tasks")).toHaveText("2 commands running");
   await baseline(page, "agent-work");
+});
+
+test("agent message of several lines stays inside its field", async ({ page }) => {
+  await openAgent(page);
+  const area = page.locator("#agfield textarea");
+  await area.fill("the first line of a longer message that goes on\nsecond line\nthird line\nfourth line");
+  const box = await page.locator("#agfield").boundingBox(), text = await area.boundingBox();
+  if (!box || !text) throw new Error("no field");
+  console.log(JSON.stringify({ box, text, sh: await area.evaluate(el => [el.scrollHeight, el.clientHeight, el.style.height]) }));
+  expect(text.y).toBeGreaterThanOrEqual(box.y);
+  expect(text.y + text.height).toBeLessThanOrEqual(box.y + box.height);
+  expect(await area.evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true);
+  await baseline(page, "agent-multiline");
 });
 
 test("agent running", async ({ page }) => {

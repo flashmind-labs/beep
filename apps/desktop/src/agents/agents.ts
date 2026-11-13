@@ -173,20 +173,32 @@ export interface AgentTask {
 const sessionTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const contextTokens = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
 
-/// Context, session totals and provider balances in the session header.
-export function usageLine(u: AgentUsage) {
-  const parts: string[] = [];
-  if (u.context?.size) parts.push(`${Math.round((u.context.used * 100) / u.context.size)}%/${contextTokens.format(u.context.size).replace("K", "k")}`);
-  if (u.tokens) parts.push(`${sessionTokens.format(u.tokens).replace("K", "k")} tokens`);
+/// What the session header shows of a session's usage: how full the context
+/// is, the tokens it spent, and its spend with the credit left when known.
+export interface SessionUsage {
+  context: { percent: number; size: string } | null;
+  tokens: string | null;
+  spend: string | null;
+}
+
+export function sessionUsage(u: AgentUsage): SessionUsage {
+  const context = u.context?.size ? { percent: Math.round((u.context.used * 100) / u.context.size), size: contextTokens.format(u.context.size).replace("K", "k") } : null;
+  const tokens = u.tokens ? sessionTokens.format(u.tokens).replace("K", "k") : null;
   const credit = u.credits?.find(c => c.unit === "usd");
   const spent = u.cost_usd == null ? "?" : money(u.cost_usd);
 
   if (credit) {
     const remaining = credit.remaining == null ? NaN : Number(credit.remaining);
-    parts.push(`${spent} / ${Number.isFinite(remaining) ? money(remaining) : "?"}`);
-  } else if (u.cost_usd != null) parts.push(spent);
+    return { context, tokens, spend: `${spent} / ${Number.isFinite(remaining) ? money(remaining) : "?"}` };
+  }
 
-  return parts.join(" · ");
+  return { context, tokens, spend: u.cost_usd == null ? null : spent };
+}
+
+/// The same in one line of words.
+export function usageLine(u: AgentUsage) {
+  const { context, tokens, spend } = sessionUsage(u);
+  return [context && `${context.percent}%/${context.size}`, tokens && `${tokens} tokens`, spend].filter(Boolean).join(" · ");
 }
 
 /// A session `agent_start` or `agent_resume` started, and why Auto picked its machine.

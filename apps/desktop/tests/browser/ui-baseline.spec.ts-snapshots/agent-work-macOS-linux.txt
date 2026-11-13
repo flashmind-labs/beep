@@ -153,6 +153,15 @@ body.cbody
                     button#agmoveb.mvb [aria-expanded="false" aria-haspopup="menu" title="Move this session to another machine"] "build-box"
                       svg [fill="none" height="10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               small#aguse.aguse [title="Context used / capacity · session tokens · session spend / remaining credits"]
+                span.ctx
+                  i style(--pct)
+                  b "25 %"
+                  em "of 1M"
+                span
+                  b "54.2M"
+                  em "tokens"
+                span
+                  b "$34.90"
               span#agstate
                 span.dstate.run "Working"
               span#agedit.agedit

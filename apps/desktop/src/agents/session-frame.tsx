@@ -2,7 +2,7 @@ import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
-import { cloneElement, createRef, isValidElement, memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { cloneElement, createRef, isValidElement, memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { fixedTitle } from "../project/projectbar.ts";
@@ -18,6 +18,7 @@ import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.ts";
 import { conversationAppearance } from "../ui/conversation-appearance.ts";
 import { syncJump } from "./logview.ts";
 import { Button } from "../ui/kit.tsx";
+import type { SessionUsage } from "./agents.ts";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
@@ -90,7 +91,7 @@ export function DraftHead({ project, openProject, machine }: { project: string; 
 }
 
 interface SessionHeadProps {
-  agent: string; title: string; folder: string; branch: string; cwd: string; machine: string; usage: string;
+  agent: string; title: string; folder: string; branch: string; cwd: string; machine: string; usage: SessionUsage | null;
   /// The session's machine, harness and id, which the move views follow.
   moveKey: string;
   /// Opens the session's project from its folder name; null outside a project.
@@ -99,7 +100,14 @@ interface SessionHeadProps {
 }
 
 export function SessionHead({ agent, title, folder, branch, openProject, cwd, machine, usage, moveKey, saveTitle }: SessionHeadProps) {
-  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage && <UsageBits usage={usage} />}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+}
+
+/// A session's usage in its header: a meter of the context, then the tokens and the spend.
+function UsageBits({ usage }: { usage: SessionUsage }) {
+  const { context, tokens, spend } = usage;
+  const fill: CSSProperties & { "--pct": string } = { "--pct": `${Math.min(100, context?.percent ?? 0)}%` };
+  return <>{context && <span className="ctx" data-level={context.percent >= 90 ? "full" : context.percent >= 70 ? "high" : undefined}><i style={fill} /><b>{context.percent}%</b><em>of {context.size}</em></span>}{tokens && <span><b>{tokens}</b><em>tokens</em></span>}{spend && <span><b>{spend}</b></span>}</>;
 }
 
 /// Redraws the session head with `change`; false when the frame shows no session head.
