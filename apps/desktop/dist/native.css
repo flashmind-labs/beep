@@ -139,3 +139,16 @@ body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px;
 /* ----- The message field floats over the foot of the conversation, which fades out under it ----- */
 body:not(.mobile) .agbodyw { -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), transparent); mask-image: linear-gradient(#000 calc(100% - 28px), transparent) }
 body:not(.mobile) #agfield#agfield.dinput.small { background: var(--elev); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
+
+/* ----- Every screen: the title row lies on the window and the screen below it is a card ----- */
+body:not(.mobile) .cc-main { border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .cc-top { min-height: 34px; padding: 0 4px 0 6px; border-bottom: 0 }
+body:not(.mobile) .cc-top h2 { font-size: 14px; font-weight: 600; letter-spacing: -.01em }
+body:not(.mobile) .cc-box:not(:has(.ag-head)) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { background: var(--elev); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
+
+/* ----- Terminals: the list and the terminal are two cards, as a session's conversation and pane are ----- */
+body:not(.mobile) .cc-box:has(> .tl-view), body:not(.mobile) .cc-box:has(.tl-view > .tl) { border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .tl-view > .tl { gap: 6px; overflow: visible }
+body:not(.mobile) .tl-view > .tl > * { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+body:not(.mobile) .tl-view > .tl > .tl-list { overflow-y: auto }

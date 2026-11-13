@@ -71,6 +71,11 @@ mountNotices();
 initPalette({ go, jump, scope: () => windowProject, settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
 
 // Capture before the terminal handles the key, so Shift+Esc never reaches the shell.
+// A development build reloads the window on Cmd+R, as a browser does.
+if (process.env.NODE_ENV === "development") document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "r") { e.preventDefault(); location.reload(); }
+});
+
 document.addEventListener("keydown", e => {
   if (currentLocation()?.view !== "terminals" || !isZoomKey(e) || e.isComposing || e.defaultPrevented || dialogOpen()) return;
   if (!allTerms.focusOpen()) return;

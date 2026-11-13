@@ -291,7 +291,7 @@ body.cbody
                   div.dv-body style(--dv-tree-width)
                     nav.dv-tree [aria-label="Changed files"]
                       div.dv-tree-rows style(height)
-                    div.dv-resize [aria-label="Resize changed files" aria-orientation="vertical" aria-valuemax="397" aria-valuemin="180" aria-valuenow="250" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
+                    div.dv-resize [aria-label="Resize changed files" aria-orientation="vertical" aria-valuemax="396" aria-valuemin="180" aria-valuenow="250" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
                     div.dv-files style(position)
                       div style(display)
                       div.dv-lost
