@@ -9,6 +9,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], status: AgentStatus) -
             kind: AgentEntryKind::Agent {},
             text: (*text).to_owned(),
             tool: None,
+            sent_at: None,
         })
         .collect();
     let next = u64::from(earlier) + entries.len() as u64;

@@ -143,3 +143,6 @@
 .mac .attachment-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; max-height: 65vh; overflow: auto }
 .mac .attachment-gallery > span { display: grid; gap: 6px; min-width: 0 }
 .mac .attachment-gallery img { width: 100%; height: 100px; object-fit: contain; background: var(--d-elev) }
+
+.entry-time { color: var(--d-dim); font-size: 10px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; margin-inline: 6px; }
+.dcoderen.agent > .entry-time { display: block; margin: 0 0 4px; }

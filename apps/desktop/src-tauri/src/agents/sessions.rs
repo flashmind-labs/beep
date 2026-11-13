@@ -149,6 +149,7 @@ struct EntryRow {
     ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool: Option<AgentToolCall>,
+    sent_at: Option<u64>,
 }
 
 impl From<AgentEntry> for EntryRow {
@@ -180,6 +181,7 @@ impl From<AgentEntry> for EntryRow {
             child_html,
             ms,
             tool: entry.tool,
+            sent_at: entry.sent_at,
         }
     }
 }

@@ -211,6 +211,7 @@ pub(super) struct Actor {
     pub(super) steers: VecDeque<Prompt>,
     /// The prompts sent so far, which numbers each turn.
     pub(super) sent: u64,
+    pub(super) context_turn: bool,
     /// The turn running, by its number, while its prompt is unanswered.
     pub(super) turn: Option<u64>,
     /// The end of the last turn, held while its subagents run.
@@ -313,7 +314,7 @@ impl Actor {
                 Status::Working | Status::Asking
             );
             let continuation =
-                interrupted.then(|| Prompt::from(super::super::restart::CONTINUE.to_owned()));
+                interrupted.then(|| Prompt::from(crate::agents::tags::context(super::super::restart::CONTINUE)));
             continuation
                 .into_iter()
                 .chain(self.steers.drain(..))
@@ -559,6 +560,11 @@ impl Actor {
     fn event(&mut self, cx: &ConnectionTo<Agent>, event: Event) -> Result<()> {
         match event {
             Event::Update(update) => {
+                // Automatic recovery context must not replace the user's title.
+                if self.context_turn && matches!(update, SessionUpdate::SessionInfoUpdate(_)) {
+                    return Ok(());
+                }
+
                 // The adapter echoes an injected message before continuing.
                 // Show it there so its answer follows it in the transcript.
                 if let SessionUpdate::UserMessageChunk(chunk) = &update
@@ -848,9 +854,8 @@ impl Actor {
         let Some(method) = method else {
             return Some(End::Failed("the agent cannot resume a session".into()));
         };
-        let earlier = std::mem::take(&mut self.earlier);
-
-        if method == acp::ResumeMethod::Resume && !earlier.is_empty() {
+        if method == acp::ResumeMethod::Resume && !self.earlier.is_empty() {
+            let earlier = std::mem::take(&mut self.earlier);
             self.live.send_modify(|live| live.restore(earlier));
         }
 
@@ -880,6 +885,8 @@ impl Actor {
         session: SessionId,
         offered: Offered,
     ) -> Option<End> {
+        let earlier = std::mem::take(&mut self.earlier);
+        self.live.send_modify(|live| live.restore_times(&earlier));
         self.acp_session = Some(session.clone());
         self.model_is(offered.current.as_deref());
         self.thinking = offered.thinking;
