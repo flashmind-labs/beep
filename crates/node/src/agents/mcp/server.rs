@@ -239,6 +239,10 @@ impl From<Reply> for Called {
 }
 
 async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
+    if let Err(error) = catalog::validate(name, &args) {
+        return Called::failed(error);
+    }
+
     let (name, args) = match catalog::ungroup(name, args) {
         Ok(call) => call,
         Err(text) => return Called::failed(text),

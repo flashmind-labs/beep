@@ -17,6 +17,8 @@ use tokio_util::sync::CancellationToken;
 
 /// The action that lists a group's models.
 const MODELS: &str = "models";
+/// The arguments `models` takes.
+const MODELS_ARGS: [&str; 2] = ["provider", "query"];
 /// The most models one listing gives; a narrower query gives the rest.
 const MAX_LISTED: usize = 200;
 
@@ -139,11 +141,30 @@ impl Media {
         let action = action.as_ref().and_then(Value::as_str).unwrap_or_default();
 
         if action == MODELS {
+            if let Some(key) = args.keys().find(|key| !MODELS_ARGS.contains(&key.as_str())) {
+                return (format!("`{key}` does not apply to {MODELS}."), true);
+            }
+
             return self.models(group, &args).await;
         }
 
         match self.actions(group).find(|(named, _)| *named == action) {
-            Some((_, tool)) => self.run(tool, Value::Object(args)).await,
+            Some((_, tool)) => {
+                // Another action's argument fails here; an unknown one fails, or goes to the
+                // provider, in the tool itself.
+                let own = self.properties(tool);
+                let others: BTreeSet<String> = self
+                    .actions(group)
+                    .flat_map(|(_, other)| self.properties(other))
+                    .chain(MODELS_ARGS.map(str::to_owned))
+                    .collect();
+
+                if let Some(key) = args.keys().find(|key| !own.contains(*key) && others.contains(*key)) {
+                    return (format!("`{key}` does not apply to {action}."), true);
+                }
+
+                self.run(tool, Value::Object(args)).await
+            }
             None => {
                 let actions: Vec<&str> = self.actions(group).map(|(action, _)| action).collect();
                 (
@@ -176,18 +197,32 @@ impl Media {
             .filter(|(_, tool)| self.tools.get(tool).is_some())
     }
 
+    /// The arguments the flashmind tool `name` declares.
+    fn properties(&self, name: &str) -> BTreeSet<String> {
+        self.tools
+            .get(name)
+            .and_then(|tool| match tool.parameters().get("properties") {
+                Some(Value::Object(own)) => Some(own.keys().cloned().collect()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
     /// `group` as one MCP tool: its actions' descriptions and arguments
     /// together, with `action` to pick one.
     fn group_tool(&self, group: &Group) -> Value {
         let mut properties = Map::new();
         let mut names = Vec::new();
         let mut described = Vec::new();
+        // Extra arguments are allowed only where a tool hands them to its provider.
+        let mut open = false;
 
         for (action, tool) in self.actions(group) {
             let Some(tool) = self.tools.get(tool) else {
                 continue;
             };
             names.push(action);
+            open |= tool.parameters().get("additionalProperties") == Some(&Value::Bool(true));
             described.push(format!("{action}: {}", tool.description()));
 
             if let Some(Value::Object(own)) = tool.parameters().get("properties") {
@@ -219,20 +254,31 @@ impl Media {
                 group.what,
                 described.join("\n- ")
             ),
-            "inputSchema": { "type": "object", "properties": properties, "required": ["action"] },
+            "inputSchema": {
+                "type": "object",
+                "properties": properties,
+                "required": ["action"],
+                "additionalProperties": open,
+            },
         })
     }
 
     /// The models of `group`'s categories, one ID per line.
     async fn models(&self, group: &Group, args: &Map<String, Value>) -> (String, bool) {
-        let provider = match args.get("provider").and_then(Value::as_str) {
-            Some(name) => match Provider::from_str(name) {
-                Ok(provider) => Some(provider),
-                Err(_) => return (format!("There is no provider {name}."), true),
-            },
+        let text = |key: &str| match args.get(key) {
+            None => Ok(None),
+            Some(Value::String(text)) => Ok(Some(text.as_str())),
+            Some(_) => Err(format!("`{key}` must be a string.")),
+        };
+        let (provider, query) = match (text("provider"), text("query")) {
+            (Ok(provider), Ok(query)) => (provider, query),
+            (Err(e), _) | (_, Err(e)) => return (e, true),
+        };
+        let provider = match provider.map(Provider::from_str) {
+            Some(Ok(provider)) => Some(provider),
+            Some(Err(_)) => return (format!("There is no provider {}.", provider.unwrap_or_default()), true),
             None => None,
         };
-        let query = args.get("query").and_then(Value::as_str);
         let mut seen = BTreeSet::new();
         let mut lines = Vec::new();
 
