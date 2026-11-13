@@ -397,22 +397,6 @@ pub(crate) async fn branches(
         .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(place.machine))))
 }
 
-/// Gives `branch` a worktree in the checkout at `place`.
-pub(crate) async fn add_worktree(
-    fleet: &Fleet,
-    place: &Place,
-    branch: &str,
-    default_branch: &str,
-) -> Result<ProjectBranch> {
-    let branch = beep_projects::model::branch_name(branch)
-        .ok_or_else(|| ApiError::bad_request("That is not a branch name."))?;
-    let name = fleet.name_of(place.machine);
-    let shell = PeerShell::on(fleet, place.machine).await?;
-    branches::add_worktree(&shell, &name, &place.folder, branch, default_branch)
-        .await
-        .map_err(|why| DesktopError::BadRequest(format!("{name}: {why}")))
-}
-
 /// The last `lines` lines of a machine's log.
 pub(crate) async fn machine_log(fleet: &Fleet, machine: EndpointId, lines: u32) -> Result<String> {
     let client = fleet.client(machine).await?;

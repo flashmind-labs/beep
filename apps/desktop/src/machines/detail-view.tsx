@@ -1,15 +1,13 @@
 import { Fragment, useCallback, useLayoutEffect, useRef } from "react";
 import { bytes } from "../ui/format.ts";
 import { Button, CopyButton } from "../ui/kit.tsx";
-import { machineTag, nodeBehind, coders, isCoder, shownVersion, updatedNotes, updateOffered, type NodeUpdate } from "./machines-state.ts";
+import { machineTag, nodeBehind, coders, isCoder, nodeVersion, removalNote, shownVersion, updatedNotes, updateOffered, type NodeUpdate } from "./machines-state.ts";
 import { signInOffer } from "./signin-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
-import type { Machine } from "./machines.ts";
+import { RemoveAsk } from "./list-view.tsx";
+import type { Asking, Machine, MachineSearch, ToolUpdate } from "./machines.ts";
 
-interface MachineSearch { id: string; folder: string | null; draft: string | null; busy: boolean; error: string }
 export interface MachineLog { id: string; text: string | null; busy: boolean; error: string }
-interface ToolUpdate { machine_id: string; tool: string; latest: string }
-interface Asking { id: string; busy: boolean; error: string }
 interface DetailProps {
   machine: Machine; error: string; mac: string | null; newest: string | null; updatable: boolean;
   nodeUpdate: NodeUpdate | null; search: MachineSearch | null; log: MachineLog | null;
@@ -24,14 +22,14 @@ interface DetailProps {
 export function MachineDetail(p: DetailProps) {
   const m = p.machine, env = m.env, tag = machineTag(m), up = p.nodeUpdate;
   const behind = m.id !== p.mac && nodeBehind(m.version, p.newest);
-  const version = /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
+  const version = nodeVersion(m.version);
   const search = p.search?.id === m.id ? p.search : null;
   const log = p.log?.id === m.id ? p.log : null;
   const tools = env ? [...coders(env.tools), ...env.tools.filter(t => !isCoder(t.name))] : [];
   const notes = env ? updatedNotes(p.installed, m.id, env.tools) : [];
   const failures = [...p.toolUps].filter(([key, v]) => key.startsWith(`${m.id} `) && v.error);
   const traffic = trafficRows(p.traffic), relay = relayLine(p.traffic);
-  const note = m.can_host === false ? "It disconnects from your mesh." : m.online ? "It stops taking work; its sessions and projects go with it." : "Its sessions and projects go with it. If it comes back online, it is turned away.";
+  const note = removalNote(m);
   const asking = p.asking?.id === m.id ? p.asking : null;
 
   return <>
@@ -51,7 +49,7 @@ export function MachineDetail(p: DetailProps) {
     {m.can_host !== false && !!tools.length && <><div className="dset-hrow"><div className="dset-h">Tools</div>{tools.map(t => { const update = p.tools.find(u => u.machine_id === m.id && u.tool === t.name); if (!update || !m.online || !updateOffered(p.installed, `${m.id} ${t.name}`, update.latest)) return null; const busy = p.toolUps.get(`${m.id} ${t.name}`)?.busy; return <Button key={t.name} small disabled={busy} onClick={() => p.updateTool(t.name)}>{busy ? `Updating ${t.name}…` : `Update ${t.name} to ${update.latest}`}</Button>; })}{notes.map((n, i) => <small key={i} className="dmuted">{n}</small>)}{failures.map(([key, v]) => <small key={key} className="derr">{`${key.slice(m.id.length + 1)}: ${v.error}`}</small>)}</div><table className="dset-box dset-tbl"><thead><tr><th>Tool</th><th>Version</th><th>Kind</th></tr></thead><tbody>{tools.map(t => <tr key={t.name}><td className="dmono">{t.name}</td><td className="dmono">{shownVersion(p.installed, `${m.id} ${t.name}`, t.name, t.version) ?? ""}</td><td>{isCoder(t.name) ? "Coding agent" : "Tool"}</td></tr>)}</tbody></table></>}
     {!!traffic.length && <><div className="dset-h">Traffic</div><table className="dset-box dset-tbl"><thead><tr><th>Protocol</th><th>Sent</th><th>Received</th></tr></thead><tbody>{traffic.map(r => <tr key={r.label}><td>{r.label}</td><td className="dmono">{bytes(r.sent)}</td><td className="dmono">{bytes(r.received)}</td></tr>)}</tbody></table>{relay && <div className="dmuted">Through a relay: {relay}.</div>}</>}
     {m.can_host !== false && (log || m.online) && <LogSection key={m.id} log={log} read={p.logRead} save={p.logSave} />}
-    <div className="dmach dset-rm">{m.id !== p.mac && !asking && <div className="dset-rm-row"><span className="t"><b>Remove this machine</b><small>{note}</small></span><Button danger aria-label={`Remove ${m.name}`} onClick={p.askRemove}>Remove…</Button></div>}{asking && m.id !== p.mac && <div className="ask"><span>Remove {m.name} from the mesh? {note} {m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>{asking.error && <span className="derr">{asking.error}</span>}<span className="acts"><Button danger disabled={asking.busy} onClick={p.remove}>Remove</Button><Button look="quiet" autoFocus onClick={p.cancelRemove}>Cancel</Button></span></div>}</div>
+    <div className="dmach dset-rm">{m.id !== p.mac && !asking && <div className="dset-rm-row"><span className="t"><b>Remove this machine</b><small>{note}</small></span><Button danger aria-label={`Remove ${m.name}`} onClick={p.askRemove}>Remove…</Button></div>}{asking && m.id !== p.mac && <RemoveAsk machine={m} asking={asking} remove={p.remove} cancel={p.cancelRemove} />}</div>
   </>;
 }
 

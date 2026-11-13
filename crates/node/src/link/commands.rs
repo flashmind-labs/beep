@@ -45,9 +45,7 @@ fn serve_stream(
     mut rx: LinkRx,
 ) -> Session {
     Box::pin(async move {
-        let open = timeout(CHANNEL_OPEN_WAIT, rx.recv::<Open>())
-            .await??
-            .context("the command stream closed before opening")?;
+        let open = read_open(&mut rx).await?;
         anyhow::ensure!(peers.channel_allowed(peer, mesh), "not authorized");
         match open {
             Open::Calls => {
@@ -66,15 +64,19 @@ fn serve_stream(
     })
 }
 
+async fn read_open(rx: &mut LinkRx) -> Result<Open> {
+    timeout(CHANNEL_OPEN_WAIT, rx.recv::<Open>())
+        .await??
+        .context("the command stream closed before opening")
+}
+
 pub(super) async fn serve_open(
     tx: LinkTx,
     mut rx: LinkRx,
     offers: Offers,
     caller: EndpointId,
 ) -> Result<()> {
-    let open = timeout(CHANNEL_OPEN_WAIT, rx.recv::<Open>())
-        .await??
-        .context("the command stream closed before opening")?;
+    let open = read_open(&mut rx).await?;
     anyhow::ensure!(
         open == Open::Calls,
         "this stream requires correlated commands"

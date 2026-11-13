@@ -4,6 +4,5 @@
 pub mod actions;
 pub mod http;
 pub mod runs;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub mod test_host;
-pub mod timing;

@@ -262,16 +262,7 @@ async fn gh_login(account: bool) -> Result<Login> {
 /// What `program` prints when it succeeds, or `None` when it exits with
 /// an error.
 async fn stdout(program: &Path, args: &[&str]) -> Result<Option<String>> {
-    let run = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let out = timeout(DEADLINE, run)
-        .await
-        .with_context(|| format!("{} took too long", program.display()))?
-        .with_context(|| format!("running {}", program.display()))?;
+    let out = output(program, args, Stdio::null()).await?;
     if !out.status.success() {
         return Ok(None);
     }
@@ -283,19 +274,25 @@ async fn stdout(program: &Path, args: &[&str]) -> Result<Option<String>> {
 
 /// What `program` prints, stdout then stderr, whether it succeeds or not.
 async fn all_output(program: &Path, args: &[&str]) -> Result<String> {
-    let run = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let out = timeout(DEADLINE, run)
-        .await
-        .with_context(|| format!("{} took too long", program.display()))?
-        .with_context(|| format!("running {}", program.display()))?;
+    let out = output(program, args, Stdio::piped()).await?;
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push('\n');
     text.push_str(&String::from_utf8_lossy(&out.stderr));
     Ok(text)
+}
+
+async fn output(program: &Path, args: &[&str], stderr: Stdio) -> Result<std::process::Output> {
+    let run = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(stderr)
+        .kill_on_drop(true)
+        .output();
+
+    Ok(timeout(DEADLINE, run)
+        .await
+        .with_context(|| format!("{} took too long", program.display()))?
+        .with_context(|| format!("running {}", program.display()))?)
 }
 
 /// The token `gh auth token` printed, when it printed one.

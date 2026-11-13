@@ -115,10 +115,7 @@ impl TryFrom<Steer> for AgentSteer {
             Steer::Cancel => Self::Cancel {},
             Steer::StopAll => Self::StopAll {},
             Steer::Close => Self::Close {},
-            Steer::Configure { model, effort } => Self::Configure {
-                model,
-                effort: effort.map(Into::into),
-            },
+            Steer::Configure { model, effort } => Self::Configure { model, effort },
             Steer::Mode { mode } => Self::SetMode { mode },
             Steer::StopTask { task } => Self::StopTask { task },
         })
@@ -230,6 +227,17 @@ pub(crate) async fn sent(
         request: beep_mesh::machine::node_request(steer.clone())?,
     };
 
+    let index_prompt = |info| async {
+        if let Some(prompt) = &indexed_prompt {
+            let host = beep_mesh::machine::Host {
+                id: machine_id.clone(),
+                name: fleet.name_of(machine),
+            };
+            let metadata = beep_mesh::machine::beep_session(&host, info);
+            crate::palette::prompts::sent(&app, metadata, prompt).await;
+        }
+    };
+
     if let Some(reply) = app
         .state::<crate::fleet::events::Events>()
         .call(window, machine, operation)
@@ -241,18 +249,7 @@ pub(crate) async fn sent(
             ));
         };
 
-        if let Some(prompt) = &indexed_prompt {
-            let host = beep_mesh::machine::Host {
-                id: machine_id.clone(),
-                name: fleet.name_of(machine),
-            };
-            crate::palette::prompts::sent(
-                &app,
-                beep_mesh::machine::beep_session(&host, *info),
-                prompt,
-            )
-            .await;
-        }
+        index_prompt(*info).await;
 
         if close {
             closed(&app, &machine_id, &session);
@@ -277,14 +274,7 @@ pub(crate) async fn sent(
             sent,
         )
         .await?;
-    if let Some(prompt) = &indexed_prompt {
-        let host = beep_mesh::machine::Host {
-            id: machine_id.clone(),
-            name: fleet.name_of(machine),
-        };
-        let metadata = beep_mesh::machine::beep_session(&host, opened.info.clone());
-        crate::palette::prompts::sent(&app, metadata, prompt).await;
-    }
+    index_prompt(opened.info.clone()).await;
 
     if close {
         // The lists show it ended once the machine says so, about two

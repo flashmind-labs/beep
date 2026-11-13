@@ -1,15 +1,19 @@
 //! Pulling and pushing the branch a checkout has out, and reading how far it is from its
 //! upstream. The scripts run on the machine that holds the checkout, with its git sign-in.
 
-use crate::{NO_GIT_SH, Shell, branches::tail, quote};
+use crate::{
+    Shell,
+    branches::{run_script, tail},
+    quote,
+};
 use anyhow::{Result, bail};
 use serde::Deserialize;
 use std::time::Duration;
 
 /// How long reading a checkout's state may take, the fetch included.
-pub const STATE_LIMIT: Duration = Duration::from_secs(40);
+const STATE_LIMIT: Duration = Duration::from_secs(40);
 /// How long a pull or a push may take.
-pub const MOVE_LIMIT: Duration = Duration::from_secs(120);
+const MOVE_LIMIT: Duration = Duration::from_secs(120);
 
 /// Which way a branch moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -157,15 +161,7 @@ fn signed_out(output: &str) -> bool {
 
 /// Reads the state of the checkout in `folder`.
 pub async fn read_state(shell: &dyn Shell, folder: &str) -> Result<CheckoutState> {
-    let ran = shell.run(&state_script(folder), STATE_LIMIT).await?;
-
-    match ran.exit_code {
-        Some(0) => parse_state(&ran.output),
-        Some(3) => bail!("the project's folder is not there"),
-        Some(NO_GIT_SH) => bail!("{}", tail(&ran.output)),
-        Some(code) => bail!("exited with {code}: {}", tail(&ran.output)),
-        None => bail!("did not finish in time"),
-    }
+    parse_state(&run_script(shell, &state_script(folder), STATE_LIMIT).await?)
 }
 
 /// Pulls or pushes `branch` of the checkout in `folder`; the error is for the user.

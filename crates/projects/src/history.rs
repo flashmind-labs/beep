@@ -123,10 +123,6 @@ pub fn history_script(ask: &HistoryAsk<'_>) -> String {
 }
 
 /// Git's own patch format, including initial commits and a merge's first-parent diff.
-pub fn patch_script(folder: &str, commit: &CommitId, paths: &[String]) -> String {
-    patch_context_script(folder, commit, paths, 3)
-}
-
 pub fn patch_context_script(
     folder: &str,
     commit: &CommitId,

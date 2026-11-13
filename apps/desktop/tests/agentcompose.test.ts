@@ -63,7 +63,7 @@ function openSession(status: string, polls = false): AgentPage {
 }
 
 /// A pending steer of plain words.
-const words = (text: string): Waiting => ({ how: "steer", typed: text, text, paths: [], images: [], state: null, after: 0 });
+const words = (text: string): Waiting => ({ typed: text, text, paths: [], images: [], state: null, after: 0 });
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 
@@ -452,13 +452,13 @@ test("an image attached after a steer goes with the next message, not the steer"
 test("Stopping leaves pending steers with the node (#378)", async () => {
   const page = openSession("working");
   show({}, field());
-  AG.queue = [{ ...words("steer me"), how: "steer", state: "sent", after: 0 }];
+  AG.queue = [{ ...words("steer me"), state: "sent", after: 0 }];
   assert.equal(interruptAgent(), true);
   assert.deepEqual(AG.stopping, { id: "s1", turns: 0 });
   assert.doesNotMatch(agentHints().value.items.flat().join(" "), /interrupt/, "already stopping");
   await settle();
   assert.deepEqual(steers(), ["cancel"]);
-  assert.deepEqual(AG.queue.map(q => q.how), ["steer"]);
+  assert.equal(AG.queue.length, 1);
 
   // The node sends a steer it holds once the turn stops, or it had just
   // delivered it: sent from here too, the agent would get it twice.

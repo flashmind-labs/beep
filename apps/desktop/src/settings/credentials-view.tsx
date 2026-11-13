@@ -1,4 +1,4 @@
-import { Button, Spinner } from "../ui/kit.tsx";
+import { Button, SkeletonRows, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { apiKeys, forgejoTokenPage, ghChoices, unsavedProviders, githubAccounts, hostOf, teaHas, teaOffers, GITHUB_TOKEN_PAGE, type ApiKey, type CredCheck, type Credential, type CredState, type GitHubAccount } from "./credentials.ts";
 import { Icon, type IconName } from "../ui/icons.tsx";
@@ -87,7 +87,7 @@ function ApiKeys({ state, actions }: { state: CredState; actions: CredentialActi
   </>;
 }
 export function CredentialsView({ state, machines, actions }: { state: CredState; machines: Machines; actions: CredentialActions }) {
-  if (state.list === undefined) return <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /><div className="dskel" style={{ width: "56%" }} /></div>;
+  if (state.list === undefined) return <SkeletonRows widths={[78, 56]} />;
   if (state.list === null) return <div className="dmuted">Could not load your credentials.</div>;
   const addingForgejo = state.edit?.kind === "forgejo" && !state.edit.id, accounts = githubAccounts(state);
   const canAddGithub = accounts.length > 0 && !(state.edit?.kind === "github" && (!state.edit.id || state.edit.id === "new")) && !state.ghAdd && !state.ghFlow;

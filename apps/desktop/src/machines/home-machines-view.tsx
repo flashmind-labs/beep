@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { formatAgo } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
+import { SectionHead } from "../ui/kit.tsx";
 import { ALL, byMachine, terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.ts";
 import { allTerms, openTerminals, termMachines } from "../terminals/view.ts";
 import { openAddMachine, openProjects } from "../center/sidebar.ts";
@@ -31,9 +32,9 @@ function Machine({ machine, terminals }: { machine: MachineCard; terminals: Term
 }
 export function HomeMachines({ machines }: { machines: MachineCard[] }) {
   const unlisted = thisMacRow(state.mac, machines);
-  if (!machines.length && !unlisted) return <div id="sec-machines"><div className="cc-sec"><h4>Machines</h4><AddMachine small /></div><div className="cc-panel cc-empty"><b>No machines linked yet</b><AddMachine look="primary" /></div></div>;
+  if (!machines.length && !unlisted) return <div id="sec-machines"><SectionHead title="Machines"><AddMachine small /></SectionHead><div className="cc-panel cc-empty"><b>No machines linked yet</b><AddMachine look="primary" /></div></div>;
   const online = machines.filter(machine => machine.online).length, count = machines.length ? `${online} of ${machines.length} online` : "";
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);
-  return <><div id="sec-machines"><div className="cc-sec"><h4>Machines{!!count && <span className="n">{count}</span>}</h4><AddMachine small /></div><div className="cc-mt">{["Machine", "Agents", "Disk", "Memory", "Sent / received", "Can run", "Now", ""].map((header, index) => <span className="th" key={index}>{header}</span>)}{machines.map(machine => <Fragment key={machine.id}><Machine machine={machine} terminals={terms.find(row => row.id === machine.id)?.terms || []} /></Fragment>)}{unlisted && <><span className="nm off" id="m-this-mac"><b><span className="ddot off" /><span>{unlisted.name}</span></b><span className="os">{unlisted.sub}</span></span><span className={`caps mac-state${unlisted.bad ? " bad" : ""}`} title={unlisted.title}>{unlisted.state}</span><span className="num">{unlisted.action ? <Button look="primary" small onClick={() => { void useThisMac(); }}>{unlisted.action}</Button> : "–"}</span><span /></>}</div></div></>;
+  return <><div id="sec-machines"><SectionHead title="Machines" count={count}><AddMachine small /></SectionHead><div className="cc-mt">{["Machine", "Agents", "Disk", "Memory", "Sent / received", "Can run", "Now", ""].map((header, index) => <span className="th" key={index}>{header}</span>)}{machines.map(machine => <Fragment key={machine.id}><Machine machine={machine} terminals={terms.find(row => row.id === machine.id)?.terms || []} /></Fragment>)}{unlisted && <><span className="nm off" id="m-this-mac"><b><span className="ddot off" /><span>{unlisted.name}</span></b><span className="os">{unlisted.sub}</span></span><span className={`caps mac-state${unlisted.bad ? " bad" : ""}`} title={unlisted.title}>{unlisted.state}</span><span className="num">{unlisted.action ? <Button look="primary" small onClick={() => { void useThisMac(); }}>{unlisted.action}</Button> : "–"}</span><span /></>}</div></div></>;
 }
 

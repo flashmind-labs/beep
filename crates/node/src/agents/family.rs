@@ -114,10 +114,7 @@ impl Agents {
     /// children.
     pub(super) fn caller(&self, session: &str) -> Option<(Arc<Session>, Who)> {
         let found = self.get(session)?;
-        let who = Who {
-            machine: self.me(),
-            session: Self::name_of(&found),
-        };
+        let who = self.who_of(&found);
         Some((found, who))
     }
 
@@ -241,19 +238,7 @@ impl Agents {
             return Err(too_deep());
         }
 
-        let kinds = self.kinds();
-        let kind = kinds
-            .iter()
-            .find(|kind| kind.name == start.harness)
-            .ok_or_else(|| {
-                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
-                format!(
-                    "This machine has no {} agent. It has: {}.",
-                    start.harness,
-                    have.join(", ")
-                )
-            })?
-            .clone();
+        let kind = self.kind_or_refusal(&start.harness)?;
         let mode = match &start.review {
             Some(_) => review_mode(&link, &kind.name)?,
             None => child_mode(&link, &kind.name)?,
@@ -347,11 +332,6 @@ impl Agents {
             futures::future::join_all(local),
         )
         .await;
-    }
-
-    /// Starts children first on a restart: a parent before its children.
-    pub(super) fn parents_first(sessions: &mut [super::OpenSession]) {
-        sessions.sort_by_key(|open| open.depth());
     }
 }
 

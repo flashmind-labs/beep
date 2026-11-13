@@ -14,9 +14,8 @@ import { saveDraft } from "./draftstore.ts";
 import { feedbackButton } from "./feedback.ts";
 import { perfOpen } from "../ui/perf.ts";
 
-/// The one part a diff draws into the window or the session that owns it.
-export type DiffSlot = "viewer";
-export interface DiffOwner { set(slot: DiffSlot, content: ReactNode): void; dispose(): void }
+/// The window or session that owns a diff and draws its one viewer.
+export interface DiffOwner { set(content: ReactNode): void; dispose(): void }
 
 /// Where a diff comes from and what its files can open in.
 export interface DiffSource {
@@ -68,7 +67,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     say: text => say(v, text),
   });
 
-  src.owner.set("viewer", createPortal(createElement(DiffViewer, { v }), v.root));
+  src.owner.set(createPortal(createElement(DiffViewer, { v }), v.root));
   const opened = perfOpen("diff");
   void load(v).then(() => { if (v.state.view) opened(); });
 

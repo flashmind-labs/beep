@@ -48,7 +48,7 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
                     && !note.read
                     && let Some(target) = note.target.clone()
                 {
-                    let read = (note.id.clone(), note.digest());
+                    let read = note.mark();
                     show_unread(&app, read, settle, move |app| {
                         let body = format!("{}: {}", note.source, note.text);
                         notify::opening(app, &note.title, &body, target);

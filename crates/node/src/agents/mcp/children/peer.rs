@@ -6,7 +6,7 @@
 use super::{ChildView, PeerCall};
 use crate::agents::{
     family::{ChildNote, NO_AGENT, Parent, RemoteKid},
-    mcp::machines::over_the_mesh,
+    mcp::machines::{Machine, over_the_mesh},
 };
 use beep_mesh::Mesh;
 use beep_proto::node::tools::{Reply, Request, Tool};
@@ -55,7 +55,27 @@ pub(super) struct Call<'a> {
     pub(super) name: &'a str,
 }
 
-impl Call<'_> {
+impl<'a> Call<'a> {
+    /// A call from `session` to the machine of `kid`.
+    pub(super) fn to_kid(mesh: &'a Mesh, session: &'a str, kid: &'a RemoteKid) -> Self {
+        Self {
+            mesh,
+            session,
+            machine: kid.machine,
+            name: &kid.name,
+        }
+    }
+
+    /// A call from `session` to `machine`.
+    pub(super) fn to_machine(mesh: &'a Mesh, session: &'a str, machine: &'a Machine) -> Self {
+        Self {
+            mesh,
+            session,
+            machine: machine.id,
+            name: &machine.name,
+        }
+    }
+
     pub(super) async fn ask(&self, tool: Tool, args: &Value, limit: Duration) -> Answer {
         let request = Request {
             session: self.session.to_owned(),
@@ -90,18 +110,13 @@ pub(crate) async fn stop_remote(
     kid: &RemoteKid,
     turn_only: bool,
 ) -> Result<(), String> {
-    let call = Call {
-        mesh,
-        session: parent,
-        machine: kid.machine,
-        name: &kid.name,
-    };
+    let call = Call::to_kid(mesh, parent, kid);
     let args = json!(PeerCall {
         id: kid.id.clone(),
-        text: None,
         turn_only,
         // Only a parent's Stop all stops a child's turn alone.
         stop_all: turn_only,
+        ..Default::default()
     });
 
     match call.ask(Tool::StopAgent, &args, REMOTE_LIMIT).await {
@@ -204,8 +219,7 @@ pub(crate) async fn ask_parent(
     let args = json!(PeerCall {
         id: id.to_owned(),
         text: Some(key.to_owned()),
-        turn_only: false,
-        stop_all: false,
+        ..Default::default()
     });
 
     match call.ask(Tool::AgentParent, &args, REMOTE_LIMIT).await {
@@ -245,17 +259,10 @@ pub(super) async fn fetch_view(
     parent: &str,
     kid: &RemoteKid,
 ) -> Result<ChildView, String> {
-    let call = Call {
-        mesh,
-        session: parent,
-        machine: kid.machine,
-        name: &kid.name,
-    };
+    let call = Call::to_kid(mesh, parent, kid);
     let args = json!(PeerCall {
         id: kid.id.clone(),
-        text: None,
-        turn_only: false,
-        stop_all: false,
+        ..Default::default()
     });
 
     match call.ask(Tool::AgentStatus, &args, REMOTE_LIMIT).await {

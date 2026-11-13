@@ -142,28 +142,19 @@ impl Live {
         self.info.state.tasks.iter_mut().find(|task| task.id == id)
     }
 
-    /// Whether a task of tool call `call` still runs.
-    fn task_runs_for(&self, call: &ToolCallId) -> bool {
+    /// Whether a task of tool call `call` has ended (`ended`) or still runs.
+    fn task_for(&self, call: &ToolCallId, ended: bool) -> bool {
         self.info
             .state
             .tasks
             .iter()
-            .any(|task| task.tool_call.as_deref() == Some(&*call.0) && !task.state.ended())
-    }
-
-    /// Whether a task of tool call `call` ended.
-    fn task_ended_for(&self, call: &ToolCallId) -> bool {
-        self.info
-            .state
-            .tasks
-            .iter()
-            .any(|task| task.tool_call.as_deref() == Some(&*call.0) && task.state.ended())
+            .any(|task| task.tool_call.as_deref() == Some(&*call.0) && task.state.ended() == ended)
     }
 
     /// The tool call `call` went to the background: its entry reads as
     /// running while its task does, and as it ended after.
     fn follow_background(&mut self, call: &ToolCallId) {
-        let running = self.task_runs_for(call);
+        let running = self.task_for(call, false);
         let Some(tool) = self.tools.get_mut(call) else {
             return;
         };
@@ -204,7 +195,7 @@ impl Live {
         };
 
         if flag("jetbrains", "/air/asyncTasks/backgrounded") {
-            tool.backgrounded = !self.task_ended_for(id);
+            tool.backgrounded = !self.task_for(id, true);
         }
 
         if tool.subagent.as_ref().is_some_and(|sub| !sub.codex)
@@ -225,7 +216,7 @@ impl Live {
             .filter(|(id, tool)| {
                 tool.backgrounded
                     && tool.subagent.as_ref().is_some_and(|sub| !sub.codex)
-                    && !self.task_runs_for(id)
+                    && !self.task_for(id, false)
             })
             .map(|(id, _)| id.clone())
             .collect();

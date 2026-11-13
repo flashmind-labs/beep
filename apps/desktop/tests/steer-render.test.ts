@@ -3,7 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
 import { AG, type AgentPage } from "../src/agents/agents.ts";
-import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody } from "../src/agents/logview.ts";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { answerAgentQuestion, answerFirst, questionKey, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
@@ -32,7 +31,7 @@ function setup() {
     earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
   };
   Object.assign(AG, {
-    open: { machine_id: "m1", agent: "claude", session: "steer-render" }, page, log: agentlog,
+    open: { machine_id: "m1", agent: "claude", session: "steer-render" }, page,
     queue: [], att: [], note: "", child: null, held: 0, stopping: null,
   });
   Object.assign(MN, { paths: [], uploads: [] });
@@ -283,7 +282,7 @@ test("a send acknowledged after switching updates its original queue", async t =
 test("stream updates keep queued message controls and focus", t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const item = (text: string) => ({ how: "steer" as const, typed: text, text, paths: [], images: [], state: "sending" as "sending" | "sent", after: 0 });
+  const item = (text: string) => ({ typed: text, text, paths: [], images: [], state: "sending" as "sending" | "sent", after: 0 });
   const first = item("First"), second = item("Second");
   AG.queue = [first, second];
   drawQueue();
@@ -303,7 +302,7 @@ test("stream updates keep queued message controls and focus", t => {
 test("unchanged queue snapshots keep focused controls, then show changed content", t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const item = { how: "steer" as const, typed: "First", text: "First", paths: [], images: [], state: "sent" as const, after: 0 };
+  const item = { typed: "First", text: "First", paths: [], images: [], state: "sent" as const, after: 0 };
   AG.queue = [item];
   drawQueue();
   const edit = bar.querySelector<HTMLButtonElement>('[data-agq="0"][data-act="edit"]'); assert.ok(edit);
@@ -321,7 +320,7 @@ test("unchanged queue snapshots keep focused controls, then show changed content
 test("leaving the agent disposes its queue view but keeps pending messages", async t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const item = { how: "steer" as const, typed: "Pending", text: "Pending", paths: [], images: [], state: "sent" as const, after: 0 };
+  const item = { typed: "Pending", text: "Pending", paths: [], images: [], state: "sent" as const, after: 0 };
   AG.queue = [item];
   drawQueue();
   assert.ok(bar.querySelector("#agqueue"));
@@ -338,7 +337,7 @@ test("leaving the agent disposes its queue view but keeps pending messages", asy
 test("drawing with no agent field leaves the queued messages unchanged", t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const delivered = { how: "steer" as const, typed: "Delivered", text: "Delivered", paths: [], images: [], state: "delivered" as const, after: 0 };
+  const delivered = { typed: "Delivered", text: "Delivered", paths: [], images: [], state: "delivered" as const, after: 0 };
   AG.queue = [delivered];
   bar.querySelector("#agfield")?.remove();
   drawQueue();
@@ -353,7 +352,7 @@ test("suggestion updates preserve queued controls and focus", async t => {
   const { bindMentionMenu } = await import("../src/agents/mentionmenu.ts");
   answers.agent_commands = [{ name: "review", description: "Review work", hint: "" }, { name: "run", description: "Run checks", hint: "" }];
   t.after(() => { disposeQueue(); delete answers.agent_commands; });
-  AG.queue.push({ how: "steer", typed: "Queued", text: "Queued", paths: [], images: [], state: null, after: 0 });
+  AG.queue.push({ typed: "Queued", text: "Queued", paths: [], images: [], state: null, after: 0 });
   drawQueue();
   const button = bar.querySelector<HTMLButtonElement>('[data-agq="0"][data-act="edit"]'); assert.ok(button); button.focus();
   bindMentionMenu(input);
@@ -376,7 +375,7 @@ test("mode and plan controls share the queue owner without losing focus", async 
   drawModes();
   const mode = bar.querySelector<HTMLButtonElement>("#agmodeb"), approve = bar.querySelector<HTMLButtonElement>('[data-agopt="0"]');
   assert.ok(mode && approve); approve.focus();
-  AG.queue.push({ how: "steer", typed: "Queued", text: "Queued", paths: [], images: [], state: null, after: 0 });
+  AG.queue.push({ typed: "Queued", text: "Queued", paths: [], images: [], state: null, after: 0 });
   drawQueue();
   assert.equal(bar.querySelector("#agmodeb"), mode);
   assert.equal(bar.querySelector('[data-agopt="0"]'), approve);
@@ -482,7 +481,7 @@ test("approval actions use the active session and ignore cached controls", async
 test("composer slots keep queue and attachments ordered and survive disposal", t => {
   setup();
   t.after(() => { disposeQueue(); MN.paths = []; });
-  AG.queue = [{ how: "steer", typed: "Queued", text: "Queued", paths: [], images: [], state: "sent", after: 0 }];
+  AG.queue = [{ typed: "Queued", text: "Queued", paths: [], images: [], state: "sent", after: 0 }];
   MN.paths = ["src/file.ts"];
   drawQueue(); drawAgentAttached();
   const queue = bar.querySelector("#agqueue"), attachments = bar.querySelector("#agatt"), field = bar.querySelector("#agfield");

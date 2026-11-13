@@ -11,7 +11,7 @@ use super::{
 use crate::{
     center::{
         home::mesh_imports,
-        home_sessions::AgentSessions,
+        home_sessions::{AgentSessions, HOME_CHANGED},
         section,
         view_cache::{View, ViewCache, cache_view},
     },
@@ -254,7 +254,7 @@ pub fn center_palette_refresh(cache: State<'_, PaletteCache>) {
 
 /// Keeps the index current for the app's life.
 pub(crate) async fn follow(app: AppHandle) {
-    for event in ["home-changed", "sessions-changed"] {
+    for event in [HOME_CHANGED, "sessions-changed"] {
         let handle = app.clone();
         app.listen(event, move |_| {
             handle.state::<PaletteCache>().read_sessions.notify_one()

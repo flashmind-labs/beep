@@ -101,12 +101,7 @@ export function pickPhoneTab(id: string) {
 
 /// The tab strip item of tab `id`.
 export function paneTabItem(id: string): PaneTabItem {
-  if (id === FILES) return { id, name: "Files", icon: TAB_ICONS.files, count: null, closeIcon: null };
-  if (id === CHANGES) return { id, name: "Changes", icon: TAB_ICONS.changes, count: null, closeIcon: null };
-  if (id === SUBS) return { id, name: "Subagents", icon: TAB_ICONS.subagents, count: P.subCount, closeIcon: null };
-  if (id === RUNNING) return { id, name: "Running", icon: TAB_ICONS.running, count: runningCount(), closeIcon: null };
-  if (id === DEVICE) return { id, name: "Device", icon: TAB_ICONS.device, count: null, closeIcon: null };
-  if (id === ARTS) return { id, name: "Artifacts", icon: TAB_ICONS.artifacts, count: artifactCount(), closeIcon: null };
+  if (isFixed(id)) return { id, name: FIXED_NAMES[id], icon: TAB_ICONS[id], count: fixedCount(id), closeIcon: null };
   const tab = P.tabs.find(t => t.id === id);
   return { id, name: tab?.name ?? id, icon: TAB_ICONS[tab?.kind ?? "text"], count: null, closeIcon: "x" };
 }
@@ -115,7 +110,7 @@ export function paneTabItem(id: string): PaneTabItem {
 function dockModel(d: Dock, ids: string[]): DockModel {
   const on = P.on[d];
   const shown = P.tabs.find(t => t.id === on);
-  const fixed = on === DEVICE ? DEVICE : on === RUNNING ? RUNNING : on === SUBS ? SUBS : on === ARTS ? ARTS : on === CHANGES ? CHANGES : FILES;
+  const fixed = isFixed(on) ? on : FILES;
   const has = (id: string) => ids.includes(id);
   const views: DockView[] = [
     ...(has(FILES) ? [{ kind: "files" as const, hidden: on !== FILES }] : []),
@@ -170,6 +165,17 @@ function syncDock(d: Dock, ids: string[]) {
 type Fixed = "subagents" | "files" | "changes" | "artifacts" | "running" | "device";
 
 const FIXED_NAMES: Record<Fixed, string> = { device: "Device", running: "Running", subagents: "Subagents", artifacts: "Artifacts", changes: "Changes", files: "Files" };
+
+function isFixed(id: string): id is Fixed {
+  return Object.hasOwn(FIXED_NAMES, id);
+}
+
+function fixedCount(id: Fixed) {
+  if (id === SUBS) return P.subCount;
+  if (id === RUNNING) return runningCount();
+  if (id === ARTS) return artifactCount();
+  return null;
+}
 
 const TAB_ICONS: Record<TabKind | Fixed, IconName> = {
   files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", image: "paneImage", model: "paneModel",

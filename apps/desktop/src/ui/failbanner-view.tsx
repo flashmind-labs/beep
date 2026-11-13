@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { createDocumentScope } from "./document-root.tsx";
 
 // An error banner: the first paragraph of a message on one line, the rest
@@ -9,8 +10,15 @@ let next = 0;
 
 /// A background failure remains visible until its own dismiss button is used.
 export function showFailure(message: string) {
-  const key = String(++next), failure = splitFailure(message);
-  banners.set([{ slot: key, host: document.body, content: <div className="fb-err" role="alert" style={{ position: "fixed", inset: "auto 16px 16px", zIndex: 1000, background: "var(--ink)" }}><div className="fb-line"><span>{failure.line}</span><button type="button" className="fb-x" title="Dismiss" aria-label="Dismiss" onClick={() => banners.remove([key])}>×</button></div>{failure.details && <details className="fb-more"><summary>Details</summary><pre>{failure.details}</pre></details>}</div> }]);
+  const key = String(++next);
+  banners.set([{ slot: key, host: document.body, content: <FailBanner message={message} dismiss={() => banners.remove([key])} style={{ position: "fixed", inset: "auto 16px 16px", zIndex: 1000, background: "var(--ink)" }} /> }]);
+}
+
+/// The banner for `message`, with a button that calls `dismiss`.
+export function FailBanner({ message, dismiss, style }: { message: string; dismiss: () => void; style?: CSSProperties }) {
+  const failure = splitFailure(message);
+
+  return <div className="fb-err" role="alert" style={style}><div className="fb-line"><span>{failure.line}</span><button type="button" className="fb-x" title="Dismiss" aria-label="Dismiss" onClick={dismiss}>×</button></div>{failure.details && <details className="fb-more"><summary>Details</summary><pre>{failure.details}</pre></details>}</div>;
 }
 
 /// The line to show and the details below it, split at the first blank line.

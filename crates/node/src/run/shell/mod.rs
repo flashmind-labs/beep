@@ -94,36 +94,23 @@ pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
             return Ok(());
         };
         let truncated = out.finish().await?;
-        let done = match end {
-            End::Finished { exit_code, cwd } => Event::Done {
-                exit_code: Some(exit_code),
-                timed_out: false,
-                cwd: Some(cwd),
-                fresh,
-                truncated,
-            },
-            End::ShellEnded { exit_code } => {
-                // Stops what the shell started.
-                stop(&mut shell).await;
-                Event::Done {
-                    exit_code,
-                    timed_out: false,
-                    cwd: None,
-                    fresh,
-                    truncated,
-                }
-            }
-            End::TimedOut => {
-                // Stops the shell and everything it started.
-                stop(&mut shell).await;
-                Event::Done {
-                    exit_code: None,
-                    timed_out: true,
-                    cwd: None,
-                    fresh,
-                    truncated,
-                }
-            }
+        // A shell that ended or timed out is stopped, with what it started.
+        let (exit_code, timed_out, cwd, stop_shell) = match end {
+            End::Finished { exit_code, cwd } => (Some(exit_code), false, Some(cwd), false),
+            End::ShellEnded { exit_code } => (exit_code, false, None, true),
+            End::TimedOut => (None, true, None, true),
+        };
+
+        if stop_shell {
+            stop(&mut shell).await;
+        }
+
+        let done = Event::Done {
+            exit_code,
+            timed_out,
+            cwd,
+            fresh,
+            truncated,
         };
         tx.send(&done).await?;
     }

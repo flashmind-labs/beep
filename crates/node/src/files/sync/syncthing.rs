@@ -78,9 +78,7 @@ impl Syncs {
 
         drop(_one);
 
-        if enabled.is_some() {
-            self.check_syncthing().await;
-        }
+        self.check_syncthing().await;
 
         result
     }

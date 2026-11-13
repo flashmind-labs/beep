@@ -4,6 +4,7 @@
 // HTML before it gets here, so the HTML it gives is safe to insert. Commenting stays on the host.
 import { createElement, useReducer, type ComponentProps } from "react";
 import { invoke } from "../ui/tauri.ts";
+import { reason } from "../ui/format.ts";
 import { ThreadDetailView, type ThreadActions } from "./threaddetail-view.tsx";
 
 /// One comment, as cleaned HTML (PostHtmlRow).
@@ -71,7 +72,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
     reads.set(key, r);
     invoke<ThreadDetailRow | null>("center_thread_detail", { projectId, number })
       .then(data => { r.data = data; r.error = undefined; })
-      .catch(e => { r.error = String(e).replace(/^(bad request|error):\s*/i, ""); })
+      .catch(e => { r.error = reason(e); })
       .finally(() => { r.reading = false; deps.redraw(); });
     return r;
   }
@@ -87,7 +88,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
       draft.posting = true; draft.error = undefined; deps.redraw();
       invoke("center_comment_thread", { projectId, kind: data.kind, number: data.number, body })
         .then(() => { draft.text = ""; const r = reads.get(key); if (r) r.at = 0; })
-        .catch(e => { draft.error = String(e).replace(/^(bad request|error):\s*/i, ""); })
+        .catch(e => { draft.error = reason(e); })
         .finally(() => { draft.posting = false; deps.redraw(); });
     };
     const view = (redraw: () => void): ComponentProps<typeof ThreadDetailView> => ({

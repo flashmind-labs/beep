@@ -173,6 +173,58 @@ pub(crate) fn said(text: &str) -> String {
     said.join("\n")
 }
 
+/// A readable automatic title, including old titles copied from tagged prompts.
+#[cfg(feature = "host")]
+pub(crate) fn title(text: &str) -> Option<String> {
+    const MAX_CHARS: usize = 80;
+    let said = said(text);
+    let line = said.lines().map(str::trim).find(|line| !line.is_empty())?;
+
+    // A streamed or previously truncated tag header is not a title. A saved
+    // header may still hold a complete sender name we can recover.
+    let recovered;
+    let line = if line.starts_with('<') {
+        let tag = [FROM_SESSION, CHILD]
+            .into_iter()
+            .find(|tag| open_at(line, tag) == Some(0))?;
+
+        if line.contains('>') {
+            return None;
+        }
+
+        let head = &line[1 + tag.len()..];
+        let start = head.find(" name=\"")? + " name=\"".len();
+        head[start..].find('"')?;
+        recovered = attribute(head, "name");
+        let name = recovered.trim();
+
+        if name.is_empty() || name.starts_with('<') {
+            return None;
+        }
+
+        name
+    } else {
+        line
+    };
+
+    if line.chars().count() <= MAX_CHARS {
+        return Some(line.to_owned());
+    }
+
+    let end = line.char_indices().nth(MAX_CHARS - 3)?.0;
+    let prefix = &line[..end];
+    let boundary = if line[end..].starts_with(char::is_whitespace) {
+        end
+    } else {
+        prefix
+            .rfind(char::is_whitespace)
+            .filter(|at| *at > 0)
+            .unwrap_or(end)
+    };
+
+    Some(format!("{}...", line[..boundary].trim_end()))
+}
+
 /// The user's own words in a user entry's text, without what Beep or
 /// another session put in it, as the apps draw them in the user's row.
 pub fn own_words(text: &str) -> String {

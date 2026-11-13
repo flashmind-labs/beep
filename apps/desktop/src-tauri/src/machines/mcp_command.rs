@@ -11,7 +11,6 @@ use tokio::runtime::Builder;
 /// Runs the pipe when `args` (after the executable) are a session's `mcp`
 /// command, returning the exit status; `None` when they are not, and the
 /// app starts as usual.
-#[cfg_attr(mobile, allow(dead_code))]
 pub fn run<I>(args: I) -> Option<i32>
 where
     I: IntoIterator<Item = OsString>,

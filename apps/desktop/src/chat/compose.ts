@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpan, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
+import { bytesOf } from "../agentpane/media-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { sessionBody } from "../agents/session-frame.tsx";
 
@@ -22,7 +23,7 @@ export function composeMessage(value: string) {
   return compose(value, pastes);
 }
 
-export interface ComposeOptions {
+interface ComposeOptions {
   /// A stable key for a prompt kept locally between visits and app launches.
   draft?: string;
   /// Takes a picture whose path was pasted; without it the path stays text.
@@ -227,9 +228,7 @@ function paste(field: HTMLTextAreaElement, e: ClipboardEvent) {
 
 async function readImage(path: string) {
   const got = await invoke<{ name: string; mime: string; data: string }>("read_pasted_image", { path });
-  const bin = atob(got.data), bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new File([bytes], got.name, { type: got.mime });
+  return new File([bytesOf(got.data)], got.name, { type: got.mime });
 }
 
 function key(field: HTMLTextAreaElement, e: KeyboardEvent) {

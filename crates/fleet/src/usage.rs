@@ -92,9 +92,6 @@ struct Said {
     follows: Vec<PlanFollow>,
 }
 
-/// What one period spent.
-struct Rows<'a>(Vec<Row<'a>>);
-
 struct Row<'a> {
     /// The imported project the session ran in; none for any other folder.
     project: Option<String>,
@@ -206,10 +203,6 @@ impl Desk {
         all
     }
 
-    fn imports(&self) -> Vec<ImportRow> {
-        crate::projects::MeshStore::new(&self.mesh).rows()
-    }
-
     pub async fn spend(&self) -> Result<SpendReport> {
         Ok(self.spend_and_follow().await?.0)
     }
@@ -218,11 +211,15 @@ impl Desk {
     pub(crate) async fn spend_and_follow(&self) -> Result<(SpendReport, Vec<PlanFollow>)> {
         let mut said = self.said().await;
         let follows = std::mem::take(&mut said.follows);
-        let imports = self.imports();
+        let imports = crate::projects::MeshStore::new(&self.mesh).rows();
         let (today, week, month) = periods();
-        let rows = |from: i64| Rows::of(&said, &imports, from);
+        let rows = |from: i64| rows_since(&said, &imports, from);
         let report = SpendReport {
-            limits: limits(&said),
+            limits: freshest(
+                said.plans
+                    .iter()
+                    .filter_map(|(machine, plan)| plan_limits(machine, plan)),
+            ),
             today: bill(&rows(today)),
             week: bill(&rows(week)),
             month: bill(&rows(month)),
@@ -256,35 +253,24 @@ fn start(day: NaiveDate) -> i64 {
     )
 }
 
-impl<'a> Rows<'a> {
-    fn of(said: &'a Said, imports: &[ImportRow], from: i64) -> Self {
-        let from = u64::try_from(from).unwrap_or(0);
-        Self(
-            said.sessions
+/// The hours of every session from `from` on, each with the imported project it ran in.
+fn rows_since<'a>(said: &'a Said, imports: &[ImportRow], from: i64) -> Vec<Row<'a>> {
+    let from = u64::try_from(from).unwrap_or(0);
+    said.sessions
+        .values()
+        .flat_map(|session| {
+            let project = imported_project_of(&session.machine, &session.cwd, imports);
+            session
+                .hours
                 .values()
-                .flat_map(|session| {
-                    let project = imported_project_of(&session.machine, &session.cwd, imports);
-                    session
-                        .hours
-                        .values()
-                        .filter(move |hour| hour.hour >= from)
-                        .map(move |hour| Row {
-                            project: project.clone(),
-                            agent: &session.agent,
-                            hour,
-                        })
+                .filter(move |hour| hour.hour >= from)
+                .map(move |hour| Row {
+                    project: project.clone(),
+                    agent: &session.agent,
+                    hour,
                 })
-                .collect(),
-        )
-    }
-}
-
-fn limits(said: &Said) -> Vec<PlanLimits> {
-    freshest(
-        said.plans
-            .iter()
-            .filter_map(|(machine, plan)| plan_limits(machine, plan)),
-    )
+        })
+        .collect()
 }
 
 /// The freshest report of each agent: Claude Code, then Codex, then the others.
@@ -366,10 +352,10 @@ fn models<'r>(rows: impl Iterator<Item = &'r Row<'r>>) -> Vec<ModelSpend> {
     out
 }
 
-fn by_project<'r>(rows: &'r Rows<'_>) -> BTreeMap<&'r str, Vec<&'r Row<'r>>> {
+fn by_project<'r>(rows: &'r [Row<'_>]) -> BTreeMap<&'r str, Vec<&'r Row<'r>>> {
     let mut by: BTreeMap<&str, Vec<&Row<'_>>> = BTreeMap::new();
     // Only imported projects are listed; the rest count in the totals.
-    for row in &rows.0 {
+    for row in rows {
         if let Some(project) = &row.project {
             by.entry(project.as_str()).or_default().push(row);
         }
@@ -378,10 +364,10 @@ fn by_project<'r>(rows: &'r Rows<'_>) -> BTreeMap<&'r str, Vec<&'r Row<'r>>> {
     by
 }
 
-fn by_agent<'r>(rows: &'r Rows<'_>) -> BTreeMap<&'r AgentSlug, Vec<&'r Row<'r>>> {
+fn by_agent<'r>(rows: &'r [Row<'_>]) -> BTreeMap<&'r AgentSlug, Vec<&'r Row<'r>>> {
     let mut by: BTreeMap<&AgentSlug, Vec<&Row<'_>>> = BTreeMap::new();
 
-    for row in &rows.0 {
+    for row in rows {
         by.entry(row.agent).or_default().push(row);
     }
 
@@ -392,7 +378,7 @@ fn metered(row: &Row<'_>) -> bool {
     !row.hour.billing.on_subscription(row.agent)
 }
 
-fn bill(rows: &Rows<'_>) -> SpendPeriod {
+fn bill(rows: &[Row<'_>]) -> SpendPeriod {
     let paid = |rows: &[&Row<'_>]| -> f64 {
         rows.iter()
             .filter(|row| metered(row))
@@ -405,7 +391,7 @@ fn bill(rows: &Rows<'_>) -> SpendPeriod {
             .map(|row| row.hour.tokens())
             .sum()
     };
-    let all: Vec<&Row<'_>> = rows.0.iter().collect();
+    let all: Vec<&Row<'_>> = rows.iter().collect();
     let mut projects: Vec<ProjectBill> = by_project(rows)
         .into_iter()
         .map(|(name, rows)| {

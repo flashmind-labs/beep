@@ -7,16 +7,11 @@ import { fileSize } from "../chat/media.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
 import { draw, touchTab } from "./media-draw.ts";
+import { bytesOf } from "./media-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
 const MAX_FILE = 128 * 1024 * 1024;
-
-function bytesOf(b64: string) {
-  const s = atob(b64), out = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
-  return out;
-}
 
 /// How far fetching a file from another machine has come.
 type FileProgress = { machine_id: string; path: string; done: number; size: number };

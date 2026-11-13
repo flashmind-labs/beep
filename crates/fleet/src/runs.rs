@@ -337,14 +337,9 @@ impl Desk {
             rate_limited_until: None,
             url: Some(place.web.clone()),
         };
-        let client = match self.hosts.reqwest() {
-            Ok(client) => client,
-            Err(e) => {
-                host.error = Some(e.to_string());
-                return (Vec::new(), host);
-            }
-        };
-        let caller = place.target.caller(self.hosts.semaphore(), &client);
+        let caller = place
+            .target
+            .caller(self.hosts.semaphore(), self.hosts.client());
         let mut shown = match host_runs::list(calls, &caller, &place.target).await {
             Ok(listed) => listed,
             Err(e) => {
@@ -385,10 +380,9 @@ impl Desk {
     /// The open pull requests' numbers and head branches; none when they cannot be read, as the
     /// checks then only go unmatched.
     async fn open_heads(&self, place: &Place) -> Vec<(u64, String)> {
-        let Ok(client) = self.hosts.reqwest() else {
-            return Vec::new();
-        };
-        let caller = place.target.caller(self.hosts.semaphore(), &client);
+        let caller = place
+            .target
+            .caller(self.hosts.semaphore(), self.hosts.client());
         host_runs::heads(self.hosts.host_calls(), &caller, &place.target)
             .await
             .unwrap_or_default()
@@ -417,16 +411,17 @@ impl Desk {
             Some(place) => place,
             None => own.map_err(FleetError::Refused)?,
         };
-        let client = self.hosts.reqwest()?;
         let calls = self.hosts.host_calls();
-        let caller = place.target.caller(self.hosts.semaphore(), &client);
+        let caller = place
+            .target
+            .caller(self.hosts.semaphore(), self.hosts.client());
         // The run and its jobs are asked at once; the log waits for the jobs, which name it.
         let (run, jobs) = join(
             host_runs::one(calls, &caller, &place.target, id),
             host_runs::jobs(calls, &caller, &place.target, id),
         )
         .await;
-        let run = run.map_err(|e| FleetError::Refused(e.to_string()))?;
+        let mut run = run.map_err(|e| FleetError::Refused(e.to_string()))?;
         let mut problems = Vec::new();
         let jobs = match jobs {
             Ok(jobs) => jobs.unwrap_or_default(),
@@ -435,7 +430,6 @@ impl Desk {
                 Vec::new()
             }
         };
-        let mut run = run;
         run.progress = run.state.going().then(|| progress(&jobs)).flatten();
         let log = match jobs.iter().find(|job| job.state == RunState::Failed {}) {
             Some(job) if run.state == (RunState::Failed {}) => {

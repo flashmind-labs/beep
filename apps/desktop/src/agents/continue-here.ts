@@ -5,7 +5,8 @@ import { createStore } from "zustand";
 import { confirmSheet } from "../ui/menu.ts";
 import { invoke } from "../ui/tauri.ts";
 import { errorText } from "../machines/machines-state.ts";
-import { AG, type AgentRow, agentKind } from "./agents.ts";
+import { AG, type AgentRow, agentKind, openOf, where } from "./agents.ts";
+import { agentKey } from "./conversation-state.ts";
 
 /// Where Continue here stands for the session `key` names.
 export type Continuing =
@@ -16,15 +17,13 @@ export type Continuing =
 
 export const continuing = createStore<Continuing>(() => ({ kind: "none" }));
 
-export const continueKey = (s: Pick<AgentRow, "machine_id" | "agent" | "id">) => `${s.machine_id}\n${s.agent}\n${s.id}`;
-
 /// Closing the process while a turn runs would cut the turn off.
 const turnRuns = (s: AgentRow) => s.status === "working";
 
 /// The open session as it stands now, when it is still `s`.
 const current = (s: AgentRow) => {
   const now = AG.page?.session;
-  return now && continueKey(now) === continueKey(s) ? now : s;
+  return now && agentKey(now) === agentKey(s) ? now : s;
 };
 
 /// Asks first: the terminal the session runs in loses it.
@@ -36,7 +35,7 @@ export function askContinueHere(s: AgentRow) {
     action: "Continue here",
     run: async () => {
       const now = current(s);
-      if (turnRuns(now)) continuing.setState({ kind: "waiting", key: continueKey(now) }, true);
+      if (turnRuns(now)) continuing.setState({ kind: "waiting", key: agentKey(now) }, true);
       else await closeOutside(now);
     },
   });
@@ -49,22 +48,22 @@ export function cancelContinue() {
 /// Called with each read of the open session: closes it once the awaited turn ended.
 export function continueAfterTurn(s: AgentRow) {
   const state = continuing.getState();
-  if (state.kind !== "waiting" || state.key !== continueKey(s) || turnRuns(s)) return;
+  if (state.kind !== "waiting" || state.key !== agentKey(s) || turnRuns(s)) return;
   closeOutside(s).catch(() => { /* Shown by the button. */ });
 }
 
 /// Another session opened: what was asked for the last one no longer holds.
 export function keepContinuing(s: AgentRow) {
   const state = continuing.getState();
-  if (state.kind !== "none" && state.key !== continueKey(s)) cancelContinue();
+  if (state.kind !== "none" && state.key !== agentKey(s)) cancelContinue();
 }
 
 async function closeOutside(s: AgentRow) {
-  const key = continueKey(s);
+  const key = agentKey(s);
   continuing.setState({ kind: "closing", key }, true);
 
   try {
-    await invoke("agent_close_external", { machineId: s.machine_id, agent: s.agent, session: s.id });
+    await invoke("agent_close_external", where(openOf(s)));
     // The session reads as ended once its follow sees the process exit; the field replaces the banner.
     if (continuing.getState().kind === "closing") cancelContinue();
   } catch (e) {

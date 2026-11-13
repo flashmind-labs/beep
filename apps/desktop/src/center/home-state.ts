@@ -58,3 +58,8 @@ export function keepUnchanged(before: HomeView | null, after: HomeView): HomeVie
 export function needsLine(n: Pick<NeedsYou, "agent" | "title" | "machine_name"> & { question: Pick<AgentQuestion, "text"> }) {
   return { title: n.question.text, sub: [agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
 }
+
+/// The machines online in `home`, as a key that changes when one connects.
+export function onlineMachines(home: HomeView | null) {
+  return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
+}

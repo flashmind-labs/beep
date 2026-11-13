@@ -80,9 +80,7 @@ host = [
 # `beep-node update` comes with it, with what it downloads and unpacks with.
 cli = [
     "host",
-    "dep:chrono",
     "dep:clap",
-    "beep-proto/logging",
     "dep:flate2",
     "dep:tar",
     "dep:thiserror",

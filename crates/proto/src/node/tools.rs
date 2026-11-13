@@ -7,9 +7,6 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 pub const PROTOCOL: &str = "tools/1";
 
-/// How the text of a call the user's rules refuse starts.
-pub const REFUSED: &str = "Not done: the user set";
-
 /// The tools a node runs. `ask_user` is not among them: the node puts
 /// that question to the user itself.
 #[derive(

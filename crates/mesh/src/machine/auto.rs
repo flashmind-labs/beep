@@ -63,16 +63,16 @@ fn called_for(text: &str) -> Vec<MachineCapability> {
 /// What Auto knows of one online machine.
 #[derive(Debug)]
 struct Candidate<'a> {
-    pub name: &'a str,
+    name: &'a str,
     /// It offers the agent asked for, or any agent when none was.
-    pub offers: bool,
-    pub capabilities: &'a [MachineCapability],
+    offers: bool,
+    capabilities: &'a [MachineCapability],
     /// The user's environment.
-    pub workspace: bool,
+    workspace: bool,
     /// The folder asked for is there, or none was asked for.
-    pub has_folder: bool,
+    has_folder: bool,
     /// Sessions running on it now; only read to break a tie.
-    pub running: u32,
+    running: u32,
 }
 
 impl Candidate<'_> {
@@ -99,19 +99,19 @@ enum AutoError {
 /// What a start asks of its machine.
 struct Wants<'a> {
     /// The agent's name for messages, such as "Claude Code".
-    pub agent: &'a str,
+    agent: &'a str,
     /// Asked for by the app: a machine must have all of them.
-    pub needs: &'a [MachineCapability],
+    needs: &'a [MachineCapability],
     /// Mentioned in the prompt or folder: preferred, not required.
-    pub hints: &'a [MachineCapability],
-    pub folder: Option<&'a str>,
+    hints: &'a [MachineCapability],
+    folder: Option<&'a str>,
 }
 
 /// The machines Auto picks among, by index, and the hints none of them met.
 #[derive(Debug, PartialEq)]
 struct Pool {
-    pub at: Vec<usize>,
-    pub missed: Vec<MachineCapability>,
+    at: Vec<usize>,
+    missed: Vec<MachineCapability>,
 }
 
 /// The machines with the agent, every need and the folder, narrowed by hints when some match.

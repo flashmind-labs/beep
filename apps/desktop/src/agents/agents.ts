@@ -29,9 +29,12 @@ import { renderWaiting } from "../bar/waiting.ts";
 import { openAgent, closeOpenSession, submitAgentMessage } from "./session.ts";
 import { openEditorKey } from "./session-head.ts";
 import { sessionMenu } from "./sessionmenu.ts";
-import { TAKEOVER } from "./sessionmenu-state.ts";
+import type { AgentQuestion } from "./running-state.ts";
+import { byOrder } from "./agentpick.ts";
+import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
-import { jumpToStart, jumpToEnd, loadOlder, logJumpKey, nearTop } from "./older.ts";
+import { jumpToStart, loadOlder, logJumpKey, nearTop } from "./older.ts";
+import { jumpToLatest } from "./logview.ts";
 import { pageDirection } from "./logkeys-state.ts";
 import type { OlderStop } from "./older-state.ts";
 import { closeModelPicker } from "./modelpill.ts";
@@ -49,14 +52,7 @@ import { placeSub } from "./place-state.ts";
 import { agentMessage, draftMessage, sessionBody, shownMessage } from "./session-frame.tsx";
 import { closeMoveMenu } from "./move.ts";
 
-/// A question a session waits on, such as whether to run a command.
-export interface AgentQuestion {
-  id: number;
-  text: string;
-  /// The command, path or other input it would act on, cut short.
-  detail: string | null;
-  options: { id: string; name: string; allow: boolean }[];
-}
+export type { AgentQuestion };
 
 /// A session row as `agent_sessions` returns it.
 export interface AgentSession {
@@ -240,7 +236,9 @@ interface AgentForm {
   typing?: boolean;
 }
 
-type SentImage = { name: string; mime: string; data: string };
+export type SentImage = { name: string; mime: string; data: string };
+/// An image as `agent_start`, `agent_resume` and `agent_steer` take it, without what only the field shows.
+export const sentImage = ({ name, mime, data }: SentImage): SentImage => ({ name, mime, data });
 /// What `agent_steer` sends: a message, one for the running turn, take
 /// those back, stop the turn, close the session, or switch its model or
 /// thinking from the next turn.
@@ -278,13 +276,11 @@ interface AgentState {
   att: Attached[];
   attError: string;
   attTimer: ReturnType<typeof setTimeout> | undefined;
-  /// The pasted blocks left open ("place:block"), and the module that reads
-  /// tool entries, once loaded.
+  /// The pasted blocks left open ("place:block").
   opened: Set<number | string>;
   /// What the reader chose for a tool row (true open, false closed), by place
   /// in the session. A row they never touched has no entry.
   steps: Map<number, boolean>;
-  log: typeof import("./agentlog.ts") | null;
   /// The steps whose whole output shows, by place in the session.
   all: Set<number>;
   /// Steers sent while a turn runs, shown until the node delivers them.
@@ -314,10 +310,9 @@ export const AG: AgentState = {
   open: null, draft: null, page: null, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,
-  opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
+  opened: new Set(), steps: new Map(), all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
 };
-export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
 export const AGENT_MAX_IMAGES = 5;
 /// Thumbnails of images sent from here, by session and name, so the
@@ -340,7 +335,7 @@ export const AGENT_STOP_POLL_MS = 400;
 /// asked every `AGENT_SLOW_MS` when its node cannot stream changes.
 export const AGENT_SLOW_AFTER = 2 * 60_000;
 export const AGENT_SLOW_MS = 10_000;
-export const AGENT_ACTIVE = new Set<string | undefined>(["asking", "working", "running", "starting"]);
+export { AGENT_ACTIVE };
 export const AGENT_LAST = 60;
 /// How long the page waits on a read of the session, and on a prompt or a
 /// resume to be taken, past the app's own limits (20 s and 30 s), so a call
@@ -368,7 +363,9 @@ export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill=
 
 export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
 export const folderName = (p: string) => String(p || "").split("/").filter(Boolean).pop() || p || "";
-export const byPreference = (a: string, b: string) => (AGENT_ORDER.indexOf(a) + 1 || 99) - (AGENT_ORDER.indexOf(b) + 1 || 99);
+export const byPreference = byOrder(AGENT_ORDER);
+/// The open session `row` is.
+export const openOf = (row: Pick<AgentRow, "machine_id" | "agent" | "id">): OpenAgent => ({ machine_id: row.machine_id, agent: row.agent, session: row.id });
 /// The session `o` names, as the node's commands take it.
 export const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agent, session: o.session });
 
@@ -448,7 +445,7 @@ export interface ListedSession { session: AgentSession; row: AgentListRow }
 /// The Every session list: sessions still going, the ended ones folded under
 /// their own group, which row is picked and whether that group is open. The
 /// list view reads it; the session list and the keys write it.
-export interface AgentsListState {
+interface AgentsListState {
   live: ListedSession[];
   ended: ListedSession[];
   endedOpen: boolean;
@@ -466,7 +463,10 @@ export const agentsList = createStore<AgentsListState>(() => ({
 }));
 
 /// The rows the arrows and Enter move over: the ended ones only while open.
-export const pickable = (s: AgentsListState) => s.endedOpen ? [...s.live, ...s.ended] : s.live;
+const pickable = (s: AgentsListState) => s.endedOpen ? [...s.live, ...s.ended] : s.live;
+
+/// The selected row, kept within the rows the list now has.
+const keepSelected = (selected: number, s: AgentsListState) => Math.min(selected, Math.max(0, pickable(s).length - 1));
 
 let listPage: BarPageSlot | null = null;
 
@@ -486,7 +486,7 @@ export function drawAgents(loading: boolean) {
 
   agentsList.setState(s => {
     const next = { ...s, live, ended, loading, summary, error: AG.error, reach };
-    return { ...next, selected: Math.min(s.selected, Math.max(0, pickable(next).length - 1)) };
+    return { ...next, selected: keepSelected(s.selected, next) };
   });
 
   const page = listPage?.host.parentElement === bar ? listPage : listPage = openBarPage(() => { listPage = null; });
@@ -498,7 +498,7 @@ export function drawAgents(loading: boolean) {
 export function toggleEnded() {
   agentsList.setState(s => {
     const next = { ...s, endedOpen: !s.endedOpen };
-    return { ...next, selected: Math.min(s.selected, Math.max(0, pickable(next).length - 1)) };
+    return { ...next, selected: keepSelected(s.selected, next) };
   });
 }
 
@@ -562,7 +562,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
     // Home and ⌘↑ go to the first entry of the log, End and ⌘↓ to the last,
     // unless the field has text to move through.
     const jump = logJumpKey(e, cmd);
-    if (jump) { e.preventDefault(); void (jump === "start" ? jumpToStart() : jumpToEnd()); return true; }
+    if (jump) { e.preventDefault(); void (jump === "start" ? jumpToStart() : jumpToLatest()); return true; }
     if (e.key === "Tab" && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && inField && cycleMode()) { e.preventDefault(); return true; }
 
     // On a phone Return starts a new line; the Send button sends.

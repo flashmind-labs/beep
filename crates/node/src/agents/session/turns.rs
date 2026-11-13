@@ -2,7 +2,7 @@
 
 use super::{
     MAX_RUNNING_TOOLS,
-    actor::{Actor, PendingSteer, Reply, Stopping},
+    actor::{Actor, PendingSteer, Reply, Stopping, stop_reason},
 };
 use crate::agents::{
     acp::{self, Prompt},
@@ -444,9 +444,7 @@ impl Actor {
         self.live.send_modify(|live| live.spent(tokens));
         let entry = match result {
             Ok(done) => {
-                let stop = acp::wire_name(&done.stop_reason)
-                    .parse()
-                    .unwrap_or(StopReason::Other);
+                let stop = stop_reason(&done);
                 if stop == StopReason::EndTurn {
                     self.restate();
                 }

@@ -426,8 +426,6 @@ pub(super) async fn read_store(store: &Store, hash: Hash, limit: u64) -> Result<
     Ok(raw)
 }
 
-/// Copies blob `hash` from a peer into `out`, giving the hash of what was
-/// written. The blobs protocol checks every chunk against `hash`.
 /// Fetches `content` into `store` over `connection`, failing when no data
 /// comes for `stall`. `on_bytes` hears the bytes received so far.
 pub(super) async fn fetch_within(
@@ -457,6 +455,8 @@ pub(super) async fn fetch_within(
     }
 }
 
+/// Copies blob `hash` from a peer into `out`, giving the hash of what was
+/// written. The blobs protocol checks every chunk against `hash`.
 async fn copy_blob(
     connection: Connection,
     hash: Hash,

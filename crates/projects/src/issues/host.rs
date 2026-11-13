@@ -11,16 +11,6 @@ use std::future::Future;
 /// teacli's exit code for a missing resource.
 const TEACLI_NOT_FOUND: i32 = 3;
 
-/// Runs `command` against `repo`'s `host`, failing unless it exits 0.
-pub async fn run_host(
-    shell: &dyn Shell,
-    host: &IssueHost,
-    repo: &RepoName,
-    command: HostCommand<'_>,
-) -> Result<String> {
-    run_rendered(shell, &command.render(host, repo)).await
-}
-
 /// Runs the host command `rendered`, failing unless it exits 0.
 pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
     let out = shell.run(rendered, HOST_LIMIT).await?;
@@ -216,12 +206,7 @@ pub fn host_failed(error: &anyhow::Error) -> SourceError {
 
 /// The start of `text`, at most `max` bytes, cut on a character boundary.
 pub fn head(text: &str, max: usize) -> &str {
-    let mut end = text.len().min(max);
-
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    &text[..text.floor_char_boundary(max)]
 }
 
 /// `text` trimmed and cut to at most `max` bytes, "..." marking a cut.

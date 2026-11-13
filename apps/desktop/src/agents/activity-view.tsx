@@ -23,7 +23,7 @@ export type ToolBody =
 
 /// The head of a call to the session's Beep tools: what it did, the machine,
 /// the first line of its command or prompt, and how it stands.
-export interface BeepHead { tip: string; label: string; machine: string; line: string | null; status: string; since: number | null }
+interface BeepHead { tip: string; label: string; machine: string; line: string | null; status: string; since: number | null }
 
 export interface ToolActivity {
   kind: "tool"; id: string; at: number; failed: boolean; open: boolean; artifact: string | null;

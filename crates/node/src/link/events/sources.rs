@@ -1,6 +1,6 @@
 //! Topic streams own the sources they keep running. Registries hold weak references only.
 
-use super::{FileWatcher, MAX_FILE_ROOTS, Offers, broad_files, has_git, watch};
+use super::{FileWatcher, MAX_FILE_ROOTS, Offers, TOO_MANY_ROOTS, broad_files, has_git, watch};
 use crate::{AsyncMutex, events::Change};
 use anyhow::{Result, ensure};
 use beep_proto::node::events::Topic;
@@ -161,7 +161,7 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
         subscriptions.insert(topic.clone(), Subscription { stream, source });
         ensure!(
             roots(&subscriptions).len() <= MAX_FILE_ROOTS,
-            "too many watched directories; subscribe to specific file roots"
+            TOO_MANY_ROOTS
         );
     }
 
@@ -182,7 +182,7 @@ pub(super) async fn reconcile(offers: &Offers, subscriptions: &Subscriptions) ->
 
     ensure!(
         roots(subscriptions).len() <= MAX_FILE_ROOTS,
-        "too many watched directories; subscribe to specific file roots"
+        TOO_MANY_ROOTS
     );
     Ok(())
 }

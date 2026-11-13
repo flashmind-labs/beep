@@ -91,6 +91,11 @@ impl Note {
         digest(&[&format!("{:?}", self.kind), &self.title, &self.text])
     }
 
+    /// What an app marks when it reads this version of the note.
+    pub(crate) fn mark(&self) -> Read {
+        (self.id.clone(), self.digest())
+    }
+
     /// An unread note made now, with no text and nothing to open.
     pub(crate) fn new(kind: NoteKind, id: String, title: String, source: String) -> Self {
         Self {
@@ -116,7 +121,7 @@ pub(crate) fn now_ms() -> u64 {
 /// Whether an app read this version of `note`. A later turn under the same id says something
 /// else, so it is unread.
 fn read_since(marks: &HashSet<Read>, note: &Note) -> bool {
-    marks.contains(&(note.id.clone(), note.digest()))
+    marks.contains(&note.mark())
 }
 
 /// The reads among `notes`, those not read yet.
@@ -124,7 +129,7 @@ fn unread_of(notes: Vec<Note>) -> impl Iterator<Item = Read> {
     notes
         .into_iter()
         .filter(|note| !note.read)
-        .map(|note| (note.id.clone(), note.digest()))
+        .map(|note| note.mark())
 }
 
 /// What a coding agent's notice did to the notes.
@@ -221,7 +226,7 @@ impl Notes {
             let now = !note.read && ids.contains(&note.id);
             note.read |= now;
             if now {
-                read.push((note.id.clone(), note.digest()));
+                read.push(note.mark());
             }
             now
         });
@@ -292,7 +297,7 @@ impl Notes {
                 key.machine_name.clone(),
             )
         };
-        let this = (note.id.clone(), note.digest());
+        let this = note.mark();
         // Read on screen here, so it is read on every app.
         let mut read = if seen { vec![this.clone()] } else { Vec::new() };
 

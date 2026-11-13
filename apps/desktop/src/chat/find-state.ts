@@ -1,4 +1,4 @@
-export interface TextMatch { start: number; end: number }
+interface TextMatch { start: number; end: number }
 
 /** Compile once per query; invalid regular expressions retain their SyntaxError. */
 export function searchPattern(query: string, regex = false): RegExp | null {

@@ -6,10 +6,10 @@ use super::{
     Env, Harness,
     dial::dial,
     flsh,
-    folder::project_folder,
+    folder::{Folders, Workspace, project_folder},
     progress::{Tracker, show},
     read::{self, Refused},
-    resume::{Arrival, Folders as ResumeFolders, Workspace, resume},
+    resume::{Arrival, resume},
     saved::{MadeWorktree, Phase, Saved},
     worktree::{self, Undone, Work},
 };
@@ -59,36 +59,13 @@ enum Arriving<'a> {
     Syncthing(Managed),
 }
 
-/// The folder the session worked in on the source and the folder it works in
-/// here.
-struct Folders {
-    old: PathBuf,
-    new: PathBuf,
-    /// For a worktree session: this machine's checkout, and the worktree
-    /// the session works in here, which is made when it moves.
-    worktree: Option<Made>,
-}
-
-/// The worktree a target makes.
-struct Made {
-    old_checkout: PathBuf,
-    checkout: PathBuf,
-    folder: PathBuf,
-}
-
 pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
     let saved = env.state.load(&record.id);
 
     if let Some(saved) = saved.filter(|saved| saved.is_over(record.at)) {
         // After a restart, how it ended is still what the source and the
         // desktop are told.
-        show(tracker, |progress| match saved.phase {
-            Phase::Done => progress.phase = MovePhase::Done,
-            _ => {
-                progress.phase = MovePhase::Failed;
-                progress.reason = saved.reason;
-            }
-        });
+        show_end(tracker, &saved.phase, saved.reason);
         return Ok(());
     }
 
@@ -97,18 +74,22 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
         Ok(()) => (Phase::Done, None),
         Err(e) => (Phase::Failed, Some(format!("{e:#}"))),
     };
-    show(tracker, |progress| match &reason {
-        None => progress.phase = MovePhase::Done,
-        Some(reason) => {
-            progress.phase = MovePhase::Failed;
-            progress.reason = Some(reason.clone());
-        }
-    });
+    show_end(tracker, &phase, reason.clone());
     env.state.clear(&record.id, false);
     env.state
         .save(&record.id, &Saved::over(record.at, phase, reason))
         .context("keeping how the move ended")?;
     result
+}
+
+fn show_end(tracker: &Tracker, phase: &Phase, reason: Option<String>) {
+    show(tracker, |progress| match phase {
+        Phase::Done => progress.phase = MovePhase::Done,
+        _ => {
+            progress.phase = MovePhase::Failed;
+            progress.reason = reason;
+        }
+    });
 }
 
 async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
@@ -123,13 +104,16 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         bail!("{} sessions cannot move yet", record.agent);
     }
 
-    let folders = folders(env, record)?;
+    let (folders, checkout) = folders(env, record)?;
+    // For a worktree session: the workspace made here, and this machine's
+    // checkout it is made in.
+    let tree = folders.workspace.as_ref().zip(checkout.as_deref());
     // What an earlier try, or an earlier move, made here and left goes first.
     take_back(env, &record.id).await;
 
-    match &folders.worktree {
-        Some(made) => {
-            if !made.checkout.is_dir() {
+    match tree {
+        Some((workspace, checkout)) => {
+            if !checkout.is_dir() {
                 bail!(
                     "{} has no checkout on this machine to make a worktree in",
                     record.project
@@ -140,10 +124,10 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
             // Whether the branch and folder allow it is known before the
             // source ends anything.
             if let Some(worktree) = &record.worktree {
-                let running = runs_in(env, &made.folder);
+                let running = runs_in(env, &workspace.new);
                 let (checkout, folder, branch) = (
-                    made.checkout.clone(),
-                    made.folder.clone(),
+                    checkout.to_owned(),
+                    workspace.new.clone(),
                     worktree.branch.clone(),
                 );
                 spawn_blocking(move || worktree::check(&checkout, &folder, &branch, running))
@@ -170,7 +154,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         return Ok(());
     }
     // Decided before the source ends anything.
-    let arriving = arriving(env, record, &folders).await?;
+    let arriving = arriving(env, record, checkout.as_deref().unwrap_or(&folders.new)).await?;
     log::info!(
         "session {}: it can move here, reading it from its source",
         record.id
@@ -183,18 +167,18 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     );
     files(record, &arriving, tracker, copied.since).await?;
 
-    if let (Some(made), Some(work)) = (&folders.worktree, &copied.work) {
-        commits(env, record, &made.checkout, &work.head).await?;
+    if let (Some((_, checkout)), Some(work)) = (tree, &copied.work) {
+        commits(env, record, checkout, &work.head).await?;
     }
 
     log::info!("session {}: the files are here, resuming", record.id);
     show(tracker, |progress| progress.phase = MovePhase::Resuming);
-    let made = match (&folders.worktree, &record.worktree, &copied.work) {
-        (Some(made), Some(worktree), Some(work)) => {
-            let running = runs_in(env, &made.folder);
+    let made = match (tree, &record.worktree, &copied.work) {
+        (Some((workspace, here)), Some(worktree), Some(work)) => {
+            let running = runs_in(env, &workspace.new);
             let (checkout, folder, branch, work) = (
-                made.checkout.clone(),
-                made.folder.clone(),
+                here.to_owned(),
+                workspace.new.clone(),
                 worktree.branch.clone(),
                 work.clone(),
             );
@@ -207,16 +191,13 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                 .save(
                     &record.id,
                     &Saved {
-                        at: record.at,
-                        phase: Phase::Working,
-                        reason: None,
-                        open: None,
                         made: Some(MadeWorktree {
                             checkout: checkout.clone(),
                             folder: folder.clone(),
                             placed: plan,
                             applied: String::new(),
                         }),
+                        ..Saved::over(record.at, Phase::Working, None)
                     },
                 )
                 .context("keeping what the move is about to make")?;
@@ -243,8 +224,8 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                 }
             };
             let note = MadeWorktree {
-                checkout: made.checkout.clone(),
-                folder: made.folder.clone(),
+                checkout: here.to_owned(),
+                folder: workspace.new.clone(),
                 placed: attached.placed,
                 applied: attached.applied,
             };
@@ -253,11 +234,8 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
             let kept = env.state.save(
                 &record.id,
                 &Saved {
-                    at: record.at,
-                    phase: Phase::Working,
-                    reason: None,
-                    open: None,
                     made: Some(note.clone()),
+                    ..Saved::over(record.at, Phase::Working, None)
                 },
             );
 
@@ -278,19 +256,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         mode: record.mode.clone(),
         from: record.from,
     };
-    let placed = ResumeFolders {
-        old: folders.old.clone(),
-        new: folders.new.clone(),
-        workspace: match (&folders.worktree, &record.worktree) {
-            (Some(made), Some(worktree)) => Some(Workspace {
-                checkout: made.old_checkout.clone(),
-                old: PathBuf::from(&worktree.from),
-                new: made.folder.clone(),
-            }),
-            _ => None,
-        },
-    };
-    let resumed = resume(env, &arrival, &kind, &placed, copied.file_name, copy).await;
+    let resumed = resume(env, &arrival, &kind, &folders, copied.file_name, copy).await;
 
     if resumed.is_err() && made {
         take_back(env, &record.id).await;
@@ -381,7 +347,7 @@ async fn undo_logged(id: &str, made: MadeWorktree) {
 }
 
 /// The old and new folders.
-fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
+fn folders(env: &Env, record: &SessionMove) -> Result<(Folders, Option<PathBuf>)> {
     let theirs = project_folder(&env.mesh, &record.project, &record.from)
         .context("the source does not keep the project")?;
     let mine = project_folder(&env.mesh, &record.project, &env.mesh.me())
@@ -396,22 +362,26 @@ fn folders(env: &Env, record: &SessionMove) -> Result<Folders> {
     }
 
     let Some(worktree) = &record.worktree else {
-        return Ok(Folders {
-            old: Path::new(&theirs).join(relative),
-            new: Path::new(&mine).join(relative),
-            worktree: None,
-        });
+        return Ok((
+            Folders {
+                old: Path::new(&theirs).join(relative),
+                new: Path::new(&mine).join(relative),
+                workspace: None,
+            },
+            None,
+        ));
     };
     let top = Path::new(&mine).join(beep_proto::node::agent::worktree_path(&worktree.branch));
-    Ok(Folders {
+    let folders = Folders {
         old: Path::new(&worktree.from).join(relative),
         new: top.join(relative),
-        worktree: Some(Made {
-            old_checkout: PathBuf::from(theirs),
-            checkout: PathBuf::from(mine),
-            folder: top,
+        workspace: Some(Workspace {
+            checkout: PathBuf::from(theirs),
+            old: PathBuf::from(&worktree.from),
+            new: top,
         }),
-    })
+    };
+    Ok((folders, Some(PathBuf::from(mine))))
 }
 
 /// Copies the conversation until the source says the session ended, and
@@ -517,7 +487,7 @@ async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read:
 async fn arriving<'a>(
     env: &'a Env,
     record: &SessionMove,
-    folders: &Folders,
+    folder: &Path,
 ) -> Result<Arriving<'a>> {
     if let Some(syncs) = &env.syncs
         && syncs.syncs_with(&record.project, &record.from).await
@@ -525,10 +495,6 @@ async fn arriving<'a>(
         return Ok(Arriving::Beep(syncs));
     }
 
-    let folder = folders
-        .worktree
-        .as_ref()
-        .map_or(&folders.new, |made| &made.checkout);
     match Syncthing::local().check(folder).await {
         Some(managed) => Ok(Arriving::Syncthing(managed)),
         None => bail!(

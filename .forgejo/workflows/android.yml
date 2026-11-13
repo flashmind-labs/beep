@@ -1,7 +1,7 @@
 # Builds the release APK and app bundle for a tag android-vX.Y.Z (made by
-# `just android-release`) and keeps the APK as a run artifact. The phone app is
-# the desktop Tauri app built for Android; its version is "version" in
-# apps/desktop/src-tauri/tauri.android.conf.json. With the
+# `just patch`, `just minor` or `just release`) and keeps the APK as a run
+# artifact. The phone app is the desktop Tauri app built for Android; its
+# version is "version" in apps/desktop/src-tauri/tauri.android.conf.json. With the
 # PLAY_SERVICE_ACCOUNT_JSON secret the bundle goes to Play: the beta track
 # while X is 0, then production for a minor or major release (X.Y.0). A manual
 # run goes to the internal track. The repository variable PLAY_BETA_TRACK picks

@@ -310,14 +310,7 @@ pub async fn machine_traffic(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<Traffic
     Ok(traffic.into_iter().map(TrafficView::from).collect())
 }
 
-/// Removes a machine from the mesh, online or not. It loses its link to
-/// every other member, and never rejoins with the same key.
-#[tauri::command]
-pub async fn mesh_remove(fleet: State<'_, Arc<Fleet>>, id: EndpointId) -> Result<()> {
-    fleet.remove(id).await
-}
-
-/// Removes a machine of the mesh by its id as text, as `mesh_remove` does.
+/// Removes a machine of the mesh by its id as text.
 #[tauri::command]
 pub async fn remove_machine(fleet: State<'_, Arc<Fleet>>, id: String) -> Result<()> {
     let machine = id

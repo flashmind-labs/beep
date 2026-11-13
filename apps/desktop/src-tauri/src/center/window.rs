@@ -34,14 +34,12 @@ const HIDDEN_EVENT: &str = "center-hidden";
 const SHOWN_EVENT: &str = "center-shown";
 
 /// Where a window opens: `share` of the screen under the mouse, at least
-/// `min` where the screen allows, centered, then moved down and right by
-/// `step` as far as the screen allows.
+/// `min` where the screen allows, centered.
 #[cfg_attr(mobile, allow(dead_code))]
 pub(crate) fn frame<R: Runtime>(
     app: &AppHandle<R>,
     share: f64,
     min: LogicalSize<f64>,
-    step: f64,
 ) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
     let cursor = app.cursor_position().ok()?;
     let monitor = app
@@ -57,11 +55,8 @@ pub(crate) fn frame<R: Runtime>(
     let full_h = f64::from(area.size.height) / scale;
     let width = (full_w * share).max(min.width.min(full_w));
     let height = (full_h * share).max(min.height.min(full_h));
-    let x = left + ((full_w - width) / 2.0 + step).min(full_w - width).max(0.0);
-    let y = top
-        + ((full_h - height) / 2.0 + step)
-            .min(full_h - height)
-            .max(0.0);
+    let x = left + ((full_w - width) / 2.0).min(full_w - width).max(0.0);
+    let y = top + ((full_h - height) / 2.0).min(full_h - height).max(0.0);
     Some((LogicalPosition::new(x, y), LogicalSize::new(width, height)))
 }
 
@@ -129,7 +124,7 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     }
     #[cfg(desktop)]
     {
-        builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT), 0.0) {
+        builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT)) {
             Some((position, size)) => builder
                 .position(position.x + offset, position.y + offset)
                 .inner_size(size.width, size.height),
@@ -193,11 +188,6 @@ pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
 #[tauri::command]
 pub fn center_close_window(window: Window) -> Result<()> {
     Ok(window.close()?)
-}
-
-#[tauri::command]
-pub fn open_center(app: AppHandle) -> Result<()> {
-    open(&app)
 }
 
 /// Whether a command center window, the main one or a project's, is on

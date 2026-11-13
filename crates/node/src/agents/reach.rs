@@ -132,35 +132,40 @@ impl Agents {
 
     /// The folders the node's sessions work in, once each.
     fn session_folders(&self) -> Vec<PathBuf> {
-        let mut folders: Vec<PathBuf> = self
-            .lock()
-            .values()
-            .map(|session| PathBuf::from(session.info().cwd))
-            .collect();
+        let mut folders = self.session_cwds();
         folders.sort();
         folders.dedup();
         folders
+    }
+
+    /// The folder of each session this node runs.
+    fn session_cwds(&self) -> Vec<PathBuf> {
+        self.lock()
+            .values()
+            .map(|session| PathBuf::from(session.info().cwd))
+            .collect()
+    }
+
+    /// The folders of the sessions started outside Beep that run now.
+    fn live_presence_folders(&self) -> Vec<PathBuf> {
+        self.presence
+            .snapshot()
+            .into_iter()
+            .filter(|session| session.presence.is_live())
+            .map(|session| PathBuf::from(session.cwd))
+            .collect()
     }
 
     /// What file requests may reach, the sessions' folders among them;
     /// those of sessions started outside Beep only with `sighted`.
     fn reach(&self, sighted: Vec<PathBuf>) -> Reach {
         let mut work: Vec<PathBuf> = self.folders.get().cloned().unwrap_or_default();
-        let mut sessions: Vec<PathBuf> = self
-            .lock()
-            .values()
-            .map(|session| PathBuf::from(session.info().cwd))
-            .collect();
+        let mut sessions = self.session_cwds();
         sessions.extend(sighted);
-        sessions.extend(
-            self.presence
-                .snapshot()
-                .into_iter()
-                .filter(|s| s.presence.is_live())
-                .map(|s| PathBuf::from(s.cwd)),
-        );
+        sessions.extend(self.live_presence_folders());
         work.extend(sessions.iter().cloned());
         let logs = LogRoots::locate();
+        let (temp, uploads) = (claude_temp(), super::uploads::folder());
         let read = [
             claude::projects_dir(),
             logs.codex.as_ref().map(|codex| codex.join("sessions")),
@@ -169,8 +174,8 @@ impl Agents {
             logs.flsh,
             // OpenCode's database, or its folder of them.
             logs.opencode,
-            claude_temp(),
-            super::uploads::folder(),
+            temp.clone(),
+            uploads.clone(),
         ]
         .into_iter()
         .flatten()
@@ -178,10 +183,7 @@ impl Agents {
         Reach {
             work,
             read,
-            no_write: claude_temp()
-                .into_iter()
-                .chain(super::uploads::folder())
-                .collect(),
+            no_write: temp.into_iter().chain(uploads).collect(),
             sessions,
         }
     }
@@ -194,13 +196,7 @@ impl Agents {
             (info.state.status != beep_proto::node::agent::Status::Ended)
                 .then(|| PathBuf::from(info.cwd))
         }));
-        work.extend(
-            self.presence
-                .snapshot()
-                .into_iter()
-                .filter(|session| session.presence.is_live())
-                .map(|session| PathBuf::from(session.cwd)),
-        );
+        work.extend(self.live_presence_folders());
         work.extend(self.observed_work_roots());
         spawn_blocking(move || {
             let mut roots: Vec<_> = work

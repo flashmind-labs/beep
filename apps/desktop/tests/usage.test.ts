@@ -1,12 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { creditAmount, creditScope, hasUsage, harnessLine, harnessName, modelTotals, pillPlans, projectExtra, planUsed, showsDollars, todayLine, windowUsed } from "../src/center/usage.ts";
+import { hasUsage, harnessLine, harnessName, modelTotals, pillPlans, projectExtra, showsDollars, todayLine, windowUsed } from "../src/center/usage.ts";
+import { creditAmount, creditScope } from "../src/ui/credits.ts";
 import { tokenCount } from "../src/ui/format.ts";
 
-test("a plan has used what its tightest window has used", () => {
-  const plan = { windows: [{ used_percent: 38 }, { used_percent: 76.4 }] };
-  assert.equal(planUsed(plan), 76);
-  assert.equal(planUsed({ windows: [] }), null);
+test("a window's used share is clamped to 0 to 100", () => {
   assert.equal(windowUsed({ used_percent: 130 }), 100);
   assert.equal(windowUsed({ used_percent: -5 }), 0);
 });

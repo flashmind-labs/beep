@@ -2,7 +2,7 @@
 //! keeps on this machine (`Stores`), for suggesting projects to import and
 //! listing an imported project's sessions.
 
-use crate::agents::{cut, place::of_folder};
+use crate::agents::place::of_folder;
 use beep_proto::{
     AgentSlug,
     node::agent::{AgentSessions, ExternalSession, Presence, SessionFolder},
@@ -28,9 +28,11 @@ mod git;
 pub(crate) mod memo;
 mod opencode;
 
+pub(crate) use codex::configured as codex_home;
 pub(crate) use flsh::sessions_dir as flsh_sessions_dir;
 pub(crate) use opencode::databases_at as opencode_databases;
 mod pi;
+pub(crate) use pi::configured as pi_sessions;
 mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};
@@ -46,8 +48,6 @@ const MAX_LOOKUPS: usize = 400;
 const MAX_FIRST_LINE: u64 = 512 * 1024;
 /// How much of a session file is read for its first prompt or its name.
 const MAX_HEAD: u64 = 1024 * 1024;
-/// The longest title or prompt kept.
-const MAX_TITLE: usize = 300;
 /// A session written this recently may still run.
 const RECENT: Duration = Duration::from_secs(3 * 60);
 
@@ -279,12 +279,7 @@ impl Stores {
         let Some(root) = self.codex.as_deref() else {
             return Vec::new();
         };
-        let wanted = |path: &Path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
-        };
-        let mut files = newest_files(&root.join("sessions"), 3, &wanted);
+        let mut files = newest_files(&root.join("sessions"), 3, &codex::is_rollout);
         files.sort_by(|(left, _), (right, _)| left.cmp(right));
         files
             .into_iter()
@@ -388,7 +383,6 @@ impl LogRoots {
     }
 }
 
-/// OpenCode's databases at `root`: the file itself, or those in the folder.
 /// Opens the agent's database `path` to read, waiting a little while it is
 /// locked.
 pub(crate) fn open_database(path: &Path) -> rusqlite::Result<Connection> {
@@ -477,13 +471,16 @@ pub(crate) fn folders(
             }
         })
         .collect();
-    out.sort_by(|a, b| {
-        b.last_activity
-            .cmp(&a.last_activity)
-            .then_with(|| a.path.cmp(&b.path))
-    });
+    out.sort_by(newest_first);
     out.truncate(limit);
     out
+}
+
+/// Most recent activity first, then by path.
+fn newest_first(a: &SessionFolder, b: &SessionFolder) -> std::cmp::Ordering {
+    b.last_activity
+        .cmp(&a.last_activity)
+        .then_with(|| a.path.cmp(&b.path))
 }
 
 /// Adds to `out` each of `checkouts` it does not hold yet, with no
@@ -523,11 +520,7 @@ pub(crate) fn with_commits(out: &mut [SessionFolder], commit: impl Fn(&Path) -> 
         }
     }
 
-    out.sort_by(|a, b| {
-        b.last_activity
-            .cmp(&a.last_activity)
-            .then_with(|| a.path.cmp(&b.path))
-    });
+    out.sort_by(newest_first);
 }
 
 /// Whether `cwd` is `folder` or inside it.
@@ -597,9 +590,7 @@ fn head_lines(path: &Path) -> io::Result<impl Iterator<Item = String>> {
 /// A prompt as a title: trimmed, cut short, and none for text an agent
 /// wraps in tags, such as its own context.
 fn prompt_title(text: &str) -> Option<String> {
-    let said = crate::agents::tags::said(text);
-    let text = said.trim();
-    (!text.is_empty() && !text.starts_with('<')).then(|| cut(text, MAX_TITLE))
+    crate::agents::tags::title(text)
 }
 
 fn unix(at: SystemTime) -> u64 {

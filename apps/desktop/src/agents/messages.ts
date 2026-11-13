@@ -8,7 +8,7 @@ import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
-import { type AgentQuestion, type OpenAgent, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
+import { type AgentQuestion, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.ts";
 import { redrawAgentHints } from "./session-head.ts";
@@ -32,8 +32,8 @@ export function drawQueue() {
 
 /// A message as `agent_steer` takes it, its images without what only the
 /// field shows.
-type Outgoing = { text: string; images?: { name: string; mime: string; data: string }[] };
-const outgoing = (text: string, images: Attached[]): Outgoing => images.length ? { text, images: images.map(({ name, mime, data }) => ({ name, mime, data })) } : { text };
+type Outgoing = { text: string; images?: SentImage[] };
+const outgoing = (text: string, images: Attached[]): Outgoing => images.length ? { text, images: images.map(sentImage) } : { text };
 
 /// Takes what waits in the field for a message: the words, the paths it
 /// mentions and the images.
@@ -51,7 +51,7 @@ function takeMessage(input: HTMLTextAreaElement | null, uploading = false, reser
   MN.redraw();
   if (input) input.value = "";
   if (images.length) { AG.att = AG.att.filter(image => !images.includes(image)); drawAgentAttached(); }
-  return { how: "steer", typed, text, paths, images, files, state: null, after: 0 };
+  return { typed, text, paths, images, files, state: null, after: 0 };
 }
 
 // Each batch belongs to at most one send, even if Enter is pressed twice.
@@ -113,14 +113,14 @@ export async function editQueued(i: number, edit: boolean) {
   AG.queue.splice(i, 1);
   drawAgentBody();
 
-  if (q.how === "steer" && q.state === "sent") {
+  if (q.state === "sent") {
     if (!await steerAgent({ drop_steers: null })) {
       if (isOpen(o)) { AG.queue.splice(i, 0, q); drawAgentBody(); }
       return;
     }
 
     if (!isOpen(o)) return;
-    for (const other of AG.queue.filter(x => x.how === "steer" && x.state === "sent")) await sendSteer(other);
+    for (const other of AG.queue.filter(x => x.state === "sent")) await sendSteer(other);
   }
 
   if (edit) backInField(q);
@@ -137,7 +137,6 @@ export function steerMessage(input: HTMLTextAreaElement) {
 
 function queueSteer(q: Waiting | null) {
   if (!q) return;
-  q.how = "steer";
   AG.queue.push(q);
   sendSteer(q);
 }
@@ -349,7 +348,7 @@ export async function sendReview(text: string) {
     ok = await continueAgent(input, text, []);
     input.value = typed;
   } else if (turnRuns()) {
-    const q: Waiting = { how: "steer", typed: text, text, paths: [], images: [], state: null, after: 0 };
+    const q: Waiting = { typed: text, text, paths: [], images: [], state: null, after: 0 };
     AG.queue.push(q);
     ok = await sendSteer(q, false);
   } else {
@@ -385,7 +384,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
     const started = await invoke<Started>("agent_resume", { ...where(o), prompt: images.length || configure ? null : text }, AGENT_SEND_WAIT_MS);
 
     if (configure && pick) {
-      const target = { machineId: started.session.machine_id, agent: started.session.agent, session: started.session.id };
+      const target = where(openOf(started.session));
       await invoke("agent_steer", { ...target, steer: { configure } }, AGENT_SEND_WAIT_MS);
       if (!images.length) await invoke("agent_steer", { ...target, steer: { prompt: { text } } }, AGENT_SEND_WAIT_MS);
       sessionPicks.set(started.session.id, pick);
@@ -413,7 +412,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
 // ----- The outbox: messages waiting on this device for their machine -----
 
 /// A waiting message as `outbox_take` gives it back.
-interface Taken { text: string; images: { name: string; mime: string; data: string }[] }
+interface Taken { text: string; images: SentImage[] }
 
 /// What `outbox-changed` tells every window.
 interface OutboxChanged { machine_id: string; agent: string; session: string; rows: OutboxRow[]; sent: OutboxRow[] }

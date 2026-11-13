@@ -26,7 +26,7 @@ host! {
     pub(crate) mod skill_library;
     pub mod skills;
 
-pub(crate) mod follow;
+    pub(crate) mod follow;
     mod acp;
     mod adapters;
     mod alerts;
@@ -56,7 +56,7 @@ pub(crate) mod follow;
     mod processes;
     pub(crate) mod reach;
     mod repository_recovery;
-mod tool_details;
+    mod tool_details;
     mod requests;
     mod restart;
     mod reviews;
@@ -69,7 +69,7 @@ mod tool_details;
     pub(crate) mod uploads;
     mod usage;
     mod window;
-pub use follow::serve_follow;
+    pub use follow::serve_follow;
     mod work_folder;
     mod worktrees;
 
@@ -97,7 +97,7 @@ pub use follow::serve_follow;
     use kinds::{Adapter, KNOWN, known, route};
     use models::ModelCache;
     use running::{Begin, folder};
-    use session::{Command, NodeMode, Session, Start};
+    use session::{Command, Session, Start};
     use spend::Spend;
     use usage::UsageHub;
 
@@ -149,7 +149,7 @@ pub use follow::serve_follow;
         /// Checkouts temporarily held for local Git recovery.
         recovering: Mutex<std::collections::HashSet<PathBuf>>,
         pub events: crate::events::Hub,
-    pub(crate) event_sources: crate::link::EventSources,
+        pub(crate) event_sources: crate::link::EventSources,
         event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
         event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         /// The agents it can start, replaced when detection finds others.
@@ -230,44 +230,16 @@ pub use follow::serve_follow;
 
     impl Agents {
         pub fn new(kinds: Vec<AgentKind>) -> Self {
-        let events = crate::events::Hub::default();
+            let events = crate::events::Hub::default();
+
             Self {
-            recovering: Mutex::default(),
-            events: events.clone(),
-            event_sources: Default::default(),
-            event_watcher: Mutex::default(),
-            event_forward: OnceLock::new(),
+                events: events.clone(),
                 kinds: watch::Sender::new(Arc::new(kinds)),
-                adapters: adapters::Installs::default(),
-                sessions: Mutex::default(),
-                session_store: AsyncMutex::default(),
                 external: External::locate(),
-                presence: presence::Registry::default(),
                 stores: Stores::locate(),
-                images: Arc::default(),
-                usage: Arc::default(),
-                alerts: Arc::default(),
-                ci: Arc::default(),
                 spend: Arc::new(Spend::locate()),
-                reading_plans: AtomicBool::new(false),
-                moves: moving::Moves::default(),
-                models: ModelCache::default(),
-                settings: harnesses::Settings::default(),
-                instructions: Mutex::default(),
-                latest: harnesses::Latest::default(),
-                folders: OnceLock::new(),
-                family: family::Family::default(),
-            reviews: reviews::Reviews::new(events.clone()),
-                mcp: OnceLock::new(),
-                stopping: Arc::default(),
-                settled: watch::Sender::new(false),
-                reopened: watch::Sender::new(false),
-                sighted: AsyncMutex::default(),
-                on_disk: AsyncMutex::default(),
-                rescanning: AtomicBool::new(false),
-                listed: AsyncMutex::default(),
-                closed: Mutex::default(),
-                holders: holders::Holders::default(),
+                reviews: reviews::Reviews::new(events),
+                ..Self::default()
             }
         }
     }

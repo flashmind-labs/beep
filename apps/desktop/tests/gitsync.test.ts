@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { gitLine, moveTitle, withRow, type GitRow } from "../src/project/gitsync-state.ts";
+import { gitLine, moveTitle, projectBranch, withRow, type GitRow } from "../src/project/gitsync-state.ts";
 
 const row = (over: Partial<GitRow>): GitRow => ({ machine_id: "m1", branch: "main", upstream: "origin/main", ahead: 0, behind: 0, error: null, ...over });
 
@@ -81,4 +81,12 @@ test("interrupted recovery raises a repair warning with the backup instructions"
   const prompt = syncRepairPrompt({project:"acme/widget", machine:"build-box", error, checkouts:[], git:[], sessions:[]});
   assert.match(prompt, /pending.json/);
   assert.match(prompt, /Never apply a stash twice/);
+});
+
+test("the branch is this computer's, else the first one checked out", () => {
+  const rows = [{ machine_id: "m1", branch: null }, { machine_id: "m2", branch: "main" }, { machine_id: "mac", branch: "signup" }];
+  assert.equal(projectBranch(rows, "mac"), "signup");
+  assert.equal(projectBranch(rows, "elsewhere"), "main");
+  assert.equal(projectBranch(undefined, "mac"), null);
+  assert.equal(projectBranch([{ machine_id: "m1", branch: null }], null), null);
 });

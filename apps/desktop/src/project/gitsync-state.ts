@@ -1,3 +1,4 @@
+import { plural } from "../ui/format.ts";
 import type { ProjectPlace, SessionRow } from "./projects-state.ts";
 
 // What a project page says about each checkout's branch and what Pull and
@@ -143,7 +144,7 @@ function oneLine(text: string): string {
 }
 
 /// A code fence longer than any run of backticks in `text`.
-function fence(text: string): string {
+export function fence(text: string): string {
   return "`".repeat(Math.max(2, ...(text.match(/`+/g) ?? []).map(r => r.length)) + 1);
 }
 
@@ -157,7 +158,7 @@ export function movingLabel(move: GitMove): string {
 export function moveTitle(move: GitMove, commits: number): string {
   const verb = move === "pull" ? "Pull" : "Push";
   if (!commits) return verb;
-  return `${verb} ${commits} ${commits === 1 ? "commit" : "commits"}`;
+  return `${verb} ${plural(commits, "commit", "commits")}`;
 }
 
 /// The key a running or failed move is kept under.
@@ -169,4 +170,11 @@ export function moveKey(project: string, machine: string): string {
 export function withRow(rows: readonly GitRow[] | undefined, row: GitRow): GitRow[] {
   const rest = (rows ?? []).filter(r => r.machine_id !== row.machine_id);
   return [...rest, row];
+}
+
+/// The branch checked out: this Mac's checkout's, else the first machine's
+/// with one; null when not read yet or detached everywhere.
+export function projectBranch(rows: readonly Pick<GitRow, "machine_id" | "branch">[] | null | undefined, mac: string | null) {
+  if (!rows) return null;
+  return rows.find(r => r.machine_id === mac && r.branch)?.branch ?? rows.find(r => r.branch)?.branch ?? null;
 }

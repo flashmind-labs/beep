@@ -124,11 +124,12 @@ impl ImportStore for MeshStore {
         let name = self.name_of_repo(import.project, import.url);
         self.ensure(&name, import.url).await?;
         let key = place_key(&name, machine);
+        let old = read::<Place>(&self.mesh, &key);
         let place = Place {
             folder: import.folder.to_owned(),
             // Moving a checkout keeps when it was first imported.
-            imported_ms: read::<Place>(&self.mesh, &key).map_or_else(now_ms, |old| old.imported_ms),
-            fork: read::<Place>(&self.mesh, &key).and_then(|old| old.fork),
+            imported_ms: old.as_ref().map_or_else(now_ms, |old| old.imported_ms),
+            fork: old.and_then(|old| old.fork),
         };
         write(&self.mesh, key, Some(&place)).await?;
         self.sync_project(&name).await;

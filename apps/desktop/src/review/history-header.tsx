@@ -2,7 +2,7 @@ import { useState } from "react";
 import { writeClipboard } from "../ui/parts.ts";
 import { Button } from "../ui/kit.tsx";
 
-export type HistoryTab = "changes" | "details" | "sessions";
+type HistoryTab = "changes" | "details" | "sessions";
 
 export function HistoryHeader({ breadcrumb, title, metadata, copyValue, copyLabel, tab, onTab }: {
   breadcrumb: string; title: string; metadata: string; copyValue: string; copyLabel: string;

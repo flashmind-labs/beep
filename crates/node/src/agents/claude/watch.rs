@@ -167,7 +167,7 @@ impl Tracker {
         let tail = read_from(&mut file, start, len)?;
         self.offset = tail.end.max(self.offset);
         let digest = Digest::read(&tail.text);
-        if let Some(message) = digest.last_message {
+        if let Some(message) = digest.said.last_message {
             self.last_message = message;
         }
         if digest.turns_ended > 0 {

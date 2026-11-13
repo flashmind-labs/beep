@@ -79,7 +79,7 @@ pub enum Nesting {
 }
 
 /// The machine `machine_id` names, or the one `place::choose` picks.
-pub fn choose_machine<'a>(
+fn choose_machine<'a>(
     machines: &'a [Machine],
     machine_id: Option<&str>,
 ) -> Result<&'a Machine, ImportError> {
@@ -253,7 +253,7 @@ pub async fn create_project(
 
 /// Imports `repo` onto each machine, under its folder in `folders` when given, else its projects
 /// folder; those that landed join sync. A machine that fails is listed and the repository stays.
-pub async fn clone_onto(
+async fn clone_onto(
     env: &Env<'_>,
     repo: &RepoRef,
     machines: &[&Machine],

@@ -330,9 +330,4 @@ impl Desk {
 
         Ok(())
     }
-
-    /// Whether the mesh has the project `name`.
-    pub fn has_project(&self, name: &str) -> bool {
-        find_project(&self.mesh, name).is_some()
-    }
 }

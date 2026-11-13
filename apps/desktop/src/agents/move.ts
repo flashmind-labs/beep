@@ -6,6 +6,7 @@ import { refreshTopicSubscriptions, subscribeChanges, topic } from "../ui/mesh-e
 // mesh; the target says how far it is (`move-state.ts` holds the logic).
 
 import { type AgentHost, type AgentRow, AG } from "./agents.ts";
+import { agentKey } from "./conversation-state.ts";
 import { type MoveRecord, type MoveTarget, canMove, going, moveRows, targetNote } from "./move-state.ts";
 import { machineNames, moveStore, nameOf, onMoves, stateOf } from "./move-store.ts";
 import { loadSessions } from "./sessions.ts";
@@ -38,14 +39,11 @@ function probe<T>(ask: Promise<T>, fallback: T): Promise<T> {
 
 const here = (s: AgentRow) => moveStore.getState().records.get(s.id);
 
-/// The session a move view belongs to.
-export const moveKey = (s: AgentRow) => `${s.machine_id}\n${s.agent}\n${s.id}`;
-
 /// Draws the machine menu in the head and the move above the composer.
 export function drawMove() {
   const s = AG.page?.session;
   if (!s) return;
-  const key = moveKey(s);
+  const key = agentKey(s);
   if (menuSession !== key) { menuSession = key; menuRead.cancel(); UI.open = false; UI.loading = false; UI.targets = []; closeOutside(); }
   const eligible = canMove(s) && !s.external && !!windowHooks?.sessionProject?.(s)?.name;
   const mid = going(stateOf(s.id)) && here(s)?.from === s.machine_id;

@@ -155,7 +155,7 @@ pub(crate) async fn probe_tools(scope: ToolScope) -> (Vec<ToolInfo>, Vec<(&'stat
             .ok()
             .or_else(|| locate::fallback(name, home.as_deref()?));
         if let Some(program) = program {
-            let version = match ran(&program, args).await {
+            let version = match ran(&program, args, Scope::Probe).await {
                 // A stub that only says what is missing, like `xcodebuild`
                 // with no Xcode, is not the tool.
                 Some((false, _)) => continue,
@@ -174,14 +174,19 @@ pub(crate) async fn probe_tools(scope: ToolScope) -> (Vec<ToolInfo>, Vec<(&'stat
 
 /// What `program args` printed, stdout then stderr, when it ran in time.
 pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
-    ran(program, args).await.map(|(_, text)| text)
+    ran(program, args, Scope::Probe).await.map(|(_, text)| text)
 }
 
 /// What `program` printed, stdout then stderr, and whether it succeeded;
-/// `None` when it could not run or took too long.
-async fn ran(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<(bool, String)> {
+/// `None` when it could not run or took too long. It gets the credentials
+/// `scope` allows.
+async fn ran(
+    program: impl AsRef<std::ffi::OsStr>,
+    args: &[&str],
+    scope: Scope,
+) -> Option<(bool, String)> {
     let mut command = crate::run::process::probe(program.as_ref());
-    spawn_env::apply(&mut command, Scope::Probe);
+    spawn_env::apply(&mut command, scope);
     beside(&mut command, Path::new(program.as_ref()));
     let run = command
         .args(args)
@@ -239,23 +244,10 @@ async fn login(
     logged_in: fn(&str) -> Option<bool>,
     account: fn(&str) -> Option<String>,
 ) -> Login {
-    let mut command = crate::run::process::probe(program);
     // With the GitHub token, so `gh auth status` sees the one Beep gave.
-    spawn_env::apply(&mut command, Scope::Agent(None));
-    beside(&mut command, program);
-    let run = command
-        .args(args)
-        .stdin(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let (signed_in, text) = match timeout(PROBE_TIMEOUT, run).await {
-        Ok(Ok(out)) => {
-            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&out.stderr));
-            (out.status.success(), text)
-        }
-        _ => (false, String::new()),
-    };
+    let (signed_in, text) = ran(program, args, Scope::Agent(None))
+        .await
+        .unwrap_or_default();
     let signed_in = signed_in && logged_in(&text) != Some(false);
     Login {
         tool: tool.into(),

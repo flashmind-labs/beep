@@ -471,19 +471,14 @@ async fn pull_once(
                     peer.id,
                     started.elapsed()
                 );
-                shared.observe_head(
-                    &peer.id,
-                    Checkout {
-                        commit,
-                        present: has_git,
-                    },
-                    branch.clone(),
-                );
-                let own = shared.head().await?;
-                if own.differs(Checkout {
+                let checkout = Checkout {
                     commit,
                     present: has_git,
-                }) && !shared.copies_git()
+                };
+                shared.observe_head(&peer.id, checkout, branch.clone());
+                let own = shared.head().await?;
+                if own.differs(checkout)
+                    && !shared.copies_git()
                     && !shared.branch_aware(&peer.id)
                     && let (Some(target), Some(remote_branch)) = (commit, branch.as_deref())
                 {
@@ -521,16 +516,7 @@ async fn pull_once(
                         .await?;
                     }
                 }
-                shared
-                    .first_contact(
-                        &peer.id,
-                        Checkout {
-                            commit,
-                            present: has_git,
-                        },
-                        branch,
-                    )
-                    .await?;
+                shared.first_contact(&peer.id, checkout, branch).await?;
                 last = behind;
 
                 if last.is_none() {

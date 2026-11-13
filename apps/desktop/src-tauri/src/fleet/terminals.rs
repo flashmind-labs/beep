@@ -4,7 +4,10 @@
 //! same ones and a crash loses none.
 
 use super::Fleet;
-use crate::error::{DesktopError, Result};
+use crate::{
+    beep::epoch_ms,
+    error::{DesktopError, Result},
+};
 use beep_mesh::{
     Key,
     machine::{
@@ -112,14 +115,6 @@ fn view(fleet: &Fleet, row: &Row, state: TerminalState) -> Terminal {
     }
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| {
-            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-        })
-}
-
 /// What a machine said of its tasks and its terminals; `None` for a list it
 /// was not asked for or could not give.
 #[derive(Default)]
@@ -218,31 +213,30 @@ async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
     Ok(out)
 }
 
+/// The terminals the mesh holds that are on this Mac, or on the others.
+fn rows_on(fleet: &Fleet, mine: bool) -> Vec<Row> {
+    rows(fleet)
+        .into_iter()
+        .filter(|row| (row.record.machine == fleet.id()) == mine)
+        .collect()
+}
+
 /// The terminals on this Mac, as they stand: the node is in this process.
 pub(crate) async fn local(fleet: &Fleet) -> Result<Vec<Terminal>> {
-    let mine: Vec<Row> = rows(fleet)
-        .into_iter()
-        .filter(|row| row.record.machine == fleet.id())
-        .collect();
-    with_states(fleet, mine).await
+    with_states(fleet, rows_on(fleet, true)).await
 }
 
 /// The terminals on the other machines of the mesh, as they stand; asks
 /// every machine.
 pub(crate) async fn remote(fleet: &Fleet) -> Result<Vec<Terminal>> {
-    let theirs: Vec<Row> = rows(fleet)
-        .into_iter()
-        .filter(|row| row.record.machine != fleet.id())
-        .collect();
-    with_states(fleet, theirs).await
+    with_states(fleet, rows_on(fleet, false)).await
 }
 
 /// The terminals of the other machines the mesh holds now, each as `last`
 /// had it, or offline when `last` never saw it.
 pub(crate) fn remote_now(fleet: &Fleet, last: &[Terminal]) -> Vec<Terminal> {
-    rows(fleet)
+    rows_on(fleet, false)
         .into_iter()
-        .filter(|row| row.record.machine != fleet.id())
         .map(|row| {
             last.iter()
                 .find(|seen| seen.id == row.id)
@@ -289,7 +283,7 @@ pub(crate) async fn open(fleet: &Fleet, request: OpenTerminal) -> Result<Termina
             // Tells apart a restarted node's terminal under the same number.
             command: task.command,
             cwd: cwd.unwrap_or_else(|| HOME.to_owned()),
-            started_at: now_ms(),
+            started_at: epoch_ms(SystemTime::now()),
         },
     };
 
@@ -305,14 +299,19 @@ pub(crate) async fn open(fleet: &Fleet, request: OpenTerminal) -> Result<Termina
     Ok(view(fleet, &row, TerminalState::Running {}))
 }
 
+/// A terminal with no lines to show.
+fn bare(terminal: Terminal) -> TerminalOutput {
+    TerminalOutput {
+        terminal,
+        lines: Vec::new(),
+        earlier: false,
+    }
+}
+
 /// How a terminal stands, with the last lines of a view-only one.
 pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
     let row = find(fleet, id).ok_or_else(not_found)?;
-    let offline = |fleet: &Fleet, row: &Row| TerminalOutput {
-        terminal: view(fleet, row, TerminalState::Offline {}),
-        lines: Vec::new(),
-        earlier: false,
-    };
+    let offline = |fleet: &Fleet, row: &Row| bare(view(fleet, row, TerminalState::Offline {}));
     let Some(machine) = fleet.member(&row.record.machine.to_string()) else {
         return Ok(offline(fleet, &row));
     };
@@ -326,11 +325,7 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
             Ok(tasks) => state_of(&row.kept(), &tasks),
             Err(_) => TerminalState::Offline {},
         };
-        return Ok(TerminalOutput {
-            terminal: view(fleet, &row, state),
-            lines: Vec::new(),
-            earlier: false,
-        });
+        return Ok(bare(view(fleet, &row, state)));
     }
 
     let status = Tasks(&client)
@@ -348,11 +343,7 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
             lines,
             earlier,
         },
-        Ok(_) => TerminalOutput {
-            terminal: view(fleet, &row, TerminalState::Gone {}),
-            lines: Vec::new(),
-            earlier: false,
-        },
+        Ok(_) => bare(view(fleet, &row, TerminalState::Gone {})),
         Err(e) => {
             return Err(DesktopError::BadRequest(format!(
                 "{}: {e:#}",

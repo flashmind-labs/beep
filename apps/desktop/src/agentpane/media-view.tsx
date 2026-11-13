@@ -1,13 +1,12 @@
 import { Button, Spinner } from "../ui/kit.tsx";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react";
 import { ModelControls } from "./model-controls.tsx";
 import { fileSize } from "../chat/media.ts";
 import { invoke } from "../ui/tauri.ts";
-import { baseName, resolvePath } from "./media-state.ts";
-import { P, type MediaTab } from "./media.ts";
+import { resolvePath } from "./media-state.ts";
+import { P, saveFile, type MediaTab } from "./media.ts";
 import { readError, readFile } from "./read.ts";
 import { noteTab } from "./media-draw.ts";
-import { savedIn } from "../ui/platform.ts";
 
 export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: string | null; label: string }) {
   if (!tab.path) return null;
@@ -17,39 +16,37 @@ export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: s
   const open = () => { if (machine) void invoke("agent_file_open", { machineId: machine, path, session }).catch(error => note(readError(error))); };
   const save = () => {
     if (!machine) return;
-    void invoke<string>("agent_file_save", { machineId: machine, path, session }).then(to => {
-      note(`Saved to ${savedIn(to)} as ${baseName(to)}`);
-      void invoke("reveal_file", { path: to }).catch(() => {});
-    }).catch(error => note(readError(error)));
+    saveFile("agent_file_save", { machineId: machine, path, session }, note);
   };
   return <><Button data-mopen="1" onClick={open}>{label}</Button><Button data-msave="1" onClick={save}>Save</Button></>;
 }
 
-/// A video tab. Its element is the tab's, so the pane pauses it out of
-/// sight; moved to the other dock, it goes on from where it was.
-export function VideoView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
+/// A video or audio tab. Its element is the tab's, so the pane pauses it out
+/// of sight; moved to the other dock, it goes on from where it was.
+function PlayerView({ tab, machine, video }: { tab: MediaTab; machine: string | null; video: boolean }) {
   const [meta, setMeta] = useState(fileSize(tab.size));
   const [failed, setFailed] = useState(false);
   const player = useCallback((node: HTMLMediaElement | null) => keepPlayer(tab, node), [tab]);
-  return <>{failed ? <div className="agpmsg">This video does not play here. Open it in QuickTime instead.</div> : <div className="agpstage"><video ref={player} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
+  const loaded = (event: SyntheticEvent<HTMLMediaElement>) => {
     const node = event.currentTarget;
-    setMeta(`${duration(node.duration)}${node.videoWidth}×${node.videoHeight} · ${fileSize(tab.size)}`);
+    const size = node instanceof HTMLVideoElement ? `${node.videoWidth}×${node.videoHeight} · ` : "";
+    setMeta(`${duration(node.duration)}${size}${fileSize(tab.size)}`);
     resume(tab, node);
-  }} onError={() => setFailed(true)} onEnded={event => event.currentTarget.load()} /></div>}
-  <div className="agpacts"><span className="meta">{tab.note ?? meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open in QuickTime" /></div></>;
+  };
+  return <>{failed
+    ? <div className="agpmsg">{video ? "This video does not play here. Open it in QuickTime instead." : "This audio does not play here. Open it in another app instead."}</div>
+    : video
+      ? <div className="agpstage"><video ref={player} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={loaded} onError={() => setFailed(true)} onEnded={event => event.currentTarget.load()} /></div>
+      : <div className="agpstage audio"><audio ref={player} controls preload="auto" src={tab.url ?? undefined} onLoadedMetadata={loaded} onError={() => setFailed(true)} /></div>}
+  <div className="agpacts"><span className="meta">{tab.note ?? meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label={video ? "Open in QuickTime" : "Open"} /></div></>;
 }
 
-/// An audio tab, kept playing across docks like a video.
+export function VideoView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
+  return <PlayerView tab={tab} machine={machine} video />;
+}
+
 export function AudioView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
-  const [meta, setMeta] = useState(fileSize(tab.size));
-  const [failed, setFailed] = useState(false);
-  const player = useCallback((node: HTMLMediaElement | null) => keepPlayer(tab, node), [tab]);
-  return <>{failed ? <div className="agpmsg">This audio does not play here. Open it in another app instead.</div> : <div className="agpstage audio"><audio ref={player} controls preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
-    const node = event.currentTarget;
-    setMeta(`${duration(node.duration)}${fileSize(tab.size)}`);
-    resume(tab, node);
-  }} onError={() => setFailed(true)} /></div>}
-  <div className="agpacts"><span className="meta">{tab.note ?? meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open" /></div></>;
+  return <PlayerView tab={tab} machine={machine} video={false} />;
 }
 
 /// Keeps a tab's player, and where it stood when its view went.

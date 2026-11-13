@@ -1,6 +1,6 @@
 //! One snapshot worker per demanded topic, independent of action delivery.
 
-use super::{Events, Fleet, Snapshots, Update, controller_topic, invalidate};
+use super::{Events, Fleet, Snapshots, Update, commands::retrying, controller_topic, invalidate};
 use crate::error::{DesktopError, Result};
 use beep_proto::node::{
     events::{self, Topic},
@@ -13,52 +13,29 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
-use tokio::time::{sleep, timeout};
+use tokio::time::timeout;
 use uuid::Uuid;
 
 pub(super) struct SubscriptionWorker {
-    app: AppHandle,
-    fleet: Arc<Fleet>,
-    machine: EndpointId,
-    topic: Topic,
+    pub(super) app: AppHandle,
+    pub(super) fleet: Arc<Fleet>,
+    pub(super) machine: EndpointId,
+    pub(super) topic: Topic,
 }
 
 impl SubscriptionWorker {
-    pub(super) fn new(
-        app: AppHandle,
-        fleet: Arc<Fleet>,
-        machine: EndpointId,
-        topic: Topic,
-    ) -> Self {
-        Self {
-            app,
-            fleet,
-            machine,
-            topic,
-        }
-    }
-
     pub(super) async fn run(self) {
-        let mut pause = Duration::from_secs(1);
-
-        loop {
-            let started = Instant::now();
-            if let Err(error) = self.connect().await {
+        retrying(
+            || self.connect(),
+            |error, elapsed_ms| {
                 log::warn!(
-                    "subscription stream ended machine={} topic={} elapsed_ms={}: {error}",
+                    "subscription stream ended machine={} topic={} elapsed_ms={elapsed_ms}: {error}",
                     self.machine,
-                    self.topic,
-                    started.elapsed().as_millis()
+                    self.topic
                 );
-            }
-
-            if started.elapsed() >= Duration::from_secs(10) {
-                pause = Duration::from_secs(1);
-            }
-
-            sleep(pause).await;
-            pause = (pause * 2).min(Duration::from_secs(30));
-        }
+            },
+        )
+        .await;
     }
 
     async fn connect(&self) -> Result<()> {

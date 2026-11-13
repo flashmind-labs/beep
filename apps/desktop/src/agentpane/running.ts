@@ -6,6 +6,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type { RunningProcess } from "./running-state.ts";
 import { paneSession } from "./media.ts";
 import { draw } from "./media-draw.ts";
+import { viewKey } from "./view-memory.ts";
 import { shellSize, shownDocks } from "./media-layout.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -25,7 +26,7 @@ export interface BackgroundTasks { session: string; tasks: readonly AgentTask[];
 export const backgroundTasks = createStore<BackgroundTasks>(() => ({ session: "", tasks: [], stopping: new Set(), stop() {} }));
 
 /// The key of session `s` in `BackgroundTasks.session`.
-export const sessionKey = (s: { machine_id: string; id: string } | null | undefined) => s ? `${s.machine_id}\n${s.id}` : "";
+export const sessionKey = (s: { machine_id: string; id: string } | null | undefined) => s ? viewKey(s.machine_id, s.id) : "";
 
 /// The background commands of the session the pane shows.
 export function paneTasks(state = backgroundTasks.getState()) {

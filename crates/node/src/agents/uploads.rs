@@ -105,7 +105,6 @@ fn remove_in(cache: &Path, owner: &str) -> Result<()> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn write_in(
     cache: &Path,
     limit: u64,

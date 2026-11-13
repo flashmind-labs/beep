@@ -73,25 +73,6 @@ pub(super) fn alive(p: &Process) -> bool {
     read(p.pid, 0, 1).is_some_and(|now| now.birth == p.birth)
 }
 
-pub(super) fn signal(p: &Process, kill: bool) -> io::Result<()> {
-    if !alive(p) {
-        return Ok(());
-    }
-
-    let pid = libc::pid_t::try_from(p.pid).map_err(io::Error::other)?;
-    // SAFETY: the positive pid and signal are plain integers. Birth was checked
-    // above so a stale observation is not deliberately sent to a reused pid.
-    if unsafe { libc::kill(pid, if kill { libc::SIGKILL } else { libc::SIGTERM }) } != 0 {
-        let e = io::Error::last_os_error();
-
-        if e.raw_os_error() != Some(libc::ESRCH) {
-            return Err(e);
-        }
-    }
-
-    Ok(())
-}
-
 pub(super) async fn ports(processes: &[Process]) -> HashMap<u32, Vec<u16>> {
     let pids: Vec<_> = processes.iter().map(|p| p.pid).collect();
     tokio::task::spawn_blocking(move || {

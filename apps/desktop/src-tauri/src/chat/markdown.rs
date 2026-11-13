@@ -70,12 +70,14 @@ const MATH_ATTRIBUTES: &[&str] = &[
 // The only properties pulldown-latex puts in a style attribute.
 const STYLE_PROPERTIES: &[&str] = &["color", "border-color", "margin-left", "height"];
 
+/// What markdown from anyone parses with; the user's own also reads math.
+const PLAIN_OPTIONS: Options = Options::ENABLE_TABLES
+    .union(Options::ENABLE_STRIKETHROUGH)
+    .union(Options::ENABLE_TASKLISTS)
+    .union(Options::ENABLE_GFM);
+
 pub fn to_html(markdown: &str) -> String {
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_GFM
-        | Options::ENABLE_MATH;
+    let options = PLAIN_OPTIONS.union(Options::ENABLE_MATH);
     let source = dollar_delimiters(markdown);
     let events = Parser::new_ext(&source, options)
         .into_offset_iter()
@@ -124,11 +126,7 @@ pub fn to_html(markdown: &str) -> String {
 /// Raw HTML in it shows as text and images are left out, so nothing in it
 /// runs or loads.
 pub fn untrusted_html(markdown: &str) -> String {
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_GFM;
-    let events = Parser::new_ext(markdown, options).map(|event| match event {
+    let events = Parser::new_ext(markdown, PLAIN_OPTIONS).map(|event| match event {
         Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
         other => other,
     });
@@ -147,11 +145,7 @@ pub fn untrusted_html(markdown: &str) -> String {
 /// "Pasted text · 8 lines", numbered by `data-paste` for the page to open.
 pub fn user_html(markdown: &str) -> String {
     let (source, pastes) = pasted_blocks(&markdown.replace(PASTE_MARK, ""));
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_GFM;
-    let events = Parser::new_ext(&source, options).map(|event| match event {
+    let events = Parser::new_ext(&source, PLAIN_OPTIONS).map(|event| match event {
         Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
         Event::SoftBreak => Event::HardBreak,
         other => other,
@@ -223,6 +217,16 @@ fn pasted_blocks(text: &str) -> (String, Vec<String>) {
     (out, pastes)
 }
 
+/// The start of a link to `dest_url`.
+fn link(dest_url: CowStr<'_>) -> Event<'_> {
+    Event::Start(Tag::Link {
+        link_type: LinkType::Autolink,
+        dest_url,
+        title: CowStr::Borrowed(""),
+        id: CowStr::Borrowed(""),
+    })
+}
+
 /// Turns bare `http(s)://` addresses in text into links, as GitHub does,
 /// and inline code or a plain code block that is one address into a link
 /// around that code. Other text inside links, code blocks and HTML stays as
@@ -254,23 +258,13 @@ fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
             Event::Text(text)
                 if in_plain_code && find_url(text.trim()) == Some(0..text.trim().len()) =>
             {
-                out.push(Event::Start(Tag::Link {
-                    link_type: LinkType::Autolink,
-                    dest_url: text.trim().to_owned().into(),
-                    title: CowStr::Borrowed(""),
-                    id: CowStr::Borrowed(""),
-                }));
+                out.push(link(text.trim().to_owned().into()));
                 out.push(event);
                 out.push(Event::End(TagEnd::Link));
                 continue;
             }
             Event::Code(code) if in_link == 0 && find_url(code) == Some(0..code.len()) => {
-                out.push(Event::Start(Tag::Link {
-                    link_type: LinkType::Autolink,
-                    dest_url: code.clone(),
-                    title: CowStr::Borrowed(""),
-                    id: CowStr::Borrowed(""),
-                }));
+                out.push(link(code.clone()));
                 out.push(event);
                 out.push(Event::End(TagEnd::Link));
                 continue;
@@ -288,12 +282,7 @@ fn autolink<'a>(events: impl Iterator<Item = Event<'a>>) -> Vec<Event<'a>> {
                     if found.start > 0 {
                         out.push(Event::Text(rest[..found.start].to_owned().into()));
                     }
-                    out.push(Event::Start(Tag::Link {
-                        link_type: LinkType::Autolink,
-                        dest_url: url.to_owned().into(),
-                        title: CowStr::Borrowed(""),
-                        id: CowStr::Borrowed(""),
-                    }));
+                    out.push(link(url.to_owned().into()));
                     out.push(Event::Text(url.to_owned().into()));
                     out.push(Event::End(TagEnd::Link));
                     rest = &rest[found.end..];

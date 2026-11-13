@@ -77,7 +77,7 @@ export async function quickImport(p: OpenRepo) {
 function importWithSettings(p: OpenRepo) {
   const machine = importMachine();
   openImportProject({
-    machines: (state.home?.machines || []).filter(m => m.can_host !== false),
+    machines: state.home?.machines || [],
     macId: state.mac?.id || null,
     repo: importRepo(p),
     machine: machine?.id ?? null,

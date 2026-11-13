@@ -17,7 +17,6 @@ import { initPalette, openPalette } from "./palette.ts";
 import { pane } from "../bar/pane.ts";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import type { HomeView } from "./home-state.ts";
 import { startView, windowTitle, type CenterTarget } from "../project/projectwindow.ts";
 import { newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
@@ -126,11 +125,6 @@ document.addEventListener("keydown", e => {
   }
 });
 
-/// The machines online in `home`, as a key that changes when one connects.
-export function onlineMachines(home: HomeView | null) {
-  return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
-}
-
 /// The project on screen, its page or a session of it, and the machine
 /// its start input opens on; null elsewhere.
 function projectHere() {
@@ -154,14 +148,6 @@ function newAgentHere() {
 }
 pane.connect({
   openSettings,
-  openInstructions() {
-    closeSettings();
-    go("instructions");
-  },
-  openProviders() {
-    closeSettings();
-    go("providers");
-  },
   openShortcuts() {
     closeSettings();
     toggleShortcuts();
@@ -169,10 +155,6 @@ pane.connect({
   openReport() {
     closeSettings();
     openReport(document.body, debugWithAgent);
-  },
-  settingsAway(view) {
-    closeSettings();
-    if (view) go("pane", view);
   },
   embedView,
   newAgent: newAgentHere,

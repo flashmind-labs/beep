@@ -25,7 +25,7 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     fmt::Write,
-    sync::{Mutex, PoisonError},
+    sync::Mutex,
     time::Duration,
 };
 use tokio::{
@@ -34,6 +34,8 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+/// Why a call to an attached device fails once its view is gone.
+const VIEW_STOPPED: &str = "the device's view stopped";
 /// How long a machine has to list its devices.
 const LIST_LIMIT: Duration = Duration::from_secs(15);
 /// How long a machine has to start or stop a device.
@@ -332,10 +334,7 @@ async fn list(offers: &Offers, mesh: &Mesh) -> String {
         .code_hosts()
         .into_iter()
         .filter(|status| status.online || status.device.id == me)
-        .map(|status| Machine {
-            id: status.device.id,
-            name: command_name(&status.device.name),
-        })
+        .map(Machine::from)
         .collect();
     let listed = futures::future::join_all(online.iter().map(|machine| async move {
         (machine, devices_on(offers, mesh, machine).await)
@@ -393,16 +392,12 @@ async fn find(offers: &Offers, mesh: &Mesh, at: &Target) -> Result<(Machine, Dev
 }
 
 fn machine(mesh: &Mesh, name: &str) -> Result<Machine> {
-    let all = machines::machines(mesh);
-    let wanted = command_name(name);
-    let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
-    let Some(found) = all.iter().find(|m| m.name == wanted || m.id.to_string() == name) else {
+    let Some(found) = machines::find_or_id(mesh, name) else {
+        let all = machines::machines(mesh);
+        let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
         bail!("No machine called {name}. Machines: {}.", names.join(", "));
     };
-    Ok(Machine {
-        id: found.id,
-        name: found.name.clone(),
-    })
+    Ok(found)
 }
 
 /// The device `named` by id, else by name; a name several devices share
@@ -537,7 +532,7 @@ impl Screens {
         let machine = machine(mesh, &at.machine)?;
         let key = (machine.id, at.device.trim().to_owned());
 
-        if let Some(viewer) = self.lock().get(&key).filter(|v| !v.asks.is_closed()) {
+        if let Some(viewer) = crate::lock(&self.open).get(&key).filter(|v| !v.asks.is_closed()) {
             return Ok(viewer.clone());
         }
 
@@ -555,7 +550,7 @@ impl Screens {
             })
             .await?;
         let viewer = Viewer::start(link, IDLE);
-        let mut open = self.lock();
+        let mut open = crate::lock(&self.open);
         open.retain(|_, v| !v.asks.is_closed());
 
         if open.len() >= MAX_ATTACHED
@@ -570,12 +565,9 @@ impl Screens {
 
     /// Detaches from the device `named` on `machine`.
     fn close(&self, machine: EndpointId, named: &str) {
-        self.lock().remove(&(machine, named.trim().to_owned()));
+        crate::lock(&self.open).remove(&(machine, named.trim().to_owned()));
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<(EndpointId, String), Viewer>> {
-        self.open.lock().unwrap_or_else(PoisonError::into_inner)
-    }
 }
 
 impl Viewer {
@@ -595,12 +587,12 @@ impl Viewer {
         self.asks
             .send(Ask::Shot(reply))
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))?;
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))?;
 
         match timeout(SHOT_LIMIT, answer).await {
             Ok(Ok(Ok(frame))) => Ok(frame),
             Ok(Ok(Err(reason))) => bail!(reason),
-            Ok(Err(_)) => bail!("the device's view stopped"),
+            Ok(Err(_)) => bail!(VIEW_STOPPED),
             Err(_) => bail!("the device showed no screen in time"),
         }
     }
@@ -610,10 +602,10 @@ impl Viewer {
         self.asks
             .send(Ask::Input(inputs, sent))
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))?;
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))?;
         answer
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))
     }
 }
 
@@ -660,7 +652,7 @@ async fn view(mut link: Link, mut asks: mpsc::Receiver<Ask>, idle: Duration) {
                 }
                 Ok(Some(Reply::Ended { reason } | Reply::Failed { reason })) => break reason,
                 Ok(Some(_)) => {}
-                Ok(None) => break "the device's view stopped".to_owned(),
+                Ok(None) => break VIEW_STOPPED.to_owned(),
                 Err(e) => break format!("{e:#}"),
             },
         }

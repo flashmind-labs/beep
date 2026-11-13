@@ -3,41 +3,11 @@ use super::*;
 use std::os::unix::fs::symlink;
 use std::{env, fs, process};
 
-fn machine(id: &str, folder: &str) -> MachineSync {
-    MachineSync {
-        git_only: false,
-        machine_id: id.into(),
-        machine_name: id.into(),
-        folder: folder.into(),
-        status: SyncStatus::InSync {},
-        files: 0,
-        bytes: 0,
-        pending: 0,
-        conflicts: Vec::new(),
-        rescan_secs: None,
-        hint: None,
-        error: None,
-    }
-}
-
-fn sync(machines: Vec<MachineSync>) -> ProjectSync {
-    ProjectSync {
-        project: "acme/widget".into(),
-        pinned: false,
-        machines,
-    }
-}
-
-fn import(id: &str, project: &str, folder: &str) -> ImportedProject {
-    ImportedProject {
+fn place(id: &str, project: &str, folder: &str) -> Place {
+    Place {
         project: project.into(),
-        url: String::new(),
         machine_id: id.into(),
-        machine_name: id.into(),
         folder: folder.into(),
-        cloned: false,
-        imported_at: UNIX_EPOCH,
-        display_name: None,
     }
 }
 
@@ -52,25 +22,20 @@ fn a_path_is_under_a_folder_only_at_a_name_boundary() {
 #[test]
 fn a_session_folder_belongs_to_the_innermost_project_on_its_machine() {
     let imported = [
-        import("box", "acme/all", "/srv"),
-        import("box", "acme/widget", "/srv/widget"),
-        import("mac", "acme/other", "/srv/widget/sub"),
+        place("box", "acme/all", "/srv"),
+        place("box", "acme/widget", "/srv/widget"),
+        place("mac", "acme/other", "/srv/widget/sub"),
     ];
     assert_eq!(
-        holder("box", "/srv/widget/sub", &imported, &[]),
+        holder("box", "/srv/widget/sub", &imported),
         Some(("acme/widget", "/srv/widget"))
     );
-    assert_eq!(holder("box", "/opt/else", &imported, &[]), None);
+    assert_eq!(holder("box", "/opt/else", &imported), None);
 }
 
 /// What `find_copy` finds when this Mac has only the folders `here`.
-fn found(
-    dir: &str,
-    imported: &[ImportedProject],
-    synced: &[ProjectSync],
-    here: &[&str],
-) -> Result<LocalCopy, Miss> {
-    find_copy("box", dir, imported, synced, |folder| {
+fn found(dir: &str, places: &[Place], here: &[&str]) -> Result<LocalCopy, Miss> {
+    find_copy("box", dir, places, |folder| {
         here.iter().any(|there| folder == Path::new(there))
     })
 }
@@ -85,11 +50,11 @@ fn copy(remote: &str, local: &str) -> LocalCopy {
 #[test]
 fn a_project_imported_on_both_reads_here_whatever_the_case_or_slash() {
     let imported = [
-        import("box", "Acme/Widget", "/srv/widget/"),
-        import("mac", "acme/widget", "/mac/code/widget"),
+        place("box", "Acme/Widget", "/srv/widget/"),
+        place("mac", "acme/widget", "/mac/code/widget"),
     ];
     assert_eq!(
-        found("/srv/widget", &imported, &[], &["/mac/code/widget"]),
+        found("/srv/widget", &imported, &["/mac/code/widget"]),
         Ok(copy("/srv/widget/", "/mac/code/widget"))
     );
 }
@@ -100,23 +65,23 @@ fn git_checkouts_read_from_the_remote_machine_even_at_the_same_commit() {
     fs::create_dir(dir.path().join(".git")).unwrap();
     let local = dir.path().to_str().unwrap();
     let imported = [
-        import("box", "acme/widget", "/srv/widget"),
-        import("mac", "acme/widget", local),
+        place("box", "acme/widget", "/srv/widget"),
+        place("mac", "acme/widget", local),
     ];
     assert!(matches!(
-        found("/srv/widget", &imported, &[], &[local]),
+        found("/srv/widget", &imported, &[local]),
         Err(Miss::NotHere { .. })
     ));
 }
 
 #[test]
 fn a_project_synced_by_beep_only_reads_here() {
-    let synced = [sync(vec![
-        machine("box", "/srv/widget"),
-        machine("mac", "/mac/widget"),
-    ])];
+    let synced = [
+        place("box", "acme/widget", "/srv/widget"),
+        place("mac", "acme/widget", "/mac/widget"),
+    ];
     assert_eq!(
-        found("/srv/widget", &[], &synced, &["/mac/widget"]),
+        found("/srv/widget", &synced, &["/mac/widget"]),
         Ok(copy("/srv/widget", "/mac/widget"))
     );
 }
@@ -124,11 +89,11 @@ fn a_project_synced_by_beep_only_reads_here() {
 #[test]
 fn another_project_of_the_same_folder_name_is_not_the_copy() {
     let imported = [
-        import("box", "acme/widget", "/srv/widget"),
-        import("mac", "other/widget", "/mac/widget"),
+        place("box", "acme/widget", "/srv/widget"),
+        place("mac", "other/widget", "/mac/widget"),
     ];
     assert_eq!(
-        found("/srv/widget", &imported, &[], &["/mac/widget"]),
+        found("/srv/widget", &imported, &["/mac/widget"]),
         Err(Miss::NotHere {
             project: "acme/widget".into(),
             tried: Vec::new(),
@@ -139,13 +104,13 @@ fn another_project_of_the_same_folder_name_is_not_the_copy() {
 #[test]
 fn a_session_in_a_subfolder_or_worktree_reads_under_the_projects_folder() {
     let imported = [
-        import("box", "acme/widget", "/srv/widget"),
-        import("mac", "acme/widget", "/mac/widget"),
+        place("box", "acme/widget", "/srv/widget"),
+        place("mac", "acme/widget", "/mac/widget"),
     ];
 
     for dir in ["/srv/widget/assets", "/srv/widget/.worktrees/fix/assets"] {
         assert_eq!(
-            found(dir, &imported, &[], &["/mac/widget"]),
+            found(dir, &imported, &["/mac/widget"]),
             Ok(copy("/srv/widget", "/mac/widget")),
             "{dir}"
         );
@@ -160,11 +125,11 @@ fn a_session_in_a_subfolder_or_worktree_reads_under_the_projects_folder() {
 #[test]
 fn a_folder_not_here_is_a_miss_that_names_where_it_looked() {
     let imported = [
-        import("box", "acme/widget", "/srv/widget"),
-        import("mac", "acme/widget", "/mac/widget"),
+        place("box", "acme/widget", "/srv/widget"),
+        place("mac", "acme/widget", "/mac/widget"),
     ];
     assert_eq!(
-        found("/srv/widget", &imported, &[], &[]),
+        found("/srv/widget", &imported, &[]),
         Err(Miss::NotHere {
             project: "acme/widget".into(),
             tried: vec!["/mac/widget".into()],
@@ -174,9 +139,9 @@ fn a_folder_not_here_is_a_miss_that_names_where_it_looked() {
 
 #[test]
 fn a_machine_that_lost_its_imports_holds_no_project() {
-    let imported = [import("mac", "acme/widget", "/mac/widget")];
+    let imported = [place("mac", "acme/widget", "/mac/widget")];
     assert_eq!(
-        found("/srv/widget", &imported, &[], &["/mac/widget"]),
+        found("/srv/widget", &imported, &["/mac/widget"]),
         Err(Miss::NoProject)
     );
 }

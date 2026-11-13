@@ -20,14 +20,8 @@ pub struct FlshView {
     /// `price`, `throughput` or `latency`.
     sort: Option<String>,
     allow_fallbacks: Option<bool>,
-    autocompact: Option<AutoCompactView>,
+    autocompact: Option<FlshAutoCompact>,
     models: Vec<ModelRuleView>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub struct AutoCompactView {
-    enabled: bool,
-    tokens: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -36,24 +30,6 @@ pub struct ModelRuleView {
     model: String,
     enabled: bool,
     tokens: Option<u32>,
-}
-
-impl From<FlshAutoCompact> for AutoCompactView {
-    fn from(rule: FlshAutoCompact) -> Self {
-        Self {
-            enabled: rule.enabled,
-            tokens: rule.tokens,
-        }
-    }
-}
-
-impl From<AutoCompactView> for FlshAutoCompact {
-    fn from(rule: AutoCompactView) -> Self {
-        Self {
-            enabled: rule.enabled,
-            tokens: rule.tokens,
-        }
-    }
 }
 
 impl From<FlshSettings> for FlshView {
@@ -67,7 +43,7 @@ impl From<FlshSettings> for FlshView {
                 .collect(),
             sort: settings.sort.map(|sort| <&str>::from(sort).to_owned()),
             allow_fallbacks: settings.allow_fallbacks,
-            autocompact: settings.autocompact.map(Into::into),
+            autocompact: settings.autocompact,
             models: settings
                 .models
                 .into_iter()
@@ -126,7 +102,7 @@ impl TryFrom<FlshView> for FlshSettings {
             quantizations,
             sort,
             allow_fallbacks: view.allow_fallbacks,
-            autocompact: view.autocompact.map(Into::into),
+            autocompact: view.autocompact,
             models,
         };
         settings.check().map_err(|e| bad(e.to_string()))?;

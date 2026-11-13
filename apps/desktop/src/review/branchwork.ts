@@ -4,7 +4,7 @@
 import type { GitItemRow } from "../center/openitems-state.ts";
 
 /// A checkout of the repository found on a machine (CheckoutRow).
-export interface CheckoutRow {
+interface CheckoutRow {
   machine_id: string;
   machine_name: string;
   folder: string;
@@ -12,7 +12,7 @@ export interface CheckoutRow {
 }
 
 /// A branch with work, as an import preview lists it (WorkBranchRow).
-export interface WorkBranchRow {
+interface WorkBranchRow {
   name: string;
   pr: number | null;
   pr_title: string;
@@ -53,7 +53,7 @@ interface Preview {
 }
 
 /// One repo's open items outside the projects.
-export interface OutsideRow<T> {
+interface OutsideRow<T> {
   repo: string;
   host: string;
   last: number;

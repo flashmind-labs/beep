@@ -37,7 +37,7 @@ use std::{
     collections::BTreeSet,
     fmt::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError, Weak},
+    sync::{Arc, Mutex, MutexGuard, Weak},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -96,18 +96,15 @@ struct Inner {
 
 impl Inner {
     fn offers(&self) -> MutexGuard<'_, Offers> {
-        self.offers.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::lock(&self.offers)
     }
 
     fn follower(&self) -> MutexGuard<'_, Option<AbortOnDropHandle<()>>> {
-        self.follower.lock().unwrap_or_else(PoisonError::into_inner)
+        crate::lock(&self.follower)
     }
 
     fn active(&self) -> Option<Active> {
-        self.active
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        crate::lock(&self.active).clone()
     }
 
     /// What `beep-node status` shows. Checks each project's folder on disk.
@@ -199,64 +196,48 @@ impl Inner {
         trace.phase("serving");
         let offers = self.offers().clone();
         // Diagnostics are available to a desktop or this process, even when not lent.
-        match protocol {
-            SessionProtocol::LogQuery => {
-                let mut tx = tx;
-
-                if let Who::Node { .. } = who {
-                    return tx
-                        .send(&Opened::Refused {
-                            reason: "only a desktop reads another machine's log".to_owned(),
-                        })
-                        .await;
-                }
-
-                tx.send(&Opened::Ready {}).await?;
-                return offers.log.serve_query(tx, rx).await;
-            }
+        let desktop_only = match protocol {
+            SessionProtocol::LogQuery => Some("only a desktop reads another machine's log"),
             SessionProtocol::Metrics | SessionProtocol::MetricsQuery => {
-                let mut tx = tx;
-
-                if let Who::Node { .. } = who {
-                    return tx
-                        .send(&Opened::Refused {
-                            reason: "only a desktop reads another machine's metrics".to_owned(),
-                        })
-                        .await;
-                }
-
-                tx.send(&Opened::Ready {}).await?;
-                let path = self.dir.join("metrics.log");
-
-                return match protocol {
-                    SessionProtocol::MetricsQuery => {
-                        super::metrics::serve_query(tx, rx, path).await
-                    }
-                    _ => super::metrics::serve(tx, rx, path).await,
-                };
+                Some("only a desktop reads another machine's metrics")
             }
-            SessionProtocol::Report => {
-                let mut tx = tx;
+            SessionProtocol::Report => Some("only a desktop reads a problem report"),
+            _ => None,
+        };
 
-                if let Who::Node { .. } = who {
-                    let reason = "only a desktop reads a problem report".to_owned();
-                    return tx.send(&Opened::Refused { reason }).await;
+        if let Some(reason) = desktop_only {
+            let mut tx = tx;
+
+            if let Who::Node { .. } = who {
+                return tx
+                    .send(&Opened::Refused {
+                        reason: reason.to_owned(),
+                    })
+                    .await;
+            }
+
+            tx.send(&Opened::Ready {}).await?;
+
+            return match protocol {
+                SessionProtocol::LogQuery => offers.log.serve_query(tx, rx).await,
+                SessionProtocol::MetricsQuery => {
+                    super::metrics::serve_query(tx, rx, self.dir.join("metrics.log")).await
                 }
-
-                tx.send(&Opened::Ready {}).await?;
-                return match self.local_status().await {
+                SessionProtocol::Report => match self.local_status().await {
                     Ok(status) => {
-                        serve_report(tx, rx, status, offers.log, self.dir.join("metrics.log")).await
+                        serve_report(tx, rx, status, offers.log, self.dir.join("metrics.log"))
+                            .await
                     }
                     Err(e) => {
                         let reason = format!("this machine's status could not be read: {e:#}");
                         tx.send(&report::Reply::Failed { reason }).await?;
                         tx.finish().await
                     }
-                };
-            }
-            _ => {}
+                },
+                _ => super::metrics::serve(tx, rx, self.dir.join("metrics.log")).await,
+            };
         }
+
         // The person at this machine is not held to the setting; a device of the mesh is.
         if who.id() != self.endpoint.id()
             && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
@@ -286,7 +267,7 @@ pub(crate) struct Reach(Arc<Mutex<Weak<Inner>>>);
 impl Reach {
     /// The node, while it runs.
     pub(crate) fn peers(&self) -> Option<Peers> {
-        let inner = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let inner = crate::lock(&self.0);
         inner.upgrade().map(|inner| Peers { inner })
     }
 }
@@ -304,7 +285,7 @@ impl Peers {
             active: Mutex::new(None),
             follower: Mutex::new(None),
         });
-        *reach.0.lock().unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(&inner);
+        *crate::lock(&reach.0) = Arc::downgrade(&inner);
         Self { inner }
     }
 
@@ -345,21 +326,12 @@ impl Peers {
             transfers.syncs().unfollow();
         }
 
-        self.inner
-            .active
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        crate::lock(&self.inner.active).take();
     }
 
     /// One of the active protocols, without a handle on the mesh itself.
     fn protocols<P>(&self, take: impl FnOnce(&Active) -> P) -> Option<P> {
-        self.inner
-            .active
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .map(take)
+        crate::lock(&self.inner.active).as_ref().map(take)
     }
 
     /// The `beep-peer/2` handler.
@@ -555,12 +527,7 @@ impl Peers {
         self.inner.active()
     }
 
-    /// Every device's share of a problem report from Unix second `since`.
-    async fn report(&self, since: i64) -> Vec<Share> {
-        collect(self.report_targets(), since).await
-    }
-
-    /// What `report` asks: this node through its own `report/1`, the others
+    /// What a problem report asks: this node through its own `report/1`, the others
     /// over their live links. This node alone before it joined a mesh, and
     /// when it is not a desktop: the others refuse a node.
     pub(crate) fn report_targets(&self) -> Vec<Target> {
@@ -615,11 +582,7 @@ impl Peers {
     pub fn install(&self, mesh: Mesh) {
         let (peer, join) = mesh.protocols();
         peer.on_stream(self.stream_handler());
-        *self
-            .inner
-            .active
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(Active { mesh, peer, join });
+        *crate::lock(&self.inner.active) = Some(Active { mesh, peer, join });
         self.follow();
     }
 
@@ -966,7 +929,7 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
         return Ok(());
     } else if let Some(since) = request.strip_prefix(REPORT) {
         let since: i64 = since.trim().parse().context("reading the report's start")?;
-        let shares = peers.report(since).await;
+        let shares = collect(peers.report_targets(), since).await;
         write.write_all(&rmp_serde::to_vec(&shares)?).await?;
         write.shutdown().await?;
         return Ok(());
@@ -991,10 +954,14 @@ const MAX_REQUEST: u64 = 16 * 1024;
 /// ticket goes over the node's own socket, which only its user can open.
 #[cfg(feature = "cli")]
 pub async fn join(dir: &Path, ticket: &str) -> Result<()> {
-    let lines = ask(dir, &format!("{JOIN}{}", ticket.trim())).await?;
+    expect_reply(ask(dir, &format!("{JOIN}{}", ticket.trim())).await?, "joined")
+}
 
+/// `Ok` when the node's first line is `done`, else its failure.
+#[cfg(feature = "cli")]
+fn expect_reply(lines: Vec<String>, done: &str) -> Result<()> {
     match lines.first().map(String::as_str) {
-        Some("joined") => Ok(()),
+        Some(line) if line == done => Ok(()),
         Some(failed) => bail!("{}", failed.strip_prefix("failed ").unwrap_or(failed)),
         None => bail!("the node closed without answering"),
     }
@@ -1003,13 +970,7 @@ pub async fn join(dir: &Path, ticket: &str) -> Result<()> {
 /// Has the node running from `dir` leave its mesh and delete what it kept.
 #[cfg(feature = "cli")]
 pub async fn leave(dir: &Path) -> Result<()> {
-    let lines = ask(dir, LEAVE).await?;
-
-    match lines.first().map(String::as_str) {
-        Some("left") => Ok(()),
-        Some(failed) => bail!("{}", failed.strip_prefix("failed ").unwrap_or(failed)),
-        None => bail!("the node closed without answering"),
-    }
+    expect_reply(ask(dir, LEAVE).await?, "left")
 }
 
 /// Whether a node is running from `dir` and takes mesh commands.

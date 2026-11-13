@@ -19,8 +19,21 @@ const MAX_SNAPSHOT: usize = 1024 * 1024;
 const MAX_SERIES: usize = 2048;
 const MAX_REPLY: usize = 256 * 1024;
 
-pub(super) async fn serve(mut tx: LinkTx, mut rx: LinkRx, path: PathBuf) -> Result<()> {
-    let Some(request) = rx.recv::<Request>().await? else {
+pub(super) async fn serve(tx: LinkTx, rx: LinkRx, path: PathBuf) -> Result<()> {
+    serve_with(tx, rx, path, summarize).await
+}
+
+pub(super) async fn serve_query(tx: LinkTx, rx: LinkRx, path: PathBuf) -> Result<()> {
+    serve_with(tx, rx, path, summarize_query).await
+}
+
+async fn serve_with<T: serde::de::DeserializeOwned + Send + 'static>(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    path: PathBuf,
+    summarize: fn(&Path, &T) -> Result<String>,
+) -> Result<()> {
+    let Some(request) = rx.recv::<T>().await? else {
         return Ok(());
     };
     let reply = match tokio::task::spawn_blocking(move || summarize(&path, &request)).await? {
@@ -33,18 +46,9 @@ pub(super) async fn serve(mut tx: LinkTx, mut rx: LinkRx, path: PathBuf) -> Resu
     tx.finish().await
 }
 
-pub(super) async fn serve_query(mut tx: LinkTx, mut rx: LinkRx, path: PathBuf) -> Result<()> {
-    let Some(query) = rx.recv::<Query>().await? else {
-        return Ok(());
-    };
-    let reply = match tokio::task::spawn_blocking(move || summarize_query(&path, &query)).await? {
-        Ok(text) => Reply::Summary { text },
-        Err(e) => Reply::Failed {
-            reason: format!("{e:#}"),
-        },
-    };
-    tx.send(&reply).await?;
-    tx.finish().await
+/// Whether `name` is a day's rotated file, not the live `metrics.log`.
+pub(super) fn is_rotated(name: &str) -> bool {
+    name.starts_with("metrics.") && name.ends_with(".log") && name != "metrics.log"
 }
 
 struct Selection {
@@ -172,7 +176,7 @@ fn summarize_selected(
         let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with("metrics.") && name.ends_with(".log") && name != "metrics.log" {
+        if is_rotated(&name) {
             paths.push(entry.path());
         }
     }

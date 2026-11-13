@@ -63,18 +63,9 @@ pub(crate) fn recent(files: &[PathBuf], lines: u32) -> Result<String> {
     };
     let mut printer = Printer::new(&options, cutoff(RECENT), Vec::new());
 
-    if files.is_empty() {
-        read(&options, &mut printer)?;
-    } else {
-        for file in files {
-            match read_file(file, &mut printer) {
-                Err(e)
-                    if e.downcast_ref::<io::Error>()
-                        .is_some_and(|e| e.kind() == ErrorKind::NotFound) => {}
-                result => result?,
-            }
-        }
+    read_files(files, &options, None, &mut printer)?;
 
+    if !files.is_empty() {
         printer.caught_up()?;
     }
 
@@ -165,18 +156,7 @@ fn query(files: &[PathBuf], query: &Query) -> Result<String> {
         out: &mut sink,
     };
 
-    if files.is_empty() {
-        read_from(&options, &mut printer, Some(start.timestamp()))?;
-    } else {
-        for file in files {
-            match read_file(file, &mut printer) {
-                Err(e)
-                    if e.downcast_ref::<io::Error>()
-                        .is_some_and(|e| e.kind() == ErrorKind::NotFound) => {}
-                result => result?,
-            }
-        }
-    }
+    read_files(files, &options, Some(start.timestamp()), &mut printer)?;
 
     let keep = sink.tail.lines.len().saturating_sub(query.offset as usize);
     sink.tail.lines.truncate(keep);
@@ -308,6 +288,30 @@ fn window_from(files: &[PathBuf], cutoff: Option<i64>, max_bytes: usize) -> Resu
         text: String::from_utf8_lossy(&printer.out).into_owned(),
         timed: printer.filter.timed,
     })
+}
+
+/// Reads `files` oldest first, those not there yet or rolled away mid-read
+/// holding nothing, or the service's log when there are none.
+fn read_files(
+    files: &[PathBuf],
+    options: &LogOptions,
+    start: Option<i64>,
+    printer: &mut Printer<impl Write>,
+) -> Result<()> {
+    if files.is_empty() {
+        return read_from(options, printer, start);
+    }
+
+    for file in files {
+        match read_file(file, printer) {
+            Err(e)
+                if e.downcast_ref::<io::Error>()
+                    .is_some_and(|e| e.kind() == ErrorKind::NotFound) => {}
+            result => result?,
+        }
+    }
+
+    Ok(())
 }
 
 fn read_file(path: &Path, printer: &mut Printer<impl Write>) -> Result<()> {

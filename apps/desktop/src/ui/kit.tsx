@@ -14,6 +14,11 @@ export function SectionHead({ title, count = 0, children }: { title: ReactNode; 
   return <div className="cc-sec"><h4>{title}{!!count && <span className="n">{count}</span>}</h4>{children}</div>;
 }
 
+/// Grey bars while a list loads, one per width in percent.
+export function SkeletonRows({ widths }: { widths: readonly number[] }) {
+  return <div className="dskel-rows">{widths.map(width => <div className="dskel" key={width} style={{ width: `${width}%` }} />)}</div>;
+}
+
 /// One row of a section: `lead` (a harness or icon), a title over one muted
 /// line, then `right`. A click anywhere opens it.
 export function LineRow({ lead, title, sub, right, onOpen, onContext, dim = false, rowTitle, textTitle, dataKey }: {

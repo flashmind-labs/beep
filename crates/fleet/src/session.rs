@@ -203,8 +203,7 @@ pub struct Session {
     lists: Cache<String, LabeledProjectLists>,
     runs: Cache<String, HostedRuns>,
     run_reads: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
-    /// Runs opened, by project and run id.
-    /// By project, host and run id.
+    /// Runs opened, by project, host and run id.
     run_details: Cache<(String, Option<String>, u64), ProjectRunDetail>,
     spend: Cache<(), SpendReport>,
     /// The freshest plan of each agent any read heard, which `spend` gives: a machine's stream

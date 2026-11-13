@@ -1,4 +1,4 @@
-import { Button, CopyButton, Spinner } from "../ui/kit.tsx";
+import { Button, CopyButton, SkeletonRows, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { HarnessIcon } from "../ui/icons.tsx";
@@ -18,7 +18,7 @@ function timeLeft(expires: number, now: number) { const s = Math.floor((expires 
 export function AgentAccountsView({ state, ago, now, actions }: { state: AgentAccountsState; ago: (ms: number) => string; now: number; actions: Actions }) {
   const data = state.data;
   if (data === null) return <div className="dmuted">Could not load your agent accounts.</div>;
-  if (!data) return <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /><div className="dskel" style={{ width: "56%" }} /></div>;
+  if (!data) return <SkeletonRows widths={[78, 56]} />;
   const claude = data.claude, claudeMachines = data.machines.filter(m => m.claude), key = data.codex_key, codexMachines = data.machines.filter(m => m.codex);
   return <><div className="dlead">How your coding agents sign in on your machines.</div><div className="dbox">
     <div className="dline"><HarnessIcon agent="claude" /><span className="dstack"><b className="dtitle">Claude Code</b>{!state.claudeFlow && (claude && !claude.unreadable ? <span className="dsub">signed in {ago(claude.created_at)} · <code>…{claude.last4}</code></span> : claudeMachines.length > 0 && <span className="dsub">signs in on each machine</span>)}</span>

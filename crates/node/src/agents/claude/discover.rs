@@ -105,6 +105,23 @@ pub(super) struct Snapshot {
     pub(super) now: Option<SystemTime>,
 }
 
+impl Snapshot {
+    /// The machine now: its `processes`, the process files in `store`, and
+    /// the sessions this node runs.
+    pub(super) fn of(
+        store: &Store,
+        processes: Vec<Process>,
+        owned: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            processes,
+            pid_files: store.pid_files(),
+            owned,
+            now: None,
+        }
+    }
+}
+
 impl Store {
     /// The store on this machine, when Claude Code has one.
     pub(crate) fn locate() -> Option<Self> {
@@ -136,7 +153,7 @@ impl Store {
     pub(super) fn transcripts(&self) -> io::Result<Vec<Transcript>> {
         let mut found = Vec::new();
 
-        for project in fs::read_dir(self.root.join("projects"))? {
+        for project in fs::read_dir(self.projects())? {
             let project = project?.path();
             let Ok(files) = fs::read_dir(&project) else {
                 continue;
@@ -147,29 +164,9 @@ impl Store {
                     break;
                 }
 
-                let path = file.path();
-
-                if path.extension().is_none_or(|ext| ext != "jsonl") {
-                    continue;
+                if let Some(transcript) = transcript_with(&file.path(), || file.metadata()) {
+                    found.push(transcript);
                 }
-
-                let Some(id) = path
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .filter(|stem| is_session_id(stem))
-                    .map(str::to_owned)
-                else {
-                    continue;
-                };
-                let Ok(meta) = file.metadata() else {
-                    continue;
-                };
-                found.push(Transcript {
-                    id,
-                    path,
-                    modified: meta.modified().unwrap_or(UNIX_EPOCH),
-                    created: meta.created().ok(),
-                });
             }
         }
 
@@ -195,7 +192,7 @@ impl Store {
         }
 
         let name = format!("{id}.jsonl");
-        fs::read_dir(self.root.join("projects"))
+        fs::read_dir(self.projects())
             .ok()?
             .flatten()
             .map(|project| project.path().join(&name))
@@ -262,10 +259,21 @@ pub(super) fn list(
     }
 
     let all = store.transcripts()?;
-    let newest_in_folder = newest_by_folder(&all);
+    describe_picked(store, snapshot, &all, all.iter().take(limit))
+}
+
+/// The sessions of `picked` among `all`, each told whether it is its
+/// folder's newest.
+fn describe_picked<'a>(
+    store: &Store,
+    snapshot: &Snapshot,
+    all: &[Transcript],
+    picked: impl Iterator<Item = &'a Transcript>,
+) -> io::Result<Vec<ExternalSession>> {
+    let newest_in_folder = newest_by_folder(all);
     let mut sessions = Vec::new();
 
-    for transcript in all.iter().take(limit) {
+    for transcript in picked {
         let newest = newest_in_folder
             .get(folder_of(transcript))
             .is_some_and(|id| *id == transcript.id);
@@ -312,6 +320,14 @@ fn newest_in(folder: &Path) -> io::Result<Option<(String, SystemTime)>> {
 
 /// The top-level transcript at `path`, when it is one.
 fn transcript_at(path: &Path) -> Option<Transcript> {
+    transcript_with(path, || fs::metadata(path))
+}
+
+/// `transcript_at`, with the file's metadata read by `metadata`.
+fn transcript_with(
+    path: &Path,
+    metadata: impl FnOnce() -> io::Result<fs::Metadata>,
+) -> Option<Transcript> {
     if path.extension().is_none_or(|ext| ext != "jsonl") {
         return None;
     }
@@ -321,7 +337,7 @@ fn transcript_at(path: &Path) -> Option<Transcript> {
         .and_then(|stem| stem.to_str())
         .filter(|stem| is_session_id(stem))?
         .to_owned();
-    let meta = fs::metadata(path).ok()?;
+    let meta = metadata().ok()?;
     Some(Transcript {
         id,
         path: path.to_owned(),
@@ -337,17 +353,12 @@ pub(super) fn list_ids(
     ids: &HashSet<String>,
 ) -> io::Result<Vec<ExternalSession>> {
     let all = store.transcripts()?;
-    let newest_in_folder = newest_by_folder(&all);
-    let mut sessions = Vec::new();
-
-    for transcript in all.iter().filter(|t| ids.contains(&t.id)) {
-        let newest = newest_in_folder
-            .get(folder_of(transcript))
-            .is_some_and(|id| *id == transcript.id);
-        sessions.push(describe(store, transcript, newest, snapshot)?);
-    }
-
-    Ok(sessions)
+    describe_picked(
+        store,
+        snapshot,
+        &all,
+        all.iter().filter(|t| ids.contains(&t.id)),
+    )
 }
 
 /// Every session, with the folder it ran in. Sessions are filed by that
@@ -371,7 +382,7 @@ pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
 
     for transcripts in folders.into_iter().take(MAX_FOLDERS) {
         let Some(cwd) = transcripts.iter().take(HEADS_PER_FOLDER).find_map(|t| {
-            let read = || transcript::head(&t.path).map(|head| head.cwd);
+            let read = || transcript::head(&t.path).map(|head| head.said.cwd);
             store.memos.cwds.read(&t.path, read).ok()?
         }) else {
             continue;
@@ -448,7 +459,7 @@ fn describe(
         .read_since(&transcript.path, |before| summary(transcript, before))?;
     // Its last entry, not the file's time: lines written between turns
     // touch the file too.
-    let active = gist.last_at.map_or(transcript.modified, |at| {
+    let active = gist.said.last_at.map_or(transcript.modified, |at| {
         UNIX_EPOCH + Duration::from_secs(at)
     });
     let found = presence(
@@ -464,17 +475,18 @@ fn describe(
         id: transcript.id.clone(),
         agent: "claude".to_owned(),
         place: gist
+            .said
             .cwd
             .as_deref()
             .and_then(|cwd| of_folder(Path::new(cwd))),
-        title: gist.title().map(str::to_owned),
+        title: gist.said.title(),
         started_at,
         last_activity: unix(active),
         presence: found.presence,
         pid: found.pid,
-        last_prompt: gist.prompt().unwrap_or("").to_owned(),
-        last_message: gist.last_message.unwrap_or_default(),
-        cwd: gist.cwd.unwrap_or_default(),
+        last_prompt: gist.said.prompt().unwrap_or("").to_owned(),
+        last_message: gist.said.last_message.unwrap_or_default(),
+        cwd: gist.said.cwd.unwrap_or_default(),
         taken_over: snapshot.owned.get(&transcript.id).cloned(),
     })
 }

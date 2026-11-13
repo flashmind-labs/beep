@@ -44,11 +44,19 @@ impl Answer {
     /// How the answer reads to the person sending the report.
     pub fn label(&self) -> String {
         match self {
-            Answer::Answered => "answered".to_owned(),
-            Answer::OlderNode => "older node".to_owned(),
-            Answer::Offline { .. } => "offline".to_owned(),
-            Answer::Silent => "did not answer".to_owned(),
             Answer::Failed { reason } => format!("failed: {reason}"),
+            other => other.word().to_owned(),
+        }
+    }
+
+    /// The answer without any reason text.
+    pub(crate) fn word(&self) -> &'static str {
+        match self {
+            Answer::Answered => "answered",
+            Answer::OlderNode => "older node",
+            Answer::Silent => "did not answer",
+            Answer::Offline { .. } => "offline",
+            Answer::Failed { .. } => "failed",
         }
     }
 }

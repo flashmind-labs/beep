@@ -5,27 +5,17 @@ import { type DiffFile, type ReviewComment, diffRows, lineKey } from "./diff-sta
 
 // ----- What the diff shows -----
 
-/// What the diff on screen is, so the reviewer reads the same one with git.
-export type ReviewTarget =
-  | { kind: "uncommitted" }
-  | { kind: "branch"; base: string; mergeBase: string };
-
-/// The target of `view`: the uncommitted changes against HEAD, or everything
-/// since the merge base with the base branch (the working tree included).
-export function reviewTarget(view: { base: string; merge_base: string }, uncommitted: boolean): ReviewTarget {
-  return uncommitted || !view.merge_base ? { kind: "uncommitted" } : { kind: "branch", base: view.base, mergeBase: view.merge_base };
-}
-
-/// The base the node measures the changes against: `HEAD` for the
-/// uncommitted ones, else the merge base itself.
-export function reviewBase(t: ReviewTarget) {
-  return t.kind === "uncommitted" ? "HEAD" : t.mergeBase;
+/// The base the node measures the changes of `view` against, so the reviewer
+/// reads the same diff with git: `HEAD` for the uncommitted changes, else the
+/// merge base with the base branch (the working tree included).
+export function reviewBase(view: { merge_base: string }, uncommitted: boolean) {
+  return uncommitted || !view.merge_base ? "HEAD" : view.merge_base;
 }
 
 // ----- The review -----
 
 /// One finding as the reviewer submitted it (CodeFinding).
-export interface CodeFinding {
+interface CodeFinding {
   file: string;
   line: number | null;
   /// `high`, `medium` or `low`.
@@ -61,8 +51,8 @@ export function runState(run: Pick<ReviewRun, "review" | "error">): "running" | 
 }
 
 /// The most findings one review gives comments, as the node takes at most.
-export const MAX_FINDINGS = 30;
-export const MAX_BODY = 600;
+const MAX_FINDINGS = 30;
+const MAX_BODY = 600;
 
 /// One finding, as a comment is made of it.
 export interface Finding {
@@ -77,13 +67,13 @@ const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 /// Text from the agent as a comment holds it: no control characters, cut
 /// at the longest a comment goes. It is shown as text and never read as markup
 /// or as an instruction.
-export function cleanBody(s: string) {
+function cleanBody(s: string) {
   return s.replace(CONTROL, "").trim().slice(0, MAX_BODY * 2);
 }
 
 /// A path as the diff names it: relative, without `./`, `a/` or `b/`, or
 /// the checkout's own root in front.
-export function cleanPath(path: string, root: string) {
+function cleanPath(path: string, root: string) {
   let p = path.trim().replace(/\\/g, "/");
   const r = root.replace(/\\/g, "/").replace(/\/+$/, "");
   if (r && p.startsWith(`${r}/`)) p = p.slice(r.length + 1);
@@ -114,7 +104,7 @@ export function findingsOf(review: SubmittedReview, root = ""): Finding[] {
 }
 
 /// The verdict as a few words: "approves", "asks for changes", "comments".
-export function verdictWords(verdict: string) {
+function verdictWords(verdict: string) {
   if (verdict === "approve") return "approves";
   if (verdict === "changes") return "asks for changes";
   return "comments";

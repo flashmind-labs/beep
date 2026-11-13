@@ -2,7 +2,7 @@
 //! temporary reviewer it starts as a child (`agents::reviews`), and the
 //! reviewer hands its findings in. Both run on the caller's own node.
 
-use super::reply::{fail, ok};
+use super::reply::{done, fail, ok, parse};
 use crate::agents::{
     family::{WAIT_LIMIT, WAIT_POLL},
     reviews::MAX_FINDINGS,
@@ -10,15 +10,10 @@ use crate::agents::{
 use crate::link::Offers;
 use beep_proto::node::{
     agent::{ReviewOrder, ReviewRun, SubmittedReview},
-    tools::{Reply, Request, Tool},
+    tools::{Reply, Request},
 };
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
-
-/// Whether `tool` is one this module answers.
-pub(crate) fn handles(tool: Tool) -> bool {
-    matches!(tool, Tool::Review | Tool::SubmitReview)
-}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,22 +57,23 @@ impl From<ReviewRun> for ReviewView {
     }
 }
 
-/// Answers `review` or `submit_review` for the session that called it.
-pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    match request.tool {
-        Tool::Review => match serde_json::from_str::<ReviewArgs>(&request.args) {
-            Ok(args) => review(offers, &request.session, args).await,
-            Err(e) => fail(format!("The arguments do not fit: {e}")),
-        },
-        Tool::SubmitReview => match serde_json::from_str::<SubmittedReview>(&request.args) {
-            Ok(review) => submit(offers, &request.session, review),
-            Err(e) => fail(format!("The arguments do not fit: {e}")),
-        },
-        other => fail(format!("{other} is not a review tool.")),
+/// Answers `review` for the session that called it.
+pub(super) async fn review(offers: &Offers, request: &Request) -> Reply {
+    match parse::<ReviewArgs>(&request.args) {
+        Ok(args) => run_review(offers, &request.session, args).await,
+        Err(e) => fail(e),
     }
 }
 
-async fn review(offers: &Offers, session: &str, args: ReviewArgs) -> Reply {
+/// Answers `submit_review` for the session that called it.
+pub(super) fn submit(offers: &Offers, request: &Request) -> Reply {
+    match parse::<SubmittedReview>(&request.args) {
+        Ok(review) => submit_review(offers, &request.session, review),
+        Err(e) => fail(e),
+    }
+}
+
+async fn run_review(offers: &Offers, session: &str, args: ReviewArgs) -> Reply {
     let agents = &offers.agents;
     let Some((caller, who)) = agents.caller(session) else {
         return fail("This session is not one this node runs.");
@@ -124,10 +120,7 @@ pub(super) fn standing(run: ReviewRun) -> Reply {
 
 fn answer(view: &ReviewView) -> Reply {
     match serde_json::to_string(view) {
-        Ok(text) => Reply::Done {
-            text,
-            failed: view.state == "failed",
-        },
+        Ok(text) => done(text, view.state == "failed"),
         Err(e) => fail(format!("Could not write the answer: {e}")),
     }
 }
@@ -159,7 +152,7 @@ async fn waited(offers: &Offers, who: &crate::agents::family::Who, run: ReviewRu
     run.into()
 }
 
-fn submit(offers: &Offers, session: &str, review: SubmittedReview) -> Reply {
+fn submit_review(offers: &Offers, session: &str, review: SubmittedReview) -> Reply {
     if review.summary.trim().is_empty() {
         return fail("Give a `summary`.");
     }

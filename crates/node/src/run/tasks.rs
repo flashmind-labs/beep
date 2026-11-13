@@ -141,7 +141,7 @@ impl Default for Inner {
 /// Where a run of the node starts numbering tasks: from the clock, so a
 /// restarted node does not hand out an id the model still holds for a task
 /// that died with the old one.
-fn first_id() -> u32 {
+pub(super) fn first_id() -> u32 {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());

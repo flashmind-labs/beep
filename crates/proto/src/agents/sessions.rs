@@ -1,7 +1,8 @@
 //! Coding-agent sessions on the user's machines.
 
 use crate::{
-    AgentCheckoutPlan, AgentEffort, ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
+    ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
+    node::agent::{CheckoutPlan, Effort},
 };
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -249,7 +250,7 @@ wire_enum! {
         1 Cancel {}
         2 Close {}
         3 PromptImages { text: String, images: Vec<Upload> }
-        4 Configure { model: Option<ModelId>, effort: Option<AgentEffort> }
+        4 Configure { model: Option<ModelId>, effort: Option<Effort> }
         5 Steer { text: String, images: Vec<Upload> }
         6 DropSteers {}
         7 SetMode { mode: String }
@@ -417,8 +418,8 @@ pub struct StartAgentSession {
     pub prompt: String,
     pub needs: Vec<MachineCapability>,
     pub model: Option<String>,
-    pub effort: Option<AgentEffort>,
-    pub checkout: Option<AgentCheckoutPlan>,
+    pub effort: Option<Effort>,
+    pub checkout: Option<CheckoutPlan>,
 }
 
 /// The machine `StartAgentSession` without a `machine_id` would start on

@@ -63,7 +63,7 @@ export interface DiffState {
 }
 
 /// An editor's text and selection as it unmounted, for where it mounts next.
-export interface EditorSnapshot { text: string; start: number; end: number; focused: boolean }
+interface EditorSnapshot { text: string; start: number; end: number; focused: boolean }
 
 /// Where each shown file sits in the laid out list `files` (diff-keys.ts).
 interface ShownLayout {
@@ -73,7 +73,7 @@ interface ShownLayout {
 }
 
 /// A drawn chunk of rows: whether its rows show, and how to change that.
-export interface ChunkEntry { live: boolean; set: (state: { live: boolean; height: number }) => void }
+interface ChunkEntry { live: boolean; set: (state: { live: boolean; height: number }) => void }
 
 export class Viewer {
   readonly src: DiffSource;

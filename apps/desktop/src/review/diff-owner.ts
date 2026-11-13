@@ -1,19 +1,23 @@
 import type { ReactNode } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
-import type { DiffOwner, DiffSlot } from "./diff.ts";
+import type { DiffOwner } from "./diff.ts";
 
 let next = 0;
 /// The diffs' portals. Their own scope keeps the bar window from loading the command center's root.
-const scope = createDocumentScope<`${number}:${DiffSlot}`>();
+const scope = createDocumentScope<`${number}:viewer`>();
 
-/// Each retained diff owns its slots; dropping it removes its portals together.
+/// Each retained diff owns its portal; dropping it removes the portal.
 export function windowDiffOwner(): DiffOwner {
-  const id = ++next, slots = new Set<DiffSlot>();
+  const slot = `${++next}:viewer` as const;
+  let drawn = false;
   return {
-    set(slot: DiffSlot, content: ReactNode) {
-      slots.add(slot);
-      scope.set([{ slot: `${id}:${slot}`, host: null, content }]);
+    set(content: ReactNode) {
+      drawn = true;
+      scope.set([{ slot, host: null, content }]);
     },
-    dispose() { scope.remove([...slots].map(slot => `${id}:${slot}` as const)); slots.clear(); },
+    dispose() {
+      if (drawn) scope.remove([slot]);
+      drawn = false;
+    },
   };
 }

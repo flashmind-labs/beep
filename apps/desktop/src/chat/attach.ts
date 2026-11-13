@@ -2,6 +2,7 @@ import { agentMessage } from "../agents/session-frame.tsx";
 import { showFieldDrop } from "../agents/composer-ui.tsx";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
+import { bytesOf } from "../agentpane/media-state.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { bar, S } from "../bar/core.ts";
 import { createElement } from "react";
@@ -41,7 +42,7 @@ export async function picPreview(file: File) {
 
   const data = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
   const name = (file.name || "image").replace(/\.[^.]*$/, "");
-  return new File([Uint8Array.from(atob(data), c => c.charCodeAt(0))], `${name}.jpg`, { type: "image/jpeg" });
+  return new File([bytesOf(data)], `${name}.jpg`, { type: "image/jpeg" });
 }
 
 /// Whether the agent view's message field is on screen, to take what is

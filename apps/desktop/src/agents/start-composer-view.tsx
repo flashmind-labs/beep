@@ -6,7 +6,7 @@ import { FieldMenu } from "./composer-ui.tsx";
 export interface StartComposerNodes { input: HTMLTextAreaElement | null; project: HTMLButtonElement | null; machine: HTMLButtonElement | null; folder: HTMLButtonElement | null; harness: HTMLButtonElement | null; pick: HTMLDivElement | null; att: HTMLDivElement | null; box: HTMLDivElement | null; grow: () => void }
 export interface ChoiceContents { project: ReactNode; machine: ReactNode; folder: ReactNode }
 /// Which pill's menu or picker is open.
-export type ComposerOpen = "pick" | "project" | "host" | "folder" | "base" | null;
+type ComposerOpen = "pick" | "project" | "host" | "folder" | "base" | null;
 
 export interface StartComposerState {
   centered: boolean; busy: boolean; welcome: string;

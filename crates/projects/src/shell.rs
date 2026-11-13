@@ -48,19 +48,13 @@ pub struct Clip {
 impl Clip {
     pub fn push(&mut self, text: &str) {
         let room = HEAD.saturating_sub(self.head.len());
-        let mut cut = text.len().min(room);
-
-        while !text.is_char_boundary(cut) {
-            cut -= 1;
-        }
+        let cut = text.floor_char_boundary(room);
 
         self.head.push_str(&text[..cut]);
         self.tail.push_str(&text[cut..]);
-        let mut start = self.tail.len().saturating_sub(TAIL);
-
-        while !self.tail.is_char_boundary(start) {
-            start += 1;
-        }
+        let start = self
+            .tail
+            .ceil_char_boundary(self.tail.len().saturating_sub(TAIL));
 
         self.tail.drain(..start);
     }
@@ -69,6 +63,13 @@ impl Clip {
         self.head.push_str(&self.tail);
         self.head
     }
+}
+
+/// The last `max` bytes of `text`, trimmed first and cut on a character boundary.
+pub(crate) fn tail_bytes(text: &str, max: usize) -> &str {
+    let text = text.trim();
+
+    &text[text.ceil_char_boundary(text.len().saturating_sub(max))..]
 }
 
 /// `text` as one shell word.

@@ -168,7 +168,7 @@ impl Desk {
     ) -> Result<(LabeledProjectLists, bool)> {
         let (store, machines, alone) = self.host_reads(project, local_only).await?;
         let (prs, issues) = tokio::join!(
-            beep_projects::issues::list_open_prs(&store, &machines),
+            list_open_prs(&store, &machines),
             list_open(&store, &machines),
         );
         let (mut pull_requests, mut pr_labels) = (Vec::new(), Vec::new());

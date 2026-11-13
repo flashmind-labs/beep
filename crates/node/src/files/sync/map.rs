@@ -7,7 +7,7 @@ use super::{
     rules::{is_own, is_syncthings},
 };
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, collections::BTreeMap, fmt::Write as _};
+use std::{cmp::Ordering, collections::BTreeMap};
 
 /// One node's copy of one project's list, made fresh with its state, so a
 /// node that lost its state never reuses counters it gave out before.
@@ -135,14 +135,7 @@ pub(super) fn conflict_path(path: &str, hash: &[u8; 32]) -> Option<String> {
 }
 
 fn hash_tag(hash: &[u8; 32]) -> String {
-    let mut tag = String::with_capacity(8);
-
-    for byte in &hash[..4] {
-        // Writing to a string cannot fail.
-        let _ = write!(tag, "{byte:02x}");
-    }
-
-    tag
+    hex::encode(&hash[..4])
 }
 
 /// The longest path a peer may name.
@@ -390,13 +383,13 @@ impl Map {
         entry.version
     }
 
-    /// The entries changed after `seq`, oldest change first, at most
-    /// `limit`, and the sequence number of the last one given.
     /// The sequence number of the last change still in the list.
     pub(super) fn last_change(&self) -> u64 {
         self.by_seq.last_key_value().map_or(0, |(&at, _)| at)
     }
 
+    /// The entries changed after `seq`, oldest change first, at most
+    /// `limit`, and the sequence number of the last one given.
     pub(super) fn since(&self, seq: u64, limit: usize) -> Changes {
         let mut changes = Changes {
             entries: Vec::new(),
