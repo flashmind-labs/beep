@@ -246,3 +246,10 @@ body:not(.mobile) .dcoder .q .dups { gap: 1px; margin: 4px -12px -12px; border-t
 body:not(.mobile) .dcoder .q .dups .dbtn { min-height: 32px; padding: 0 12px; border-radius: 0; background: var(--ink); font-size: 12px }
 body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: var(--elev) }
 body:not(.mobile) .dcoder .q .dups .dbtn.pri { box-shadow: none }
+
+/* The sidebar's backdrop: dots of the accent that fade out from the window's top corner. */
+body:not(.mobile) .cwin::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .4;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) 1px, transparent 1.6px), radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) .6px, transparent 1.1px);
+  background-size: 8px 8px, 8px 8px; background-position: 0 0, 4px 4px;
+  -webkit-mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%); mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%) }
+html[data-material="vibrant"] body:not(.mobile) .cwin::before { opacity: .3 }
