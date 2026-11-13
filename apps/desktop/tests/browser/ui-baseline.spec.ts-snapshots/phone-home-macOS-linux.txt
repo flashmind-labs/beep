@@ -114,6 +114,11 @@ body.cbody.mb-home.mobile
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-lanes
               div.bd-lane

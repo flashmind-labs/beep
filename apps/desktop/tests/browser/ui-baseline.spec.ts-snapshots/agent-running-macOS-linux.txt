@@ -88,6 +88,11 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-rows
               div.bd-lane.hd
@@ -214,9 +219,9 @@ body.cbody
                         span.cc-ag.codex.mark
                           svg [aria-hidden="true" viewBox="0 0 24 24"]
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                    button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)"] "Stop"
+                    button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)" type="button"] "Stop"
                       span.dstopico
-                    button#agsend.dbtn [aria-label="Send"]
+                    button#agsend.dbtn [aria-label="Send" type="button"]
                       svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
                     div [data-agent-menu-slot="true"] style(display)
                   div#agpickm
@@ -358,7 +363,7 @@ body.cbody
                       div.agfbar
                         input.agffind [aria-label="Filter files" placeholder="Filter files" spellcheck="false" value] value=""
                         label.agfign "Show ignored"
-                          input [type="checkbox"] value="on" unchecked
+                          input.dcheck [type="checkbox"] value="on" unchecked
                         button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
                       div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
                         div.agtrows style(height)

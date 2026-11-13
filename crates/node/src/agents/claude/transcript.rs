@@ -107,6 +107,7 @@ pub(super) struct Spawn {
     pub(super) description: Option<String>,
     /// Its `subagent_type`: `Explore`, or a custom agent's name.
     pub(super) agent: Option<String>,
+    pub(super) model: Option<String>,
     /// The id the subagent's file is named by, once its result said it.
     pub(super) agent_id: Option<String>,
     pub(super) failed: bool,
@@ -379,6 +380,7 @@ impl Digest {
                                 entry,
                                 description: text_field(input, "description"),
                                 agent: text_field(input, "subagent_type"),
+                                model: text_field(input, "model"),
                                 ..Spawn::default()
                             },
                         );

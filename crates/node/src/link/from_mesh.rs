@@ -12,6 +12,7 @@ use crate::{
     link::watchdog::{self, Step},
 };
 use beep_mesh::{Key, Mesh};
+use beep_proto::watched;
 use beep_proto::{
     FlshSettings,
     node::{
@@ -65,7 +66,7 @@ impl Membership {
     }
 
     pub(crate) fn get(&self) -> Option<Mesh> {
-        self.mesh.borrow().clone()
+        watched::read_sent(&self.mesh, Clone::clone)
     }
 }
 

@@ -45,8 +45,12 @@ import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { followToolUpdates } from "../machines/machines.ts";
 import { dialogOpen } from "../ui/parts.ts";
+import { startupDrawn, startupStage } from "../ui/perf.ts";
+import { dropKeptFrame, followHomeFrame } from "./home-frame.ts";
 
+startupStage("scripts run");
 followSkin();
+followHomeFrame();
 guardClicks();
 followToolUpdates();
 initConversationSwitcher({
@@ -188,6 +192,7 @@ async function readOpening(): Promise<Opening> {
 
 /// The first view.
 function start({ project, pending }: Opening) {
+  dropKeptFrame();
   document.title = windowTitle(project);
   const first = startView(project);
   if (!first) return showPending(pending, "home");
@@ -205,6 +210,7 @@ async function showCached() {
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
     invoke<MacControl>("mac_control").catch(() => null),
   ]);
+  startupStage("kept views read");
   const home = seed(state, cached);
   state.mac ??= mac;
   keepPagesFile(cached?.pages);
@@ -216,6 +222,7 @@ async function showCached() {
   reloadGroup("projects");
   reloadGroup("pinned");
   reloadGroup("machines");
+  startupStage("home drawn");
 }
 
 // Home's reads start with the window; the first view waits only for the kept views.
@@ -225,4 +232,8 @@ void pairing().then(async () => {
   const [, open] = await Promise.all([showCached(), opening]);
   if (!onPhone()) void firstRun();
   start(open);
+  startupDrawn();
+}).catch(e => {
+  dropKeptFrame();
+  throw e;
 });

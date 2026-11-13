@@ -102,3 +102,25 @@ test("newer sessions keep the visible session anchored", async ({ page }) => {
   await expect(anchor).toBeVisible();
   await expect.poll(() => anchor.evaluate((el, top) => Math.abs(el.getBoundingClientRect().top - top), before)).toBeLessThan(2);
 });
+
+
+test("closed sessions appear in project history as soon as the machine reports ended", async ({ page }) => {
+  const session = { machine_id: "build-box", machine_name: "build-box", id: "closing-session", agent: "codex", title: "Recently closed", cwd: "/srv/project", status: "idle", doing: null, started_at: 1, last_activity: Date.now(), external: false, question: null };
+  await openDesktop(page, false, { project_sessions: [session], agent_sessions: [session] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.locator(".pj-strip button").filter({ hasText: "running" }).click();
+  const row = page.locator('#sec-project-agents .cc-line').filter({ hasText: session.title });
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Close session", exact: true }).click();
+  await expect(row).toHaveCount(0);
+
+  await page.evaluate(ended => {
+    window.__navigation.respond("project_sessions", [ended]);
+    window.__navigation.respond("agent_sessions", [ended]);
+    window.__navigation.emit("sessions-changed", ended.id);
+    window.__navigation.emit("agent-title-changed", {});
+  }, { ...session, status: "ended" });
+  await page.locator('.pj-list .pj-li[title="Sessions"]').click();
+  await expect(page.locator('.pj-det .pv-row').filter({ hasText: session.title })).toBeVisible();
+  await expect(page.locator('.pj-list .pj-li[title="Sessions"]')).toContainText("1 past");
+});

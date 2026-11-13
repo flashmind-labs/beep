@@ -25,6 +25,7 @@ use beep_mesh::{
     PeerStream, SessionFn, StreamHandler,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
+use beep_proto::watched;
 use beep_report::{Share, Target, collect};
 use iroh::{
     Endpoint,
@@ -183,10 +184,11 @@ impl Inner {
         // A protocol still on its way is waited for; the others are not held up.
         let mut later = self.later.subscribe();
 
-        if later
-            .wait_for(|later| !later.contains::<str>(protocol.as_ref()))
-            .await
-            .is_err()
+        if watched::wait_for(&mut later, |later| {
+            !later.contains::<str>(protocol.as_ref())
+        })
+        .await
+        .is_err()
         {
             bail!("the node stopped");
         }
@@ -615,6 +617,11 @@ impl Peers {
             self.inner.dir.clone(),
             offers.skills.clone(),
         );
+        let libraries = crate::agents::skill_library::follow(
+            active.mesh.clone(),
+            self.inner.dir.clone(),
+            offers.skills.clone(),
+        );
         let moves = crate::agents::follow_moves(
             active.mesh,
             self.inner.endpoint.clone(),
@@ -623,7 +630,7 @@ impl Peers {
             offers.transfers.get().map(|transfers| transfers.syncs()),
         );
         *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
-            tokio::join!(follow, moves, runs, skills);
+            tokio::join!(follow, moves, runs, skills, libraries);
         })));
     }
 
@@ -772,7 +779,9 @@ async fn status_with(
                 tx.send(&Report::Offers(offers.names())).await?;
             }
             Ok(()) = probed.changed() => {
-                let now = probed.borrow_and_update().as_ref().map(|probed| probed.report.clone());
+                let now = watched::read_and_update(&mut probed, |probed| {
+                    probed.as_ref().map(|probed| probed.report.clone())
+                });
 
                 if let Some(now) = now {
                     let now = EnvReport { adapters: offers.agents.adapter_installs(), ..now };

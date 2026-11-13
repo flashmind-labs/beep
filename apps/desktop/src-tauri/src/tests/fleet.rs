@@ -8,6 +8,7 @@ use beep_proto::node::{
     status::Report,
     tools::{self, Reply, Request, Tool},
 };
+use beep_proto::watched;
 use iroh::{SecretKey, endpoint::presets, protocol::Router};
 use std::{
     sync::Arc,
@@ -77,7 +78,7 @@ pub(super) async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     let mut updates = mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if ok(mesh) {
                 return;

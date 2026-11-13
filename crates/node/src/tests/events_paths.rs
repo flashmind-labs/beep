@@ -1,5 +1,6 @@
-use std::time::Duration;
 use super::*;
+use beep_proto::watched;
+use std::time::Duration;
 
 #[tokio::test]
 async fn a_missing_directory_only_watches_its_parent_non_recursively() {
@@ -66,14 +67,12 @@ async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
         std::fs::rename(&original, renamed).unwrap();
         std::fs::create_dir(&original).unwrap();
         ready.send(()).unwrap();
-        wait_release
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap();
+        wait_release.recv_timeout(Duration::from_secs(5)).unwrap();
     });
     wait_ready.await.unwrap();
     timeout_change(&mut changes).await;
     let mut reconciled = watcher.reconciled.clone();
-    reconciled.borrow_and_update();
+    watched::read_and_update(&mut reconciled, |_| ());
     release.send(()).unwrap();
     hold.await.unwrap();
     tokio::time::timeout(Duration::from_secs(5), reconciled.changed())
@@ -106,7 +105,7 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
     let mut reconciled = watcher.reconciled.clone();
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            reconciled.borrow_and_update();
+            watched::read_and_update(&mut reconciled, |_| ());
 
             if crate::lock(&watcher.inner)
                 .installed

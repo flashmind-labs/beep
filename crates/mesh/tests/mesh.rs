@@ -7,6 +7,7 @@ use beep_mesh::{
     with_deadline,
 };
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
+use beep_proto::watched;
 use futures::StreamExt;
 use iroh::endpoint::{Connection, presets};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
@@ -121,7 +122,7 @@ async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     let mut updates = mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if ok(mesh) {
                 return;

@@ -21,7 +21,7 @@ import { showLogShell } from "./log-shell.tsx";
 import type { LogShell } from "./log-shell-view.tsx";
 import { connectingNote } from "./reconnect-state.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
-import { answerHtml } from "./turnrows.ts";
+import { answerHtml, blockedReply } from "./turnrows.ts";
 import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
 import { type AgentEntry, type AgentPage, AG, openOf, agentPics, agentThumbs, AGENT_ACTIVE, folderName } from "./agents.ts";
 import { stoppingNow } from "./session.ts";
@@ -33,6 +33,8 @@ import { fillAgentPics } from "./images.ts";
 import { prepareInlineImages } from "./inline-images.ts";
 import { picTile } from "./pic-state.ts";
 import { drawModelPill } from "./modelpill.ts";
+import { modelLabel } from "./agentpick.ts";
+import { knownModels, modelsOn } from "./agentpicker.ts";
 import { drawModes } from "./modepill.ts";
 import { backgroundedEntry, drawTasks, runs } from "./tasks.ts";
 import { waitLine, type BackgroundWork } from "./waiting-state.ts";
@@ -41,7 +43,7 @@ import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { showAgentControl, showAgentStop } from "./composer-ui.tsx";
 import { AgentStatus } from "./mode-view.tsx";
-import type { ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
+import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
 
 /// Draws the log again. `keep` finds the row the reader just opened or
@@ -54,6 +56,12 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   if (!b || !p) return;
   const s = p.session, q = s.question;
   const stopping = stoppingNow();
+  if (p.entries.some(subCall)) {
+    modelsOn(s.machine_id, s.agent, () => {
+      if (AG.page?.session.id === s.id && AG.page.session.machine_id === s.machine_id) drawAgentBody();
+    });
+  }
+
   // Read where the reader is before the log is drawn again: only a reader
   // at the bottom follows new entries; anyone else stays where they are,
   // and so does a row the reader opens or folds.
@@ -263,7 +271,7 @@ const subTimes = new Map<string, { start: number; live: boolean; end?: number }>
 function subOf(at: number) {
   const p = AG.page!, en = p.entries[at - p.earlier];
   const { title, status, output } = parseTool(imageLines(en.text).text);
-  const sub = subagent(output) ?? { count: 0, steps: [], result: output };
+  const sub = subagent(output) ?? { count: 0, steps: [], result: output, model: null };
   // A linked subagent can keep working after its parent's turn ends.
   const working = sub.child ? sub.child.state === "working" : (status === "in_progress" || status === "pending") && (!!sub.session || AGENT_ACTIVE.has(p.session.status));
   // Timed from when this window saw it working, if it did.
@@ -287,7 +295,9 @@ function subData(at: number, inPane: boolean): SubagentRow {
     const x = subOf(at), kid = x.sub.child;
     const st = kid ? kidState(kid.state) : x.working ? "working" : x.failed ? "failed" : "done";
     const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
-    const meta = [st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
+    const s = AG.page?.session;
+    const model = x.sub.model && s ? modelLabel(knownModels(s.machine_id, s.agent), x.sub.model) : null;
+    const meta = [model, st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
     return { at, title: x.title, agent: x.agent, meta, mark: stepMark(x.working ? "in_progress" : x.status, x.working),
       target: kid ? { kind: "child", id: kid.id, key: kid.key } : x.sub.session ? { kind: "native" } : { kind: "summary" },
       dismiss: inPane && st !== "working" && st !== "needs you", stoppable: !!kid && (st === "working" || st === "needs you"),
@@ -389,7 +399,7 @@ function entryRows(en: AgentEntry, at: number): TranscriptRow[] {
   const answers = en.kind === "user" ? answeredQuestions(en.text) : null;
   if (answers) return [{ kind: "note", id: `answers:${at}`, at, value: { kind: "answers", items: answers } }];
   if (en.kind === "user") return userRows(en, at);
-  if (en.kind === "agent") return [agentReply(en, at)];
+  if (en.kind === "agent") return agentReply(en, at);
   if (en.kind === "tool") return toolRows(en, at);
   if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return [{ kind: "note", id: `compacted:${at}`, at, value: { kind: "compacted" } }];
   // The files a turn's commands made: one file as "Made x.md", several as a
@@ -517,11 +527,16 @@ function rowsOf(p: AgentPage, ats: number[]) {
   return out;
 }
 
-function agentReply(en: AgentEntry, at: number): ReplyRow {
+function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const { text, names } = imageLines(en.text);
   const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
   const linked = (html: string) => markWarnings(linkCodeFiles(linkImagePaths(html).html));
-  return { kind: "reply", row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(en.html)) : linked(esc(text))) + pics };
+  const html = en.html ?? esc(text);
+  const block = blockedReply(text, html);
+  const body = block?.html ?? html;
+  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics }] : [];
+  if (block) replies.push({ kind: "blocked", id: `${at}:blocked`, message: block.error });
+  return replies;
 }
 
 /// Calls of one kind in a row as one line, the first few targets beside

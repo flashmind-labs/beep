@@ -8,6 +8,7 @@
 
 use beep_node::files::{Folders, syncthing::Syncthing, transfer::Transfers};
 use beep_proto::node::sync::{Keep, Project, ProjectStatus, Refused, Rule, State};
+use beep_proto::watched;
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 use std::{
     fs,
@@ -881,14 +882,13 @@ async fn fake_answer(mut stream: TcpStream, mut folder: watch::Receiver<FakeFold
     let line = text.lines().next().unwrap_or_default();
     let body = if let Some((_, query)) = line.split_once("since=") {
         let since: u64 = query.split('&').next().unwrap().parse().unwrap();
-        let event = folder
-            .wait_for(|folder| folder.event > since)
+        watched::wait_for(&mut folder, |folder| folder.event > since)
             .await
-            .unwrap()
-            .event;
+            .unwrap();
+        let event = watched::read(&folder, |folder| folder.event);
         format!(r#"[{{"id":{event},"type":"FolderResumed"}}]"#)
     } else {
-        let paused = folder.borrow().paused;
+        let paused = watched::read(&folder, |folder| folder.paused);
         format!(r#"[{{"id":"game-1","label":"Game","path":{path},"paused":{paused}}}]"#)
     };
     let reply = format!(

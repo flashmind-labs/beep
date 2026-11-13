@@ -2,6 +2,7 @@
 //! to other nodes over iroh-blobs. `Transfers` owns the blob store and serves
 //! it only to the peers an open offer names.
 
+use crate::lock;
 use crate::{
     files::Folders,
     files::sync::{self, PeerHandler, Syncs},
@@ -13,6 +14,7 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     transfer::{Content, ContentKind, PROTOCOL, Reply, Request, Stage},
 };
+use beep_proto::watched;
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
     endpoint::Connection,
@@ -26,7 +28,6 @@ use iroh_blobs::{
     },
 };
 use serde::{Deserialize, Serialize};
-use crate::lock;
 use std::{
     collections::HashMap,
     fs,
@@ -297,14 +298,18 @@ impl ProtocolHandler for Waiting {
         let mut slot = self.slot.clone();
         // The permit is held while waiting, and no longer.
         let ready = match self.waiting.clone().try_acquire_owned() {
-            Ok(_permit) => timeout(
-                WAIT_LIMIT,
-                slot.wait_for(|slot| !matches!(slot, Slot::Waiting)),
-            )
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .map(|ready| ready.clone()),
+            Ok(_permit) => {
+                let waited = timeout(
+                    WAIT_LIMIT,
+                    watched::wait_for(&mut slot, |slot| !matches!(slot, Slot::Waiting)),
+                )
+                .await;
+
+                match waited {
+                    Ok(Ok(())) => Some(watched::read(&slot, Clone::clone)),
+                    _ => None,
+                }
+            }
             Err(_) => None,
         };
 
@@ -463,8 +468,8 @@ impl Transfers {
     pub(crate) async fn share(&self, path: &Path, peer: EndpointId) -> Result<Shared> {
         let inner = &self.inner;
         let _permit = inner.permit()?;
-        let offered = offer::offer(&inner.store, path, inner.endpoint.addr(), &mut Out::Silent)
-            .await?;
+        let offered =
+            offer::offer(&inner.store, path, inner.endpoint.addr(), &mut Out::Silent).await?;
         let Reply::Offered { content, size, .. } = offered.reply else {
             bail!("{} could not be shared", path.display());
         };

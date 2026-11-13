@@ -56,9 +56,9 @@
 .mac .gp-path { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12.5px; font-family: var(--mono); border-top: 1px solid var(--d-border) }
 .mac .gp-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .gp-path .dbtn { padding: 1px 8px; font-size: 11.5px; min-height: 0; font-family: inherit }
-.mac .gp-field { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: color-mix(in srgb, var(--d-ink) 80%, #000); color: var(--d-fg); font-family: var(--mono); font-size: 12.5px; outline: 0; caret-color: var(--d-emerald); user-select: text }
-.mac .gp-field:focus { border-color: var(--d-emerald) }
-.mac .gp-field::placeholder { color: var(--d-dim) }
+.mac .gp-field, .mac .ip-path { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: color-mix(in srgb, var(--d-ink) 80%, #000); color: var(--d-fg); font-family: var(--mono); font-size: 12.5px; outline: 0; caret-color: var(--d-emerald); user-select: text }
+.mac .gp-field:focus, .mac .ip-path:focus { border-color: var(--d-emerald) }
+.mac .gp-field::placeholder, .mac .ip-path::placeholder { color: var(--d-dim) }
 .mac .gp-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px }
 .mac .pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px }
 .mac .pj-grid > * { min-width: 0 }
@@ -132,7 +132,7 @@
 .mac .pr-repositories { margin-top: 20px; border-top: 1px solid var(--d-border); padding-top: 16px }
 .mac .pr-repository + .pr-repository { margin-top: 16px }
 .mac .pr-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 18px; cursor: pointer }
-.mac .pr-option input { margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--d-emerald) }
+.mac .pr-option .dcheck { margin: 2px 0 0 }
 .mac .pr-option span { min-width: 0 }
 .mac .pr-option small { display: block; margin-top: 3px; color: var(--d-muted); font-size: 12px; overflow-wrap: anywhere }
 .mac .pr-repository-fields { margin-top: 16px }

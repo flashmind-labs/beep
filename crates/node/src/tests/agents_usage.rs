@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::watched;
 use serde_json::json;
 
 #[test]
@@ -31,7 +32,7 @@ fn a_rate_limit_event_updates_its_windows_only() {
     });
     hub.update_windows(&AgentSlug::CLAUDE, claude_rate_limit(&event), 60);
     let plans = hub.plans();
-    let plan = &plans.borrow()["claude"];
+    let plan = watched::read(&plans, |plans| plans["claude"].clone());
     assert_eq!(plan.plan.as_deref(), Some("max"));
     assert_eq!(plan.at, 60);
     assert_eq!(plan.windows[0].used_percent, 10.0);

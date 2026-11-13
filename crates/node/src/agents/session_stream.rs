@@ -7,6 +7,7 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{self, Event, Request, SessionInfo, State, Status},
 };
+use beep_proto::watched;
 use std::sync::Arc;
 
 /// Why a request is not an order for a session.
@@ -156,7 +157,7 @@ pub async fn serve_session(
         return tx.send(&Event::Refused { reason }).await;
     }
 
-    let info = live.borrow_and_update().info.clone();
+    let info = watched::read_and_update(&mut live, |live| live.info.clone());
     let mut seen = Seen::new(&info);
     let session_id = info.id.clone();
 
@@ -226,7 +227,7 @@ pub async fn serve_session(
                 tx.send(&Event::Ack { error }).await?;
             }
             changed = live.changed() => {
-                let events = seen.events(&live.borrow_and_update());
+                let events = watched::read_and_update(&mut live, |live| seen.events(live));
                 let mut ended = false;
 
                 for event in events {

@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.6.20"
+version = "0.6.21"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -1145,7 +1145,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.10",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -1383,7 +1383,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1476,9 +1476,9 @@ checksum = "5905ec755cc8386d7928353e4d356d2be3e89e81e5ca01fe630a1ca4d08dc175"
 
 [[package]]
 name = "flashmind-llm"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "870b82322da9c65cff22c13ca73015e845463ef34ce75b7de130cf7d1da251ed"
+checksum = "a648fa0810b56e5d3a8f5bd27f68b678754acd88395a72d0d8515e7c58c78573"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1508,9 +1508,9 @@ dependencies = [
 
 [[package]]
 name = "flashmind-tools"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7155effee87f2e87e9e03db3c330067686896e994dfadfe7b460f909da98b821"
+checksum = "5eece3f491a6f96e717d8c6ed3ef48a200c0f715f9ac4e65d79e66447b69b506"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1545,9 +1545,9 @@ dependencies = [
 
 [[package]]
 name = "flashmind-types"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef7fc95959b0b44424720641cee0102bcd414a946c1518aaa3f2bff00c47821"
+checksum = "2ad33c8841c36425129c74ead709425b9a54dced93144b05c3ba92c85db1e8c4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4730,7 +4730,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4788,7 +4788,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5458,7 +5458,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6203,7 +6203,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

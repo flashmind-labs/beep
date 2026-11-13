@@ -88,6 +88,11 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-rows
               div.bd-lane.hd
@@ -173,6 +178,8 @@ body.cbody
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]
             span.tt "Instructions"
+          button.cc-si [data-goto="skills"]
+            span.tt "Skills"
         small.dset-ver "Beep desktop 0.9.0"
       div.dset-body
         div.dset-top
@@ -208,14 +215,14 @@ body.cbody
                   b "Save files to"
                   small "No folder"
                 span
-                  button#chooseSaves.dbtn "Choose…"
+                  button#chooseSaves.dbtn [type="button"] "Choose…"
               div.dtoggle
                 span
                   b "Keyboard shortcuts"
                   small "Every shortcut, by where it works"
-                button#openShortcuts.dbtn "Show…"
+                button#openShortcuts.dbtn [type="button"] "Show…"
               div.dtoggle
                 span
                   b "Report a problem"
                   small "Collect logs from your machines and send them to us"
-                button#openReport.dbtn "Report…"
+                button#openReport.dbtn [type="button"] "Report…"

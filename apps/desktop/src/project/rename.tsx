@@ -6,6 +6,7 @@ import { refresh } from "../center/refresh.ts";
 import { closeMenu } from "../ui/menu.ts";
 import { openSheet } from "../ui/parts.ts";
 import { projectName, type Project } from "./projects-state.ts";
+import { Button, Checkbox } from "../ui/kit.tsx";
 
 type RepositoryTarget = { url: string; host: string; name: string };
 type RenameResult =
@@ -80,12 +81,12 @@ function RenameProject({ project, close, pending }: { project: Project; close():
     <label className="pr-label" htmlFor="project-name">Project name</label>
     <input ref={field} id="project-name" className="gp-field pr-name" value={name} spellCheck={false} maxLength={200} required disabled={busy} onChange={event => setName(event.currentTarget.value)} />
     {repositories.kind === "loading" && <p className="pr-loading" role="status">Looking for repository copies…</p>}
-    {repositories.kind === "failed" && <div className="pr-host-error" role="alert">{repositories.message} <button type="button" className="dbtn quiet small" disabled={busy} onClick={() => setAttempt(attempt + 1)}>Try again</button></div>}
+    {repositories.kind === "failed" && <div className="pr-host-error" role="alert">{repositories.message} <Button look="quiet" small disabled={busy} onClick={() => setAttempt(attempt + 1)}>Try again</Button></div>}
     {rows.length > 0 && <div className="pr-repositories">
       <div className="pr-label">Also rename repositories</div>
       {rows.map((row, index) => <div className="pr-repository" key={row.url}>
         <label className="pr-option">
-          <input type="checkbox" checked={row.selected} disabled={busy || row.result?.kind === "renamed"} onChange={event => update(row.url, { selected: event.currentTarget.checked })} />
+          <Checkbox checked={row.selected} disabled={busy || row.result?.kind === "renamed"} change={selected => update(row.url, { selected })} />
           <span>{row.host}<small>{row.url.replace(/^https?:\/\//, "")}</small></span>
           {row.result?.kind === "renamed" && <span className="pr-host-saved">Renamed</span>}
         </label>
@@ -100,8 +101,8 @@ function RenameProject({ project, close, pending }: { project: Project; close():
     {savedName !== null && savedName !== projectName(project) && <p className="pr-loading" role="status">Project name saved.</p>}
     {error !== null && <div className="am-msg bad" role="alert">{error}</div>}
     <div className="gp-foot">
-      <button type="button" className="dbtn quiet" disabled={busy} onClick={close}>{savedName === null ? "Cancel" : "Close"}</button>
-      <button type="submit" className="dbtn pri" disabled={busy || !name.trim() || (name.trim() === (savedName ?? projectName(project)) && selected.length === 0)}>{busy ? "Renaming…" : failed ? "Retry failed" : "Rename"}</button>
+      <Button look="quiet" disabled={busy} onClick={close}>{savedName === null ? "Cancel" : "Close"}</Button>
+      <Button type="submit" look="primary" disabled={busy || !name.trim() || (name.trim() === (savedName ?? projectName(project)) && selected.length === 0)}>{busy ? "Renaming…" : failed ? "Retry failed" : "Rename"}</Button>
     </div>
   </form>;
 }

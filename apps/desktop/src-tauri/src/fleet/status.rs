@@ -4,6 +4,7 @@
 //! never waits on the network.
 
 use beep_mesh::{Device, Mesh, PeerClient, SessionFn, machine::machine_capability};
+use beep_proto::watched;
 use beep_proto::{
     AgentHost, Machine, MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu,
     MachineLogin, MachineStats, MachineTool, MachineTraffic, TrafficCounter, UpdatableMachine,
@@ -554,7 +555,7 @@ impl Follower {
         let mut remembered = BTreeMap::new();
 
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
             if self.shared.refresh(&self.mesh) {
                 settle_later(self.shared.clone());
             }

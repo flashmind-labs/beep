@@ -97,6 +97,8 @@ fn keys_round_trip_through_text() {
         Key::Temporary("abc".into()),
         Key::Observer("abc".into()),
         Key::NoticeRead("abc".into()),
+        Key::SkillLibrary("firecrawl".into()),
+        Key::ProjectSkills("acme/widget".into()),
         Key::Other("future-kind/x y".into()),
     ];
 

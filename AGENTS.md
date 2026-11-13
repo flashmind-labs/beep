@@ -93,7 +93,9 @@ and wire representations independently. Prefer explicit
 Every agent must record user-visible changes before finishing work, as a new
 file per change in `changelogs/unreleased/<app>/` (`desktop`, `node`,
 `android`, `ios` or `server`), named after the issue or branch, such as
-`579-ghostty-terminals.md`. Never edit another change's file or the
+`579-ghostty-terminals.md`. A subagent on a small model writes the entry:
+Haiku 5.5 (`claude-haiku-5-5`) under Claude ACP, Terra 6.1 (`gpt-6-1-terra`)
+under Codex ACP. Never edit another change's file or the
 `changelogs/<app>.md` files, so branches do not conflict. Record shared changes
 in each affected app. A file holds `### Added`, `### Changed`, `### Fixed`,
 `### Security` or `### Performance` sections of `- ` items; write from the

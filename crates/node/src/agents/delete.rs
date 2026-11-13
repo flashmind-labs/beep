@@ -3,6 +3,7 @@
 use super::{Agents, found::Agent};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::Status;
+use beep_proto::watched;
 use tokio::task::spawn_blocking;
 
 /// The longest session id accepted.
@@ -38,7 +39,7 @@ impl Agents {
         let agent_id = match self.get(id) {
             Some(ours) => {
                 ensure!(ours.agent == agent, "session {id} runs {}", ours.agent);
-                ours.live.borrow().agent_session.clone()
+                watched::read(&ours.live, |live| live.agent_session.clone())
             }
             None => Some(id.to_owned()),
         };
@@ -53,10 +54,11 @@ impl Agents {
             .filter(|(key, session)| {
                 session.agent == agent
                     && (key.as_str() == id
-                        || agent_id.is_some() && session.live.borrow().agent_session == agent_id)
+                        || agent_id.is_some()
+                            && watched::read(&session.live, |live| live.agent_session == agent_id))
             })
             .map(|(key, session)| {
-                let ended = session.live.borrow().status() == Status::Ended;
+                let ended = watched::read(&session.live, |live| live.status() == Status::Ended);
                 (key.clone(), ended)
             })
             .collect();

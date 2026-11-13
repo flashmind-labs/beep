@@ -7,6 +7,7 @@ use super::{
     session::{NODE_STOPPED, Session},
 };
 use anyhow::{Context, Result};
+use beep_proto::watched;
 use beep_proto::{
     ModelId,
     node::agent::{Entry, ParentLink, Status},
@@ -86,7 +87,7 @@ impl Agents {
                 .values()
                 .map(|session| session.live.clone())
                 .collect();
-            busy.retain_mut(|live| live.borrow_and_update().info.state.runs());
+            busy.retain_mut(|live| watched::read_and_update(live, |live| live.info.state.runs()));
 
             if busy.is_empty() {
                 return;
@@ -140,40 +141,41 @@ impl Agents {
     /// first, and the node stops (#329). Its children come after, from the
     /// agent's id, which is what `name_of` gives once there is one.
     fn as_it_runs(session: &Session, keep: Keep) -> Option<OpenSession> {
-        let live = session.live.borrow();
-        let stopped = live.status() == Status::Ended
-            && live.info.state.error.as_deref() == Some(NODE_STOPPED);
-        if keep == Keep::Open && live.status() == Status::Ended && !stopped {
-            return None;
-        }
-        // Kept once the node stopped, so the note is not rewritten with it
-        // on every change while the session runs.
-        let transcript = if keep == Keep::Open && stopped && !live.replays {
-            live.transcript_before(KEPT_ENTRIES, None).0
-        } else {
-            Vec::new()
-        };
-        Some(OpenSession {
-            agent: session.agent.clone(),
-            session: live.agent_session.clone()?,
-            cwd: PathBuf::from(&live.info.cwd),
-            started_at: live.info.started_at,
-            last_activity: live.info.last_activity,
-            held: match keep {
-                Keep::Open => {
-                    let mut held = live.held.clone();
-                    if matches!(live.status(), Status::Working | Status::Asking) {
-                        held.insert(0, Prompt::from(CONTINUE.to_owned()));
+        watched::read(&session.live, |live| {
+            let stopped = live.status() == Status::Ended
+                && live.info.state.error.as_deref() == Some(NODE_STOPPED);
+            if keep == Keep::Open && live.status() == Status::Ended && !stopped {
+                return None;
+            }
+            // Kept once the node stopped, so the note is not rewritten with it
+            // on every change while the session runs.
+            let transcript = if keep == Keep::Open && stopped && !live.replays {
+                live.transcript_before(KEPT_ENTRIES, None).0
+            } else {
+                Vec::new()
+            };
+            Some(OpenSession {
+                agent: session.agent.clone(),
+                session: live.agent_session.clone()?,
+                cwd: PathBuf::from(&live.info.cwd),
+                started_at: live.info.started_at,
+                last_activity: live.info.last_activity,
+                held: match keep {
+                    Keep::Open => {
+                        let mut held = live.held.clone();
+                        if matches!(live.status(), Status::Working | Status::Asking) {
+                            held.insert(0, Prompt::from(CONTINUE.to_owned()));
+                        }
+                        held
                     }
-                    held
-                }
-                Keep::Moving => Vec::new(),
-            },
-            mode: live.info.mode.clone(),
-            parent: live.info.parent.clone(),
-            kids: Vec::new(),
-            transcript,
-            model: live.info.model.clone(),
+                    Keep::Moving => Vec::new(),
+                },
+                mode: live.info.mode.clone(),
+                parent: live.info.parent.clone(),
+                kids: Vec::new(),
+                transcript,
+                model: live.info.model.clone(),
+            })
         })
     }
 
@@ -182,7 +184,7 @@ impl Agents {
     pub(super) async fn settings_came(&self) -> bool {
         let mut settled = self.settled.subscribe();
 
-        timeout(SETTINGS_WAIT, settled.wait_for(|settled| *settled))
+        timeout(SETTINGS_WAIT, watched::wait_for(&mut settled, |settled| *settled))
             .await
             .is_ok()
     }
@@ -219,14 +221,14 @@ impl Agents {
     /// back.
     pub(crate) async fn until_reopened(&self) {
         // An error means the node is gone, which also ends the wait.
-        let _ = self.reopened.subscribe().wait_for(|done| *done).await;
+        let _ = watched::wait_for(&mut self.reopened.subscribe(), |done| *done).await;
     }
 
     /// Whether the sessions open before the last stop run again, or there
     /// were none. Until then a session may be about to come back, so one
     /// that does not run is not yet one that ended.
     pub fn reopened(&self) -> bool {
-        *self.reopened.borrow()
+        watched::read_sent(&self.reopened, |done| *done)
     }
 
     /// What it takes to start session `id` again, as it runs now.

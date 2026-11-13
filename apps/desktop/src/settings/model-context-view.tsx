@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { modelDraft, modelProblem, modelRules } from "./model-context-state.ts";
 import { contextOf, supportsOverrides, type ModelContextPanel } from "./model-context.ts";
+import { Button } from "../ui/kit.tsx";
 
 export function ModelContextView({ panel, machine, agent }: { panel: ModelContextPanel; machine: string; agent: string }) {
   const state = useStore(panel.states, states => contextOf(states, machine, agent));
@@ -11,7 +12,7 @@ export function ModelContextView({ panel, machine, agent }: { panel: ModelContex
   useEffect(() => { if (focusAdded.current && added.current) { added.current.focus(); focusAdded.current = false; } }, [state.draft]);
   const update = (change: Parameters<typeof panel.update>[2]) => panel.update(machine, agent, change);
   if (state.loading || (!state.loaded && !state.error)) return <><h4>Models and context</h4><div className="hv-note">Loading models and context limits…</div></>;
-  if (!state.loaded) return <><h4>Models and context</h4><div className="derr">{state.error}</div><button type="button" className="dbtn" onClick={() => void panel.load(machine, agent)}>Try again</button></>;
+  if (!state.loaded) return <><h4>Models and context</h4><div className="derr">{state.error}</div><Button onClick={() => void panel.load(machine, agent)}>Try again</Button></>;
   const models = state.models?.models ?? [], defaultModels = models.filter(model => model.id.toLowerCase() !== "default");
   const editable = supportsOverrides(agent), problem = modelProblem(state.draft);
   const rows = [...models.map(model => ({ id: model.id, index: state.draft.findIndex((rule, i) => rule.model === model.id && !state.customIndexes.includes(i)), model })), ...state.customIndexes.map(index => ({ id: state.draft[index]?.model ?? "", index, model: null }))];
@@ -21,7 +22,7 @@ export function ModelContextView({ panel, machine, agent }: { panel: ModelContex
     <div className="hv-f"><span><b>Default model</b><small>Used for new sessions on every machine. Blank uses the harness default.</small></span><div>
       <input className="hv-in" aria-label="Default model" list="harness-default-models" placeholder="Harness default" disabled={state.savingDefault} value={state.defaultText} onChange={e => { const defaultText = e.currentTarget.value, value = defaultText.trim(); update({ defaultText, defaultModel: defaultModels.find(model => model.name === value)?.id ?? value }); }} />
       <datalist id="harness-default-models">{defaultModels.map(model => <option key={model.id} value={model.name} />)}</datalist>
-      <button type="button" className="dbtn pri" disabled={state.savingDefault || state.defaultModel.trim() === state.savedDefault} onClick={() => void panel.saveDefault(machine, agent)}>{state.savingDefault ? "Saving…" : "Save default model"}</button><span className="derr">{state.defaultError}</span>
+      <Button look="primary" disabled={state.savingDefault || state.defaultModel.trim() === state.savedDefault} onClick={() => void panel.saveDefault(machine, agent)}>{state.savingDefault ? "Saving…" : "Save default model"}</Button><span className="derr">{state.defaultError}</span>
     </div></div>
     <div className="hv-note">Limits from this machine's harness. Maximum usable can be smaller than the API limit.</div>
     {editable && <div className="hv-note">Overrides apply to new or resumed sessions on every machine, between turns. Blank uses Auto-compact above; off disables Beep's trigger. The harness may compact earlier. Enter 80%, 350000, or off.</div>}
@@ -37,7 +38,7 @@ export function ModelContextView({ panel, machine, agent }: { panel: ModelContex
         </tr>;
       })}
     </tbody></table></div>
-    {editable && <div className="hv-acts"><button type="button" className="dbtn small" disabled={state.saving} onClick={() => { focusAdded.current = true; update({ draft: [...state.draft, { model: "", threshold: "" }], customIndexes: [...state.customIndexes, state.draft.length], unfilteredIndexes: [...state.unfilteredIndexes, state.draft.length] }); }}>Add model</button><button type="button" className="dbtn pri" disabled={state.saving || JSON.stringify(modelRules(state.draft)) === JSON.stringify(state.saved) || !!problem} onClick={() => void panel.save(machine, agent)}>{state.saving ? "Saving…" : "Save model overrides"}</button><button type="button" className="dbtn quiet" onClick={() => update({ draft: modelDraft(state.saved), customIndexes: state.saved.flatMap((rule, i) => models.some(model => model.id === rule.model) ? [] : [i]), unfilteredIndexes: [] })}>Discard</button><span className="derr">{problem}</span></div>}
+    {editable && <div className="hv-acts"><Button small disabled={state.saving} onClick={() => { focusAdded.current = true; update({ draft: [...state.draft, { model: "", threshold: "" }], customIndexes: [...state.customIndexes, state.draft.length], unfilteredIndexes: [...state.unfilteredIndexes, state.draft.length] }); }}>Add model</Button><Button look="primary" disabled={state.saving || JSON.stringify(modelRules(state.draft)) === JSON.stringify(state.saved) || !!problem} onClick={() => void panel.save(machine, agent)}>{state.saving ? "Saving…" : "Save model overrides"}</Button><Button look="quiet" onClick={() => update({ draft: modelDraft(state.saved), customIndexes: state.saved.flatMap((rule, i) => models.some(model => model.id === rule.model) ? [] : [i]), unfilteredIndexes: [] })}>Discard</Button><span className="derr">{problem}</span></div>}
     {state.error && <div className="derr">{state.error}</div>}
   </>;
 }

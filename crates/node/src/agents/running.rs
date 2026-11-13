@@ -15,6 +15,7 @@ use beep_proto::node::{
     harness::{AgentSettings, HarnessReport},
     usage::PlanUsage,
 };
+use beep_proto::watched;
 use beep_proto::{AgentAccount, ModelId, Upload};
 use std::time::Duration;
 use std::{
@@ -40,8 +41,9 @@ impl Agents {
 
     /// Whether `session` is one of this node's and still runs.
     pub(crate) fn runs(&self, session: &str) -> bool {
-        self.get(session)
-            .is_some_and(|session| session.live.borrow().status() != Status::Ended)
+        self.get(session).is_some_and(|session| {
+            watched::read(&session.live, |live| live.status() != Status::Ended)
+        })
     }
 
     /// The folder `session` works in, if it is one of this node's.
@@ -84,11 +86,12 @@ impl Agents {
 
         if session.agent == "claude" {
             let (id, calls) = {
-                let live = session.live.borrow();
-                (
-                    live.agent_session.clone(),
-                    live.claude_children(earlier, entries.len()),
-                )
+                watched::read(&session.live, |live| {
+                    (
+                        live.agent_session.clone(),
+                        live.claude_children(earlier, entries.len()),
+                    )
+                })
             };
 
             if let Some(id) = id.filter(|_| !calls.is_empty()) {
@@ -114,7 +117,7 @@ impl Agents {
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
         if session.agent == "codex" {
-            let parent = session.live.borrow().agent_session.clone();
+            let parent = watched::read(&session.live, |live| live.agent_session.clone());
             if let Some(parent) = parent {
                 let stores = self.stores.clone();
                 match spawn_blocking(move || stores.codex_children(&parent)).await {
@@ -127,8 +130,9 @@ impl Agents {
             }
         }
 
-        let (mut entries, earlier) = session.live.borrow().transcript_before(last, before);
-        let children = session.live.borrow().codex_children(earlier);
+        let (mut entries, earlier) =
+            watched::read(&session.live, |live| live.transcript_before(last, before));
+        let children = watched::read(&session.live, |live| live.codex_children(earlier));
 
         if children.is_empty() {
             return (entries, earlier);
@@ -149,19 +153,20 @@ impl Agents {
                 return (entries, earlier);
             }
         };
-        let live = session.live.borrow();
 
-        for (call, run) in runs {
-            let Some((at, text)) = live.with_run(&call, &run) else {
-                continue;
-            };
-            let index = at
-                .checked_sub(earlier)
-                .and_then(|i| usize::try_from(i).ok());
-            if let Some(entry) = index.and_then(|i| entries.get_mut(i)) {
-                entry.text = text;
+        watched::read(&session.live, |live| {
+            for (call, run) in runs {
+                let Some((at, text)) = live.with_run(&call, &run) else {
+                    continue;
+                };
+                let index = at
+                    .checked_sub(earlier)
+                    .and_then(|i| usize::try_from(i).ok());
+                if let Some(entry) = index.and_then(|i| entries.get_mut(i)) {
+                    entry.text = text;
+                }
             }
-        }
+        });
         (entries, earlier)
     }
 
@@ -299,7 +304,7 @@ impl Agents {
         let running: Vec<Arc<Session>> = self
             .lock()
             .values()
-            .filter(|session| session.live.borrow().status() != Status::Ended)
+            .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
             .cloned()
             .collect();
         futures::future::join_all(running.iter().map(|session| session.close())).await;
@@ -359,7 +364,7 @@ impl Agents {
 
     /// The agents this node can start now.
     pub(super) fn kinds(&self) -> Arc<Vec<AgentKind>> {
-        self.kinds.borrow().clone()
+        watched::read_sent(&self.kinds, Clone::clone)
     }
 
     /// Takes the agents a new detection found, when they differ.
@@ -409,14 +414,18 @@ impl Agents {
             .lock()
             .values()
             .filter_map(|s| {
-                let live = s.live.borrow();
-                live.agent_session.as_ref()?;
+                // Released before `info` reads the state again: a second read
+                // while this one is held waits behind any write queued in
+                // between, which waits on this one, and the node stops.
+                let listed = {
+                    watched::read(&s.live, |live| {
+                        live.agent_session.is_some()
+                            && id.is_none_or(|id| live.info.id == id)
+                            && (!s.reviewer || reviewers && live.info.parent.is_some())
+                    })
+                };
 
-                if id.is_some_and(|id| live.info.id != id) {
-                    return None;
-                }
-
-                if s.reviewer && !(reviewers && live.info.parent.is_some()) {
+                if !listed {
                     return None;
                 }
 
@@ -482,8 +491,9 @@ impl Agents {
         // both start it.
         if let Some(resume) = &begin.resume
             && let Some(running) = sessions.values().find(|session| {
-                let live = session.live.borrow();
-                live.status() != Status::Ended && live.agent_session.as_ref() == Some(resume)
+                watched::read(&session.live, |live| {
+                    live.status() != Status::Ended && live.agent_session.as_ref() == Some(resume)
+                })
             })
         {
             anyhow::bail!("session {resume} already runs here as {}", running.id);
@@ -492,8 +502,10 @@ impl Agents {
         if sessions.len() >= MAX_KEPT {
             let oldest = sessions
                 .values()
-                .filter(|session| session.live.borrow().status() == Status::Ended)
-                .min_by_key(|session| session.live.borrow().info.started_at)
+                .filter(|session| {
+                    watched::read(&session.live, |live| live.status() == Status::Ended)
+                })
+                .min_by_key(|session| watched::read(&session.live, |live| live.info.started_at))
                 .map(|session| session.id.clone());
             if let Some(oldest) = oldest {
                 sessions.remove(&oldest);
@@ -506,7 +518,10 @@ impl Agents {
                 // The ended run may be keyed by its original private handle.
                 // Remove it too, so listings cannot shadow the resumed run.
                 sessions.retain(|handle, session| {
-                    handle != resume && session.live.borrow().agent_session.as_ref() != Some(resume)
+                    handle != resume
+                        && watched::read(&session.live, |live| {
+                            live.agent_session.as_ref() != Some(resume)
+                        })
                 });
                 resume.clone()
             }
@@ -560,7 +575,7 @@ impl Agents {
             let mut previous = None;
 
             loop {
-                let info = updates.borrow_and_update().info.clone();
+                let info = watched::read_and_update(&mut updates, |live| live.info.clone());
                 events.changed(beep_proto::node::events::Topic::keyed("agent", &info.id));
                 let summary = (
                     info.id.clone(),
@@ -604,10 +619,15 @@ fn find_session(sessions: &HashMap<String, Arc<Session>>, id: &str) -> Option<Ar
 
     sessions
         .values()
-        .filter(|session| session.live.borrow().agent_session.as_deref() == Some(id))
+        .filter(|session| {
+            watched::read(&session.live, |live| {
+                live.agent_session.as_deref() == Some(id)
+            })
+        })
         .max_by_key(|session| {
-            let live = session.live.borrow();
-            (live.status() != Status::Ended, live.info.started_at)
+            watched::read(&session.live, |live| {
+                (live.status() != Status::Ended, live.info.started_at)
+            })
         })
         .cloned()
 }

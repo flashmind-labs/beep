@@ -553,8 +553,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.agent.md th { color: var(--muted); font-weight: 500; background: var(--surface) }
 /* A turn that went wrong, and a question waiting, stand out. */
 .derrcard { display: grid; gap: 3px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--err) 45%, transparent); background: color-mix(in srgb, var(--err) 7%, transparent); width: 100%; max-width: 800px; margin-inline: auto }
-.derrcard b { color: var(--hot); font-weight: 600; font-size: 13px }
-.derrcard span { font-size: 12.5px; line-height: 18px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere }
+.derrcard b { color: var(--err); font-weight: 600; font-size: 13px }
+.derrcard span { font-size: 12.5px; line-height: 18px; color: var(--err); white-space: pre-wrap; overflow-wrap: anywhere }
 .dcoder .q { border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 6%, transparent) }
 /* A thought: one line, "Thinking" with a sweep while it arrives, "Thought for 12s" once done; a click opens its text. */
 .dthink { display: grid; min-width: 0 }
@@ -873,6 +873,13 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dgchip { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; flex: none }
 .dgchip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent) }
 .dgchip.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent) }
+.dskill-list { display: grid; gap: 4px; padding: 2px 0 4px }
+.dskill-line { display: flex; gap: 10px; align-items: center; font-size: 12.5px }
+.dskill-line code { font-size: 11.5px; min-width: 150px }
+.dskill-line .desc { flex: 1; min-width: 0; color: var(--muted) }
+.dskill-line .at { font-size: 11.5px; color: var(--dim) }
+.dskill-problem { font-size: 12px }
+.dfield input.dskill-source { flex: 1; font-family: var(--mono); font-size: 12.5px }
 .dbtn.dico { width: 26px; min-height: 24px; padding: 0; justify-content: center }
 
 /* Settings, Appearance: the skins as swatches, dark then light. */
@@ -1177,3 +1184,17 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .dagfold .n { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums }
 .dchat.gone .t span { color: var(--muted) }
 .dagquiet { padding: 10px; font-size: 13px; color: var(--muted) }
+
+/* Shared single-choice dropdowns. React Aria owns focus, selection and dismissal. */
+.dropdown-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap }
+.dropdown-trigger > svg { flex: none; width: 14px; height: 14px; color: var(--muted) }
+.dropdown-trigger > svg:last-child { width: 12px; height: 12px }
+.dropdown-trigger[data-pressed] { background: var(--elev); color: var(--fg) }
+.dropdown-trigger[data-focus-visible] { outline: 2px solid var(--accent); outline-offset: 2px }
+.dropdown-popover { z-index: 60; min-width: 190px; max-width: calc(100vw - 16px); padding: 5px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--elev); color: var(--fg); box-shadow: 0 8px 24px color-mix(in srgb, var(--shade) 35%, transparent); font: 12.5px var(--body) }
+.dropdown-menu { outline: none; max-height: inherit; overflow: auto }
+.dropdown-option { display: flex; align-items: center; gap: 9px; min-height: 32px; padding: 6px 9px; border-radius: var(--radius-sm); outline: none; cursor: default }
+.dropdown-option[data-focused], .dropdown-option[data-hovered] { background: color-mix(in srgb, var(--fg) 8%, transparent) }
+.dropdown-check { display: grid; place-items: center; width: 14px; flex: none; visibility: hidden; color: var(--accent) }
+.dropdown-option[data-selected] .dropdown-check { visibility: visible }
+.dropdown-option[data-selected] { font-weight: 500 }

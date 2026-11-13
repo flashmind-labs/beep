@@ -16,6 +16,7 @@ use crate::files::sync::{
 use crate::files::transfer::place::Folder;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::{Keep, ProjectStatus};
+use beep_proto::watched;
 use iroh::{EndpointAddr, EndpointId};
 use iroh_blobs::Hash;
 use std::{
@@ -250,7 +251,7 @@ impl Shared {
     }
 
     pub(in crate::files::sync) fn status(&self) -> ProjectStatus {
-        self.status.borrow().clone()
+        watched::read_sent(&self.status, Clone::clone)
     }
 
     pub(in crate::files::sync) fn watch_status(&self) -> watch::Receiver<ProjectStatus> {
@@ -258,7 +259,9 @@ impl Shared {
     }
 
     pub(in crate::files::sync) fn has_peer(&self, peer: &EndpointId) -> bool {
-        self.peers.borrow().iter().any(|addr| addr.id == *peer)
+        watched::read_sent(&self.peers, |peers| {
+            peers.iter().any(|addr| addr.id == *peer)
+        })
     }
 
     pub(in crate::files::sync) fn watch_peers(&self) -> watch::Receiver<Vec<EndpointAddr>> {
@@ -266,7 +269,9 @@ impl Shared {
     }
 
     pub(in crate::files::sync) fn peer_ids(&self) -> Vec<EndpointId> {
-        self.peers.borrow().iter().map(|addr| addr.id).collect()
+        watched::read_sent(&self.peers, |peers| {
+            peers.iter().map(|addr| addr.id).collect()
+        })
     }
 
     pub(in crate::files::sync) fn set_peers(&self, peers: Vec<EndpointAddr>) {
@@ -631,7 +636,7 @@ impl Shared {
     }
 
     pub(in crate::files::sync) fn is_paused(&self) -> bool {
-        *self.paused.borrow()
+        watched::read_sent(&self.paused, |paused| *paused)
     }
 
     /// Pauses the project or resumes it; the task follows.
@@ -656,9 +661,9 @@ impl Shared {
         }
 
         let mut done = self.rescans.subscribe();
-        let before = *done.borrow_and_update();
+        let before = watched::read_and_update(&mut done, |count| *count);
         ask.notify_one();
-        timeout(limit, done.wait_for(|count| *count > before))
+        timeout(limit, watched::wait_for(&mut done, |count| *count > before))
             .await
             .with_context(|| format!("{} did not finish scanning in time", self.name))?
             .context("the project stopped")?;

@@ -588,6 +588,13 @@ impl ToolCall {
             if let Some(session) = run.and_then(|run| run.session.as_deref()) {
                 text.push_str(&format!("\n[session] {session}"));
             }
+
+            let model = run
+                .and_then(|run| run.model.as_deref())
+                .or(self.subagent.as_ref().and_then(|sub| sub.model.as_deref()));
+            if let Some(model) = model {
+                text.push_str(&format!("\n[model] {model}"));
+            }
         }
 
         let output = run

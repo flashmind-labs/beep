@@ -2,6 +2,7 @@
 
 use beep_mesh::{MeshError, SnapshotFuture, SnapshotReader};
 use beep_proto::node::events::{self, Query, Read, Snapshot, Topic, Value};
+use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -176,7 +177,7 @@ impl Snapshots {
             && machine.streams.get(&entry.stream) == Some(&generation)
             && entry.query.topic == snapshot.topic
         {
-            let initial = entry.current.borrow().is_none();
+            let initial = watched::read_sent(&entry.current, Option::is_none);
             entry.current.send_replace(Some(Ok(snapshot.value.clone())));
 
             // A change its followers are told of, and a waiting reader takes now.
@@ -245,7 +246,12 @@ impl Snapshots {
             .entries
             .iter()
             .find(|(_, entry)| entry.query.read == read)
-            .map(|(id, entry)| (*id, matches!(entry.current.borrow().as_ref(), Some(Err(_)))))
+            .map(|(id, entry)| {
+                (
+                    *id,
+                    watched::read_sent(&entry.current, |current| matches!(current, Some(Err(_)))),
+                )
+            })
         {
             if failed {
                 machine.entries.remove(&existing);
@@ -356,13 +362,13 @@ impl SnapshotReader for Reader {
             Some(
                 match tokio::time::timeout(
                     Duration::from_secs(30),
-                    current.wait_for(Option::is_some),
+                    watched::wait_for(&mut current, Option::is_some),
                 )
                 .await
                 {
-                    Ok(Ok(value)) => match value.as_ref() {
-                        Some(Ok(value)) => Ok(value.clone()),
-                        Some(Err(reason)) => Err(error(reason)),
+                    Ok(Ok(())) => match watched::read(&current, Clone::clone) {
+                        Some(Ok(value)) => Ok(value),
+                        Some(Err(reason)) => Err(error(&reason)),
                         None => Err(error("the subscription did not provide its snapshot")),
                     },
                     // The read can outlive its view's subscription.

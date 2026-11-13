@@ -7,12 +7,13 @@ use super::{
 use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};
-use beep_proto::{MAX_AGENT_FILE, media_mime};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{self, SessionsReply, SessionsRequest},
     usage::SessionSpend,
 };
+use beep_proto::watched;
+use beep_proto::{MAX_AGENT_FILE, media_mime};
 use iroh::EndpointId;
 use std::{fmt::Display, io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
@@ -640,7 +641,7 @@ async fn send_usage(
     let mut plans = agents.usage.plans();
     // What earlier reads left goes out at once: a desktop opens a stream per
     // look and listens only briefly, so it would miss a CLI that starts slowly.
-    let mut sent = plans.borrow_and_update().clone();
+    let mut sent = watched::read_and_update(&mut plans, Clone::clone);
 
     for plan in sent.values() {
         tx.send(&SessionsReply::PlanUsage {
@@ -668,7 +669,7 @@ async fn send_usage(
                 tx.send(&SessionsReply::TurnUsage { usage: turn }).await?;
             }
             Ok(()) = plans.changed() => {
-                let now = plans.borrow_and_update().clone();
+                let now = watched::read_and_update(&mut plans, Clone::clone);
 
                 for plan in now.values().filter(|plan| sent.get(&plan.agent) != Some(plan)) {
                     tx.send(&SessionsReply::PlanUsage { usage: plan.clone() }).await?;

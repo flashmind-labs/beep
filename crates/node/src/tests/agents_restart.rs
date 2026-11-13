@@ -4,6 +4,7 @@ use crate::{
     link::restart::{self, Reopen},
 };
 use beep_proto::node::agent::EntryKind;
+use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tokio::sync::watch;
 
@@ -65,7 +66,7 @@ fn begin(prompt: &str) -> Begin {
 }
 
 async fn until(live: &mut watch::Receiver<Live>, done: impl FnMut(&Live) -> bool) {
-    timeout(Duration::from_secs(20), live.wait_for(done))
+    timeout(Duration::from_secs(20), watched::wait_for(live, done))
         .await
         .expect("the session got there in time")
         .expect("the session is kept");
@@ -96,11 +97,7 @@ async fn an_update_waits_for_the_turn_and_the_next_prompt_goes_after() {
     let idle = agents.until_idle();
     tokio::pin!(idle);
     assert!(futures::poll!(&mut idle).is_pending());
-    let question = live
-        .borrow()
-        .info
-        .question
-        .as_ref()
+    let question = watched::read(&live, |live| live.info.question.clone())
         .expect("the turn asks")
         .id;
     session
@@ -239,13 +236,11 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     let resumed = after.get("held-1").expect("resumed under the agent's id");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.status() == Status::Idle).await;
-    assert_eq!(live.borrow().info.started_at, 100);
-    assert_eq!(live.borrow().info.last_activity, 200);
+    assert_eq!(watched::read(&live, |live| live.info.started_at), 100);
+    assert_eq!(watched::read(&live, |live| live.info.last_activity), 200);
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
     assert!(read.contains("session/resume"), "{read}");
-    let shown: Vec<(EntryKind, String)> = live
-        .borrow()
-        .transcript(100)
+    let shown: Vec<(EntryKind, String)> = watched::read(&live, |live| live.transcript(100))
         .0
         .into_iter()
         .map(|entry| (entry.kind, entry.text))

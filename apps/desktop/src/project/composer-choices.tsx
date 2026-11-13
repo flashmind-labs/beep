@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { Button } from "../ui/kit.tsx";
 
 export interface ComposerChoicesState {
   machine: string;
@@ -28,6 +29,6 @@ export function ComposerChoices({ value, actions }: { value: ComposerChoicesStat
     <button type="button" className="pill" data-composer="folder" title="The checkout, a new worktree, or an existing worktree" disabled={value.folderDisabled} onClick={event => actions.folder(event.nativeEvent)}>{value.folder} <small>{value.folderSub}</small></button>
     <span className="choices" data-composer="extra"/>
     <input ref={branch} className="branch" type="text" spellCheck={false} autoComplete="off" aria-label="Branch name" title="The new branch, in a new worktree" hidden={!value.showBranch} defaultValue="" onChange={event => actions.branch(event.currentTarget.value)}/>
-    <button type="button" className="dbtn quiet small" title="Back to a plain start" hidden={!value.showClear} onClick={actions.clear}>Clear</button>
+    <Button look="quiet" small title="Back to a plain start" hidden={!value.showClear} onClick={actions.clear}>Clear</Button>
   </>;
 }

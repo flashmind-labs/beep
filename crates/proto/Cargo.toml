@@ -18,7 +18,7 @@ logging = ["dep:tracing", "dep:tracing-log", "dep:tracing-subscriber", "uuid/v4"
 anyhow = "1"
 blake3 = "1"
 bytes = "1"
-flashmind-types = "0.3.1"
+flashmind-types = "0.3.2"
 futures = "0.3"
 # Lean for the phone; a node and the server turn on the defaults.
 iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }

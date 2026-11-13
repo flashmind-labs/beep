@@ -2,6 +2,7 @@
 
 use crate::AsyncMutex;
 use beep_proto::node::agent::RunningProcess;
+use beep_proto::watched;
 use std::{
     collections::HashMap,
     sync::{Arc, LazyLock, Mutex},
@@ -90,8 +91,8 @@ async fn pace<T>(
     session: &mut watch::Receiver<T>,
     works: impl Fn(&T) -> bool,
 ) -> bool {
-    let working = works(&session.borrow_and_update());
-    let wait = if *demand.borrow_and_update() > 0 || working {
+    let working = watched::read_and_update(session, &works);
+    let wait = if watched::read_and_update(demand, |demand| *demand) > 0 || working {
         WATCHED
     } else {
         UNWATCHED
@@ -101,7 +102,7 @@ async fn pace<T>(
         () = sleep(wait) => true,
         changed = demand.changed() => changed.is_ok(),
         // An ended session still keeps its watch until it is dropped.
-        Ok(_) = session.wait_for(&works), if !working => true,
+        Ok(()) = watched::wait_for(session, &works), if !working => true,
     }
 }
 

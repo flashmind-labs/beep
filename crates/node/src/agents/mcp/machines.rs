@@ -22,6 +22,7 @@ use beep_proto::node::{
     tools::{PROTOCOL, Reply, Request, Tool},
     transfer::Reply as TransferReply,
 };
+use beep_proto::watched;
 use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -599,7 +600,7 @@ async fn open(
     let mut updates = mesh.updates();
     let opened = timeout(LINK_WAIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             match mesh.open_bi(peer).await {
                 Ok(streams) => return Ok(streams),

@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::watched;
 use std::sync::atomic::AtomicUsize;
 
 /// Probes that count their runs and report `hostname` as the run number.
@@ -24,13 +25,18 @@ async fn two_followers_share_one_probe() {
     let mut second = probes.follow();
 
     for follower in [&mut first, &mut second] {
-        let probed = follower.wait_for(Option::is_some).await.expect("a report");
-        assert_eq!(probed.as_ref().expect("probed").report.hostname, "1");
+        watched::wait_for(follower, Option::is_some)
+            .await
+            .expect("a report");
+        let hostname = watched::read(follower, |probed| {
+            probed.as_ref().map(|probed| probed.report.hostname.clone())
+        });
+        assert_eq!(hostname.as_deref(), Some("1"));
     }
 
     // A later follower gets the kept report without a probe of its own.
     let third = probes.follow();
-    assert!(third.borrow().is_some());
+    assert!(watched::read(&third, Option::is_some));
     assert_eq!(runs.load(Ordering::SeqCst), 1);
 }
 
@@ -38,12 +44,15 @@ async fn two_followers_share_one_probe() {
 async fn the_report_is_probed_again_after_reprobe() {
     let (probes, runs) = counted();
     let mut follower = probes.follow();
-    follower.wait_for(Option::is_some).await.expect("a report");
-
-    follower
-        .wait_for(|probed| probed.as_ref().is_some_and(|p| p.report.hostname == "2"))
+    watched::wait_for(&mut follower, Option::is_some)
         .await
-        .expect("a second report");
+        .expect("a report");
+
+    watched::wait_for(&mut follower, |probed| {
+        probed.as_ref().is_some_and(|p| p.report.hostname == "2")
+    })
+    .await
+    .expect("a second report");
     assert_eq!(runs.load(Ordering::SeqCst), 2);
 }
 
@@ -64,10 +73,13 @@ fn a_probe_task_lost_with_its_runtime_is_started_again() {
 
     runtime().block_on(async {
         let mut follower = probes.follow();
-        tokio::time::timeout(Duration::from_secs(5), follower.wait_for(Option::is_some))
-            .await
-            .expect("a report in time")
-            .expect("a report");
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            watched::wait_for(&mut follower, Option::is_some),
+        )
+        .await
+        .expect("a report in time")
+        .expect("a report");
     });
     assert!(runs.load(Ordering::SeqCst) >= 1);
 }

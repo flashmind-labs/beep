@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.8.24"
+version = "0.8.25"
 edition = "2024"
 license = "MPL-2.0"
 rust-version = "1.99"
@@ -105,6 +105,8 @@ tauri-plugin-single-instance = "2"
 # which a local build signed ad hoc cannot load under the hardened runtime.
 tauri-plugin-sparkle-updater = { version = "0.3", optional = true }
 block2 = "0.6"
+# When the kernel started the process, for the startup timings in the log.
+libc = "0.2"
 # Notifications with Allow and Deny, and what a click on one opens. The
 # notification plugin shows them through the same crate but drops actions.
 mac-notification-sys = "0.6"

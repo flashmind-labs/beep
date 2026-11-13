@@ -28,8 +28,9 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, agent, desktop, sign_in, setup, tool_update, version,
+    LinkRx, LinkTx, Open, Opened, agent, desktop, setup, sign_in, tool_update, version,
 };
+use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
 use std::{
     future::Future,
@@ -85,7 +86,10 @@ pub async fn serve(
     };
     let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
     traffic.measure_endpoint(endpoint.metrics().clone());
-    let _diagnostics = match super::diagnostics::start(&endpoint, &state.dir.join("metrics.log")) {
+    let diagnostics = super::diagnostics::install().and_then(|recorder| {
+        super::diagnostics::start(recorder, &endpoint, &state.dir.join("metrics.log"))
+    });
+    let _diagnostics = match diagnostics {
         Ok(task) => Some(task),
         Err(e) => {
             log::warn!("metrics unavailable: {e:#}");
@@ -317,7 +321,7 @@ impl Default for Sharing {
 
 impl Sharing {
     pub(crate) fn get(&self) -> Option<Transfers> {
-        self.0.borrow().clone()
+        watched::read_sent(&self.0, Clone::clone)
     }
 
     pub(crate) fn set(&self, transfers: Transfers) {
@@ -517,6 +521,7 @@ fn node_may_open(protocol: &SessionProtocol) -> bool {
         SessionProtocol::Status
             | SessionProtocol::Tools
             | SessionProtocol::Skills
+            | SessionProtocol::SkillLibrary
             | SessionProtocol::Transcripts
             | SessionProtocol::Device
     )
@@ -581,6 +586,9 @@ pub(super) async fn serve_open(
                 let mesh = offers.mesh.get().context("this node is not in a mesh")?;
                 crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
             }
+            SessionProtocol::SkillLibrary => {
+                crate::agents::skill_library::serve(tx, rx, offers.skills).await
+            }
             SessionProtocol::Tasks => tasks::serve(tx, rx).await,
             SessionProtocol::Terminal => terminal::serve(tx, rx).await,
             SessionProtocol::Device => device::serve(tx, rx, offers.agents.clone()).await,
@@ -631,6 +639,7 @@ fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
         | SessionProtocol::Version
         | SessionProtocol::Tools
         | SessionProtocol::Shell
+        | SessionProtocol::SkillLibrary
         | SessionProtocol::Tasks
         | SessionProtocol::Terminal
         | SessionProtocol::Device

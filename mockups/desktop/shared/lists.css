@@ -38,3 +38,4 @@
 .mac .dcheck:indeterminate::after { content: ""; width: 6px; height: 2px; background: currentColor; transform: none; border: 0 }
 .mac .dcheck:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px }
 .mac .dcheck:disabled { opacity: .45; cursor: default }
+.mac label.am-line, .mac label.am-sub { display: flex; gap: 8px; align-items: center }

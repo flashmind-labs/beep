@@ -6,6 +6,7 @@ use crate::files::transfer::place::{Reserved, space_at};
 use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result, anyhow, bail};
 use bao_tree::io::BaoContentItem;
+use beep_proto::watched;
 use futures::StreamExt as _;
 use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
 use iroh_blobs::{
@@ -151,7 +152,8 @@ impl Fetcher {
 
         let peers = {
             let down = lock(&self.down);
-            peers_to_ask(&self.shared.peers.borrow(), &down, Instant::now())
+            let now = Instant::now();
+            watched::read_sent(&self.shared.peers, |peers| peers_to_ask(peers, &down, now))
         };
         let mut last = None;
 
@@ -207,7 +209,7 @@ impl Fetcher {
     /// Writes blob `hash` into `out` from the first peer that sends all of
     /// it, verified as it comes, without the store.
     pub(super) async fn copy_from_peers(&self, hash: Hash, out: &mut AsyncFile) -> Result<()> {
-        let peers = self.shared.peers.borrow().clone();
+        let peers = watched::read_sent(&self.shared.peers, Clone::clone);
         let mut last = anyhow!("no other machine syncs it");
 
         for peer in peers {

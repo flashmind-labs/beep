@@ -66,6 +66,24 @@ pub(super) fn markdown(text: &str) -> Found {
     }
 }
 
+/// What a skill's `SKILL.md` says it is for: its frontmatter `description`, else the first line
+/// of text after the frontmatter, without a heading's `#`.
+pub(crate) fn skill_description(text: &str) -> String {
+    let found = markdown(text);
+
+    if !found.description.is_empty() {
+        return found.description;
+    }
+
+    found
+        .prompt
+        .lines()
+        .map(|line| line.trim_start_matches('#').trim())
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .to_owned()
+}
+
 struct Frontmatter<'a> {
     yaml: &'a str,
     body: &'a str,

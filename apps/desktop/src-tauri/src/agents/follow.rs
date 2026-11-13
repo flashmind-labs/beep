@@ -14,6 +14,7 @@ use crate::{
     fleet::Machines,
 };
 use beep_mesh::machine;
+use beep_proto::watched;
 use beep_proto::{
     AgentMode, AgentSessionModes, AgentSessionView, AgentSlug, AgentStatus, AgentTask, SessionId,
     node::agent::{
@@ -395,7 +396,7 @@ pub async fn agent_follow(
                     }
 
                     // Shown again: what was held goes at once.
-                    if *on_screen.borrow_and_update()
+                    if watched::read_and_update(&mut on_screen, |shown| *shown)
                         && let Some(pushed) = pace.flush(Instant::now())
                     {
                         on_event.send(pushed.into())?;
@@ -425,7 +426,7 @@ pub async fn agent_follow(
 
             // Only the session on screen counts as read; those followed off
             // screen still notify.
-            let shown = *on_screen.borrow();
+            let shown = watched::read(&on_screen, |shown| *shown);
 
             if shown {
                 app.state::<AgentsShown>().read(

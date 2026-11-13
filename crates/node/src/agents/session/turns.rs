@@ -19,6 +19,7 @@ use agent_client_protocol::{
 use anyhow::Result;
 use beep_proto::node::agent::{AlertKind, EntryKind, State, Status, StopReason};
 use beep_proto::node::usage::{MAX_MODEL_NAME, MAX_TURN_MODELS, ModelTokens};
+use beep_proto::watched;
 use beep_proto::{MAX_AGENT_IMAGES, MAX_AGENT_IMAGES_TOTAL, ModelId};
 use futures::FutureExt;
 use serde_json::Value;
@@ -197,13 +198,13 @@ impl Actor {
         self.show_queued();
         if self.turn.is_none() {
             if self.waiting() == 0 {
-                let live = self.live.borrow();
-                let ended = live.last_stop.map(|stop_reason| AlertKind::TurnEnded {
-                    stop_reason,
-                    last_message: live.info.last_message.clone(),
-                    error: live.info.state.error.clone(),
+                let ended = watched::read_sent(&self.live, |live| {
+                    live.last_stop.map(|stop_reason| AlertKind::TurnEnded {
+                        stop_reason,
+                        last_message: live.info.last_message.clone(),
+                        error: live.info.state.error.clone(),
+                    })
                 });
-                drop(live);
 
                 if let Some(ended) = ended {
                     self.turn_ended(ended);
@@ -221,7 +222,7 @@ impl Actor {
     /// Alerts that the turn ended, or holds the alert while subagents it
     /// started still run.
     fn turn_ended(&mut self, ended: AlertKind) {
-        if self.live.borrow().info.state.subagents == 0 {
+        if watched::read_sent(&self.live, |live| live.info.state.subagents) == 0 {
             self.held_end = None;
             self.alert(ended);
             return;
@@ -240,7 +241,7 @@ impl Actor {
             return;
         };
 
-        if self.live.borrow().info.state.subagents > 0 {
+        if watched::read_sent(&self.live, |live| live.info.state.subagents) > 0 {
             held.due = tokio::time::Instant::now() + SUBAGENTS_QUIET;
             return;
         }
@@ -323,7 +324,8 @@ impl Actor {
 
         // Prompts queued behind the turn run first: one alert for the lot.
         if self.waiting() == 0 {
-            let last_message = self.live.borrow().info.last_message.clone();
+            let last_message =
+                watched::read_sent(&self.live, |live| live.info.last_message.clone());
             self.turn_ended(AlertKind::TurnEnded {
                 stop_reason: stop,
                 last_message,
@@ -357,12 +359,13 @@ impl Actor {
             self.find_made(made);
         }
 
-        let live = self.live.borrow();
-        self.compactor.turn_ended(TurnEnd {
-            usage: live.info.context,
-            commands: &live.commands,
+        let (usage, commands) = watched::read_sent(&self.live, |live| {
+            (live.info.context, live.commands.clone())
         });
-        drop(live);
+        self.compactor.turn_ended(TurnEnd {
+            usage,
+            commands: &commands,
+        });
         self.next_prompt(cx);
     }
 

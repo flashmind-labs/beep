@@ -1,13 +1,16 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
-use crate::link::HEARTBEAT;
 use super::{Agents, MAX_TRANSCRIPT, claude::Followed, found::Agent, transcript_stage};
+use crate::link::HEARTBEAT;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        Entry, FOLLOW_READERS_FULL, FollowSession, SessionCursor, SessionSnapshot, SessionSource, SessionUpdate},
+        Entry, FOLLOW_READERS_FULL, FollowSession, SessionCursor, SessionSnapshot, SessionSource,
+        SessionUpdate,
+    },
 };
+use beep_proto::watched;
 use std::{
     collections::HashMap,
     future::pending,
@@ -140,7 +143,10 @@ async fn follow(
         let presence_path = agents.external.presence_path();
         let presence_changed = stale.clone();
         let watcher = crate::events::paths::Paths::new(move |roots| {
-            if presence_path.as_ref().is_some_and(|path| roots.contains(path)) {
+            if presence_path
+                .as_ref()
+                .is_some_and(|path| roots.contains(path))
+            {
                 presence_changed.store(true, Ordering::Release);
             }
             let _ = dirty.try_send(());
@@ -162,10 +168,10 @@ async fn follow(
     };
 
     loop {
-        presence.borrow_and_update();
+        watched::read_and_update(&mut presence, |_| ());
 
         if let Some(live) = &mut live {
-            live.borrow_and_update();
+            watched::read_and_update(live, |_| ());
         }
 
         let read = Read {
@@ -211,9 +217,8 @@ async fn follow(
                 .as_ref()
                 .map(|prior| (prior.cursor.clone(), prior.source.clone()));
             let (window, update) = next_update(snapshot, prior, &requested)?;
-            let changed = held.is_none_or(|(cursor, source)| {
-                cursor != window.cursor || source != window.source
-            });
+            let changed = held
+                .is_none_or(|(cursor, source)| cursor != window.cursor || source != window.source);
             Ok::<_, anyhow::Error>((window, update, changed))
         })
         .await
@@ -273,7 +278,12 @@ async fn follow(
         }
         // Coalesce token bursts; the watch channel and file queue retain a dirty bit.
         // A session Beep runs is a live view; one read from its file can wait longer.
-        sleep(if live.is_some() { COALESCE_LIVE } else { COALESCE_FILE }).await;
+        sleep(if live.is_some() {
+            COALESCE_LIVE
+        } else {
+            COALESCE_FILE
+        })
+        .await;
 
         if live.is_none() {
             live = agents
@@ -514,9 +524,7 @@ fn retain(snapshot: SessionSnapshot, previous: Option<Window>) -> Result<(Window
             .and_then(|previous| previous.held(position, entry))
         {
             Some(range) => Encoded::Held(range),
-            None => Encoded::Fresh(
-                rmp_serde::to_vec(entry).context("measuring transcript entry")?,
-            ),
+            None => Encoded::Fresh(rmp_serde::to_vec(entry).context("measuring transcript entry")?),
         };
         let next = bytes
             .checked_add(entry.len())

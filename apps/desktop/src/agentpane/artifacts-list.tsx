@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { useStore } from "zustand";
-import { Spinner } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 import { artifactsModel } from "./artifacts.ts";
 import { clock } from "../agents/agentturns.ts";
 import { FRAME_SANDBOX, KIND_NAMES, relativeTo, type Artifact } from "./artifacts-state.ts";
@@ -41,8 +41,8 @@ function ArtifactsList({ artifacts, cwd, picked, gone, when, pick }: { artifacts
 }
 
 function ArtifactActions({ folded, note, url, inside, act }: { folded: boolean; note: string; url: string | null; inside: boolean; act(action: ArtifactAction): void }) {
-  return <><button type="button" className="dbtn" onClick={() => act("fold")} title="Fold or show the preview" aria-expanded={!folded}>{folded ? "Show" : "Fold"}</button><span className="meta mono">{note}</span><span className="sp" />
-    <button type="button" className="dbtn" onClick={() => act("claude")} hidden={!url} title={url ?? ""}>Open on claude.ai</button><button type="button" className="dbtn" onClick={() => act("file")} disabled={!inside} title={inside ? "Show it in the Files tab" : "It is outside the session's folder"}>Open file</button><button type="button" className="dbtn" onClick={() => act("copy")}>Copy path</button></>;
+  return <><Button onClick={() => act("fold")} title="Fold or show the preview" aria-expanded={!folded}>{folded ? "Show" : "Fold"}</Button><span className="meta mono">{note}</span><span className="sp" />
+    <Button onClick={() => act("claude")} hidden={!url} title={url ?? ""}>Open on claude.ai</Button><Button onClick={() => act("file")} disabled={!inside} title={inside ? "Show it in the Files tab" : "It is outside the session's folder"}>Open file</Button><Button onClick={() => act("copy")}>Copy path</Button></>;
 }
 
 export type ArtifactPreview =
@@ -57,7 +57,7 @@ function ArtifactPreviewView({ value, live, act }: { value: ArtifactPreview; liv
   switch (value.kind) {
     case "message": return <div className={`agpmsg${value.error ? " derr" : ""}`}>{value.text}</div>;
     case "loading": return <div className="agpmsg"><Spinner />Reading {value.name} from {value.machine}…</div>;
-    case "pdf": return <div className="agpmsg">PDFs open in a tab of their own. <button className="dbtn" onClick={() => act("pdf")}>Open {value.name}</button></div>;
+    case "pdf": return <div className="agpmsg">PDFs open in a tab of their own. <Button onClick={() => act("pdf")}>Open {value.name}</Button></div>;
     case "html": return <div className="agartframe-box"><iframe className="agartframe" sandbox={FRAME_SANDBOX} referrerPolicy="no-referrer" title={value.name} src={live ? value.src : "about:blank"} /></div>;
     case "md": return <div className="agartmd" dangerouslySetInnerHTML={{ __html: value.html }} />;
     case "image": return <div className="agartimg"><img alt={value.name} src={`data:${value.mime};base64,${value.data}`} /></div>;

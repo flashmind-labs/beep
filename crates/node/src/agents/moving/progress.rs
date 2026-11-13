@@ -7,6 +7,7 @@ use super::{Env, folder::project_folder};
 use crate::{files::syncthing::Syncthing, lock};
 use anyhow::Result;
 use beep_proto::node::agent::{MovePhase, MoveProgress};
+use beep_proto::watched;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -149,7 +150,7 @@ impl Moves {
     pub(crate) fn progress(&self, id: &str) -> Option<MoveProgress> {
         lock(&self.tracked)
             .get(id)
-            .map(|one| one.tracker.borrow().clone())
+            .map(|one| watched::read_sent(&one.tracker, Clone::clone))
     }
 
     /// What the target of the move made at `at` tells its source.
@@ -158,9 +159,9 @@ impl Moves {
         let Some(one) = tracked.get(id).filter(|one| one.at == at) else {
             return Target::Unknown;
         };
-        let progress = one.tracker.borrow();
+        let taken = one.taken;
 
-        match progress.phase {
+        watched::read_sent(&one.tracker, |progress| match progress.phase {
             MovePhase::Done => Target::Landed,
             MovePhase::Failed | MovePhase::Cancelled => Target::Failed(
                 progress
@@ -168,9 +169,9 @@ impl Moves {
                     .clone()
                     .unwrap_or_else(|| "the move did not finish".to_owned()),
             ),
-            _ if one.taken => Target::Taken,
+            _ if taken => Target::Taken,
             _ => Target::Unknown,
-        }
+        })
     }
 
     /// Whether the move of `id` is past the point where it can be

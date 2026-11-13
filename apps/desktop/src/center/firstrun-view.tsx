@@ -3,6 +3,7 @@ import { JoinTicketFields, type JoinTicket } from "../machines/jointicket-view.t
 import { useDialogRef } from "../ui/parts.ts";
 import { ITEMS, ITEM_NAMES, ITEM_ROLES, pending, ready, row, type Item, type Row, type Setup } from "./firstrun-state.ts";
 import type { SetupRun } from "./firstrun-setup.ts";
+import { Button } from "../ui/kit.tsx";
 
 type Step = { kind: "choose" } | { kind: "link" } | { kind: "setup"; run: SetupRun };
 
@@ -36,8 +37,8 @@ export function FirstRunScreen({ done, join, prepare }: { done: () => void; join
       <div><b>{step.kind === "choose" ? "Welcome to Beep" : "Link another desktop"}</b><div className="fr-sub">{step.kind === "choose" ? "Run coding agents on your machines." : "On your other desktop, open Machines, then Add a machine, choose Desktop and copy the ticket. This computer then shares its machines, projects and keys."}</div></div>
     </div>
     {step.kind === "choose" ? <>
-      <button ref={start} type="button" className="dbtn fr-btn pri" disabled={starting} onClick={() => void begin()}><span className="fr-big"><b>Start</b><span>Use Beep on this computer. You can add machines later.</span></span></button>
-      <button type="button" className="dbtn fr-btn " onClick={() => setStep({ kind: "link" })}><span className="fr-big"><b>Link another desktop</b><span>You already use Beep on another computer. Share its machines, projects and keys with this one.</span></span></button>
+      <Button ref={start} look="primary" className="fr-btn" disabled={starting} onClick={() => void begin()}><span className="fr-big"><b>Start</b><span>Use Beep on this computer. You can add machines later.</span></span></Button>
+      <Button className="fr-btn" onClick={() => setStep({ kind: "link" })}><span className="fr-big"><b>Link another desktop</b><span>You already use Beep on another computer. Share its machines, projects and keys with this one.</span></span></Button>
     </> : <JoinTicketFields done={done} join={join} back={() => setStep({ kind: "choose" })} backLabel="Back" />}
   </div></div>;
 }
@@ -66,7 +67,7 @@ function SetupRow({ item, row: r, running, skip }: { item: Item; row: Row; runni
     <div className={`fr-item-state ${tone(r)}`}>
       {(r.kind === "installing" || r.kind === "dialog" || r.kind === "signing_in") && <span className="dspin" />}
       <span>{status(r)}</span>
-      {canSkip && <button type="button" className="dbtn quiet small" onClick={skip}>Skip</button>}
+      {canSkip && <Button look="quiet" small onClick={skip}>Skip</Button>}
     </div>
   </div>;
 }
@@ -74,10 +75,10 @@ function SetupRow({ item, row: r, running, skip }: { item: Item; row: Row; runni
 function Footer({ s, start, done }: { s: Setup; start: () => void; done: () => void }) {
   const left = pending(s).filter(item => !s.skipped.has(item)).length;
 
-  if (s.running) return <div className="fr-foot"><button type="button" className="dbtn pri" disabled>Setting up…</button><span className="fr-note">{runningNote(s)}</span><span className="fr-end"><button type="button" className="dbtn quiet" onClick={done}>Later</button></span></div>;
-  if (left === 0) return <div className="fr-foot"><button type="button" className="dbtn pri" onClick={done}>Open Beep</button><span className="fr-note">{ready(s) ? "This computer is ready to run agents." : "The rest finishes in the background."}</span></div>;
+  if (s.running) return <div className="fr-foot"><Button look="primary" disabled>Setting up…</Button><span className="fr-note">{runningNote(s)}</span><span className="fr-end"><Button look="quiet" onClick={done}>Later</Button></span></div>;
+  if (left === 0) return <div className="fr-foot"><Button look="primary" onClick={done}>Open Beep</Button><span className="fr-note">{ready(s) ? "This computer is ready to run agents." : "The rest finishes in the background."}</span></div>;
 
-  return <div className="fr-foot"><button type="button" className="dbtn pri" onClick={start}>Set up</button><span className="fr-note">Installs what is missing, then signs in.</span><span className="fr-end"><button type="button" className="dbtn quiet" onClick={done}>Later</button></span></div>;
+  return <div className="fr-foot"><Button look="primary" onClick={start}>Set up</Button><span className="fr-note">Installs what is missing, then signs in.</span><span className="fr-end"><Button look="quiet" onClick={done}>Later</Button></span></div>;
 }
 
 function runningNote(s: Setup): string {

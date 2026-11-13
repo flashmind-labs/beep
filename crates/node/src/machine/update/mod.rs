@@ -129,9 +129,27 @@ pub async fn update(options: Options) -> Result<(), Error> {
     let Newest { current, latest } = newest(&client, &base).await?;
 
     match current.cmp(&latest) {
+        // The binary is the newest, but the node may still run an older one,
+        // as when an update waits for its agent sessions to finish.
         Ordering::Equal => {
-            println!("beep-node {current} is the newest");
-            return Ok(());
+            return match running(&dir).await {
+                Some(running) if running < current && check => {
+                    println!(
+                        "beep-node {current} is installed, but the node still runs {running}. \
+                         Run `beep-node update` to restart it."
+                    );
+                    Ok(())
+                }
+                Some(running) if running < current => {
+                    println!("beep-node {current} is installed; restarting the node from {running}");
+                    let connection = idle(wait, &dir).await;
+                    restarted(this_binary()?, connection, &latest).await
+                }
+                _ => {
+                    println!("beep-node {current} is the newest");
+                    Ok(())
+                }
+            };
         }
         Ordering::Greater => {
             println!("beep-node {current} is newer than the latest release, {latest}");
@@ -146,14 +164,28 @@ pub async fn update(options: Options) -> Result<(), Error> {
 
     println!("Downloading beep-node {latest} for {}", Target::current()?);
     let download = download(&client, &base, &latest).await?;
-    // Keep the update connection until the restart.
-    let _connection = match wait {
-        Some(limit) => wait_for_idle(&dir, limit).await,
-        None => None,
-    };
+    let connection = idle(wait, &dir).await;
     let exe = download.install().await?;
     println!("Installed {}", exe.display());
 
+    restarted(exe, connection, &latest).await
+}
+
+/// Waits for the agent sessions to be idle, up to `wait`. The connection is
+/// held until the restart.
+async fn idle(wait: Option<Duration>, dir: &Path) -> Option<restart::UpdateConnection> {
+    match wait {
+        Some(limit) => wait_for_idle(dir, limit).await,
+        None => None,
+    }
+}
+
+/// Restarts the service on `exe` and says what happened.
+async fn restarted(
+    exe: PathBuf,
+    _connection: Option<restart::UpdateConnection>,
+    latest: &Version,
+) -> Result<(), Error> {
     let restarted = {
         let exe = exe.clone();
         spawn_blocking(move || service::restart(&exe)).await?
@@ -162,8 +194,32 @@ pub async fn update(options: Options) -> Result<(), Error> {
         version: latest.clone(),
         source,
     })?;
-    println!("{}", said(&restarted, &latest));
+    println!("{}", said(&restarted, latest));
     Ok(())
+}
+
+/// Where this binary is.
+fn this_binary() -> Result<PathBuf, Error> {
+    env::current_exe()
+        .and_then(paths::canonicalize)
+        .map_err(|source| Error::Io {
+            action: "finding",
+            path: PathBuf::from("this binary"),
+            source,
+        })
+}
+
+/// The version of the node running from `dir`, if one runs and says it.
+#[cfg(feature = "cli")]
+async fn running(dir: &Path) -> Option<Version> {
+    let status = crate::link::peers::local_status(dir).await.ok()??;
+    status.version.parse().ok()
+}
+
+/// Only the CLI reads the running node.
+#[cfg(not(feature = "cli"))]
+async fn running(_dir: &Path) -> Option<Version> {
+    None
 }
 
 /// What restarting did, in words for the user.
@@ -206,13 +262,7 @@ struct Download {
 /// Downloads `latest` and checks it against the release's `SHA256SUMS`.
 async fn download(client: &Client, base: &str, latest: &Version) -> Result<Download, Error> {
     let target = Target::current()?;
-    let exe = env::current_exe()
-        .and_then(paths::canonicalize)
-        .map_err(|source| Error::Io {
-            action: "finding",
-            path: PathBuf::from("this binary"),
-            source,
-        })?;
+    let exe = this_binary()?;
     // Fails before the download when the binary cannot be replaced.
     let probe = exe.clone();
     spawn_blocking(move || writable(&probe)).await??;

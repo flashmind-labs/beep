@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::watched;
 
 #[test]
 fn adapters_and_harness_helpers_are_hidden_but_commands_are_not() {
@@ -103,7 +104,7 @@ fn following_processes_holds_demand_until_dropped() {
     let mut seen = DEMAND.subscribe();
     let held = Demand::new();
     assert!(seen.has_changed().unwrap());
-    assert!(*seen.borrow_and_update() >= 1);
+    assert!(watched::read_and_update(&mut seen, |seen| *seen) >= 1);
     drop(held);
     assert!(seen.has_changed().unwrap());
 }

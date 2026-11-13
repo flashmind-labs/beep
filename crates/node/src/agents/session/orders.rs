@@ -6,15 +6,15 @@ use super::{
 };
 use crate::agents::{
     acp::{self, Prompt},
-    live::cut,
+    live::{Live, cut},
 };
 use agent_client_protocol::{
     Agent,
-    v1::{ConnectionTo, Responder},
     v1::schema::{
         CancelNotification, RequestPermissionRequest, RequestPermissionResponse,
         SetSessionModeRequest,
     },
+    v1::{ConnectionTo, Responder},
 };
 use anyhow::Result;
 use beep_proto::ModelId;
@@ -22,6 +22,7 @@ use beep_proto::node::agent::{
     Alert, AlertKind, AnswerOption, Effort, EntryKind, MAX_QUESTION_LINE, OptionKind, Question,
     Status,
 };
+use beep_proto::watched;
 
 /// What a prompt hears while its session moves.
 const MOVING_REFUSAL: &str =
@@ -72,7 +73,7 @@ impl Actor {
             Command::NotMoving => {
                 self.moving = false;
 
-                if self.live.borrow().status() == Status::Idle {
+                if watched::read_sent(&self.live, Live::status) == Status::Idle {
                     self.next_prompt(cx);
                 }
 
@@ -145,7 +146,7 @@ impl Actor {
         }
         self.show_queued();
 
-        if self.live.borrow().status() == Status::Idle {
+        if watched::read_sent(&self.live, Live::status) == Status::Idle {
             self.next_prompt(cx);
         } else if steer && self.takes_steering {
             self.steer_now(cx)?;
@@ -175,7 +176,7 @@ impl Actor {
         }
 
         if let Some(session) = &self.acp_session
-            && self.live.borrow().status() != Status::Idle
+            && watched::read_sent(&self.live, Live::status) != Status::Idle
         {
             cx.send_notification(CancelNotification::new(session.clone()))?;
         }
@@ -188,16 +189,15 @@ impl Actor {
     /// Asks the agent to stop each of its background tasks that still runs
     /// and can be stopped, for Stop all.
     fn stop_tasks(&mut self, cx: &ConnectionTo<Agent>) {
-        let running: Vec<String> = self
-            .live
-            .borrow()
-            .info
-            .state
-            .tasks
-            .iter()
-            .filter(|task| task.can_stop && !task.state.ended())
-            .map(|task| task.id.clone())
-            .collect();
+        let running: Vec<String> = watched::read_sent(&self.live, |live| {
+            live.info
+                .state
+                .tasks
+                .iter()
+                .filter(|task| task.can_stop && !task.state.ended())
+                .map(|task| task.id.clone())
+                .collect()
+        });
 
         for task in running {
             if let Err(e) = self.stop_task(cx, task) {
@@ -212,20 +212,26 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return Err("the agent is still starting".into());
         };
-        let live = self.live.borrow();
-        let Some(known) = live.info.state.tasks.iter().find(|known| known.id == task) else {
+        let known = watched::read_sent(&self.live, |live| {
+            live.info
+                .state
+                .tasks
+                .iter()
+                .find(|known| known.id == task)
+                .map(|known| (known.state.ended(), known.can_stop))
+        });
+        let Some((ended, can_stop)) = known else {
             return Err(format!("no task {task} here"));
         };
 
-        if known.state.ended() {
+        if ended {
             return Err(format!("the task {task} has ended"));
         }
 
-        if !known.can_stop {
+        if !can_stop {
             return Err(format!("the task {task} cannot be stopped"));
         }
 
-        drop(live);
         let request = acp::stop_task(&session, &task).map_err(|e| e.to_string())?;
         self.send(cx, request, move |result| Reply::TaskStopped {
             task,
@@ -240,17 +246,20 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return Err("the agent is still starting; switch once it is ready".into());
         };
-        let live = self.live.borrow();
+        let (offered, was) = watched::read_sent(&self.live, |live| {
+            (
+                live.info.modes.iter().any(|offered| offered.id == mode),
+                live.info.mode.clone(),
+            )
+        });
 
-        if !live.info.modes.iter().any(|offered| offered.id == mode) {
+        if !offered {
             return Err(format!(
                 "{} here has no mode {mode}",
                 agent_title(&self.agent)
             ));
         }
 
-        let was = live.info.mode.clone();
-        drop(live);
         let request = SetSessionModeRequest::new(session, mode.clone());
         self.send(cx, request, move |result| Reply::ModeSet {
             was,
@@ -290,7 +299,9 @@ impl Actor {
         asked: &Question,
         responder: Responder<RequestPermissionResponse>,
     ) -> Option<Responder<RequestPermissionResponse>> {
-        if self.live.borrow().info.mode.as_deref() != Some(acp::PLAN_MODE) {
+        if watched::read_sent(&self.live, |live| {
+            live.info.mode.as_deref() != Some(acp::PLAN_MODE)
+        }) {
             return Some(responder);
         }
 
@@ -542,7 +553,8 @@ impl Actor {
     fn show_question(&mut self) {
         let question = self.asked.front().map(|asked| asked.question.clone());
         let plan = self.asked.front().and_then(|asked| asked.plan.clone());
-        let shown = self.live.borrow().info.question.as_ref().map(|q| q.id);
+        let shown =
+            watched::read_sent(&self.live, |live| live.info.question.as_ref().map(|q| q.id));
 
         if let Some(asks) = question.as_ref().filter(|q| Some(q.id) != shown) {
             self.alert(AlertKind::Asks {
@@ -566,21 +578,27 @@ impl Actor {
 
     /// Has `kind` wait for the server, about this session as it stands.
     pub(super) fn alert(&self, kind: AlertKind) {
-        let live = self.live.borrow();
+        let named = watched::read_sent(&self.live, |live| {
+            live.agent_session.is_some().then(|| {
+                (
+                    live.info.id.clone(),
+                    live.info.title.clone(),
+                    live.info.cwd.clone(),
+                )
+            })
+        });
         // Startup failures are returned to the caller, without publishing an unnamed session.
-        if live.agent_session.is_none() {
+        let Some((session, title, cwd)) = named else {
             return;
-        }
-
-        let alert = Alert {
-            session: live.info.id.clone(),
-            agent: self.agent.clone(),
-            title: live.info.title.clone(),
-            cwd: live.info.cwd.clone(),
-            kind,
         };
-        drop(live);
-        self.alerts.record(alert);
+
+        self.alerts.record(Alert {
+            session,
+            agent: self.agent.clone(),
+            title,
+            cwd,
+            kind,
+        });
     }
 }
 

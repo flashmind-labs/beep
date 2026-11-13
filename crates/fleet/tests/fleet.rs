@@ -10,6 +10,7 @@ use beep_fleet::{
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
+use beep_proto::watched;
 use beep_proto::{
     ApiKey, SecretText, Service, SyncStatus, WorkDiff,
     node::{
@@ -105,7 +106,7 @@ async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     let mut updates = mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if ok(mesh) {
                 return;

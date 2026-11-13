@@ -27,6 +27,7 @@ pub mod metrics;
 pub mod process;
 pub mod report;
 pub mod sign_in;
+pub mod skill_library;
 pub mod skills;
 pub mod sync;
 pub mod terminal;

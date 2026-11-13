@@ -5,6 +5,7 @@
 
 use super::{Agents, Session, children, ended_for_good};
 use crate::link::Membership;
+use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
     sync::{Arc, Weak},
@@ -73,7 +74,7 @@ impl Agents {
             return false;
         };
 
-        if ended_for_good(&parent_session.live.borrow()) {
+        if watched::read(&parent_session.live, ended_for_good) {
             return false;
         }
 
@@ -97,7 +98,9 @@ async fn check_parent(
             return;
         };
 
-        if session.live.borrow().status() == beep_proto::node::agent::Status::Ended {
+        if watched::read(&session.live, |live| {
+            live.status() == beep_proto::node::agent::Status::Ended
+        }) {
             return;
         }
 

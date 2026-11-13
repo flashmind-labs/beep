@@ -24,6 +24,7 @@ use beep_proto::ModelId;
 use beep_proto::node::agent::{
     AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionInfo, Status,
 };
+use beep_proto::watched;
 use futures::stream::FuturesUnordered;
 use std::{
     borrow::Cow,
@@ -413,7 +414,7 @@ impl Session {
     }
 
     pub(super) fn info(&self) -> SessionInfo {
-        let mut info = self.live.borrow().info.clone();
+        let mut info = watched::read(&self.live, |live| live.info.clone());
         if let Some(folder) = crate::lock(&self.moved_cwd).as_ref() {
             info.cwd.clone_from(folder);
         }
@@ -431,7 +432,7 @@ impl Session {
 
     /// The commands and skills the agent last reported.
     pub(super) fn commands(&self) -> Vec<AgentCommand> {
-        self.live.borrow().commands.clone()
+        watched::read(&self.live, |live| live.commands.clone())
     }
 
     /// Hands `command` to the session and waits until it is done or refused.
@@ -468,25 +469,29 @@ impl Session {
         let _ = self.order(Command::Close { by_user: false }).await;
         let mut live = self.live.clone();
         // An error means the task is gone, which also ends the wait.
-        let _ = live.wait_for(|live| live.status() == Status::Ended).await;
+        let _ = watched::wait_for(&mut live, |live| live.status() == Status::Ended).await;
     }
 }
 
 async fn named_info(live: &mut watch::Receiver<Live>) -> Result<SessionInfo, String> {
-    let named = live
-        .wait_for(|live| live.agent_session.is_some() || live.status() == Status::Ended)
-        .await
-        .map_err(|_| "the agent stopped before giving a session id".to_owned())?;
-    if named.agent_session.is_some() {
-        Ok(named.info.clone())
-    } else {
-        Err(named
-            .info
-            .state
-            .error
-            .clone()
-            .unwrap_or_else(|| "the agent stopped before giving a session id".to_owned()))
-    }
+    watched::wait_for(live, |live| {
+        live.agent_session.is_some() || live.status() == Status::Ended
+    })
+    .await
+    .map_err(|_| "the agent stopped before giving a session id".to_owned())?;
+
+    watched::read(live, |named| {
+        if named.agent_session.is_some() {
+            Ok(named.info.clone())
+        } else {
+            Err(named
+                .info
+                .state
+                .error
+                .clone()
+                .unwrap_or_else(|| "the agent stopped before giving a session id".to_owned()))
+        }
+    })
 }
 
 #[cfg(test)]

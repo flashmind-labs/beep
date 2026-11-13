@@ -2,6 +2,30 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.21] - 2026-11-13
+
+### Added
+
+- Node: skill libraries. A node clones each library at the commit the desktop
+  picked, then installs the chosen skills into the agents' skills folders and
+  into project checkouts. Project skills kept out of Git are listed in
+  .git/info/exclude. Unpicked skills are removed. A skill you edited, or one of
+  the same name you made, is never overwritten or deleted, and skill sync
+  leaves library skills out.
+- Node: update matching Git fetch and push URLs after a repository is renamed, including when reconnecting.
+- Node: subagent lists show the model when it is known.
+
+### Changed
+
+- Node: Agents see the media tools grouped by kind (`image`, `video`, `speech`, `model_3d`) instead of one tool per operation. Each group has a `models` action that lists the models your providers offer right now, optionally filtered by provider or name. `decision` is unchanged.
+
+### Fixed
+
+- Node: `beep-node update` and `update --now` restart the node on the installed version when it is already the newest release but the running node is older, instead of reporting it as up to date. `--now` restarts at once; otherwise the restart waits until agent sessions finish their turns. `update --check` reports that the node still runs the older version.
+- Node: uploaded attachments in project folders no longer appear as files made by the agent.
+- Node: listing sessions while a session updated could stop the node, so desktops and phones could no longer reach it.
+- Node: flsh installs and updates on Windows x86_64 using the published Windows executable and checksum.
+
 ## [0.6.20] - 2026-11-13
 
 ### Added

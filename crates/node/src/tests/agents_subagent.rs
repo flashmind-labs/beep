@@ -33,3 +33,20 @@ fn a_codex_spawn_names_its_threads_once_it_has_them() {
     // Waiting on a subagent starts none.
     assert!(Subagent::of_call("wait", Some(&done)).is_none());
 }
+
+#[test]
+fn spawn_calls_preserve_the_requested_model() {
+    for (title, input) in [
+        (
+            "Agent",
+            json!({"subagent_type": "general-purpose", "model": "sonnet"}),
+        ),
+        (
+            CODEX_SPAWN,
+            json!({"prompt": "Check files", "model": "sonnet"}),
+        ),
+    ] {
+        let sub = Subagent::of_call(title, Some(&input)).expect("a spawn");
+        assert_eq!(sub.model.as_deref(), Some("sonnet"));
+    }
+}

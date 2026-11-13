@@ -4,6 +4,7 @@
 use crate::{Mesh, MeshError};
 use beep_proto::node::events::{Read, Value};
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, local_link};
+use beep_proto::watched;
 use futures::Stream;
 use futures::stream::unfold;
 use iroh::EndpointId;
@@ -562,7 +563,7 @@ pub async fn with_deadline(machine: EndpointId, mesh: &Mesh) -> Result<PeerClien
     let mut updates = mesh.updates();
     let wait = async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
             // A removed device may keep its link for a few seconds.
             if !mesh.is_member(machine) {
                 return Err(Offline(machine));

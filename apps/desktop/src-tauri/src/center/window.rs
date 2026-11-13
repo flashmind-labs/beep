@@ -3,6 +3,7 @@
 //! `open_project`, `hide_on_close`, `is_center`.
 
 use crate::{bar, error::Result};
+use beep_proto::watched;
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
@@ -107,6 +108,13 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     #[cfg(mobile)]
     {
         builder = builder.initialization_script("window.__BEEP_PHONE__ = true;");
+    }
+    // The last Home is on the page before its scripts run.
+    #[cfg(desktop)]
+    if label == LABEL
+        && let Some(frame) = super::home_frame::load(app)
+    {
+        builder = builder.initialization_script(super::home_frame::script(&frame));
     }
     #[cfg(target_os = "macos")]
     {
@@ -334,7 +342,7 @@ impl OnScreen {
 /// Whether a window `OnScreen::watch` follows is hidden. One never told is
 /// taken as shown.
 pub(crate) fn hidden(shown: &watch::Receiver<Option<bool>>) -> bool {
-    *shown.borrow() == Some(false)
+    watched::read(shown, |shown| *shown == Some(false))
 }
 
 /// Whether a page hears its window's state again when nothing changed.

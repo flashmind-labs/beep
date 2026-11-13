@@ -7,6 +7,7 @@ use beep_proto::node::{
     agent::{SessionsReply, SessionsRequest},
     events::{self, CallReply, Incoming, Operation, Reply, Request, Topic},
 };
+use beep_proto::watched;
 use futures::{FutureExt, StreamExt, stream};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -57,10 +58,9 @@ pub(crate) async fn serve(
     static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(256);
     let _reader = READERS.try_acquire().context("too many topic readers")?;
     let mut membership = offers.mesh.subscribe();
-    let mut project_changes = membership
-        .borrow_and_update()
-        .as_ref()
-        .map(beep_mesh::Mesh::changes);
+    let mut project_changes = watched::read_and_update(&mut membership, |mesh| {
+        mesh.as_ref().map(beep_mesh::Mesh::changes)
+    });
     offers.agents.start_event_bridge();
     let mut topics = Vec::new();
     let mut queries = Vec::new();
@@ -220,7 +220,7 @@ pub(crate) async fn serve(
             },
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
                 if changed.is_err() { return Ok(()); }
-                project_changes = membership.borrow_and_update().as_ref().map(beep_mesh::Mesh::changes);
+                project_changes = watched::read_and_update(&mut membership, |mesh| mesh.as_ref().map(beep_mesh::Mesh::changes));
                 sources::reconcile(&offers, &subscriptions).await?;
                 roots = sources::roots(&subscriptions);
                 snapshots.replace(&offers, &topics, &queries, &roots);

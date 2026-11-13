@@ -5,7 +5,7 @@ import { bareVersion, coderColumns, coders, machineTag, nodeBehind, nodeVersion,
 import { adapterLine } from "./adapters-state.ts";
 import type { Asking, Machine } from "./machines.ts";
 import { clockWarning } from "./clock.ts";
-import { onRowKey, SkeletonRows } from "../ui/kit.tsx";
+import { Button, onRowKey, SkeletonRows } from "../ui/kit.tsx";
 
 interface ListProps {
   list: Machine[] | null;
@@ -34,7 +34,7 @@ export function MachineList(p: ListProps) {
   const say = summary || "Where Beep runs commands and coding agents";
   const columns = coderColumns(list.map(m => m.env?.tools ?? []));
   const style: ColumnStyle = { "--ag": columns.length };
-  const actions = <span className="dline"><button type="button" className="dbtn quiet" id="mcLinkDesktop" onClick={p.link}>Link another desktop</button><button type="button" className="dbtn" id="mcAdd" onClick={p.add}>Add a machine</button></span>;
+  const actions = <span className="dline"><Button look="quiet" id="mcLinkDesktop" onClick={p.link}>Link another desktop</Button><Button id="mcAdd" onClick={p.add}>Add a machine</Button></span>;
   return <>
     {p.hosted ? <div className="dmc-head"><span className="dmuted">{say}</span>{actions}</div> : <div className="dhead"><span className="tt"><b>Machines</b><small>{say}</small></span>{actions}</div>}
     {p.error && <div className="derr dpadx">{p.error}</div>}
@@ -48,7 +48,7 @@ export function MachineList(p: ListProps) {
 export function RemoveAsk({ machine: m, asking, ids = false, remove, cancel }: { machine: Machine; asking: Asking; ids?: boolean; remove: () => void; cancel: () => void }) {
   const note = removalNote(m);
 
-  return <div className="ask"><span>Remove {m.name} from the mesh? {note} {m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>{asking.error && <span className="derr">{asking.error}</span>}<span className="acts"><button type="button" className="dbtn warn" id={ids ? "rmYes" : undefined} disabled={asking.busy} onClick={remove}>Remove</button><button type="button" className="dbtn quiet" id={ids ? "rmNo" : undefined} autoFocus onClick={cancel}>Cancel</button></span></div>;
+  return <div className="ask"><span>Remove {m.name} from the mesh? {note} {m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>{asking.error && <span className="derr">{asking.error}</span>}<span className="acts"><Button danger id={ids ? "rmYes" : undefined} disabled={asking.busy} onClick={remove}>Remove</Button><Button look="quiet" id={ids ? "rmNo" : undefined} autoFocus onClick={cancel}>Cancel</Button></span></div>;
 }
 
 function MachineCard({ machine: m, columns, props: p }: { machine: Machine; columns: string[]; props: ListProps }) {
@@ -68,13 +68,13 @@ function MachineCard({ machine: m, columns, props: p }: { machine: Machine; colu
       {clock && <span className="clockoff" title={clock.title}>{clock.text}</span>}
       <span className="spec" title={spec}>{spec}</span>
       {m.can_host !== false && <span className="dmnv" title={behind ? `beep-node ${m.version}; ${p.newest} is out` : version}>{version}{behind && <span className="up">update</span>}</span>}
-      {!p.hosted && m.id !== p.mac && !asking && <button type="button" className="dbtn warn" aria-label={`Remove ${m.name}`} onClick={() => p.askRemove(m.id)}>Remove…</button>}
+      {!p.hosted && m.id !== p.mac && !asking && <Button danger aria-label={`Remove ${m.name}`} onClick={() => p.askRemove(m.id)}>Remove…</Button>}
     </span>
     {p.hosted && <span className="ch"><Icon name="chev" /></span>}
     {env && m.can_host !== false && <>
       {agents.length ? agents.map(t => { const v = bareVersion(t.name, t.version) ?? "", login = env.logins.find(l => l.tool === t.name); const title = `${t.name} ${v}${!login ? "" : login.signed_in ? ", signed in" : ", not signed in"}`; return <span key={t.name} className="dmag" style={{ gridColumn: columns.indexOf(t.name) + 1 }} title={title}><HarnessIcon agent={t.name} className="dmag-ic" /><span className="v">{v}</span>{login && <span className={login.signed_in ? "in" : "out"} />}</span>; }) : <span className="none">No coding agents</span>}
       {!!tools.shown.length && <span className="l3">{tools.shown.map(n => <span className="dmt-t" key={n}>{n}</span>)}{!!tools.more.length && <span className="dmt-t" title={tools.more.join(", ")}>+{tools.more.length}</span>}</span>}
-      {m.online && (m.adapters ?? []).map((a, i) => { const text = adapterLine(a); return <span key={`${a.agent}-${i}`} className={`dmad${a.failed === null ? "" : " bad"}`}><span title={text}>{text}</span>{a.failed !== null && <button type="button" className="dbtn small" disabled={tried?.busy} onClick={e => { e.stopPropagation(); p.retryAdapter(m.id); }}>{tried?.busy ? "Trying again…" : "Try again"}</button>}</span>; })}
+      {m.online && (m.adapters ?? []).map((a, i) => { const text = adapterLine(a); return <span key={`${a.agent}-${i}`} className={`dmad${a.failed === null ? "" : " bad"}`}><span title={text}>{text}</span>{a.failed !== null && <Button small disabled={tried?.busy} onClick={e => { e.stopPropagation(); p.retryAdapter(m.id); }}>{tried?.busy ? "Trying again…" : "Try again"}</Button>}</span>; })}
       {m.online && tried?.error && <span className="dmad bad"><span>{tried.error}</span></span>}
     </>}
     {asking && !p.hosted && <RemoveAsk machine={m} asking={asking} ids remove={p.remove} cancel={p.cancelRemove} />}

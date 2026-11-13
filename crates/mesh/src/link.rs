@@ -10,6 +10,7 @@
 use crate::mesh::{AddrNote, Inner, Live, MAX_STREAMS, PeerStream, Retired};
 use crate::wire::{self, FrameReader, MAX_FRAME};
 use crate::{DeviceOp, Entry, Heads, MeshError};
+use beep_proto::watched;
 use iroh::EndpointId;
 use iroh::endpoint::{Connection, SendStream};
 use serde::{Deserialize, Serialize};
@@ -467,7 +468,7 @@ async fn write(
     send_ops(&mut send, &ops).await?;
 
     loop {
-        rev.borrow_and_update();
+        watched::read_and_update(&mut rev, |_| ());
         let view = inner.view();
         let ops = view.devices.ops();
 
@@ -531,7 +532,7 @@ async fn streams(
     let mut until: Option<Instant> = None;
 
     loop {
-        if until.is_none() && *over.borrow() {
+        if until.is_none() && watched::read(&over, |over| *over) {
             until = Some(Instant::now() + DRAIN);
         }
 

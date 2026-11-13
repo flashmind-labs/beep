@@ -14,6 +14,7 @@ use beep_proto::node::{
     agent::{Alert, AlertKind, OptionKind, StopReason, TaskState},
     harness::{AutoCompact, ModelCompact},
 };
+use beep_proto::watched;
 use beep_proto::{MAX_AGENT_IMAGES, Upload};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -99,7 +100,7 @@ async fn settle(session: &Session) {
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| {
+        watched::wait_for(&mut live, |live| {
             live.info.turns >= 1 || matches!(live.status(), Status::Ended | Status::Asking)
         }),
     )
@@ -165,7 +166,10 @@ async fn a_takeover_resumes_without_permission_prompts() {
     assert_eq!(info.turns, 1, "{:?}", info.state.error);
     assert_eq!(info.last_message, "Picked it up.");
     assert!(info.question.is_none());
-    assert_eq!(session.live.borrow().agent_session.as_deref(), Some(id));
+    assert_eq!(
+        watched::read(&session.live, |live| live.agent_session.clone()).as_deref(),
+        Some(id)
+    );
     let sent: Vec<Value> = std::fs::read_to_string(&log)
         .unwrap()
         .lines()
@@ -183,7 +187,7 @@ async fn a_takeover_resumes_without_permission_prompts() {
     // The stray permission request was allowed, not asked.
     assert_eq!(sent[4]["id"], "p1");
     assert_eq!(sent[4]["result"]["outcome"]["optionId"], "allow");
-    let (entries, _) = session.live.borrow().transcript(10);
+    let (entries, _) = watched::read(&session.live, |live| live.transcript(10));
     assert!(
         entries
             .iter()
@@ -471,7 +475,7 @@ async fn a_question_left_open_by_a_turn_is_answered_cancelled() {
     // The adapter exits once it hears the answer; without one it waits.
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| live.status() == Status::Ended),
+        watched::wait_for(&mut live, |live| live.status() == Status::Ended),
     )
     .await
     .expect("the question was never answered")
@@ -514,7 +518,9 @@ async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
     // The timeout only bounds a failure; the turn ending is the signal.
     tokio::time::timeout(
         Duration::from_secs(60),
-        live.wait_for(|live| live.info.turns >= 1 || live.status() == Status::Ended),
+        watched::wait_for(&mut live, |live| {
+            live.info.turns >= 1 || live.status() == Status::Ended
+        }),
     )
     .await
     .expect("the session hung: reading waited on writing")
@@ -551,7 +557,7 @@ read -r line
 /// Waits until `done` holds. The timeout only bounds a failure.
 async fn until(session: &Session, done: impl FnMut(&Live) -> bool) {
     let mut live = session.live.clone();
-    tokio::time::timeout(Duration::from_secs(60), live.wait_for(done))
+    tokio::time::timeout(Duration::from_secs(60), watched::wait_for(&mut live, done))
         .await
         .expect("the session got there")
         .unwrap();
@@ -692,13 +698,13 @@ async fn images_go_to_an_agent_that_takes_them() {
     assert_eq!(prompt["params"]["prompt"][1]["mimeType"], "image/png");
     let data = b"\x89PNG\r\n\x1a\n";
     let key = beep_proto::image_key(data);
-    let (entries, _) = session.live.borrow().transcript(10);
+    let (entries, _) = watched::read(&session.live, |live| live.transcript(10));
     let shown = format!("The button overlaps\n[image: image-{key}]");
     assert!(
         entries.iter().any(|entry| entry.text == shown),
         "{entries:?}"
     );
-    let kept = session.live.borrow().picture(&key);
+    let kept = watched::read(&session.live, |live| live.picture(&key));
     assert_eq!(
         kept.map(|picture| picture.data.clone()),
         Some(data.to_vec())
@@ -876,7 +882,10 @@ async fn a_running_session_switches_its_model_for_the_next_turn() {
     let kind = script("codex", SWITCH_LATER_ADAPTER, &log);
     let session = Session::start(start_on(&kind, dir, None)).unwrap();
     settle(&session).await;
-    assert_eq!(session.info().model.as_ref().map(AsRef::as_ref), Some("fast"));
+    assert_eq!(
+        session.info().model.as_ref().map(AsRef::as_ref),
+        Some("fast")
+    );
     // It cannot think at another level: refused, nothing sent.
     let refused = session
         .order(Command::Configure {
@@ -903,7 +912,10 @@ async fn a_running_session_switches_its_model_for_the_next_turn() {
             .any(|entry| entry.text.contains("Switched to deep"))
     })
     .await;
-    assert_eq!(session.info().model.as_ref().map(AsRef::as_ref), Some("deep"));
+    assert_eq!(
+        session.info().model.as_ref().map(AsRef::as_ref),
+        Some("deep")
+    );
     let sent = sent(&log);
     assert_eq!(sent[3]["method"], "session/set_model");
     assert_eq!(sent[3]["params"]["modelId"], "deep");
@@ -937,7 +949,10 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
     };
     let session = Session::start(start).unwrap();
     settle(&session).await;
-    assert_eq!(session.info().model.as_ref().map(AsRef::as_ref), Some("fast"));
+    assert_eq!(
+        session.info().model.as_ref().map(AsRef::as_ref),
+        Some("fast")
+    );
     session
         .order(Command::Configure {
             model: Some("deep".into()),
@@ -952,7 +967,10 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
             .any(|entry| entry.text.contains("Switched to deep"))
     })
     .await;
-    assert_eq!(session.info().model.as_ref().map(AsRef::as_ref), Some("deep"));
+    assert_eq!(
+        session.info().model.as_ref().map(AsRef::as_ref),
+        Some("deep")
+    );
     let sent = sent(&log);
     assert_eq!(sent[1]["method"], "session/load");
     assert_eq!(sent[3]["method"], "session/set_config_option");
@@ -1098,7 +1116,7 @@ async fn a_full_window_is_compacted_before_the_next_prompt() {
         initialize["params"]["clientCapabilities"]["session"]["compaction"],
         serde_json::json!({})
     );
-    let (entries, _) = session.live.borrow().transcript(100);
+    let (entries, _) = watched::read(&session.live, |live| live.transcript(100));
     let compacted: Vec<_> = entries
         .iter()
         .filter(|entry| entry.text == COMPACTED_ENTRY)
@@ -1346,7 +1364,11 @@ async fn a_turn_alerts_its_end_once_its_subagents_end() {
     settle(&session).await;
     let question = session.info().question.expect("a question");
     assert_eq!(
-        alerts.drain().into_iter().map(|alert| alert.kind).collect::<Vec<_>>(),
+        alerts
+            .drain()
+            .into_iter()
+            .map(|alert| alert.kind)
+            .collect::<Vec<_>>(),
         [AlertKind::Asks {
             question: question.clone()
         }],
@@ -1365,7 +1387,11 @@ async fn a_turn_alerts_its_end_once_its_subagents_end() {
     })
     .await;
     assert_eq!(session.info().state.subagents, 1);
-    assert_eq!(alerts.drain(), [], "the turn ended with its subagent running");
+    assert_eq!(
+        alerts.drain(),
+        [],
+        "the turn ended with its subagent running"
+    );
 
     tokio::task::spawn_blocking(move || std::fs::write(fifo, "go\n"))
         .await
@@ -1378,7 +1404,11 @@ async fn a_turn_alerts_its_end_once_its_subagents_end() {
     // Orders run in turn, so the alert is in once the session closed.
     session.close().await;
     assert_eq!(
-        alerts.drain().into_iter().map(|alert| alert.kind).collect::<Vec<_>>(),
+        alerts
+            .drain()
+            .into_iter()
+            .map(|alert| alert.kind)
+            .collect::<Vec<_>>(),
         [AlertKind::TurnEnded {
             stop_reason: StopReason::EndTurn,
             last_message: "Waiting on it.".into(),
@@ -1703,7 +1733,7 @@ async fn plan_mode_waits_for_approval_and_goes_back_to_the_mode_before_it() {
     let question = info.question.unwrap();
     let names: Vec<&str> = question.options.iter().map(|o| o.name.as_str()).collect();
     assert_eq!(names, ["Approve and start", "Keep planning"]);
-    let (entries, _) = session.live.borrow().transcript(10);
+    let (entries, _) = watched::read(&session.live, |live| live.transcript(10));
     assert!(entries.iter().any(|entry| entry.text == "Allowed: Run ls"));
 
     // Keep planning: the turn ends, still in plan mode.
@@ -1810,7 +1840,7 @@ async fn background_commands_show_as_running_and_stop_without_ending_the_turn() 
     // Their calls completed, yet read as running, in whichever order the
     // adapter said so.
     let shown = |session: &Session| -> Vec<String> {
-        let (entries, _) = session.live.borrow().transcript(10);
+        let (entries, _) = watched::read(&session.live, |live| live.transcript(10));
         entries
             .into_iter()
             .filter(|entry| entry.kind == EntryKind::Tool)
@@ -2141,7 +2171,7 @@ async fn a_steer_injects_immediately_while_a_tool_is_running() {
     );
     assert_eq!(session.info().turns, 0);
     assert_eq!(session.info().state.status, Status::Working);
-    let (entries, _) = session.live.borrow().transcript(20);
+    let (entries, _) = watched::read(&session.live, |live| live.transcript(20));
     assert_eq!(
         entries.iter().filter(|e| e.kind == EntryKind::User).count(),
         2

@@ -16,9 +16,9 @@ fn rollout_lines(done: bool) -> String {
             "subagent_history_start_ordinal": 3}}),
         json!({"type": "response_item", "payload": {"type": "function_call",
             "name": "exec_command", "arguments": "{\"cmd\":\"ls\"}", "call_id": "old"}}),
-        json!({"type": "response_item", "payload": {"type": "message", "role": "assistant",
-            "content": [{"type": "output_text", "text": "the parent's answer"}]}}),
+        json!({"type": "turn_context", "payload": {"model": "parent-model"}}),
         json!({"type": "event_msg", "payload": {"type": "task_started"}}),
+        json!({"type": "turn_context", "payload": {"model": "child-model"}}),
         json!({"type": "response_item", "payload": {"type": "function_call",
             "name": "sleep", "arguments": "{\"duration_ms\":60000}", "call_id": "c1"}}),
         json!({"type": "response_item", "payload": {"type": "function_call_output",
@@ -76,6 +76,7 @@ fn its_own_steps_and_answer_read_after_the_parents_history() {
             result: Some("Slept for a minute.".into()),
             working: false,
             name: Some("Kepler".into()),
+            model: Some("child-model".into()),
             task: Some("sleep_test".into()),
         }
     );

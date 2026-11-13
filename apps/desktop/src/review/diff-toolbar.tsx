@@ -1,6 +1,7 @@
 import type { ReactNode, Ref } from "react";
 import { baseTitle, type DiffView } from "./diff-state.ts";
 import { DiffSummary } from "./diff-summary.tsx";
+import { Button } from "../ui/kit.tsx";
 
 interface DiffToolbarProps {
   view: DiffView | null;
@@ -61,7 +62,7 @@ export function DiffToolbar(props: DiffToolbarProps) {
     <span className="dv-sp"/>
     <span className="dv-flash" role="status">{props.flash}</span>
     <span style={{ display: "contents" }}>{props.feedback}</span>
-    <button type="button" className="dbtn pri small" title={sendTitle} hidden={props.readOnly || !props.comments}
-      disabled={props.sending} onClick={props.onSend}>Send review<span className="dv-n">{props.comments}</span></button>
+    <Button look="primary" small title={sendTitle} hidden={props.readOnly || !props.comments}
+      disabled={props.sending} onClick={props.onSend}>Send review<span className="dv-n">{props.comments}</span></Button>
   </>;
 }

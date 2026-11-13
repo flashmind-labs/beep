@@ -16,6 +16,7 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     sign_in::{Request, State, Tool},
 };
+use beep_proto::watched;
 use std::{
     path::PathBuf,
     process::Stdio,
@@ -112,10 +113,10 @@ async fn answer(request: Request) -> State {
         }
         Some(Order::Cancel) => {
             if orders.send(Order::Cancel).await.is_ok() {
-                let stopped = state.wait_for(|state| !state.running());
+                let stopped = watched::wait_for(&mut state, |state| !state.running());
 
                 if timeout(STOP_GRACE * 3, stopped).await.is_err() {
-                    let now = state.borrow().clone();
+                    let now = watched::read(&state, Clone::clone);
                     return now;
                 }
             }
@@ -127,7 +128,7 @@ async fn answer(request: Request) -> State {
         None => {}
     }
 
-    state.borrow().clone()
+    watched::read(&state, Clone::clone)
 }
 
 fn changed(tool: Tool) {
@@ -153,7 +154,7 @@ async fn start(tool: Tool) -> State {
         let mut sign_ins = lock(&SIGN_INS);
 
         match sign_ins.iter().find(|entry| entry.tool == tool) {
-            Some(entry) if entry.state.borrow().running() => entry.state.clone(),
+            Some(entry) if watched::read(&entry.state, State::running) => entry.state.clone(),
             _ => {
                 let (state_tx, state) = watch::channel(State::Starting {});
                 let (orders, orders_rx) = mpsc::channel(4);
@@ -170,13 +171,13 @@ async fn start(tool: Tool) -> State {
         }
     };
     changed(tool);
-    let wait = state.wait_for(|state| !matches!(state, State::Starting {}));
+    let wait = watched::wait_for(&mut state, |state| !matches!(state, State::Starting {}));
     // `run` gives up on its own after `LINK_LIMIT`.
     if timeout(LINK_LIMIT + STOP_GRACE * 2, wait).await.is_err() {
         return State::Starting {};
     }
 
-    state.borrow().clone()
+    watched::read(&state, Clone::clone)
 }
 
 /// What the node runs for `tool`.

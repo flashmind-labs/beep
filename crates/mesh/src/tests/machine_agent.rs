@@ -1,6 +1,7 @@
 use super::*;
 use crate::client::SessionFn;
 use beep_proto::node::{Open, Opened as NodeOpened};
+use beep_proto::watched;
 use std::sync::Arc;
 use tokio::sync::{Notify, watch};
 
@@ -19,7 +20,9 @@ async fn a_start_waits_past_the_call_timeout_for_acps_id() {
                 let first = rx.recv::<Request>().await.unwrap().unwrap();
                 assert!(matches!(first, Request::Start { .. }));
                 requested.notify_one();
-                waiting.wait_for(|ready| *ready).await.unwrap();
+                watched::wait_for(&mut waiting, |ready| *ready)
+                    .await
+                    .unwrap();
                 tx.send(&Event::Attached {
                     session: Box::new(SessionInfo {
                         id: "acp-session".to_owned(),

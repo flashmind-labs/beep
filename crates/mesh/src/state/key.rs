@@ -33,6 +33,10 @@ pub enum Key {
     /// The notifications one app marked read, as marks: `notice-read/<device id>`. Each app
     /// writes only its own key, so no two apps overwrite each other.
     NoticeRead(String),
+    /// A library of agent skills and where it is installed: `skill-library/<name>`.
+    SkillLibrary(String),
+    /// A project's choices for the skills installed in it: `project-skills/<org/repo>`.
+    ProjectSkills(String),
     /// A kind this build does not know, as its text. A member holds it and passes it on and
     /// nothing reads it, so a newer desktop's new kind never stops an older member's sync.
     Other(String),
@@ -57,6 +61,8 @@ impl fmt::Display for Key {
             Key::Temporary(n) => write!(f, "temporary/{n}"),
             Key::Observer(n) => write!(f, "observer/{n}"),
             Key::NoticeRead(n) => write!(f, "notice-read/{n}"),
+            Key::SkillLibrary(n) => write!(f, "skill-library/{n}"),
+            Key::ProjectSkills(n) => write!(f, "project-skills/{n}"),
             Key::Other(text) => f.write_str(text),
         }
     }
@@ -102,6 +108,8 @@ impl FromStr for Key {
             "temporary" => Ok(Key::Temporary(name)),
             "observer" => Ok(Key::Observer(name)),
             "notice-read" => Ok(Key::NoticeRead(name)),
+            "skill-library" => Ok(Key::SkillLibrary(name)),
+            "project-skills" => Ok(Key::ProjectSkills(name)),
             // Not a kind this build knows, but well formed: kept as it is.
             other if kind_is_well_formed(other) && other != "flsh" => Ok(Key::Other(s.to_owned())),
             _ => Err(bad()),

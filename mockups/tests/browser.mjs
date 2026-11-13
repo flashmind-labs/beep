@@ -82,7 +82,7 @@ try {
   await page.evaluate(() => { S.d.frontProject = ''; S.screen = 'dHome'; render(); });
   const home = page.locator('#desk .cc-view');
   assert.equal(await home.getByRole('tab', { selected: true }).textContent(), 'Board');
-  assert.equal(await home.locator('.bd-lane').count(), 4);
+  assert.equal(await home.locator('.bd-lane.hd').count(), 4);
   assert.equal(await page.locator('#desk .cc-side .cc-si').filter({ hasText: 'Running' }).count(), 0, 'Running is a lane on the board, not a page');
   await page.evaluate(() => { S.d.frontHome = 'list'; render(); });
   assert.equal(await home.getByRole('tab', { selected: true }).textContent(), 'Overview');

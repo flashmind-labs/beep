@@ -8,6 +8,7 @@ import { HarnessIcon } from "../ui/icons.tsx";
 import type { ReviewComment } from "./diff-state.ts";
 import type { Viewer } from "./diff-viewer.ts";
 import { cancelComment, openEditor, removeComment, saveComment } from "./diff-comments.ts";
+import { Button } from "../ui/kit.tsx";
 
 export function DiffComment({ v, comment, label }: { v: Viewer; comment: ReviewComment; label: string }) {
   const editing = useStore(v.store, s => s.editors.has(comment));
@@ -58,7 +59,7 @@ function Editor({ v, comment }: { v: Viewer; comment: ReviewComment }) {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelComment(v, comment); v.root.focus({ preventScroll: true }); }
         else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); }
       }}/>
-    <div className="a"><button type="button" className="dbtn small pri" onClick={save}>Add</button>
-      <button type="button" className="dbtn small quiet" onClick={() => cancelComment(v, comment)}>Cancel</button></div>
+    <div className="a"><Button look="primary" small onClick={save}>Add</Button>
+      <Button look="quiet" small onClick={() => cancelComment(v, comment)}>Cancel</Button></div>
   </div>;
 }

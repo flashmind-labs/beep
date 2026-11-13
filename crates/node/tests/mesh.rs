@@ -27,6 +27,7 @@ use beep_proto::node::{
     status::{PROTOCOL as STATUS, Report},
     tools::{PROTOCOL as TOOLS, Reply, Request as ToolRequest, Tool},
 };
+use beep_proto::watched;
 use beep_proto::{
     SecretText,
     node::{
@@ -132,7 +133,7 @@ impl Member {
         let mut updates = self.mesh.updates();
         timeout(LIMIT, async {
             loop {
-                updates.borrow_and_update();
+                watched::read_and_update(&mut updates, |_| ());
 
                 if self
                     .mesh
@@ -1479,14 +1480,13 @@ async fn fake_answer(mut stream: TcpStream, mut folder: watch::Receiver<FakeFold
             .next()
             .and_then(|n| n.parse().ok())
             .expect("a number");
-        let event = folder
-            .wait_for(|folder| folder.event > since)
+        watched::wait_for(&mut folder, |folder| folder.event > since)
             .await
-            .expect("the test holds the folder")
-            .event;
+            .expect("the test holds the folder");
+        let event = watched::read(&folder, |folder| folder.event);
         format!(r#"[{{"id":{event},"type":"FolderResumed"}}]"#)
     } else {
-        let paused = folder.borrow().paused;
+        let paused = watched::read(&folder, |folder| folder.paused);
         format!(r#"[{{"id":"game-1","label":"Game","path":{path},"paused":{paused}}}]"#)
     };
     let reply = format!(
@@ -2152,7 +2152,7 @@ async fn env_after_restart(desktop: &Member, node: &Node) -> String {
     let mut updates = desktop.mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
             let conn = desktop.reach(node.id).await;
             let call = try_tool(
                 &conn,
@@ -3616,7 +3616,7 @@ async fn fake_syncthing_answer(
         std::future::pending::<()>().await;
         return;
     } else if text.starts_with("GET /rest/db/status?folder=kept ") {
-        let need = *need.borrow();
+        let need = watched::read(&need, |need| *need);
         let state = if need == 0 { "idle" } else { "syncing" };
         json!({"needTotalItems": need, "state": state})
     } else {
@@ -3886,7 +3886,12 @@ async fn until_status_shows(dir: &Path, shown: impl Fn(&str) -> bool) -> String 
         }
     })
     .await;
-    found.unwrap_or_else(|_| panic!("status never showed it; it last said:\n{}", *last.borrow()))
+    found.unwrap_or_else(|_| {
+        panic!(
+            "status never showed it; it last said:\n{}",
+            watched::read(&last, Clone::clone)
+        )
+    })
 }
 
 #[tokio::test]
@@ -4594,7 +4599,7 @@ mod topic_streams {
         let mut changes = desktop.mesh.updates();
         timeout(LIMIT, async {
             loop {
-                changes.borrow_and_update();
+                watched::read_and_update(&mut changes, |_| ());
                 if desktop.mesh.peer(node).is_some_and(|connection| {
                     connection.stable_id() != previous && connection.close_reason().is_none()
                 }) {
@@ -4653,4 +4658,223 @@ mod topic_streams {
             events::Reply::Pong { id: 5 }
         );
     }
+}
+
+// Unix only: a node finds its home through the system on Windows, so the test's would be the
+// user's own.
+#[cfg(unix)]
+#[tokio::test]
+async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
+    use beep_proto::node::{
+        mesh_state::{Pick, SkillLibrary},
+        skill_library::{PROTOCOL, Reply as LibraryReply, Request as LibraryRequest},
+    };
+    let desktop = desktop().await;
+    let mut a = Node::start(Config::default()).await;
+    // Two Git libraries and a project checkout.
+    let sources = TempDir::new().expect("a temp folder");
+    let library = |name: &str, skills: &[&str]| {
+        let repo = sources.path().join(name);
+        fs::create_dir_all(&repo).expect("the repository folder");
+        git_in(&repo, &["init", "--quiet"]);
+
+        for skill in skills {
+            put_skill(&repo, "skills", skill, &format!("The {skill} skill."));
+        }
+
+        git_in(&repo, &["add", "."]);
+        git_in(&repo, &["commit", "--quiet", "-m", "skills"]);
+        repo
+    };
+    let tools = library("tools", &["pdf", "notes"]);
+    let team = library("team", &["style"]);
+    let checkout = sources.path().join("app");
+    fs::create_dir_all(&checkout).expect("the checkout folder");
+    git_in(&checkout, &["init", "--quiet"]);
+
+    a.join(&desktop.ticket(DeviceKind::Node).await).await;
+    a.has_logged("skill libraries: 0 installed").await;
+    // Calls go over the node's own link, not a dial it replaces.
+    a.has_logged("mesh link started").await;
+    desktop.reach(a.id).await;
+    let client = beep_mesh::PeerClient::over(desktop.mesh.clone(), a.id);
+    let call = |request: LibraryRequest| {
+        let client = client.clone();
+        async move {
+            client
+                .call::<_, LibraryReply>(PROTOCOL, &request)
+                .await
+                .expect("the node answers")
+        }
+    };
+    let inspect = |repo: &Path| {
+        let url = repo.to_str().expect("a UTF-8 folder").to_owned();
+        async move {
+            let LibraryReply::Inspected { revision, skills } =
+                call(LibraryRequest::Inspect { url: url.clone() }).await
+            else {
+                panic!("the repository was not inspected");
+            };
+            (url, revision, skills)
+        }
+    };
+
+    let (tools_url, tools_revision, tools_skills) = inspect(&tools).await;
+    assert_eq!(tools_revision, git_in(&tools, &["rev-parse", "HEAD"]));
+    let names: Vec<_> = tools_skills
+        .iter()
+        .map(|skill| skill.name.as_str())
+        .collect();
+    assert_eq!(names, ["notes", "pdf"]);
+    let (team_url, team_revision, team_skills) = inspect(&team).await;
+    let reply = call(LibraryRequest::Inspect {
+        url: sources.path().join("missing").display().to_string(),
+    })
+    .await;
+    assert!(matches!(reply, LibraryReply::Failed { .. }), "{reply:?}");
+
+    let set = |name: &str, library: Option<SkillLibrary>| {
+        let mesh = desktop.mesh.clone();
+        let key = Key::SkillLibrary(name.to_owned());
+        async move {
+            mesh.set(key, library.map(|l| l.to_bytes().expect("encodes")))
+                .await
+                .expect("the library is saved");
+        }
+    };
+    desktop
+        .mesh
+        .set(
+            Key::Project(format!("acme/app/{}", a.id)),
+            Some(
+                Place {
+                    folder: checkout.to_str().expect("a UTF-8 folder").to_owned(),
+                    imported_ms: 0,
+                    fork: None,
+                }
+                .to_bytes()
+                .expect("encodes"),
+            ),
+        )
+        .await
+        .expect("the checkout is saved");
+    set(
+        "tools",
+        Some(SkillLibrary {
+            url: tools_url,
+            revision: tools_revision,
+            skills: tools_skills,
+            global: Pick::Only(["notes".to_owned()].into()),
+            projects: [("acme/app".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+        }),
+    )
+    .await;
+    set(
+        "team",
+        Some(SkillLibrary {
+            url: team_url,
+            revision: team_revision,
+            skills: team_skills,
+            global: Pick::All,
+            projects: Default::default(),
+        }),
+    )
+    .await;
+
+    // Global: notes and style in `~/.claude/skills` and `~/.agents/skills`; pdf in the
+    // checkout's two.
+    a.logged("skill libraries: 6 installed, 0 problems").await;
+    let home = a.home.path().to_path_buf();
+
+    for rel in [".claude/skills", ".agents/skills"] {
+        assert_eq!(
+            tree(&home.join(rel).join("notes")),
+            tree(&tools.join("skills/notes"))
+        );
+        assert_eq!(
+            tree(&home.join(rel).join("style")),
+            tree(&team.join("skills/style"))
+        );
+        assert_eq!(
+            tree(&checkout.join(rel).join("pdf")),
+            tree(&tools.join("skills/pdf"))
+        );
+        assert!(!home.join(rel).join("pdf").exists());
+    }
+
+    let exclude = fs::read_to_string(checkout.join(".git/info/exclude")).expect("the exclude file");
+    assert!(exclude.contains("/.claude/skills/pdf/"), "{exclude}");
+    assert_eq!(git_in(&checkout, &["status", "--porcelain"]), "");
+    assert_eq!(
+        call(LibraryRequest::Problems {}).await,
+        LibraryReply::Problems {
+            problems: Vec::new()
+        }
+    );
+
+    // A second machine that never fetched them clones each library at its revision.
+    let mut b = Node::start(Config::default()).await;
+    b.join(&desktop.ticket(DeviceKind::Node).await).await;
+    b.has_logged("skill libraries: 4 installed, 0 problems")
+        .await;
+    let home_b = b.home.path().to_path_buf();
+    assert_eq!(
+        tree(&home_b.join(".claude/skills/notes")),
+        tree(&tools.join("skills/notes"))
+    );
+    assert!(!home_b.join(".claude/skills/pdf").exists());
+
+    // An update: a new commit on each, inspected again, moves both machines to it.
+    put_skill(&tools, "skills", "notes", "The notes skill, revised.");
+    git_in(&tools, &["commit", "--quiet", "-am", "revise notes"]);
+    put_skill(&team, "skills", "tone", "The tone skill.");
+    git_in(&team, &["add", "."]);
+    git_in(&team, &["commit", "--quiet", "-m", "add tone"]);
+    let (tools_url, tools_revision, tools_skills) = inspect(&tools).await;
+    let (team_url, team_revision, team_skills) = inspect(&team).await;
+    assert_eq!(tools_revision, git_in(&tools, &["rev-parse", "HEAD"]));
+    set(
+        "tools",
+        Some(SkillLibrary {
+            url: tools_url,
+            revision: tools_revision,
+            skills: tools_skills,
+            global: Pick::Only(["notes".to_owned()].into()),
+            projects: [("acme/app".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+        }),
+    )
+    .await;
+    set(
+        "team",
+        Some(SkillLibrary {
+            url: team_url,
+            revision: team_revision,
+            skills: team_skills,
+            global: Pick::All,
+            projects: Default::default(),
+        }),
+    )
+    .await;
+    b.logged("skill libraries: 6 installed, 0 problems").await;
+    a.logged("skill libraries: 8 installed, 0 problems").await;
+
+    for root in [&home, &home_b] {
+        assert_eq!(
+            tree(&root.join(".agents/skills/notes")),
+            tree(&tools.join("skills/notes"))
+        );
+        assert_eq!(
+            tree(&root.join(".claude/skills/tone")),
+            tree(&team.join("skills/tone"))
+        );
+    }
+
+    // Removed: its skills go, and so does the exclude block.
+    set("tools", None).await;
+    a.logged("skill libraries: 4 installed, 0 problems").await;
+    assert!(!home.join(".claude/skills/notes").exists());
+    assert!(!checkout.join(".claude/skills/pdf").exists());
+    assert!(home.join(".claude/skills/style").exists());
+    let exclude = fs::read_to_string(checkout.join(".git/info/exclude")).expect("the exclude file");
+    assert!(!exclude.contains("/.claude/skills/pdf/"), "{exclude}");
 }

@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import { LabelGroup, Row } from "./split-view.tsx";
 import type { LabelFilter, SplitItem } from "./split.ts";
+import { Checkbox } from "../ui/kit.tsx";
 
 interface Props {
   items: readonly SplitItem[];
@@ -20,8 +21,8 @@ export function ProjectIssues({ items, filter, controls, start, selection, pick,
       const checked = item.start ? selection(item.key) : null;
       const row = <Row item={item} picked={null} filter={filter} nav={false} openTile={openTile}/>;
       return checked === null ? <Fragment key={item.key}>{row}</Fragment> :
-        <div className="pj-prow" key={item.key}><label className="pick"><input type="checkbox" aria-label="Pick this issue" checked={checked}
-          onClick={event => event.stopPropagation()} onChange={event => pick(item.key, event.currentTarget.checked)}/></label>{row}</div>;
+        <div className="pj-prow" key={item.key}><label className="pick"><Checkbox label="Pick this issue" checked={checked} contained
+          change={value => pick(item.key, value)} /></label>{row}</div>;
     })}</div>
     {start}
   </>;

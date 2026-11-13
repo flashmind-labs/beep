@@ -10,6 +10,7 @@ use crate::files::sync::{
 };
 use anyhow::Result;
 use beep_proto::node::sync::State as SyncState;
+use beep_proto::watched;
 use iroh::EndpointAddr;
 use iroh_blobs::{BlobFormat, Hash, hashseq::HashSeq};
 use std::{
@@ -137,11 +138,12 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
     let mut pulls = JoinSet::new();
     // Scanned before anything is pulled, so edits made while the node was
     // down merge as edits. A paused project does this once resumed.
-    if !*paused.borrow_and_update() {
+    if !watched::read_and_update(&mut paused, |paused| *paused) {
         task.scan(Reason::Startup).await;
         task.apply().await;
         task.save(true).await;
-        start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+        let current = watched::read_and_update(&mut peers, Clone::clone);
+        start_pulls(&mut pulls, &shared, &task.parts, &current);
     }
 
     let mut settle = ChangeTimer::default();
@@ -152,7 +154,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
     let mut retry = RETRY;
 
     loop {
-        if *paused.borrow_and_update() {
+        if watched::read_and_update(&mut paused, |paused| *paused) {
             // Nothing moves: the pulls stop, and changes on disk wait for
             // the scan on resume.
             pulls = JoinSet::new();
@@ -170,7 +172,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
             }
             task.save(false).await;
 
-            if !*paused.borrow() {
+            if !watched::read(&paused, |paused| *paused) {
                 while woken.try_recv().is_ok() {}
                 shared.listen_again();
                 watcher.take_changes(shared.key);
@@ -178,7 +180,8 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 last_scan = Instant::now();
                 task.apply().await;
                 deletes.scanned(!task.held.is_empty(), last_scan);
-                start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+                let current = watched::read_and_update(&mut peers, Clone::clone);
+                start_pulls(&mut pulls, &shared, &task.parts, &current);
             }
             continue;
         }
@@ -292,7 +295,8 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 }
                 pulls = JoinSet::new();
                 shared.listen_again();
-                start_pulls(&mut pulls, &shared, &task.parts, &peers.borrow_and_update());
+                let current = watched::read_and_update(&mut peers, Clone::clone);
+        start_pulls(&mut pulls, &shared, &task.parts, &current);
                 retry = RETRY;
                 apply = true;
             }
@@ -469,7 +473,8 @@ impl Task {
     /// Publishes how far the round is, leaving what waits as it was.
     pub(super) fn show_progress(&self, meter: &Meter) {
         let progress = meter.progress();
-        self.shared.publish(move |status| status.progress = Some(progress));
+        self.shared
+            .publish(move |status| status.progress = Some(progress));
     }
 
     /// Publishes how the project stands; progress shows only while a round

@@ -2,6 +2,7 @@
 
 use super::{Inner, Mesh, PEER_ALPN};
 use crate::link;
+use beep_proto::watched;
 use iroh::endpoint::Connection;
 use iroh::{EndpointAddr, EndpointId, Watcher};
 use std::collections::{BTreeMap, BTreeSet};
@@ -62,7 +63,7 @@ pub(super) async fn own(inner: Arc<Inner>) {
     watch.spawn(watch_sleep(inner.clone()));
 
     loop {
-        rev.borrow_and_update();
+        watched::read_and_update(&mut rev, |_| ());
         inner.prune_channels();
         let view = inner.view();
         let member = view.devices.is_member(inner.me);
