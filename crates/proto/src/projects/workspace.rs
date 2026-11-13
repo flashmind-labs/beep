@@ -1,8 +1,5 @@
 //! Folders, trees and diffs of a project's working copy.
 
-/// The largest file `WriteWorkFile` writes.
-pub const MAX_WORK_UPLOAD: u64 = 64 * 1024 * 1024;
-
 /// The most entries one listed folder gives.
 pub const MAX_WORK_ENTRIES: usize = 2000;
 
@@ -200,8 +197,7 @@ pub struct ReadWorkFile {
 /// Part of a file to write into `root`, for files dropped on a session.
 /// The first part (`offset` 0) makes the folders on the way and takes a
 /// free name beside `path`; later parts send the path it took. Parts come
-/// in order until `offset` plus the part is `size`, at most
-/// [`MAX_WORK_UPLOAD`]. Never replaces a file.
+/// in order until `offset` plus the part is `size`. Never replaces a file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WriteWorkFile {
     pub machine_id: String,

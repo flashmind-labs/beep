@@ -278,13 +278,42 @@ fn a_file_in_parts_shows_once_its_last_part_is_in() {
 }
 
 #[test]
-fn refuses_uploads_too_large_or_outside() {
+fn refuses_invalid_parts_and_paths() {
     let dir = TempDir::new().unwrap();
     let root = root_in(&dir);
-    let big = write(&root, "big.bin", 0, MAX_WORK_UPLOAD + 1, b"x").unwrap_err();
-    assert!(big.to_string().contains("MB"), "{big:#}");
+    assert!(
+        write(
+            &root,
+            "big.bin",
+            0,
+            u64::MAX,
+            &vec![0; AGENT_FILE_CHUNK + 1]
+        )
+        .is_err()
+    );
     assert!(write(&root, "short.bin", 0, 1, b"xy").is_err());
     let out = write(&root, "../escape.txt", 0, 1, b"x").unwrap_err();
     assert!(out.to_string().contains("outside"), "{out:#}");
     assert!(write(&root, "", 0, 1, b"x").is_err());
+}
+
+#[test]
+fn large_project_uploads_complete_on_disk_without_a_size_cap() {
+    let dir = TempDir::new().unwrap();
+    let root = root_in(&dir);
+    let size = 6 * 1024 * 1024 * 1024;
+    let path = write(&root, "large.mov", 0, size, b"a").unwrap();
+    OpenOptions::new()
+        .write(true)
+        .open(dir.path().join(".large.mov.beep-part"))
+        .unwrap()
+        .set_len(size - 1)
+        .unwrap();
+    assert_eq!(write(&root, &path, size - 1, size, b"z").unwrap(), path);
+    let mut file = fs::File::open(dir.path().join(path)).unwrap();
+    assert_eq!(file.metadata().unwrap().len(), size);
+    file.seek(SeekFrom::End(-1)).unwrap();
+    let mut last = [0];
+    file.read_exact(&mut last).unwrap();
+    assert_eq!(last, *b"z");
 }

@@ -32,8 +32,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a picture may take: a whole one is a few MiB, which a link
 /// through a busy relay carries in far more than `READ_TIMEOUT`.
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(60);
-/// How long sharing a media file may take: the node hashes up to
-/// `MAX_AGENT_FILE` bytes first.
+/// How long sharing a media file may take while the node hashes it.
 const SHARE_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long a node has to list models: it may start the agent first.
 const MODELS_TIMEOUT: Duration = Duration::from_secs(60);

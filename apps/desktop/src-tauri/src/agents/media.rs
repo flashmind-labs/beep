@@ -14,8 +14,8 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 #[cfg(desktop)]
 use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, MAX_AGENT_FILE,
-    image_key, media_mime,
+    AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, image_key,
+    media_mime,
 };
 use iroh::EndpointId;
 use serde::Serialize;
@@ -326,7 +326,7 @@ async fn whole_file(fleet: &Fleet, machine_id: &str, path: &str) -> Result<Vec<u
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
         let chunk = file_chunk(fleet, machine_id.to_owned(), path.to_owned(), offset).await?;
 
-        if chunk.size > MAX_AGENT_FILE || chunk.data.len() > AGENT_FILE_CHUNK {
+        if chunk.data.len() > AGENT_FILE_CHUNK {
             return Err(DesktopError::BadRequest("file too large".into()));
         }
 
