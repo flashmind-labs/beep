@@ -1,6 +1,7 @@
 {
   "name": "beep-desktop-web",
   "private": true,
+  "license": "MPL-2.0",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
