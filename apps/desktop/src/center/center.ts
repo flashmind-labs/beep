@@ -47,9 +47,11 @@ import { placeOf } from "../agents/place.ts";
 import { followToolUpdates } from "../machines/machines.ts";
 import { dialogOpen } from "../ui/parts.ts";
 import { startupDrawn, startupStage } from "../ui/perf.ts";
+import { dropKeptFrame, followHomeFrame } from "./home-frame.ts";
 
 startupStage("scripts run");
 followSkin();
+followHomeFrame();
 guardClicks();
 followToolUpdates();
 initConversationSwitcher({
@@ -208,6 +210,7 @@ async function readOpening(): Promise<Opening> {
 
 /// The first view.
 function start({ project, pending }: Opening) {
+  dropKeptFrame();
   document.title = windowTitle(project);
   const first = startView(project);
   if (!first) return showPending(pending, "home");

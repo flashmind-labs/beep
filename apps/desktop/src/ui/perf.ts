@@ -56,6 +56,8 @@ export function startupStage(stage: string) {
 /// when the page opened and when the webview says it first painted.
 export function startupDrawn() {
   afterPaint(() => {
+    const frameAt = window.__BEEP_KEPT_FRAME_AT__;
+    if (typeof frameAt === "number") startup["kept frame"] = frameAt;
     startupStage("painted");
     startup["opened"] = performance.timeOrigin;
     for (const paint of performance.getEntriesByType("paint")) startup[paint.name] = performance.timeOrigin + paint.startTime;

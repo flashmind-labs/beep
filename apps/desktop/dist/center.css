@@ -2,6 +2,8 @@
 html, body.cbody { background: var(--ink) }
 .cwin .dlive { background: var(--ink) }
 .cwin { --side-w: 184px; position: relative; height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); background: var(--ink) }
+/* The last Home, put on the page before the scripts load: it covers the real window until the first view replaces it. */
+.cwin.kept { position: fixed; inset: 0; z-index: 10 }
 /* The traffic lights sit over the top of the sidebar; both bars drag the window. */
 .cc-head { height: 38px; flex: none }
 .cc-err { color: var(--err); font-size: 12px }
