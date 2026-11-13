@@ -12,6 +12,7 @@ use agent_client_protocol::v1::schema::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::tools::{Reply, Request, Tool};
 use serde::Deserialize;
+use serde_json::Value;
 use std::{
     ffi::OsString,
     path::{Path, PathBuf},
@@ -30,6 +31,7 @@ pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
 mod debug;
+mod devices;
 pub(crate) mod harness;
 mod machines;
 mod projects;
@@ -41,6 +43,7 @@ mod transcripts;
 
 pub(crate) use machines::over_the_mesh;
 pub(crate) use server::Backend;
+use server::Called;
 
 pub(crate) fn presence_socket(dir: &Path) -> PathBuf {
     socket::path_for_named(dir, "presence.sock")
@@ -189,6 +192,8 @@ pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
 /// questions.
 struct Node {
     offers: Offers,
+    /// The devices the agents drive, attached while in use.
+    screens: devices::Screens,
 }
 
 impl Backend for Node {
@@ -218,9 +223,7 @@ impl Backend for Node {
         // The machines of the mesh answer for themselves.
         let Some(mesh) = self.offers.mesh.get() else {
             return Ok(Reply::Done {
-                text: "This machine is not in a mesh yet, so it reaches no other machines. Join \
-                       it with `beep-node mesh join <ticket>`."
-                    .to_owned(),
+                text: NO_MESH.to_owned(),
                 failed: true,
             });
         };
@@ -230,6 +233,13 @@ impl Backend for Node {
         }
 
         Ok(machines::call(&self.offers, &mesh, request).await)
+    }
+
+    async fn device(&self, args: Value) -> Called {
+        match self.offers.mesh.get() {
+            Some(mesh) => devices::call(&self.offers, &mesh, &self.screens, args).await,
+            None => Called::failed(NO_MESH),
+        }
     }
 
     async fn read_transcript(&self, args: serde_json::Value) -> Result<Reply> {
@@ -244,6 +254,10 @@ impl Backend for Node {
         self.offers.agents.is_reviewer(session)
     }
 }
+
+/// Why a node outside a mesh reaches no machine.
+const NO_MESH: &str = "This machine is not in a mesh yet, so it reaches no other machines. Join \
+                       it with `beep-node mesh join <ticket>`.";
 
 /// The first line a connection sends: whose it is.
 #[derive(Deserialize)]
@@ -268,7 +282,10 @@ pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
     );
     offers.agents.serve_mcp(launch.clone());
     offers.agents.serve_mesh(offers.mesh.clone());
-    let node = Arc::new(Node { offers });
+    let node = Arc::new(Node {
+        offers,
+        screens: devices::Screens::default(),
+    });
     let mut connections = JoinSet::new();
 
     loop {

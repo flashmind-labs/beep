@@ -10,7 +10,8 @@ pub(crate) const BRIEF: &str = "Beep: the `beep` MCP server's tools reach the us
     cancel follow a background command. \
     sync_project syncs Git commits for repositories, selected ignored folders through file sync, and files for non-Git folders. Other uncommitted Git edits require an explicit handoff; sync_project never copies them. \
     read_session_transcript reads a coding session on this or another machine by session ID, with pagination. \
-    send_files copies files to another machine. start_agent starts another coding agent, of any harness, on any machine, linked to you; \
+    send_files copies files to another machine. device boots, screenshots and drives Android emulators and iOS \
+    simulators on any machine to test mobile apps; the user sees them in the Device tab. start_agent starts another coding agent, of any harness, on any machine, linked to you; \
     give project to start in a named project's checkout. Replies arrive automatically in your session; \
     agent_status, send_to_agent, stop_agent and list_agents follow your own agents, and the user answers their permission questions. review has your changes reviewed by a reviewer agent and gives its findings. ask_user asks the user a question and waits \
     for the answer. For Rust, C, or C++ builds, check whether sccache is installed and use it \

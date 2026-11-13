@@ -41,6 +41,16 @@ impl Backend for Fake {
         })
     }
 
+    async fn device(&self, args: Value) -> Called {
+        let mut called = Called::ok(format!("{} on build-box: 2 x 4 pixels.", args["device"]));
+        called.image = Some(beep_proto::node::device::Frame {
+            jpeg: vec![1, 2, 3],
+            width: 2,
+            height: 4,
+        });
+        called
+    }
+
     async fn read_transcript(&self, args: Value) -> Result<Reply> {
         Ok(super::super::reply::ok(args.to_string()))
     }
@@ -137,6 +147,7 @@ async fn it_lists_the_tools_and_answers_a_call() {
             "harness_info",
             "read_session_transcript",
             "remote_run",
+            "device",
             "sync_project",
             "send_files",
             "job_status",
@@ -280,4 +291,24 @@ async fn only_a_reviewer_is_offered_submit_review() {
     let calls = reviewer.calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].tool, Tool::SubmitReview);
+}
+
+#[tokio::test]
+async fn a_device_screenshot_comes_as_image_content() {
+    let fake = Fake::new("1");
+    let out = exchange(
+        &fake,
+        &[request(
+            1,
+            "tools/call",
+            json!({ "name": "device", "arguments": { "action": "screenshot", "device": "Pixel" } }),
+        )],
+    )
+    .await;
+    let content = &out[0]["result"]["content"];
+    assert_eq!(content[0]["text"], "\"Pixel\" on build-box: 2 x 4 pixels.");
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["mimeType"], "image/jpeg");
+    assert_eq!(content[1]["data"], "AQID");
+    assert!(fake.calls.lock().unwrap().is_empty());
 }

@@ -1,0 +1,199 @@
+use super::*;
+use crate::machine::provision::Provision;
+use beep_proto::node::device::DeviceId;
+use serde_json::json;
+
+fn device(id: &str, name: &str) -> Device {
+    Device {
+        id: DeviceId(id.to_owned()),
+        name: name.to_owned(),
+        platform: Platform::Ios,
+        state: DeviceState::On,
+        os: Some("iOS 26.5".to_owned()),
+    }
+}
+
+fn frame(width: u32, height: u32) -> Frame {
+    Frame {
+        jpeg: vec![0xff, 0xd8],
+        width,
+        height,
+    }
+}
+
+#[test]
+fn calls_read_into_typed_actions_and_name_what_is_missing() {
+    let tap = Action::try_from(json!({
+        "action": "tap", "machine": "mac-box", "device": "iPhone 17", "x": 120, "y": 400.5
+    }));
+    assert_eq!(
+        tap,
+        Ok(Action::Tap {
+            at: Target {
+                machine: "mac-box".to_owned(),
+                device: "iPhone 17".to_owned()
+            },
+            x: 120.0,
+            y: 400.5
+        })
+    );
+    assert_eq!(Action::try_from(json!({ "action": "list" })), Ok(Action::List {}));
+
+    let press = Action::try_from(json!({
+        "action": "press", "machine": "m", "device": "d", "key": "app_switch"
+    }));
+    assert!(matches!(press, Ok(Action::Press { key: Press::AppSwitch, .. })));
+
+    for (args, missing) in [
+        (json!({ "action": "tap", "machine": "m", "device": "d", "x": 1 }), "`y`"),
+        (json!({ "action": "boot", "machine": "m" }), "`device`"),
+        (json!({ "machine": "m", "device": "d" }), "`action`"),
+        (json!({ "action": "fly", "machine": "m" }), "`fly`"),
+        (json!({ "action": "press", "machine": "m", "device": "d", "key": "f5" }), "`f5`"),
+    ] {
+        let Err(e) = Action::try_from(args.clone()) else {
+            panic!("{args} read");
+        };
+        assert!(e.contains(missing), "{e}");
+    }
+}
+
+#[test]
+fn screenshot_pixels_become_fractions_of_the_screen() {
+    let shot = frame(590, 1280);
+    assert_eq!(fraction(295.0, 640.0, &shot).unwrap(), (0.5, 0.5));
+    assert_eq!(fraction(590.0, 0.0, &shot).unwrap(), (1.0, 0.0));
+
+    for (x, y) in [(-1.0, 10.0), (10.0, 1281.0), (f64::NAN, 1.0)] {
+        let e = fraction(x, y, &shot).unwrap_err().to_string();
+        assert!(e.contains("590 x 1280"), "{e}");
+    }
+}
+
+#[test]
+fn a_swipe_goes_down_moves_evenly_and_comes_up_at_its_end() {
+    let inputs = swipe((0.5, 0.8), (0.5, 0.2), Duration::from_millis(450));
+    let len = usize::try_from(SWIPE_MOVES).unwrap() + 2;
+    assert_eq!(inputs.len(), len);
+    assert_eq!(
+        inputs[0].0,
+        touch(TouchPhase::Down, 0.5, 0.8)
+    );
+    assert_eq!(inputs[len - 1], (touch(TouchPhase::Up, 0.5, 0.2), Duration::ZERO));
+
+    let total: Duration = inputs.iter().map(|(_, pause)| *pause).sum();
+    assert_eq!(total, Duration::from_millis(450));
+
+    let ys: Vec<f32> = inputs
+        .iter()
+        .map(|(input, _)| match input {
+            Input::Touch { y, .. } => *y,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert!(ys.windows(2).all(|pair| pair[1] < pair[0]), "{ys:?}");
+}
+
+#[test]
+fn a_device_is_found_by_id_or_name_and_a_shared_name_needs_the_id() {
+    let devices = [
+        device("A1", "iPhone 17"),
+        device("B2", "iPad Air"),
+        device("C3", "iPad Air"),
+    ];
+    assert_eq!(pick(&devices, "A1").unwrap().id.0, "A1");
+    assert_eq!(pick(&devices, " iphone 17 ").unwrap().id.0, "A1");
+    assert_eq!(pick(&devices, "C3").unwrap().id.0, "C3");
+
+    let e = pick(&devices, "iPad Air").unwrap_err();
+    assert!(e.contains("B2, C3"), "{e}");
+    let e = pick(&devices, "Pixel 9").unwrap_err();
+    assert!(e.contains("No device Pixel 9") && e.contains("iPhone 17 (A1)"), "{e}");
+    assert!(pick(&[], "Pixel 9").is_err());
+}
+
+#[test]
+fn keys_and_buttons_become_device_input() {
+    assert_eq!(
+        Input::from(Press::Return),
+        Input::Key { key: Key::Return }
+    );
+    assert_eq!(
+        Input::from(Press::VolumeDown),
+        Input::Button {
+            button: Button::VolumeDown
+        }
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_attached_device_answers_input_and_closes_once_idle() {
+    let local = beep_proto::node::local_link();
+    let (mut node_tx, mut node_rx) = local.node;
+    let (tx, rx) = local.caller;
+    let viewer = Viewer::start(Link { tx, rx, _here: None }, Duration::from_secs(30));
+
+    node_tx.send(&Reply::Frame(frame(100, 200))).await.unwrap();
+    assert_eq!(viewer.shot().await.unwrap().height, 200);
+
+    viewer
+        .input(vec![(Press::Home.into(), Duration::ZERO)])
+        .await
+        .unwrap();
+    let sent: Request = node_rx.recv().await.unwrap().unwrap();
+    assert_eq!(
+        sent,
+        Request::Input {
+            input: Input::Button {
+                button: Button::Home
+            }
+        }
+    );
+
+    // Nothing more is asked: the view lets the stream go, and the device
+    // side sees it end.
+    let ended: Option<Request> = node_rx.recv().await.unwrap();
+    assert_eq!(ended, None);
+    assert!(viewer.asks.is_closed());
+}
+
+#[tokio::test]
+async fn a_call_names_the_machines_and_devices_it_could_not_find() {
+    use iroh::{Endpoint, endpoint::presets};
+
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let offers = Offers::local(&[], Provision::new(dir.path()));
+    let screens = Screens::default();
+
+    let called = call(
+        &offers,
+        &mesh,
+        &screens,
+        json!({ "action": "boot", "machine": "nowhere", "device": "Pixel 9" }),
+    )
+    .await;
+    assert!(called.failed);
+    assert_eq!(called.text, "No machine called nowhere. Machines: build-box.");
+
+    let called = call(
+        &offers,
+        &mesh,
+        &screens,
+        json!({ "action": "screenshot", "machine": "build-box", "device": "no-such-device" }),
+    )
+    .await;
+    assert!(called.failed);
+    assert!(
+        called.text.contains("No device no-such-device") || called.text.contains("No emulators"),
+        "{}",
+        called.text
+    );
+
+    let called = call(&offers, &mesh, &screens, json!({ "action": "list" })).await;
+    assert!(!called.failed);
+    assert!(called.text.starts_with("- build-box (this machine)"), "{}", called.text);
+}

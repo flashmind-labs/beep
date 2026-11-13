@@ -3,6 +3,7 @@
 
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { BEEP_MARK } from "../ui/icons.tsx";
+import { deviceCall, type DeviceVerb } from "../agentpane/device-state.ts";
 import { plural } from "../ui/format.ts";
 
 /// The parts of an entry a turn needs.
@@ -124,12 +125,28 @@ export function beepCall(title: string): BeepCall | null {
   if ((m = /^Cancel job ?(.*)$/.exec(rest))) return call("Cancelled job", "Cancelling job", { detail: m[1] });
   if ((m = /^Read log of (.+)$/.exec(rest))) return call("Read log of", "Reading log of", { machine: m[1] });
   if ((m = /^Ask(?:: ([\s\S]*))?$/.exec(rest))) return call("Asked you", "Asking you", { detail: m[1] });
+  if (rest === "List devices") return call("Listed devices", "Listing devices");
+  const device = deviceCall(t);
+
+  if (device) {
+    const [done, doing] = DEVICE_VERBS[device.verb];
+    const key = device.verb === "Press" ? ` ${device.detail} on` : "";
+    return call(`${done}${key} ${device.device} on`, `${doing}${key} ${device.device} on`, { machine: device.machine, detail: device.verb === "Press" ? "" : device.detail });
+  }
+
   return call(rest, rest);
 }
+
+const DEVICE_VERBS: Record<DeviceVerb, [string, string]> = {
+  Boot: ["Booted", "Booting"], "Shut down": ["Shut down", "Shutting down"], Show: ["Showed", "Showing"], Capture: ["Captured", "Capturing"],
+  Tap: ["Tapped", "Tapping"], Swipe: ["Swiped", "Swiping"], "Type into": ["Typed into", "Typing into"], Press: ["Pressed", "Pressing"],
+};
 
 const BEEP_VERBS: Record<string, [string, string]> = {
   List: ["Listed", "Listing"], Run: ["Ran", "Running"], Start: ["Started", "Starting"], Sync: ["Synced", "Syncing"],
   Send: ["Sent", "Sending"], Check: ["Checked", "Checking"], Cancel: ["Cancelled", "Cancelling"], Ask: ["Asked", "Asking"], Read: ["Read", "Reading"],
+  Boot: ["Booted", "Booting"], Shut: ["Shut", "Shutting"], Show: ["Showed", "Showing"], Capture: ["Captured", "Capturing"],
+  Tap: ["Tapped", "Tapping"], Swipe: ["Swiped", "Swiping"], Type: ["Typed", "Typing"], Press: ["Pressed", "Pressing"],
 };
 
 /// A Beep call's title as one line in the past tense, or while it runs in

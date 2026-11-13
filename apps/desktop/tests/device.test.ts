@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, keyInput, maxSide, missingLine, pickValue, queueInput,
-  readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint,
+  readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint, commandName, deviceCall, followedDevice, targetPick,
 } from "../src/agentpane/device-state.ts";
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null });
@@ -117,4 +117,48 @@ test("device lists are checked, and only Android has Back and Recent apps", () =
   assert.equal(read[0].devices.length, 1);
   assert.ok(buttonsFor("Android").includes("Back"));
   assert.ok(!buttonsFor("Ios").includes("AppSwitch"));
+});
+
+const tool = (text: string) => ({ kind: "tool", text });
+
+test("a device call names its device and machine", () => {
+  assert.deepEqual(deviceCall("Beep: Boot iPhone 17 on mac-box"), { verb: "Boot", device: "iPhone 17", machine: "mac-box", detail: "" });
+  assert.deepEqual(deviceCall("Beep: Press home on Pixel 9 on build-box"), { verb: "Press", device: "Pixel 9", machine: "build-box", detail: "home" });
+  assert.equal(deviceCall("Beep: Type into Pixel 9 on build-box: turn on wifi")?.detail, "turn on wifi");
+  assert.equal(deviceCall("Beep: Boot a device on a machine"), null);
+  assert.equal(deviceCall("Beep: Run on build-box: make"), null);
+});
+
+test("the tab follows device calls that finish after the view opened, not history", () => {
+  const history = [tool("Beep: Boot Pixel 9 on build-box [completed]"), tool("Beep: Tap Pixel 9 on build-box: 1, 2 [in_progress]")];
+  const first = followedDevice(history, 10, null);
+  assert.equal(first.target, null);
+  assert.ok(first.follow);
+
+  // The call that ran when the view opened finishes; a failed one and a shutdown do not move the tab.
+  const later = [tool("Beep: Boot Pixel 9 on build-box [completed]"), tool("Beep: Tap Pixel 9 on build-box: 1, 2 [completed]")];
+  const tapped = followedDevice(later, 10, first.follow);
+  assert.deepEqual(tapped.target, { machine: "build-box", device: "Pixel 9" });
+  assert.equal(followedDevice(later, 10, tapped.follow).target, null);
+
+  const more = [...later, tool("Beep: Show iPhone 17 on mac-box (failed)"), tool("Beep: Shut down Pixel 9 on build-box [completed]"), tool("Run make [completed]")];
+  assert.equal(followedDevice(more, 10, tapped.follow).target, null);
+
+  // Older pages loaded above the first one are history too.
+  const older = [tool("Beep: Show iPhone 17 on mac-box [completed]"), ...later];
+  assert.equal(followedDevice(older, 9, tapped.follow).target, null);
+
+  // A log not read yet waits for its first entries.
+  assert.deepEqual(followedDevice([], 0, null), { follow: null, target: null });
+});
+
+test("a device call's target is found by machine name and device id or name", () => {
+  const listed: DeviceMachine[] = [
+    { machine_id: "k1", machine_name: "Mac Box", devices: [simulator("UDID-1"), { ...simulator("UDID-2"), name: "iPhone 17" }], error: null },
+  ];
+  assert.equal(commandName("Sam's Mac Box"), "sams-mac-box");
+  assert.deepEqual(targetPick(listed, { machine: "mac-box", device: "UDID-1" }), { machine: "k1", device: "UDID-1" });
+  assert.deepEqual(targetPick(listed, { machine: "mac-box", device: "iphone 17" }), { machine: "k1", device: "UDID-2" });
+  assert.equal(targetPick(listed, { machine: "gpu-box", device: "UDID-1" }), null);
+  assert.equal(targetPick(listed, { machine: "mac-box", device: "Pixel" }), null);
 });

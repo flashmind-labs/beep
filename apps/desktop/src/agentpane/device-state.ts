@@ -2,6 +2,8 @@
 // where the screen sits in its view, and how pointer and keys become the
 // node's input (`device/1`). device.ts keeps the state; device-view.tsx draws it.
 
+import { parseTool } from "../agents/agentlog.ts";
+
 export type DevicePlatform = "Android" | "Ios";
 export type DevicePower = "Off" | "Booting" | "On";
 
@@ -116,6 +118,85 @@ export const pickValue = (pick: DevicePick) => `${pick.machine}\n${pick.device}`
 export function readPickValue(value: string): DevicePick | null {
   const at = value.indexOf("\n");
   return at > 0 ? { machine: value.slice(0, at), device: value.slice(at + 1) } : null;
+}
+
+// ----- The agent's device calls -----
+
+/// What the agent's `device` tool did, as the node words its title
+/// (`Beep: Boot iPhone 17 on mac-box`).
+const DEVICE_VERBS = ["Boot", "Shut down", "Show", "Capture", "Tap", "Swipe", "Type into", "Press"] as const;
+export type DeviceVerb = typeof DEVICE_VERBS[number];
+
+/// A `device` call on one device: the machine by its name in the agent's
+/// list, the device by the name or id the agent gave, and what the title
+/// adds (the point, the text or the key).
+export interface DeviceCall {
+  verb: DeviceVerb;
+  machine: string;
+  device: string;
+  detail: string;
+}
+
+/// The device a call names, which the Device tab turns to.
+export type DeviceTarget = Pick<DeviceCall, "machine" | "device">;
+
+const DEVICE_CALL = /^(Boot|Shut down|Show|Capture|Tap|Swipe|Type into) (.+?) on ([^\s:]+)(?:: ([\s\S]*))?$/;
+const PRESS_CALL = /^Press (\S+) on (.+?) on ([^\s:]+)$/;
+
+/// The `device` call a tool title names, or null for any other.
+export function deviceCall(title: string): DeviceCall | null {
+  const t = title.trim();
+  if (!t.startsWith("Beep: ")) return null;
+  const rest = t.slice("Beep: ".length);
+  const press = PRESS_CALL.exec(rest);
+  if (press) return { verb: "Press", device: press[2], machine: press[3], detail: press[1] };
+  const m = DEVICE_CALL.exec(rest);
+  const verb = DEVICE_VERBS.find(v => v === m?.[1]);
+  if (!m || !verb) return null;
+  return { verb, device: m[2], machine: m[3], detail: m[4] ?? "" };
+}
+
+/// What is known of a session's log for following its device calls: where
+/// it started when the view opened (older pages come before it) and the
+/// calls already seen to finish.
+export interface DeviceFollow {
+  from: number;
+  seen: ReadonlySet<number>;
+}
+
+/// The device the agent's calls point the tab at: the last one that
+/// finished since `follow`, other than a shutdown. The first look at a
+/// session (`follow` null) with a log only notes what already finished, so
+/// history does not move the tab.
+export function followedDevice(entries: readonly { kind: string; text: string }[], earlier: number, follow: DeviceFollow | null): { follow: DeviceFollow | null; target: DeviceTarget | null } {
+  if (!follow && entries.length === 0) return { follow: null, target: null };
+  const done = entries.flatMap((entry, i) => {
+    if (entry.kind !== "tool" || parseTool(entry.text).status !== "completed") return [];
+    return [{ at: earlier + i, call: deviceCall(parseTool(entry.text).title) }];
+  });
+  const seen = new Set([...(follow?.seen ?? []), ...done.map(d => d.at)]);
+  if (!follow) return { follow: { from: earlier, seen }, target: null };
+
+  const fresh = done.filter(d => d.at >= follow.from && !follow.seen.has(d.at) && d.call && d.call.verb !== "Shut down");
+  const last = fresh.at(-1)?.call ?? null;
+  return { follow: { from: follow.from, seen }, target: last ? { machine: last.machine, device: last.device } : null };
+}
+
+/// A machine's name as the agent's tools give it: lower case, one word,
+/// apostrophes dropped, other symbols and spaces as single dashes.
+export function commandName(name: string) {
+  return name.replace(/['\u2019]/g, "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean).join("-");
+}
+
+/// The pick for `target` among `machines`: the device by id, else by a
+/// name only one device on that machine has. Null when none fits.
+export function targetPick(machines: readonly DeviceMachine[], target: DeviceTarget): DevicePick | null {
+  const machine = machines.find(m => m.machine_id === target.machine || commandName(m.machine_name) === target.machine);
+  if (!machine) return null;
+  const named = target.device.trim();
+  const byName = machine.devices.filter(d => d.name.toLowerCase() === named.toLowerCase());
+  const device = machine.devices.find(d => d.id === named) ?? (byName.length === 1 ? byName[0] : null);
+  return device ? { machine: machine.machine_id, device: device.id } : null;
 }
 
 /// The hardware buttons a device has, in the row's order.

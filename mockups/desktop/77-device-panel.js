@@ -11,6 +11,8 @@
 // device of the project's platform, on the session's machine first, else
 // on any machine (an iOS project on a Linux box starts on a Mac's
 // simulator). A platform no machine has a device for gets one line.
+// The tab follows the agent (#673): when its `device` tool boots, shows or
+// drives a device, the tab opens on that device, in any project.
 (() => {
   const MISSING = {
     Android: 'No machine has an Android emulator. Android Studio can make one.',

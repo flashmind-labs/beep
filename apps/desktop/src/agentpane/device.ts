@@ -6,12 +6,12 @@ import { createStore } from "zustand";
 import { indexedChannel, invoke } from "../ui/tauri.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
-import { paneSession } from "./media.ts";
+import { paneSession, showDevice } from "./media.ts";
 import { draw } from "./media-draw.ts";
 import { paneRoot } from "./worktree.ts";
 import {
-  type DeviceHost, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type ScreenState,
-  defaultPick, deviceError, pickedDevice, queueInput, readHosts, readMachines, readPlatforms, readScreenMessage, showsDeviceTab,
+  type DeviceFollow, type DeviceHost, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
+  defaultPick, deviceError, followedDevice, pickedDevice, queueInput, readHosts, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
 } from "./device-state.ts";
 
 /// How often the list is read again while the tab shows: a booting device
@@ -42,9 +42,10 @@ const set = (change: Partial<DeviceModel>) => deviceModel.setState(change);
 
 let hosts: DeviceHost[] = [];
 
-/// Whether the pane has a Device tab: the session's checkout builds for a
-/// mobile platform and a machine that is on serves `device/1`.
-export const hasDeviceTab = () => showsDeviceTab(hosts.length > 0 ? sessionPlatforms() : [], hosts);
+/// Whether the pane has a Device tab: a machine that is on serves
+/// `device/1`, and the session's checkout builds for a mobile platform or
+/// its agent used a device.
+export const hasDeviceTab = () => hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey()) || showsDeviceTab(sessionPlatforms(), hosts));
 
 async function readDeviceHosts() {
   const had = hasDeviceTab();
@@ -108,6 +109,35 @@ async function askPlatforms(at: Checkout) {
   }
 }
 
+// ----- The agent's device calls -----
+
+/// The session whose agent used a device: it has the tab whatever its project.
+let agentUsed: string | null = null;
+/// The session whose log is followed, and what is known of it.
+let followed: { session: string; follow: DeviceFollow | null } | null = null;
+/// The device the agent last pointed at, until the list has it.
+let wanted: DeviceTarget | null = null;
+
+function sessionKey() {
+  const session = paneSession();
+  return session ? `${session.machine_id}\n${session.id}` : null;
+}
+
+/// The conversation as drawn, from place `earlier`: a device call of the
+/// agent that finished since the view opened turns the tab to its device.
+export function followDeviceCalls(entries: readonly { kind: string; text: string }[], earlier: number) {
+  const session = sessionKey();
+  if (!session) return;
+  const { follow, target } = followedDevice(entries, earlier, followed?.session === session ? followed.follow : null);
+  followed = { session, follow };
+  if (!target) return;
+
+  agentUsed = session;
+  wanted = target;
+  showDevice();
+  void readDevices();
+}
+
 // ----- What shows -----
 
 /// The view is on screen in its dock.
@@ -142,6 +172,7 @@ let pickedFor: string | null = null;
 /// Shows device `pick`.
 export function pickDevice(pick: DevicePick) {
   pickedFor = paneCheckout()?.key ?? null;
+  wanted = null;
   set({ pick, screen: { kind: "off" }, error: "" });
   follow();
 }
@@ -167,9 +198,13 @@ async function readDevices() {
     const machines = readMachines(value);
     const at = paneCheckout(), platforms = sessionPlatforms();
     const last = at?.key === pickedFor ? deviceModel.getState().pick : null;
-    const pick = defaultPick(machines, at?.machine ?? null, last, platforms);
+    const asked = wanted ? targetPick(machines, wanted) : null;
+    const pick = asked ?? defaultPick(machines, at?.machine ?? null, last, platforms);
     pickedFor = at?.key ?? null;
-    set({ machines, pick, platforms, listed: true, error: "" });
+    if (asked) wanted = null;
+    // The agent's device shows again even when its view had ended.
+    const screen = asked && deviceModel.getState().screen.kind === "ended" ? { screen: { kind: "off" } as const } : {};
+    set({ machines, pick, platforms, listed: true, error: "", ...screen });
   } catch (e) {
     set({ listed: true, error: deviceError(e) });
   }

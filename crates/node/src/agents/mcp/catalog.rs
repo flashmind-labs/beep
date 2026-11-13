@@ -8,6 +8,8 @@ pub(super) const READ_TRANSCRIPT: &str = "read_session_transcript";
 pub(super) const ASK_USER: &str = "ask_user";
 /// `tools/1` still calls it `run_on`.
 pub(super) const REMOTE_RUN: &str = "remote_run";
+/// Emulators and simulators, answered by this node over `device/1`.
+pub(super) const DEVICE: &str = "device";
 
 /// Every tool, in the order agents see them. A reviewer gets
 /// `submit_review` in place of `review`.
@@ -96,6 +98,36 @@ pub(super) fn tools(reviewer: bool) -> Value {
                 "additionalProperties": false
             },
             "annotations": { "title": "Run on a machine", "destructiveHint": false, "openWorldHint": false }
+        },
+        {
+            "name": DEVICE,
+            "description": "Android emulators and iOS simulators on the user's machines. Actions:\n\
+                list: devices on every machine\n\
+                boot, shutdown, show: machine + device; boot and show open it in the user's Device tab; booting can take a minute\n\
+                screenshot: machine + device\n\
+                tap: x, y\n\
+                swipe: x, y to x2, y2, optional duration_ms\n\
+                type: text\n\
+                press: key (return, delete, tab, escape, left, right, up, down, home, back, app_switch, power, volume_up, volume_down, rotate)\n\
+                Input actions take machine + device and return a new screenshot. Coordinates are in the last screenshot's pixels.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["list", "boot", "shutdown", "show", "screenshot", "tap", "swipe", "type", "press"] },
+                    "machine": machine("The machine, by its name in list"),
+                    "device": { "type": "string", "description": "The device's name or id, as list gives it" },
+                    "x": { "type": "number" },
+                    "y": { "type": "number" },
+                    "x2": { "type": "number" },
+                    "y2": { "type": "number" },
+                    "duration_ms": { "type": "integer", "minimum": 0, "maximum": 5000 },
+                    "text": { "type": "string" },
+                    "key": { "type": "string" }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Devices", "destructiveHint": false, "openWorldHint": false }
         },
         {
             "name": "sync_project",
