@@ -16,7 +16,7 @@ test("the project menu groups sync toggles under a label with Remove last", asyn
   await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toBeVisible();
 
   const lines = await menu.locator('[role="menuitem"], [role="menuitemcheckbox"], [role="separator"], header').evaluateAll(nodes => nodes.map(node => node.getAttribute("role") === "separator" ? "-" : node.tagName === "HEADER" ? `# ${node.textContent}` : node.textContent));
-  expect(lines).toEqual(["Pin", "Open in New Window", "-", "# Sync on all machines", "Preserve edits before Git sync", "Sync ignored folders", "Choose ignored folders…", "Use Beep sync instead of Syncthing", "-", "Remove project…"]);
+  expect(lines).toEqual(["Pin", "Open in New Window", "Skills…", "-", "# Sync on all machines", "Preserve edits before Git sync", "Sync ignored folders", "Choose ignored folders…", "Use Beep sync instead of Syncthing", "-", "Remove project…"]);
   await expect(menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" })).toHaveAttribute("aria-checked", "false");
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toHaveAttribute("aria-checked", "true");
   await expect(menu.getByRole("menuitem", { name: "Remove project…" })).toHaveClass(/warn/);
@@ -61,6 +61,8 @@ test("the project menu moves by keyboard across its sections and a toggle asks b
   await page.keyboard.press("ArrowDown");
   await expect(menu.getByRole("menuitem", { name: "Open in New Window" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: "Skills…" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
   const preserve = menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" });
   await expect(preserve).toBeFocused();
   await page.keyboard.press("End");
@@ -68,6 +70,7 @@ test("the project menu moves by keyboard across its sections and a toggle asks b
   await page.keyboard.press("ArrowUp");
   await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toBeFocused();
   await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await expect(preserve).toBeFocused();

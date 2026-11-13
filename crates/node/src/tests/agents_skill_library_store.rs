@@ -1,0 +1,102 @@
+use super::*;
+use std::process::Command;
+
+/// Runs git in `dir` as a test user; its output.
+pub(crate) fn run_git(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args(["-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// Writes a skill `rel` (its folder from `root`) with `body` after its frontmatter.
+pub(crate) fn put(root: &Path, rel: &str, description: &str, body: &str) {
+    let dir = root.join(rel);
+    fs::create_dir_all(&dir).unwrap();
+    let front = if description.is_empty() {
+        String::new()
+    } else {
+        format!("---\nname: x\ndescription: {description}\n---\n")
+    };
+    fs::write(dir.join(SKILL_MD), format!("{front}{body}\n")).unwrap();
+}
+
+#[test]
+fn skills_are_folders_with_a_skill_md_outside_hidden_folders_and_other_skills() {
+    let paths = [
+        "README.md",
+        "SKILL.md",
+        "pdf/SKILL.md",
+        "pdf/inner/SKILL.md",
+        "group/docx/SKILL.md",
+        "deep/pdf/SKILL.md",
+        ".github/hidden/SKILL.md",
+        "a/b/c/d/e/f/g/SKILL.md",
+    ];
+    let found = skill_dirs(paths.iter().map(|p| p.to_string()));
+    assert_eq!(
+        found.into_iter().collect::<Vec<_>>(),
+        [
+            ("docx".to_owned(), "group/docx".to_owned()),
+            ("pdf".to_owned(), "pdf".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn a_git_library_is_inspected_and_checked_out_at_a_revision() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    let node = temp.path().join("node");
+    fs::create_dir_all(&repo).unwrap();
+    run_git(&repo, &["init", "--quiet"]);
+    put(&repo, "skills/pdf", "Reads PDFs.", "Body");
+    put(&repo, "notes", "", "# Takes notes\nMore");
+    run_git(&repo, &["add", "."]);
+    run_git(&repo, &["commit", "--quiet", "-m", "one"]);
+    let first = run_git(&repo, &["rev-parse", "HEAD"]);
+    let url = repo.to_str().unwrap();
+
+    let (revision, skills) = inspect_git(&node, url).unwrap();
+    assert_eq!(revision, first);
+    assert_eq!(
+        skills,
+        [
+            LibrarySkill {
+                name: "notes".into(),
+                description: "Takes notes".into()
+            },
+            LibrarySkill {
+                name: "pdf".into(),
+                description: "Reads PDFs.".into()
+            },
+        ]
+    );
+
+    put(&repo, "skills/pdf", "Reads PDFs better.", "Body");
+    run_git(&repo, &["commit", "--quiet", "-am", "two"]);
+    let second = run_git(&repo, &["rev-parse", "HEAD"]);
+
+    let root = ensure_git(&node, url, &first).unwrap();
+    let text = fs::read_to_string(root.join("skills/pdf/SKILL.md")).unwrap();
+    assert!(text.contains("Reads PDFs."), "{text}");
+    assert_eq!(
+        skills_in(&root).into_keys().collect::<Vec<_>>(),
+        ["notes", "pdf"]
+    );
+
+    // A revision the clone has not fetched yet.
+    ensure_git(&node, url, &second).unwrap();
+    let text = fs::read_to_string(root.join("skills/pdf/SKILL.md")).unwrap();
+    assert!(text.contains("better"), "{text}");
+    assert!(inspect_git(&node, "/no/such/repository").is_err());
+}

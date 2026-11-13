@@ -2,7 +2,8 @@
 // machines) and the window's sheet (sheet.ts). Entry: this file.
 import { createElement, createRef, type ReactNode, type ReactElement } from "react";
 import { flushSync } from "react-dom";
-import { AgentsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
+import { AgentsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview, SkillsOverview } from "./overview-view.tsx";
+import { SkillsView } from "./skills-view.tsx";
 import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
@@ -261,6 +262,7 @@ function settingsSections(mac: MacControl | null, sheet: boolean): [SettingsPage
     ["agents", agents],
     ["creds", sec("creds", "Credentials")],
     ["instr", sheet ? host("instr") : sec("instr", "Instructions")],
+    ["skills", sheet ? sec("skills", "Skill libraries") : createElement(SettingsSection, { key: "skills", page: "skills", title: "Skills", children: localView("skills-bar") })],
   ];
 }
 
@@ -313,7 +315,7 @@ const generalPending = new Set<string>();
 let macControlBusy = false;
 
 /// What a Settings section shows, drawn fresh from the module state on each render.
-type LocalView = "general" | "appearance" | "mac" | "machines" | "instr" | "creds" | "agent-overview" | "agent-bar";
+type LocalView = "general" | "appearance" | "mac" | "machines" | "instr" | "creds" | "skills" | "skills-bar" | "agent-overview" | "agent-bar";
 function localView(kind: LocalView): ReactNode {
   const local = SET.local;
   switch (kind) {
@@ -335,6 +337,8 @@ function localView(kind: LocalView): ReactNode {
     case "machines": return createElement(MachinesOverview, { machines: SET.machines, open: () => setAway("machines", renderMachines) });
     case "instr": return createElement(InstructionsOverview, { open: () => windowHooks ? windowHooks.openInstructions() : toWindow("instructions") });
     case "creds": return credentialsContent();
+    case "skills": return createElement(SkillsView);
+    case "skills-bar": return createElement(SkillsOverview, { open: () => windowHooks ? windowHooks.openSettings() : toWindow("settings") });
     case "agent-bar": return createElement(AgentsOverview, { open: () => windowHooks ? windowHooks.openProviders() : toWindow("providers") });
     case "agent-overview": return createElement(CodingAgentOverview, { open: (sub: SettingsSub) => goTo(openSub(sub)) });
   }

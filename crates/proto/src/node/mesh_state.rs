@@ -31,6 +31,67 @@ pub struct SkillSync {
     pub enabled: bool,
 }
 
+/// `skill-library/<name>`: a library of agent skills from a Git repository, the commit every
+/// machine checks out, and where its skills are installed. Desktops write it after a node
+/// fetched the repository.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillLibrary {
+    /// The repository each machine clones.
+    pub url: String,
+    /// The commit every machine checks out.
+    pub revision: String,
+    /// The skills at `revision`, by folder name.
+    pub skills: Vec<LibrarySkill>,
+    /// The skills installed in every agent's own skills folder on every machine.
+    pub global: Pick,
+    /// The skills installed in each project's checkouts, by project (`org/repo`).
+    pub projects: BTreeMap<String, Pick>,
+}
+
+/// One skill of a library: its folder name and the description in its SKILL.md.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibrarySkill {
+    pub name: String,
+    pub description: String,
+}
+
+/// Which of a library's skills a place gets.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Pick {
+    #[default]
+    None,
+    /// Every skill, including ones a later revision adds.
+    All,
+    /// These skills, by name.
+    Only(BTreeSet<String>),
+}
+
+impl Pick {
+    /// Whether this pick includes the skill `name`.
+    pub fn has(&self, name: &str) -> bool {
+        match self {
+            Pick::None => false,
+            Pick::All => true,
+            Pick::Only(names) => names.contains(name),
+        }
+    }
+}
+
+/// `project-skills/<org/repo>`: how library skills are installed in a project's checkouts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectSkills {
+    /// Lists the installed skills in `.git/info/exclude`, so Git never sees them.
+    pub keep_out_of_git: bool,
+}
+
+impl Default for ProjectSkills {
+    fn default() -> Self {
+        Self {
+            keep_out_of_git: true,
+        }
+    }
+}
+
 /// `settings/project-sync`: a master pause without discarding project preferences.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectSyncSettings {
@@ -155,6 +216,8 @@ pub trait StateValue: Serialize + DeserializeOwned {
 
 impl StateValue for SyncSpec {}
 impl StateValue for SkillSync {}
+impl StateValue for SkillLibrary {}
+impl StateValue for ProjectSkills {}
 impl StateValue for ProjectSyncSettings {}
 impl StateValue for Place {}
 impl StateValue for ProjectRecord {}

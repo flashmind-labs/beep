@@ -530,6 +530,7 @@ pub(super) async fn serve_open(
             SessionProtocol::Status
                 | SessionProtocol::Tools
                 | SessionProtocol::Skills
+                | SessionProtocol::SkillLibrary
                 | SessionProtocol::Transcripts
         )
     {
@@ -577,6 +578,10 @@ pub(super) async fn serve_open(
             let desktop = !matches!(who, Who::Node { .. });
             let mesh = offers.mesh.get().context("this node is not in a mesh")?;
             crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
+        }
+        SessionProtocol::SkillLibrary => {
+            tx.send(&Opened::Ready {}).await?;
+            crate::agents::skill_library::serve(tx, rx, offers.skills).await
         }
         SessionProtocol::Tasks => {
             tx.send(&Opened::Ready {}).await?;

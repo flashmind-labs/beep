@@ -491,7 +491,7 @@ fn real(path: &Path) -> PathBuf {
 }
 
 /// `path` with a leading `~` as `home`.
-fn expand(path: &str, home: Option<&Path>) -> PathBuf {
+pub(crate) fn expand(path: &str, home: Option<&Path>) -> PathBuf {
     let rest = path
         .strip_prefix("~/")
         .or_else(|| path.strip_prefix("~\\"))

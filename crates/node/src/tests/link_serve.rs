@@ -42,7 +42,8 @@ fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
 #[test]
 fn known_protocol_names_round_trip_and_compare_as_variants() {
     use beep_proto::node::{
-        agent, device, events, metrics, process, report, shell, sign_in, skills, status, terminal,
+        agent, device, events, metrics, process, report, shell, sign_in, skill_library, skills,
+        status, terminal,
         tool_update, tools, version,
     };
 
@@ -59,6 +60,7 @@ fn known_protocol_names_round_trip_and_compare_as_variants() {
         (tools::PROTOCOL, SessionProtocol::Tools),
         (shell::PROTOCOL, SessionProtocol::Shell),
         (skills::PROTOCOL, SessionProtocol::Skills),
+        (skill_library::PROTOCOL, SessionProtocol::SkillLibrary),
         (process::PROTOCOL, SessionProtocol::Tasks),
         (terminal::PROTOCOL, SessionProtocol::Terminal),
         (device::PROTOCOL, SessionProtocol::Device),
