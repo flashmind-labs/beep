@@ -3,7 +3,7 @@
 .mac .tm-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--d-border); font-size: 12.5px; color: var(--d-muted) }
 .mac .tm-head b { color: var(--d-fg); font-weight: 600 }
 .mac .tm-head .tm-st { margin-left: auto }
-.mac .tm-screen { margin: 0; min-height: 280px; max-height: 52vh; overflow: auto; padding: 12px 14px; background: color-mix(in srgb, #000 35%, transparent); font: 12px/1.6 var(--mono, ui-monospace, monospace); color: color-mix(in srgb, var(--d-fg) 90%, transparent); white-space: pre-wrap; user-select: text }
+.mac .tm-screen { margin: 0; min-height: 280px; max-height: 52vh; overflow: auto; padding: 12px 14px; background: color-mix(in srgb, #000 35%, transparent); font: 12px/1.6 var(--mono, ui-monospace, monospace); color: color-mix(in srgb, var(--d-fg) 90%, transparent); white-space: pre-wrap }
 .mac .tm-screen .tm-cmd { color: var(--d-muted) }
 .mac .tm-head .small { flex: none }
 .mac .tm-xterm { height: 52vh; min-height: 280px; padding: 8px 10px; background: color-mix(in srgb, var(--d-ink) 80%, #000) }
@@ -13,7 +13,7 @@
 .mac .tm-form { display: grid; gap: 10px; padding: 12px }
 .mac .tm-f { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 12.5px }
 .mac .tm-f > span { color: var(--d-muted) }
-.mac .tm-f input { padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: color-mix(in srgb, #000 25%, transparent); color: var(--d-fg); font: 12.5px var(--mono, ui-monospace, monospace); outline: 0; user-select: text }
+.mac .tm-f input { padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: color-mix(in srgb, #000 25%, transparent); color: var(--d-fg); font: 12.5px var(--mono, ui-monospace, monospace); outline: 0; -webkit-user-select: text; user-select: text }
 .mac .tm-f input:focus { border-color: color-mix(in srgb, var(--d-emerald) 60%, transparent) }
 .mac .tm-chips { display: flex; gap: 6px; flex-wrap: wrap }
 .mac .tl-view { display: flex; flex-direction: column; padding: 0; overflow: hidden }

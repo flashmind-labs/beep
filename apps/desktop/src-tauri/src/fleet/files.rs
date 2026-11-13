@@ -28,8 +28,8 @@ use beep_projects::{
     is_windows,
 };
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MAX_WORK_UPLOAD, MachineFolder,
-    MachineSession, MachineUpdate, ProjectBranch, ReadWorkFile, WorkDiff, WorkTree, WriteWorkFile,
+    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MachineFolder, MachineSession,
+    MachineUpdate, ProjectBranch, ReadWorkFile, WorkDiff, WorkTree, WriteWorkFile,
     node::{
         agent::DiffAsk,
         events::{GitOutput, GitRead, Read, Value},
@@ -229,14 +229,6 @@ pub(crate) async fn write(
     machine: EndpointId,
     write: WriteWorkFile,
 ) -> Result<String> {
-    if write.size > MAX_WORK_UPLOAD {
-        return Err(ApiError::bad_request(format!(
-            "Files up to {} MB can be dropped on a session.",
-            MAX_WORK_UPLOAD / (1024 * 1024)
-        ))
-        .into());
-    }
-
     if write.data.len() > AGENT_FILE_CHUNK {
         return Err(ApiError::bad_request("A part of the file is too large.").into());
     }
