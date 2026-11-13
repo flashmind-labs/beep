@@ -61,6 +61,19 @@ pub struct ProjectRecord {
     /// Preserve local edits before an automatic fast-forward, on idle machines only.
     #[serde(default)]
     pub git_auto_recovery: bool,
+    /// The displayed name; the mesh key remains the project's identity.
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// Repository URL changes, replayed on machines that were offline.
+    #[serde(default)]
+    pub remote_renames: Vec<RemoteRename>,
+}
+
+/// A hosted repository rename; matching fetch and push URLs keep their transport.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteRename {
+    pub from: String,
+    pub to: String,
 }
 
 /// `project/<org/repo>/<machine>`: one machine's checkout of a project.
@@ -174,3 +187,7 @@ pub struct SavedVersion {
 }
 
 impl StateValue for SavedVersion {}
+
+#[cfg(test)]
+#[path = "../tests/node_mesh_state.rs"]
+mod tests;

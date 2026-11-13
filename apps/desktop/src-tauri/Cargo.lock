@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "beep-desktop"
-version = "0.8.23"
+version = "0.8.24"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -610,7 +610,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.6.19"
+version = "0.6.20"
 dependencies = [
  "agent-client-protocol",
  "anyhow",

@@ -1,3 +1,5 @@
+import { projectName } from "../project/projects-state.ts";
+import { renameProject } from "../project/rename.tsx";
 import { WINDOWS, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, views, projects, machines) and the
 // sheets that add a machine or a project.
@@ -169,6 +171,7 @@ function openProjectMenu(e: MouseEvent, name: string) {
   if (folder && !onPhone()) items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
   const label = p?.url ? openOnLabel(p.url) : null;
   if (p?.url && label) items.push({ label, on: () => openUrl(p.url!) });
+  if (p?.imported) items.push({ label: "Rename…", on: () => renameProject(p) });
   if (p?.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
   openMenu(e, name, items);
 }
@@ -203,7 +206,7 @@ registerSidebarGroup<Placed<Project>>("pinned", {
   order: 2,
   title: "Pinned",
   load: async () => pinnedProjects(),
-  render: p => projectReact(p, p.name, true, false),
+  render: p => projectReact(p, projectName(p), true, false),
   key: p => `project:${p.name}`,
 });
 
@@ -350,7 +353,7 @@ registerSidebarGroup("projects", {
   },
   key: p => p.group ? `group:${p.group.id}` : p.org !== undefined ? `org:${p.org}` : `project:${p.name}`,
   render: p => {
-    if (!p.group && p.org === undefined) return projectReact(p, p.repo ?? p.name, false, !!p.repo);
+    if (!p.group && p.org === undefined) return projectReact(p, p.repo ?? projectName(p), false, !!p.repo);
     const title = p.group ? p.group.name : `${p.org}/`;
     const label = p.group ? createElement("span", { className: "sidebar-icon", style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }) : null;
     return createElement("button", { type: "button", className: `cc-org${p.group ? " gp" : ""}`,

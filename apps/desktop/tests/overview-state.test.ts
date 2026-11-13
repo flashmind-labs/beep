@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { overviewGroups, projectActivity, searchOverview } from "../src/project/overview-state.ts";
+import { overviewGroups, projectActivity, projectSortTime, parseProjectSort, searchOverview } from "../src/project/overview-state.ts";
 
 const row = (name: string, folder: string, url: string | null = null) => ({ name, url, machines: [{ id: "m", name: "build-box", folder }] });
 const rows = [
@@ -43,4 +43,23 @@ test("search hides a group with no match, including an empty one", () => {
   const groups = overviewGroups(rows, [], [{ id: "empty", name: "Empty", paths: ["/nowhere"] }]);
   assert.equal(groups[0].group?.name, "Empty");
   assert.deepEqual(searchOverview(groups, "alpha").map(g => g.org), ["acme"]);
+});
+
+
+test("sort choices separate visits from agent activity without changing pins or groups", () => {
+  const data = [
+    { ...row("acme/alpha", "/srv/a"), last: 300, visit: 0 },
+    { ...row("acme/beta", "/srv/b"), last: 100, visit: 400 },
+    { ...row("acme/gamma", "/srv/c"), last: null, visit: 0 },
+  ];
+  const ordered = (sort: "default" | "activity" | "opened", pins: string[] = []) => names(overviewGroups(data, pins, [], new Map(data.map(p => [p.name, projectSortTime(sort, p, null, p.visit)]))));
+  assert.deepEqual(ordered("default"), [["acme/beta", "acme/alpha", "acme/gamma"]]);
+  assert.deepEqual(ordered("activity"), [["acme/alpha", "acme/beta", "acme/gamma"]]);
+  assert.deepEqual(ordered("opened"), [["acme/beta", "acme/alpha", "acme/gamma"]]);
+  assert.deepEqual(ordered("opened", ["acme/gamma"]), [["acme/gamma", "acme/beta", "acme/alpha"]]);
+  assert.equal(projectSortTime("activity", { last: 100 }, [{ last_activity: 500 }], 900), 500);
+  assert.equal(projectSortTime("opened", { last: 100 }, [{ last_activity: 500 }], null), 0);
+  assert.equal(parseProjectSort(null), "default");
+  assert.equal(parseProjectSort("invalid"), "default");
+  assert.equal(parseProjectSort("opened"), "opened");
 });

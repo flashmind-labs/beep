@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 #[derive(Serialize)]
 struct Project {
     name: String,
+    display_name: Option<String>,
     url: Option<String>,
     checkouts: Vec<Checkout>,
 }
@@ -64,8 +65,15 @@ fn names(mesh: &Mesh) -> BTreeMap<String, Option<String>> {
 fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
     names(mesh)
         .into_keys()
-        .find(|known| known.eq_ignore_ascii_case(name.trim()))
-        .ok_or_else(|| format!("No project called {name}. Use list_projects to find its name."))
+        .find(|known| {
+            known.eq_ignore_ascii_case(name.trim())
+                || mesh
+                    .get(&Key::Project(known.clone()))
+                    .and_then(|bytes| ProjectRecord::from_bytes(&bytes).ok())
+                    .and_then(|record| record.display_name)
+                    .is_some_and(|label| label.eq_ignore_ascii_case(name.trim()))
+        })
+        .ok_or_else(|| format!("No project called {name}. Use machines projects to find its name."))
 }
 
 pub(super) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<String, String> {
@@ -74,7 +82,7 @@ pub(super) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<Str
         .filter(|folder| !folder.trim().is_empty())
         .ok_or_else(|| {
             format!(
-                "Project {name} has no checkout on that machine. Use list_projects to find one."
+                "Project {name} has no checkout on that machine. Use machines projects to find one."
             )
         })
 }
@@ -96,7 +104,7 @@ pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
             Some(machine) => Some(machine.id),
             None => {
                 return fail(format!(
-                    "No machine called {name}. Use list_machines to find its name."
+                    "No machine called {name}. Use machines list to find its name."
                 ));
             }
         },
@@ -132,8 +140,13 @@ pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
         }
 
         if machine.is_none() || !checkouts.is_empty() {
+            let display_name = mesh
+                .get(&Key::Project(name.clone()))
+                .and_then(|bytes| ProjectRecord::from_bytes(&bytes).ok())
+                .and_then(|record| record.display_name);
             projects.push(Project {
                 name,
+                display_name,
                 url,
                 checkouts,
             });

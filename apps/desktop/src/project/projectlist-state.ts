@@ -1,3 +1,4 @@
+import { projectName } from "./projects-state.ts";
 // The Projects page's list: one row per project, grouped by whether agents
 // work in it now, filtered by name. Pure, so the tests read it.
 import type { Project } from "./projects-state.ts";
@@ -76,9 +77,9 @@ export function ciState(runs: readonly Pick<RunRow, "state" | "branch">[] | null
 }
 
 /// The rows whose name holds `query`, ignoring case and spaces around it.
-export function filterByName<T extends { name: string }>(rows: readonly T[], query: string): T[] {
+export function filterByName<T extends { name: string; display_name?: string | null }>(rows: readonly T[], query: string): T[] {
   const q = query.trim().toLowerCase();
-  return q ? rows.filter(r => r.name.toLowerCase().includes(q)) : [...rows];
+  return q ? rows.filter(r => (projectName(r).toLowerCase().includes(q) || r.name.toLowerCase().includes(q))) : [...rows];
 }
 
 /// "Working now" (agents running in it) above "Others", each keeping the

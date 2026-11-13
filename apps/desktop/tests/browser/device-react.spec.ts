@@ -5,7 +5,7 @@ const host = { machine_id: "build-box", machine_name: "build-box" };
 const pixel = { id: "pixel", name: "Pixel 9", platform: "Android", state: "On", os: "Android 16" };
 
 test("the Device tab shows a device live, takes touches, keys and buttons, and stops when hidden", async ({ page }) => {
-  await openDesktop(page, true, { device_hosts: [host], device_list: [{ ...host, devices: [pixel], error: null }] });
+  await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [pixel], error: null }] });
   await page.evaluate(() => {
     const internals = window.__TAURI_INTERNALS__;
     internals.transformCallback = callback => { Reflect.set(window, "deviceChannel", callback); return 99; };
@@ -65,4 +65,22 @@ test("no Device tab while no machine serves devices", async ({ page }) => {
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await expect(page.getByRole("tab", { name: "Files", exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Device" })).toHaveCount(0);
+});
+
+const session = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } as const;
+
+test("no Device tab for a checkout that is no mobile app", async ({ page }) => {
+  await openDesktop(page, true, { device_hosts: [host], device_platforms: [], device_list: [{ ...host, devices: [pixel], error: null }] });
+  await page.evaluate(agent => window.__navigation.open({ agent }), session);
+  await expect(page.getByRole("tab", { name: "Files", exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "device_platforms"))).toBe(true);
+  await expect(page.getByRole("tab", { name: "Device" })).toHaveCount(0);
+});
+
+test("an iOS project with no simulator says so in one line", async ({ page }) => {
+  await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Ios"], device_list: [{ ...host, devices: [pixel], error: null }] });
+  await page.evaluate(agent => window.__navigation.open({ agent }), session);
+  await page.getByRole("tab", { name: "Device" }).click();
+  await expect(page.locator(".agdevmiss")).toHaveText("No machine has an iOS simulator. A Mac with Xcode and idb_companion can run one.");
+  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("");
 });

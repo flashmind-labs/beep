@@ -6,7 +6,7 @@ import { Icon, type IconName } from "../ui/icons.tsx";
 import { deviceModel, pickDevice, power, sendInput, setDeviceShown, setPainter, showAgain } from "./device.ts";
 import {
   BUTTON_NAMES, type Device, type DeviceButton, type DeviceMachine, type Rect, type ScreenState, type Size, type TouchPhase,
-  buttonsFor, fitRect, keyInput, maxSide, pickedDevice, pickValue, powerChip, readPickValue, touchPoint,
+  buttonsFor, fitRect, keyInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint,
 } from "./device-state.ts";
 
 const BUTTON_ICONS: Record<DeviceButton, IconName> = {
@@ -22,14 +22,16 @@ export const DevicePane = memo(function DevicePane({ hidden }: { hidden: boolean
   useEffect(() => { setDeviceShown(!hidden); }, [hidden]);
   useEffect(() => () => setDeviceShown(false), []);
 
+  const missing = model.listed ? missingLine(model.machines, model.platforms) : null;
   const anyDevice = model.machines.some(m => m.devices.length > 0);
   if (model.listed && !anyDevice) {
     const names = model.machines.map(m => m.machine_name).join(" or ");
-    return <div className="agpview device" hidden={hidden}><div className="agdevnote">{model.error || `No emulator or simulator on ${names || "the machines"}.`}{model.machines.filter(m => m.error).map(m => <small key={m.machine_id}>{m.machine_name}: {m.error}</small>)}</div></div>;
+    return <div className="agpview device" hidden={hidden}><div className="agdevnote">{model.error || missing || `No emulator or simulator on ${names || "the machines"}.`}{model.machines.filter(m => m.error).map(m => <small key={m.machine_id}>{m.machine_name}: {m.error}</small>)}</div></div>;
   }
 
   return <div className="agpview device" hidden={hidden}>
-    <DeviceHead machines={model.machines} device={device} busy={model.busy} />
+    <DeviceHead machines={model.machines} device={device} busy={model.busy} listed={model.listed} />
+    <div className="agdevmiss" role="status" hidden={!missing}>{missing}</div>
     <div className="derr" role="status" hidden={!model.error}>{model.error}</div>
     <Screen device={device} />
     <div className="agpacts agdevkeys">
@@ -41,7 +43,7 @@ export const DevicePane = memo(function DevicePane({ hidden }: { hidden: boolean
   </div>;
 });
 
-function DeviceHead({ machines, device, busy }: { machines: readonly DeviceMachine[]; device: Device | null; busy: boolean }) {
+function DeviceHead({ machines, device, busy, listed }: { machines: readonly DeviceMachine[]; device: Device | null; busy: boolean; listed: boolean }) {
   const pick = useStore(deviceModel, s => s.pick);
   const chip = device ? powerChip(device.state) : null;
   const choose = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -51,7 +53,7 @@ function DeviceHead({ machines, device, busy }: { machines: readonly DeviceMachi
 
   return <div className="agdevhead">
     <select className="agdevpick" aria-label="Device" value={pick ? pickValue(pick) : ""} onChange={choose}>
-      {!pick && <option value="">Reading devices…</option>}
+      {!pick && <option value="">{listed ? "Choose a device" : "Reading devices…"}</option>}
       {machines.filter(m => m.devices.length > 0).map(m => <optgroup key={m.machine_id} label={m.machine_name}>
         {m.devices.map(d => <option key={d.id} value={pickValue({ machine: m.machine_id, device: d.id })}>{d.name}</option>)}
       </optgroup>)}

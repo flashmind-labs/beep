@@ -42,6 +42,25 @@ fn failed_files_count_their_bytes_as_done() {
 }
 
 #[test]
+fn received_bytes_move_before_the_file_is_done() {
+    // One large file: its bytes show as they come, with a rate, and the
+    // file counts once it is in place.
+    let start = Instant::now();
+    let mut meter = Meter::new(2, 1000, start);
+    meter.received(400, start + Duration::from_secs(4));
+    let p = meter.progress();
+    assert_eq!((p.files_done, p.bytes_done), (0, 400));
+    assert_eq!(p.rate, 100);
+    assert_eq!(p.eta_secs, Some(6));
+
+    // A fetch tried again counts no more than the round holds.
+    meter.received(5000, start + Duration::from_secs(5));
+    meter.done(1000, start + Duration::from_secs(6));
+    let p = meter.progress();
+    assert_eq!((p.files_done, p.bytes_done), (1, 1000));
+}
+
+#[test]
 fn failed_paths_wait_first_and_the_list_is_bounded() {
     let ahead: Vec<String> = (0..100).map(|i| format!("f{i}")).collect();
     let out = waiting(&["bad".into()], &ahead);

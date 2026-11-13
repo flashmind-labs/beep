@@ -72,6 +72,7 @@ fn imported_projects_list_and_an_old_machine_hides_them() {
             folder: "/srv/work/projects/org/repo".into(),
             cloned: false,
             imported_at: at(9000),
+            display_name: None,
         }]),
         ..parts()
     });

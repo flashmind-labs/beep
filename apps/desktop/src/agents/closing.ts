@@ -1,5 +1,5 @@
 import { forgetView } from "../agentpane/view-memory.ts";
-// Sessions disappear from lists as soon as closing starts. A refusal restores them.
+// Running sessions disappear as soon as closing starts. A refusal restores them.
 import { invoke, listen } from "../ui/tauri.ts";
 import type { RunningAgent } from "./running-state.ts";
 import { Closings } from "./closing-state.ts";
@@ -16,8 +16,8 @@ export const onClosing = (f: () => void) => void listeners.add(f);
 /// The status a row shows for `s`: "closing" or "ended" around a close, else its own.
 export const shownStatus = (s: Ref & { status: string }) => closings.stateOf(s, Date.now()) ?? s.status;
 
-/// Closed sessions stay out of lists while cached reads catch up.
-export const sessionVisible = (s: Ref) => closings.stateOf(s, Date.now()) === null;
+/// Hide stale running entries during close; confirmed ended rows belong in history.
+export const sessionVisible = (s: Ref & { status: string }) => s.status === "ended" || closings.stateOf(s, Date.now()) === null;
 
 /// The running sessions that are not closing.
 export const visibleRunning = (rows: readonly RunningAgent[] | null | undefined) =>

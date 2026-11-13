@@ -2,7 +2,7 @@
 //! title it by the tool's name alone, so the node words it from its arguments,
 //! such as `Beep: Run on build-box: cargo test`; the apps read it back.
 
-use super::SERVER_NAME;
+use super::{SERVER_NAME, catalog::ungrouped, machines::command_name};
 use serde_json::{Map, Value};
 
 /// What every title of a `beep` call starts with.
@@ -22,7 +22,16 @@ pub(crate) const PREFIX: &str = "Beep: ";
 /// - `Ask: <question>`
 /// - `Review changes`, `Review changes against <base>`, `Check review <id>`
 /// - `Submit review`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString)]
+/// - `List devices`, `Boot <device> on <machine>`, `Shut down …`, `Show …`,
+///   `Capture …`, `Tap … on <machine>: <x>, <y>`, `Swipe …: <x>, <y> to
+///   <x2>, <y2>`, `Type into …: <text>`, `Press <key> on <device> on
+///   <machine>`
+/// - `Read status`, `Read logs on <machine>`, `Read metrics`, `File a
+///   report: <description>`
+///
+/// A grouped tool (`machines`, `run`, `files`, `agent`, `beep`) takes the
+/// words of the tool its action calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub(crate) enum Tool {
     ListMachines,
@@ -44,6 +53,16 @@ pub(crate) enum Tool {
     AskUser,
     Review,
     SubmitReview,
+    Device,
+    BeepStatus,
+    BeepLogs,
+    BeepMetrics,
+    FileReport,
+    Machines,
+    Run,
+    Files,
+    Agent,
+    Beep,
 }
 
 impl Tool {
@@ -162,6 +181,55 @@ impl Tool {
                 (None, None) => format!("{PREFIX}Review changes"),
             },
             Self::SubmitReview => format!("{PREFIX}Submit review"),
+            Self::BeepStatus => format!("{PREFIX}Read status"),
+            Self::BeepLogs => match machine {
+                Some(machine) => format!("{PREFIX}Read logs on {machine}"),
+                None => format!("{PREFIX}Read logs"),
+            },
+            Self::BeepMetrics => match machine {
+                Some(machine) => format!("{PREFIX}Read metrics on {machine}"),
+                None => format!("{PREFIX}Read metrics"),
+            },
+            Self::FileReport => with("File a report".to_owned(), text("description")),
+            Self::Machines | Self::Run | Self::Files | Self::Agent | Self::Beep => {
+                let group: &'static str = self.into();
+                let tool = ungrouped(group, text("action"))
+                    .and_then(Result::ok)
+                    .and_then(|name| name.parse::<Self>().ok());
+
+                match tool {
+                    Some(tool) => return tool.title(input),
+                    None => format!("{PREFIX}Use {group}"),
+                }
+            }
+            Self::Device => {
+                let number = |key: &str| {
+                    args.and_then(|args| args.get(key)?.as_number())
+                        .map_or_else(|| "?".to_owned(), ToString::to_string)
+                };
+                let device = text("device").unwrap_or("a device");
+                let machine = machine.map_or_else(|| "a machine".to_owned(), command_name);
+                let at = format!("{device} on {machine}");
+
+                match text("action").unwrap_or_default() {
+                    "list" => format!("{PREFIX}List devices"),
+                    "boot" => format!("{PREFIX}Boot {at}"),
+                    "shutdown" => format!("{PREFIX}Shut down {at}"),
+                    "show" => format!("{PREFIX}Show {at}"),
+                    "screenshot" => format!("{PREFIX}Capture {at}"),
+                    "tap" => format!("{PREFIX}Tap {at}: {}, {}", number("x"), number("y")),
+                    "swipe" => format!(
+                        "{PREFIX}Swipe {at}: {}, {} to {}, {}",
+                        number("x"),
+                        number("y"),
+                        number("x2"),
+                        number("y2")
+                    ),
+                    "type" => with(format!("Type into {at}"), text("text")),
+                    "press" => format!("{PREFIX}Press {} on {at}", text("key").unwrap_or("a key")),
+                    _ => format!("{PREFIX}Use {at}"),
+                }
+            }
         }
         .trim_end()
         .to_owned()

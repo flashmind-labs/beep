@@ -18,3 +18,4 @@
 .mac .ag-devnote { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--d-muted); font-size: 12px; text-align: center; padding: 16px }
 .mac .ag-devkeys .gap { width: 6px }
 .mac .ag-devkeys .dbtn:disabled { opacity: .4 }
+.mac .ag-devmiss { flex: none; padding: 5px 8px; border-bottom: 1px solid var(--d-border); color: var(--d-muted); font-size: 11.5px }

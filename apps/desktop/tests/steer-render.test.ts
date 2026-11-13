@@ -496,3 +496,53 @@ test("composer slots keep queue and attachments ordered and survive disposal", t
   assert.ok(bar.querySelector("#agqueue"));
   assert.ok(bar.querySelector("#agatt"));
 });
+
+const safetyBlock = "This request was blocked by our safety systems. Reason: Potentially unintended activity.";
+
+test("conversation blocks stay separate from formatted partial output and survive redraws", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
+  Object.assign(globalThis, { NodeFilter: window.NodeFilter, Text: window.Text });
+  page.session.status = "idle";
+  page.entries = [{ kind: "user", text: "Push the changes" }, { kind: "agent", text: `The fixes are committed.${safetyBlock}`, html: `<p>The fixes are <strong>committed</strong>.${safetyBlock}</p>` }];
+  drawAgentBody();
+  assert.equal(bar.querySelector(".dcoderen.agent strong")?.textContent, "committed");
+  assert.equal(bar.querySelector(".dcoderen.agent")?.textContent, "The fixes are committed.");
+  assert.equal(bar.querySelector('[role="alert"] b')?.textContent, "Conversation blocked");
+  assert.equal(bar.querySelector('[role="alert"] span')?.textContent, safetyBlock);
+  drawAgentBody(undefined, true);
+  assert.equal(bar.querySelectorAll('[role="alert"]').length, 1);
+});
+
+test("standalone provider blocks use an error card without an empty assistant reply", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
+  Object.assign(globalThis, { NodeFilter: window.NodeFilter, Text: window.Text });
+  page.entries = [{ kind: "user", text: "Continue" }, { kind: "agent", text: safetyBlock }];
+  drawAgentBody();
+  assert.equal(bar.querySelector(".dcoderen.agent"), null);
+  assert.equal(bar.querySelector('[role="alert"] span')?.textContent, safetyBlock);
+});
+
+test("quoted safety notices remain assistant content", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
+  Object.assign(globalThis, { NodeFilter: window.NodeFilter, Text: window.Text });
+  for (const html of [`<blockquote><p>${safetyBlock}</p></blockquote>`, `<pre><code>${safetyBlock}</code></pre>`, `<p>Example: <code>${safetyBlock}</code></p>`]) {
+    page.entries = [{ kind: "user", text: "Explain this error" }, { kind: "agent", text: safetyBlock, html }];
+    drawAgentBody(undefined, true);
+    assert.equal(bar.querySelector('[role="alert"]'), null);
+    assert.match(bar.querySelector(".dcoderen.agent")?.textContent ?? "", /Potentially unintended activity/);
+  }
+});
+
+test("structured conversation blocks and other failed turns use accessible errors", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
+  page.error = "misalignment_policy_violation";
+  drawAgentBody();
+  assert.equal(bar.querySelector('[role="alert"] b')?.textContent, "Conversation blocked");
+  page.error = "Connection lost";
+  drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector('[role="alert"] b')?.textContent, "The turn did not finish");
+});

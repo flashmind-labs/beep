@@ -126,6 +126,7 @@ fn project(name: &str, machine: &str, folder: &str) -> ImportedProject {
         url: format!("https://example.com/{name}"),
         cloned: false,
         imported_at: UNIX_EPOCH,
+        display_name: None,
     }
 }
 

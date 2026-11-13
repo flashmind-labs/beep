@@ -98,6 +98,18 @@ test("a Beep call reads as its machine, command, files and verb", () => {
   assert.equal(toolKind("Beep: Run on build-box: make [completed]"), "beep");
 });
 
+test("a device call reads as the device and its machine", () => {
+  assert.deepEqual(beepCall("Beep: Boot iPhone 17 on mac-box"),
+    { done: "Booted iPhone 17 on", doing: "Booting iPhone 17 on", machine: "mac-box", detail: "", files: "" });
+  assert.deepEqual(beepCall("Beep: Tap Pixel 9 on build-box: 120, 400"),
+    { done: "Tapped Pixel 9 on", doing: "Tapping Pixel 9 on", machine: "build-box", detail: "120, 400", files: "" });
+  assert.equal(beepCall("Beep: Press home on Pixel 9 on build-box")?.done, "Pressed home on Pixel 9 on");
+  assert.equal(beepCall("Beep: Type into Pixel 9 on build-box: turn on wifi")?.detail, "turn on wifi");
+  assert.equal(beepCall("Beep: List devices")?.done, "Listed devices");
+  assert.equal(beepLine("Beep: Shut down Pixel 9 on build-box"), "Shut down Pixel 9 on build-box");
+  assert.equal(beepLine("Beep: Capture Pixel 9 on build-box", true), "Capturing Pixel 9 on build-box");
+});
+
 test("agent starts expose the full prompt with or without a target machine", () => {
   const prompt = "Fix the login flow.\n\nRun `cargo test` and preserve <session>.\n" + "Last instruction. ".repeat(200);
 

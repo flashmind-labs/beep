@@ -18,8 +18,9 @@ struct Sample {
 }
 
 /// One round's counts, and the recent points the rate comes from. A file
-/// counts as done once it is in line or failed, its bytes with it, so the
-/// files and the bytes done tell the same part of the round.
+/// counts as done once it is in line or failed, its bytes with it. Bytes
+/// that arrive from peers count as they come, so one large file moves the
+/// bytes before it is done.
 #[derive(Debug)]
 pub(super) struct Meter {
     files_done: u64,
@@ -28,6 +29,8 @@ pub(super) struct Meter {
     bytes_total: u64,
     /// The bytes of the files brought in line, which the rate is told from.
     brought: u64,
+    /// The bytes fetched from peers this round, done or not.
+    received: u64,
     samples: VecDeque<Sample>,
 }
 
@@ -41,6 +44,7 @@ impl Meter {
             bytes_done: 0,
             bytes_total,
             brought: 0,
+            received: 0,
             samples: VecDeque::from([Sample { at: now, bytes: 0 }]),
         }
     }
@@ -50,9 +54,29 @@ impl Meter {
         self.files_done = self.files_done.saturating_add(1);
         self.bytes_done = self.bytes_done.saturating_add(bytes);
         self.brought = self.brought.saturating_add(bytes);
+        self.sample(now);
+    }
+
+    /// `bytes` came from peers this round so far, at `now`.
+    pub(super) fn received(&mut self, bytes: u64, now: Instant) {
+        if bytes <= self.received {
+            return;
+        }
+
+        self.received = bytes;
+        self.sample(now);
+    }
+
+    /// The bytes that moved: those brought in line, or those received when
+    /// the fetches are ahead of the writes.
+    fn moved(&self) -> u64 {
+        self.brought.max(self.received.min(self.bytes_total))
+    }
+
+    fn sample(&mut self, now: Instant) {
         self.samples.push_back(Sample {
             at: now,
-            bytes: self.brought,
+            bytes: self.moved(),
         });
         // Keeps the last point before the window, so a slow file still
         // spans its whole time.
@@ -89,13 +113,14 @@ impl Meter {
 
     pub(super) fn progress(&self) -> Progress {
         let rate = self.rate();
+        let bytes_done = self.bytes_done.max(self.moved());
         Progress {
             files_done: self.files_done,
             files_total: self.files_total,
-            bytes_done: self.bytes_done,
+            bytes_done,
             bytes_total: self.bytes_total,
             rate,
-            eta_secs: eta(self.bytes_total.saturating_sub(self.bytes_done), rate),
+            eta_secs: eta(self.bytes_total.saturating_sub(bytes_done), rate),
         }
     }
 }

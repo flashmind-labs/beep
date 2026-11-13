@@ -1,3 +1,5 @@
+import { projectName } from "./projects-state.ts";
+import { renameProject } from "./rename.tsx";
 import { onPhone } from "../ui/platform.ts";
 // project/: the Projects page and one project's page (pull requests, issues,
 // runs, file sync, custom agents, the agent bar). Entry: this file's view.
@@ -141,12 +143,13 @@ export const projectsView: CenterView<"projects"> = {
         const on = state.top.includes(project.name);
         const items: MenuAction[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
         if (!windowProject && !onPhone()) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(project.name) });
+        if (project.imported) items.push({ label: "Rename…", on: () => renameProject(project) });
         if (project.imported) openProjectMenu(event.nativeEvent, project, items, { label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) }, () => { whereDue.add(project.name); revalidate(project.name); });
         else openMenu(event.nativeEvent, project.name, items);
       } }, "⋯"));
     }
 
-    return { title: state.picked, sub: projectLine(p), reactTools: tools };
+    return { title: p ? projectName(p) : state.picked, sub: projectLine(p), reactTools: tools };
   },
   mount(_el, arg) {
     state.picked = arg?.project || null;

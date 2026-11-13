@@ -11,6 +11,8 @@ struct Fake {
     reviewer: bool,
     /// The session's folder, when it gets the media tools.
     media: Option<std::path::PathBuf>,
+    /// The mesh has no other machine.
+    alone: bool,
 }
 
 impl Fake {
@@ -21,6 +23,7 @@ impl Fake {
             answer,
             reviewer: false,
             media: None,
+            alone: false,
         }
     }
 }
@@ -44,6 +47,16 @@ impl Backend for Fake {
         })
     }
 
+    async fn device(&self, args: Value) -> Called {
+        let mut called = Called::ok(format!("{} on build-box: 2 x 4 pixels.", args["device"]));
+        called.image = Some(beep_proto::node::device::Frame {
+            jpeg: vec![1, 2, 3],
+            width: 2,
+            height: 4,
+        });
+        called
+    }
+
     async fn read_transcript(&self, args: Value) -> Result<Reply> {
         Ok(super::super::reply::ok(args.to_string()))
     }
@@ -61,6 +74,10 @@ impl Backend for Fake {
     fn reviewer(&self, session: &str) -> bool {
         assert_eq!(session, "a3f9c1");
         self.reviewer
+    }
+
+    fn alone(&self) -> bool {
+        self.alone
     }
 
     fn media(&self, _session: &str) -> Option<Media> {
@@ -116,12 +133,12 @@ async fn it_lists_the_tools_and_answers_a_call() {
             request(
                 3,
                 "tools/call",
-                json!({ "name": "list_machines", "arguments": {} }),
+                json!({ "name": "machines", "arguments": { "action": "list" } }),
             ),
             request(
                 4,
                 "tools/call",
-                json!({ "name": "job_status", "arguments": { "id": "task:1@build-box" } }),
+                json!({ "name": "run", "arguments": { "action": "status", "id": "task:1@build-box" } }),
             ),
             request(5, "nothing/here", json!({})),
         ],
@@ -139,26 +156,7 @@ async fn it_lists_the_tools_and_answers_a_call() {
     assert_eq!(
         names,
         [
-            "list_machines",
-            "list_projects",
-            "harness_info",
-            "read_session_transcript",
-            "remote_run",
-            "sync_project",
-            "send_files",
-            "job_status",
-            "cancel",
-            "start_agent",
-            "agent_status",
-            "send_to_agent",
-            "stop_agent",
-            "list_agents",
-            "beep_status",
-            "beep_logs",
-            "beep_metrics",
-            "file_report",
-            "ask_user",
-            "review"
+            "machines", "run", "files", "device", "agent", "review", "ask_user", "beep"
         ]
     );
     let hints = |name: &str| {
@@ -167,11 +165,9 @@ async fn it_lists_the_tools_and_answers_a_call() {
         tool["annotations"].clone()
     };
     // Codex asks unless a tool reads only, or is neither destructive nor open world.
-    assert_eq!(hints("list_machines")["readOnlyHint"], true);
-    assert_eq!(hints("harness_info")["readOnlyHint"], true);
-    assert_eq!(hints(READ_TRANSCRIPT)["readOnlyHint"], true);
-    assert_eq!(hints("remote_run")["destructiveHint"], false);
-    assert_eq!(hints("remote_run")["openWorldHint"], false);
+    assert_eq!(hints("machines")["readOnlyHint"], true);
+    assert_eq!(hints("run")["destructiveHint"], false);
+    assert_eq!(hints("run")["openWorldHint"], false);
     assert_eq!(text(&out[2]), "- build-box: online");
     assert_eq!(out[2]["result"]["isError"], false);
     assert_eq!(text(&out[3]), "build-box is offline.");
@@ -180,6 +176,8 @@ async fn it_lists_the_tools_and_answers_a_call() {
     let calls = fake.calls.lock().unwrap();
     assert_eq!(calls[0].tool, Tool::ListMachines);
     assert_eq!(calls[0].session, "a3f9c1");
+    assert_eq!(calls[1].tool, Tool::JobStatus);
+    assert_eq!(calls[1].args, r#"{"id":"task:1@build-box"}"#, "action is taken out");
     assert!(fake.asked.lock().unwrap().is_empty(), "nothing acted");
 }
 
@@ -192,7 +190,7 @@ async fn transcript_calls_use_the_sessions_backend_without_acting_approval() {
         &[request(
             1,
             "tools/call",
-            json!({"name": READ_TRANSCRIPT, "arguments":args}),
+            json!({"name": "agent", "arguments": {"action": "transcript", "machine": "build-box", "session": "session-a", "before": 20}}),
         )],
     )
     .await;
@@ -290,6 +288,26 @@ async fn only_a_reviewer_is_offered_submit_review() {
 }
 
 #[tokio::test]
+async fn a_device_screenshot_comes_as_image_content() {
+    let fake = Fake::new("1");
+    let out = exchange(
+        &fake,
+        &[request(
+            1,
+            "tools/call",
+            json!({ "name": "device", "arguments": { "action": "screenshot", "device": "Pixel" } }),
+        )],
+    )
+    .await;
+    let content = &out[0]["result"]["content"];
+    assert_eq!(content[0]["text"], "\"Pixel\" on build-box: 2 x 4 pixels.");
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["mimeType"], "image/jpeg");
+    assert_eq!(content[1]["data"], "AQID");
+    assert!(fake.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
     use crate::machine::provision::spawn_env::{self, TEST_LOCK};
     use beep_proto::{SecretText, node::EnvSecret};
@@ -314,7 +332,7 @@ async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
     .await;
     spawn_env::set_vars(Vec::new());
     let brief = out[2]["result"]["instructions"].as_str().unwrap();
-    assert!(brief.contains("also offers") && brief.contains("decision"), "{brief}");
+    assert!(brief.contains("API keys") && brief.contains("decision"), "{brief}");
 
     let names: Vec<&str> = out[0]["result"]["tools"]
         .as_array()
@@ -322,7 +340,7 @@ async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    for tool in ["remote_run", "generate_image", "generate_video", "tts", "decision"] {
+    for tool in ["run", "generate_image", "generate_video", "tts", "decision"] {
         assert!(names.contains(&tool), "{tool} missing from {names:?}");
     }
     assert!(!names.contains(&"generate_3d"), "{names:?}");
@@ -342,4 +360,55 @@ async fn without_keys_there_are_no_media_tools() {
 
     let listed = out[0]["result"]["tools"].as_array().unwrap();
     assert!(listed.iter().all(|tool| tool["name"] != "decision"), "{listed:?}");
+}
+
+#[tokio::test]
+async fn a_grouped_tool_needs_a_known_action() {
+    let fake = Fake::new("allow");
+    let out = exchange(
+        &fake,
+        &[
+            request(1, "tools/call", json!({ "name": "agent", "arguments": {} })),
+            request(2, "tools/call", json!({ "name": "beep", "arguments": { "action": "reboot" } })),
+        ],
+    )
+    .await;
+    assert_eq!(
+        text(&out[0]),
+        "Give agent an action: start, status, send, stop, list, transcript."
+    );
+    assert_eq!(out[1]["result"]["isError"], true);
+    assert!(fake.calls.lock().unwrap().is_empty(), "nothing was sent");
+}
+
+#[tokio::test]
+async fn without_other_machines_run_and_files_are_left_out() {
+    let fake = Fake {
+        alone: true,
+        ..Fake::new("allow")
+    };
+    let out = exchange(&fake, &[request(1, "tools/list", json!({}))]).await;
+    let names: Vec<&str> = out[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["machines", "device", "agent", "review", "ask_user", "beep"]
+    );
+}
+
+/// The tools agents get without API keys stay within a context budget, at
+/// about four bytes a token.
+#[test]
+fn the_tool_definitions_fit_the_budget() {
+    const TOKENS: usize = 2_500;
+
+    let listed = catalog::tools(false, false).to_string();
+    let tokens = listed.len() / 4;
+    assert!(tokens <= TOKENS, "{tokens} tokens");
+    let brief = (super::super::BRIEF.len()) / 4;
+    assert!(brief <= 500, "the brief is {brief} tokens");
 }

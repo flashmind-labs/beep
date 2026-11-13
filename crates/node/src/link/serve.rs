@@ -446,7 +446,8 @@ impl Offers {
 pub(crate) enum Who {
     /// A desktop of the mesh, by its key: every protocol the node offers. A desktop in this process has the node's own key.
     Everything(EndpointId),
-    /// Another node of the mesh: its status and agent tools, nothing else.
+    /// Another node of the mesh: its status, agent tools and devices,
+    /// nothing else.
     Node {
         peer: EndpointId,
         /// This device is a desktop, read from the device list when the
@@ -519,6 +520,20 @@ fn commands_off(offers: &Offers) -> Option<String> {
     ))
 }
 
+/// Whether another node of the mesh may open `protocol` here: status and
+/// agent tools, and the devices its agents boot and drive (`device/1`, kept
+/// off by `withheld` while this machine is not lent).
+fn node_may_open(protocol: &SessionProtocol) -> bool {
+    matches!(
+        protocol,
+        SessionProtocol::Status
+            | SessionProtocol::Tools
+            | SessionProtocol::Skills
+            | SessionProtocol::Transcripts
+            | SessionProtocol::Device
+    )
+}
+
 /// Serves a session stream that opened with `protocol`, if `who` may use it.
 pub(super) async fn serve_open(
     mut tx: LinkTx,
@@ -527,15 +542,7 @@ pub(super) async fn serve_open(
     offers: Offers,
     who: Who,
 ) -> Result<()> {
-    if matches!(who, Who::Node { .. })
-        && !matches!(
-            protocol,
-            SessionProtocol::Status
-                | SessionProtocol::Tools
-                | SessionProtocol::Skills
-                | SessionProtocol::Transcripts
-        )
-    {
+    if matches!(who, Who::Node { .. }) && !node_may_open(&protocol) {
         let reason = format!("a node may not open {}", protocol);
         return tx.send(&Opened::Refused { reason }).await;
     }
@@ -591,7 +598,7 @@ pub(super) async fn serve_open(
         }
         SessionProtocol::Device => {
             tx.send(&Opened::Ready {}).await?;
-            device::serve(tx, rx).await
+            device::serve(tx, rx, offers.agents.clone()).await
         }
         SessionProtocol::SignIn => {
             tx.send(&Opened::Ready {}).await?;

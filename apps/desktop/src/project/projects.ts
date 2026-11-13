@@ -9,7 +9,7 @@ import { moveStore } from "../agents/move-store.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
 import { projectRunning, whereRows, whereCount, syncedBy, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
-import { projectActivity, overviewGroups } from "./overview-state.ts";
+import { parseProjectSort, projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { pages, state, warm, pageFresh } from "../center/state.ts";
@@ -42,10 +42,21 @@ export function overviewSection(rows: Project[]): PagePart[] {
   visiting = null;
   const groups = overviewGroups(rows, state.top, state.groups, overviewOrder(rows));
   overviewHost ??= retainedHost(null);
-  showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming,
+  showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming, sort: projectSort, changeSort,
     sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)), add: addProject,
   }) }]);
   return [hostPart(overviewHost)];
+}
+
+const SORT_KEY = "beep.projects.sort";
+let projectSort: ProjectSort = "default";
+try { projectSort = parseProjectSort(localStorage.getItem(SORT_KEY)); } catch { /* use the default */ }
+
+function changeSort(sort: ProjectSort) {
+  projectSort = sort;
+  ranked = null;
+  try { localStorage.setItem(SORT_KEY, sort); } catch { /* kept for this launch only */ }
+  redrawProjects();
 }
 
 /// When the user last opened each project, kept between launches.
@@ -76,7 +87,7 @@ function overviewOrder(rows: readonly Project[]) {
   const busy = !!box && (box.matches(":hover") || box.contains(document.activeElement));
   if (ranked && ranked.names === names && (busy || Date.now() - ranked.at < RANK_MS)) return ranked.activity;
 
-  const activity = new Map(rows.map(p => [p.name, projectActivity(p, state.sessions.get(p.name), visits.get(p.name))]));
+  const activity = new Map(rows.map(p => [p.name, projectSortTime(projectSort, p, state.sessions.get(p.name) ?? null, visits.get(p.name) ?? null)]));
   ranked = { names, at: Date.now(), activity };
   return activity;
 }

@@ -497,6 +497,18 @@ function showList(id: typeof RUNNING | typeof SUBS) {
   showTab(d, id);
 }
 
+/// Turns the Device tab's dock to it, unfolded, without taking the keys
+/// from the conversation. A phone keeps its screen.
+export function showDevice() {
+  if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
+  const d = dockOf(DEVICE);
+  P.layout.hidden[d] = false;
+  saveLayout();
+  P.on[d] = DEVICE;
+  rememberPane();
+  if (!flipTab(d)) draw();
+}
+
 /// Shows the Artifacts tab, unfolding its dock, on the artifact at `path`
 /// when given. False when the tab does not list it.
 export function showArtifact(path?: string) {

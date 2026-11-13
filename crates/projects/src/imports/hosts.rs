@@ -13,7 +13,7 @@ use crate::{
         forks::Api,
         new_repo::{self, CreateError, Forge, NewRepo},
     },
-    model::ForgejoUrl,
+    model::{ForgejoUrl, RepoName},
 };
 use anyhow::Result;
 use beep_proto::Service;
@@ -254,4 +254,57 @@ pub async fn create_repository(
         })?;
     log::info!("repository created; project={made} host={host_name}");
     wanted.sibling(&made)
+}
+
+/// Renames a repository on its current host and owner.
+pub async fn rename_repository(
+    hosts: &dyn Hosts,
+    credentials: &[Opened],
+    repo: &RepoRef,
+    name: &RepoName,
+    github_api: Option<&str>,
+) -> Result<RepoRef, ImportError> {
+    if !repo.org().eq_ignore_ascii_case(name.owner()) {
+        return Err(ImportError::Malformed);
+    }
+
+    let opened =
+        credential_of(repo, credentials).ok_or_else(|| ImportError::NoToken(repo.host_name()))?;
+    let target = target_of(opened).ok_or(ImportError::Internal)?;
+    let base = match repo.host {
+        Host::GitHub => github_api.unwrap_or(&target.base),
+        Host::Forgejo(_) => &target.base,
+    };
+    let client = hosts.client()?;
+    let host = repo.host_name();
+    let caller = Caller {
+        client: &client,
+        calls: hosts.calls(),
+        host: &host,
+        token: &opened.secret,
+    };
+    let response = caller
+        .patch(
+            &format!("{base}/repos/{}", repo.project()),
+            &serde_json::json!({"name": name.repo()}),
+        )
+        .await
+        .map_err(ImportError::Forge)?;
+
+    if !response.status().is_success() {
+        let error = crate::git_items::host::status_error(
+            host.clone(),
+            response.status(),
+            response.headers(),
+        );
+        return Err(match error {
+            HostError::Refused(_) if response.status() == reqwest::StatusCode::FORBIDDEN => {
+                ImportError::CannotRename { host }
+            }
+            other => ImportError::Forge(other),
+        });
+    }
+
+    // The URL follows the same host and owner; never accept an arbitrary response URL.
+    repo.sibling(name)
 }

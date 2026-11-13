@@ -208,3 +208,87 @@ async fn owners_are_the_account_and_the_organizations_it_can_create_in() {
         ["octo", "open"]
     );
 }
+
+#[tokio::test]
+async fn repository_rename_uses_the_host_api_and_reports_permission_failures() {
+    use crate::{
+        credentials::{GitHubLogin, Opened},
+        imports::{
+            hosts::{Hosts, rename_repository},
+            repo::RepoRef,
+        },
+    };
+    use beep_proto::Service;
+    struct HostsForTest {
+        client: reqwest::Client,
+        calls: Arc<Semaphore>,
+    }
+    impl Hosts for HostsForTest {
+        fn client(&self) -> anyhow::Result<reqwest::Client> {
+            Ok(self.client.clone())
+        }
+        fn calls(&self) -> &Arc<Semaphore> {
+            &self.calls
+        }
+    }
+    for github in [true, false] {
+        for status in ["200 OK", "403 Forbidden"] {
+            let path = if github {
+                "PATCH /repos/team/old"
+            } else {
+                "PATCH /api/v1/repos/team/old"
+            };
+            let (base, seen) = forge([(path, (status, "{}"))].into()).await;
+            let server = base.parse().unwrap();
+            let hosts = HostsForTest {
+                client: beep_proto::https::client().build().unwrap(),
+                calls: Arc::new(Semaphore::new(2)),
+            };
+            let opened = Opened {
+                service: if github {
+                    Service::GitHub
+                } else {
+                    Service::Forgejo { url: server }
+                },
+                secret: "tok".into(),
+                github: github.then(|| GitHubLogin {
+                    login: "owner".into(),
+                    orgs: vec!["team".into()],
+                    default: true,
+                }),
+            };
+            let servers = crate::imports::hosts::forgejo_of(std::slice::from_ref(&opened));
+            let url = if github {
+                "https://github.com/team/old".into()
+            } else {
+                format!("{base}/team/old")
+            };
+            let repo = RepoRef::parse(&url, &servers).unwrap();
+            let result = rename_repository(
+                &hosts,
+                &[opened],
+                &repo,
+                &"team/new".parse().unwrap(),
+                Some(&base),
+            )
+            .await;
+            if status.starts_with("200") {
+                assert_eq!(result.unwrap().project(), "team/new");
+            } else {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("administration access")
+                );
+            }
+            let calls = seen.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].line, path);
+            assert_eq!(
+                serde_json::from_str::<Value>(&calls[0].body).unwrap(),
+                json!({"name":"new"})
+            );
+        }
+    }
+}

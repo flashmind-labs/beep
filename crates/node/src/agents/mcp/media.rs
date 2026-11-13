@@ -49,8 +49,8 @@ impl Media {
         }
 
         Some(format!(
-            "\n\nWith the user's API keys it also offers {}. They run on this machine and \
-             save what they make in your working folder, at the path they give.",
+            "\n\nWith the user's API keys: {}. They run on this machine and save what they \
+             make in your working folder, at the path they give.",
             names.join(", ")
         ))
     }

@@ -71,19 +71,19 @@ const AGENT_MOCK = (() => {
     return `<div class="dcoderen tool row${o.bad || mk === "bad" ? " bad" : ""}${o.open ? " open" : ""}"${o.act ? ` data-dact="dset:ags:${o.act}"` : ""}><span class="ki">${AG_IC[dKind(label)]}</span><span class="vb">${verb}</span><code class="tt" title="${o.tip || tg}">${tg}</code><span class="rm">${o.exit ? `exit ${o.exit}` : ""}</span><span class="mk">${mk === "run" ? '<span class="dspin"></span>' : mk === "bad" ? SG.bad : SG.ok}</span>${body ? `<div class="bdy">${body}</div>` : ""}</div>`;
   };
   const SUBS = [
-    ["Explore auth module", "Find where the login error text is set", "done", "41s", 9],
-    ["Check the iOS copy", "Look for the same string in the iOS app", "run", "18s", 4],
-    ["Search old fixtures", "List fixtures that assert on error text", "run", "12s", 3],
+    ["Explore auth module", "Find where the login error text is set", "done", "41s", 9, "Explore", "Sonnet 5.5"],
+    ["Check the iOS copy", "Look for the same string in the iOS app", "run", "18s", 4, "general-purpose", "Sonnet 5.5"],
+    ["Search old fixtures", "List fixtures that assert on error text", "run", "12s", 3, "Explore", "Haiku 4.5"],
   ];
   // A session read from disk (imported, or started outside Beep) shows the
   // subagents its agent wrote there, each with its type or custom agent's
   // name. A background subagent can still run after the parent's turn ends,
   // including while a long command writes no new transcript lines.
   const SUBS_DISK = [
-    ["Explore auth module", "Find where the login error text is set", "done", "", 9, "Explore"],
-    ["Check the release notes", "Compare the changelog with the diff", "run", "", 14, "release-checker"],
+    ["Explore auth module", "Find where the login error text is set", "done", "", 9, "Explore", "Sonnet 5.5"],
+    ["Check the release notes", "Compare the changelog with the diff", "run", "", 14, "release-checker", "Sonnet 5.5"],
   ];
-  const subRow = ([n, d, st, el, k, a]) => `<button class="sr" data-open-sub="${n}" title="Open ${n}"><span class="mk">${st === "run" ? '<span class="dspin"></span>' : SG.ok}</span><span class="t"><b>${n}${a ? `<span class="kind">${a}</span>` : ""}</b><small>${[st === "run" ? "working" : "done", el, `${k} steps`].filter(Boolean).join(" · ")}</small></span></button>`;
+  const subRow = ([n, d, st, el, k, a, model]) => `<button class="sr" data-open-sub="${n}" title="Open ${n}"><span class="mk">${st === "run" ? '<span class="dspin"></span>' : SG.ok}</span><span class="t"><b>${n}${a ? `<span class="kind">${a}</span>` : ""}</b><small>${[model, st === "run" ? "working" : "done", el, `${k} steps`].filter(Boolean).join(" · ")}</small></span></button>`;
   // A coding agent another agent started (start_agent): a normal session on
   // its own machine, listed in the parent's log like a subagent with its
   // harness, machine and live state. A click opens its own log, which has a

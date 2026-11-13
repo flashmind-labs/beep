@@ -68,6 +68,8 @@ struct Round {
     failed: u64,
     lost: Vec<String>,
     meter: Meter,
+    /// What the fetcher had received when the round started.
+    received_before: u64,
     waited: Duration,
     wrote: Duration,
     flushed: Duration,
@@ -277,6 +279,7 @@ impl Task {
             failed: 0,
             lost: Vec::new(),
             meter: Meter::new(total as u64, bytes, Instant::now()),
+            received_before: self.fetcher.received(),
             waited: Duration::ZERO,
             wrote: Duration::ZERO,
             flushed: Duration::ZERO,
@@ -320,6 +323,7 @@ impl Task {
 
             if shown.elapsed() >= SHOW_EVERY {
                 shown = Instant::now();
+                self.count_received(&mut round);
                 let rest = paths.get(at + 1..).unwrap_or_default();
                 self.show(&round.meter, progress::waiting(&round.lost, rest));
             }
@@ -597,6 +601,11 @@ impl Task {
         Ok(false)
     }
 
+    fn count_received(&self, round: &mut Round) {
+        let received = self.fetcher.received().saturating_sub(round.received_before);
+        round.meter.received(received, Instant::now());
+    }
+
     async fn check_round_git(&self, round: &Round) -> Result<()> {
         if self.shared.copies_git() {
             return Ok(());
@@ -620,6 +629,7 @@ impl Task {
         round: &mut Round,
     ) -> Result<Option<Fetched>> {
         let started = Instant::now();
+        let mut shown = started;
         let got = loop {
             if let Some(got) = ahead.take(&hash) {
                 break got;
@@ -629,6 +639,14 @@ impl Task {
             tokio::select! {
                 () = ahead.finish_one() => {}
                 () = sleep_until(round.oldest + BATCH_AGE), if waiting => self.flush(round).await,
+                () = sleep_until(shown + SHOW_EVERY) => {}
+            }
+
+            // A large file shows its bytes as they come.
+            if shown.elapsed() >= SHOW_EVERY {
+                shown = Instant::now();
+                self.count_received(round);
+                self.show_progress(&round.meter);
             }
         };
         round.waited += started.elapsed();

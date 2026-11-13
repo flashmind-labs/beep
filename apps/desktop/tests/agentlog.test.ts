@@ -54,7 +54,7 @@ test("an opened step shows the end of its output, counting wrapped lines", () =>
 
 test("a subagent's steps are read from its call", () => {
   assert.deepEqual(subagent("[steps] 2\n[step completed] Read a.rs\n[step in_progress] grep x\nFound it"), {
-    count: 2, steps: [{ status: "completed", title: "Read a.rs" }, { status: "in_progress", title: "grep x" }], result: "Found it",
+    count: 2, steps: [{ status: "completed", title: "Read a.rs" }, { status: "in_progress", title: "grep x" }], result: "Found it", model: null,
   });
   assert.equal(subagent("plain output"), null);
 });
@@ -94,4 +94,19 @@ test("inline code naming a file becomes a file reference", () => {
     linkCodeFiles("<p>See <code>src/a.rs:12</code>, <code>self.mcp</code>.</p><pre><code>src/b.rs</code></pre>"),
     '<p>See <code class="fref" data-file="src/a.rs:12" role="link" tabindex="0">src/a.rs:12</code>, <code>self.mcp</code>.</p><pre><code>src/b.rs</code></pre>',
   );
+});
+
+test("Claude API errors use the warning color without changing other paragraphs", () => {
+  const error = 'API Error: 529 Overloaded. Check <a href="https://status.claude.com">status</a>.';
+  assert.equal(markWarnings(`<p>${error}</p>`), `<p class="agwarn">${error}</p>`);
+  assert.equal(markWarnings("<p>API Error: 401 Unauthorized</p>"), '<p class="agwarn">API Error: 401 Unauthorized</p>');
+  const ordinary = "<p>Investigating API Error: 529</p><pre><code>API Error: example</code></pre><p>Done.</p>";
+  assert.equal(markWarnings(ordinary), ordinary);
+});
+
+test("subagent models preserve native links and result text", () => {
+  assert.deepEqual(subagent("[steps] 0\n[agent] general-purpose\n[session] subagent:claude:parent:child\n[model] sonnet\nDone"), {
+    count: 0, steps: [], agent: "general-purpose", model: "sonnet", session: "subagent:claude:parent:child", result: "Done",
+  });
+  assert.equal(subagent("[steps] 0\n[model] gpt-example\nDone")?.model, "gpt-example");
 });

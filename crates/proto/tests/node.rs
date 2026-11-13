@@ -2115,3 +2115,24 @@ mod tool_details {
         );
     }
 }
+
+mod device {
+    use beep_proto::node::device::*;
+
+    #[test]
+    fn platforms_round_trip() {
+        let request = Request::Platforms {
+            root: "/srv/project".to_owned(),
+        };
+        let bytes = rmp_serde::to_vec(&request).expect("encodes");
+        let read: Request = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!(read, request);
+
+        let reply = Reply::Platforms {
+            platforms: vec![Platform::Android, Platform::Ios],
+        };
+        let bytes = rmp_serde::to_vec(&reply).expect("encodes");
+        let read: Reply = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!(read, reply);
+    }
+}

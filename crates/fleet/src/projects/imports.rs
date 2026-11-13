@@ -64,13 +64,21 @@ impl Desk {
             .into_iter()
             .map(|status| (status.device.id, status.device.name))
             .collect();
+        let labels: HashMap<String, Option<String>> = crate::records::projects(&self.mesh)
+            .into_iter()
+            .map(|stored| (stored.name, stored.record.display_name))
+            .collect();
         MeshStore::new(&self.mesh)
             .rows()
             .into_iter()
             .filter_map(|row| {
                 let id: EndpointId = row.endpoint.parse().ok()?;
                 let name = names.get(&id)?.clone();
-                Some(flow::project(row, name, false))
+                let display_name = labels.get(&row.project).cloned().flatten();
+                Some(ImportedProject {
+                    display_name,
+                    ..flow::project(row, name, false)
+                })
             })
             .collect()
     }

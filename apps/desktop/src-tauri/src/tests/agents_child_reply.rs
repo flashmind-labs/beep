@@ -32,6 +32,11 @@ fn all_notice_states_hide_only_the_generated_prefix_and_footer() {
             "was stopped by the user",
             "Reply with send_to_agent to continue it.",
         ),
+        (
+            "finished",
+            "finished",
+            "Reply with agent send to continue it.",
+        ),
         ("closed", "was stopped by the user", "Its session ended."),
     ] {
         let text = format!("[child k1@build-box {status}] Reply.\n{footer}");

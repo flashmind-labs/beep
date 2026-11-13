@@ -84,6 +84,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
         let mut transfers = preferences_offers.transfers.subscribe();
 
         loop {
+            super::project_remotes::apply(&preferences_mesh, me).await;
             apply_syncthing(&preferences_mesh, me, &preferences_offers).await;
             tokio::select! {
                 change = changes.recv() => if matches!(change, Err(RecvError::Closed)) { return; },

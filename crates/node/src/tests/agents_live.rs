@@ -681,13 +681,14 @@ fn a_codex_subagent_shows_on_its_spawn_and_takes_its_rollouts_steps() {
         result: Some("Slept for a minute.".into()),
         working: false,
         name: Some("Kepler".into()),
+        model: Some("child-model".into()),
         task: Some("sleep_test".into()),
     };
     let (at, text) = live.with_run(&children[0].call, &run).expect("its entry");
     assert_eq!(at, 1);
     assert_eq!(
         text,
-        "sleep_test [completed]\n[steps] 1\n[step completed] sleep\n[agent] Kepler\nSlept for a minute."
+        "sleep_test [completed]\n[steps] 1\n[step completed] sleep\n[agent] Kepler\n[model] child-model\nSlept for a minute."
     );
 
     live.apply(&update(json!({
@@ -1276,4 +1277,20 @@ fn a_claude_subagent_launched_in_the_background_counts_until_its_turn_ends() {
     assert_eq!(live.info.state.subagents, 1);
     live.end_background_subagents();
     assert_eq!(live.info.state.subagents, 0);
+}
+
+#[test]
+fn a_live_claude_spawn_shows_its_requested_model() {
+    let mut live = live();
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "spawn", "title": "Agent",
+        "kind": "other", "status": "in_progress",
+        "rawInput": {"subagent_type": "general-purpose", "model": "sonnet"}
+    })));
+    let (entries, _) = live.transcript(10);
+    assert!(entries.iter().any(|entry| {
+        entry
+            .text
+            .contains("[agent] general-purpose\n[model] sonnet")
+    }));
 }

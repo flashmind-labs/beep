@@ -1,11 +1,14 @@
 //! `device/1`: the machine's Android emulators (`android`) and iOS
 //! simulators (`ios`, on macOS), listed, started and stopped, and shown live
-//! to a desktop that taps and types on them.
+//! to a desktop that taps and types on them; and which of those platforms a
+//! checkout builds for (`platforms`).
 
 mod android;
 #[cfg(target_os = "macos")]
 mod ios;
+mod platforms;
 
+use crate::agents::{Agents, reach::Access};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -35,9 +38,10 @@ const NO_SIMULATORS: &str = "iOS simulators only run on a Mac.";
 /// something.
 const MIN_SIDE: u32 = 64;
 
-/// Serves one stream: answers `List`, `Boot` and `Shutdown` until the
-/// desktop closes it, or follows a device once it asks to `Attach`.
-pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+/// Serves one stream: answers `List`, `Boot`, `Shutdown` and `Platforms`
+/// until the desktop closes it, or follows a device once it asks to
+/// `Attach`.
+pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
     while let Some(request) = rx.recv::<Request>().await? {
         let reply = match request {
             Request::List {} => Reply::Devices {
@@ -49,6 +53,12 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
             Request::Input { .. } => Reply::Failed {
                 reason: "No device is attached.".to_owned(),
             },
+            Request::Platforms { root } => match platforms_in(&agents, &root).await {
+                Ok(platforms) => Reply::Platforms { platforms },
+                Err(e) => Reply::Failed {
+                    reason: format!("{e:#}"),
+                },
+            },
             other => Reply::Failed {
                 reason: format!("Unknown request {other:?}."),
             },
@@ -57,6 +67,16 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// The platforms the app in folder `root` builds for, once `root` is a
+/// folder the desktop may read.
+async fn platforms_in(agents: &Agents, root: &str) -> Result<Vec<Platform>> {
+    let real = agents.reachable(root, Access::Read).await?;
+
+    tokio::task::spawn_blocking(move || platforms::platforms(&real))
+        .await
+        .context("the platform check stopped")
 }
 
 /// Every emulator and simulator here, Android first.

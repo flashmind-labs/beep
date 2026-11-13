@@ -17,6 +17,8 @@ fn only_new_artifacts_outside_ignored_folders_are_found() {
     };
     for path in [
         "out/coverage.pdf",
+        ".beep/uploads/image 2.png",
+        "nested/.beep/uploads/image.png",
         "target/doc/index.html",
         "notes.txt",
         "written.md",

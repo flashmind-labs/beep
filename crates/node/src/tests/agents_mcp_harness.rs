@@ -35,6 +35,7 @@ async fn invalid_requests_fail_before_querying_a_harness() {
     let dir = tempfile::tempdir().expect("a temp folder");
     let node = Node {
         offers: Offers::local(&[], Provision::new(dir.path())),
+        screens: Default::default(),
     };
     for (args, message) in [
         (json!({}), "arguments do not fit"),
@@ -91,7 +92,10 @@ cat > /dev/null
     };
     let mut offers = Offers::local(&[], Provision::new(dir.path()));
     offers.agents = Arc::new(Agents::new(vec![kind]));
-    let node = Node { offers };
+    let node = Node {
+        offers,
+        screens: Default::default(),
+    };
     let info = result(
         node.call(&request(json!({"harness": " codex "})))
             .await

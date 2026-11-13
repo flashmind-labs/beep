@@ -59,7 +59,7 @@ impl ChildNote {
     pub(crate) fn text_for(&self, id: &str) -> String {
         let body = match self.state {
             NoteState::Finished => format!(
-                "{}\nReply with send_to_agent to continue it.",
+                "{}\nReply with agent send to continue it.",
                 format!("[child {id} finished] {}", self.text).trim_end()
             ),
             NoteState::Asking => format!(
@@ -67,7 +67,7 @@ impl ChildNote {
                 format!("[child {id} is waiting on the user] {}", self.text).trim_end()
             ),
             NoteState::Stopped => format!(
-                "{}\nReply with send_to_agent to continue it.",
+                "{}\nReply with agent send to continue it.",
                 format!("[child {id} was stopped by the user] {}", self.text).trim_end()
             ),
             NoteState::Closed => format!(
