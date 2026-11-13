@@ -196,6 +196,15 @@ impl Live {
     }
 
     fn user_chunk(&mut self, text: &str) {
+        if let Some(rest) = crate::agents::tags::after_interruption(text) {
+            self.push_entry(EntryKind::Other, "Interrupted".into());
+            self.in_message = false;
+            if !rest.trim().is_empty() {
+                self.user_chunk(rest);
+            }
+            return;
+        }
+
         if self.in_message
             && let Some(last) = self.transcript.back_mut()
             && last.kind == EntryKind::User

@@ -211,7 +211,7 @@ impl Digest {
 
         let content = &value["message"]["content"];
         let mut lines = String::new();
-        let text = match content {
+        let mut text = match content {
             Value::String(text) => Some(tags::untagged(text)),
             Value::Array(blocks) => {
                 for block in blocks.iter().filter(|block| block["type"] == "tool_result") {
@@ -261,12 +261,13 @@ impl Digest {
             _ => None,
         };
         // Claude Code writes a cut-off turn as a user line, but nobody said it.
-        if text.as_deref().is_some_and(|text| {
-            text.trim()
-                .starts_with("[Request interrupted by user")
-        }) {
+        if let Some(rest) = text.as_deref().and_then(tags::after_interruption) {
+            let rest = rest.to_owned();
             self.push(EntryKind::Other, "Interrupted");
-            return;
+            if rest.trim().is_empty() {
+                return;
+            }
+            text = Some(rest);
         }
         // Beep's context and what other sessions sent stay apart from the
         // user's words, which Claude Code's own tags may wrap.

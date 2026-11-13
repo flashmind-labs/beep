@@ -3,10 +3,11 @@
 import { type Attached, dropDelivered, type OutboxRow, sentFromOutbox, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.ts";
 import { sessionPicks } from "./session.ts";
-import { composeMessage } from "../chat/compose.ts";
+import { composeMessage, prependDraft } from "../chat/compose.ts";
+import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
-import { MN } from "./workdrop.ts";
+import { MN, currentMentions, mentionImages, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue, showUploadPending } from "./composer-ui.tsx";
 import { type AgentQuestion, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
@@ -59,13 +60,14 @@ const claimedUploads = new WeakSet<object>();
 
 function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Promise<Waiting | null> {
   if (input?.readOnly) return null;
-  const typed = input?.value ?? "";
+  const typed = input?.value ?? "", state = currentMentions();
   const batches = [...MN.pending].filter(batch => !claimedUploads.has(batch));
   const reserved = new Set([...MN.pending].filter(batch => claimedUploads.has(batch)).flatMap(batch => batch.paths));
   for (const batch of batches) claimedUploads.add(batch);
   const draft = takeMessage(input, batches.length > 0, reserved), session = AG.open;
   if (!draft || !batches.length) return draft;
   if (input) input.value = typed;
+  state.sending = true;
   showUploadPending(true);
   return finishMessage(draft);
 
@@ -73,31 +75,31 @@ function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Pro
     try {
       await Promise.all(batches.map(batch => batch.ready));
     } finally {
-      if (AG.open === session) {
-        if (input) input.value = "";
+      state.sending = false;
+      if (input) input.value = "";
+      if (currentMentions() === state) {
+        if (agentMessage.current) agentMessage.current.value = "";
         showUploadPending(false);
       }
     }
 
-    if (AG.open !== session) return null;
-
     const paths = new Set(batches.flatMap(batch => batch.paths));
-    const images = AG.att.filter(image => typeof image.original === "string" && paths.has(image.original));
+    const images = mentionImages(state).filter(image => typeof image.original === "string" && paths.has(image.original));
     for (const path of paths) {
       if (!draft.paths.includes(path)) draft.paths.push(path);
-      const file = MN.files.get(path);
+      const file = state.files.get(path);
       if (file) (draft.files ??= []).push({ path, file });
-      MN.files.delete(path);
+      state.files.delete(path);
     }
 
     draft.images.push(...images);
     draft.text = withMentions(draft.typed, draft.paths);
-    MN.paths = MN.paths.filter(path => !paths.has(path));
-    AG.att = AG.att.filter(image => !images.includes(image));
-    drawAgentAttached();
+    state.paths = state.paths.filter(path => !paths.has(path));
+    setMentionImages(state, mentionImages(state).filter(image => !images.includes(image)));
+    if (currentMentions() === state) drawAgentAttached();
 
     if (batches.some(batch => batch.failed)) {
-      backInField(draft);
+      restoreUploadDraft(draft, state, session);
       return null;
     }
 
@@ -116,6 +118,44 @@ function backInField(q: Draft, sep = "\n") {
   AG.att = [...q.images, ...AG.att];
   drawAgentAttached();
   input?.focus();
+}
+
+function restoreUploadDraft(draft: Draft, state: MentionState, session: OpenAgent | null) {
+  if (currentMentions() === state && S.view === "agent" && agentMessage.current?.isConnected) {
+    AG.attError = state.error;
+    backInField(draft);
+    return;
+  }
+  state.paths = [...draft.paths, ...state.paths.filter(path => !draft.paths.includes(path))];
+  for (const { path, file } of draft.files ?? []) state.files.set(path, file);
+  setMentionImages(state, [...draft.images, ...mentionImages(state)]);
+  if (session) prependDraft(conversationKey({ ...session, id: session.session }), draft.typed);
+}
+
+async function sendBackground(session: OpenAgent, draft: Waiting, state: MentionState, ended: boolean) {
+  let target = session;
+  try {
+    if (ended) {
+      const started = await invoke<Started>("agent_resume", { ...where(session), prompt: null }, AGENT_SEND_WAIT_MS);
+      target = openOf(started.session);
+      const pick = resumePicks.get(session.session);
+      if (pick && (pick.model || pick.effort)) {
+        await invoke("agent_steer", { ...where(target), steer: { configure: { model: pick.model || null, effort: pick.effort } } }, AGENT_SEND_WAIT_MS);
+        sessionPicks.set(target.session, pick);
+      }
+      resumePicks.delete(session.session);
+    }
+
+    keepAgentPics(target, draft.images);
+    const error = await sendOnce(target, { steer: outgoing(draft.text, draft.images) }, null);
+    if (error && error.kind !== "waiting" && error.kind !== "timeout") {
+      state.error = error.message;
+      restoreUploadDraft(draft, state, session);
+    }
+  } catch (error) {
+    state.error = String(error);
+    restoreUploadDraft(draft, state, session);
+  }
 }
 
 /// Takes waiting message `i` out; to edit, it goes back in the field.
@@ -142,8 +182,12 @@ export async function editQueued(i: number, edit: boolean) {
 
 /// Enter while the turn runs: steers it.
 export function steerMessage(input: HTMLTextAreaElement) {
+  const session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended";
   const draft = prepareMessage(input);
-  if (draft instanceof Promise) return draft.then(queueSteer);
+  if (draft instanceof Promise) return draft.then(q => {
+    if (q && session && AG.open !== session) return sendBackground(session, q, state, ended);
+    queueSteer(q);
+  });
   queueSteer(draft);
 }
 
@@ -301,9 +345,10 @@ async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null): Promise<
 }
 
 export async function sendAgentMessage() {
-  const input = agentMessage.current, session = AG.open, prepared = prepareMessage(input);
+  const input = agentMessage.current, session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended", prepared = prepareMessage(input);
   const draft = prepared instanceof Promise ? await prepared : prepared;
-  if (!draft || AG.open !== session) return;
+  if (!draft || !session) return;
+  if (AG.open !== session) return sendBackground(session, draft, state, ended);
   const page = AG.page!;
   return page.session.status === "ended"
     ? continueAgent(input!, draft.text, draft.images, draft)

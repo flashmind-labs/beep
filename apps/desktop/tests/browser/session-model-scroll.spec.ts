@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
@@ -139,4 +140,90 @@ test("conversation scrollbar preferences apply immediately and survive reload", 
   await marks.click();
   await expect(rail.locator(".th")).toBeVisible();
   await expect(rail.locator(".tk").first()).toBeVisible();
+});
+
+test("sending an image keeps a conversation that was at the bottom following its end", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  await openDesktop(page, false, { agent_view: view(active), agent_tree_upload: "/cache/uploads/shot.png", agent_steer: ["uploaded-picture"] });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  const body = page.locator("#agbody");
+  await expect(body).toContainText("Message 39");
+  const png = await page.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 400; canvas.height = 300; return canvas.toDataURL("image/png").split(",")[1]; });
+  await page.locator('#agfield input[type="file"]').setInputFiles({ name: "shot.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree_upload").length)).toBeGreaterThan(0);
+  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
+  await page.locator("#agmsg").fill("Describe the attached picture");
+  await body.evaluate((el: HTMLElement & { stuck?: boolean }) => { el.stuck = true; el.scrollTop = el.scrollHeight; });
+  await page.evaluate(() => window.__navigation.holdNext("agent_steer"));
+  await page.locator("#agmsg").press("Enter");
+  await expect(body).toContainText("Describe the attached picture");
+  await expect.poll(() => body.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  await expect.poll(() => body.evaluate((el: HTMLElement & { stuck?: boolean }) => el.stuck)).toBe(true);
+});
+
+
+test("an uploaded video opens from the message and plays from this device", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  const path = "/cache/uploads/recording.webm";
+  await openDesktop(page, false, { agent_view: view(active), agent_tree_upload: path, agent_steer: [] });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  await expect(page.locator("#agbody")).toContainText("Message 39");
+  await page.locator('#agfield input[type="file"]').setInputFiles({ name: "recording.webm", mimeType: "video/webm", buffer: await readFile(new URL("../fixtures/upload-video.webm", import.meta.url)) });
+  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
+  const next = { ...view(active), entries: [...view(active).entries, { kind: "user", text: `This video\n\n@"${path}"`, html: `<p>This video</p><p>@&quot;${path}&quot;</p>` }] };
+  await page.evaluate(next => window.__navigation.respond("agent_view", next), next);
+  await page.locator("#agmsg").fill("This video");
+  await page.locator("#agmsg").press("Enter");
+  await page.locator("#agbody").getByRole("button", { name: "recording.webm", exact: true }).click();
+  const video = page.locator("video");
+  await expect(video).toBeVisible();
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2);
+  await video.evaluate(async (el: HTMLVideoElement) => { el.muted = true; await el.play(); });
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file").length)).toBe(0);
+});
+
+test("a pending attachment send finishes in its original conversation after navigation", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  const other = { ...active, id: "other-session", title: "Another conversation" };
+  await openDesktop(page, false, { agent_view: view(active), agent_tree_upload: "/cache/uploads/notes.txt", agent_steer: [] });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  await expect(page.locator("#agbody")).toContainText("Message 39");
+  await page.evaluate(() => window.__navigation.holdNext("agent_tree_upload"));
+  await page.locator('#agfield input[type="file"]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Notes for the original conversation") });
+  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
+  await page.locator("#agmsg").fill("Use these notes");
+  await page.locator("#agmsg").press("Enter");
+  await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", true);
+  await page.evaluate(({ other, next }) => { window.__navigation.respond("agent_view", next); window.__navigation.open({ agent: { ...other, kind: "agent" } }); }, { other, next: view(other) });
+  await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", false);
+  await page.locator("#agmsg").fill("Draft for the other conversation");
+  await page.evaluate(() => window.__navigation.release("agent_tree_upload"));
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").length)).toBe(1);
+  const sends = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer"));
+  expect(sends[0].args).toMatchObject({ session: active.id, steer: { steer: { text: expect.stringContaining("Use these notes") } } });
+  await expect(page.locator("#agmsg")).toHaveValue("Draft for the other conversation");
+  await expect(page.locator("#agfield .attachment-count")).toHaveCount(0);
+});
+
+test("a failed background upload restores the prompt when returning to its conversation", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  const other = { ...active, id: "another-session", title: "Another conversation" };
+  await openDesktop(page, false, { agent_view: view(active), agent_tree_upload: "/cache/uploads/notes.txt" });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  await expect(page.locator("#agbody")).toContainText("Message 39");
+  await page.evaluate(() => window.__navigation.holdNext("agent_tree_upload"));
+  await page.locator('#agfield input[type="file"]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Notes") });
+  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
+  await page.locator("#agmsg").fill("Keep this prompt if uploading fails");
+  await page.locator("#agmsg").press("Enter");
+  await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", true);
+  await page.evaluate(({ other, next }) => { window.__navigation.respond("agent_view", next); window.__navigation.open({ agent: { ...other, kind: "agent" } }); }, { other, next: view(other) });
+  await page.locator("#agmsg").fill("Another draft");
+  await page.evaluate(() => { window.__navigation.rejectOnce("agent_tree_upload"); window.__navigation.release("agent_tree_upload"); });
+  await expect(page.locator("#agmsg")).toHaveValue("Another draft");
+  await page.evaluate(({ active, next }) => { window.__navigation.respond("agent_view", next); window.__navigation.open({ agent: { ...active, kind: "agent" } }); }, { active, next: view(active) });
+  await expect(page.locator("#agmsg")).toHaveValue("Keep this prompt if uploading fails");
+  await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", false);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").length)).toBe(0);
 });

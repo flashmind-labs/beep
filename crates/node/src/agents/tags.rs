@@ -12,6 +12,17 @@
 #[cfg(feature = "host")]
 use super::text::cut;
 
+/// Claude Code stores interruption notices as synthetic user messages.
+pub(crate) fn after_interruption(text: &str) -> Option<&str> {
+    let text = text.trim_start();
+    [
+        "[Request interrupted by user]",
+        "[Request interrupted by user for tool use]",
+    ]
+    .iter()
+    .find_map(|notice| text.strip_prefix(notice))
+}
+
 const CONTEXT: &str = "beep-context";
 const FROM_SESSION: &str = "from-session";
 const CHILD: &str = "beep-child";

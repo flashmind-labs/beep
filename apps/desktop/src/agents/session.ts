@@ -1,6 +1,7 @@
 // One coding agent session in the bar: opening it, drawing its frame and
 // reading it while it shows. Following it is in session-follow.ts, its head
 // in session-head.ts and what a click in it does in session-click.ts.
+import { showUploadPending } from "./composer-ui.tsx";
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
 import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
@@ -16,9 +17,9 @@ import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { readRunning } from "../agentpane/running.ts";
 import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
-import { followsAfterScroll, returnScroll } from "./logscroll.ts";
+import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
-import { MN, resetMentions } from "./workdrop.ts";
+import { MN, activateMentions, currentMentions, rememberMentionImages } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.ts";
 import { removeLastAttachment } from "./attachments-view.tsx";
@@ -93,6 +94,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
   if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
+  rememberMentionImages();
   leaveLog();
   S.view = "agent";
   AG.draft = null;
@@ -103,7 +105,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     open,
     page: held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
-    att: [], attError: "", opened: new Set(), steps: new Map(), all: new Set(),
+    attError: "", opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],
     outbox: [], stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
@@ -161,7 +163,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: shownUsage(s), moveKey: agentKey(s), saveTitle });
   const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: agentKey(s), continueHere, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
-  if (paneSessionKey !== sessionKey(s)) { paneSessionKey = sessionKey(s); resetMentions(); }
+  activateMentions(s);
   drawAgentHeading();
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;
@@ -174,6 +176,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     composeField(msg, { images: agentDrop, removeLast: removeLastAttachment, grow: 156, draft: conversationKey(s) });
     bindMentionMenu(msg);
     bindSessionStash(msg);
+    showUploadPending(currentMentions().sending);
   }
 
   drawAgentAttached();
@@ -187,16 +190,22 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     b.stuck = true;
     // Release the end immediately; redraw visible turns once per frame.
     // Wheel and touch gestures hold off pins to the end (`pinEnd`).
-    let frame = 0, top = b.scrollTop;
+    let frame = 0, top = b.scrollTop, height = b.clientHeight, total = b.scrollHeight;
     b.onscroll = () => {
       if (!b.isConnected || !paneShown()) return;
-      b.stuck = followsAfterScroll(b.stuck !== false, top, b);
+      const layoutChanged = height !== b.clientHeight || total !== b.scrollHeight;
+      const readerScrolling = b.touching || pinWait(performance.now(), b.wheel) > 0;
+      b.stuck = followsAfterScroll(b.stuck !== false, top, b, layoutChanged && !readerScrolling);
+      height = b.clientHeight;
+      total = b.scrollHeight;
       top = b.top = b.scrollTop;
       frame ||= requestAnimationFrame(() => {
         frame = 0;
         if (!b.isConnected || !paneShown()) return;
         scrolledLog(b);
         top = b.top = b.scrollTop;
+        height = b.clientHeight;
+        total = b.scrollHeight;
         syncJump(b);
         if (nearTop(b)) void loadOlder("near");
       });
@@ -552,9 +561,6 @@ export const stoppingNow = () => {
 export const SWITCHES = new Set(["claude", "codex", "opencode", "flsh", "hermes"]);
 /// The model and thinking switched to in each session from here, by session.
 export const sessionPicks = new SessionPicks();
-
-/// The session the mentions waiting above the field belong to.
-let paneSessionKey = "";
 
 /// Closes the open session, preserving its conversation for later.
 export async function closeOpenSession() {

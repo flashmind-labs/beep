@@ -78,7 +78,9 @@ export function compactPromptAttachments(html: string): string {
     items.className = "attachment-items";
 
     for (const path of paths) {
-      const chip = document.createElement("span");
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.dataset.attachmentPath = path;
       chip.className = "attachment-file";
       chip.title = path;
       chip.textContent = path.split(/[\\/]/).filter(Boolean).pop() ?? path;

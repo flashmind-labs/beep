@@ -16,6 +16,8 @@ test("sent attachment paragraphs fold filenames while preserving full paths", ()
     assert.equal(chips.length, 28);
     assert.deepEqual(chips.map(chip => chip.title), paths);
     assert.equal(chips[0].textContent, "photo 0.jpg");
+    assert.equal(chips[0].tagName, "BUTTON");
+    assert.equal(chips[0].dataset.attachmentPath, paths[0]);
     assert.equal(result.textContent?.includes("/path/to"), false);
   } finally { env.close(); }
 });

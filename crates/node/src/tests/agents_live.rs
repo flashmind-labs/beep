@@ -162,6 +162,29 @@ fn a_loaded_session_replays_its_prompts_and_answers() {
 }
 
 #[test]
+fn interruption_replay_stays_apart_from_the_next_user_prompt() {
+    let chunk = |kind: &str, text: &str| update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}));
+    for notice in ["[Request interrupted by user]", "[Request interrupted by user for tool use]"] {
+        for joined in [false, true] {
+            let mut live = live_titled("A conversation");
+            live.info.state.status = Status::Starting;
+            if joined {
+                live.apply(&chunk("user_message_chunk", &format!("{notice}Use the other machine")));
+            } else {
+                live.apply(&chunk("user_message_chunk", notice));
+                live.apply(&chunk("user_message_chunk", "Use the other machine"));
+            }
+            let (entries, _) = live.transcript(10);
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0].kind, EntryKind::Other);
+            assert_eq!(entries[0].text, "Interrupted");
+            assert_eq!(entries[1].kind, EntryKind::User);
+            assert_eq!(entries[1].text, "Use the other machine");
+        }
+    }
+}
+
+#[test]
 fn a_replayed_image_becomes_an_image_line() {
     let mut live = live();
     let data = STANDARD.encode(b"\x89PNG");
