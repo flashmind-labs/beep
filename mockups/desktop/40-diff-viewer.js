@@ -71,6 +71,13 @@
 .mac .dv-context.below svg { transform: rotate(90deg) }
 .mac .dv-context:hover { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) }
 .mac .dv-context:focus-visible { outline: 2px solid var(--dv-hunk-fg); outline-offset: -2px }
+.mac .dv-gap-btn { display: grid; place-items: center; width: calc(var(--nw, 3) * 1ch + 14px); height: 22px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer }
+.mac .dv-gap-btn.wide { width: calc(var(--nw, 3) * 2ch + 28px) }
+.mac .dv-gap-btn svg { width: 14px; height: 14px }
+.mac .dv-gap-btn.above svg { transform: rotate(-90deg) }
+.mac .dv-gap-btn.below svg { transform: rotate(90deg) }
+.mac .dv-gap-btn:hover { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) }
+.mac .dv-gap-btn:focus-visible { outline: 2px solid var(--dv-hunk-fg); outline-offset: -2px }
 .mac .dv-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; color: var(--muted); font-size: 12px } .mac .dv-note .dv-btn { height: 24px }
 .mac .dv-empty { margin: auto; padding: 24px; display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); font-size: 13px } .mac .dv-empty b { color: var(--fg); font-weight: 500 }
 .mac .dv-keys { flex: none; display: flex; gap: 12px; padding: 5px 12px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11px }
@@ -132,13 +139,14 @@
     flush();
     return `<div class="dv-lines split" style="--nw:2">${rows}</div>`;
   };
+  const gapButton = (direction, label) => `<button class="dv-gap-btn ${direction}" title="${label}" aria-label="${label}" data-toast="${label.replace("Show", "Shows")}">${TO}</button>`;
   const lineRows = f => {
     if (dvSplit) return splitRows(f);
     let o = 0, n = 0, rows = "", prevEnd = null;
     for (const l of f.lines) {
       if (l[0] === "@") {
         o = Math.max(l[1] - 1, 0); n = Math.max(l[2] - 1, 0);
-        if (prevEnd != null && o - prevEnd > 0) rows += `<div class="dv-l gap"><span class="dv-g"><span></span><span></span></span><span class="dv-c">${o - prevEnd} unchanged lines</span></div>`;
+        if (prevEnd != null && o - prevEnd > 0) rows += `<div class="dv-l gap"><span class="dv-g">${gapButton("below", "Show the next 10 lines")}${gapButton("above", "Show the previous 10 lines")}</span><span class="dv-c">${o - prevEnd} unchanged lines</span></div>`;
         rows += `<div class="dv-l hunk"><span class="dv-g"><span>...</span><span>...</span></span><span class="dv-c">@@ -${l[1]} +${l[2]} @@ ${esc(l[3])}</span></div>`;
         continue;
       }

@@ -323,9 +323,9 @@ const FileBody = memo(function FileBody({ v, file, split, busy, comments }: Body
 
   return <div className="dv-scroll">
     <div className={split ? "dv-lines split" : "dv-lines"} style={layout.vars}>
-      <div style={{ display: "contents" }}><DiffContext direction="above" expand={() => void expandContext(v, file, "above")} /></div>
-      {layout.chunks.map((chunk, index) => <Chunk key={index} v={v} path={file.path} rows={chunk.rows} estimate={chunk.height} comments={comments} />)}
-      <div style={{ display: "contents" }}><DiffContext direction="below" expand={() => void expandContext(v, file, "below")} /></div>
+      <div style={{ display: "contents" }}><DiffContext direction="above" expand={() => void expandContext(v, file, "above", 0)} /></div>
+      {layout.chunks.map((chunk, index) => <Chunk key={index} v={v} file={file} rows={chunk.rows} estimate={chunk.height} comments={comments} />)}
+      <div style={{ display: "contents" }}><DiffContext direction="below" expand={() => void expandContext(v, file, "below", Infinity)} /></div>
     </div>
   </div>;
 });
@@ -357,11 +357,11 @@ function bodyLayout(v: Viewer, file: DiffFile, split: boolean) {
   return { vars, chunks };
 }
 
-interface ChunkProps { v: Viewer; path: string; rows: readonly (DiffRow | SplitRow)[]; estimate: number; comments: ReadonlyMap<string, readonly ReviewComment[]> }
+interface ChunkProps { v: Viewer; file: DiffFile; rows: readonly (DiffRow | SplitRow)[]; estimate: number; comments: ReadonlyMap<string, readonly ReviewComment[]> }
 
 /// A run of rows, drawn only while it is near the viewport; off screen it is
 /// an empty box as tall as it last was.
-const Chunk = memo(function Chunk({ v, path, rows, estimate, comments }: ChunkProps) {
+const Chunk = memo(function Chunk({ v, file, rows, estimate, comments }: ChunkProps) {
   const [state, setState] = useState({ live: false, height: estimate });
   const box = useRef<HTMLDivElement>(null);
 
@@ -375,7 +375,8 @@ const Chunk = memo(function Chunk({ v, path, rows, estimate, comments }: ChunkPr
 
   return <div ref={box} className="dv-chunk" style={state.live ? undefined : { height: `${state.height}px` }}>
     {state.live && <DiffRows rows={rows} comments={comments}
-      gutter={(side, line) => openEditor(v, { path, side, line, text: "" }, true)} readOnly={!!v.src.readOnly}
+      gutter={(side, line) => openEditor(v, { path: file.path, side, line, text: "" }, true)}
+      expand={(direction, after) => void expandContext(v, file, direction, after)} readOnly={!!v.src.readOnly}
       comment={comment => <CommentSlot key={commentKey(comment)} v={v} comment={comment} label="" />} />}
   </div>;
 });

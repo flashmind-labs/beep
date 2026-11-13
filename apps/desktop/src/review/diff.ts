@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { STALE } from "../ui/active.ts";
 import type { MenuItem } from "../ui/menu.ts";
 import { readView } from "../agentpane/view-memory.ts";
-import { type DiffFile, type DiffView, contextFile, filesInTreeOrder, reviewText, withLoaded } from "./diff-state.ts";
+import { type DiffFile, type DiffView, type Extent, contextFile, hunkToExpand, filesInTreeOrder, reviewText, withLoaded } from "./diff-state.ts";
 import { Viewer, reasonOf, reconcile, remember, say } from "./diff-viewer.ts";
 import { DiffViewer } from "./diff-view.tsx";
 import { addAgentComments } from "./diff-comments.ts";
@@ -107,16 +107,16 @@ export async function load(v: Viewer) {
     if (read === STALE) return;
     view = { ...read, files: filesInTreeOrder(read.files) };
 
-    for (const [path, above, below] of rememberedContext(v.memory)) {
+    for (const [path, extents] of rememberedContext(v.memory)) {
       const original = read.files.find(file => file.path === path);
-      if (!original) continue;
-      const expanded = await v.reads.run(src.load([original.path], true, v.state.uncommitted, Math.max(above, below) + 3));
+      if (!original || original.hunks.length !== extents.length) continue;
+      const expanded = await v.reads.run(src.load([original.path], true, v.state.uncommitted, widest(extents)));
       if (expanded === STALE) return;
       const full = expanded.files.find(file => file.path === original.path);
 
       if (full && !full.left_out) {
-        v.context.set(original.path, { original, above, below });
-        view = withLoaded(view, [contextFile(original, full, above, below)]);
+        v.context.set(original.path, { original, extents });
+        view = withLoaded(view, [contextFile(original, full, extents)]);
       }
     }
   } catch (e) {
@@ -133,13 +133,17 @@ export async function load(v: Viewer) {
 }
 
 /// The context each file had expanded, as the view memory kept it.
-function rememberedContext(memory: unknown): [string, number, number][] {
+function rememberedContext(memory: unknown): [string, Extent[]][] {
   if (!memory || typeof memory !== "object" || !("context" in memory) || !Array.isArray(memory.context)) return [];
-  return memory.context.flatMap((item: unknown): [string, number, number][] => {
-    if (!Array.isArray(item) || typeof item[0] !== "string" || typeof item[1] !== "number" || typeof item[2] !== "number") return [];
-    return [[item[0], Math.max(0, Math.min(49_990, item[1])), Math.max(0, Math.min(49_990, item[2]))]];
+  const lines = (value: unknown) => typeof value === "number" ? Math.max(0, Math.min(49_990, value)) : 0;
+  return memory.context.flatMap((item: unknown): [string, Extent[]][] => {
+    if (!Array.isArray(item) || typeof item[0] !== "string" || !Array.isArray(item[1])) return [];
+    return [[item[0], item[1].map((pair: unknown) => Array.isArray(pair) ? { above: lines(pair[0]), below: lines(pair[1]) } : { above: 0, below: 0 })]];
   });
 }
+
+/// The context to read a file with so every extent has its lines.
+const widest = (extents: readonly Extent[]) => Math.max(0, ...extents.map(extent => Math.max(extent.above, extent.below))) + 3;
 
 function setPending(v: Viewer, path: string, on: boolean) {
   const pending = new Set(v.state.pending);
@@ -169,22 +173,24 @@ export async function loadFull(v: Viewer, f: DiffFile) {
   reconcile(v, new Set([f.path]));
 }
 
-/// Shows ten more lines of context around file `f`.
-export async function expandContext(v: Viewer, f: DiffFile, direction: "above" | "below") {
-  if (!v.state.view || v.state.pending.has(f.path)) return;
+/// Shows ten more lines of context in file `f`, above or below one hunk:
+/// the one next to the old line `after`, in that direction.
+export async function expandContext(v: Viewer, f: DiffFile, direction: keyof Extent, after: number) {
+  if (!v.state.view || v.state.pending.has(f.path) || !f.hunks.length) return;
   const seq = v.seq;
-  const kept = v.context.get(f.path) ?? { original: f, above: 0, below: 0 };
-  const next = { ...kept, [direction]: kept[direction] + 10 };
+  const kept = v.context.get(f.path) ?? { original: f, extents: f.hunks.map(() => ({ above: 0, below: 0 })) };
+  const at = hunkToExpand(kept.original, direction, after);
+  const next = { original: kept.original, extents: kept.extents.map((extent, index) => index === at ? { ...extent, [direction]: extent[direction] + 10 } : extent) };
   setPending(v, f.path, true);
 
   try {
-    const got = await v.src.load([f.path], true, v.state.uncommitted, Math.max(next.above, next.below) + 3);
+    const got = await v.src.load([f.path], true, v.state.uncommitted, widest(next.extents));
     const view = v.state.view;
     if (seq !== v.seq || !view) return;
     const full = got.files.find(file => file.path === f.path);
     if (!full || full.left_out) throw new Error("Could not load surrounding lines");
     v.context.set(f.path, next);
-    v.set({ view: withLoaded(view, [contextFile(kept.original, full, next.above, next.below)]) });
+    v.set({ view: withLoaded(view, [contextFile(kept.original, full, next.extents)]) });
     reconcile(v, new Set([f.path]));
     remember(v);
   } catch (error) {

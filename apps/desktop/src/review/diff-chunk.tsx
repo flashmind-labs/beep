@@ -1,7 +1,8 @@
 // A chunk's rows, unified or side by side, with the comments on each line
 // under it. A click on a line's number opens a new comment there.
 import { Fragment, type ReactNode } from "react";
-import { grouped, lineKey, type DiffRow, type ReviewComment, type SplitCell, type SplitRow } from "./diff-state.ts";
+import { DiffGapRow } from "./diff-body-controls.tsx";
+import { lineKey, type DiffRow, type Extent, type ReviewComment, type SplitCell, type SplitRow } from "./diff-state.ts";
 
 type Side = ReviewComment["side"];
 /// Opens a comment on `line` of `side`.
@@ -12,16 +13,18 @@ interface RowsProps {
   comments: ReadonlyMap<string, readonly ReviewComment[]>;
   readOnly: boolean;
   gutter: Gutter;
+  /// Shows more of the gap that follows the old line `after`.
+  expand: (direction: keyof Extent, after: number) => void;
   comment: (comment: ReviewComment) => ReactNode;
 }
 
-export function DiffRows({ rows, comments, readOnly, gutter, comment }: RowsProps) {
+export function DiffRows({ rows, comments, readOnly, gutter, expand, comment }: RowsProps) {
   const open = readOnly ? null : gutter;
   const under = (keys: (string | null)[]) => keys.flatMap(key => key ? (comments.get(key) ?? []).map(comment) : []);
 
   return <>{rows.map((row, index) => {
     if (row.kind === "hunk") return <div key={index} className="dv-l hunk"><span className="dv-g"><span/><span/></span><span className="dv-c">{row.text}</span></div>;
-    if (row.kind === "gap") return <div key={index} className="dv-l gap"><span className="dv-g"><span/><span/></span><span className="dv-c">{grouped(row.lines)} unchanged {row.lines === 1 ? "line" : "lines"}</span></div>;
+    if (row.kind === "gap") return <DiffGapRow key={index} gap={row} expand={expand}/>;
 
     if (row.kind === "pair") {
       const { left, right } = row;

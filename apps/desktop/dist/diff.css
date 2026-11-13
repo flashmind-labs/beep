@@ -123,6 +123,13 @@
 .dv-context.below svg { transform: rotate(90deg) }
 .dv-context:hover { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) }
 .dv-context:focus-visible { outline: 2px solid var(--dv-hunk-fg); outline-offset: -2px }
+.dv-gap-btn { display: grid; place-items: center; width: calc(var(--nw, 3) * 1ch + 14px); height: 22px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer }
+.dv-gap-btn.wide { width: calc(var(--nw, 3) * 2ch + 28px) }
+.dv-gap-btn svg { width: 14px; height: 14px }
+.dv-gap-btn.above svg { transform: rotate(-90deg) }
+.dv-gap-btn.below svg { transform: rotate(90deg) }
+.dv-gap-btn:hover { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) }
+.dv-gap-btn:focus-visible { outline: 2px solid var(--dv-hunk-fg); outline-offset: -2px }
 .dv-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; color: var(--muted); font-size: 12px }
 .dv-note .dv-btn { height: 24px }
 .dv-empty { margin: auto; padding: 24px; display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); font-size: 13px }

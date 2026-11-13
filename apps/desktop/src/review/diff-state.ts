@@ -68,10 +68,14 @@ export function isFolded(f: DiffFile, kept: ReadonlyMap<string, boolean>) {
 
 export const STATUS_LETTER: Record<DiffStatus, string> = { added: "A", modified: "M", deleted: "D", renamed: "R", binary: "B" };
 
+/// The unchanged lines left out between two hunks; `after` is the last old
+/// line shown before them.
+export interface DiffGap { kind: "gap"; lines: number; after: number }
+
 /// One row of a file's body.
 export type DiffRow =
   | { kind: "hunk"; text: string }
-  | { kind: "gap"; lines: number }
+  | DiffGap
   | { kind: "line"; k: DiffLine["k"]; old: number | null; new: number | null; text: string; eol: boolean };
 
 export function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_start" | "new_lines" | "section">) {
@@ -90,7 +94,7 @@ export function diffRows(f: Pick<DiffFile, "hunks">): DiffRow[] {
     // after is the start, not the one past it.
     let old = h.old_lines ? h.old_start : h.old_start + 1;
     let now = h.new_lines ? h.new_start : h.new_start + 1;
-    if (lastOld != null && old - lastOld > 1) out.push({ kind: "gap", lines: old - lastOld - 1 });
+    if (lastOld != null && old - lastOld > 1) out.push({ kind: "gap", lines: old - lastOld - 1, after: lastOld });
     out.push({ kind: "hunk", text: hunkHeader(h) });
 
     for (const l of h.lines) {
@@ -118,7 +122,7 @@ export interface SplitCell {
 /// from the added lines on the right, `null` where one side has none.
 export type SplitRow =
   | { kind: "hunk"; text: string }
-  | { kind: "gap"; lines: number }
+  | DiffGap
   | { kind: "pair"; left: SplitCell | null; right: SplitCell | null };
 
 /// `rows` laid out side by side: a run of removed lines is paired, row by
@@ -429,16 +433,28 @@ export function parseDraft(raw: string | null): ReviewComment[] {
   }
 }
 
-/// Select surrounding lines from a wider patch without changing line numbers.
-export function contextFile(original: DiffFile, full: DiffFile, above: number, below: number): DiffFile {
+/// How many more lines of context a hunk shows on each side.
+export interface Extent { above: number; below: number }
+
+/// Which hunk of `original` an expansion widens: going `below` from the old
+/// line `after` it is the last hunk starting by there, going `above` the
+/// next one.
+export function hunkToExpand(original: Pick<DiffFile, "hunks">, direction: keyof Extent, after: number) {
+  const before = original.hunks.filter(hunk => hunk.old_start <= after).length;
+  return Math.max(0, Math.min(original.hunks.length - 1, direction === "below" ? before - 1 : before));
+}
+
+/// Select surrounding lines from a wider patch without changing line
+/// numbers: each hunk of `original` with its own extent.
+export function contextFile(original: DiffFile, full: DiffFile, extents: readonly Extent[]): DiffFile {
   const hunks: DiffHunk[] = [];
   for (const h of full.hunks) {
     let old = h.old_start, now = h.new_start;
     let kept: DiffHunk | null = null;
     for (const line of h.lines) {
-      const visible = original.hunks.some(base => line.k === "-"
-        ? old >= base.old_start - above && old < base.old_start + base.old_lines + below
-        : now >= base.new_start - above && now < base.new_start + base.new_lines + below);
+      const visible = original.hunks.some((base, index) => line.k === "-"
+        ? old >= base.old_start - extents[index].above && old < base.old_start + base.old_lines + extents[index].below
+        : now >= base.new_start - extents[index].above && now < base.new_start + base.new_lines + extents[index].below);
       if (visible) {
         if (!kept) { kept = { old_start: old, new_start: now, old_lines: 0, new_lines: 0, section: h.section, lines: [] }; hunks.push(kept); }
         kept.lines.push(line);

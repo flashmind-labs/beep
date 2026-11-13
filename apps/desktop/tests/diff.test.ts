@@ -95,7 +95,7 @@ test("side by side shows context on both sides and starts a new run after it", (
 
 test("splitHeight counts wrapped lines", () => {
   const cell = (n: number) => ({ k: " " as const, num: 1, text: "x".repeat(n), eol: false });
-  const rows = [{ kind: "hunk" as const, text: "@@" }, { kind: "gap" as const, lines: 3 }, { kind: "pair" as const, left: cell(10), right: cell(25) }];
+  const rows = [{ kind: "hunk" as const, text: "@@" }, { kind: "gap" as const, lines: 3, after: 1 }, { kind: "pair" as const, left: cell(10), right: cell(25) }];
   assert.equal(splitHeight(rows, 10), 19 + 22 + 19 * 3);
 });
 
@@ -122,12 +122,33 @@ test("expanded context keeps line numbers and review placement", async () => {
   const { contextFile, placeComments } = await import("../src/review/diff-state.ts");
   const full = file("sample.ts", { hunks: [{ old_start: 1, new_start: 1, old_lines: 30, new_lines: 30, section: "", lines: Array.from({ length: 30 }, (_, i) => ({ k: " " as const, t: String(i + 1) })) }] });
   const original = file("sample.ts", { hunks: [{ ...full.hunks[0], old_start: 14, new_start: 14, old_lines: 3, new_lines: 3, lines: full.hunks[0].lines.slice(13, 16) }] });
-  const expanded = contextFile(original, full, 10, 0);
+  const expanded = contextFile(original, full, [{ above: 10, below: 0 }]);
   assert.equal(expanded.hunks[0].new_start, 4);
   assert.equal(expanded.hunks[0].new_lines, 13);
   const comment = { path: "sample.ts", side: "new" as const, line: 4, text: "Check this" };
   assert.equal(placeComments([expanded], [comment]).files.get("sample.ts")?.lines.size, 1);
-  assert.equal(contextFile(original, full, 0, 10).hunks[0].new_start, 14);
+  assert.equal(contextFile(original, full, [{ above: 0, below: 10 }]).hunks[0].new_start, 14);
+});
+
+test("a gap between two hunks expands from either side alone", async () => {
+  const { contextFile, diffRows, hunkToExpand } = await import("../src/review/diff-state.ts");
+  const lines = Array.from({ length: 100 }, (_, i) => ({ k: " " as const, t: String(i + 1) }));
+  const hunk = (start: number, count: number) => ({ old_start: start, new_start: start, old_lines: count, new_lines: count, section: "", lines: lines.slice(start - 1, start - 1 + count) });
+  const full = file("sample.ts", { hunks: [hunk(1, 100)] });
+  const original = file("sample.ts", { hunks: [hunk(10, 7), hunk(60, 7)] });
+  const gap = diffRows(original).find(row => row.kind === "gap");
+  assert.deepEqual(gap, { kind: "gap", lines: 43, after: 16 });
+
+  assert.equal(hunkToExpand(original, "below", 16), 0);
+  assert.equal(hunkToExpand(original, "above", 16), 1);
+  assert.equal(hunkToExpand(original, "above", 0), 0);
+  assert.equal(hunkToExpand(original, "below", Infinity), 1);
+
+  const down = contextFile(original, full, [{ above: 0, below: 10 }, { above: 0, below: 0 }]);
+  assert.deepEqual(down.hunks.map(h => [h.new_start, h.new_lines]), [[10, 17], [60, 7]]);
+  assert.deepEqual(diffRows(down).find(row => row.kind === "gap"), { kind: "gap", lines: 33, after: 26 });
+  const joined = contextFile(original, full, [{ above: 0, below: 30 }, { above: 20, below: 0 }]);
+  assert.deepEqual(joined.hunks.map(h => [h.new_start, h.new_lines]), [[10, 57]]);
 });
 
 test("folder chains compact up to branches and direct files", () => {
