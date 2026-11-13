@@ -14,7 +14,7 @@ const SHORT_HEAD: usize = 7;
 
 /// The worktrees in the output of `git worktree list --porcelain`, the
 /// main checkout first. A bare repository is not one.
-fn parse(text: &str) -> Vec<Worktree> {
+pub(super) fn parse(text: &str) -> Vec<Worktree> {
     let mut found = Vec::new();
 
     for block in text.split("\n\n") {

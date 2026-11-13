@@ -1,7 +1,7 @@
 //! Tool calls, the subagents they start and what they show.
 
 use super::{
-    ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_ENTRY, MAX_FILES, MAX_LINE, MAX_STEPS,
+    ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_ENTRY, MAX_FILES, MAX_LINE, MAX_STEPS, SKILL_TOOL,
     content::{cut, image_picture, parent_tool},
 };
 use crate::agents::mcp::calls::Tool as BeepTool;
@@ -18,10 +18,10 @@ use agent_client_protocol::v1::schema::{
     ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolKind,
 };
 use beep_proto::{AgentToolCall, node::agent::EntryKind};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::{borrow::Cow, path::Path};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct ToolCall {
     /// Its entry, counted from the start of the session.
     pub(super) entry: u64,
@@ -47,6 +47,13 @@ pub(super) struct ToolCall {
     /// The skill a Claude Code `Skill` call loads.
     pub(super) skill: Option<String>,
     pub(super) details: AgentToolCall,
+}
+
+/// The name a call carries: its own, else the one in its metadata.
+fn tool_name(name: Option<&str>, meta: Option<&Map<String, Value>>) -> Option<String> {
+    name.filter(|name| !name.is_empty())
+        .map(|name| cut(name, 240))
+        .or_else(|| tool_details::name(meta))
 }
 
 /// A `beep` server call and its arguments as far as they have come.
@@ -114,23 +121,14 @@ impl Live {
                 ToolCall {
                     entry,
                     title: run.task.clone().unwrap_or_else(|| "Subagent".to_owned()),
-                    kind: ToolKind::Other,
                     status: ToolCallStatus::Completed,
-                    paths: Vec::new(),
-                    output: String::new(),
-                    pictures: Vec::new(),
-                    parent: None,
-                    steps: Vec::new(),
                     subagent: Some(Subagent {
                         threads: vec![thread.to_owned()],
                         ended: !run.working,
                         codex: true,
                         ..Default::default()
                     }),
-                    beep: None,
-                    backgrounded: false,
-                    skill: None,
-                    details: AgentToolCall::default(),
+                    ..Default::default()
                 },
             );
             self.codex_threads.insert(thread.to_owned(), id);
@@ -210,33 +208,22 @@ impl Live {
         self.note_folder(call.kind, &call.locations, call.raw_input.as_ref());
         let mut subagent = Subagent::of_call(&call.title, call.raw_input.as_ref());
         let mut tool = ToolCall {
-            entry: 0,
             title: call.title.clone(),
             kind: call.kind,
             status: call.status,
             paths: paths(&call.locations, call.raw_input.as_ref()),
-            output: String::new(),
-            pictures: Vec::new(),
             parent: parent.clone(),
-            steps: Vec::new(),
-            subagent: None,
             beep: BeepTool::of_call(&call.title, call.meta.as_ref(), call.raw_input.as_ref()).map(
                 |tool| BeepCall {
                     tool,
                     input: call.raw_input.clone(),
                 },
             ),
-            backgrounded: false,
-            skill: None,
             details: AgentToolCall {
-                name: call
-                    .name
-                    .as_deref()
-                    .filter(|name| !name.is_empty())
-                    .map(|name| cut(name, 240))
-                    .or_else(|| tool_details::name(call.meta.as_ref())),
+                name: tool_name(call.name.as_deref(), call.meta.as_ref()),
                 ..AgentToolCall::default()
             },
+            ..Default::default()
         };
         update_details(
             &mut tool.details,
@@ -350,13 +337,7 @@ impl Live {
         };
         let fields = &update.fields;
 
-        if let Some(name) = fields
-            .name
-            .as_deref()
-            .filter(|name| !name.is_empty())
-            .map(|name| cut(name, 240))
-            .or_else(|| tool_details::name(update.meta.as_ref()))
-        {
+        if let Some(name) = tool_name(fields.name.as_deref(), update.meta.as_ref()) {
             call.details.name = Some(name);
         }
 
@@ -479,9 +460,6 @@ impl Live {
         files.drain(..extra);
     }
 }
-
-/// Claude Code's tool that loads a skill.
-const SKILL_TOOL: &str = "Skill";
 
 /// What the result of a skill that forked to the background says.
 const FORKED_SKILL: &str = "forked execution";

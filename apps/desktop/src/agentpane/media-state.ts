@@ -1,4 +1,8 @@
 import { commandKey } from "../ui/platform.ts";
+
+export function bytesOf(b64: string) {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
 // The media pane of a coding agent session: what kind of file a path
 // names, where a path the agent wrote points, and where the pane sits
 // (each tab docked right or at the bottom, how big each dock is, folded

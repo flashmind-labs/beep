@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, keptThoughts, liveThought, rowParts, runLabel, runningSteps, span, splitTurns, stepLabel, stepOpen, summary, progressSummary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/agents/agentturns.ts";
+import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, progressSummary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/agents/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });
@@ -136,17 +136,6 @@ test("only the running turn's last entry, a thought without a length, is still t
   assert.equal(liveThought(answered, splitTurns(answered)[0], true), null);
 });
 
-test("thoughts fold with the tools, and stay in view when no tool is left to fold", () => {
-  const withTools = [u("go"), th("Reading", 1000), t("Read `a.rs` [completed]"), th("Done", 1000), a("Fixed.")];
-  const turn = splitTurns(withTools)[0];
-  assert.deepEqual([...keptThoughts(withTools, turn, new Set(keptSteps(withTools, turn)))], []);
-  // The running turn keeps its newest tool in view: nothing left to fold.
-  assert.deepEqual([...keptThoughts(withTools, turn, new Set([2]))].sort(), [1, 2, 3]);
-  const onlyThoughts = [u("hi"), th("Greeting", 1000), a("Hello.")];
-  const plain = splitTurns(onlyThoughts)[0];
-  assert.deepEqual([...keptThoughts(onlyThoughts, plain, new Set(keptSteps(onlyThoughts, plain)))], [1]);
-});
-
 test("an edit's diff is read back from its output, and the rest of the output kept apart", () => {
   const output = "[diff] src/limits.rs +2 -1\n fn a() {\n-    3\n+    5\n… 3 more lines\nsaved";
   assert.deepEqual(diffBlocks(output), [{ path: "src/limits.rs", added: 2, removed: 1, more: 3,
@@ -214,9 +203,6 @@ test("alternating thoughts and tool calls accumulate in one progress group", () 
     { kind: "thought", text: "two" }, t("Read file [completed]"), t("cargo test [in_progress]")];
   const turn = splitTurns(log)[0];
   assert.deepEqual(turnSections(log, turn).map(section => section.ats), [[1, 2, 3, 4, 5]]);
-  assert.deepEqual(runningSteps(log, turn), [5]);
-  log[5] = t("cargo test [completed]");
-  assert.deepEqual(runningSteps(log, splitTurns(log)[0]), []);
 });
 
 

@@ -207,6 +207,14 @@ fn machine_note(id: EndpointId) -> String {
     format!("machine:{id}")
 }
 
+/// The conflicts the open note `id` holds, one per line.
+fn kept_lines(app: &AppHandle, id: &str) -> BTreeSet<String> {
+    history::get(app, id)
+        .filter(|note| !note.done)
+        .map(|note| note.text.lines().map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
 async fn sync(app: &AppHandle, desk: &Desk, conflicts: &mut Conflicts) {
     for project in desk.sync().await {
         for machine in project.machines {
@@ -217,14 +225,7 @@ async fn sync(app: &AppHandle, desk: &Desk, conflicts: &mut Conflicts) {
 
             let id = format!("conflict:{}:{}", project.project, machine.machine_id);
             let paths: BTreeSet<String> = machine.conflicts.into_iter().collect();
-            let kept = || {
-                history::get(app, &id)
-                    .filter(|note| !note.done)
-                    .map(|note| note.text.lines().map(str::to_owned).collect())
-                    .unwrap_or_default()
-            };
-
-            match conflicts.step(&id, &paths, kept) {
+            match conflicts.step(&id, &paths, || kept_lines(app, &id)) {
                 Settle::Same => {}
                 Settle::Settled => history::finish(app, |note| note.id == id),
                 Settle::Raise => {
@@ -279,14 +280,7 @@ async fn skill_conflicts(app: &AppHandle, fleet: &Fleet, conflicts: &mut Conflic
         let copies: BTreeSet<String> = conflict
             .map(|c| c.copies.iter().cloned().collect())
             .unwrap_or_default();
-        let kept = || {
-            history::get(app, &id)
-                .filter(|note| !note.done)
-                .map(|note| note.text.lines().map(str::to_owned).collect())
-                .unwrap_or_default()
-        };
-
-        match conflicts.step(&id, &copies, kept) {
+        match conflicts.step(&id, &copies, || kept_lines(app, &id)) {
             Settle::Same => {}
             Settle::Settled => history::finish(app, |note| note.id == id),
             Settle::Raise => {

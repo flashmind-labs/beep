@@ -9,11 +9,12 @@ import { openInEditor } from "../project/editors.ts";
 import type { AgentRow, Started } from "./agents.ts";
 import { parentSession, loadSessions, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
-import { AG, AGENT_ACTIVE } from "./agents.ts";
+import { AG, AGENT_ACTIVE, openOf, where } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
 import { workingSubagents } from "./logview.ts";
 import { runs } from "./tasks.ts";
 import { drainOutbox, stopAllWork } from "./messages.ts";
+import { conversationKey } from "./conversation-state.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
 import { forgetTranscript, offScreen, takeHeldSteers, transcripts } from "./session-follow.ts";
@@ -23,17 +24,17 @@ import { forgetLog } from "./session.ts";
 /// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
 /// first while any of those run.
 function stopAll(s: AgentRow) {
-  const o = { machine_id: s.machine_id, agent: s.agent, session: s.id };
+  const o = openOf(s);
   const open = sameSession(AG.open, s) && !!AG.page;
   const run = async () => {
     // Another session may have opened while the sheet asked.
     if (sameSession(AG.open, s) && AG.page) return stopAllWork(s);
     // What waits on this device comes out first, so none of it goes after the stop.
     const kept = await drainOutbox(o);
-    await invoke("agent_steer", { machineId: s.machine_id, agent: s.agent, session: s.id, steer: "stop_all" });
+    await invoke("agent_steer", { ...where(openOf(s)), steer: "stop_all" });
     // The node drops the steers it holds: they wait in the session's field instead, then what waited here.
     const steers = [...takeHeldSteers(o), ...kept.map(draft => draft.typed).filter(Boolean)];
-    if (steers.length) prependDraft(JSON.stringify([s.machine_id, s.agent, s.id]), steers.join("\n"));
+    if (steers.length) prependDraft(conversationKey(s), steers.join("\n"));
   };
   const work: SideWork = {
     // The node's count reaches sessions that are not open; the open log may show one sooner.
@@ -55,7 +56,7 @@ function stopAll(s: AgentRow) {
 export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow) => void) {
   e.preventDefault();
   e.stopPropagation();
-  const at = { machineId: s.machine_id, agent: s.agent, session: s.id };
+  const at = where(openOf(s));
   const build = (folder: string | null, reachable: boolean) => {
     const offers = sessionOffers(s, reachable);
     const items: MenuItem[] = [{ label: "Open", on: () => open(s) }];
@@ -111,7 +112,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
           run: async () => {
             await invoke("agent_delete", at);
             forgetView(s.machine_id, s.id);
-            forgetTranscript({ machine_id: s.machine_id, agent: s.agent, session: s.id });
+            forgetTranscript(openOf(s));
             forgetLog(s);
             await loadSessions().catch(err => console.warn("agent sessions:", err));
           },

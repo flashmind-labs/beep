@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { type DiffFile, type ReviewComment, parseDraft, placeComments } from "../src/review/diff-state.ts";
 import {
-  type SubmittedReview, doneNote, findingsOf, mergeComments, reviewBase, reviewTarget, runState, toComments, whyNot,
+  type SubmittedReview, doneNote, findingsOf, mergeComments, reviewBase, runState, toComments, whyNot,
 } from "../src/review/feedback-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
@@ -60,9 +60,9 @@ test("html and control characters stay text, and a long finding is cut", () => {
 
 test("the base is HEAD for the uncommitted changes, else the merge base", () => {
   const view = { base: "origin/main", merge_base: "3f2c1a0e9" };
-  assert.equal(reviewBase(reviewTarget(view, true)), "HEAD");
-  assert.equal(reviewBase(reviewTarget(view, false)), "3f2c1a0e9");
-  assert.equal(reviewBase(reviewTarget({ ...view, merge_base: "" }, false)), "HEAD");
+  assert.equal(reviewBase(view, true), "HEAD");
+  assert.equal(reviewBase(view, false), "3f2c1a0e9");
+  assert.equal(reviewBase({ ...view, merge_base: "" }, false), "HEAD");
 });
 
 test("a review runs until it is handed in or fails", () => {

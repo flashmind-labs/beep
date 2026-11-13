@@ -1100,22 +1100,6 @@ pub async fn mesh_topics(
 }
 
 #[tauri::command]
-pub async fn mesh_command(
-    window: WebviewWindow,
-    events: State<'_, Events>,
-    machine: String,
-    operation: Operation,
-) -> Result<CallReply> {
-    let machine = machine
-        .parse()
-        .map_err(|_| DesktopError::BadRequest("invalid machine".into()))?;
-    events
-        .call(window.label(), machine, operation)
-        .await?
-        .ok_or_else(|| DesktopError::Lost("the machine".into()))
-}
-
-#[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri passes each command argument separately.
 pub async fn mesh_watch(
     app: AppHandle,
@@ -1337,7 +1321,14 @@ async fn run(
         for (machine, topics) in wanted {
             command_workers.entry(machine).or_insert_with(|| {
                 app.state::<Events>().clear_node(machine);
-                workers.spawn(CommandWorker::new(fleet.clone(), machine, commands.clone()).run())
+                workers.spawn(
+                    CommandWorker {
+                        fleet: fleet.clone(),
+                        machine,
+                        commands: commands.clone(),
+                    }
+                    .run(),
+                )
             });
 
             for topic in topics {
@@ -1345,8 +1336,13 @@ async fn run(
                     .entry((machine, topic.clone()))
                     .or_insert_with(|| {
                         workers.spawn(
-                            SubscriptionWorker::new(app.clone(), fleet.clone(), machine, topic)
-                                .run(),
+                            SubscriptionWorker {
+                                app: app.clone(),
+                                fleet: fleet.clone(),
+                                machine,
+                                topic,
+                            }
+                            .run(),
                         )
                     });
             }

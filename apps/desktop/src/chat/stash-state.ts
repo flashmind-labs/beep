@@ -1,3 +1,5 @@
+import { bytesOf } from "../agentpane/media-state.ts";
+
 export interface StashFile {
   name: string;
   mime: string;
@@ -24,7 +26,7 @@ export function hasStashMessage(message: StashMessage) {
 }
 
 export function stashFile(file: StashFile) {
-  const bytes = Uint8Array.from(atob(file.data), char => char.charCodeAt(0));
+  const bytes = bytesOf(file.data);
   if (bytes.length !== file.size) throw new Error(`${file.name} has incomplete attachment data`);
   return new File([bytes], file.name, { type: file.mime });
 }

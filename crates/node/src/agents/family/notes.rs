@@ -57,24 +57,25 @@ impl ChildNote {
     /// The note as the parent's agent reads it, about the child it knows as
     /// `id`.
     pub(crate) fn text_for(&self, id: &str) -> String {
-        let body = match self.state {
-            NoteState::Finished => format!(
-                "{}\nReply with agent send to continue it.",
-                format!("[child {id} finished] {}", self.text).trim_end()
+        let (head, tail) = match self.state {
+            NoteState::Finished => (
+                format!("[child {id} finished] {}", self.text),
+                "Reply with agent send to continue it.",
             ),
-            NoteState::Asking => format!(
-                "{}\nOnly the user can answer this.",
-                format!("[child {id} is waiting on the user] {}", self.text).trim_end()
+            NoteState::Asking => (
+                format!("[child {id} is waiting on the user] {}", self.text),
+                "Only the user can answer this.",
             ),
-            NoteState::Stopped => format!(
-                "{}\nReply with agent send to continue it.",
-                format!("[child {id} was stopped by the user] {}", self.text).trim_end()
+            NoteState::Stopped => (
+                format!("[child {id} was stopped by the user] {}", self.text),
+                "Reply with agent send to continue it.",
             ),
-            NoteState::Closed => format!(
-                "{}\nIts session ended.",
-                format!("[child {id} was stopped by the user] {}", self.text).trim_end()
+            NoteState::Closed => (
+                format!("[child {id} was stopped by the user] {}", self.text),
+                "Its session ended.",
             ),
         };
+        let body = format!("{}\n{tail}", head.trim_end());
         tags::from_child(id, &self.name, self.state.as_ref(), &body)
     }
 }

@@ -364,7 +364,7 @@ const sizeOf = (w: LogWindow, el: HTMLElement) => el.hidden ? 0 : el.offsetHeigh
 
 /// A message the user sent, for the conversation's scrollbar: its turn and
 /// where it starts, in pixels from the top of what `b` scrolls.
-export interface PromptMark { key: string; top: number; prompt: string }
+interface PromptMark { key: string; top: number; prompt: string }
 
 /// Where each message the user sent starts in `b`, measured turns as drawn and
 /// the others as guessed, as the spacers stand for them.

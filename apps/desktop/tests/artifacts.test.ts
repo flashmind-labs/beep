@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { artifactVersion, collectArtifacts, FRAME_SANDBOX, frameHtml, goneArtifacts, goneMessage, madeFiles, madeGroup, readPlace, relativeTo, toolArtifacts } from "../src/agentpane/artifacts-state.ts";
+import { artifactVersion, collectArtifacts, goneArtifacts, goneMessage, madeFiles, madeGroup, readPlace, relativeTo, toolArtifacts } from "../src/agentpane/artifacts-state.ts";
 
 const CWD = "/srv/project";
 const LINK = "https://claude.ai/code/artifact/0000-placeholder";
@@ -107,21 +107,4 @@ test("a file inside the session's folder is read from it; one outside from its o
   assert.deepEqual(readPlace("/srv/project", "/tmp/a.html"), { root: "/tmp", path: "a.html", inside: false });
   assert.equal(relativeTo("/srv/project", "/srv/project/out/a.html"), "out/a.html");
   assert.equal(relativeTo("/srv/project", "/tmp/a.html"), null);
-});
-
-test("an HTML artifact's frame runs scripts but gets no same origin and no top navigation", () => {
-  const html = frameHtml("beepview://localhost/abc", 'a "page"');
-  const sandbox = /sandbox="([^"]*)"/.exec(html)?.[1];
-  assert.equal(sandbox, FRAME_SANDBOX);
-  const allowed = sandbox!.split(/\s+/);
-  assert.ok(allowed.includes("allow-scripts"));
-
-  for (const no of ["allow-same-origin", "allow-top-navigation", "allow-top-navigation-by-user-activation", "allow-popups", "allow-modals"]) {
-    assert.ok(!allowed.includes(no), no);
-  }
-
-  assert.ok(!html.includes("srcdoc"));
-  assert.match(html, /src="beepview:\/\/localhost\/abc"/);
-  assert.match(html, /title="a &quot;page&quot;"/);
-  assert.match(html, /referrerpolicy="no-referrer"/);
 });

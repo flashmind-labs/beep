@@ -10,7 +10,7 @@ export interface GitCommit {
   committed_at: number;
   subject: string;
 }
-export interface GitRef { name: string; head: string; kind: "local" | "remote" | "tag" }
+interface GitRef { name: string; head: string; kind: "local" | "remote" | "tag" }
 export interface GitWorktree { path: string; head: string | null; branch: string | null; main: boolean }
 export interface HistoryPage {
   machine_id: string;

@@ -1,13 +1,12 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import type { CSSProperties } from "react";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
-import { bareVersion, coderColumns, coders, machineTag, nodeBehind, specLine, toolChips } from "./machines-state.ts";
+import { bareVersion, coderColumns, coders, machineTag, nodeBehind, nodeVersion, removalNote, specLine, toolChips } from "./machines-state.ts";
 import { adapterLine } from "./adapters-state.ts";
-import type { Machine } from "./machines.ts";
+import type { Asking, Machine } from "./machines.ts";
 import { clockWarning } from "./clock.ts";
-import { onRowKey } from "../ui/kit.tsx";
+import { onRowKey, SkeletonRows } from "../ui/kit.tsx";
 
-interface Asking { id: string; busy: boolean; error: string }
 interface ListProps {
   list: Machine[] | null;
   error: string;
@@ -44,13 +43,20 @@ export function MachineList(p: ListProps) {
   </>;
 }
 
+/// The question under a machine that waits for Remove's answer; `ids` gives
+/// its buttons ids.
+export function RemoveAsk({ machine: m, asking, ids = false, remove, cancel }: { machine: Machine; asking: Asking; ids?: boolean; remove: () => void; cancel: () => void }) {
+  const note = removalNote(m);
+
+  return <div className="ask"><span>Remove {m.name} from the mesh? {note} {m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>{asking.error && <span className="derr">{asking.error}</span>}<span className="acts"><button type="button" className="dbtn warn" id={ids ? "rmYes" : undefined} disabled={asking.busy} onClick={remove}>Remove</button><button type="button" className="dbtn quiet" id={ids ? "rmNo" : undefined} autoFocus onClick={cancel}>Cancel</button></span></div>;
+}
+
 function MachineCard({ machine: m, columns, props: p }: { machine: Machine; columns: string[]; props: ListProps }) {
   const env = m.env, tag = machineTag(m), clock = clockWarning(m.id, env?.os ?? null);
   const spec = m.can_host === false ? "Phone · Controller" : env ? specLine(env) : "No report yet";
-  const version = /^\d/.test(m.version) ? `beep-node ${m.version}` : m.version;
+  const version = nodeVersion(m.version);
   const behind = m.id !== p.mac && nodeBehind(m.version, p.newest);
   const asking = p.asking?.id === m.id ? p.asking : null;
-  const note = m.can_host === false ? "It disconnects from your mesh." : m.online ? "It stops taking work; its sessions and projects go with it." : "Its sessions and projects go with it. If it comes back online, it is turned away.";
   const tried = p.adapterTries.get(m.id);
   const agents = env ? coders(env.tools) : [];
   const tools = env ? toolChips(env.tools) : { shown: [], more: [] };
@@ -71,11 +77,11 @@ function MachineCard({ machine: m, columns, props: p }: { machine: Machine; colu
       {m.online && (m.adapters ?? []).map((a, i) => { const text = adapterLine(a); return <span key={`${a.agent}-${i}`} className={`dmad${a.failed === null ? "" : " bad"}`}><span title={text}>{text}</span>{a.failed !== null && <button type="button" className="dbtn small" disabled={tried?.busy} onClick={e => { e.stopPropagation(); p.retryAdapter(m.id); }}>{tried?.busy ? "Trying again…" : "Try again"}</button>}</span>; })}
       {m.online && tried?.error && <span className="dmad bad"><span>{tried.error}</span></span>}
     </>}
-    {asking && !p.hosted && <div className="ask"><span>Remove {m.name} from the mesh? {note} {m.can_host === false ? "To reconnect, pair it again." : "To use it again, add it with a new setup command."}</span>{asking.error && <span className="derr">{asking.error}</span>}<span className="acts"><button type="button" className="dbtn warn" id="rmYes" disabled={asking.busy} onClick={p.remove}>Remove</button><button type="button" className="dbtn quiet" id="rmNo" autoFocus onClick={p.cancelRemove}>Cancel</button></span></div>}
+    {asking && !p.hosted && <RemoveAsk machine={m} asking={asking} ids remove={p.remove} cancel={p.cancelRemove} />}
   </div>;
 }
 
 
 export function MachineLoading() {
-  return <div className="dskel-rows">{[78, 56, 68].map(width => <div className="dskel" key={width} style={{ width: `${width}%` }} />)}</div>;
+  return <SkeletonRows widths={[78, 56, 68]} />;
 }

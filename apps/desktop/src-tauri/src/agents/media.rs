@@ -6,7 +6,7 @@ use crate::{
         file_cache::{Cached, FileCache},
         work_copy,
     },
-    chat::files::{GONE, file_name, free_name, image_mime},
+    chat::files::{file_name, free_name, gone, image_mime},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, agents as direct},
 };
@@ -14,8 +14,8 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 #[cfg(desktop)]
 use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, ApiError, GetAgentFile, GetAgentImage,
-    MAX_AGENT_FILE, image_key, media_mime,
+    AGENT_FILE_CHUNK, AgentFileChunk, AgentImageData, GetAgentFile, GetAgentImage, MAX_AGENT_FILE,
+    image_key, media_mime,
 };
 use iroh::EndpointId;
 use serde::Serialize;
@@ -95,12 +95,7 @@ async fn small(image: AgentImageData) -> AgentImageData {
 /// A data URL the bar can draw, with a picture the machine no longer has as
 /// `GONE`.
 fn picture_url(image: Result<AgentImageData>) -> Result<String> {
-    let image = match image {
-        Err(DesktopError::Api(ApiError::NotFound {})) => {
-            return Err(DesktopError::BadRequest(GONE.into()));
-        }
-        other => other?,
-    };
+    let image = gone(image)?;
 
     if !image_mime(&image.mime) {
         return Err(DesktopError::BadRequest("bad picture".into()));
@@ -320,12 +315,7 @@ async fn file_chunk(
         path,
         offset,
     };
-    let chunk = direct::file(fleet, machine, &request).await;
-
-    match chunk {
-        Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
-        other => other,
-    }
+    gone(direct::file(fleet, machine, &request).await)
 }
 
 /// The whole media file `path` on `machine_id`, read a chunk at a time.

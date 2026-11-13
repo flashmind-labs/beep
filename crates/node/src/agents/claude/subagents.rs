@@ -46,8 +46,8 @@ pub(super) fn session(store: &Store, id: &str) -> std::io::Result<Option<Externa
     let parent_cwd = store
         .find(parent)
         .and_then(|path| transcript::head(&path).ok())
-        .and_then(|head| head.cwd);
-    let cwd = digest.cwd.or(head.cwd).or(parent_cwd).unwrap_or_default();
+        .and_then(|head| head.said.cwd);
+    let cwd = digest.said.cwd.or(head.said.cwd).or(parent_cwd).unwrap_or_default();
     let presence = match status(&Spawn::default(), &found) {
         Status::InProgress => Presence::Working,
         _ => Presence::Stopped,
@@ -55,13 +55,13 @@ pub(super) fn session(store: &Store, id: &str) -> std::io::Result<Option<Externa
     Ok(Some(ExternalSession {
         id: id.to_owned(),
         agent: "claude".to_owned(),
-        title: found.meta.description.or(head.title).or(head.last_prompt),
+        title: found.meta.description.or(head.said.title).or(head.said.last_prompt),
         place: crate::agents::place::of_folder(Path::new(&cwd)),
         cwd,
         started_at: head.first_at.unwrap_or(0),
-        last_activity: digest.last_at.unwrap_or(0),
-        last_prompt: digest.last_prompt.unwrap_or_default(),
-        last_message: digest.last_message.unwrap_or_default(),
+        last_activity: digest.said.last_at.unwrap_or(0),
+        last_prompt: digest.said.last_prompt.unwrap_or_default(),
+        last_message: digest.said.last_message.unwrap_or_default(),
         presence,
         ..Default::default()
     }))
@@ -152,28 +152,56 @@ pub(super) fn attach(
     }
 
     shown.sort_by_key(|(_, spawn)| spawn.entry);
-    let folder = if session
-        .parent()
-        .is_some_and(|folder| folder.file_name().is_some_and(|name| name == "subagents"))
-    {
+    let folder = if is_native(session) {
         session.parent().map(Path::to_owned).unwrap_or_default()
     } else {
         session.with_extension("").join("subagents")
     };
     let found = agents(&folder);
+    let items = shown
+        .into_iter()
+        .map(|(call, spawn)| (spawn.entry - skip, call.as_str(), spawn));
+
+    attach_each(session, &found, items, entries, true);
+}
+
+/// Whether `session` is a subagent's own transcript, kept in a `subagents`
+/// folder.
+pub(super) fn is_native(session: &Path) -> bool {
+    session
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == "subagents")
+}
+
+/// Writes the subagent each call started on the entry at its index. A
+/// subagent without a conversation id leaves its entry as it was unless
+/// `keep_text`, which writes its text anyway.
+fn attach_each<'a>(
+    session: &Path,
+    found: &[Found],
+    calls: impl Iterator<Item = (usize, &'a str, &'a Spawn)>,
+    entries: &mut [Entry],
+    keep_text: bool,
+) {
     let mut taken = HashSet::new();
 
-    for (call, spawn) in shown {
-        let Some(agent) = pick(&found, call, spawn, &taken) else {
+    for (at, call, spawn) in calls {
+        let Some(agent) = pick(found, call, spawn, &taken) else {
             continue;
         };
         taken.insert(agent.id.as_str());
-        let Some(entry) = entries.get_mut(spawn.entry - skip) else {
+        let Some(entry) = entries.get_mut(at) else {
             continue;
         };
+        let id = conversation(session, &agent.id);
+
+        if id.is_none() && !keep_text {
+            continue;
+        }
         entry.text = text(spawn, agent, &read(&agent.transcript));
 
-        if let Some(id) = conversation(session, &agent.id) {
+        if let Some(id) = id {
             add_conversation(&mut entry.text, &id);
         }
     }
@@ -221,23 +249,12 @@ fn attach_calls(
     spawns: &HashMap<String, Spawn>,
 ) {
     let found = agents(&session.with_extension("").join("subagents"));
-    let mut taken = HashSet::new();
+    let fallback = Spawn::default();
+    let items = calls
+        .iter()
+        .map(|(at, call)| (*at, call.as_str(), spawns.get(call).unwrap_or(&fallback)));
 
-    for (at, call) in calls {
-        let fallback = Spawn::default();
-        let spawn = spawns.get(call).unwrap_or(&fallback);
-        let Some(agent) = pick(&found, call, spawn, &taken) else {
-            continue;
-        };
-        taken.insert(agent.id.as_str());
-
-        if let Some(id) = conversation(session, &agent.id)
-            && let Some(entry) = entries.get_mut(*at)
-        {
-            entry.text = text(spawn, agent, &read(&agent.transcript));
-            add_conversation(&mut entry.text, &id);
-        }
-    }
+    attach_each(session, &found, items, entries, false);
 }
 
 /// The subagent `call` started: the one whose meta names the call, else

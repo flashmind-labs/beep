@@ -27,30 +27,32 @@ enum Skip {
     Flag,
 }
 
-struct Rule {
-    pattern: String,
+struct Compiled {
+    regex: Regex,
     replacement: String,
     skip: Skip,
 }
 
-fn rule(pattern: impl Into<String>, replacement: impl Into<String>, skip: Skip) -> Rule {
-    Rule {
-        pattern: pattern.into(),
+type Built = Result<Compiled, regex::Error>;
+
+fn rule(pattern: impl AsRef<str>, replacement: impl Into<String>, skip: Skip) -> Built {
+    Ok(Compiled {
+        regex: Regex::new(pattern.as_ref())?,
         replacement: replacement.into(),
         skip,
-    }
+    })
 }
 
-fn whole(pattern: &str) -> Rule {
+fn whole(pattern: &str) -> Built {
     rule(pattern, MASK, Skip::Never)
 }
 
-fn keep(pattern: impl Into<String>) -> Rule {
+fn keep(pattern: impl AsRef<str>) -> Built {
     rule(pattern, format!("${{1}}{MASK}"), Skip::Never)
 }
 
-fn rules() -> Vec<Rule> {
-    vec![
+fn rules() -> Result<Vec<Compiled>, regex::Error> {
+    [
         whole(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----(?:.*?-----END [A-Z ]*PRIVATE KEY-----|.*)"),
         keep(format!(
             r#"(?i)(\bauthorization["']?\s*[:=]\s*)(?:{QUOTED}|{QUOTED_SINGLE}|(?:\w+[ \t]+)?[^\s,;"']+)"#
@@ -102,12 +104,8 @@ fn rules() -> Vec<Rule> {
         whole(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"),
         whole(r"\bbeepjoin[a-z2-7]{10,}"),
     ]
-}
-
-struct Compiled {
-    regex: Regex,
-    replacement: String,
-    skip: Skip,
+    .into_iter()
+    .collect()
 }
 
 impl Compiled {
@@ -170,18 +168,7 @@ fn ordinary_word(val: &str) -> bool {
         || (val.len() < 8 && val.chars().all(|c| c.is_ascii_alphabetic()))
 }
 
-static COMPILED: LazyLock<Result<Vec<Compiled>, regex::Error>> = LazyLock::new(|| {
-    rules()
-        .into_iter()
-        .map(|r| {
-            Ok(Compiled {
-                regex: Regex::new(&r.pattern)?,
-                replacement: r.replacement,
-                skip: r.skip,
-            })
-        })
-        .collect()
-});
+static COMPILED: LazyLock<Result<Vec<Compiled>, regex::Error>> = LazyLock::new(rules);
 
 /// Replaces secrets in `text` with `[redacted]`, keeping the key name of `key=value` shapes.
 /// Fails closed: if a rule did not build, nothing is returned.

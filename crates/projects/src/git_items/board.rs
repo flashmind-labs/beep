@@ -4,7 +4,6 @@ use super::{Caller, HostError, forgejo, github, host::Found};
 use crate::imports::hosts::Hosts;
 use beep_proto::Service;
 use beep_proto::{GitHost, GitHostKind, GitItem, GitItems, GitReview, LabeledGitItems};
-use futures::future::join_all;
 use reqwest::Client;
 use secrecy::SecretString;
 use std::{cmp::Reverse, collections::HashMap, time::SystemTime};
@@ -24,14 +23,6 @@ pub struct OpenedItems {
     pub items: LabeledGitItems,
     /// When each of `items.found.items` was opened, in its order; `None` when the host did not say.
     pub opened_at: Vec<Option<SystemTime>>,
-}
-
-/// Asks every host at once and puts their answers together.
-pub async fn read(hosts: &dyn Hosts, logins: &[Login<'_>]) -> anyhow::Result<OpenedItems> {
-    let client = hosts.client()?;
-    let client = &client;
-    let answers = join_all(logins.iter().map(|login| ask(hosts, client, login))).await;
-    Ok(combine(answers.into_iter().flatten().collect()))
 }
 
 /// Asks the host `login` is for; `None` for a credential that is no git host.

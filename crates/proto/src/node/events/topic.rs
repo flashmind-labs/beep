@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
-pub const MAX_TOPIC_BYTES: usize = 16 * 1024;
+pub(crate) const MAX_TOPIC_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Topic {
@@ -62,10 +62,6 @@ impl Topic {
 
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    pub fn namespace(&self) -> &str {
-        self.name()
     }
 
     /// Decoded resource components joined by dots. Use `resource_segments` for identity.

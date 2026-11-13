@@ -165,12 +165,7 @@ impl External {
             limit => limit.min(MAX_LISTED),
         };
         spawn_blocking(move || {
-            let snapshot = discover::Snapshot {
-                processes,
-                pid_files: store.pid_files(),
-                owned,
-                now: None,
-            };
+            let snapshot = discover::Snapshot::of(&store, processes, owned);
             discover::list(&store, &snapshot, limit, only.as_deref())
         })
         .await?
@@ -204,12 +199,7 @@ impl External {
 
         let processes = procs::claude_processes().await;
         let mut sessions = spawn_blocking(move || {
-            let snapshot = discover::Snapshot {
-                processes,
-                pid_files: store.pid_files(),
-                owned,
-                now: None,
-            };
+            let snapshot = discover::Snapshot::of(&store, processes, owned);
             discover::list_ids(&store, &snapshot, &ids)
         })
         .await?

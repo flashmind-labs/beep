@@ -11,8 +11,8 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // the diff does not lose it. Reviews the session asked for itself (its
 // `review` tool) become comments too, once.
 import {
-  type CanStart, type ReviewRun, type ReviewTarget,
-  doneNote, findingsOf, mergeComments, reviewBase, reviewTarget, runState, toComments, whyNot,
+  type CanStart, type ReviewRun,
+  doneNote, findingsOf, mergeComments, reviewBase, runState, toComments, whyNot,
 } from "./feedback-state.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
@@ -178,7 +178,7 @@ function openReviewer(run: Run, machineName: string) {
 
 // ----- The button -----
 
-export interface FeedbackOpts {
+interface FeedbackOpts {
   /// The diff's id: its drafts and its review are kept under it.
   key: string;
   /// The machine the diff's checkout is on; null for a diff with none.
@@ -202,7 +202,7 @@ export interface FeedbackOpts {
 }
 
 /// What the header draws of a review: the button, the picker under it and why the last one failed.
-export interface FeedbackSnapshot { state: FeedbackState; picker: ReactElement | null; note: string }
+interface FeedbackSnapshot { state: FeedbackState; picker: ReactElement | null; note: string }
 
 export interface Feedback {
   snapshot: () => FeedbackSnapshot;
@@ -325,14 +325,13 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const machine = o.machine;
     if (!v || !machine || starting || runs.has(o.key)) return;
     lastPick = { agent: picked.agent, model: picked.model, effort: picked.effort };
-    const target: ReviewTarget = reviewTarget(v, o.uncommitted());
     const uncommitted = o.uncommitted();
     starting = true;
     drawButton();
 
     try {
       const started = await invoke<ReviewRun>("agent_review_start", {
-        machineId: machine.id, agent: picked.agent, cwd: v.root, base: reviewBase(target),
+        machineId: machine.id, agent: picked.agent, cwd: v.root, base: reviewBase(v, uncommitted),
         parent: o.session ?? null, model: picked.model.trim() || null, effort: picked.effort,
       });
       const load = o.load;

@@ -116,8 +116,7 @@ interrupt(){
     fi
   done
 
-  wait_for 120 "both in sync" in_sync && pass "the desktop sees both in sync" \
-    || { fail "the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
+  check_in_sync 120
 }
 
 fresh_world

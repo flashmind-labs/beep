@@ -3,13 +3,12 @@
 //! per online member, started and stopped as the mesh changes, so a read
 //! never waits on the network.
 
-use beep_mesh::{Device, Mesh, PeerClient, SessionFn};
+use beep_mesh::{Device, Mesh, PeerClient, SessionFn, machine::machine_capability};
 use beep_proto::{
-    AgentHost, Machine, MachineApp, MachineCapability, MachineDetails, MachineDisk, MachineEnv,
-    MachineGpu, MachineLogin, MachineStats, MachineTool, MachineTraffic, TrafficCounter,
-    UpdatableMachine,
+    AgentHost, Machine, MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu,
+    MachineLogin, MachineStats, MachineTool, MachineTraffic, TrafficCounter, UpdatableMachine,
     node::{
-        AppInfo, AppName, Capability, DiskUsage, EnvReport, GpuInfo, StatsReport,
+        AppInfo, AppName, DiskUsage, EnvReport, GpuInfo, StatsReport,
         agent::agent_of,
         status::{PROTOCOL, Report},
         traffic::TrafficReport,
@@ -199,8 +198,7 @@ impl Shared {
         peer.clock_offset_ms = clock_offset_ms;
         drop(peers);
         if changed {
-            self.changes
-                .send_modify(|revision| revision.machines = revision.machines.wrapping_add(1));
+            self.bump_machines();
         }
     }
 
@@ -581,7 +579,7 @@ impl Follower {
                 }
 
                 if let Some(at) = ended.get(&id).copied()
-                    && !retry_due(Some(at))
+                    && !retry_due(at)
                 {
                     let next = at + RETRY;
                     retry = Some(retry.map_or(next, |soonest| soonest.min(next)));
@@ -665,9 +663,9 @@ fn reap(follows: &mut JoinSet<()>) {
     while follows.try_join_next().is_some() {}
 }
 
-/// Whether a follow that ended at `ended`, if one did, may start again.
-fn retry_due(ended: Option<Instant>) -> bool {
-    ended.is_none_or(|at| at.elapsed() >= RETRY)
+/// Whether a follow that ended at `ended` may start again.
+fn retry_due(ended: Instant) -> bool {
+    ended.elapsed() >= RETRY
 }
 
 /// This Mac's Unix time in milliseconds.
@@ -803,18 +801,6 @@ fn machine_gpu(gpu: GpuInfo) -> MachineGpu {
         model: gpu.model,
         vram_mb: gpu.vram_mb,
         driver: gpu.driver,
-    }
-}
-
-fn machine_capability(capability: Capability) -> MachineCapability {
-    match capability {
-        Capability::Gpu => MachineCapability::Gpu {},
-        Capability::Cuda => MachineCapability::Cuda {},
-        Capability::Blender => MachineCapability::Blender {},
-        Capability::Unreal => MachineCapability::Unreal {},
-        Capability::Xcode => MachineCapability::Xcode {},
-        Capability::Android => MachineCapability::Android {},
-        Capability::Docker => MachineCapability::Docker {},
     }
 }
 

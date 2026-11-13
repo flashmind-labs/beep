@@ -38,7 +38,7 @@ fn a_file_swapped_after_the_walk_is_refused() {
     let file = dir.join("render.png");
     fs::write(&file, "a").expect("written");
     fs::write(dir.join("other.png"), "b").expect("written");
-    let walked = Identity::from(&fs::metadata(&file).expect("exists"));
+    let walked = fsat::id_of_metadata(&fs::metadata(&file).expect("exists"));
     check_same(&file, walked).unwrap();
 
     fs::remove_file(&file).expect("removed");

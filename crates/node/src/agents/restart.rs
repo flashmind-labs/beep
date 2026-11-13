@@ -177,6 +177,16 @@ impl Agents {
         })
     }
 
+    /// Waits for the user's agent settings for `SETTINGS_WAIT` at most;
+    /// whether they came.
+    pub(super) async fn settings_came(&self) -> bool {
+        let mut settled = self.settled.subscribe();
+
+        timeout(SETTINGS_WAIT, settled.wait_for(|settled| *settled))
+            .await
+            .is_ok()
+    }
+
     /// Resumes `sessions`, once the user's settings for the agents came or
     /// after `SETTINGS_WAIT`.
     pub(crate) async fn reopen(&self, sessions: Vec<OpenSession>) {
@@ -185,17 +195,13 @@ impl Agents {
             return;
         }
 
-        let mut settled = self.settled.subscribe();
-
-        if timeout(SETTINGS_WAIT, settled.wait_for(|settled| *settled))
-            .await
-            .is_err()
-        {
+        if !self.settings_came().await {
             log::info!("resuming sessions without the agent settings: the mesh gave none");
         }
 
         let mut sessions = sessions;
-        Self::parents_first(&mut sessions);
+        // A parent starts before its children.
+        sessions.sort_by_key(|open| open.depth());
 
         for open in sessions {
             let id = open.session.clone();

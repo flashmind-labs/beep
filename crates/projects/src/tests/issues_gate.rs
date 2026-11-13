@@ -3,7 +3,7 @@ use crate::{
     Shell, ShellOutput,
     commands::HostCommand,
     issues::{
-        ImportedPlace, MachineName, Machines, ProjectStore, SourceError, read_any, read_open,
+        ImportedPlace, MachineName, Machines, ProjectStore, SourceError, list_open, read_any,
         run_source,
     },
     model::RepoName,
@@ -330,15 +330,15 @@ impl Fleet {
 async fn a_machine_that_reaches_the_host_answers_for_one_that_does_not() {
     let (fleet, project) = split_network();
 
-    let read = read_open(&project, &fleet)
+    let read = list_open(&project, &fleet)
         .await
         .expect("one machine answers");
-    assert!(read.is_some_and(|read| read.open.is_empty()));
+    assert!(read.is_empty());
     assert_eq!(fleet.reads(), [1, 1]);
 
     // The machine that answered is asked first from now on, even once the pause is over.
     for _ in 0..3 {
-        read_open(&project, &fleet).await.expect("it answers");
+        list_open(&project, &fleet).await.expect("it answers");
         advance(FIRST_PAUSE).await;
     }
 
@@ -351,13 +351,13 @@ async fn a_host_no_machine_reaches_is_tried_again_from_each_after_the_pause() {
     fleet.shells[1].1.answers(1, NO_HOST);
 
     for _ in 0..10 {
-        let read = read_open(&project, &fleet).await;
+        let read = list_open(&project, &fleet).await;
         assert!(matches!(read, Err(SourceError::Refused(_))));
     }
 
     assert_eq!(fleet.reads(), [1, 1]);
     advance(FIRST_PAUSE).await;
-    read_open(&project, &fleet).await.unwrap_err();
+    list_open(&project, &fleet).await.unwrap_err();
     assert_eq!(fleet.reads(), [2, 2]);
 }
 

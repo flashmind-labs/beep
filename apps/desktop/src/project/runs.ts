@@ -11,12 +11,13 @@ import { snapshotView } from "../ui/snapshot-state.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { ProjectRef } from "./localid.ts";
 import type { BarTarget } from "./projectbar.ts";
-import { reason } from "../ui/format.ts";
+import { plural, reason } from "../ui/format.ts";
+import { fence } from "./gitsync-state.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 import {
-  Bounded, DetailCache, HOVER_MS, ahead, detailDue, detailKey, going, limited, listDue, runKey,
+  Bounded, DetailCache, HOVER_MS, ahead, detailDue, detailKey, going, limited, runKey,
 } from "./runs-state.ts";
 
 export { going, runKey };
@@ -129,7 +130,7 @@ export function hostCounts(d: Pick<RunsRow, "runs" | "hosts">) {
     if (h.error) return { text: `${name}: ${h.error}`, error: true, host: h.host };
     const count = runsCount(d.runs.filter(r => r.host === h.host));
     const ran = d.runs.filter(r => r.host === h.host).length;
-    return { text: `${name}: ${count || (ran ? `${ran} ${ran === 1 ? "run" : "runs"}` : "no runs")}`, error: false, host: h.host };
+    return { text: `${name}: ${count || (ran ? plural(ran, "run", "runs") : "no runs")}`, error: false, host: h.host };
   });
 }
 
@@ -220,13 +221,6 @@ function failedAt(jobs: readonly RunJobRow[]) {
   const job = jobs.find(j => j.state === "failed") || null;
   const step = job?.steps.find(s => s.state === "failed") || null;
   return { job, step };
-}
-
-/// A code fence longer than any run of backticks in `text`, so the log
-/// cannot close it.
-function fence(text: string) {
-  const longest = Math.max(2, ...(text.match(/`+/g) || []).map(t => t.length));
-  return "`".repeat(longest + 1);
 }
 
 /// What Fix this puts in the start form: the run, the failing job and step,
@@ -452,15 +446,6 @@ export function makeRuns(deps: RunDeps) {
     } }, { wait: AMBIENT_MS });
   }
 
-  /// Reads again only while a run goes, so nothing is asked while all are
-  /// done. Used when another visible section receives a change.
-  function tick(id: string) {
-    const s = of(id);
-    if (!s.data) return;
-    if (listDue(s.data.runs, limitOf(s.data), Date.now())) load(id);
-    if (s.openRun) readDetail(id, s.openRun);
-  }
-
   function openDetail(id: string) {
     const s = of(id);
     return s.openRun ? details.get(detailKey(id, s.openRun))?.data ?? null : null;
@@ -498,7 +483,6 @@ export function makeRuns(deps: RunDeps) {
       if (watching) watchDetail(watching, null);
       unfollow?.(); unfollow = undefined; watching = null;
     },
-    tick,
     section,
     /// The runs of project `id` and why they could not be read, reading
     /// them the first time.
@@ -508,8 +492,6 @@ export function makeRuns(deps: RunDeps) {
       return runTile(s.data, s.error);
     },
     ensure,
-    /// Each open pull request's checks, once the runs are read.
-    checks: (id: string) => of(id).data?.checks ?? null,
     /// The hosts the runs are read from, as last read; none before.
     hosts: (id: string) => all.get(id)?.data?.hosts ?? kept.get(id)?.hosts ?? null,
     /// Opens run `run` of project `id` on `host`, as a PR row's checks

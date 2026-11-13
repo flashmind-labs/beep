@@ -6,9 +6,9 @@ use super::{
     gitdir,
     rules::{Rules, Skip},
 };
-use crate::{
-    files::fsat,
-    files::transfer::offer::{Identity, check_same},
+use crate::files::{
+    fsat::{self, FileId},
+    transfer::offer::check_same,
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::sync::{Rule, SkippedPath};
@@ -57,13 +57,11 @@ impl Stat {
     pub(super) fn mtime_ms(&self) -> i64 {
         self.mtime_ns.div_euclid(1_000_000)
     }
-}
 
-impl From<&Stat> for Identity {
-    fn from(stat: &Stat) -> Self {
-        Self {
-            device: stat.device,
-            inode: stat.inode,
+    fn id(&self) -> FileId {
+        FileId {
+            device: self.device,
+            inode: self.inode,
         }
     }
 }
@@ -88,19 +86,23 @@ pub(super) struct Walked {
     pub(super) skipped_more: bool,
 }
 
+fn within_limits(files: usize, bytes: u64) -> Result<()> {
+    ensure!(
+        files <= MAX_FILES && bytes <= MAX_BYTES,
+        "the project holds more than {MAX_FILES} files or {} GiB to sync; pin it \
+         to keep it on one machine, or leave more out in .beepignore",
+        MAX_BYTES >> 30
+    );
+    Ok(())
+}
+
 impl Walked {
     pub(super) fn check_limits(&self) -> Result<()> {
         let bytes = self
             .files
             .iter()
             .fold(0u64, |sum, file| sum.saturating_add(file.stat.size));
-        ensure!(
-            self.files.len() <= MAX_FILES && bytes <= MAX_BYTES,
-            "the project holds more than {MAX_FILES} files or {} GiB to sync; pin it \
-             to keep it on one machine, or leave more out in .beepignore",
-            MAX_BYTES >> 30
-        );
-        Ok(())
+        within_limits(self.files.len(), bytes)
     }
 
     fn skip(
@@ -304,12 +306,7 @@ fn walk_inner(
                     abs: item.path(),
                     stat: Stat::from(&meta),
                 });
-                ensure!(
-                    walked.files.len() <= MAX_FILES && bytes <= MAX_BYTES,
-                    "the project holds more than {MAX_FILES} files or {} GiB to sync; pin it \
-                     to keep it on one machine, or leave more out in .beepignore",
-                    MAX_BYTES >> 30
-                );
+                within_limits(walked.files.len(), bytes)?;
             } else {
                 walked.skip(skipped, path, false, Rule::Link, None);
             }
@@ -334,7 +331,7 @@ pub(super) async fn import_copy(store: &Store, found: &Found) -> Result<TempTag>
 }
 
 async fn import_as(store: &Store, found: &Found, mode: ImportMode) -> Result<TempTag> {
-    let identity = Identity::from(&found.stat);
+    let identity = found.stat.id();
     let check =
         |path: PathBuf| async move { spawn_blocking(move || check_same(&path, identity)).await? };
     check(found.abs.clone()).await?;

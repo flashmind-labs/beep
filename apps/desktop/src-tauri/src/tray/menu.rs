@@ -115,28 +115,24 @@ fn tray_target(id: &str) -> Option<CenterTarget> {
 
 fn on_menu(app: &AppHandle, event: MenuEvent) {
     // Something waiting opens where it is answered: its chat or agent
-    // session, or Home once it no longer waits.
-    if event.id().as_ref().starts_with(waiting::ITEM) {
+    // session, or Home once it no longer waits. This handler hears every
+    // menu's events, so the Help menu's Report a Problem opens here too.
+    let id = event.id().as_ref();
+    let opening = if id.starts_with(waiting::ITEM) {
         let target = app
             .state::<WaitingList>()
-            .target(event.id().as_ref())
+            .target(id)
             .unwrap_or(CenterTarget::Home);
+        Some((target, "opening what waits"))
+    } else {
+        tray_target(id).map(|target| (target, "opening the command center"))
+    };
+
+    if let Some((target, failure)) = opening {
         let pending = app.state::<center::Pending>();
 
         if let Err(e) = center::open_on(app, &pending, target) {
-            log::warn!("opening what waits: {e}");
-        }
-
-        return;
-    }
-
-    // This handler hears every menu's events, so the Help menu's Report a
-    // Problem opens here too.
-    if let Some(target) = tray_target(event.id().as_ref()) {
-        let pending = app.state::<center::Pending>();
-
-        if let Err(e) = center::open_on(app, &pending, target) {
-            log::warn!("opening the command center: {e}");
+            log::warn!("{failure}: {e}");
         }
 
         return;

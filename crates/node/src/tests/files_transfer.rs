@@ -4,6 +4,7 @@ use crate::files::syncthing::Syncthing;
 use beep_mesh::transport_config;
 use beep_proto::node::sync::Project;
 use iroh::{SecretKey, endpoint::presets};
+use iroh_blobs::HashAndFormat;
 use std::future::pending;
 use tempfile::TempDir;
 

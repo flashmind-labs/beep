@@ -9,6 +9,38 @@ use beep_proto::node::{
 };
 use std::sync::Arc;
 
+/// Why a request is not an order for a session.
+pub(super) enum Refused {
+    Images(String),
+    Request(Request),
+}
+
+impl TryFrom<Request> for Command {
+    type Error = Refused;
+
+    fn try_from(request: Request) -> Result<Self, Refused> {
+        Ok(match request {
+            Request::Prompt { text } => Command::Prompt(text.into()),
+            Request::PromptImages { text, images } => {
+                Command::Prompt(Prompt::with_images(text, images).map_err(Refused::Images)?)
+            }
+            Request::Steer { text, images } => {
+                Command::Steer(Prompt::with_images(text, images).map_err(Refused::Images)?)
+            }
+            Request::DropSteers {} => Command::DropSteers,
+            Request::Answer { question, reply } => Command::Answer { question, reply },
+            Request::SetMode { mode } => Command::SetMode(mode),
+            Request::StopTask { task } => Command::StopTask(task),
+            // Stop ends the main turn alone.
+            Request::Cancel {} => Command::Cancel { by_user: true },
+            Request::StopAll {} => Command::StopAll { by_user: true },
+            Request::Close {} => Command::Close { by_user: true },
+            Request::Configure { model, effort } => Command::Configure { model, effort },
+            other => return Err(Refused::Request(other)),
+        })
+    }
+}
+
 impl Agents {
     /// Orders from the duplex events stream use the same actor as ACP and legacy streams.
     pub(crate) async fn send_session(
@@ -27,22 +59,10 @@ impl Agents {
         }
 
         let cascade = matches!(request, Request::StopAll {});
-        let command = match request {
-            Request::Prompt { text } => Command::Prompt(text.into()),
-            Request::PromptImages { text, images } => {
-                Command::Prompt(Prompt::with_images(text, images)?)
-            }
-            Request::Steer { text, images } => Command::Steer(Prompt::with_images(text, images)?),
-            Request::DropSteers {} => Command::DropSteers,
-            Request::Answer { question, reply } => Command::Answer { question, reply },
-            Request::SetMode { mode } => Command::SetMode(mode),
-            Request::StopTask { task } => Command::StopTask(task),
-            Request::Cancel {} => Command::Cancel { by_user: true },
-            Request::StopAll {} => Command::StopAll { by_user: true },
-            Request::Close {} => Command::Close { by_user: true },
-            Request::Configure { model, effort } => Command::Configure { model, effort },
-            _ => return Err("this request cannot order an existing session".into()),
-        };
+        let command = Command::try_from(request).map_err(|refused| match refused {
+            Refused::Images(error) => error,
+            Refused::Request(_) => "this request cannot order an existing session".to_owned(),
+        })?;
         session.order(command).await?;
 
         if cascade {
@@ -170,51 +190,27 @@ pub async fn serve_session(
     loop {
         tokio::select! {
             request = rx.recv::<Request>() => {
-                let mut cascade = false;
-                let command = match request {
-                    Ok(Some(Request::Prompt { text })) => Command::Prompt(text.into()),
-                    Ok(Some(Request::PromptImages { text, images })) => {
-                        match Prompt::with_images(text, images) {
-                            Ok(prompt) => Command::Prompt(prompt),
-                            Err(error) => {
-                                tx.send(&Event::Ack { error: Some(error) }).await?;
-                                continue;
-                            }
-                        }
-                    }
-                    Ok(Some(Request::Steer { text, images })) => {
-                        match Prompt::with_images(text, images) {
-                            Ok(prompt) => Command::Steer(prompt),
-                            Err(error) => {
-                                tx.send(&Event::Ack { error: Some(error) }).await?;
-                                continue;
-                            }
-                        }
-                    }
-                    Ok(Some(Request::DropSteers {})) => Command::DropSteers,
-                    Ok(Some(Request::Answer { question, reply })) => Command::Answer { question, reply },
-                    Ok(Some(Request::SetMode { mode })) => Command::SetMode(mode),
-                    Ok(Some(Request::StopTask { task })) => Command::StopTask(task),
-                    // Stop ends the main turn alone.
-                    Ok(Some(Request::Cancel {})) => Command::Cancel { by_user: true },
-                    Ok(Some(Request::StopAll {})) => {
-                        // Stop all goes down to what the session started, on
-                        // other machines too, after its own turn stops.
-                        cascade = true;
-                        Command::StopAll { by_user: true }
-                    }
-                    Ok(Some(Request::Close {})) => Command::Close { by_user: true },
-                    Ok(Some(Request::Configure { model, effort })) => Command::Configure { model, effort },
-                    Ok(Some(other)) => {
-                        let error = Some(format!("{other:?} is not for an open session"));
-                        tx.send(&Event::Ack { error }).await?;
-                        continue;
-                    }
+                let request = match request {
+                    Ok(Some(request)) => request,
                     // The session keeps running for the next stream.
                     Ok(None) => return Ok(()),
                     Err(e) => {
                         log::debug!("skipped a request: {e:#}");
                         tx.send(&Event::Ack { error: Some("unknown request".into()) }).await?;
+                        continue;
+                    }
+                };
+                // Stop all goes down to what the session started, on other
+                // machines too, after its own turn stops.
+                let cascade = matches!(request, Request::StopAll {});
+                let command = match Command::try_from(request) {
+                    Ok(command) => command,
+                    Err(refused) => {
+                        let error = match refused {
+                            Refused::Images(error) => error,
+                            Refused::Request(other) => format!("{other:?} is not for an open session"),
+                        };
+                        tx.send(&Event::Ack { error: Some(error) }).await?;
                         continue;
                     }
                 };

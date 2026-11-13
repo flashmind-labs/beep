@@ -14,6 +14,9 @@ use std::{
     sync::Arc,
 };
 
+/// Reads a transcript file into entries.
+type Parse = fn(&Path) -> io::Result<Vec<Entry>>;
+
 /// The most of a session file read, from its end.
 const MAX_READ: u64 = 32 * 1024 * 1024;
 /// The longest entry kept.
@@ -32,24 +35,20 @@ impl Stores {
         let Some(seen) = self.seen(None, id) else {
             return Ok(None);
         };
-        let mut entries = match (seen.agent, &seen.file) {
-            (Agent::Codex, Some(file)) => self
-                .memos
-                .transcripts
-                .read(file, || codex(file).map(Arc::new))?,
-            (Agent::Pi, Some(file)) => self
-                .memos
-                .transcripts
-                .read(file, || pi(file).map(Arc::new))?,
-            (Agent::Flsh, Some(file)) => self
-                .memos
-                .transcripts
-                .read(file, || flsh(file).map(Arc::new))?,
+        let (parse, file): (Parse, _) = match (seen.agent, &seen.file)
+        {
+            (Agent::Codex, Some(file)) => (codex, file),
+            (Agent::Pi, Some(file)) => (pi, file),
+            (Agent::Flsh, Some(file)) => (flsh, file),
             (agent, _) => bail!(
                 "{}'s transcript cannot be read yet, only its title and folder",
                 agent.as_ref()
             ),
         };
+        let mut entries = self
+            .memos
+            .transcripts
+            .read(file, || parse(file).map(Arc::new))?;
         if seen.agent == Agent::Codex {
             let parent = id.strip_prefix("subagent:codex:").unwrap_or(id);
             let children = self.codex_children(parent);

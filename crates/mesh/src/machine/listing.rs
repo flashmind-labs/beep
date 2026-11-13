@@ -32,15 +32,6 @@ pub const MAX_PROJECT_SESSIONS: usize = 50;
 /// A node slower than this to list a project's sessions is logged.
 const SLOW_NODE: Duration = Duration::from_secs(1);
 
-/// The sessions on one node, Beep's and those started outside it that run
-/// now: none when its list fails. Beep's wait for the outside scan; a caller
-/// that cannot wait asks for each half apart.
-pub async fn node_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
-    let (mut beep, outside) = tokio::join!(beep_sessions(node, host), outside_sessions(node, host));
-    beep.extend(outside);
-    beep
-}
-
 /// The sessions Beep runs on one node: none when its list fails.
 async fn beep_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
     linked_sessions(node, host, false)

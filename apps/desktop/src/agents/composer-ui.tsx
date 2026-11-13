@@ -11,7 +11,7 @@ import type { Row } from "./mention-state.ts";
 // the head's state. Session code sets it here; the session frame draws it.
 
 /// A control the session sets in its head or composer.
-export type FieldSlot = "state" | "mode" | "model" | "plan" | "tasks" | "pick";
+type FieldSlot = "state" | "mode" | "model" | "plan" | "tasks" | "pick";
 
 /// Queued steers fold into one line above the field on a phone; the line opens their
 /// list over the log.

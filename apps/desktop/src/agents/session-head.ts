@@ -12,6 +12,7 @@ import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { placeName, placeRepo } from "./place-state.ts";
+import { agentKey } from "./conversation-state.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { followsOnly, isOpen, stoppingNow, turnRuns } from "./session.ts";
 
@@ -58,14 +59,13 @@ function shortCwd(cwd: string) {
 
 /// The header's usage line, the session it is of, and the turns it counts.
 let usage = { of: "", turns: -1, text: "" };
-const usageKey = (s: AgentRow) => `${s.machine_id}\n${s.agent}\n${s.id}`;
 
 /// The usage line read last for `s`, else nothing.
-export const shownUsage = (s: AgentRow) => usage.of === usageKey(s) ? usage.text : "";
+export const shownUsage = (s: AgentRow) => usage.of === agentKey(s) ? usage.text : "";
 
 /// Reads the open session's usage once per finished turn into the header.
 export async function readUsage(o: OpenAgent, page: AgentPage) {
-  const s = page.session, of = usageKey(s);
+  const s = page.session, of = agentKey(s);
   if (s.external || (usage.of === of && usage.turns === page.turns)) return;
   usage = { of, turns: page.turns, text: usage.of === of ? usage.text : "" };
 
@@ -114,7 +114,7 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
 export function drawAgentHeading() {
   const s = AG.page?.session;
   if (!s || !updateSessionHead({ ...headText(s), machine: s.machine_name })) return;
-  void drawEditors(s.machine_id, s.cwd, () => !!AG.page && usageKey(AG.page.session) === usageKey(s));
+  void drawEditors(s.machine_id, s.cwd, () => !!AG.page && agentKey(AG.page.session) === agentKey(s));
 }
 onPlaces(drawAgentHeading);
 

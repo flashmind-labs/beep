@@ -69,17 +69,8 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
 
   /// The agent's prompt, read-only, over the window.
   function openPrompt(a: CustomAgentRow, place: AgentsPlace) {
-    const { close, render } = openSheet(`Custom agent ${a.name}`, "am-sheet ca-sheet", {
-      onKey: e => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        close();
-        return true;
-      },
-    });
+    const { close, render } = openSheet(`Custom agent ${a.name}`, "am-sheet ca-sheet");
     flushSync(() => render(createElement(CustomAgentPrompt, { agent: a, close, start: () => { close(); deps.start(a, place); } })));
-
   }
 
   return { count, section };

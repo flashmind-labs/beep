@@ -3,7 +3,7 @@
 
 use super::{
     kept_transcripts::{KeptTranscripts, SessionKey},
-    sessions::{ModesRow, SessionPage, TaskRow},
+    sessions::{ModesRow, SessionPage},
 };
 use crate::{
     center::{
@@ -15,7 +15,7 @@ use crate::{
 };
 use beep_mesh::machine;
 use beep_proto::{
-    AgentMode, AgentSessionModes, AgentSessionView, AgentSlug, AgentStatus, SessionId,
+    AgentMode, AgentSessionModes, AgentSessionView, AgentSlug, AgentStatus, AgentTask, SessionId,
     node::agent::{
         FOLLOW_READERS_FULL, FollowSession, SESSION_FOLLOW_PROTOCOL, SessionCursor, SessionSource,
         SessionUpdate,
@@ -56,14 +56,6 @@ fn node_full(reason: &str) -> bool {
     reason == FOLLOW_READERS_FULL
 }
 
-/// The session a reader follows, marked read while it shows.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Followed {
-    machine_id: String,
-    agent: String,
-    session: String,
-}
-
 struct Reader {
     id: Uuid,
     /// Dropping it cancels the reader.
@@ -72,7 +64,8 @@ struct Reader {
     shown: watch::Sender<bool>,
     /// Whether its session asks a question, from its newest update.
     asking: Arc<AtomicBool>,
-    followed: Followed,
+    /// The session it follows, marked read while it shows.
+    followed: SessionKey,
 }
 
 impl Reader {
@@ -183,7 +176,7 @@ impl Readers {
 
     /// `window` shows reader `id`'s session, or none; the session shown, if
     /// that reader is registered.
-    fn show(&mut self, window: &str, id: Option<Uuid>) -> Option<Followed> {
+    fn show(&mut self, window: &str, id: Option<Uuid>) -> Option<SessionKey> {
         match id {
             Some(id) => self.shown.insert(window.to_owned(), id),
             None => self.shown.remove(window),
@@ -251,7 +244,7 @@ pub struct Update {
     resumed: bool,
     page: SessionPage,
     modes: Option<ModesRow>,
-    tasks: Vec<TaskRow>,
+    tasks: Vec<AgentTask>,
 }
 
 impl From<Pushed> for Update {
@@ -289,7 +282,7 @@ pub fn agent_follow_show(
     let Some(followed) = follows.readers().show(window.label(), id) else {
         return;
     };
-    let Followed {
+    let SessionKey {
         machine_id,
         agent,
         session,
@@ -327,7 +320,7 @@ pub async fn agent_follow(
         _stop: cancel,
         shown,
         asking: asking.clone(),
-        followed: Followed {
+        followed: SessionKey {
             machine_id: machine_id.clone(),
             agent: agent.clone(),
             session: session.clone(),
@@ -528,7 +521,7 @@ pub async fn agent_follow(
                 resumed: snapshot.resumed,
                 view,
                 modes,
-                tasks: tasks.into_iter().map(Into::into).collect(),
+                tasks,
             };
 
             keeper.take(&pushed, Instant::now()).await;

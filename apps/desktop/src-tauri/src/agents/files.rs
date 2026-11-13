@@ -5,15 +5,15 @@
 
 use crate::{
     agents::work_copy,
-    chat::files::{GONE, file_name, free_name},
+    chat::files::{file_name, free_name, gone},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_mesh::machine::sessions::Reading;
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, GitChange, ListWorkTree, MAX_AGENT_FILE,
-    MAX_TREE_DEPTH, ReadWorkFile, WriteWorkFile,
+    AGENT_FILE_CHUNK, AgentFileChunk, GitChange, ListWorkTree, MAX_AGENT_FILE, MAX_TREE_DEPTH,
+    ReadWorkFile, WriteWorkFile,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
@@ -70,12 +70,7 @@ pub(crate) async fn read_part(fleet: &Fleet, read: ReadWorkFile) -> Result<Agent
     }
 
     let machine = fleet.machine(&read.machine_id)?;
-    let read = direct::read(fleet, machine, &read).await;
-
-    match read {
-        Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
-        other => other,
-    }
+    gone(direct::read(fleet, machine, &read).await)
 }
 
 /// The folders `TREE_DEPTH` levels down from `path`, for the bar.
@@ -347,6 +342,35 @@ pub async fn agent_tree_save_many(
     let mut seen = HashSet::new();
     let mut listings = HashMap::new();
     let mut total = 0u64;
+    let (fleet_ref, machine_id_ref, root_ref) = (&fleet, &machine_id, &root);
+    let list = |path: String| async move {
+        let listing = direct::tree(
+            fleet_ref,
+            machine,
+            &ListWorkTree {
+                machine_id: machine_id_ref.clone(),
+                root: root_ref.clone(),
+                path,
+                ignored: true,
+                depth: 1,
+            },
+            Reading::Once,
+        )
+        .await?;
+        let folder = listing
+            .folders
+            .into_iter()
+            .next()
+            .ok_or_else(|| DesktopError::BadRequest("The folder could not be read".into()))?;
+
+        if folder.more > 0 {
+            return Err(DesktopError::BadRequest(
+                "The folder has too many entries to download completely".into(),
+            ));
+        }
+
+        Ok::<_, DesktopError>(folder)
+    };
 
     while let Some(path) = queue.pop_front() {
         if !seen.insert(path.clone()) {
@@ -362,34 +386,12 @@ pub async fn agent_tree_save_many(
         let parent = path.rsplit_once('/').map_or("", |(p, _)| p);
 
         if !listings.contains_key(parent) {
-            let listing = direct::tree(
-                &fleet,
-                machine,
-                &ListWorkTree {
-                    machine_id: machine_id.clone(),
-                    root: root.clone(),
-                    path: parent.into(),
-                    ignored: true,
-                    depth: 1,
-                },
-                Reading::Once,
-            )
-            .await?;
-            let folder =
-                listing.folders.into_iter().next().ok_or_else(|| {
-                    DesktopError::BadRequest("The folder could not be read".into())
-                })?;
-            listings.insert(parent.to_owned(), folder);
+            listings.insert(parent.to_owned(), list(parent.into()).await?);
         }
 
         let top = listings
             .get(parent)
             .ok_or_else(|| DesktopError::BadRequest("The folder could not be read".into()))?;
-        if top.more > 0 {
-            return Err(DesktopError::BadRequest(
-                "The folder has too many entries to download completely".into(),
-            ));
-        }
 
         let entry = top
             .entries
@@ -399,28 +401,7 @@ pub async fn agent_tree_save_many(
         let dest = to.join(&path);
         if entry.folder {
             fs::create_dir_all(&dest).map_err(anyhow::Error::from)?;
-            let tree = direct::tree(
-                &fleet,
-                machine,
-                &ListWorkTree {
-                    machine_id: machine_id.clone(),
-                    root: root.clone(),
-                    path: path.clone(),
-                    ignored: true,
-                    depth: 1,
-                },
-                Reading::Once,
-            )
-            .await?;
-            let folder = tree
-                .folders
-                .first()
-                .ok_or_else(|| DesktopError::BadRequest("The folder could not be read".into()))?;
-            if folder.more > 0 {
-                return Err(DesktopError::BadRequest(
-                    "The folder has too many entries to download completely".into(),
-                ));
-            }
+            let folder = list(path.clone()).await?;
 
             if queue
                 .len()
@@ -441,7 +422,7 @@ pub async fn agent_tree_save_many(
                 queue.push_back(format!("{path}/{}", child.name));
             }
 
-            listings.insert(path, folder.clone());
+            listings.insert(path, folder);
         } else {
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent).map_err(anyhow::Error::from)?;

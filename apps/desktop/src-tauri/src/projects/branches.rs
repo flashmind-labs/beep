@@ -39,25 +39,6 @@ pub(crate) fn placed(fleet: &Fleet, project: &str) -> Result<Vec<Place>> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct CheckoutRow {
-    machine_id: String,
-    machine_name: String,
-    folder: String,
-    remote: String,
-}
-
-impl From<ImportCheckout> for CheckoutRow {
-    fn from(c: ImportCheckout) -> Self {
-        Self {
-            machine_id: c.machine_id,
-            machine_name: c.machine_name,
-            folder: c.folder,
-            remote: c.remote,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
 pub struct WorkBranchRow {
     name: String,
     pr: Option<u64>,
@@ -86,7 +67,7 @@ impl From<WorkBranch> for WorkBranchRow {
 #[derive(Debug, Serialize)]
 pub struct PreviewView {
     project: String,
-    checkouts: Vec<CheckoutRow>,
+    checkouts: Vec<ImportCheckout>,
     default_branch: String,
     branches: Vec<WorkBranchRow>,
     note: String,
@@ -96,7 +77,7 @@ impl From<ImportPreview> for PreviewView {
     fn from(p: ImportPreview) -> Self {
         Self {
             project: p.project,
-            checkouts: p.checkouts.into_iter().map(Into::into).collect(),
+            checkouts: p.checkouts,
             default_branch: p.default_branch,
             branches: p.branches.into_iter().map(Into::into).collect(),
             note: p.note,
@@ -191,26 +172,4 @@ pub async fn project_branches(
     project: String,
 ) -> Result<Option<BranchesView>> {
     Ok(Some(read_branches(&fleet, project).await?.into()))
-}
-
-/// Gives `branch` of `project` a worktree on `machine_id`.
-#[tauri::command]
-pub async fn add_branch_worktree(
-    fleet: Machines<'_>,
-    project: String,
-    branch: String,
-    machine_id: String,
-) -> Result<BranchRow> {
-    let machine = fleet.machine(&machine_id)?;
-    let place = placed(&fleet, &project)?
-        .into_iter()
-        .find(|place| place.machine == machine)
-        .ok_or_else(|| {
-            DesktopError::BadRequest(format!(
-                "{} has no checkout of {project}.",
-                fleet.name_of(machine)
-            ))
-        })?;
-    let added = direct::add_worktree(&fleet, &place, &branch, FALLBACK_DEFAULT).await?;
-    Ok(added.into())
 }

@@ -1,6 +1,6 @@
 // The Coding agents page's words and sums, as pure functions so they can be
 // tested without Tauri. providers.ts draws the page.
-import { isNewer } from "../ui/format.ts";
+import { cap, isNewer, plural } from "../ui/format.ts";
 
 /// How a harness signs in (SignInView).
 interface SignInView {
@@ -47,7 +47,6 @@ export interface HarnessesView {
 interface HarnessRow {
   agent: string;
   name: string;
-  initials: string;
   version: string | null;
   update: boolean;
   status: string;
@@ -93,21 +92,18 @@ interface SettingsInput {
   env: { name: string; value: string | null }[];
 }
 
-const NAMES: Record<string, [string, string]> = {
-  claude: ["Claude Code", "CC"],
-  codex: ["Codex", "CX"],
-  pi: ["pi", "PI"],
-  gemini: ["Gemini CLI", "GE"],
-  flsh: ["flsh", "FL"],
-  opencode: ["OpenCode", "OC"],
-  hermes: ["Hermes", "HE"],
+const NAMES: Record<string, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  pi: "pi",
+  gemini: "Gemini CLI",
+  flsh: "flsh",
+  opencode: "OpenCode",
+  hermes: "Hermes",
 };
 
 /// What each harness is called on screen.
-export function harnessName(agent: string) { return NAMES[agent]?.[0] ?? agent; }
-
-/// Its two letters in the avatar.
-export function initials(agent: string) { return NAMES[agent]?.[1] ?? agent.slice(0, 2).toUpperCase(); }
+export function harnessName(agent: string) { return NAMES[agent] ?? agent; }
 
 /// Whether a newer version than the one installed is out.
 export function hasUpdate(h: HarnessView) {
@@ -115,7 +111,7 @@ export function hasUpdate(h: HarnessView) {
 }
 
 /// " · Max plan": the plan as the agent gives it, capitalised, or "".
-export const planOf = (s: SignInView) => (s.plan ? ` · ${s.plan[0].toUpperCase()}${s.plan.slice(1)} plan` : "");
+export const planOf = (s: SignInView) => (s.plan ? ` · ${cap(s.plan)} plan` : "");
 
 /// The line under a harness's name: its sign-in, or why it cannot run.
 export function statusLine(h: HarnessView): { text: string; bad: boolean } {
@@ -147,7 +143,6 @@ export function listRows(view: HarnessesView): HarnessRow[] {
       return {
         agent: h.agent,
         name: harnessName(h.agent),
-        initials: initials(h.agent),
         version: h.installed ? h.version : null,
         update: hasUpdate(h),
         status: status.text,
@@ -250,11 +245,18 @@ export function compactOf(draft: Pick<HarnessDraft, "compactOn" | "compactPercen
   return draft.compactOn && parsed === null ? null : { enabled: draft.compactOn, percent: parsed?.percent ?? null, tokens: parsed?.tokens ?? null };
 }
 
-/// The form's fields for `h`'s saved settings and `compact`.
-export function draftOf(h: HarnessView, compact: Compact = null): HarnessDraft {
+/// The auto-compact fields for a saved `compact`.
+export function compactDraftOf(compact: Compact): AutoCompactDraft {
   return {
     compactOn: compact?.enabled ?? true,
     compactPercent: compact?.tokens != null ? String(compact.tokens) : compact?.percent != null ? String(compact.percent) : "",
+  };
+}
+
+/// The form's fields for `h`'s saved settings and `compact`.
+export function draftOf(h: HarnessView, compact: Compact = null): HarnessDraft {
+  return {
+    ...compactDraftOf(compact),
     program: h.settings.program,
     home: h.settings.home,
     args: joinArgs(h.settings.args),
@@ -342,10 +344,10 @@ export function differsOn(all: readonly MachineSettings[], machineId: string, fi
 
 /// "differs on 2 machines", or "" when it does not.
 export function differsLabel(names: readonly string[]) {
-  return names.length ? `differs on ${names.length} machine${names.length === 1 ? "" : "s"}` : "";
+  return names.length ? `differs on ${plural(names.length, "machine", "machines")}` : "";
 }
 
 /// "Saved to 3 machines".
 export function savedToLabel(n: number) {
-  return `Saved to ${n} machine${n === 1 ? "" : "s"}`;
+  return `Saved to ${plural(n, "machine", "machines")}`;
 }

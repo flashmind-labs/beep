@@ -121,32 +121,16 @@ pub fn run() {
                 }
             }
             WindowEvent::Destroyed => {
-                window
-                    .app_handle()
-                    .state::<center::AgentsShown>()
-                    .clear(window.label());
-                window
-                    .app_handle()
-                    .state::<agents::follow::Follows>()
-                    .clear(window.label());
-                window
-                    .app_handle()
-                    .state::<fleet::events::Events>()
-                    .clear(window.label());
-                window
-                    .app_handle()
-                    .state::<projects::live::Followed>()
-                    .clear(window.label());
-                window
-                    .app_handle()
-                    .state::<machines::terminals::Attached>()
-                    .clear(window.label());
-                window
-                    .app_handle()
-                    .state::<machines::devices::Attached>()
-                    .clear(window.label());
-                center::window::forget(window.app_handle(), window.label());
-                center::closed(window.app_handle(), window.label());
+                let app = window.app_handle();
+                let label = window.label();
+                app.state::<center::AgentsShown>().clear(label);
+                app.state::<agents::follow::Follows>().clear(label);
+                app.state::<fleet::events::Events>().clear(label);
+                app.state::<projects::live::Followed>().clear(label);
+                app.state::<machines::terminals::Attached>().clear(label);
+                app.state::<machines::devices::Attached>().clear(label);
+                center::window::forget(app, label);
+                center::closed(app, label);
             }
             // Minimizing, covering and backgrounding pause the page.
             _ => center::window::on_window_event(window, event),
@@ -218,7 +202,6 @@ pub fn run() {
             agents::sessions::agent_relocate,
             agents::sessions::agent_hosts,
             agents::sessions::agent_models,
-            agents::sessions::agent_preview,
             agents::sessions::agent_resume,
             agents::sessions::agent_sessions,
             agents::sessions::agent_title_save,
@@ -236,7 +219,6 @@ pub fn run() {
             agents::follow::agent_follow,
             fleet::events::mesh_watch,
             fleet::events::mesh_topics,
-            fleet::events::mesh_command,
             agents::follow::agent_unfollow,
             agents::follow::agent_follow_show,
             agents::steer::agent_steer,
@@ -274,7 +256,6 @@ pub fn run() {
             center::window::center_close_window,
             center::window::center_open_project_window,
             center::window::center_window_project,
-            center::window::open_center,
             chat::files::copy_diagram_image,
             chat::files::reveal_file,
             chat::files::save_picture,
@@ -291,7 +272,6 @@ pub fn run() {
             machines::list::machine_log,
             machines::list::machine_traffic,
             machines::list::machine_clocks,
-            machines::list::mesh_remove,
             machines::list::node_release,
             machines::list::remove_machine,
             machines::list::save_machine_log,
@@ -328,7 +308,6 @@ pub fn run() {
             platform::metrics::desktop_timings,
             platform::metrics::desktop_trace_enabled,
             platform::metrics::desktop_ui_metrics,
-            projects::branches::add_branch_worktree,
             projects::branches::find_import_fork,
             projects::branches::preview_import,
             projects::file_sync::project_sync,
@@ -364,7 +343,6 @@ pub fn run() {
             projects::live::follow_project,
             projects::live::follow_project_run,
             projects::live::unfollow_project,
-            projects::page::center_open_project,
             projects::list::rename_project,
             projects::list::project_rename_repositories,
             projects::page::project_add_to_machine,
@@ -558,7 +536,6 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         }
         Err(e) => log::warn!("metrics unavailable: {e:#}"),
     }
-    bar::zoom::apply_saved(&handle, &prefs);
     app.manage(prefs);
     // This Mac's node, and the mesh it is in, which opens in the background.
     #[cfg(desktop)]

@@ -20,7 +20,7 @@ export interface DiffHunk {
 }
 
 export type DiffStatus = "added" | "modified" | "deleted" | "renamed" | "binary";
-export type LeftOut = "too_large" | "lockfile" | "over_total";
+type LeftOut = "too_large" | "lockfile" | "over_total";
 
 export interface DiffFile {
   path: string;
@@ -52,11 +52,11 @@ export interface DiffView {
 }
 
 /// Files with more changed lines than this start folded.
-export const FOLD_LINES = 400;
+const FOLD_LINES = 400;
 
 /// Whether `f` starts folded: a deleted file, one past [`FOLD_LINES`]
 /// changed lines, and a lockfile left out.
-export function startsFolded(f: Pick<DiffFile, "status" | "additions" | "deletions" | "left_out">) {
+function startsFolded(f: Pick<DiffFile, "status" | "additions" | "deletions" | "left_out">) {
   return f.status === "deleted" || f.additions + f.deletions > FOLD_LINES || f.left_out === "lockfile";
 }
 
@@ -77,7 +77,7 @@ export type DiffRow =
   | HunkRow
   | { kind: "line"; k: DiffLine["k"]; old: number | null; new: number | null; text: string; eol: boolean };
 
-export function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_start" | "new_lines" | "section">) {
+function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_start" | "new_lines" | "section">) {
   const side = (start: number, n: number) => (n === 1 ? `${start}` : `${start},${n}`);
   return `@@ -${side(h.old_start, h.old_lines)} +${side(h.new_start, h.new_lines)} @@${h.section ? ` ${h.section}` : ""}`;
 }

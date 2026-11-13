@@ -10,7 +10,7 @@ use crate::{
 };
 use beep_proto::node::desktop::Permission;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tauri::{AppHandle, State};
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
@@ -138,18 +138,12 @@ pub fn open_url(url: String) -> Result<()> {
         return Err(DesktopError::BadRequest("only web links open".into()));
     }
 
-    open(&url)
+    crate::platform::open(&url)
 }
 
 /// Shows the app's log folder in Finder, for Show log in the tray and on Home.
 #[tauri::command]
 pub fn open_log() -> Result<()> {
     let dir = logfile::dir().ok_or_else(|| DesktopError::BadRequest("no home folder".into()))?;
-    open(&dir)
-}
-
-/// Hands `target`, a file, folder or link, to macOS's `open`.
-pub(crate) fn open(target: impl AsRef<Path>) -> Result<()> {
-    crate::platform::open(target.as_ref())?;
-    Ok(())
+    crate::platform::open(&dir)
 }

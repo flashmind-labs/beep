@@ -14,7 +14,7 @@ use std::{
     ops::Range,
     path::PathBuf,
     sync::{
-        Arc, LazyLock, Mutex, PoisonError,
+        Arc, LazyLock, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -305,7 +305,7 @@ struct Reader {
 
 impl Reader {
     fn new(permit: SemaphorePermit<'static>) -> Self {
-        let mut windows = WINDOWS.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut windows = crate::lock(&WINDOWS);
         windows.next_id += 1;
         Self {
             id: windows.next_id,
@@ -314,17 +314,11 @@ impl Reader {
     }
 
     fn take(&self) -> Option<Window> {
-        WINDOWS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take(self.id)
+        crate::lock(&WINDOWS).take(self.id)
     }
 
     fn keep(&self, window: Window) {
-        WINDOWS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .keep(self.id, window, CACHED_BYTES);
+        crate::lock(&WINDOWS).keep(self.id, window, CACHED_BYTES);
     }
 }
 

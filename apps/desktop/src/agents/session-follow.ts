@@ -9,7 +9,8 @@ import { disposeQueue } from "./messages.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { joinRuns } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
-import { agentOnScreen, applyAgentPage, isOpen, pollAgent } from "./session.ts";
+import { applyAgentPage, isOpen, pollAgent } from "./session.ts";
+import { paneShown } from "../ui/active.ts";
 
 // Room for the open session, those followed off screen and a few recent.
 export const transcripts = new TranscriptCache<AgentPage>(BACKGROUND_FOLLOWS + 4);
@@ -79,7 +80,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     queueDraw(open, fresh, update.kind === "snapshot");
   },
   disconnected: (o, error) => {
-    if (!isOpen(o) || !agentOnScreen()) return;
+    if (!isOpen(o) || !paneShown()) return;
     console.warn("session stream disconnected:", error);
     const failed = readFailed(AG.link, { kind: "lost" }, AG.page?.session.machine_name || "the machine");
     AG.link = failed.link;
@@ -88,7 +89,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     void pollAgent();
   },
   // A node without the follow, or one that failed to open it: the shown session is read instead.
-  failed: o => { if (isOpen(o) && agentOnScreen()) void pollAgent(); },
+  failed: o => { if (isOpen(o) && paneShown()) void pollAgent(); },
 });
 
 /// What the app kept of a session, as `transcript_kept` gives it.
@@ -143,7 +144,7 @@ function queueDraw(o: OpenAgent, page: AgentPage, replace: boolean) {
     held = { open: o, page, replace, read: ++AG.polls, frame: 0 };
   }
 
-  if (!held.frame && agentOnScreen()) held.frame = requestAnimationFrame(() => flushDraw());
+  if (!held.frame && paneShown()) held.frame = requestAnimationFrame(() => flushDraw());
 }
 
 /// Applies the held updates, on screen or `now`; a hidden view keeps them
@@ -153,7 +154,7 @@ export function flushDraw(now = false) {
   if (!next) return;
   cancelAnimationFrame(next.frame);
   next.frame = 0;
-  if (!now && isOpen(next.open) && !agentOnScreen()) return;
+  if (!now && isOpen(next.open) && !paneShown()) return;
   held = null;
 
   if (isOpen(next.open)) applyAgentPage(next.open, next.page, next.read, next.replace, true);

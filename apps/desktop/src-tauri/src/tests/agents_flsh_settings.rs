@@ -6,7 +6,7 @@ fn view() -> FlshView {
         quantizations: vec!["fp8".into(), "bf16".into()],
         sort: Some("throughput".into()),
         allow_fallbacks: None,
-        autocompact: Some(AutoCompactView {
+        autocompact: Some(FlshAutoCompact {
             enabled: true,
             tokens: Some(300_000),
         }),
@@ -47,7 +47,7 @@ fn bad_text_is_refused() {
     };
     assert!(FlshSettings::try_from(model).is_err());
     let tokens = FlshView {
-        autocompact: Some(AutoCompactView {
+        autocompact: Some(FlshAutoCompact {
             enabled: true,
             tokens: Some(10),
         }),

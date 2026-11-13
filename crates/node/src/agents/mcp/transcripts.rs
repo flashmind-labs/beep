@@ -72,9 +72,7 @@ async fn read(offers: &Offers, args: &Args) -> Result<SessionsReply> {
             .mesh
             .get()
             .context("This machine has not joined a mesh. Omit machine to read here.")?;
-        let target = machines::machines(&mesh)
-            .into_iter()
-            .find(|m| m.id.to_string() == *name || m.name == machines::command_name(name))
+        let target = machines::find_or_id(&mesh, name)
             .with_context(|| format!("Unknown machine {name}; use machines list."))?;
         if target.id != mesh.me() {
             let (mut tx, mut rx) =

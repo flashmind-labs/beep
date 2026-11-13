@@ -9,7 +9,7 @@ use super::{
     fork::UsedFork,
     repo::{Host, RepoRef},
 };
-use crate::{Shell, quote};
+use crate::{Shell, quote, shell::tail_bytes};
 use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
@@ -235,13 +235,7 @@ pub fn outcome(output: &str, exit_code: Option<i32>, timed_out: bool) -> Outcome
 
 /// The end of `output`, up to `KEEP` bytes.
 pub fn tail(output: &str) -> String {
-    let output = output.trim();
-    let mut start = output.len().saturating_sub(KEEP);
-
-    while !output.is_char_boundary(start) {
-        start += 1;
-    }
-    output[start..].to_owned()
+    tail_bytes(output, KEEP).to_owned()
 }
 
 /// What went wrong, for a clone git refused.

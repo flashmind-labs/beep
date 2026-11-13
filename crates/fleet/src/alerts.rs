@@ -152,8 +152,7 @@ impl Drop for Running {
 /// Runs one task per online code host of `mesh`, started by `start`, as hosts come and go. A host
 /// that goes offline has its task ended, and a new one started when it is back. Ends when the mesh
 /// closes; the tasks end with it.
-pub async fn each_machine(mesh: &Mesh, start: impl FnMut(EndpointId) -> JoinHandle<()>) {
-    let mut start = start;
+pub async fn each_machine(mesh: &Mesh, mut start: impl FnMut(EndpointId) -> JoinHandle<()>) {
     let mut running = Running::default();
     let mut updates = mesh.updates();
 

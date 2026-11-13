@@ -13,9 +13,8 @@ const wired = new WeakSet<HTMLElement>();
 export function trackLive(key: string) { if (!follows.has(key)) follows.set(key, true); }
 
 /// Wires the live thoughts just drawn under `root`: each follows its
-/// newest line until the reader scrolls it, which `touched` hears of.
-/// Forgets thoughts no longer drawn.
-export function attachLive(root: HTMLElement, touched?: (key: string) => void) {
+/// newest line until the reader scrolls it. Forgets thoughts no longer drawn.
+export function attachLive(root: HTMLElement) {
   const drawn = new Set<string>();
 
   for (const el of root.querySelectorAll<HTMLElement>(".kk[data-kk]")) {
@@ -28,7 +27,6 @@ export function attachLive(root: HTMLElement, touched?: (key: string) => void) {
     // A wheel or a drag of the scroll bar is the reader's; scrolling back
     // to the bottom follows again.
     const byHand = () => {
-      touched?.(key);
       requestAnimationFrame(() => { follows.set(key, el.scrollHeight - el.scrollTop - el.clientHeight < 4); });
     };
     el.addEventListener("wheel", byHand, { passive: true });

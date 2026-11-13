@@ -24,10 +24,10 @@ export function turnHeading(value: Omit<TurnHeading, "kind" | "id">): TurnHeadin
   return { kind: "heading", id: value.turn === null ? "turn" : `steps:${value.turn}`, ...value };
 }
 
-export const AgentTurnHeading = memo(function AgentTurnHeading({ value, onToggle = null }: { value: TurnHeading; onToggle?: (() => void) | null }) {
+export const AgentTurnHeading = memo(function AgentTurnHeading({ value }: { value: TurnHeading }) {
   const done = value.state === "done";
   const label = done ? <><span>{heading(value.state, value.ms)}</span>{value.stats && <span className="stats">· {value.stats}</span>}</> : <span>{value.stats || "Steps"}</span>;
-  return <div className="dcoderturn">{value.turn === null ? <span className="hd">{label}</span> : <button className={`hd${value.opened ? " open" : ""}`} data-turn={value.turn} aria-expanded={value.opened} title={value.opened ? "Fold the steps" : "Show the steps"} onClick={onToggle ?? undefined}>{label}<Icon name="chev" /></button>}{value.start !== null && <span className="when">{clock(value.start)}</span>}</div>;
+  return <div className="dcoderturn">{value.turn === null ? <span className="hd">{label}</span> : <button className={`hd${value.opened ? " open" : ""}`} data-turn={value.turn} aria-expanded={value.opened} title={value.opened ? "Fold the steps" : "Show the steps"}>{label}<Icon name="chev" /></button>}{value.start !== null && <span className="when">{clock(value.start)}</span>}</div>;
 });
 
 /// How a step stands: done, failed, running or did not finish.

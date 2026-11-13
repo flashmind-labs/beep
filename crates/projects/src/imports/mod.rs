@@ -6,7 +6,6 @@ pub mod flow;
 pub mod folder;
 pub mod fork;
 pub mod found;
-pub mod gone;
 pub mod host_repos;
 pub mod hosts;
 pub mod init;

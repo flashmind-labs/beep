@@ -380,7 +380,13 @@ export function saveWorkFile(rel: string, note: (text: string) => void, root = p
   const s = P.session;
   if (!s) return;
   note(`Saving ${baseName(rel)}…`);
-  invoke<string>("agent_tree_save", { machineId: s.machine_id, root, path: rel })
+  saveFile("agent_tree_save", { machineId: s.machine_id, root, path: rel }, note);
+}
+
+/// Runs the save `command`, which gives where the file went, tells `note`
+/// and reveals it.
+export function saveFile(command: string, args: Record<string, unknown>, note: (text: string) => void) {
+  void invoke<string>(command, args)
     .then(to => { note(`Saved to ${savedIn(to)} as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
     .catch(e => note(readError(e)));
 }

@@ -2,7 +2,6 @@ import { bar } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentToolCall } from "../src/agents/agents.ts";
-import * as agentlog from "../src/agents/agentlog.ts";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { toolRows } from "../src/agents/logview.ts";
@@ -21,7 +20,7 @@ function setup() {
     session: { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status: "working", external: false, question: null },
     entries: [], earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
   };
-  Object.assign(AG, { page, open: { machine_id: "m1", agent: "claude", session: "s1" }, log: agentlog });
+  Object.assign(AG, { page, open: { machine_id: "m1", agent: "claude", session: "s1" } });
   AG.steps.clear();
 }
 

@@ -28,6 +28,7 @@ const WRITE_WAIT: Duration = Duration::from_secs(15);
 pub(crate) const HEARTBEAT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
 const MAX_FILE_ROOTS: usize = 512;
+const TOO_MANY_ROOTS: &str = "too many watched directories; subscribe to specific file roots";
 
 mod git;
 mod snapshots;
@@ -344,7 +345,7 @@ async fn watch(
     }
 
     if wanted.len() > MAX_FILE_ROOTS {
-        bail!("too many watched directories; subscribe to specific file roots");
+        bail!(TOO_MANY_ROOTS);
     }
 
     let same_roots = *crate::lock(roots) == wanted;
@@ -442,7 +443,7 @@ fn has_git(dependencies: &[PathBuf]) -> bool {
 /// Resolve public project aliases through this node's signed mesh placement records.
 fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
     use beep_mesh::Key;
-    use beep_proto::node::mesh_state::{Place, ProjectRecord, StateValue, SyncSpec};
+    use beep_proto::node::mesh_state::{StateValue, SyncSpec};
     let Some(mesh) = offers.mesh.get() else {
         return BTreeMap::new();
     };
@@ -460,16 +461,10 @@ fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
         }
     }
 
-    for (key, bytes) in mesh.scan("project/") {
-        if let Key::Project(name) = key
-            && ProjectRecord::from_bytes(&bytes).is_ok()
-            && let Some(bytes) = mesh.get(&Key::Project(format!("{name}/{}", mesh.me())))
-            && let Ok(place) = Place::from_bytes(&bytes)
-        {
-            let topic = Topic::scoped("files", name.split('/'));
-            if topic.valid() {
-                projects.insert(topic, place.folder);
-            }
+    for (name, _, place) in super::from_mesh::placed_projects(&mesh, mesh.me()) {
+        let topic = Topic::scoped("files", name.split('/'));
+        if topic.valid() {
+            projects.insert(topic, place.folder);
         }
     }
 
@@ -510,24 +505,29 @@ pub(super) async fn execute(
             ) {
                 bail!("use a topic subscription for a following request");
             }
-            let link = beep_proto::node::local_link();
-            let task = AbortOnDropHandle::new(tokio::spawn(crate::agents::serve_sessions(
-                link.node.0,
-                link.node.1,
-                agents,
-                caller,
-                None,
-            )));
-            let (mut tx, mut rx) = link.caller;
-            tx.send(&request).await?;
-            let reply = rx
-                .recv::<SessionsReply>()
-                .await?
-                .context("session request closed without a reply")?;
-            drop(task);
+            let reply = ask(&request, |tx, rx| {
+                crate::agents::serve_sessions(tx, rx, agents, caller, None)
+            })
+            .await?
+            .context("session request closed without a reply")?;
             Ok(CallReply::Sessions(Box::new(reply)))
         }
     }
+}
+
+/// Sends one `request` to `serve` on an in-memory link and reads its first
+/// reply; `None` when the stream ends without one.
+async fn ask<Req, Rep, F>(request: &Req, serve: impl FnOnce(LinkTx, LinkRx) -> F) -> Result<Option<Rep>>
+where
+    Req: serde::Serialize,
+    Rep: serde::de::DeserializeOwned,
+    F: Future<Output = Result<()>> + Send + 'static,
+{
+    let link = beep_proto::node::local_link();
+    let _task = AbortOnDropHandle::new(tokio::spawn(serve(link.node.0, link.node.1)));
+    let (mut tx, mut rx) = link.caller;
+    tx.send(request).await?;
+    rx.recv().await
 }
 
 #[cfg(test)]

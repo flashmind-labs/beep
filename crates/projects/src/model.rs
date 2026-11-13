@@ -1,9 +1,7 @@
-//! Names and paths the project modules share: repositories, machine paths, task slugs and hosts.
+//! Names and paths the project modules share: repositories, machine paths and hosts.
 
-use beep_proto::node::agent;
 pub use beep_proto::{ForgejoUrl, ForgejoUrlError};
 use std::{borrow::Cow, fmt, str::FromStr};
-use strum::{EnumString, IntoStaticStr};
 use thiserror::Error;
 use url::Url;
 
@@ -107,31 +105,6 @@ impl FromStr for MachinePath {
     }
 }
 
-impl MachinePath {
-    /// `rel` under this path; empty, `.` and `..` parts are dropped so it stays inside.
-    pub fn join(&self, rel: &str) -> MachinePath {
-        let mut joined = self.0.clone();
-
-        for part in rel
-            .split('/')
-            .filter(|part| !matches!(*part, "" | "." | ".."))
-        {
-            joined.push('/');
-            joined.push_str(part);
-        }
-
-        MachinePath(joined)
-    }
-
-    /// Whether `other` is this path or under it.
-    pub fn contains(&self, other: &MachinePath) -> bool {
-        other
-            .0
-            .strip_prefix(&self.0)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-    }
-}
-
 impl AsRef<str> for MachinePath {
     fn as_ref(&self) -> &str {
         &self.0
@@ -142,80 +115,6 @@ impl fmt::Display for MachinePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
-}
-
-/// A task's short name for its branch and folders: lowercase ASCII letters, digits and `-`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TaskSlug(String);
-
-impl TaskSlug {
-    /// The slug of `title` as `agent::slug` makes it; `task` when that is empty.
-    pub fn from_title(title: &str) -> TaskSlug {
-        let slug = agent::slug(title);
-        if slug.is_empty() {
-            TaskSlug("task".into())
-        } else {
-            TaskSlug(slug)
-        }
-    }
-
-    /// `slug-n`, for a slug already taken.
-    pub fn suffixed(&self, n: u32) -> TaskSlug {
-        TaskSlug(format!("{}-{n}", self.0))
-    }
-
-    pub fn branch(&self) -> String {
-        format!("beep/{}", self.0)
-    }
-
-    pub fn worktree(&self, checkout: &MachinePath) -> MachinePath {
-        checkout.join(&format!(".worktrees/{}", self.0))
-    }
-
-    /// Where inputs land in the task's `worktree`.
-    pub fn incoming(&self, worktree: &MachinePath) -> MachinePath {
-        worktree.join(&format!(".beep/incoming/{}", self.0))
-    }
-}
-
-impl AsRef<str> for TaskSlug {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("a task slug contains lowercase letters, digits and '-', with no leading or trailing '-'")]
-pub struct TaskSlugError;
-
-impl FromStr for TaskSlug {
-    type Err = TaskSlugError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let valid = !text.is_empty()
-            && !text.starts_with('-')
-            && !text.ends_with('-')
-            && text
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
-        valid
-            .then(|| Self(Into::<String>::into(text)))
-            .ok_or(TaskSlugError)
-    }
-}
-
-impl fmt::Display for TaskSlug {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-/// Whether a project's repository is public, which limits what its issues and PRs may say.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoStaticStr, EnumString)]
-#[strum(serialize_all = "snake_case")]
-pub enum Visibility {
-    Public,
-    Private,
 }
 
 /// A Forgejo server's hostname.
@@ -258,16 +157,6 @@ pub enum IssueHost {
     Forgejo(ForgejoHost),
 }
 
-impl From<&IssueHost> for String {
-    /// `github` or `forgejo:<host>`, as the store keeps it.
-    fn from(host: &IssueHost) -> Self {
-        match host {
-            IssueHost::Github => "github".into(),
-            IssueHost::Forgejo(host) => format!("forgejo:{}", host.as_ref()),
-        }
-    }
-}
-
 impl IssueHost {
     /// GitHub for `github.com` or `www.github.com`, else Forgejo.
     pub fn of_hostname(hostname: &str) -> Option<IssueHost> {
@@ -278,23 +167,6 @@ impl IssueHost {
         }
 
         hostname.parse().ok().map(Self::Forgejo)
-    }
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("an issue host is 'github' or 'forgejo:<hostname>'")]
-pub struct IssueHostError;
-
-impl FromStr for IssueHost {
-    type Err = IssueHostError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        if text == "github" {
-            return Ok(Self::Github);
-        }
-
-        let host = text.strip_prefix("forgejo:").ok_or(IssueHostError)?;
-        host.parse().map(Self::Forgejo).map_err(|_| IssueHostError)
     }
 }
 
@@ -320,28 +192,9 @@ impl fmt::Display for IssueHost {
     }
 }
 
-/// The number at the end of a pull request's URL.
-pub fn pr_number(url: &str) -> Option<u64> {
-    url.trim_end_matches('/').rsplit('/').next()?.parse().ok()
-}
-
 /// Whether `hostname`, lowercased, is GitHub's.
 pub fn is_github(hostname: &str) -> bool {
     matches!(hostname, "github.com" | "www.github.com")
-}
-
-/// Where a project files issues and opens PRs; `None` keeps that part in Beep only.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Roles {
-    pub issues: Option<IssueHost>,
-    pub prs: Option<IssueHost>,
-}
-
-/// A task's issue on its host.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueRef {
-    pub number: u64,
-    pub url: String,
 }
 
 /// The longest branch name taken.

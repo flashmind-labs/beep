@@ -88,12 +88,6 @@ impl PullRequestRow {
     }
 }
 
-impl From<ProjectPullRequest> for PullRequestRow {
-    fn from(p: ProjectPullRequest) -> Self {
-        Self::labeled(p, Vec::new())
-    }
-}
-
 /// The branch pull request `number` is made from, for Continue.
 #[tauri::command]
 pub async fn center_pull_request_head(

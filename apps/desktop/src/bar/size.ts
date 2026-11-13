@@ -5,13 +5,12 @@ import { ZOOMED } from "../ui/zoom-state.ts";
 // ---------- Size ----------
 
 /// Floating over the bar, so they take no height of their own.
-export const FLOATING = new Set(["latest", "map", "keys", "viewer", "saved"]);
+const FLOATING = new Set(["viewer", "saved"]);
 /// How tall the bar gets while a picture is open, within the screen.
-export const VIEWER_HEIGHT = 560;
-export const scrolls = (el: Element) => el.classList.contains("dbody") || el.classList.contains("dlist") || el.classList.contains("dkeys") || el.classList.contains("agc-wrap");
+const VIEWER_HEIGHT = 560;
+const scrolls = (el: Element) => el.classList.contains("dbody") || el.classList.contains("dlist") || el.classList.contains("agc-wrap");
 /// How tall `el` is with all of its content, scrolled or not.
 const tall = (el: HTMLElement) => scrolls(el) ? el.scrollHeight : el.offsetHeight;
-export const natural = (el: Element) => ([...el.children] as HTMLElement[]).reduce((n, c) => n + tall(c), 0);
 let fitFrame = 0, barHeight = 0;
 /// Display-contents wrappers have no box; their children contribute instead.
 /// `wrappers` collects the wrappers passed through.
@@ -41,8 +40,6 @@ function resize() {
   let height = 2;
   for (const el of boxes(bar)) if (!FLOATING.has(el.id)) height += tall(el);
   if ($("#viewer")) height = Math.max(height, VIEWER_HEIGHT);
-  const keys = $("#keys");
-  if (keys) height = Math.max(height, natural(keys) + 2);
   if (height === barHeight) return;
   barHeight = height;
   invoke("resize_bar", { height }).catch(() => {});

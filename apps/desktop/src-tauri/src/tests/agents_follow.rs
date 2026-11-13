@@ -12,7 +12,7 @@ fn reader_on(
 ) -> (Reader, watch::Receiver<bool>) {
     let (stop, cancelled) = watch::channel(false);
     let (shown, _) = watch::channel(false);
-    let followed = Followed {
+    let followed = SessionKey {
         machine_id: machine_id.into(),
         agent: "codex".into(),
         session: session.into(),

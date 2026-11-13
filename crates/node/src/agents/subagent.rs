@@ -2,6 +2,7 @@
 //! call that started one, and what its entry says of it (written in
 //! `super::live`).
 
+use crate::agents::delete::valid_id;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
@@ -53,14 +54,6 @@ impl std::fmt::Display for Conversation<'_> {
             Self::Claude { parent, agent } => write!(f, "subagent:claude:{parent}:{agent}"),
         }
     }
-}
-
-fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
 
 /// The title codex-acp gives the call that starts subagents.

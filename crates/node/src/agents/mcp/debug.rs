@@ -5,7 +5,8 @@
 //! since only a desktop reads another machine's report.
 
 use super::machines::command_name;
-use super::reply::fail;
+use super::reply::{fail, parse};
+use super::server::ASK_LIMIT;
 use crate::{
     agents::{Answered, Asking},
     link::{Offers, peers::Peers},
@@ -23,7 +24,7 @@ use beep_report::{
 };
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use regex::RegexBuilder;
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::{task::spawn_blocking, time::timeout};
 
@@ -31,25 +32,11 @@ const DEFAULT_MINUTES: u32 = 60;
 const MAX_MINUTES: u32 = 7 * 24 * 60;
 const DEFAULT_LINES: usize = 300;
 const MAX_LINES: usize = 2000;
-/// How long the question before sending a report waits for the user.
-const ASK_LIMIT: Duration = Duration::from_secs(60 * 60);
 const SEND: &str = "send";
 /// What a node says of the machines it cannot read.
 const ONLY_HERE: &str = "This agent runs on a node, and only a desktop reads another \
     machine's status and log, so this is this machine alone. Start the agent on a desktop to \
     read the others.";
-
-/// Whether `tool` is one this module answers.
-pub(crate) fn handles(tool: Tool) -> bool {
-    matches!(
-        tool,
-        Tool::BeepStatus | Tool::BeepLogs | Tool::BeepMetrics | Tool::FileReport
-    )
-}
-
-fn parse<T: DeserializeOwned>(args: &str) -> Result<T, Reply> {
-    serde_json::from_str(args).map_err(|e| fail(format!("The arguments do not fit: {e}")))
-}
 
 /// Answers one of the tools for the session that called it.
 pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
@@ -60,15 +47,15 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
         Tool::BeepStatus => Ok(status(&peers).await),
         Tool::BeepLogs => match parse(&request.args) {
             Ok(args) => logs(&peers, args).await,
-            Err(refused) => return refused,
+            Err(e) => return fail(e),
         },
         Tool::BeepMetrics => match parse(&request.args) {
             Ok(args) => metrics(&peers, args).await,
-            Err(refused) => return refused,
+            Err(e) => return fail(e),
         },
         Tool::FileReport => match parse(&request.args) {
             Ok(args) => file(offers, &peers, &request.session, args).await,
-            Err(refused) => return refused,
+            Err(e) => return fail(e),
         },
         other => Err(format!("{other} is not a Beep debugging tool.")),
     };
@@ -211,6 +198,16 @@ fn validate_search(search: Option<&str>, regex: bool) -> Result<(), String> {
 }
 
 impl LogsArgs {
+    fn minutes(&self) -> u32 {
+        self.minutes
+            .unwrap_or(DEFAULT_MINUTES)
+            .clamp(1, MAX_MINUTES)
+    }
+
+    fn lines(&self) -> usize {
+        self.lines.unwrap_or(DEFAULT_LINES).clamp(1, MAX_LINES)
+    }
+
     fn query(&self) -> Result<Option<LogQuery>, String> {
         if self.offset.is_none()
             && self.search.is_none()
@@ -225,10 +222,7 @@ impl LogsArgs {
             return Err("Use start or minutes, not both.".to_owned());
         }
 
-        let minutes = self
-            .minutes
-            .unwrap_or(DEFAULT_MINUTES)
-            .clamp(1, MAX_MINUTES);
+        let minutes = self.minutes();
         let QueryWindow { start, end } = QueryWindow::new(
             self.start.as_deref(),
             self.end.as_deref(),
@@ -248,7 +242,7 @@ impl LogsArgs {
             end: end.to_rfc3339_opts(SecondsFormat::Nanos, true),
             search: self.search.clone(),
             regex: self.regex.unwrap_or(false),
-            lines: self.lines.unwrap_or(DEFAULT_LINES).clamp(1, MAX_LINES) as u32,
+            lines: self.lines() as u32,
             offset,
             allow_untimed: self.start.is_none() && self.end.is_none(),
         }))
@@ -263,11 +257,8 @@ fn named(target: &Target, name: &str) -> bool {
 /// One machine's log for the last `minutes`, its newest `lines` lines.
 async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
     let query = args.query()?;
-    let minutes = args
-        .minutes
-        .unwrap_or(DEFAULT_MINUTES)
-        .clamp(1, MAX_MINUTES);
-    let lines = args.lines.unwrap_or(DEFAULT_LINES).clamp(1, MAX_LINES);
+    let minutes = args.minutes();
+    let lines = args.lines();
     let me = peers.key().public();
     let name = args.machine.as_deref().map(str::trim).unwrap_or_default();
     let targets: Vec<Target> = peers

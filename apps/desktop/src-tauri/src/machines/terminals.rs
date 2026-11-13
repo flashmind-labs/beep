@@ -9,7 +9,7 @@ use crate::{
         Fleet, Machines,
         terminals::{self as direct, Opened},
     },
-    machines::list::MachineLists,
+    machines::{Registry, Unfollow, list::MachineLists},
 };
 use beep_mesh::machine::terminals::{Heard, heard};
 use beep_proto::{
@@ -19,10 +19,6 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use std::{
-    collections::HashMap,
-    sync::{Mutex, MutexGuard, PoisonError},
-};
 use std::{sync::Arc, time::Duration};
 use tauri::{
     AppHandle, Manager, State, WebviewWindow,
@@ -194,11 +190,13 @@ pub async fn terminal_close(fleet: Machines<'_>, id: Uuid) -> Result<()> {
 /// What an attached terminal tells the window. Output goes as raw bytes,
 /// the offset `at` first as eight little-endian bytes, so it is neither
 /// base64 nor JSON; the rest goes as JSON tagged by `kind`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TermEvent {
     /// The stream is open: keys typed from now on go to the terminal.
     Attached,
     /// Output from byte `at`.
+    #[serde(skip)]
     Output { at: u64, data: Vec<u8> },
     /// It stopped, or its machine went offline: `state` as `TerminalRow`'s.
     Ended {
@@ -209,34 +207,17 @@ pub enum TermEvent {
     ViewOnly,
 }
 
-/// The events other than output, as the window reads them in JSON.
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum TermNotice {
-    Attached,
-    Ended {
-        state: &'static str,
-        code: Option<i32>,
-    },
-    ViewOnly,
-}
-
 impl TermEvent {
     /// The message the window's channel gets.
     pub fn body(self) -> Result<InvokeResponseBody> {
-        let notice = match self {
-            Self::Output { at, data } => {
-                let mut bytes = Vec::with_capacity(8 + data.len());
-                bytes.extend_from_slice(&at.to_le_bytes());
-                bytes.extend_from_slice(&data);
-                return Ok(InvokeResponseBody::Raw(bytes));
-            }
-            Self::Attached => TermNotice::Attached,
-            Self::Ended { state, code } => TermNotice::Ended { state, code },
-            Self::ViewOnly => TermNotice::ViewOnly,
-        };
+        if let Self::Output { at, data } = self {
+            let mut bytes = Vec::with_capacity(8 + data.len());
+            bytes.extend_from_slice(&at.to_le_bytes());
+            bytes.extend_from_slice(&data);
+            return Ok(InvokeResponseBody::Raw(bytes));
+        }
 
-        let json = serde_json::to_string(&notice).map_err(anyhow::Error::from)?;
+        let json = serde_json::to_string(&self).map_err(anyhow::Error::from)?;
         Ok(InvokeResponseBody::Json(json))
     }
 }
@@ -360,93 +341,13 @@ impl From<TerminalEvent> for TermEvent {
 /// where its keys go. Two views of one terminal, such as a session's pane
 /// and the Terminals page, keep a stream each; a view attaching again
 /// replaces only its own older stream.
-#[derive(Default)]
-pub struct Attached(Mutex<Following>);
-
-#[derive(Default)]
-struct Following {
-    next: u64,
-    by_view: HashMap<Viewer, Follow>,
-}
+pub(crate) type Attached = Registry<Viewer, mpsc::Sender<TerminalInput>>;
 
 /// One view of one terminal. The window names its views.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct Viewer {
+pub(crate) struct Viewer {
     terminal: Uuid,
     view: Uuid,
-}
-
-struct Follow {
-    /// Which attach this is, so an older one ending leaves a newer alone.
-    serial: u64,
-    /// The window the view is in; closing it ends the follow.
-    window: String,
-    input: mpsc::Sender<TerminalInput>,
-}
-
-impl Attached {
-    fn lock(&self) -> MutexGuard<'_, Following> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn follow(&self, viewer: Viewer, window: &str, input: mpsc::Sender<TerminalInput>) -> u64 {
-        let mut following = self.lock();
-        following.next += 1;
-        let serial = following.next;
-        let follow = Follow {
-            serial,
-            window: window.to_owned(),
-            input,
-        };
-        following.by_view.insert(viewer, follow);
-        serial
-    }
-
-    /// Window `label` closed: its views stop following, which finishes
-    /// their streams.
-    pub(crate) fn clear(&self, label: &str) {
-        self.lock()
-            .by_view
-            .retain(|_, follow| follow.window != label);
-    }
-
-    fn unfollow(&self, viewer: Viewer, serial: u64) {
-        let mut following = self.lock();
-
-        if following
-            .by_view
-            .get(&viewer)
-            .is_some_and(|f| f.serial == serial)
-        {
-            following.by_view.remove(&viewer);
-        }
-    }
-
-    /// Drops `viewer`'s keys, which finishes its stream.
-    fn detach(&self, viewer: Viewer) {
-        self.lock().by_view.remove(&viewer);
-    }
-
-    fn input(&self, viewer: Viewer) -> Result<mpsc::Sender<TerminalInput>> {
-        self.lock()
-            .by_view
-            .get(&viewer)
-            .map(|follow| follow.input.clone())
-            .ok_or_else(|| DesktopError::BadRequest("The terminal is not attached.".into()))
-    }
-}
-
-/// Forgets an attach once its stream ends, however it ends.
-struct Unfollow<'a> {
-    attached: &'a Attached,
-    viewer: Viewer,
-    serial: u64,
-}
-
-impl Drop for Unfollow<'_> {
-    fn drop(&mut self) {
-        self.attached.unfollow(self.viewer, self.serial);
-    }
 }
 
 /// Follows terminal `id` in `view` from byte `from` of its output into
@@ -476,8 +377,8 @@ pub async fn terminal_attach(
     let viewer = Viewer { terminal: id, view };
     let serial = attached.follow(viewer, window.label(), input_tx);
     let _unfollow = Unfollow {
-        attached: &attached,
-        viewer,
+        registry: &attached,
+        key: viewer,
         serial,
     };
 
@@ -538,7 +439,7 @@ pub async fn terminal_input(
     view: Uuid,
     data: String,
 ) -> Result<()> {
-    let input = attached.input(Viewer { terminal: id, view })?;
+    let input = attached.get(&Viewer { terminal: id, view }, "terminal")?;
 
     for piece in keys(data.as_bytes()) {
         input
@@ -567,7 +468,7 @@ pub async fn terminal_resize(
     cols: u32,
     rows: u32,
 ) -> Result<()> {
-    let input = attached.input(Viewer { terminal: id, view })?;
+    let input = attached.get(&Viewer { terminal: id, view }, "terminal")?;
     input
         .send(TerminalInput::Resize { cols, rows })
         .await
@@ -578,7 +479,7 @@ pub async fn terminal_resize(
 /// machine, and other views of it stay attached.
 #[tauri::command]
 pub fn terminal_detach(attached: State<'_, Attached>, id: Uuid, view: Uuid) {
-    attached.detach(Viewer { terminal: id, view });
+    attached.detach(&Viewer { terminal: id, view });
 }
 
 #[cfg(test)]

@@ -604,12 +604,13 @@ impl Actor {
                 self.subagents_moved();
             }
             Event::Permission(request, responder) => {
-                let Some(responder) = self.plan_ready(&request, *responder) else {
+                let question = self.live.borrow().question(&request);
+                let Some(responder) = self.plan_ready(&request, &question, *responder) else {
                     return Ok(());
                 };
 
-                if let Some(responder) = self.allow(&request, responder)? {
-                    self.ask(&request, responder);
+                if let Some(responder) = self.allow(&question, responder)? {
+                    self.ask(question, responder);
                 }
             }
         }
@@ -755,12 +756,7 @@ impl Actor {
                 let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
                 self.live.send_modify(|live| live.spent(tokens));
                 let (stop, error) = match result {
-                    Ok(done) => (
-                        acp::wire_name(&done.stop_reason)
-                            .parse()
-                            .unwrap_or(StopReason::Other),
-                        None,
-                    ),
+                    Ok(done) => (stop_reason(&done), None),
                     Err(e) => (StopReason::Failed, Some(e.to_string())),
                 };
                 self.turn_done(cx, stop, error);
@@ -1049,6 +1045,13 @@ fn cycle(mut modes: Vec<ModeOption>, bypass: Option<&str>) -> Vec<ModeOption> {
 /// What people call the agent `name`, such as Claude Code for `claude`.
 pub(super) fn agent_title(name: &str) -> &str {
     known(name).map_or(name, |known| known.title)
+}
+
+/// How a turn ended, with a stop reason this node does not know as `Other`.
+pub(super) fn stop_reason(done: &PromptResponse) -> StopReason {
+    acp::wire_name(&done.stop_reason)
+        .parse()
+        .unwrap_or(StopReason::Other)
 }
 
 /// `first`, then `then`.

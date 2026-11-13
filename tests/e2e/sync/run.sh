@@ -118,7 +118,6 @@ else
   on node-b "ls -la $P" | sed 's/^/   b| /'
 fi
 
-wait_for 60 "both in sync" in_sync && pass "the desktop sees both in sync" \
-  || { fail "the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
+check_in_sync 60
 
 summary

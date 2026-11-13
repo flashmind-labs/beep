@@ -299,7 +299,7 @@ impl Live {
     }
 
     /// The question the agent asked in `session/request_permission`.
-    pub(crate) fn question(&self, id: u32, request: &RequestPermissionRequest) -> Question {
+    pub(crate) fn question(&self, request: &RequestPermissionRequest) -> Question {
         let call = &request.tool_call;
         let known = self.tools.get(&call.tool_call_id);
         let title = call
@@ -340,7 +340,7 @@ impl Live {
             .and_then(detail)
             .filter(|detail| *detail != text);
         Question {
-            id,
+            id: 0,
             text,
             detail,
             options,

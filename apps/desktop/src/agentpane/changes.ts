@@ -7,13 +7,14 @@
 // `files` topic said something changed, the worktree moved, or on Refresh.
 
 import type { DiffView } from "../review/diff-state.ts";
-import { type DiffViewHandle, type DiffOwner, type DiffSlot, diffView } from "../review/diff.ts";
+import { type DiffViewHandle, type DiffOwner, diffView } from "../review/diff.ts";
 import { sendReview } from "../agents/messages.ts";
 import { openWorkFile, paneSession } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
 import { paneLinked, paneRoot, refreshWorktrees, removedBranch, watchRoot, worktreesReady, worktreesSettled } from "./worktree.ts";
 import { reviewHeading } from "./worktree-state.ts";
 import { homeShort } from "../project/projects-state.ts";
+import { viewKey } from "./view-memory.ts";
 import { invoke } from "../ui/tauri.ts";
 import { SLOW_MS, ambient, paneShown } from "../ui/active.ts";
 import { setSessionChild } from "../agents/session-frame.tsx";
@@ -49,11 +50,12 @@ interface SessionDiffOwner extends DiffOwner {
 
 let nextDiff = 0;
 function sessionDiffOwner(): SessionDiffOwner {
-  const id = ++nextDiff, slots = new Map<DiffSlot, ReactNode>();
+  const key = `diff:${++nextDiff}:viewer`;
+  let content: ReactNode = null;
   return {
-    set(slot: DiffSlot, content: ReactNode) { slots.set(slot, content); setSessionChild(`diff:${id}:${slot}`, content); },
-    dispose() { for (const slot of slots.keys()) setSessionChild(`diff:${id}:${slot}`, null); slots.clear(); },
-    replay() { for (const [slot, content] of slots) setSessionChild(`diff:${id}:${slot}`, content); },
+    set(next: ReactNode) { content = next; setSessionChild(key, content); },
+    dispose() { if (content !== null) setSessionChild(key, null); content = null; },
+    replay() { if (content !== null) setSessionChild(key, content); },
   };
 }
 
@@ -145,7 +147,7 @@ function make(key: string) {
     },
     open: { label: "Open in a tab", run: openWorkFile },
     menu: (path, at) => localFileItems({ machineId: entry.machine, root: entry.root, path }, at),
-    review: { key: `${s.machine_id}\n${s.id}`, heading: () => reviewHeading(homeShort(entry.root), paneLinked()), send: sendReview },
+    review: { key: viewKey(s.machine_id, s.id), heading: () => reviewHeading(homeShort(entry.root), paneLinked()), send: sendReview },
     agent: { machine: { id: s.machine_id, name: s.machine_name }, prefer: s.agent, session: s.id },
   });
   const made: Kept = Object.assign(entry, { view });

@@ -23,11 +23,17 @@ export function railOf(offered: readonly string[], everywhere: readonly string[]
   return [...RAIL, ...extra].map(agent => ({ agent, enabled: offered.includes(agent) }));
 }
 
+/// Sorts harnesses by their place in `order`; those it lacks go last.
+export function byOrder(order: readonly string[]) {
+  const rank = (a: string) => order.indexOf(a) + 1 || 99;
+  return (a: string, b: string) => rank(a) - rank(b);
+}
+
 /// The harness the form starts on: the one picked when the machine has
 /// it, else the first the machine has in `order`, else none.
 export function harnessFor(picked: string | null, offered: readonly string[], order: readonly string[]): string | null {
   if (picked && offered.includes(picked)) return picked;
-  return [...offered].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99))[0] ?? null;
+  return [...offered].sort(byOrder(order))[0] ?? null;
 }
 
 /// A thinking level: what the start sends, and what the picker shows.
@@ -152,12 +158,11 @@ export function machineRows(
   order: readonly string[],
 ): MachineRow[] {
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
-  const rank = (a: string) => order.indexOf(a) + 1 || 99;
   const able = hosts.map(m => ({
     id: m.machine_id,
     name: m.machine_name,
     online: true,
-    note: [...m.agents].sort((a, b) => rank(a) - rank(b)).map(title).join(", "),
+    note: [...m.agents].sort(byOrder(order)).map(title).join(", "),
     enabled: true,
   })).sort(byName);
   const ids = new Set(able.map(m => m.id));
@@ -198,12 +203,6 @@ export function knownWorktrees(sessions: readonly (SessionAt & { last_activity?:
     .map(s => root + s.cwd.slice(root.length).split("/")[0])
     .filter(p => p.length > root.length);
   return [...new Set(found)];
-}
-
-/// What the checkout row of the Folder button says.
-export function checkoutLabel(pick: CheckoutPick): string {
-  if (typeof pick === "object") return `Worktree ${pick.worktree.split("/").pop()}`;
-  return pick === "current" ? "Current checkout" : pick === "branch" ? "New branch" : "New worktree";
 }
 
 /// What `agent_start` sends as `checkout`: the node makes a `beep/<slug>`

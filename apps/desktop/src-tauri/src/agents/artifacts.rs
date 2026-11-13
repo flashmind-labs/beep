@@ -169,12 +169,9 @@ impl RelPath {
 }
 
 impl Pages {
-    /// Keeps `html`, read from `place`, to serve, returning its URL.
-    fn keep(&self, html: Vec<u8>, place: Place) -> String {
-        self.keep_at(html, place, String::new())
-    }
-
-    fn keep_at(&self, html: Vec<u8>, place: Place, entry: String) -> String {
+    /// Keeps `html`, read from `place`, to serve, returning its URL; a
+    /// preview's `entry` is its file in the URL.
+    fn keep(&self, html: Vec<u8>, place: Place, entry: String) -> String {
         let token = Uuid::new_v4();
         let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
         kept.push_back(Arc::new(Page {
@@ -296,11 +293,7 @@ pub async fn agent_artifact(
     Ok(match kind {
         Kind::Html => ArtifactView::Html {
             size,
-            src: if is_preview {
-                pages.keep_at(data, place, entry)
-            } else {
-                pages.keep(data, place)
-            },
+            src: pages.keep(data, place, entry),
         },
         Kind::Markdown => ArtifactView::Md {
             size,

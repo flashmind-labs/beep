@@ -166,12 +166,11 @@ async fn removing_a_machine_cuts_it_off_from_every_other() {
 
 #[test]
 fn a_follow_that_ended_waits_before_it_starts_again() {
-    assert!(retry_due(None));
-    assert!(!retry_due(Some(Instant::now())));
+    assert!(!retry_due(Instant::now()));
     let long_ago = Instant::now()
         .checked_sub(super::RETRY)
         .expect("the clock has run that long");
-    assert!(retry_due(Some(long_ago)));
+    assert!(retry_due(long_ago));
 }
 
 #[tokio::test]

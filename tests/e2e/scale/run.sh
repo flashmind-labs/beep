@@ -85,8 +85,7 @@ grow(){
   pass "$to holds all $WANT files of $dir, same sha256, after $full s"
   measure "$label: first file" "$first" s max "$first_budget"
   measure "$label: all files" "$full" s max "$full_budget"
-  wait_for 120 "both in sync" in_sync && pass "the desktop sees both in sync" \
-    || { fail "the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
+  check_in_sync 120
 }
 
 fresh_world
@@ -143,8 +142,7 @@ for role in node-a node-b; do
   fi
 done
 
-wait_for 120 "both in sync" in_sync && pass "the desktop sees both in sync" \
-  || { fail "the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
+check_in_sync 120
 
 fd_mark
 

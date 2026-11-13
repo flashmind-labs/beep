@@ -21,7 +21,7 @@ test("kept issues draw before any read answers, and one closed upstream goes onc
   const asked: string[] = [];
   const invoke = ((cmd: string) => { asked.push(cmd); return cmd === "center_project_lists" ? lists.promise : Promise.resolve([]); }) as unknown as ThreadDeps["invoke"];
   let redraws = 0;
-  const thr = makeThreads({ invoke, ago: () => "", redraw() { redraws++; }, openUrl() {}, kept });
+  const thr = makeThreads({ invoke, redraw() { redraws++; }, openUrl() {}, kept });
   // Opened again soon: what is kept shows and nothing is asked.
   now += SWITCH_MS - 1;
   assert.equal(thr.ensure("p1", SWITCH_MS), undefined);
@@ -32,7 +32,6 @@ test("kept issues draw before any read answers, and one closed upstream goes onc
   const read = thr.ensure("p1", SWITCH_MS);
   assert.ok(read);
   assert.deepEqual(thr.issues("p1")?.map(i => i.number), [1, 2], "the kept list shows while the read is on its way");
-  assert.ok(thr.loading("p1"));
   lists.resolve({ prs: [], prs_error: null, issues: [issue(2), issue(3)], issues_error: null });
   await read;
   assert.deepEqual(thr.issues("p1")?.map(i => i.number), [2, 3], "#1 closed, #3 opened");

@@ -150,14 +150,7 @@ fn apply(root: &Path, snapshot: HandoffSnapshot) -> Result<()> {
         "The destination commit changed. Try again."
     );
     ensure!(
-        repo.run(&[
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-            "--ignore-submodules=none"
-        ])?
-        .stdout
-        .is_empty(),
+        !repo.has_local_changes()?,
         "Commit or stash destination changes before handing off work."
     );
 

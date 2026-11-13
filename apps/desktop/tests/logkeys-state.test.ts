@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allOpen, commandRows, pageDirection, thoughtRows, turnsHolding } from "../src/agents/logkeys-state.ts";
-import { splitTurns } from "../src/agents/agentturns.ts";
+import { allOpen, commandRows, pageDirection, thoughtRows } from "../src/agents/logkeys-state.ts";
 
 const log = [
   { kind: "user", text: "go" },
@@ -26,10 +25,6 @@ test("thought shortcuts act on group heads, separated by output", () => {
 test("a toggle opens all when any is closed, else closes all", () => {
   assert.equal(allOpen([true, false, true]), true);
   assert.equal(allOpen([true, true]), false);
-});
-
-test("only turns holding the rows are named", () => {
-  assert.deepEqual(turnsHolding(splitTurns(log), [1]), [0]);
 });
 
 const key = (name: string) => ({ key: name, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, isComposing: false });

@@ -235,79 +235,56 @@ impl PeerClient {
 
     /// Returns only after the node accepts this stream with Ready.
     pub async fn open_commands(&self) -> Result<(LinkTx, LinkRx), MeshError> {
-        let channel = self.channel(beep_proto::node::commands::ALPN).await?;
-        let opened = timeout(OPEN_TIMEOUT, async {
-            let (tx, mut rx) = match &channel {
-                Some(connection) => {
-                    let (mut tx, rx) = open_connection(connection).await?;
-                    timeout(
-                        OPEN_TIMEOUT,
-                        tx.send(&beep_proto::node::commands::Open::Calls),
-                    )
-                    .await
-                    .map_err(|error| MeshError::Link(error.into()))?
-                    .map_err(MeshError::Link)?;
-                    (tx, rx)
-                }
-                None => {
-                    self.open_sending(
-                        beep_proto::node::commands::PROTOCOL,
-                        &beep_proto::node::commands::Open::Calls,
-                    )
-                    .await?
-                }
-            };
-            match rx
-                .recv::<beep_proto::node::commands::Reply>()
-                .await
-                .map_err(MeshError::Link)?
-            {
-                Some(beep_proto::node::commands::Reply::Ready) => Ok((tx, rx)),
-                _ => Err(MeshError::Link(anyhow::anyhow!(
-                    "the commands stream did not start with Ready"
-                ))),
-            }
-        })
+        use beep_proto::node::commands::{ALPN, Open, PROTOCOL, Reply};
+
+        self.open_channel(
+            ALPN,
+            PROTOCOL,
+            &Open::Calls,
+            |reply| matches!(reply, Reply::Ready),
+            "the commands stream did not start with Ready",
+        )
         .await
-        .map_err(|error| MeshError::Link(error.into()))
-        .and_then(|opened| opened);
-        self.stalled(channel.as_ref(), &opened);
-        opened
     }
 
     /// Returns only after the node accepts this stream with Ready.
     pub async fn open_subscriptions(&self) -> Result<(LinkTx, LinkRx), MeshError> {
-        let channel = self.channel(beep_proto::node::subscriptions::ALPN).await?;
+        use beep_proto::node::subscriptions::{ALPN, Open, PROTOCOL, Reply};
+
+        self.open_channel(
+            ALPN,
+            PROTOCOL,
+            &Open {},
+            |reply| matches!(reply, Reply::Ready),
+            "the subscriptions stream did not start with Ready",
+        )
+        .await
+    }
+
+    async fn open_channel<Q: Serialize, R: DeserializeOwned>(
+        &self,
+        alpn: &'static [u8],
+        protocol: &str,
+        first: &Q,
+        is_ready: impl Fn(&R) -> bool,
+        not_ready: &'static str,
+    ) -> Result<(LinkTx, LinkRx), MeshError> {
+        let channel = self.channel(alpn).await?;
         let opened = timeout(OPEN_TIMEOUT, async {
             let (tx, mut rx) = match &channel {
                 Some(connection) => {
                     let (mut tx, rx) = open_connection(connection).await?;
-                    timeout(
-                        OPEN_TIMEOUT,
-                        tx.send(&beep_proto::node::subscriptions::Open {}),
-                    )
-                    .await
-                    .map_err(|error| MeshError::Link(error.into()))?
-                    .map_err(MeshError::Link)?;
+                    timeout(OPEN_TIMEOUT, tx.send(first))
+                        .await
+                        .map_err(|error| MeshError::Link(error.into()))?
+                        .map_err(MeshError::Link)?;
                     (tx, rx)
                 }
-                None => {
-                    self.open_sending(
-                        beep_proto::node::subscriptions::PROTOCOL,
-                        &beep_proto::node::subscriptions::Open {},
-                    )
-                    .await?
-                }
+                None => self.open_sending(protocol, first).await?,
             };
-            match rx
-                .recv::<beep_proto::node::subscriptions::Reply>()
-                .await
-                .map_err(MeshError::Link)?
-            {
-                Some(beep_proto::node::subscriptions::Reply::Ready) => Ok((tx, rx)),
-                _ => Err(MeshError::Link(anyhow::anyhow!(
-                    "the subscriptions stream did not start with Ready"
-                ))),
+            match rx.recv::<R>().await.map_err(MeshError::Link)? {
+                Some(reply) if is_ready(&reply) => Ok((tx, rx)),
+                _ => Err(MeshError::Link(anyhow::anyhow!(not_ready))),
             }
         })
         .await
@@ -323,13 +300,9 @@ impl PeerClient {
         let (Some(mesh), Some(peer)) = (&self.channels, self.peer) else {
             return Ok(None);
         };
-        let connection = if alpn == beep_proto::node::subscriptions::ALPN {
-            mesh.subscription_connection(peer).await
-        } else {
-            mesh.command_connection(peer).await
-        };
 
-        connection
+        mesh.protocol_connection(peer, alpn)
+            .await
             .map(Some)
             .map_err(|error| MeshError::Link(error.into()))
     }
@@ -657,10 +630,6 @@ fn dropped(cause: &(dyn StdError + 'static)) -> bool {
         || cause.is::<Offline>()
 }
 
-#[cfg(test)]
-#[path = "tests/client.rs"]
-mod tests;
-
 async fn open_connection(connection: &Connection) -> Result<(LinkTx, LinkRx), MeshError> {
     let (send, recv) = timeout(OPEN_TIMEOUT, connection.open_bi())
         .await
@@ -668,3 +637,7 @@ async fn open_connection(connection: &Connection) -> Result<(LinkTx, LinkRx), Me
         .map_err(|error| MeshError::Link(error.into()))?;
     Ok(link(send, recv))
 }
+
+#[cfg(test)]
+#[path = "tests/client.rs"]
+mod tests;

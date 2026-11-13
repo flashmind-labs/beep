@@ -1,3 +1,4 @@
+import { plural } from "../ui/format.ts";
 // What the Issues and Pull requests lists share: when an item opened, its
 // order, and which issues Start N agents can take, as plain data.
 
@@ -65,7 +66,7 @@ export function pickedInOrder<T extends { key: string }>(shown: readonly T[], pi
 
 /// "Start 3 agents".
 export function startLabel(n: number) {
-  return `Start ${n} ${n === 1 ? "agent" : "agents"}`;
+  return `Start ${plural(n, "agent", "agents")}`;
 }
 
 /// An issue Start N agents takes: its project's name (none when it is not

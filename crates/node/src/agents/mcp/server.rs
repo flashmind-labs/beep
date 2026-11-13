@@ -28,7 +28,7 @@ const MAX_MESSAGE: usize = 1024 * 1024;
 /// The most calls of one connection running at once; the next waits.
 const MAX_RUNNING: usize = 8;
 /// How long a question waits for the user.
-const ASK_LIMIT: Duration = Duration::from_secs(60 * 60);
+pub(super) const ASK_LIMIT: Duration = Duration::from_secs(60 * 60);
 /// The MCP versions this server speaks, newest first.
 const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -244,11 +244,11 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
         Err(text) => return Called::failed(text),
     };
     let operation = match name {
-        ASK_USER => ASK_USER,
-        READ_TRANSCRIPT => READ_TRANSCRIPT,
-        REMOTE_RUN => REMOTE_RUN,
-        DEVICE => DEVICE,
-        _ => name.parse::<Tool>().map(<&'static str>::from).unwrap_or("unknown tool"),
+        ASK_USER | READ_TRANSCRIPT | REMOTE_RUN | DEVICE => name,
+        _ => name
+            .parse::<Tool>()
+            .map(<&'static str>::from)
+            .unwrap_or("unknown tool"),
     };
     let mut trace = beep_proto::logging::RequestTrace::new(operation);
     let result = call_tool(backend, session, name, args).await;
@@ -257,20 +257,18 @@ async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -
 }
 
 async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
-    if name == ASK_USER {
-        return ask_user(backend, session, args).await;
+    match name {
+        ASK_USER => return ask_user(backend, session, args).await,
+        READ_TRANSCRIPT => {
+            return match backend.read_transcript(args).await {
+                Ok(reply) => reply.into(),
+                Err(e) => Called::failed(format!("Could not read the transcript: {e:#}")),
+            };
+        }
+        DEVICE => return backend.device(args).await,
+        _ => {}
     }
 
-    if name == READ_TRANSCRIPT {
-        return match backend.read_transcript(args).await {
-            Ok(reply) => reply.into(),
-            Err(e) => Called::failed(format!("Could not read the transcript: {e:#}")),
-        };
-    }
-
-    if name == DEVICE {
-        return backend.device(args).await;
-    }
     // `remote_run` goes as `run_on`, its name in `tools/1`, which is no MCP name.
     let parsed = match name {
         REMOTE_RUN => Ok(Tool::RunOn),

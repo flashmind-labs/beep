@@ -1,6 +1,6 @@
 //! The git side of the diff: runs git in a checkout and reads what it says.
 
-use super::{Caps, DiffParser, Keep, patch_caps};
+use super::{Caps, DiffParser};
 use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{MAX_DIFF_FILES, WorkDiff, node::agent::DiffAsk};
@@ -48,7 +48,7 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
         None => default_base(&dir),
     };
     let tip = head.as_deref().unwrap_or("HEAD");
-    let has_head = git(&dir, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).is_ok();
+    let has_head = is_commit(&dir, "HEAD");
     let (label, merge_base) = match (&base, has_head || head.is_some()) {
         (_, false) => ("HEAD".to_owned(), None),
         (Some(base), true) => {
@@ -62,13 +62,7 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
         }
     };
     let from = merge_base.as_deref().unwrap_or(EMPTY_TREE);
-    let shown = !ask.only.is_empty();
-    let caps = patch_caps(shown);
-    let keep = Keep {
-        only: ask.only.iter().cloned().collect(),
-        lockfiles: ask.lockfiles || shown,
-    };
-    let mut parser = DiffParser::new(caps, keep);
+    let (mut parser, caps) = super::parser(ask);
     let context = format!("--unified={}", ask.context.clamp(3, 50_000));
     let mut args = vec![
         "-c",
@@ -136,14 +130,26 @@ fn branch_ref(text: &str) -> Result<Option<&str>> {
     Ok(Some(text))
 }
 
+/// Whether `name` is a commit git knows here.
+fn is_commit(dir: &Path, name: &str) -> bool {
+    git(
+        dir,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{name}^{{commit}}"),
+        ],
+    )
+    .is_ok()
+}
+
 /// `name` as a commit git knows here, preferring the local branch.
 fn resolve(dir: &Path, name: &str) -> Result<String> {
     let remote = format!("origin/{name}");
 
     for candidate in [name, remote.as_str()] {
-        let rev = format!("{candidate}^{{commit}}");
-
-        if git(dir, &["rev-parse", "--verify", "--quiet", &rev]).is_ok() {
+        if is_commit(dir, candidate) {
             return Ok(candidate.to_owned());
         }
     }
@@ -155,18 +161,7 @@ fn resolve(dir: &Path, name: &str) -> Result<String> {
 fn default_base(dir: &Path) -> Option<String> {
     ["main", "master"]
         .into_iter()
-        .find(|name| {
-            git(
-                dir,
-                &[
-                    "rev-parse",
-                    "--verify",
-                    "--quiet",
-                    &format!("{name}^{{commit}}"),
-                ],
-            )
-            .is_ok()
-        })
+        .find(|name| is_commit(dir, name))
         .map(str::to_owned)
 }
 

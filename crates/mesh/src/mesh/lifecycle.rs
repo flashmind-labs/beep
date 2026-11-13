@@ -1,8 +1,8 @@
 //! Creating, opening, joining and closing a mesh.
 
 use super::{AddrNote, Core, InUse, Mesh, blocking};
-use crate::{DeviceKind, JoinTicket, MeshError};
-use iroh::Endpoint;
+use crate::{DeviceKind, Devices, JoinTicket, MeshError};
+use iroh::{Endpoint, SecretKey};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -65,17 +65,11 @@ impl Mesh {
             return Err(MeshError::AlreadyMember);
         }
 
-        let welcome = crate::join::redeem(&endpoint, ticket, name).await?;
-        let key = endpoint.secret_key().clone();
-        let mut addrs = welcome.addrs;
-        addrs.push(AddrNote {
-            addr: ticket.addr.clone(),
-            generation: 0,
-        });
+        let (devices, addrs, key) = redeem(&endpoint, ticket, name).await?;
         let core = {
             let (dir, addrs) = (dir.clone(), addrs.clone());
             blocking(move || {
-                let core = Core::start(&dir, key, welcome.devices)?;
+                let core = Core::start(&dir, key, devices)?;
                 core.save_addrs(&addrs)?;
                 Ok(core)
             })
@@ -139,17 +133,26 @@ impl Mesh {
             })
             .await?;
         }
-        let welcome = crate::join::redeem(&endpoint, ticket, name).await?;
-        let key = endpoint.secret_key().clone();
-        let mut addrs = welcome.addrs;
-        addrs.push(AddrNote {
-            addr: ticket.addr.clone(),
-            generation: 0,
-        });
+        let (devices, addrs, key) = redeem(&endpoint, ticket, name).await?;
         let core = {
             let (dir, addrs) = (dir.clone(), addrs.clone());
-            blocking(move || Core::swap_in(&dir, key, welcome.devices, &addrs)).await?
+            blocking(move || Core::swap_in(&dir, key, devices, &addrs)).await?
         };
         Self::run(endpoint, core, addrs)
     }
+}
+
+async fn redeem(
+    endpoint: &Endpoint,
+    ticket: &JoinTicket,
+    name: &str,
+) -> Result<(Devices, Vec<AddrNote>, SecretKey), MeshError> {
+    let welcome = crate::join::redeem(endpoint, ticket, name).await?;
+    let mut addrs = welcome.addrs;
+    addrs.push(AddrNote {
+        addr: ticket.addr.clone(),
+        generation: 0,
+    });
+
+    Ok((welcome.devices, addrs, endpoint.secret_key().clone()))
 }

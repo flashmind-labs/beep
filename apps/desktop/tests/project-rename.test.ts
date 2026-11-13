@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mergeProjects, projectName, sideProjects } from "../src/project/projects-state.ts";
 import { overviewGroups, searchOverview } from "../src/project/overview-state.ts";
-import { filterByName } from "../src/project/projectlist-state.ts";
 
 test("renamed projects keep identity, pins and checkout associations while labels and searches update", () => {
   const imported = [{ name: "team/old", display_name: "team/new", url: "https://github.com/team/new", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project" }];
@@ -14,8 +13,6 @@ test("renamed projects keep identity, pins and checkout associations while label
   assert.equal(groups[0].cards[0].repo, "new");
   assert.equal(groups[0].cards[0].pinned, true);
   assert.equal(searchOverview(groups, "new").length, 1);
-  assert.equal(filterByName(rows, "new").length, 1);
-  assert.equal(filterByName(rows, "old").length, 1);
   assert.equal(sideProjects(rows)[1].repo, "new");
   assert.equal(projectName(mergeProjects([{ ...imported[0], display_name: null }], [])[0]), "team/old");
 });

@@ -3,7 +3,7 @@
 
 /// Where a click on the line goes: the subagent whose call is entry `at`, or
 /// the Running tab for a command.
-export type WaitTarget = { kind: "subagent"; at: number } | { kind: "command" };
+type WaitTarget = { kind: "subagent"; at: number } | { kind: "command" };
 
 /// A subagent or command still running in the background, and when this
 /// window first saw it running.

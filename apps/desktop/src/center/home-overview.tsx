@@ -1,8 +1,7 @@
 import { visibleRunning } from "../agents/closing.ts";
-import { closingNote } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
-import { byRecent, projectOf, runningKey, runningLine, runningWhen, type RunningAgent } from "../agents/running-state.ts";
+import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
 import { endedToday, laneOf } from "./lanes-state.ts";
@@ -23,16 +22,14 @@ import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { isMobile } from "../ui/platform.ts";
 import { Section } from "../ui/kit.tsx";
+import { RunningStatus } from "../project/split-view.tsx";
 
 /// What a running row says at its end: a move or a close, that it asks, or since when.
 function runningStatus(row: RunningAgent, home: HomeView) {
   const moving = moveLabel(row);
-  const closing = closingNote(row);
-  const working = ["working", "running", "starting"].includes(row.status);
   // Shown as last seen until its machine answers.
   const waiting = !!home.machines?.some(m => m.id === row.machine_id && m.connecting);
-  const status = moving ? <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span> : closing || (row.status === "asking" ? <span className="chip wait">needs you</span> : working ? <span className="cc-running"><span className="drun" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
-  return { foot: waiting ? <span className="cc-wait">connecting</span> : status, waiting, why: moving?.why ?? null };
+  return { foot: waiting ? <span className="cc-wait">connecting</span> : <RunningStatus row={row} />, waiting, why: moving?.why ?? null };
 }
 
 /// The project a session works in: the imported one that holds its folder.

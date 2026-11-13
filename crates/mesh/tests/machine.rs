@@ -3,7 +3,10 @@
 
 mod agent {
     use beep_mesh::machine::{Makes, checkout_for, node_request, queued_instead};
-    use beep_proto::{AgentCheckoutPlan, AgentSteer, ApiError, Upload, node::agent::Request};
+    use beep_proto::{
+        AgentSteer, ApiError, Upload,
+        node::agent::{CheckoutPlan, Request},
+    };
 
     fn png(name: &str, size: usize) -> Upload {
         let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
@@ -18,7 +21,7 @@ mod agent {
     #[test]
     fn a_named_branch_needs_a_branch_name_and_a_node_that_makes_it() {
         let named = |branch: &str| {
-            Some(AgentCheckoutPlan::NamedWorktree {
+            Some(CheckoutPlan::NamedWorktree {
                 base: Some("main".into()),
                 branch: branch.into(),
             })

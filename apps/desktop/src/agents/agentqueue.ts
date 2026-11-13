@@ -21,7 +21,6 @@ type SteerState = "sending" | "sent" | "delivered";
 
 /// A message typed while the turn runs.
 export interface Waiting {
-  how: "steer";
   /// What was typed, as the row shows it.
   typed: string;
   /// What goes to the agent: the typed text and an `@path` per mention.
@@ -59,11 +58,11 @@ export function outboxNote(row: OutboxRow) {
 
 /// A row the outbox sent, as the node now holds it until delivered.
 export const sentFromOutbox = (row: OutboxRow, read: number): Waiting =>
-  ({ how: "steer", typed: row.text, text: row.text, paths: [], images: [], state: "sent", after: read });
+  ({ typed: row.text, text: row.text, paths: [], images: [], state: "sent", after: read });
 
 /// Marks the steers the node no longer holds as delivered, oldest first.
 export function markDelivered(items: Waiting[], waiting: number, read: number) {
-  const held = items.filter(q => q.how === "steer" && q.state === "sent" && q.after < read);
+  const held = items.filter(q => q.state === "sent" && q.after < read);
   const gone = Math.max(0, held.length - waiting);
   for (const q of held.slice(0, gone)) q.state = "delivered";
   return gone > 0;
@@ -88,7 +87,7 @@ export function syncSteers(items: Waiting[], run: Run & { queued: number; queued
       && [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n") === text);
     if (q) matched.add(q);
     else restored.unshift({
-      how: "steer", typed: text, text, paths: [], images: [], state: "sent", after: read,
+      typed: text, text, paths: [], images: [], state: "sent", after: read,
     });
   }
 

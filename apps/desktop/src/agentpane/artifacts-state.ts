@@ -3,7 +3,7 @@
 // the ones its commands made, which the node names in a note at the turn's
 // end, a `(made <path>)` line each.
 
-import { attr, imageLines, parseTool } from "../agents/agentlog.ts";
+import { imageLines, parseTool } from "../agents/agentlog.ts";
 import { baseName, extension, mediaKind, resolvePath } from "./media-state.ts";
 
 /// How the tab shows an artifact.
@@ -247,10 +247,4 @@ export function readPlace(cwd: string, path: string) {
 export function relativeTo(cwd: string, path: string) {
   const place = readPlace(cwd, path);
   return place.inside ? place.path : null;
-}
-
-/// The frame an HTML artifact shows in: the page served from its own origin
-/// (`src`), sandboxed to run scripts and nothing more, sent no referrer.
-export function frameHtml(src: string, title: string) {
-  return `<iframe class="agartframe" sandbox="${FRAME_SANDBOX}" referrerpolicy="no-referrer" title="${attr(title)}" src="${attr(src)}"></iframe>`;
 }

@@ -12,15 +12,14 @@ use beep_mesh::{Key, Mesh};
 #[cfg(desktop)]
 use beep_node::agents::{local_read, local_tree};
 use beep_proto::{
-    AgentFileChunk, ImportedProject, ListWorkTree, MachineSync, ProjectSync, SyncStatus, WorkTree,
+    AgentFileChunk, ListWorkTree, WorkTree,
     node::mesh_state::{StateValue, SyncSpec},
 };
-use iroh::EndpointId;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Mutex, PoisonError},
-    time::{Duration, Instant, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 use tokio::task::spawn_blocking;
 
@@ -133,48 +132,33 @@ fn under<'a>(path: &'a str, folder: &str) -> Option<&'a str> {
     rest.strip_prefix('/')
 }
 
+/// A project's folder on one machine, from a checkout or a Beep sync.
+struct Place {
+    project: String,
+    machine_id: String,
+    folder: String,
+}
+
 /// The project whose folder on `machine_id` holds `dir`, the innermost when
 /// they nest, and that folder.
-fn holder<'a>(
-    machine_id: &str,
-    dir: &str,
-    imported: &'a [ImportedProject],
-    synced: &'a [ProjectSync],
-) -> Option<(&'a str, &'a str)> {
-    let imports = imported
+fn holder<'a>(machine_id: &str, dir: &str, places: &'a [Place]) -> Option<(&'a str, &'a str)> {
+    places
         .iter()
-        .filter(|row| row.machine_id == machine_id)
-        .map(|row| (row.project.as_str(), row.folder.as_str()));
-    let syncs = synced.iter().flat_map(|p| {
-        p.machines
-            .iter()
-            .filter(|m| m.machine_id == machine_id)
-            .map(|m| (p.project.as_str(), m.folder.as_str()))
-    });
-    imports
-        .chain(syncs)
+        .filter(|place| place.machine_id == machine_id)
+        .map(|place| (place.project.as_str(), place.folder.as_str()))
         .filter(|(_, folder)| under(dir, folder).is_some())
         .max_by_key(|(_, folder)| folder.len())
 }
 
 /// The folders of `project` on machines other than `machine_id`.
-fn other_folders<'a>(
-    machine_id: &str,
-    project: &str,
-    imported: &'a [ImportedProject],
-    synced: &'a [ProjectSync],
-) -> Vec<&'a str> {
-    let imports = imported
+fn other_folders<'a>(machine_id: &str, project: &str, places: &'a [Place]) -> Vec<&'a str> {
+    places
         .iter()
-        .filter(|row| row.machine_id != machine_id && row.project.eq_ignore_ascii_case(project))
-        .map(|row| row.folder.as_str());
-    let syncs = synced
-        .iter()
-        .filter(|p| p.project.eq_ignore_ascii_case(project))
-        .flat_map(|p| &p.machines)
-        .filter(|m| m.machine_id != machine_id)
-        .map(|m| m.folder.as_str());
-    imports.chain(syncs).collect()
+        .filter(|place| {
+            place.machine_id != machine_id && place.project.eq_ignore_ascii_case(project)
+        })
+        .map(|place| place.folder.as_str())
+        .collect()
 }
 
 /// The project holding `dir` on `machine_id`, and the first of its other
@@ -182,14 +166,13 @@ fn other_folders<'a>(
 fn find_copy(
     machine_id: &str,
     dir: &str,
-    imported: &[ImportedProject],
-    synced: &[ProjectSync],
+    places: &[Place],
     is_here: impl Fn(&Path) -> bool,
 ) -> Result<LocalCopy, Miss> {
-    let Some((project, remote)) = holder(machine_id, dir, imported, synced) else {
+    let Some((project, remote)) = holder(machine_id, dir, places) else {
         return Err(Miss::NoProject);
     };
-    let tried = other_folders(machine_id, project, imported, synced);
+    let tried = other_folders(machine_id, project, places);
     let here = tried
         .iter()
         .copied()
@@ -218,31 +201,18 @@ fn stays_inside(root: &Path, folder: &Path) -> bool {
 
 /// What the mesh records of where projects are: their checkouts and the
 /// folders Beep's sync keeps. Nothing is asked of any machine.
-fn recorded(mesh: &Mesh) -> (Vec<ImportedProject>, Vec<ProjectSync>) {
-    let names: HashMap<EndpointId, String> = mesh
-        .machines()
-        .into_iter()
-        .map(|status| (status.device.id, status.device.name))
-        .collect();
-    let name_of = |id: &EndpointId| names.get(id).cloned().unwrap_or_default();
+fn recorded(mesh: &Mesh) -> Vec<Place> {
     let imported = beep_fleet::project_names(mesh)
         .into_iter()
         .flat_map(|project| {
             beep_fleet::places(mesh, &project)
                 .into_iter()
-                .map(move |(machine, folder)| (project.clone(), machine, folder))
-        })
-        .map(|(project, machine, folder)| ImportedProject {
-            project,
-            url: String::new(),
-            machine_id: machine.to_string(),
-            machine_name: name_of(&machine),
-            folder,
-            cloned: false,
-            imported_at: UNIX_EPOCH,
-            display_name: None,
-        })
-        .collect();
+                .map(move |(machine, folder)| Place {
+                    project: project.clone(),
+                    machine_id: machine.to_string(),
+                    folder,
+                })
+        });
     let synced = mesh
         .scan("sync/")
         .into_iter()
@@ -251,42 +221,26 @@ fn recorded(mesh: &Mesh) -> (Vec<ImportedProject>, Vec<ProjectSync>) {
                 return None;
             };
             let spec = SyncSpec::from_bytes(&value).ok()?;
-            let machines = spec
-                .folders
-                .into_iter()
-                .map(|(machine, folder)| MachineSync {
-                    git_only: false,
-                    machine_id: machine.to_string(),
-                    machine_name: name_of(&machine),
-                    folder,
-                    status: SyncStatus::InSync {},
-                    files: 0,
-                    bytes: 0,
-                    pending: 0,
-                    conflicts: Vec::new(),
-                    rescan_secs: None,
-                    hint: None,
-                    error: None,
-                })
-                .collect();
-            Some(ProjectSync {
-                project,
-                pinned: false,
-                machines,
-            })
+            Some((project, spec.folders))
         })
-        .collect();
-    (imported, synced)
+        .flat_map(|(project, folders)| {
+            folders.into_iter().map(move |(machine, folder)| Place {
+                project: project.clone(),
+                machine_id: machine.to_string(),
+                folder,
+            })
+        });
+    imported.chain(synced).collect()
 }
 
 /// Looks for this Mac's copy of `dir` among the projects the mesh records.
 /// The outer error is a failed task, which says nothing about the copy.
 async fn look(fleet: &Fleet, machine_id: &str, dir: &str) -> Result<Result<LocalCopy, Miss>> {
-    let (imported, synced) = fleet.mesh().map(|mesh| recorded(&mesh)).unwrap_or_default();
+    let places = fleet.mesh().map(|mesh| recorded(&mesh)).unwrap_or_default();
     let here = |folder: &Path| folder.is_absolute() && folder.is_dir();
     let (machine, folder) = (machine_id.to_owned(), dir.to_owned());
 
-    spawn_blocking(move || find_copy(&machine, &folder, &imported, &synced, here))
+    spawn_blocking(move || find_copy(&machine, &folder, &places, here))
         .await
         .map_err(|e| DesktopError::Other(e.into()))
 }

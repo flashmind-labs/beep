@@ -444,8 +444,7 @@ impl Live {
     /// a line to show, then that line. The thought is a transcript entry of
     /// its own once it has text, so a redacted one shows nothing.
     fn thought_chunk(&mut self, content: &ContentBlock, now: Instant) {
-        if !self.in_thought {
-            self.in_thought = true;
+        if self.open_thought.is_none() {
             self.thought.clear();
             self.info.state.summary = "Thinking".into();
             // A loaded session replays its thoughts all at once.
@@ -495,7 +494,6 @@ impl Live {
 
     /// The thought arriving ended at `now`: its entry says how long it took.
     pub(crate) fn end_thought(&mut self, now: Instant) {
-        self.in_thought = false;
         let Some(open) = self.open_thought.take() else {
             return;
         };

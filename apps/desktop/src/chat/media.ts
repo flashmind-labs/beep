@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { Viewer, ViewerNotice } from "./viewer-view.tsx";
-import { $, bar } from "../bar/core.ts";
+import { bar } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
 import { savedIn } from "../ui/platform.ts";
 
@@ -35,11 +35,10 @@ export function openViewer(pics: ViewerPic[], at: number, host = bar) {
   disposeViewer();
   viewerHost = host;
   Object.assign(V, { pics, at });
-  $("#keys")?.remove();
   drawViewer();
 }
 
-export function closeViewer() {
+function closeViewer() {
   disposeViewer();
   if (viewerFocus?.isConnected) viewerFocus.focus();
   viewerFocus = null;
@@ -48,7 +47,7 @@ export function closeViewer() {
 type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
 
 /// The open picture over the whole bar, with arrows when there are more.
-export function drawViewer() {
+function drawViewer() {
   viewerOpen = true;
   overlays.set([{ slot: "viewer", host: viewerHost, content: createElement(Viewer, { pictures: V.pics, at: V.at }) }]);
 }
@@ -85,7 +84,7 @@ export async function saveUrl(url: string, name: string) {
 }
 
 /// Copies the picture at `url` as PNG.
-export async function copyUrl(url: string) {
+async function copyUrl(url: string) {
   const png = (async () => {
     const img = new Image();
     img.src = url;

@@ -3,7 +3,7 @@ import { useInteractOutside } from "react-aria/useInteractOutside";
 import type { StashEntry } from "./stash-state.ts";
 import { useDialogRef } from "../ui/parts.ts";
 
-export interface StashPanelProps {
+interface StashPanelProps {
   project: string;
   entries: StashEntry[];
   busy: boolean;

@@ -97,7 +97,7 @@ where
 }
 
 /// A request that takes this long is logged at `INFO` however it ends.
-pub const SLOW_REQUEST: Duration = Duration::from_secs(1);
+pub(crate) const SLOW_REQUEST: Duration = Duration::from_secs(1);
 
 /// Logs a request's phases at `DEBUG`, and its end, including when its
 /// future is dropped: at `INFO` only when it failed, was dropped or took
