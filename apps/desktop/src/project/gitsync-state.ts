@@ -80,7 +80,7 @@ export function syncRepairPrompt(context: SyncRepair): string {
       .filter((s, i, all) => all.findIndex(x => x.id === s.id) === i).slice(0, 2);
     const branch = git?.branch ? `${code(git.branch)}${git.upstream ? ` tracking ${code(git.upstream)}` : ", no upstream"}` : "unknown";
     const sessions = candidates.length
-      ? candidates.map(s => `  - ${code(s.id)} (${s.agent}, last active ${new Date(s.last_activity).toISOString()}): ${code(s.title)}${s.cwd ? ` in ${code(s.cwd)}` : ""}`).join("\n")
+      ? candidates.map(s => `  - ${code(s.id)} (${s.agent}, last active ${new Date(s.last_activity).toISOString()}): ${s.title ? code(s.title) : "untitled"} in ${code(s.cwd)}`).join("\n")
       : "  - none";
     return `### ${oneLine(m.name)}\n\n- Machine: ${code(m.id)}\n- Folder: ${code(m.folder)}\n- Branch: ${branch}\n- Recent sessions:\n${sessions}`;
   });
