@@ -311,11 +311,12 @@ body:not(.mobile) #agfield#agfield.dinput.small { flex-wrap: wrap }
 body:not(.mobile) #agfield #agatt { order: -1; flex: 0 0 100%; gap: 0; padding: 1px 0 3px }
 body:not(.mobile) #agfield .attachment-count { height: 22px; min-height: 0; padding: 0 8px; border-color: transparent; background: var(--ctl-fill); font: 11.5px var(--mono); color: var(--fg) }
 
-/* ----- Settings: a glass sheet like the palette, the app's own navigation rows, lists as lit cards -----
+/* ----- Settings: a glass sheet like the palette, the app's own navigation rows, lists as lit cards.
+   It takes the main cards' colour, so the window reads as one surface. -----
    The blur sits on a layer behind, so menus opened inside stay placed against the window. */
 body:not(.mobile) .cc-set { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: none; box-shadow: 0 30px 80px -10px color-mix(in srgb, var(--shade) 80%, transparent), 0 0 60px -20px color-mix(in srgb, var(--accent) 45%, transparent) }
-body:not(.mobile) .cc-set::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--lit), color-mix(in srgb, var(--elev) 88%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
-body:not(.mobile) .cc-set .dset-nav { border-right: 0; background: color-mix(in srgb, var(--shade) 22%, transparent) }
+body:not(.mobile) .cc-set::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--lit), color-mix(in srgb, var(--ink) 92%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+body:not(.mobile) .cc-set .dset-nav { border-right: 0; background: color-mix(in srgb, var(--deep) 60%, transparent) }
 body:not(.mobile) .cc-set .dset-nav > b, body:not(.mobile) .cc-set .dset-top b { font-size: 14px }
 body:not(.mobile) .cc-set .dset-pages .cc-si { padding: 5px 10px }
 body:not(.mobile) .cc-set .dset-pages .cc-si.sub { font-family: var(--mono); font-size: 11.5px }
