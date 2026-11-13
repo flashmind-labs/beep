@@ -24,9 +24,10 @@ body:not(.mobile) .dcoderen.user > b { display: none }
 /* Words the agent said on the way read quieter than its answer. */
 body:not(.mobile) .dcoderen.agent:has(+ .dcoderturn) { color: var(--muted) }
 
-/* ----- Message field: one line in a box set into the column, dragged taller from its top edge ----- */
-body:not(.mobile) #agfield.dinput.small { position: relative; align-items: flex-end; margin: 0 14px 6px; padding: 5px 6px; gap: 4px; border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, var(--ink)); font-size: 13.5px }
-body:not(.mobile) #agfield.dinput.small:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+/* ----- Message field: one line in a box set into the column, dragged taller from its top edge -----
+   The doubled id outranks the pane's own field rule in center.css. */
+body:not(.mobile) #agfield#agfield.dinput.small { position: relative; align-items: flex-end; margin: 0 14px 6px; padding: 5px 6px; gap: 4px; border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, var(--ink)); font-size: 13.5px }
+body:not(.mobile) #agfield#agfield.dinput.small:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 body:not(.mobile) #agfield.dinput.small > textarea { align-self: stretch; min-height: max(26px, var(--field-h, 0px)); padding: 0 4px; line-height: 26px }
 body:not(.mobile) #agfield button[aria-label="Attach files"] { width: 26px; height: 26px; min-height: 0; margin: 0; color: var(--muted) }
 body:not(.mobile) #agfield :is(#agstop, #agnativeparent) { min-height: 26px; padding: 0 10px; font-size: 12px }
@@ -84,3 +85,13 @@ body:not(.mobile) .cc-pal .it .t small { flex: 1 1 0; min-width: 0; text-align: 
 body:not(.mobile) .cc-pal mark { padding: 0; border-radius: 0; background: none; color: var(--fg); font-weight: 650 }
 body:not(.mobile) .cc-pal small mark { color: var(--muted); font-weight: 500 }
 body:not(.mobile) .cc-pal .it:not([aria-selected="true"]) .t > span { color: color-mix(in srgb, var(--fg) 82%, transparent) }
+
+/* ----- A question from the agent: one card, the command in a block, each answer a row with its key at the end ----- */
+body:not(.mobile) .dcard.dcoder { background: color-mix(in srgb, var(--fg) 4%, var(--ink)); border-color: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .dcoder .q { margin: 0; padding: 12px; gap: 8px; border: 0; border-radius: 0; background: none }
+body:not(.mobile) .dcoder .q code { padding: 6px 8px; border-radius: var(--radius-sm); background: var(--ink); color: var(--muted) }
+body:not(.mobile) .dcoder .q .dups { display: grid; gap: 3px; margin-top: 2px }
+body:not(.mobile) .dcoder .q .dups .dbtn { justify-content: space-between; min-height: 30px; padding: 0 10px; border: 0; background: color-mix(in srgb, var(--fg) 5%, transparent); color: var(--fg); font-size: 13px; font-weight: 400 }
+body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .dcoder .q .dups .dbtn.warn { color: var(--err) }
+body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--muted) }

@@ -296,6 +296,13 @@ test("agent changes", async ({ page }) => {
   await baseline(page, "agent-changes");
 });
 
+test("agent question", async ({ page }) => {
+  const question = { id: 1, text: "Run cargo test?", detail: "cargo test --workspace", options: [{ id: "allow", name: "Allow", allow: true }, { id: "always", name: "Always allow", allow: true }, { id: "deny", name: "Deny", allow: false }] };
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "asking", question } } });
+  await expect(page.locator(".dcoder .q")).toBeVisible();
+  await baseline(page, "agent-question");
+});
+
 test("agent running", async ({ page }) => {
   await openAgent(page);
   const process = (pid: number, command: string) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false });
