@@ -183,16 +183,14 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
         _ => return Err("Give `command`.".into()),
     };
 
+    let secs = args
+        .timeout_secs
+        .unwrap_or(DEFAULT_RUN_SECS)
+        .clamp(1, MAX_RUN_SECS);
+    let limit = Duration::from_secs(secs);
+
     if args.background {
-        return match tasks::answer(
-            table,
-            TaskRequest::Start {
-                command,
-                cwd: args.cwd,
-            },
-        )
-        .await
-        {
+        return match tasks::start_for(table, command, args.cwd, limit) {
             TaskReply::Started { id } => Ok(format!(
                 "Started it in the background. Job id: {id}. Check it with run status, \
                  stop it with run cancel."
@@ -201,11 +199,7 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
         };
     }
 
-    let secs = args
-        .timeout_secs
-        .unwrap_or(DEFAULT_RUN_SECS)
-        .clamp(1, MAX_RUN_SECS);
-    status_text(tasks::run_for(table, command, args.cwd, Duration::from_secs(secs)).await)
+    status_text(tasks::run_for(table, command, args.cwd, limit).await)
 }
 
 #[derive(Deserialize)]
