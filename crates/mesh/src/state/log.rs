@@ -329,6 +329,11 @@ impl State {
         self.winners.keys().cloned().collect()
     }
 
+    /// Whether `key` has an entry, a deleted one included.
+    pub fn holds(&self, key: &Key) -> bool {
+        self.winners.contains_key(key)
+    }
+
     pub fn heads(&self) -> Heads {
         self.heads.clone()
     }
