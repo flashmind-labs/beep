@@ -200,6 +200,18 @@ export async function expandContext(v: Viewer, f: DiffFile, direction: keyof Ext
   }
 }
 
+/// Takes file `path` back to the context it was read with.
+export function collapseContext(v: Viewer, path: string) {
+  const kept = v.context.get(path);
+  const view = v.state.view;
+  if (!kept || !view) return;
+
+  v.context.delete(path);
+  v.set({ view: withLoaded(view, [kept.original]) });
+  reconcile(v, new Set([path]));
+  remember(v);
+}
+
 /// Sends the draft as one review message; what went leaves the draft.
 export async function sendReview(v: Viewer) {
   const { sending, draft, view } = v.state;

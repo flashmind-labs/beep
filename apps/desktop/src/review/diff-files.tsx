@@ -19,7 +19,7 @@ import {
 import { CH, CHUNK, GAP, MARGIN, type Viewer, indexOf, reasonOf, remember, say, selected, shown } from "./diff-viewer.ts";
 import { commentKey, openEditor } from "./diff-comments.ts";
 import { markCurrent, sizeOf, toggle } from "./diff-keys.ts";
-import { expandContext, loadFull } from "./diff.ts";
+import { collapseContext, expandContext, loadFull } from "./diff.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 
 type CssVars = CSSProperties & Record<`--${string}`, string>;
@@ -389,6 +389,7 @@ function CommentSlot({ v, comment, label }: { v: Viewer; comment: ReviewComment;
 export function fileMenu(v: Viewer, e: MouseEvent, f: DiffFile) {
   const { src } = v;
   const items: MenuItem[] = [{ label: "Copy path", on: () => void copy(v, f.path) }];
+  if (v.context.has(f.path)) items.push({ label: "Collapse context", on: () => collapseContext(v, f.path) });
 
   if (src.open && f.status !== "deleted") {
     const open = src.open;
