@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { Dropdown } from "../ui/dropdown.tsx";
+import { PROJECT_SORTS, projectSortTime, type ProjectSort } from "../project/overview-state.ts";
+import { lastProjectVisit, readProjectSort, saveProjectSort } from "../project/project-preferences.ts";
 import { visibleRunning } from "../agents/closing.ts";
 import { closingNote } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
@@ -5,7 +9,7 @@ import { runningLineAt } from "../agents/place.ts";
 import { byRecent, projectOf, runningKey, runningLine, runningWhen, type RunningAgent } from "../agents/running-state.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
-import { endedToday, laneOf } from "./lanes-state.ts";
+import { byProject, endedToday, laneOf } from "./lanes-state.ts";
 import { frontLayout } from "../ui/skin.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { conflictList, conflictSub } from "../project/filesync.ts";
@@ -119,20 +123,43 @@ function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[]): B
 const DONE_SHOWN = 8;
 
 export function HomeOverview({ home }: { home: HomeView }) {
+  const [sort, setSort] = useState(() => readProjectSort("home"));
+  const changeSort = (value: ProjectSort) => {
+    saveProjectSort("home", value);
+    setSort(value);
+  };
+
   const list = frontLayout("home") === "list";
   const needs = needsCards(home), running = runningCards(home);
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
   const empty = !cards.length;
   // A row's dot matches the project's in the sidebar.
   const listed = projectRows() || [];
+  const activity = new Map<string, number>();
+
+  for (const session of [...(home.running ?? []), ...homeSessions()]) {
+    const name = sessionProject(session, home);
+    if (name !== null) activity.set(name, Math.max(activity.get(name) ?? 0, session.last_activity ?? session.started_at ?? 0));
+  }
+
+  for (const repo of projectsWithOpen(state.git, listed)) {
+    const name = repo.project?.name ?? repo.repo;
+    activity.set(name, Math.max(activity.get(name) ?? 0, repo.last));
+  }
+
+  const names = new Set(cards.flatMap(card => card.project === null ? [] : [card.project]));
+  const recency = sort === "default" ? null : new Map([...names].map(name => [name, projectSortTime(sort, { last: activity.get(name) ?? null }, null, lastProjectVisit(name))]));
+  const ordered = (rows: BoardCard[]) => recency === null ? rows : byProject(rows, recency).flatMap(row => row.cards);
   const rows = (project: string) => {
     const at = listed.findIndex(row => row.name === project);
     return { color: at < 0 ? null : PROJECT_COLORS[at % PROJECT_COLORS.length], open: listed[at]?.imported ? () => { go("projects", { project }); } : null };
   };
+
   return <>
-    {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{needs.map(card => <CardRow key={card.key} card={card}/>)}</Section>
-      : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows}/></div>}
-    {list && !!running.length && <Section id="sec-running" title={<Button className="lk" onClick={() => go("pane", "agents")}>Running</Button>} count={running.length}>{running.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
+    {!empty && <div className="home-sort"><Dropdown label="Sort projects" options={PROJECT_SORTS} value={sort} onChange={changeSort} icon={<Icon name="sort"/>}/></div>}
+    {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{ordered(needs).map(card => <CardRow key={card.key} card={card}/>)}</Section>
+      : !!cards.length && <div id="sec-needs"><Board cards={ordered(cards)} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows} recency={recency}/></div>}
+    {list && !!running.length && <Section id="sec-running" title={<Button className="lk" onClick={() => go("pane", "agents")}>Running</Button>} count={running.length}>{ordered(running).map(card => <CardRow key={card.key} card={card}/>)}</Section>}
     {empty && <Empty home={home} />}
   </>;
 }

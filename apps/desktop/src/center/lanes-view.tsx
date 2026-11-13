@@ -53,7 +53,7 @@ export function CardRow({ card }: { card: BoardCard }) {
 
 /// `more` makes a lane's title open the full list behind it. `rows` gives
 /// each project a row of its own under the lanes' titles.
-export function Board({ cards, more, rows }: { cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: ProjectRows | null }) {
+export function Board({ cards, more, rows, recency = null }: { recency?: ReadonlyMap<string, number> | null; cards: readonly BoardCard[]; more: Partial<Record<Lane, () => void>>; rows: ProjectRows | null }) {
   const lanes = byLane(cards);
   const box = useTravel(cards);
   const [, redraw] = useState(0);
@@ -71,7 +71,7 @@ export function Board({ cards, more, rows }: { cards: readonly BoardCard[]; more
   if (rows) {
     return <div className="bd-rows" ref={box}>
       {LANES.map(({ lane, title }) => <div className="bd-lane hd" key={lane}>{heading(lane, title)}</div>)}
-      {byProject(cards).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
+      {byProject(cards, recency).map(row => { const own = byLane(row.cards), name = row.project ?? "Other", head = row.project === null ? { color: null, open: null } : rows(row.project); return <Fragment key={row.project ?? ""}>
         <h3 className="pj" title={name}>{head.color && <span className="cc-pdot" style={{ background: head.color }}/>}{head.open ? <button type="button" onClick={head.open}>{name}</button> : <span>{name}</span>}</h3>
         {LANES.map(({ lane }) => <div className="bd-lane" key={lane}>{own[lane].map(card => <Card key={card.key} card={typeof card.sub === "string" ? { ...card, sub: withoutProject(card.sub, row.project) } : card} open={() => open(card)}/>)}</div>)}
       </Fragment>; })}
