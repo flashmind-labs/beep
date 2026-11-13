@@ -435,6 +435,9 @@ pub struct Entry {
     pub ms: Option<u64>,
     #[serde(default)]
     pub tool: Option<AgentToolCall>,
+    /// Unix seconds when this entry began; absent for undated history.
+    #[serde(default)]
+    pub sent_at: Option<u64>,
 }
 
 impl Entry {
@@ -444,6 +447,7 @@ impl Entry {
             text,
             ms: None,
             tool: None,
+            sent_at: None,
         }
     }
 }

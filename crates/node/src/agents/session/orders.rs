@@ -135,10 +135,7 @@ impl Actor {
             return Ok(Err(MOVING_REFUSAL.to_owned()));
         }
 
-        let prompt = match self.fitted(prompt) {
-            Ok(prompt) => prompt,
-            Err(refused) => return Ok(Err(refused)),
-        };
+        let prompt = self.fitted(prompt);
 
         if let Err(full) = self.room_for(&prompt) {
             return Ok(Err(full));
@@ -391,24 +388,13 @@ impl Actor {
         Ok(())
     }
 
-    /// The prompt as the agent takes it: without its images for an agent that
-    /// takes none, as each is a preview of a file the text mentions. Refused
-    /// while the agent has yet to say.
-    fn fitted(&self, mut prompt: Prompt) -> Result<Prompt, String> {
-        if prompt.images.is_empty() {
-            return Ok(prompt);
+    /// Keep images until initialization tells us whether the agent takes them.
+    fn fitted(&self, mut prompt: Prompt) -> Prompt {
+        if self.takes_images == Some(false) {
+            prompt.images.clear();
         }
 
-        match self.takes_images {
-            Some(true) => Ok(prompt),
-            Some(false) => {
-                prompt.images.clear();
-                Ok(prompt)
-            }
-            None => {
-                Err("the agent is still starting; send the images again once it is ready".into())
-            }
-        }
+        prompt
     }
 
     /// Allows a permission request the agent sent despite running without

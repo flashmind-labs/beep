@@ -457,6 +457,7 @@ fn entry(entry: agent::Entry) -> AgentEntry {
         kind,
         text: entry.text,
         tool: entry.tool,
+        sent_at: entry.sent_at,
     }
 }
 

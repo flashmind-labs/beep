@@ -233,7 +233,7 @@ function toolData(en: AgentEntry, at: number, pictures: string): ToolActivity | 
   const keyboard = opens && (inspected || parts.kind === "command");
   // A file the call names opens in the media pane, at most three of them.
   const media = mediaPaths(title).slice(0, 3);
-  const common = { kind: "tool" as const, id: String(at), at, failed, open, artifact: published?.path ?? null, toggle: opens, keyboard, mark: stepMark(status, live), media, pictures };
+  const common = { sentAt: en.sent_at ?? null, kind: "tool" as const, id: String(at), at, failed, open, artifact: published?.path ?? null, toggle: opens, keyboard, mark: stepMark(status, live), media, pictures };
 
   if (beep) {
     // A Beep call's row shows the first line of its command or prompt; opened, all of it.
@@ -434,7 +434,7 @@ function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   // A message just sent has no HTML until the next read: its text shows meanwhile.
   const html = en.html ?? (words ? words.split(/\n\s*\n/).map(part => `<p>${esc(part).replace(/\n/g, "<br>")}</p>`).join("") : "");
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
-  const prompt: PromptRow = { kind: "prompt", row: String(at), html: compactPromptAttachments(said), pictures: names.map(entryPic).join("") };
+  const prompt: PromptRow = { sentAt: en.sent_at ?? null, kind: "prompt", row: String(at), html: compactPromptAttachments(said), pictures: names.map(entryPic).join("") };
   return [...others, prompt];
 }
 
@@ -535,7 +535,7 @@ function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const html = en.html ?? esc(text);
   const block = blockedReply(text, html);
   const body = block?.html ?? html;
-  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics }] : [];
+  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics }] : [];
   if (block) replies.push({ kind: "blocked", id: `${at}:blocked`, message: block.error });
   return replies;
 }

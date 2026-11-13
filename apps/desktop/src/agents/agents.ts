@@ -111,6 +111,7 @@ export interface AgentEntry {
   child_html?: string[];
   ms?: number | null;
   tool?: AgentToolCall | null;
+  sent_at?: number | null;
 }
 
 /// Structured details from the harness, separate from its display title.

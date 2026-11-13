@@ -56,10 +56,10 @@ note: return type of find is Option&lt;User&gt;</pre></div>` : "";
     const state = asks ? tag("ask", "Waiting for you") : ended ? tag("", "Ended") : done ? tag("", "Idle") : stopping ? tag("run", "Stopping") : tag("run", "Working");
     const batch = Array.from({ length: 28 }, (_, i) => `photo-${i + 1}.jpg`);
     const batchList = `<details class="attachment-batch"><summary>28 attachments</summary><div class="attachment-items">${batch.map(name => `<span class="attachment-file" title="/path/to/uploads/${name}">${name}</span>`).join("")}</div></details>`;
-    const you = v === "attachments" ? `<div class="dcoderen user"><b>You</b><span>Create models from these photos.</span>${batchList}</div>` : `<div class="dcoderen user"><b>You</b><span>Fix the failing login test<br>Keep the other tests passing<details style="margin:4px 0;border:1px solid var(--d-border);border-radius:6px"><summary style="cursor:pointer;padding:3px 8px;font-size:12px;color:var(--d-muted)">Pasted text · 8 lines</summary><pre style="margin:0;padding:6px 8px;font:11.5px/16px var(--mono,monospace);white-space:pre-wrap;border-top:1px solid var(--d-border)">FAIL auth.spec.ts:42
+    const you = v === "attachments" ? `<div class="dcoderen user"><b>You</b><time class="entry-time" title="13 November 2026, 17:14:02">17:14</time><span>Create models from these photos.</span>${batchList}</div>` : `<div class="dcoderen user"><b>You</b><time class="entry-time" title="13 November 2026, 17:14:02">17:14</time><span>Fix the failing login test<br>Keep the other tests passing<details style="margin:4px 0;border:1px solid var(--d-border);border-radius:6px"><summary style="cursor:pointer;padding:3px 8px;font-size:12px;color:var(--d-muted)">Pasted text · 8 lines</summary><pre style="margin:0;padding:6px 8px;font:11.5px/16px var(--mono,monospace);white-space:pre-wrap;border-top:1px solid var(--d-border)">FAIL auth.spec.ts:42
 expected 200, got 401</pre></details></span></div>`;
     const head = (label, open, clickable, act) => { const m = label.match(/^([^<]*)(?:<span class="stats">· (.*)<\/span>)?$/); return dHead(m[1], { stats: m[2] || "", when: "17:14", act: clickable ? `dset:ags:${act || (open ? "idle" : "stepsopen")}` : "", open }); };
-    const folded = (line, act = "stepsopen") => `<button class="fold" data-dact="dset:ags:${act}"><span class="mk">${SG.fold}</span><span>${line}</span><span class="gt">›</span></button>`;
+    const folded = (line, act = "stepsopen") => `<button class="fold" data-dact="dset:ags:${act}"><time class="entry-time" title="13 November 2026, 17:14:08">17:14</time><span class="mk">${SG.fold}</span><span>${line}</span><span class="gt">›</span></button>`;
     // The first turn, finished. Its failed steps fold with the rest; opened,
     // each is one line until clicked.
     const failing = v === "failed" || v === "failedopen", stepsOpen = v === "stepsopen" || v === "failedopen" || v === "beeptools";
@@ -78,7 +78,7 @@ expected 200, got 401</pre></details></span></div>`;
     ].join("");
     // Calls to Beep's own tools: the machine, the command or prompt, the file count and the status, not mcp__beep__run_on.
     const BEEP_IC = DI.tray;
-    const bstep = (mk, verb, o = {}) => `<div class="st beep${mk === "bad" ? " bad" : ""}${o.open ? " open" : ""}"${o.act ? ` data-dact="dset:ags:${o.act}"` : ""}><span class="mk">${mk === "run" ? '<span class="dspin"></span>' : mk === "bad" ? SG.bad : SG.ok}</span><span class="tt"${o.tip ? ` title="${o.tip}"` : ""}><span class="bi">${BEEP_IC}</span><span class="v">${verb}</span>${o.m ? `<span class="mc">${o.m}</span>` : ""}${o.d ? `<code>${o.d}</code>` : ""}</span><span class="bs">${[o.files, mk === "run" ? "Running" : mk === "bad" ? "Failed" : "Done"].filter(Boolean).join(" · ")}</span>${o.out ? `<pre class="out">${o.out}</pre>` : ""}</div>`;
+    const bstep = (mk, verb, o = {}) => `<div class="st beep${mk === "bad" ? " bad" : ""}${o.open ? " open" : ""}"${o.act ? ` data-dact="dset:ags:${o.act}"` : ""}><time class="entry-time" title="13 November 2026, 17:14:08">17:14</time><span class="mk">${mk === "run" ? '<span class="dspin"></span>' : mk === "bad" ? SG.bad : SG.ok}</span><span class="tt"${o.tip ? ` title="${o.tip}"` : ""}><span class="bi">${BEEP_IC}</span><span class="v">${verb}</span>${o.m ? `<span class="mc">${o.m}</span>` : ""}${o.d ? `<code>${o.d}</code>` : ""}</span><span class="bs">${[o.files, mk === "run" ? "Running" : mk === "bad" ? "Failed" : "Done"].filter(Boolean).join(" · ")}</span>${o.out ? `<pre class="out">${o.out}</pre>` : ""}</div>`;
     const beepSteps = [
       bstep("ok", "Listed machines", { open: true, out: "build-box · online · Linux · Docker, GPU · claude, codex\nmac-mini · online · macOS · Xcode · claude\nwin-box · offline" }),
       bstep("ok", "Synced", { d: "widget-core", m: "build-box" }),
@@ -99,16 +99,16 @@ expected 200, got 401</pre></details></span></div>`;
     // Video, 3D model and PDF files a reply names link the same way; each opens in its own tab.
     const mlink = (f, tab) => `<a class="imgl" data-dact="dset:ags:${tab}">${f}</a>`;
     const answer = media
-      ? `<div class="dcoderen agent md">The turntable renders cleanly now. The model is ${mlink("out/turntable.glb", "paneright")}, the render ${mlink("out/walkcycle.mp4", "panebottom")} the contact sheet ${mlink("out/contact-sheet.pdf", "panepdf")} and the narration ${mlink("out/narration.mp3", "paneaudio")}.<div class="shots"><i class="img big b2" data-dact="dset:ags:shotpanel"></i></div></div>`
+      ? `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time>The turntable renders cleanly now. The model is ${mlink("out/turntable.glb", "paneright")}, the render ${mlink("out/walkcycle.mp4", "panebottom")} the contact sheet ${mlink("out/contact-sheet.pdf", "panepdf")} and the narration ${mlink("out/narration.mp3", "paneaudio")}.<div class="shots"><i class="img big b2" data-dact="dset:ags:shotpanel"></i></div></div>`
       : v === "shotgone"
-      ? `<div class="dcoderen agent md"><p>Latest screenshot:</p><span class="agwarn" title="Sign-in screen">The file is no longer on disk. Unable to load image.</span></div>`
+      ? `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time><p>Latest screenshot:</p><span class="agwarn" title="Sign-in screen">The file is no longer on disk. Unable to load image.</span></div>`
       : shots
-      ? `<div class="dcoderen agent md">The button no longer overlaps the label. Before and after are in <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-before.png</a> and <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-after.png</a>.<p>Latest screenshot:</p><p><img class="img big" src="assets/inline-image.svg" alt="Sign-in screen" data-dact="dset:ags:shotpanel" width="240" height="160"></p></div>`
+      ? `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time>The button no longer overlaps the label. Before and after are in <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-before.png</a> and <a class="imgl" data-dact="dset:ags:shotpanel">shots/login-after.png</a>.<p>Latest screenshot:</p><p><img class="img big" src="assets/inline-image.svg" alt="Sign-in screen" data-dact="dset:ags:shotpanel" width="240" height="160"></p></div>`
       : v === "beeptools"
-      ? `<div class="dcoderen agent md">The release build passes on build-box, and the iOS UI tests are running on mac-mini (job-7f2c). win-box is offline, so the Windows run waits.</div>`
+      ? `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time>The release build passes on build-box, and the iOS UI tests are running on mac-mini (job-7f2c). win-box is offline, so the Windows run waits.</div>`
       : arts
-      ? `<div class="dcoderen agent md">The usage report is in <a class="imgl" data-dact="dset:ags:artifacts">reports/usage.html</a>, published as an artifact. The notes are in <a class="imgl" data-dact="dset:ags:artifacts">reports/NOTES.md</a>.</div>`
-      : `<div class="dcoderen agent md">${v === "warning" ? '<p class="agwarn">Warning: Falling back to the HTTPS transport. The stream disconnected before completion.</p><p class="agwarn">API Error: 529 Overloaded. Please try again in a moment.</p>' : ""}Done. The login test passes, and 2 files changed. I did not touch the other tests.</div>`;
+      ? `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time>The usage report is in <a class="imgl" data-dact="dset:ags:artifacts">reports/usage.html</a>, published as an artifact. The notes are in <a class="imgl" data-dact="dset:ags:artifacts">reports/NOTES.md</a>.</div>`
+      : `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time>${v === "warning" ? '<p class="agwarn">Warning: Falling back to the HTTPS transport. The stream disconnected before completion.</p><p class="agwarn">API Error: 529 Overloaded. Please try again in a moment.</p>' : ""}Done. The login test passes, and 2 files changed. I did not touch the other tests.</div>`;
     // A plain start opens on the prompt: Beep made no branch, so there is no "Started on a new branch" line.
     // The heading is the fold: how long it worked and what it did, on one
     // line that opens the steps. Opened, it counts the calls instead.
@@ -117,7 +117,7 @@ expected 200, got 401</pre></details></span></div>`;
       dThink({ secs: 4, open: !!S.d.agprethought, act: `dset:agprethought:${S.d.agprethought ? "" : "1"}`, text: "I will check the failing assertion before changing the fixture." }),
       dHead("Ran 1 command", { act: `dset:agpretools:${S.d.agpretools ? "" : "1"}`, open: !!S.d.agpretools }),
       S.d.agpretools ? dRows(step("ok", "Ran cargo test -p widget-core login")) : "",
-      `<div class="dcoderen agent md">The test expects the old error message. I will update the fixture and run the suite again.</div>`,
+      `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time>The test expects the old error message. I will update the fixture and run the suite again.</div>`,
       head(`${stepsOpen ? "6 tool calls · 2 files changed" : workLine}`, stepsOpen, true),
       stepsOpen ? `<div class="${v === "beeptools" ? "steps" : "tools"}">${v === "beeptools" ? beepSteps : steps}</div>` : "",
       ...(shots ? [`<div class="shots small"><i class="img"></i><i class="img b2"></i></div>`] : []),
@@ -133,7 +133,7 @@ expected 200, got 401</pre></details></span></div>`;
     const T2 = "<p>Checking why the error text changed. The last commit touched <code>LoginError::Display</code>, so the suite needs a rerun.</p>";
     const thinkV = ["thinking", "thoughts", "thoughtopen"].includes(v);
     const live = done ? "" : [
-      `<div class="dcoderen user"><b>You</b><span>${subs ? "Check every place that shows this error" : "Now run the whole suite"}</span></div>`,
+      `<div class="dcoderen user"><b>You</b><time class="entry-time" title="13 November 2026, 17:14:02">17:14</time><span>${subs ? "Check every place that shows this error" : "Now run the whole suite"}</span></div>`,
       head(`${asks ? "Waiting for you · 48s" : "Working for 48s"}${thinkV ? "" : '<span class="stats">· Ran 2 commands, read 3 files</span>'}`, false, !thinkV),
       thinkV ? tk(false, v === "thoughtopen", "Thought for 12s", v === "thoughtopen" ? "thoughts" : "thoughtopen", T1) : "",
       thinkV ? dHead("Read 1 file", { act: `dset:agpretools:${S.d.agpretools ? "" : "1"}`, open: !!S.d.agpretools }) + (S.d.agpretools ? dRows(step("ok", "Read src/errors.rs")) : "") : "",
@@ -141,13 +141,13 @@ expected 200, got 401</pre></details></span></div>`;
       subs ? group : thinkV && v !== "thinking" ? dRows(step("run", "Running cargo test -p widget-core")) : thinkV ? "" : dRows(step("run", asks ? "Run rm -rf target && cargo build --release" : "Running cargo test -p widget-core")),
       v === "thinking" ? dThink({ live: true, text: T2 }) : "",
       dLive(asks ? "Waiting for you" : v === "thinking" ? "Thinking" : "Working", "48s", { doing: asks || subs || thinkV ? "" : "Checking why the error text changed" }),
-      v === "steered" ? `<div class="dcoderen user md"><b>You</b><div class="said"><p>Use the fixture in tests/data, not a new one</p></div></div>` : "",
+      v === "steered" ? `<div class="dcoderen user md"><b>You</b><time class="entry-time" title="13 November 2026, 17:14:02">17:14</time><div class="said"><p>Use the fixture in tests/data, not a new one</p></div></div>` : "",
     ].join("");
     const kidView = `<div class="crumb"><button data-dact="dset:ags:agentkids">Fix the failing login test</button><span>›</span><b>Build the iOS target</b><span class="sp"></span><button class="dbtn" data-dact="dset:ags:agentkids">Open parent<kbd>esc</kbd></button></div>
       <div class="note">Started by Fix the failing login test on build-box. Codex on mac-box, in widget.</div>
       <div class="dcoderen user"><b>Task</b><span>Build the iOS app and run the login UI tests</div></div>
       ${head("Working for 2m", false, false)}<div class="tools">${[step("ok", "Ran xcodebuild -scheme Widget build"), step("run", "Ran xcodebuild test -scheme WidgetUITests")].join("")}</div>
-      <div class="dcoderen agent md">Allow <code>xcodebuild test</code> on mac-box? <button class="dbtn small pri" data-toast="Allowed">Allow</button> <button class="dbtn small quiet" data-toast="Denied">Deny</button></div>
+      <div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time>Allow <code>xcodebuild test</code> on mac-box? <button class="dbtn small pri" data-toast="Allowed">Allow</button> <button class="dbtn small quiet" data-toast="Denied">Deny</button></div>
       <div class="note">Only you can answer this: the parent cannot.</div>`;
     // Stopped from its row or its own log: the log says who stopped it, and
     // the parent gets a note that the user stopped it.
@@ -167,7 +167,7 @@ expected 200, got 401</pre></details></span></div>`;
     const rich = ["rich", "richopen", "richcmd", "richgroup", "richdone", "richerror", "richblocked", "richjump", "richthink", "richthought"].includes(v);
     const RI = { ...AG_IC, chev: AG_IC.next };
     // A row: kind, verb, target, detail on the right, status; `body` when opened.
-    const rw = (k, verb, tg, o = {}) => `<div class="dcoderen tool row${o.open ? " open" : ""}${o.st === "bad" ? " bad" : ""}" data-dact="dset:ags:${o.act || (v === "richopen" ? "rich" : "richopen")}"><span class="ki">${RI[k]}</span><span class="vb">${verb}</span><code class="tt" title="${tg}">${o.open && k === "run" ? "" : tg}</code>${o.mt ? `<span class="rm">${o.mt}</span>` : ""}<span class="mk">${o.st === "run" ? '<span class="dspin"></span>' : o.st === "bad" ? RI.bad : RI.ok}</span>${o.open && (o.body || k === "run") ? `<div class="bdy">${k === "run" ? `<pre class="cmd">${tg}</pre>` : ""}${o.body || ""}</div>` : ""}</div>`;
+    const rw = (k, verb, tg, o = {}) => `<div class="dcoderen tool row${o.open ? " open" : ""}${o.st === "bad" ? " bad" : ""}" data-dact="dset:ags:${o.act || (v === "richopen" ? "rich" : "richopen")}"><span class="ki">${RI[k]}</span><span class="vb">${verb}</span><code class="tt" title="${tg}">${o.open && k === "run" ? "" : tg}</code>${o.mt ? `<span class="rm">${o.mt}</span>` : ""}<time class="entry-time" title="13 November 2026, 17:14:08">17:14</time><span class="mk">${o.st === "run" ? '<span class="dspin"></span>' : o.st === "bad" ? RI.bad : RI.ok}</span>${o.open && (o.body || k === "run") ? `<div class="bdy">${k === "run" ? `<pre class="cmd">${tg}</pre>` : ""}${o.body || ""}</div>` : ""}</div>`;
     const plusMinus = (a, r) => `<span class="pl">+${a}</span> <span class="mi">-${r}</span>`;
     const diffBox = `<div class="df"><div class="dh">src/invites/limits.rs</div><div class="dc"> fn daily_limit(user: &amp;User) -&gt; u32 {</div><div class="dc">     match user.plan {</div><div class="dr">-        Plan::Free =&gt; 3,</div><div class="da">+        Plan::Free =&gt; 5,</div><div class="da">+        Plan::Trial =&gt; 5,</div><div class="dc">         Plan::Pro =&gt; 50,</div></div>`;
     const outBox = (txt) => `<pre class="box">${txt}</pre>`;
@@ -183,7 +183,7 @@ expected 200, got 401</pre></details></span></div>`;
     const errorCard = `<div class="errc"><b>The turn did not finish</b><span>claude exited with code 1 after 41s. The last command was still running.</span></div>`;
     const doneRich = v === "richdone" || v === "richerror" || v === "richblocked";
     const richTurn = [
-      `<div class="dcoderen user"><b>You</b><span>Why do invites stop after 3 a day?</span></div>`,
+      `<div class="dcoderen user"><b>You</b><time class="entry-time" title="13 November 2026, 17:14:02">17:14</time><span>Why do invites stop after 3 a day?</span></div>`,
       dHead(doneRich ? "Worked for 2m 14s" : "Working for 48s", { stats: doneRich ? "12 tool calls · 3 files changed" : "9 tool calls · 1 file changed", when: "17:14", act: "dset:ags:rich", open: true }),
       `<div class="tools"><div class="dthink"><button data-dact="dset:ags:thoughtopen" aria-expanded="false"><span class="lb">Thought for 6s</span><span class="cv">${SG.chev}</span></button></div>`,
       readRun,
@@ -201,10 +201,10 @@ expected 200, got 401</pre></details></span></div>`;
         : dThink({ live: true }),
       v === "richthink" ? dLive("Thinking", "48s") : "",
       "</div>",
-      v === "richerror" ? errorCard : v === "richblocked" ? `<div class="dcoderen agent md"><p>The changes are committed. I will push them now.</p></div><div class="errc blocked" role="alert"><b>Conversation blocked</b><span>This request was blocked by our safety systems. Reason: Potentially unintended activity.</span></div>` : "",
-      doneRich && v !== "richerror" && v !== "richblocked" ? `<div class="dcoderen agent md"><p>The delivery queue counted <b>retries as new invites</b>, so three sends with one retry each hit the limit early.</p><ul><li>Count an invite once, in <code>create</code>.</li><li>The free limit is 5, as the pricing page says.</li></ul><pre class="code"><button class="cp" data-toast="Copied">Copy</button><code>fn count(&amp;self, invite: &amp;Invite) {\n    if invite.attempt == 0 { self.sent += 1 }\n}</code></pre><table><tr><th>Plan</th><th>Before</th><th>After</th></tr><tr><td>Free</td><td>3</td><td>5</td></tr><tr><td>Pro</td><td>50</td><td>50</td></tr></table></div>` : "",
+      v === "richerror" ? errorCard : v === "richblocked" ? `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time><p>The changes are committed. I will push them now.</p></div><div class="errc blocked" role="alert"><b>Conversation blocked</b><span>This request was blocked by our safety systems. Reason: Potentially unintended activity.</span></div>` : "",
+      doneRich && v !== "richerror" && v !== "richblocked" ? `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time><p>The delivery queue counted <b>retries as new invites</b>, so three sends with one retry each hit the limit early.</p><ul><li>Count an invite once, in <code>create</code>.</li><li>The free limit is 5, as the pricing page says.</li></ul><pre class="code"><button class="cp" data-toast="Copied">Copy</button><code>fn count(&amp;self, invite: &amp;Invite) {\n    if invite.attempt == 0 { self.sent += 1 }\n}</code></pre><table><tr><th>Plan</th><th>Before</th><th>After</th></tr><tr><td>Free</td><td>3</td><td>5</td></tr><tr><td>Pro</td><td>50</td><td>50</td></tr></table></div>` : "",
     ].join("");
-    const noChange = `<div class="dcoderen user"><b>You</b><span>which custom agents do we have in this folder?</span></div>${head('Worked for 8s<span class="stats">· Searched once</span>', false, true, "nochange")}<div class="dcoderen agent md"><p>None. This folder has no <code>.claude/agents/</code> directory, and no <code>AGENTS.md</code> either.</p><p>The types available here are all built-in or global: <code>claude</code>, <code>Explore</code>, <code>general-purpose</code>, <code>Plan</code> and <code>statusline-setup</code>.</p></div>`;
+    const noChange = `<div class="dcoderen user"><b>You</b><time class="entry-time" title="13 November 2026, 17:14:02">17:14</time><span>which custom agents do we have in this folder?</span></div>${head('Worked for 8s<span class="stats">· Searched once</span>', false, true, "nochange")}<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time><p>None. This folder has no <code>.claude/agents/</code> directory, and no <code>AGENTS.md</code> either.</p><p>The types available here are all built-in or global: <code>claude</code>, <code>Explore</code>, <code>general-purpose</code>, <code>Plan</code> and <code>statusline-setup</code>.</p></div>`;
     // What Beep told the agent (its brief, the user's standing rules) is a
     // muted row folded to "Beep context"; what another session sent is its
     // own row under that session's name. Neither is in the user's box.
@@ -214,12 +214,12 @@ expected 200, got 401</pre></details></span></div>`;
       ctx,
       `<div class="dcoderen fromsession sessioncard"><div class="kh"><span class="kt"><span class="kl">acme/app</span><b>Fix the failing login test</b></span></div><div class="sessionbody">Build the iOS app and run the login UI tests</div></div>`,
       head("Worked for 2m", false, true, "fromsession"),
-      `<div class="dcoderen agent md"><p>Built and ran <code>WidgetUITests</code>: 12 passed.</p></div>`,
+      `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time><p>Built and ran <code>WidgetUITests</code>: 12 passed.</p></div>`,
       `<div class="dcoderen fromsession sessioncard"><div class="kh"><span class="kt"><span class="kl">acme/app</span><b>Fix the failing login test</b></span></div><div class="sessionbody">Now run them on the iPad simulator too.</div></div>`,
       head("Worked for 1m 10s", false, true, "fromsession"),
-      `<div class="dcoderen agent md"><p>Same 12 pass on the iPad.</p></div>`,
+      `<div class="dcoderen agent md"><time class="entry-time" title="13 November 2026, 17:15:14">17:15</time><p>Same 12 pass on the iPad.</p></div>`,
       ctx,
-      `<div class="dcoderen user"><b>You</b><span>ok, let's keep going</span></div>`,
+      `<div class="dcoderen user"><b>You</b><time class="entry-time" title="13 November 2026, 17:14:02">17:14</time><span>ok, let's keep going</span></div>`,
       head("Working for 8s", false, false),
     ].join("");
     // Messages sent while the machine is unreachable (a node restarting for an
