@@ -2,6 +2,17 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.25] - 2026-11-13
+
+### Added
+
+- Node: prefer ACP v2 for agents, fall back to v1 when an agent selects it, and allow `BEEP_ACP_VERSION=1` in the harness environment to select v1.
+
+### Fixed
+
+- Node: avoid duplicate ACP v2 subagent steps, keep idle sessions inactive after failed compaction, and retain model, effort and mode controls after incomplete configuration replies.
+- Node: interruption notices appear as status instead of becoming part of the next user prompt.
+
 ## [0.6.24] - 2026-11-13
 
 ### Changed
