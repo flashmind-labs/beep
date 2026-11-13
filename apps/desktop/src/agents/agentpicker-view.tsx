@@ -106,7 +106,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
           if (row) onModel(row.value);
         }
       }}/></div>
-      <div className="agc-models"><ModelRows rows={rows} picked={picked} highlight={highlight} lit={lit} list={list} onModel={onModel} />
+      <div className="agc-models"><ModelRows rows={rows} picked={picked} levels={levels} highlight={highlight} lit={lit} list={list} onModel={onModel} onEffort={onEffort} />
         {note && <p className="none" role="status">{loading && <><Spinner /> </>}{note}</p>}
         {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
       </div>
@@ -127,15 +127,27 @@ const PICK_HEIGHT = 340;
 /// The model column's rows, drawing only those near the view: a harness can
 /// offer hundreds of models. The highlighted row scrolls into view as the
 /// arrow keys move it, below the search field that sticks on top.
-function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
+function ModelRows({ rows, picked, levels, highlight, lit, list, onModel, onEffort }: {
   rows: readonly ModelRow[];
   picked: Picked;
+  levels: ReturnType<typeof effortsOf>;
   highlight: number;
   lit: string | null;
   list: RefObject<HTMLDivElement | null>;
   onModel: (model: string) => void;
+  onEffort: (effort: string | null) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  // The model whose thinking levels show under it. A click on a model opens
+  // them; a level there, or a second click on the model, picks it.
+  const [open, setOpen] = useState<string | null>(null);
+  useLayoutEffect(() => { setOpen(null); }, [picked.agent]);
+  const choose = (model: string) => {
+    if (!levels.length || open === model) return onModel(model);
+
+    setOpen(model);
+  };
+  const level = (model: string, effort: string | null) => { onEffort(effort); onModel(model); };
   // How far down the list the rows start, under the search field.
   const [above, setAbove] = useState(0);
   useLayoutEffect(() => { setAbove((box.current?.offsetTop ?? 0) - (list.current?.offsetTop ?? 0)); }, [list]);
@@ -153,10 +165,15 @@ function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
     {virtual.getVirtualItems().map(item => {
       const row = rows[item.index];
       // The search field is the list's one Tab stop: a focused row would unmount as it scrolls away.
-      return <button key={item.key} ref={virtual.measureElement} data-index={item.index} type="button" tabIndex={-1} data-agmo={row.value}
-        className={`${row.value === picked.model ? "on" : ""}${row.value && picked.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
-        style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start - above}px)` }}
-        onClick={() => onModel(row.value)}>{row.label}{row.note && <small>{row.note}</small>}</button>;
+      return <div key={item.key} ref={virtual.measureElement} data-index={item.index} style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start - above}px)` }}>
+        <button type="button" tabIndex={-1} data-agmo={row.value} aria-expanded={levels.length ? open === row.value : undefined}
+          className={`${row.value === picked.model ? "on" : ""}${row.value && picked.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
+          onClick={() => choose(row.value)}>{row.label}{row.note && <small>{row.note}</small>}</button>
+        {open === row.value && <div className="agc-levels" role="group" aria-label={`Thinking for ${row.label}`}>
+          <button type="button" tabIndex={-1} data-agle="" className={picked.effort ? "" : "on"} onClick={() => level(row.value, null)}>Default</button>
+          {levels.map(l => <button key={l.value} type="button" tabIndex={-1} data-agle={l.value} className={picked.effort === l.value ? "on" : ""} onClick={() => level(row.value, l.value)}>{l.label}</button>)}
+        </div>}
+      </div>;
     })}
   </div>;
 }

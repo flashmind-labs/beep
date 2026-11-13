@@ -253,3 +253,23 @@ test("model rows are no Tab stops: Tab from the search leaves the list", async (
   await input.press("ArrowDown");
   await expect(picker.locator(".agc-models .hi")).toHaveCount(1);
 });
+
+test("a clicked model opens its thinking levels, and a level picks both", async ({ page }, info) => {
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  const pill = page.locator("#agpillb");
+  await expect(pill).toBeEnabled();
+  await pill.click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await picker.locator('[data-agh="codex"]').click();
+
+  await picker.locator('[data-agmo="beta"]').click();
+  await expect(picker.locator('[data-agmo="beta"]')).toHaveAttribute("aria-expanded", "true");
+  await expect(picker.getByRole("group", { name: "Thinking for Beta" })).toBeVisible();
+  if (process.env.PICKER_SHOT) await page.screenshot({ path: process.env.PICKER_SHOT });
+
+  await picker.locator('[data-agle="high"]').click();
+  await expect(picker).toHaveCount(0);
+  await expect(pill).toContainText("Beta");
+  await expect(pill).toContainText("High");
+});
