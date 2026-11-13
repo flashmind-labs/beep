@@ -7,6 +7,49 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.25] - 2026-11-13
+
+### Added
+
+- Desktop: Settings > Skills lists skill libraries, packs of agent skills kept
+  in a Git repository. Add one from its Git URL, Update every machine to the
+  newest commit, or remove it.
+- Desktop: install a whole library or single skills on every machine, or for
+  one project from the project's Skills… menu. Keep out of Git is on by
+  default for project skills.
+- Desktop: Find existing libraries adopts skills already in the agents' global
+  skills folders that came from a Git repository. Name clashes and failed
+  clones show under the library.
+- Desktop: rename projects from the project menu, with an option to rename their hosted repository while keeping local folder paths.
+- Desktop: select repository copies on GitHub and Forgejo separately when renaming a project, and retry failed hosts while keeping successful renames.
+- Desktop: subagent lists show the full model name from the chat model picker when it is known.
+- Desktop: sort Home projects by recent activity or last opened, with a separate preference from Projects.
+
+### Changed
+
+- Desktop: the log records how long each stage of a launch took, from the
+  process starting to Home being drawn, in lines that start with `startup:`.
+- Desktop: a smaller project rename dialog shows repository settings only when selected.
+- Desktop: every checkbox uses the same style, including issue picking, ignored-folder
+  sync, confirm dialogs, Show ignored in Files and Include binary path.
+- Desktop: Home and Projects use a styled sort menu.
+
+### Fixed
+
+- Desktop: blocked conversations show the provider reason alongside any partial reply, including in saved history.
+- Desktop: uploaded attachments in project folders no longer appear as files made by the agent.
+- Desktop: closed sessions appear in history as soon as the machine reports they ended.
+- Desktop: Claude API errors in conversations appear in yellow again.
+- Desktop: flsh installs and updates on Windows x86_64 using the published Windows executable and checksum.
+
+### Performance
+
+- Desktop: Beep opens about a third faster. The window shows before the rest
+  of the app is set up, and the metrics clock no longer holds the launch for
+  200 ms on Apple silicon.
+- Desktop: Home appears before the window's scripts have loaded, showing what it
+  last showed.
+
 ## [0.8.24] - 2026-11-13
 
 ### Added
