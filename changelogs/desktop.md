@@ -7,6 +7,25 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.22] - 2026-11-13
+
+### Added
+
+- Desktop: in a diff, where arrows showed more unchanged lines a button beside
+  them hides those lines again.
+
+### Changed
+
+- Desktop: a file link that points at a missing file names the path and machine
+  it tried, instead of saying the file is gone or the machine is offline.
+- Desktop: the agent draft for reconciling Git sync is laid out as Markdown sections instead of raw JSON.
+
+### Fixed
+
+- Desktop: a project folder that was replaced on a machine, for example by
+  cloning it again, says so on the Sync page and offers Start over with this
+  folder, instead of staying stopped with no way out.
+
 ## [0.8.21] - 2026-11-13
 
 ### Added

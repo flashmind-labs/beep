@@ -2,6 +2,13 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.18] - 2026-11-13
+
+### Fixed
+
+- beep-node: sync can start over in a project folder that was replaced, scanning
+  it from nothing so nothing is deleted on other machines.
+
 ## [0.6.17] - 2026-11-13
 
 ### Added
