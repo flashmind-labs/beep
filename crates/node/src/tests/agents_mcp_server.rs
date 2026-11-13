@@ -340,10 +340,12 @@ async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    for tool in ["run", "generate_image", "generate_video", "tts", "decision"] {
+    for tool in ["run", "image", "video", "speech", "decision"] {
         assert!(names.contains(&tool), "{tool} missing from {names:?}");
     }
-    assert!(!names.contains(&"generate_3d"), "{names:?}");
+    for hidden in ["model_3d", "generate_image", "list_models"] {
+        assert!(!names.contains(&hidden), "{names:?}");
+    }
     assert_eq!(out[1]["result"]["isError"], true, "{out:?}");
     assert!(fake.calls.lock().unwrap().is_empty());
 }
@@ -411,4 +413,49 @@ fn the_tool_definitions_fit_the_budget() {
     assert!(tokens <= TOKENS, "{tokens} tokens");
     let brief = (super::super::BRIEF.len()) / 4;
     assert!(brief <= 500, "the brief is {brief} tokens");
+}
+
+#[tokio::test]
+async fn a_media_group_runs_its_actions_and_lists_its_models() {
+    use crate::machine::provision::spawn_env::{self, TEST_LOCK};
+    use beep_proto::{SecretText, node::EnvSecret};
+
+    let _env = TEST_LOCK.lock().await;
+    let folder = tempfile::tempdir().unwrap();
+    let mut fake = Fake::new("allow");
+    fake.media = Some(folder.path().to_owned());
+    spawn_env::set_vars(vec![EnvSecret {
+        name: "MESHY_API_KEY".into(),
+        value: SecretText::new("msy-test"),
+    }]);
+    let call = |id, args: Value| {
+        request(id, "tools/call", json!({ "name": "model_3d", "arguments": args }))
+    };
+    let out = exchange(
+        &fake,
+        &[
+            request(1, "tools/list", json!({})),
+            call(2, json!({ "action": "models" })),
+            call(3, json!({ "action": "models", "query": "lite" })),
+            call(4, json!({ "action": "fly" })),
+        ],
+    )
+    .await;
+    spawn_env::set_vars(Vec::new());
+
+    let tool = out[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "model_3d")
+        .expect("model_3d is offered");
+    assert_eq!(
+        tool["inputSchema"]["properties"]["action"]["enum"],
+        json!(["generate", "models"])
+    );
+    assert!(text(&out[1]).contains("meshy:latest"), "{}", text(&out[1]));
+    assert!(!text(&out[1]).contains("tripo:"), "{}", text(&out[1]));
+    assert_eq!(text(&out[2]).lines().count(), 1, "{}", text(&out[2]));
+    assert_eq!(out[3]["result"]["isError"], true);
+    assert!(fake.calls.lock().unwrap().is_empty());
 }
