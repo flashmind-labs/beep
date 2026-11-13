@@ -227,13 +227,12 @@ Error: Process completed with exit code 101.</pre></span>
       if (footer) footer.innerHTML = '<span class="ddot"></span> <b>2</b> of 3 machines online';
     }
     const page = skinned(ccWin(side.innerHTML, main));
-    if (S.d.renameproject === "1") return ccSheetOver(page, `<div class="am-head"><b>Rename project</b><kbd>esc</kbd></div>
-      <div class="am-label"><label for="project-name">Project name</label></div><div class="am-line"><input id="project-name" class="gp-field" value="acme/widget"></div>
-      <label class="am-line"><input type="checkbox">Also rename the hosted repository</label>
-      <div class="am-label"><label for="repo-name">Repository name</label></div><div class="am-line"><input id="repo-name" class="gp-field" value="widget" disabled></div>
-      <div class="am-sub" style="overflow-wrap:anywhere">Repository: https://github.com/acme/widget</div>
-      <div class="am-sub">The repository stays with its current owner. Matching Git remotes update when machines reconnect. Local folders keep their paths.</div>
-      <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:renameproject:" data-dgo="dWinProject">Cancel</button><button class="dbtn pri" data-dact="dset:renameproject:" data-dgo="dWinProject" data-toast="Project renamed">Save</button></div>`);
+    if (S.d.renameproject === "1") return ccSheetOver(page, `<form class="pr-form" onsubmit="return false">
+      <div class="am-head"><b>Rename project</b><kbd>esc</kbd></div>
+      <label class="pr-label" for="project-name">Project name</label><input id="project-name" class="gp-field pr-name" value="acme/widget">
+      <div class="pr-repository"><label class="pr-option"><input type="checkbox" ${S.d.renameRepo ? "checked" : ""} data-dact="dset:renameRepo:${S.d.renameRepo ? "" : "1"}" data-dgo="dWinProject"><span>Rename repository too<small>github.com/acme/widget</small></span></label>
+      ${S.d.renameRepo ? '<div class="pr-repository-fields"><label class="pr-label" for="repo-name">Repository name</label><input id="repo-name" class="gp-field" value="widget"><p>Git remotes update when machines reconnect. Folders stay unchanged.</p></div>' : ""}</div>
+      <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:renameproject:" data-dgo="dWinProject">Cancel</button><button class="dbtn pri" data-dact="dset:renameproject:" data-dgo="dWinProject" data-toast="Project renamed">Rename</button></div></form>`).replace('width:min(520px,86%)', 'width:min(440px,86%)');
     if (S.d.igsform === "1") return ccSheetOver(page, `<div class="am-head"><b>Sync gitignored</b><kbd>esc</kbd></div>
       <label class="am-line"><input type="checkbox" checked>Sync selected ignored folders on all machines</label>
       <label class="am-label" for="ignored-folders">Folders relative to the project, one per line</label><textarea id="ignored-folders" class="ip-path ip-list" rows="4">assets/models
@@ -288,9 +287,10 @@ data/captures</textarea>
     ["Machines: sync needs attention", () => { S.d.psel = "sync"; S.d.fss = "stuck"; render(); }, () => S.d.psel === "sync" && S.d.fss === "stuck"],
     ["Machines: change folder", () => { S.d.psel = "sync"; S.d.fss = "change"; render(); }, () => S.d.psel === "sync" && S.d.fss === "change"],
 
+    ["Rename repository", () => { S.d.renameproject = "1"; S.d.renameRepo = "1"; render(); }, () => !!S.d.renameproject && !!S.d.renameRepo],
     ["Rename project", () => { S.d.renameproject = "1"; render(); }, () => !!S.d.renameproject],
     ["Project menu", () => { S.d.psel = "overview"; S.d.pmenu = "1"; render(); }, () => !!S.d.pmenu],
-    ...skinVariants].map(([l, f, on]) => [l, () => { S.d.renameproject = ""; if (l !== "Project menu") S.d.pmenu = ""; f(); }, on]);
+    ...skinVariants].map(([l, f, on]) => [l, () => { S.d.renameproject = ""; S.d.renameRepo = ""; if (l !== "Project menu") S.d.pmenu = ""; f(); }, on]);
   D.dProjectMachines = () => {
     S.d.psel = "machines";
     return D.dWinProject();

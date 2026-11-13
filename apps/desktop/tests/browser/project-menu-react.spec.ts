@@ -84,12 +84,12 @@ test("project rename keeps its identity and only renames the repository when sel
   const menu = await openMenu(page);
   await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue(projectName);
-  await expect(page.getByLabel("Repository name", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Repository name", { exact: true })).toHaveCount(0);
   await page.getByLabel("Project name", { exact: true }).fill("New name");
   await page.evaluate(project => window.__navigation.respond("center_home", {
     machines: [], running: [], needs_you: [], projects: [{ name: project, display_name: "New name", url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 }],
   }), projectName);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repository: null }]);
   await expect(page.getByRole("heading", { name: "New name", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "New name", exact: true })).toBeVisible();
@@ -101,9 +101,9 @@ test("repository rename sends its own name and shows errors without discarding t
   const menu = await openMenu(page);
   await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
   await page.getByLabel("Project name", { exact: true }).fill("New name");
-  await page.getByLabel("Also rename the hosted repository").check();
+  await page.getByRole("checkbox", { name: /Rename repository too/ }).check();
   await page.getByLabel("Repository name", { exact: true }).fill("new-repo");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repository: "new-repo" }]);
   await expect(page.getByRole("alert")).toHaveText("Requested test failure");
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("New name");
@@ -118,7 +118,7 @@ test("the rename sheet fits a phone and hides window-only actions", async ({ pag
   await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Rename project", exact: true });
   await expect(dialog.getByLabel("Project name", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Rename", exact: true })).toBeVisible();
   const bounds = await dialog.boundingBox();
   expect(bounds).not.toBeNull();
   expect(bounds?.x).toBeGreaterThanOrEqual(0);

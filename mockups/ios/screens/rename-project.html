@@ -1,3 +1,32 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rename project</title><link rel="stylesheet" href="../../ios/styles/shell.css"><link rel="stylesheet" href="../../ios/styles/machines-projects.css"></head>
-<body class="ios screen"><figure><div class="ph"><div class="sb">9:41</div><div class="cwin"><div class="top"><b>Rename project</b></div><form class="rename-project" onsubmit="return false"><label>Project name<input aria-label="Project name" value="acme/widget"></label><label><input type="checkbox">Also rename the hosted repository</label><label>Repository name<input value="widget" disabled></label><p>The repository stays with its current owner. Matching Git remotes update when machines reconnect. Local folders keep their paths.</p><div><button class="btn">Cancel</button> <button class="btn pri">Save</button></div></form></div></div><figcaption>Rename project</figcaption></figure></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Rename project</title>
+  <link rel="stylesheet" href="../../ios/styles/shell.css">
+  <link rel="stylesheet" href="../../ios/styles/machines-projects.css">
+</head>
+<body class="ios screen">
+  <figure><div class="ph">
+    <div class="sb">9:41</div>
+    <div class="cwin">
+      <div class="top"><b>Project</b></div>
+      <form class="rename-project" onsubmit="return false">
+        <h2>Rename project</h2>
+        <label class="rename-label" for="project-name">Project name</label>
+        <input id="project-name" value="acme/widget">
+        <div class="rename-repository">
+          <label class="rename-option"><input type="checkbox"><span>Rename repository too<small>github.com/acme/widget</small></span></label>
+          <div class="rename-fields">
+          <label class="rename-label" for="repo-name">Repository name</label>
+          <input id="repo-name" value="widget">
+          <p>Git remotes update when machines reconnect. Folders stay unchanged.</p>
+          </div>
+        </div>
+        <footer><button class="btn">Cancel</button><button class="btn pri">Rename</button></footer>
+      </form>
+    </div>
+  </div><figcaption>Rename project</figcaption></figure>
+</body>
+</html>
