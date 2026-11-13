@@ -3,7 +3,7 @@
 use beep_proto::logging::RollingFile;
 use iroh::Endpoint;
 use iroh_metrics::{MetricsSource, Registry};
-use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use std::{
     io::Write,
     path::Path,
@@ -24,11 +24,23 @@ fn lagged(delay: Duration) {
     }
 }
 
-/// Records one snapshot per minute, retaining seven rotated daily files.
-/// The returned handle owns the task and must be kept until shutdown.
-pub fn start(endpoint: &Endpoint, path: &Path) -> anyhow::Result<AbortOnDropHandle<()>> {
+/// Installs the recorder the application's metrics go to; what was recorded
+/// before it is lost. The recorder's clock calibrates as it is made, for
+/// 200 ms on Apple silicon, so an app with a window to open calls this on a
+/// thread of its own.
+pub fn install() -> anyhow::Result<PrometheusHandle> {
+    Ok(PrometheusBuilder::new().install_recorder()?)
+}
+
+/// Records one snapshot of `handle`'s metrics and the endpoint's per minute,
+/// retaining seven rotated daily files. The returned handle owns the task and
+/// must be kept until shutdown.
+pub fn start(
+    handle: PrometheusHandle,
+    endpoint: &Endpoint,
+    path: &Path,
+) -> anyhow::Result<AbortOnDropHandle<()>> {
     let file = Arc::new(RollingFile::new(path, 7)?);
-    let handle = PrometheusBuilder::new().install_recorder()?;
     let mut registry = Registry::default();
     registry.register_all(endpoint.metrics());
     Ok(AbortOnDropHandle::new(tokio::spawn(async move {

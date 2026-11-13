@@ -44,6 +44,25 @@ export function perfFresh(view: PerfView): () => void {
   };
 }
 
+/// When this window's launch reached each stage, in milliseconds since the Unix epoch.
+const startup: Record<string, number> = {};
+
+/// Notes that the window's launch reached `stage`, for the app's startup log.
+export function startupStage(stage: string) {
+  startup[stage] ??= performance.timeOrigin + performance.now();
+}
+
+/// Sends the launch's stages to the app's log once the frame after this call painted, with
+/// when the page opened and when the webview says it first painted.
+export function startupDrawn() {
+  afterPaint(() => {
+    startupStage("painted");
+    startup["opened"] = performance.timeOrigin;
+    for (const paint of performance.getEntriesByType("paint")) startup[paint.name] = performance.timeOrigin + paint.startTime;
+    window.__TAURI__.core.invoke("startup_stages", { stages: startup }).catch(() => {});
+  });
+}
+
 function record(kind: PerfKind, view: PerfView, ms: number) {
   recorder?.record(kind, view, ms);
 }

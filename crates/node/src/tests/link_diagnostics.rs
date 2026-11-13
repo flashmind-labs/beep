@@ -9,7 +9,8 @@ async fn metrics_snapshots_include_transport_and_application_values() {
         .bind()
         .await
         .expect("endpoint");
-    let task = start(&endpoint, &path).expect("start metrics");
+    let recorder = install().expect("install the recorder");
+    let task = start(recorder, &endpoint, &path).expect("start metrics");
     metrics::counter!("beep_test_requests_total").increment(1);
     let text = tokio::time::timeout(Duration::from_secs(5), async {
         loop {

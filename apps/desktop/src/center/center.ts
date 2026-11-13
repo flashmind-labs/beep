@@ -46,7 +46,9 @@ import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { followToolUpdates } from "../machines/machines.ts";
 import { dialogOpen } from "../ui/parts.ts";
+import { startupDrawn, startupStage } from "../ui/perf.ts";
 
+startupStage("scripts run");
 followSkin();
 guardClicks();
 followToolUpdates();
@@ -223,6 +225,7 @@ async function showCached() {
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
     invoke<MacControl>("mac_control").catch(() => null),
   ]);
+  startupStage("kept views read");
   const home = seed(state, cached);
   state.mac ??= mac;
   keepPagesFile(cached?.pages);
@@ -234,6 +237,7 @@ async function showCached() {
   reloadGroup("projects");
   reloadGroup("pinned");
   reloadGroup("machines");
+  startupStage("home drawn");
 }
 
 // Home's reads start with the window; the first view waits only for the kept views.
@@ -243,4 +247,5 @@ void pairing().then(async () => {
   const [, open] = await Promise.all([showCached(), opening]);
   if (!onPhone()) void firstRun();
   start(open);
+  startupDrawn();
 });

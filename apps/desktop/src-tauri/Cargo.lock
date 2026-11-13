@@ -505,6 +505,7 @@ dependencies = [
  "iroh",
  "iroh-blobs",
  "iroh-tickets",
+ "libc",
  "log",
  "mac-notification-sys",
  "metrics",
