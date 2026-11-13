@@ -137,14 +137,16 @@ test("streaming agent replies keep their element across updates", t => {
   assert.match(reply.textContent ?? "", /First update/);
 });
 
-test("attachment updates preserve chips and upload choices", async t => {
-  const { input } = setup();
+test("attachment updates preserve the file-count control and upload choices", async t => {
+  setup();
   MN.redraw = drawAgentAttached;
   t.after(() => { disposeQueue(); MN.paths = []; MN.uploads = []; MN.ask = null; MN.redraw = () => {}; });
   MN.paths = ["src/first.ts"]; drawAgentAttached();
-  const first = bar.querySelector<HTMLElement>('[data-agment="0"]'); assert.ok(first); first.focus();
+  const first = bar.querySelector<HTMLElement>(".attachment-count"); assert.ok(first); first.focus();
+  assert.equal(first.textContent, "1 file");
   MN.paths.push("src/second.ts"); drawAgentAttached();
-  assert.equal(bar.querySelector('[data-agment="0"]'), first);
+  assert.equal(bar.querySelector(".attachment-count"), first);
+  assert.equal(first.textContent, "2 files");
   assert.equal(document.activeElement, first);
   askUpload([new File(["notes"], "notes.txt")], "src", "/srv/project");
   await settle();
@@ -154,7 +156,7 @@ test("attachment updates preserve chips and upload choices", async t => {
   assert.match(bar.querySelector('[data-agup="default"]')?.getAttribute("title") ?? "", /Deleted when this session is closed/);
   bar.querySelector<HTMLButtonElement>('[data-agup="cancel"]')?.click();
   assert.equal(MN.ask, null);
-  first.click(); assert.deepEqual(MN.paths, ["src/second.ts"]); assert.equal(document.activeElement, input);
+  assert.deepEqual(MN.paths, ["src/first.ts", "src/second.ts"]);
 });
 
 test("background commands show as one line that keeps its focus as the count changes", t => {
@@ -486,7 +488,7 @@ test("composer slots keep queue and attachments ordered and survive disposal", t
   const queue = bar.querySelector("#agqueue"), attachments = bar.querySelector("#agatt"), field = bar.querySelector("#agfield");
   assert.ok(queue && attachments && field);
   assert.ok(queue.compareDocumentPosition(attachments) & Node.DOCUMENT_POSITION_FOLLOWING);
-  assert.ok(attachments.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.ok(field.contains(attachments));
   disposeQueue();
   assert.equal(bar.querySelector("#agqueue"), null);
   assert.equal(bar.querySelector("#agatt"), null);

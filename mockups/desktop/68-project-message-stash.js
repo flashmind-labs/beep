@@ -78,7 +78,7 @@
     const id = `${project}:${isNew && chat === "current" ? "new" : chat}`;
     const d = draft(id);
     const inherited = body.querySelector(".ag-att");
-    if (inherited && !inherited.querySelector(".ag-upask, .ag-dropin")) {
+    if (inherited && !inherited.querySelector(".ag-upask, .ag-dropin, .attachment-batch")) {
       if (!d.files.length) {
         d.files = inherited.querySelector(".ag-ment")
           ? [...inherited.querySelectorAll(".ag-ment")].map(el => {

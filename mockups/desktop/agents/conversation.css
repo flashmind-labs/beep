@@ -131,3 +131,15 @@
 
 .mac .dcoderlog .errc.blocked { border-color: var(--d-err) }
 .mac .dcoderlog .errc.blocked b, .mac .dcoderlog .errc.blocked span { color: var(--d-err) }
+
+.mac .attachment-batch { width: 100%; min-width: 0; font-size: 12px; color: var(--d-muted) }
+.mac .attachment-batch summary { cursor: pointer; padding: 6px 0 }
+.mac .attachment-items { display: flex; flex-wrap: wrap; gap: 6px; max-height: 144px; overflow-y: auto; padding: 4px 0 }
+.mac .attachment-items .attachment-file { display: block; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 8px; border: 1px solid var(--d-border); border-radius: 6px; background: var(--d-elev) }
+
+.mac .attachment-window { width: min(800px, 90vw); padding: 16px; background: var(--d-surface); color: var(--d-fg); border: 1px solid var(--d-border); border-radius: 12px }
+.mac .attachment-window::backdrop { background: #0009 }
+.mac .attachment-window header { display: flex; justify-content: space-between; margin-bottom: 16px }
+.mac .attachment-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; max-height: 65vh; overflow: auto }
+.mac .attachment-gallery > span { display: grid; gap: 6px; min-width: 0 }
+.mac .attachment-gallery img { width: 100%; height: 100px; object-fit: contain; background: var(--d-elev) }

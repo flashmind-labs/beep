@@ -1,4 +1,5 @@
-import { createRef, isValidElement, useLayoutEffect, useRef, type ReactElement } from "react";
+import { useDialogRef } from "../ui/parts.ts";
+import { createRef, isValidElement, useLayoutEffect, useRef, useState, useEffect, lazy, Suspense, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { AgentQueue } from "./queue-view.tsx";
@@ -155,4 +156,25 @@ function MenuRows({ rows, index, pick }: Menu) {
 export function StopButton({ stop }: { stop(): void }) {
   const { shown, stopping } = useStore(fieldUi, state => state.stop);
   return <Button id="agstop" aria-label="Stop the turn" title="Stop main turn (subagents keep running)" style={shown ? undefined : { display: "none" }} disabled={stopping} onClick={stop}><AgentStopFace stopping={stopping} /></Button>;
+}
+
+const AttachmentSheet = lazy(async () => ({ default: (await import("../ui/aria-kit.tsx")).Sheet }));
+
+/// The input bar keeps one attachment control; its window shows every file.
+export function AttachmentBatch({ count, children }: { count: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const dialog = useDialogRef<HTMLDivElement>();
+  const trigger = useRef<HTMLButtonElement>(null), close = useRef<HTMLButtonElement>(null);
+  const dismiss = () => { setOpen(false); requestAnimationFrame(() => trigger.current?.focus()); };
+  useEffect(() => { if (!count) setOpen(false); }, [count]);
+
+  if (!count) return null;
+
+  return <><Button ref={trigger} className="attachment-count" onMouseDown={event => event.preventDefault()} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>{count} {count === 1 ? "file" : "files"}</Button>
+    {open && <Suspense fallback={null}><AttachmentSheet label="Attachments" className="attachment-window" open={open} onClose={dismiss}>
+      <header><b>{count} {count === 1 ? "attachment" : "attachments"}</b><Button ref={close} look="quiet" aria-label="Close attachments" onClick={dismiss}>Close</Button></header>
+      <div ref={dialog} className="ag-att attachment-gallery" onClick={event => {
+        if (!event.currentTarget.closest(".attachment-window")?.contains(document.activeElement)) close.current?.focus();
+      }}>{children}</div>
+    </AttachmentSheet></Suspense>}</>;
 }
