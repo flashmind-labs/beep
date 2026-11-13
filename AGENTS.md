@@ -140,7 +140,7 @@ protocol's bytes only with a protocol name bump. The current mesh ALPNs are `bee
 
 ## Reports
 
-Use Beep MCP `beep_status` and `beep_logs` to debug; `file_report` asks the user
+Use the Beep MCP `beep` tool (status, logs) to debug; its report action asks the user
 before sending. Reports contain private logs: issues must contain only the
 report reference, never logs or names. `just reports`, `just report <reference>`
 and `just report-solved <reference>` manage stored reports.

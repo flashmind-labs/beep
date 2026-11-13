@@ -12,6 +12,7 @@ import { drawPane } from "../agentpane/media-draw.ts";
 import type { SubagentRow } from "../agentpane/subagents-view.tsx";
 import type { ActivityRow, ToolActivity, ToolBody } from "./activity-view.tsx";
 import { followAgent } from "../agentpane/worktree.ts";
+import { followDeviceCalls } from "../agentpane/device.ts";
 import { collectArtifacts, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
 import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
 import { attachLive, trackLive } from "./thoughtlive.ts";
@@ -84,6 +85,8 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
   // The pane follows the open conversation into its worktree.
   followAgent(p.entries, p.earlier, null);
+  // The Device tab follows the agent's device calls.
+  followDeviceCalls(p.entries, p.earlier);
   const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
   drawPane(subs, arts);
   drawModelPill();

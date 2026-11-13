@@ -83,6 +83,10 @@ expected 200, got 401</pre></details></span></div>`;
       bstep("ok", "Ran on", { m: "build-box", d: "cargo test -p widget-core --release" }),
       bstep("ok", "Started codex on", { m: "mac-mini", d: "Build the iOS app and run the login UI tests" }),
       bstep("ok", "Checked job", { d: "job-7f2c" }),
+      // Device calls name the device; a boot or input opens the Device tab on it.
+      bstep("ok", "Booted iPhone 17 on", { m: "mac-mini" }),
+      bstep("ok", "Tapped iPhone 17 on", { m: "mac-mini", d: "195, 610" }),
+      bstep("ok", "Typed into iPhone 17 on", { m: "mac-mini", d: "test@example.com" }),
       bstep("bad", "Ran on", { m: "win-box", d: "cargo test", tip: "win-box is offline" }),
       bstep("ok", "Asked you", { d: "Push the fix to main?" }),
     ].join("");

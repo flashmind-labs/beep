@@ -175,7 +175,7 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     // An older node sends `prompt` (and `agent`) to start an agent. That would
     // skip the parent link and every limit `start_agent` keeps, so it is refused.
     if args.prompt.is_some() || args.agent.is_some() {
-        return Err("remote_run runs commands only. Start an agent with start_agent.".into());
+        return Err("run starts commands only. Start an agent with agent start.".into());
     }
 
     let command = match args.command {
@@ -194,8 +194,8 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
         .await
         {
             TaskReply::Started { id } => Ok(format!(
-                "Started it in the background. Job id: {id}. Check it with job_status, \
-                 stop it with cancel."
+                "Started it in the background. Job id: {id}. Check it with run status, \
+                 stop it with run cancel."
             )),
             other => Err(task_error(other)),
         };

@@ -1,21 +1,25 @@
-// The Device tab: the machines that serve `device/1`, the device it shows,
-// and that device's live screen while the tab and the window show. Frames go
+// The Device tab: shown for a session whose checkout builds for Android or
+// iOS, the machines that serve `device/1`, the device it shows, and that
+// device's live screen while the tab and the window show. Frames go
 // to the painter device-view.tsx registers; the rest is `deviceModel`.
 import { createStore } from "zustand";
 import { indexedChannel, invoke } from "../ui/tauri.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
-import { paneSession } from "./media.ts";
+import { paneSession, showDevice } from "./media.ts";
 import { draw } from "./media-draw.ts";
+import { paneRoot } from "./worktree.ts";
 import {
-  type DeviceHost, type DeviceInput, type DeviceMachine, type DevicePick, type ScreenState,
-  defaultPick, deviceError, pickedDevice, queueInput, readHosts, readMachines, readScreenMessage,
+  type DeviceFollow, type DeviceHost, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
+  defaultPick, deviceError, followedDevice, pickedDevice, queueInput, readHosts, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
 } from "./device-state.ts";
 
 /// How often the list is read again while the tab shows: a booting device
 /// soon, otherwise now and then, as devices start and stop outside Beep.
 const BOOTING_POLL_MS = 2000;
 const IDLE_POLL_MS = 10_000;
+/// How long a platform check that could not reach its machine waits to go again.
+const PLATFORMS_RETRY_MS = 60_000;
 
 export interface DeviceModel {
   machines: readonly DeviceMachine[];
@@ -23,12 +27,14 @@ export interface DeviceModel {
   listed: boolean;
   error: string;
   pick: DevicePick | null;
+  /// The platforms the session's checkout builds for.
+  platforms: readonly DevicePlatform[];
   /// A boot or shutdown is on its way.
   busy: boolean;
   screen: ScreenState;
 }
 
-export const deviceModel = createStore<DeviceModel>(() => ({ machines: [], listed: false, error: "", pick: null, busy: false, screen: { kind: "off" } }));
+export const deviceModel = createStore<DeviceModel>(() => ({ machines: [], listed: false, error: "", pick: null, platforms: [], busy: false, screen: { kind: "off" } }));
 
 const set = (change: Partial<DeviceModel>) => deviceModel.setState(change);
 
@@ -36,8 +42,10 @@ const set = (change: Partial<DeviceModel>) => deviceModel.setState(change);
 
 let hosts: DeviceHost[] = [];
 
-/// Whether the pane has a Device tab: a machine that is on serves `device/1`.
-export const hasDeviceTab = () => hosts.length > 0;
+/// Whether the pane has a Device tab: a machine that is on serves
+/// `device/1`, and the session's checkout builds for a mobile platform or
+/// its agent used a device.
+export const hasDeviceTab = () => hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey()) || showsDeviceTab(sessionPlatforms(), hosts));
 
 async function readDeviceHosts() {
   const had = hasDeviceTab();
@@ -55,6 +63,79 @@ subscribeChanges(topic("machines"), { deliver: "latest", receive: readDeviceHost
 if (typeof window !== "undefined") {
   window.addEventListener("agent-pane-shown", () => void readDeviceHosts());
   queueMicrotask(() => void readDeviceHosts());
+}
+
+// ----- The project's platforms -----
+
+/// A session's checkout: its machine and folder.
+interface Checkout { machine: string; root: string; key: string }
+
+/// The platforms of each checkout asked about, by `Checkout.key`; asked
+/// once, as a project rarely gains or loses one.
+const platformsOf = new Map<string, DevicePlatform[]>();
+const askingPlatforms = new Set<string>();
+/// When a check that could not reach its machine may go again, by key.
+const platformsRetry = new Map<string, number>();
+
+function paneCheckout(): Checkout | null {
+  const session = paneSession(), root = paneRoot();
+  if (!session || !root) return null;
+  return { machine: session.machine_id, root, key: `${session.machine_id}\n${root}` };
+}
+
+/// The platforms the pane's checkout builds for; the first time, none
+/// while its machine is asked.
+function sessionPlatforms(): DevicePlatform[] {
+  const at = paneCheckout();
+  if (!at) return [];
+  const known = platformsOf.get(at.key);
+  if (known) return known;
+  void askPlatforms(at);
+  return [];
+}
+
+async function askPlatforms(at: Checkout) {
+  if (askingPlatforms.has(at.key) || Date.now() < (platformsRetry.get(at.key) ?? 0)) return;
+  askingPlatforms.add(at.key);
+
+  try {
+    const platforms = readPlatforms(await invoke("device_platforms", { machineId: at.machine, root: at.root }));
+    platformsOf.set(at.key, platforms);
+    if (platforms.length > 0) draw();
+  } catch {
+    platformsRetry.set(at.key, Date.now() + PLATFORMS_RETRY_MS);
+  } finally {
+    askingPlatforms.delete(at.key);
+  }
+}
+
+// ----- The agent's device calls -----
+
+/// The session whose agent used a device: it has the tab whatever its project.
+let agentUsed: string | null = null;
+/// The session whose log is followed, and what is known of it.
+let followed: { session: string; follow: DeviceFollow | null } | null = null;
+/// The device the agent last pointed at, until the list has it.
+let wanted: DeviceTarget | null = null;
+
+function sessionKey() {
+  const session = paneSession();
+  return session ? `${session.machine_id}\n${session.id}` : null;
+}
+
+/// The conversation as drawn, from place `earlier`: a device call of the
+/// agent that finished since the view opened turns the tab to its device.
+export function followDeviceCalls(entries: readonly { kind: string; text: string }[], earlier: number) {
+  const session = sessionKey();
+  if (!session) return;
+  const { follow, target } = followedDevice(entries, earlier, followed?.session === session ? followed.follow : null);
+  followed = { session, follow };
+  if (!target) return;
+
+  agentUsed = session;
+  wanted = target;
+  showDevice();
+  void readDevices();
 }
 
 // ----- What shows -----
@@ -85,8 +166,13 @@ function shownChanged() {
   void readDevices();
 }
 
+/// The checkout the pick was made for; another one starts over.
+let pickedFor: string | null = null;
+
 /// Shows device `pick`.
 export function pickDevice(pick: DevicePick) {
+  pickedFor = paneCheckout()?.key ?? null;
+  wanted = null;
   set({ pick, screen: { kind: "off" }, error: "" });
   follow();
 }
@@ -110,8 +196,15 @@ async function readDevices() {
     const value = await reads.run(invoke<unknown>("device_list", { machineId: null }));
     if (value === STALE) return;
     const machines = readMachines(value);
-    const pick = defaultPick(machines, paneSession()?.machine_id ?? null, deviceModel.getState().pick);
-    set({ machines, pick, listed: true, error: "" });
+    const at = paneCheckout(), platforms = sessionPlatforms();
+    const last = at?.key === pickedFor ? deviceModel.getState().pick : null;
+    const asked = wanted ? targetPick(machines, wanted) : null;
+    const pick = asked ?? defaultPick(machines, at?.machine ?? null, last, platforms);
+    pickedFor = at?.key ?? null;
+    if (asked) wanted = null;
+    // The agent's device shows again even when its view had ended.
+    const screen = asked && deviceModel.getState().screen.kind === "ended" ? { screen: { kind: "off" } as const } : {};
+    set({ machines, pick, platforms, listed: true, error: "", ...screen });
   } catch (e) {
     set({ listed: true, error: deviceError(e) });
   }

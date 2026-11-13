@@ -3,13 +3,15 @@
 //! `remote_run` does not hold up the next call.
 
 use super::{
-    catalog::{self, ASK_USER, READ_TRANSCRIPT, REMOTE_RUN},
+    catalog::{self, ASK_USER, DEVICE, READ_TRANSCRIPT, REMOTE_RUN},
     media::Media,
 };
 use crate::agents::{Answered, Asking, Line, LineReader};
 use anyhow::Result;
+use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::node::{
     agent::{AnswerOption, OptionKind},
+    device::Frame,
     tools::{Approved, Reply, Request, Tool},
 };
 use futures::{StreamExt, stream::FuturesUnordered};
@@ -42,12 +44,22 @@ pub(crate) trait Backend: Sync {
             ))
         }
     }
+    /// Runs a `device` call: emulators and simulators, which this node
+    /// reaches over `device/1`.
+    fn device(&self, _args: Value) -> impl Future<Output = Called> + Send {
+        async { Called::failed("Devices are unavailable on this backend.") }
+    }
     /// Puts `question` to the user in `session` and waits for the answer.
     fn ask(&self, session: &str, question: Asking)
     -> impl Future<Output = Result<Answered>> + Send;
     /// Whether `session` is a temporary reviewer, which is offered
     /// `submit_review`.
     fn reviewer(&self, session: &str) -> bool;
+    /// Whether the mesh has no other machine to run on, so the tools that
+    /// reach one are left out.
+    fn alone(&self) -> bool {
+        false
+    }
     /// The media tools `session` gets from the saved API keys.
     fn media(&self, _session: &str) -> Option<Media> {
         None
@@ -143,7 +155,7 @@ async fn answer<B: Backend>(
         }
         "ping" => success(id, json!({})),
         "tools/list" => {
-            let mut tools = catalog::tools(backend.reviewer(session));
+            let mut tools = catalog::tools(backend.reviewer(session), backend.alone());
 
             if let (Some(listed), Some(media)) = (tools.as_array_mut(), media) {
                 listed.extend(media.listed());
@@ -163,50 +175,79 @@ async fn answer<B: Backend>(
             let called = match media.filter(|media| media.offers(name)) {
                 Some(media) => {
                     let (text, failed) = media.call(name, args).await;
-                    Called { text, failed }
+                    Called {
+                        text,
+                        failed,
+                        image: None,
+                    }
                 }
                 None => call(backend, session, name, args).await,
             };
-            success(
-                id,
-                json!({
-                    "content": [{ "type": "text", "text": called.text }],
-                    "isError": called.failed,
-                }),
-            )
+            let mut content = vec![json!({ "type": "text", "text": called.text })];
+
+            if let Some(frame) = &called.image {
+                content.push(json!({
+                    "type": "image",
+                    "data": STANDARD.encode(&frame.jpeg),
+                    "mimeType": "image/jpeg",
+                }));
+            }
+
+            success(id, json!({ "content": content, "isError": called.failed }))
         }
         other => failure(id, -32601, &format!("unknown method {other}")),
     })
 }
 
-/// A tool's result for the agent.
+/// A tool's result for the agent, with a device's screen when it shows one.
 #[derive(Debug, PartialEq)]
-struct Called {
-    text: String,
-    failed: bool,
+pub(crate) struct Called {
+    pub(super) text: String,
+    pub(super) failed: bool,
+    pub(super) image: Option<Frame>,
 }
 
 impl Called {
-    fn ok(text: impl Into<String>) -> Self {
+    pub(super) fn ok(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             failed: false,
+            image: None,
         }
     }
 
-    fn failed(text: impl Into<String>) -> Self {
+    pub(super) fn failed(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             failed: true,
+            image: None,
+        }
+    }
+}
+
+impl From<Reply> for Called {
+    fn from(reply: Reply) -> Self {
+        match reply {
+            Reply::Done { text, failed } => Self {
+                text,
+                failed,
+                image: None,
+            },
+            other => Self::failed(format!("Unexpected reply {other:?}.")),
         }
     }
 }
 
 async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
+    let (name, args) = match catalog::ungroup(name, args) {
+        Ok(call) => call,
+        Err(text) => return Called::failed(text),
+    };
     let operation = match name {
         ASK_USER => ASK_USER,
         READ_TRANSCRIPT => READ_TRANSCRIPT,
         REMOTE_RUN => REMOTE_RUN,
+        DEVICE => DEVICE,
         _ => name.parse::<Tool>().map(<&'static str>::from).unwrap_or("unknown tool"),
     };
     let mut trace = beep_proto::logging::RequestTrace::new(operation);
@@ -222,10 +263,13 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
 
     if name == READ_TRANSCRIPT {
         return match backend.read_transcript(args).await {
-            Ok(Reply::Done { text, failed }) => Called { text, failed },
-            Ok(_) => Called::failed("Unexpected transcript reply."),
+            Ok(reply) => reply.into(),
             Err(e) => Called::failed(format!("Could not read the transcript: {e:#}")),
         };
+    }
+
+    if name == DEVICE {
+        return backend.device(args).await;
     }
     // `remote_run` goes as `run_on`, its name in `tools/1`, which is no MCP name.
     let parsed = match name {
@@ -262,8 +306,7 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
     };
 
     match backend.call(&request).await {
-        Ok(Reply::Done { text, failed }) => Called { text, failed },
-        Ok(other) => Called::failed(format!("Unexpected reply {other:?}.")),
+        Ok(reply) => reply.into(),
         Err(e) => Called::failed(format!("{e:#}")),
     }
 }

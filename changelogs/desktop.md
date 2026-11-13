@@ -7,6 +7,35 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.24] - 2026-11-13
+
+### Added
+
+- Desktop: when the agent boots, shows or drives an emulator or simulator,
+  the session's Device tab opens on that device, in any project. The
+  conversation names the device and machine, such as "Booted iPhone 17 on
+  mac-box".
+- Desktop: choose Default, Recent activity or Last opened when sorting projects. The choice is remembered.
+
+### Changed
+
+- Desktop: the agent pane's Device tab shows only for sessions in an Android
+  or iOS app, and starts on an emulator or simulator of that platform, on
+  another machine when the session's has none. A platform no machine has a
+  device for is named in one line.
+
+### Fixed
+
+- Desktop: adding a project to a machine shows the bytes copied, the rate,
+  the time left and a progress bar, instead of "0 of 11 files" until the
+  copy ends.
+- Desktop: the code block Copy button stays at the right edge while scrolling horizontally.
+- Desktop: list rows in projects and Home, such as pull requests, agents and
+  the project sections, use their normal title size again instead of large
+  bold text.
+- Desktop: a steer delivered while you were on another session no longer
+  stays above the message field when you come back.
+
 ## [0.8.23] - 2026-11-13
 
 ### Added
