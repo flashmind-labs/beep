@@ -9,7 +9,7 @@ const parent: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "par
 
 test("native cards name an independently readable conversation without putting metadata in the result", () => {
   assert.deepEqual(subagent("[steps] 1\n[step completed] Read src/lib.rs\n[agent] Explorer\n[session] subagent:codex:thread-1\nFound the cause."), {
-    count: 1, steps: [{ status: "completed", title: "Read src/lib.rs" }], agent: "Explorer", session: "subagent:codex:thread-1", result: "Found the cause.",
+    count: 1, steps: [{ status: "completed", title: "Read src/lib.rs" }], agent: "Explorer", session: "subagent:codex:thread-1", result: "Found the cause.", model: null,
   });
 });
 

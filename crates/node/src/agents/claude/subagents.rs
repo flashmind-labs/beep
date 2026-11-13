@@ -126,6 +126,7 @@ struct Run {
     /// Each call's step, by its id.
     calls: HashMap<String, usize>,
     result: Option<String>,
+    model: Option<String>,
 }
 
 #[derive(Debug)]
@@ -341,6 +342,14 @@ impl Run {
 
         match value["type"].as_str() {
             Some("assistant") => {
+                if let Some(model) = value["message"]["model"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty() && *model != "<synthetic>")
+                {
+                    self.model = Some(cut(model, MAX_STEP));
+                }
+
                 for block in blocks {
                     match block["type"].as_str() {
                         Some("text") => {
@@ -441,6 +450,10 @@ fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
         .filter(|name| !name.is_empty());
     if let Some(name) = name {
         text.push_str(&format!("\n[agent] {}", cut(name, MAX_STEP)));
+    }
+
+    if let Some(model) = run.model.as_deref().or(spawn.model.as_deref()) {
+        text.push_str(&format!("\n[model] {}", cut(model, MAX_STEP)));
     }
 
     if let Some(result) = &run.result {
