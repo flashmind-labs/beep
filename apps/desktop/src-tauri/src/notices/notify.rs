@@ -188,7 +188,7 @@ mod mac {
     use crate::center::CenterTarget;
     use beep_proto::Notice;
     use objc2::{
-        AnyThread, DefinedClass, MainThreadOnly, define_class, msg_send,
+        AnyThread, DefinedClass, define_class, msg_send,
         rc::Retained,
         runtime::{AnyObject, ProtocolObject},
     };
@@ -208,9 +208,9 @@ mod mac {
     }
 
     define_class!(
-        // SAFETY: NSObject has no subclassing requirements. All notification work runs on the main thread.
+        // SAFETY: NSObject has no subclassing requirements. The immutable AppHandle ivar is thread-safe.
         #[unsafe(super = NSObject)]
-        #[thread_kind = MainThreadOnly]
+        #[thread_kind = AnyThread]
         #[ivars = AppHandle]
         struct Delegate;
 
@@ -242,8 +242,8 @@ mod mac {
     );
 
     impl Delegate {
-        fn new(app: AppHandle, mtm: MainThreadMarker) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(app);
+        fn new(app: AppHandle) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(app);
             // SAFETY: The superclass is NSObject and its init has no extra arguments or preconditions.
             unsafe { msg_send![super(this), init] }
         }
@@ -269,13 +269,13 @@ mod mac {
     }
 
     pub(crate) fn init(app: &AppHandle) {
-        let Some(mtm) = MainThreadMarker::new() else {
+        let Some(_) = MainThreadMarker::new() else {
             log::warn!("notification setup needs the main thread");
             return;
         };
         sender(app);
         DELEGATE.with(|held| {
-            let delegate = held.get_or_init(|| Delegate::new(app.clone(), mtm));
+            let delegate = held.get_or_init(|| Delegate::new(app.clone()));
             // SAFETY: DELEGATE retains the delegate for the main thread's entire lifetime.
             unsafe {
                 NSUserNotificationCenter::defaultUserNotificationCenter()
