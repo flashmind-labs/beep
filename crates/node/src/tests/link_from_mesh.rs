@@ -94,7 +94,7 @@ async fn lone_mesh() -> (Mesh, TempDir) {
 }
 
 #[tokio::test]
-async fn an_api_key_in_the_mesh_is_not_taken() {
+async fn an_api_key_in_the_mesh_reaches_the_processes() {
     let (mesh, _dir) = lone_mesh().await;
     let env = |name: &str| {
         Credential::Env(beep_proto::node::EnvSecret {
@@ -103,7 +103,7 @@ async fn an_api_key_in_the_mesh_is_not_taken() {
         })
     };
     for (id, value) in [
-        ("api.1.openrouter", env(ApiProvider::OpenRouter.env_var())),
+        ("key.1.openrouter", env(beep_proto::ApiKey::OpenRouter.env_var())),
         ("gh.2.octo", env(beep_proto::GITHUB_ENV_VAR)),
     ] {
         let bytes = value.to_bytes().expect("a credential encodes");
@@ -116,7 +116,7 @@ async fn an_api_key_in_the_mesh_is_not_taken() {
         .into_iter()
         .map(|secret| secret.name)
         .collect();
-    assert_eq!(names, [beep_proto::GITHUB_ENV_VAR]);
+    assert_eq!(names, [beep_proto::GITHUB_ENV_VAR, "OPENROUTER_API_KEY"]);
 }
 
 #[tokio::test]

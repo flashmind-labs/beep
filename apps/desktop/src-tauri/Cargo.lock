@@ -690,6 +690,7 @@ dependencies = [
  "tracing",
  "tracing-log",
  "tracing-subscriber",
+ "url",
  "uuid",
  "webpki-roots",
 ]
@@ -1961,8 +1962,9 @@ checksum = "5905ec755cc8386d7928353e4d356d2be3e89e81e5ca01fe630a1ca4d08dc175"
 
 [[package]]
 name = "flashmind-types"
-version = "0.3.0"
-source = "git+https://github.com/flashmind-labs/flashmind.git#2f5c8938d7dc6026bc7357cc3ec604e26c963d49"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bef7fc95959b0b44424720641cee0102bcd414a946c1518aaa3f2bff00c47821"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1974,6 +1976,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "serde_with",
  "strum",
  "tempfile",
  "thiserror 2.0.21",

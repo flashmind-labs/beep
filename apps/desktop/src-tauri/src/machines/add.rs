@@ -87,11 +87,7 @@ pub async fn mesh_join(fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<(
         Err(DesktopError::Mesh(MeshError::Refused(_))) => {
             Err(DesktopError::BadRequest(USED.into()))
         }
-        Err(e) => Err(e),
-        Ok(()) => {
-            fleet.drop_api_keys().await;
-            Ok(())
-        }
+        joined => joined,
     }
 }
 

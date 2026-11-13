@@ -9,7 +9,7 @@ use crate::{
     open_items::{AT_ONCE, Access, Learned, ProjectRead, accounts_of, merge, repos_of},
 };
 use beep_projects::{
-    credentials::{Slot, last4},
+    credentials::last4,
     git_items::{
         access::Repo,
         board::{Answer, Login, OpenedItems, ask, combine},
@@ -18,7 +18,7 @@ use beep_projects::{
     imports::hosts::Hosts,
     issues::host_of_url,
 };
-use beep_proto::{GitHost, GitHostKind, LabeledProjectLists};
+use beep_proto::{GitHost, GitHostKind, LabeledProjectLists, Service};
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
@@ -256,11 +256,11 @@ impl Desk {
         let logins: Vec<Login<'_>> = opened
             .iter()
             .map(|opened| Login {
-                slot: &opened.slot,
+                service: &opened.service,
                 secret: &opened.secret,
                 account: opened.github.as_ref().map(|github| github.login.as_str()),
             })
-            .filter(|login| matches!(login.slot, Slot::GitHub | Slot::Forgejo(_)))
+            .filter(|login| matches!(login.service, Service::GitHub | Service::Forgejo { .. }))
             .filter(|login| !login.secret.expose_secret().is_empty())
             .collect();
         // The host each project is on, as the searches name it.
@@ -279,7 +279,7 @@ impl Desk {
             .iter()
             .map(|login| {
                 let tail = last4(login.secret.expose_secret());
-                format!("{:?}/{tail}/{:?}", login.slot, login.account)
+                format!("{:?}/{tail}/{:?}", login.service, login.account)
             })
             .chain(names.iter().map(|name| format!("project/{name}")))
             .collect();
@@ -376,7 +376,7 @@ impl Desk {
     /// The answer for a Forgejo `login` whose host this Mac's own CLI cannot reach now, without
     /// asking: its address is the same here, and the host is tried again when the pause ends.
     fn unreached(&self, login: &Login<'_>) -> Option<Answer> {
-        let Slot::Forgejo(url) = login.slot else {
+        let Service::Forgejo { url } = login.service else {
             return None;
         };
         let host = host_of_url(url.as_ref())?;

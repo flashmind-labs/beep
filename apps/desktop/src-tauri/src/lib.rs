@@ -377,6 +377,7 @@ pub fn run() {
             settings::cli_login::use_gh_account,
             settings::credentials::check_credential,
             settings::credentials::list_credentials,
+            settings::credentials::api_providers,
             settings::credentials::list_github_accounts,
             settings::credentials::remove_credential,
             settings::credentials::save_credential,
@@ -584,8 +585,6 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     )?);
     let opening = fleet.clone();
     tauri::async_runtime::spawn(async move { opening.run().await });
-    let cleaning = fleet.clone();
-    tauri::async_runtime::spawn(async move { cleaning.drop_api_keys().await });
     app.manage(machine);
     app.manage(machines::list::MachineLists::default());
     app.manage(projects::live::Followed::default());

@@ -5,7 +5,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import type * as AgentAccountsModule from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
 import type * as CredentialsModule from "./credentials.ts";
-import type { CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
+import type { ApiProvider, CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
 import { copy } from "../ui/parts.ts";
 import type { Machine } from "../machines/machines.ts";
 import { redrawSettings, SET, setShown } from "./settings.ts";
@@ -56,9 +56,11 @@ export async function loadCreds() {
     // When the accounts cannot be read, the credentials list has the one
     // GitHub token.
     const accounts = invoke<GitHubAccount[]>("list_github_accounts").catch(e => { console.warn(e); return undefined; });
-    const [, list, github] = await Promise.all([credModule(), invoke<Credential[]>("list_credentials"), accounts]);
+    const providers = CRED.providers ? Promise.resolve(CRED.providers) : invoke<ApiProvider[]>("api_providers");
+    const [, list, github, known] = await Promise.all([credModule(), invoke<Credential[]>("list_credentials"), accounts, providers]);
     CRED.list = list;
     CRED.github = github;
+    CRED.providers = known;
     checkForgejo(list);
   } catch (e) {
     console.warn(e);

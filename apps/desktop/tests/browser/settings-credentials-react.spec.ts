@@ -82,3 +82,23 @@ test("a failed account action can be retried", async ({ page }) => {
   await remove.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "remove_credential").length)).toBe(2);
 });
+
+test("an API key is saved for the picked provider", async ({ page }) => {
+  await openDesktop(page, false, { ...responses,
+    api_providers: [{ provider: "openrouter", name: "OpenRouter", env_var: "OPENROUTER_API_KEY" }, { provider: "meshy", name: "Meshy", env_var: "MESHY_API_KEY" }, { provider: "elevenlabs", name: "ElevenLabs", env_var: "ELEVENLABS_API_KEY" }],
+    list_credentials: [{ id: "key.1.meshy", kind: "api_key", provider: "meshy", last4: "9f0c", account: null, env_var: "MESHY_API_KEY", created_at: 0, unreadable: false }],
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Credentials", exact: true }).click();
+  await expect(settings.getByText("…9f0c")).toBeVisible();
+  await expect(settings.getByText("MESHY_API_KEY")).toBeVisible();
+  await settings.getByRole("button", { name: "+ Add an API key" }).click();
+  const provider = settings.getByLabel("Provider");
+  await expect(provider.locator("option")).toHaveText(["OpenRouter", "ElevenLabs"]);
+  await provider.selectOption("elevenlabs");
+  await settings.getByLabel("Key", { exact: true }).fill("el-example");
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
+  await settings.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "save_credential" && JSON.stringify(call.args.credential) === JSON.stringify({ kind: "api_key", provider: "elevenlabs", secret: "el-example" })))).toBe(true);
+});

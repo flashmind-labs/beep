@@ -5,11 +5,11 @@
 use crate::{
     error::{DesktopError, Result},
     fleet::projects::FleetState,
-    settings::credentials::{self, CredentialView, Kind},
+    settings::credentials::{self, CredentialView},
 };
 use anyhow::Context;
 use beep_fleet::Session;
-use beep_proto::SecretText;
+use beep_proto::{SecretText, Service};
 use serde::Serialize;
 use std::{
     env,
@@ -118,7 +118,7 @@ pub async fn use_gh_account(fleet: FleetState<'_>, login: String) -> Result<Cred
     let login = parse_login(&login).ok_or_else(|| refused("That is not a GitHub login"))?;
     let gh = find_tool("gh").ok_or_else(|| refused("gh is not installed on this Mac"))?;
     let token = gh_account_token(&gh, &login).await?;
-    credentials::save(&fleet, Kind::Github, token).await
+    credentials::save(&fleet, Service::GitHub, token).await
 }
 
 /// The github.com accounts gh lists, signed in or not checked.
@@ -199,22 +199,25 @@ fn push_login(accounts: &mut Vec<GhAccount>, rest: &str, active: bool) -> bool {
 /// Saves the token `gh` or teacli holds for `host`, checked with its host
 /// as a pasted one is.
 #[tauri::command]
-pub async fn use_cli_login(fleet: FleetState<'_>, host: Kind) -> Result<CredentialView> {
+pub async fn use_cli_login(fleet: FleetState<'_>, host: Service) -> Result<CredentialView> {
     let token = match &host {
-        Kind::Github => gh_token().await?,
-        Kind::Forgejo { url } => tea_logins()
+        Service::GitHub => gh_token().await?,
+        Service::Forgejo { url } => tea_logins()
             .await?
             .into_iter()
-            .find(|login| same_server(&login.url, url))
+            .find(|login| same_server(&login.url, url.as_ref()))
             .map(|login| login.token)
             .ok_or_else(|| refused("teacli has no token for this server"))?,
+        Service::ApiKey { .. } | Service::Agent { .. } => {
+            return Err(refused("No command line tool holds this credential"));
+        }
     };
     credentials::save(&fleet, host, token).await
 }
 
 /// Saves the token `gh` holds for github.com, checked with GitHub.
 pub(crate) async fn save_gh_login(fleet: &Arc<Session>) -> Result<CredentialView> {
-    credentials::save(fleet, Kind::Github, gh_token().await?).await
+    credentials::save(fleet, Service::GitHub, gh_token().await?).await
 }
 
 /// The token `gh` holds for github.com, or why there is none.

@@ -1,7 +1,8 @@
 //! Asking every git host a user has a token for at once, and putting the answers together.
 
 use super::{Caller, HostError, forgejo, github, host::Found};
-use crate::{credentials::Slot, imports::hosts::Hosts};
+use crate::imports::hosts::Hosts;
+use beep_proto::Service;
 use beep_proto::{GitHost, GitHostKind, GitItem, GitItems, GitReview, LabeledGitItems};
 use futures::future::join_all;
 use reqwest::Client;
@@ -10,7 +11,7 @@ use std::{cmp::Reverse, collections::HashMap, time::SystemTime};
 
 /// One token to read a host with.
 pub struct Login<'a> {
-    pub slot: &'a Slot,
+    pub service: &'a Service,
     pub secret: &'a SecretString,
     /// Who the token signs in as, when it is known.
     pub account: Option<&'a str>,
@@ -35,10 +36,10 @@ pub async fn read(hosts: &dyn Hosts, logins: &[Login<'_>]) -> anyhow::Result<Ope
 
 /// Asks the host `login` is for; `None` for a credential that is no git host.
 pub async fn ask(hosts: &dyn Hosts, client: &Client, login: &Login<'_>) -> Option<Answer> {
-    let (host, kind) = match login.slot {
-        Slot::GitHub => (github::HOST.to_owned(), GitHostKind::GitHub {}),
-        Slot::Forgejo(url) => (url.host(), GitHostKind::Forgejo {}),
-        Slot::ApiKey(_) | Slot::AgentToken(_) => return None,
+    let (host, kind) = match login.service {
+        Service::GitHub => (github::HOST.to_owned(), GitHostKind::GitHub {}),
+        Service::Forgejo { url } => (url.host(), GitHostKind::Forgejo {}),
+        Service::ApiKey { provider: _ } | Service::Agent { agent: _ } => return None,
     };
     let caller = Caller {
         client,
@@ -46,8 +47,8 @@ pub async fn ask(hosts: &dyn Hosts, client: &Client, login: &Login<'_>) -> Optio
         host: &host,
         token: login.secret,
     };
-    let result = match login.slot {
-        Slot::Forgejo(url) => forgejo::items(&caller, url.as_ref()).await,
+    let result = match login.service {
+        Service::Forgejo { url } => forgejo::items(&caller, url.as_ref()).await,
         _ => github::items(&caller).await,
     };
     Some(Answer {

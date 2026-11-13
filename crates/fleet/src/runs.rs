@@ -11,7 +11,7 @@ use crate::{
 };
 use beep_projects::{
     branches::{READ_LIMIT, run_script},
-    credentials::{Opened, Slot},
+    credentials::Opened,
     git_items::HostError,
     imports::{
         hosts::{credential_of, forgejo_of},
@@ -26,7 +26,7 @@ use beep_projects::{
 };
 use beep_proto::{
     GitHostKind, HostedChecks, HostedRun, HostedRuns, ProjectRunDetail, RunState, RunsHost,
-    WorkflowRun,
+    Service, WorkflowRun,
 };
 use futures::future::{join, join_all};
 use secrecy::ExposeSecret;
@@ -70,8 +70,8 @@ impl Desk {
             .ok_or_else(|| format!("Beep has no token for {}.", repo.host_name()))?;
         let name = RepoName::from_str(&repo.project()).map_err(|e| e.to_string())?;
         let secret = found.secret.expose_secret().to_owned().into();
-        let (mut target, kind) = match (&repo.host, &found.slot) {
-            (Host::GitHub, Slot::GitHub) => {
+        let (mut target, kind) = match (&repo.host, &found.service) {
+            (Host::GitHub, Service::GitHub) => {
                 let account = found
                     .github
                     .as_ref()
@@ -81,7 +81,7 @@ impl Desk {
                     GitHostKind::GitHub {},
                 )
             }
-            (Host::Forgejo(url), Slot::Forgejo(_)) => (
+            (Host::Forgejo(url), Service::Forgejo { .. }) => (
                 Target::forgejo(WHO, name, url, secret),
                 GitHostKind::Forgejo {},
             ),

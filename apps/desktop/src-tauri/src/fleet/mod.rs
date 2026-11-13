@@ -478,23 +478,6 @@ impl Fleet {
         }
     }
 
-    /// Removes the API keys an older desktop gave the machines; Beep keeps none.
-    pub async fn drop_api_keys(&self) {
-        let mesh = match self.ready().await {
-            Ok(mesh) => mesh,
-            Err(e) => {
-                log::warn!("the mesh is not open, so API keys are not removed: {e}");
-                return;
-            }
-        };
-
-        match beep_fleet::drop_api_keys(&mesh).await {
-            Ok(0) => {}
-            Ok(gone) => log::info!("removed {gone} API keys from the mesh"),
-            Err(e) => log::warn!("API keys not removed from the mesh: {e}"),
-        }
-    }
-
     /// The machines of the mesh, each with whether it is online. Empty until
     /// the mesh is open.
     pub fn machines(&self) -> Vec<DeviceStatus> {
