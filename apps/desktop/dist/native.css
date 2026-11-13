@@ -152,3 +152,55 @@ body:not(.mobile) .cc-box:has(> .tl-view), body:not(.mobile) .cc-box:has(.tl-vie
 body:not(.mobile) .tl-view > .tl { gap: 6px; overflow: visible }
 body:not(.mobile) .tl-view > .tl > * { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .tl-view > .tl > .tl-list { overflow-y: auto }
+
+/* ----- Controls: one family. A button is a quiet fill with no border, in one height and one
+   text size; the main action alone takes the accent; a chosen state is a stronger fill. ----- */
+body:not(.mobile) { --ctl-h: 26px; --ctl-fill: color-mix(in srgb, var(--fg) 7%, transparent); --ctl-fill-hi: color-mix(in srgb, var(--fg) 13%, transparent) }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin) { min-height: var(--ctl-h); padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--ctl-fill); color: var(--fg); font-size: 12.5px; font-weight: 500 }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin):hover:not(:disabled) { border-color: transparent; background: var(--ctl-fill-hi) }
+body:not(.mobile) .dbtn.small { min-height: 22px; padding: 0 8px; font-size: 12px }
+body:not(.mobile) .dbtn.pri { background: var(--accent); color: var(--on-accent); font-weight: 600 }
+body:not(.mobile) .dbtn.pri:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--fg)) }
+body:not(.mobile) .dbtn.warn { color: var(--err) }
+body:not(.mobile) :is(.dbtn.ibtn, .dbtn.dico) { width: var(--ctl-h); padding: 0 }
+/* A quiet control has no fill until the pointer is on it. */
+body:not(.mobile) :is(.dbtn.quiet, .agpbtn, .nt-bell, .mvb, .cc-side-toggle) { border-color: transparent; background: none; color: var(--muted) }
+body:not(.mobile) :is(.dbtn.quiet, .agpbtn, .nt-bell, .mvb, .cc-side-toggle):hover:not(:disabled) { border-color: transparent; background: var(--ctl-fill); color: var(--fg) }
+body:not(.mobile) .dbtn.quiet.warn { color: var(--err) }
+/* Chosen. */
+body:not(.mobile) :is(.dchip, .dskin)[aria-pressed="true"], body:not(.mobile) .dbtn.on { border-color: transparent; background: var(--ctl-fill-hi); color: var(--fg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
+body:not(.mobile) .dchip { border-radius: var(--radius-sm) }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin, .agpbtn, .nt-bell, .mvb, .agtab):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+
+/* Tabs: words in a row, the open one filled, wherever they are. */
+body:not(.mobile) .cc-tabs { gap: 2px; padding-block: 6px; border-bottom: 0 }
+body:not(.mobile) .cc-tabs button { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); font-weight: 500 }
+body:not(.mobile) .cc-tabs button:hover { background: var(--ctl-fill) }
+body:not(.mobile) .cc-tabs button[aria-selected="true"] { background: var(--ctl-fill-hi); font-weight: 500 }
+body:not(.mobile) .agtab { height: var(--ctl-h); padding-block: 0; box-sizing: border-box }
+body:not(.mobile) .agtab.on { background: var(--ctl-fill-hi) }
+body:not(.mobile) .hv-seg { padding: 0; gap: 0; border: 0; background: var(--ctl-fill) }
+body:not(.mobile) .hv-seg button { height: var(--ctl-h); line-height: var(--ctl-h) }
+body:not(.mobile) .hv-seg button:is([aria-pressed="true"], [data-selected]) { background: var(--ctl-fill-hi); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
+
+/* Fields: a quiet fill too, with the accent only while typing. */
+body:not(.mobile) .dfield :is(input, select, textarea, .f) { min-height: 28px; border-color: transparent; background: color-mix(in srgb, var(--fg) 5%, transparent); font-size: 13px }
+body:not(.mobile) .dfield :is(input, select, textarea):focus, body:not(.mobile) .dfield.on .f { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+body:not(.mobile) .dfield.err :is(input, textarea, .f) { border-color: var(--err) }
+
+/* Keys: one small tile. */
+body:not(.mobile) kbd { padding: 0 4px; border: 0; border-radius: 4px; background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--muted); font: 500 10.5px/16px var(--body) }
+body:not(.mobile) .dbtn.pri kbd { background: color-mix(in srgb, var(--on-accent) 18%, transparent); color: var(--on-accent) }
+/* An icon alone is a quiet control, and keeps its own width. */
+body:not(.mobile) .dv-btn.icon { width: var(--ctl-h); padding: 0; background: none; color: var(--muted) }
+body:not(.mobile) .dv-btn.icon:hover:not(:disabled) { background: var(--ctl-fill); color: var(--fg) }
+body:not(.mobile) .dv-btn.icon[aria-pressed="true"] { background: var(--ctl-fill-hi); color: var(--fg) }
+body:not(.mobile) .dv-facts .dv-btn.icon { width: 24px }
+body:not(.mobile) .cc-foot > button { padding: 0 5px }
+
+/* ----- On the macOS material the window is dark tinted glass: the desktop shows through only
+   faintly, so the sidebar keeps the skin's own colour and its words stay readable. ----- */
+html[data-material="vibrant"] body:not(.mobile) .cwin { background: color-mix(in srgb, var(--deep) 78%, transparent) }
+html[data-material="vibrant"] body:not(.mobile) .cwin::before { opacity: .3 }
+html[data-material="vibrant"] body:not(.mobile) .cc-grp h3 { color: var(--muted) }
+html[data-material="vibrant"] body:not(.mobile) .cc-si { color: var(--fg) }
