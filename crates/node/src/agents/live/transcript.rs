@@ -221,7 +221,13 @@ impl Live {
     }
 
     pub(super) fn push_entry(&mut self, kind: EntryKind, text: String) -> u64 {
-        self.push_whole(Entry::new(kind, text))
+        let mut entry = Entry::new(kind, text);
+
+        if self.info.state.status != Status::Starting {
+            entry.sent_at = Some(unix_now());
+        }
+
+        self.push_whole(entry)
     }
 
     fn push_whole(&mut self, entry: Entry) -> u64 {
@@ -255,6 +261,17 @@ impl Live {
         self.transcript.get_mut(index)
     }
 
+    /// Copies known dates onto replayed entries in transcript order.
+    pub(crate) fn restore_times(&mut self, earlier: &[Entry]) {
+        let mut saved = earlier.iter().rev();
+
+        for entry in self.transcript.iter_mut().rev() {
+            if let Some(index) = saved.clone().position(|old| old.kind == entry.kind && old.text == entry.text) {
+                entry.sent_at = saved.nth(index).and_then(|old| old.sent_at);
+            }
+        }
+    }
+
     /// A prompt went to the agent.
     pub(crate) fn prompted(&mut self, text: &str) {
         // Until the agent names the session, its first prompt does.
@@ -267,6 +284,9 @@ impl Live {
         self.info.last_activity = unix_now();
         self.in_message = false;
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
+        if let Some(entry) = self.entry_mut(self.turn_start) {
+            entry.sent_at = Some(unix_now());
+        }
         self.turn_links.clear();
         self.turn_images.clear();
         self.turn_began = Some(SystemTime::now());

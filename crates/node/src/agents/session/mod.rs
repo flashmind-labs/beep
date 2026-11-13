@@ -41,6 +41,7 @@ mod actor;
 mod orders;
 mod sccache;
 mod turns;
+mod v2;
 
 use actor::Actor;
 
@@ -194,6 +195,7 @@ pub(super) struct Start<'a> {
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
+    pub(super) title: Option<String>,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -256,6 +258,7 @@ impl Session {
             resume,
             earlier,
             timestamps,
+            title,
             model,
             effort,
             mode,
@@ -270,6 +273,8 @@ impl Session {
             alerts,
             stopping,
         } = start;
+        let protocol = super::acp::Protocol::from_env(&kind.env)?;
+
         // Only a new session takes the default model and a thinking level. A
         // resumed one takes the model it ran on, when the caller kept it.
         let model = model.or_else(|| kind.default_model.clone().filter(|_| resume.is_none()));
@@ -327,6 +332,7 @@ impl Session {
             .with_context(|| format!("starting {}", kind.program))?;
         let processes = Processes::new(child.id().context("the agent has no pid")?);
         let info = SessionInfo {
+            title,
             id: resume.clone().unwrap_or_default(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
@@ -355,6 +361,13 @@ impl Session {
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
             acp_session: None,
+            protocol,
+            foreground: false,
+            ready_for_prompts: false,
+            initial_v2_state: None,
+            compacting_v2: false,
+            accepting_v2: false,
+            idle_v2: None,
             takes_images: None,
             takes_steering: false,
             steering: None,
@@ -362,6 +375,7 @@ impl Session {
             queued: prompt.into_iter().collect(),
             steers: VecDeque::new(),
             sent: 0,
+            context_turn: false,
             turn: None,
             held_end: None,
             stopping: None,
@@ -379,6 +393,7 @@ impl Session {
             model,
             effort,
             thinking: None,
+            mode_config: None,
             switch: None,
             bypass_mode: known.and_then(|known| known.bypass_mode),
             first_mode: mode,

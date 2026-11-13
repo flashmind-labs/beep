@@ -332,7 +332,7 @@ function closeWorktreeMenu() {
 }
 
 window.addEventListener("pointerdown", e => {
-  if (W.open && !(e.target as Element).closest(".agwtw")) closeWorktreeMenu();
+  if (W.open && !(e.target instanceof Element && e.target.closest(".agwtw"))) closeWorktreeMenu();
 }, true);
 window.addEventListener("keydown", e => {
   if (e.key === "Escape" && closeWorktreeMenu()) { e.preventDefault(); e.stopImmediatePropagation(); }

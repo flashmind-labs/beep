@@ -317,10 +317,7 @@ export function openWorkFile(rel: string) {
 
 /// Opens an HTML file directly in its preview.
 export function previewWorkFile(rel: string) {
-  const root = paneRoot();
-  openIn(root, rel);
-  const id = root === P.session?.cwd ? `text:${rel}` : `text:${root}\n${rel}`;
-  const tab = P.tabs.find(t => t.id === id);
+  const tab = openIn(paneRoot(), rel);
   if (tab) previewTab(tab);
 }
 

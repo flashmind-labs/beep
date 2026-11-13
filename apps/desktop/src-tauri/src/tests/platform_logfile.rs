@@ -65,3 +65,21 @@ fn the_filter_parses_and_quiets_per_snapshot_lines() {
     assert!(text.contains("beep_desktop_lib::fleet::events=info"));
     assert!(text.contains("beep_node::link::events=warn"));
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_logs_go_under_the_state_folder_then_the_data_folder() {
+    use std::path::PathBuf;
+
+    let state = PathBuf::from("/srv/state");
+    let data = PathBuf::from("/srv/data");
+    assert_eq!(
+        super::linux_dir(Some(state.clone()), Some(data.clone())),
+        Some(state.join("beep/logs"))
+    );
+    assert_eq!(
+        super::linux_dir(None, Some(data.clone())),
+        Some(data.join("beep/logs"))
+    );
+    assert_eq!(super::linux_dir(None, None), None);
+}

@@ -6,7 +6,10 @@ use super::{
     catalog::{self, ASK_USER, DEVICE, READ_TRANSCRIPT, REMOTE_RUN},
     media::Media,
 };
-use crate::agents::{Answered, Asking, Line, LineReader};
+use crate::{
+    agents::{Answered, Asking, Line, LineReader},
+    machine::provision::spawn_env,
+};
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::node::{
@@ -17,7 +20,7 @@ use beep_proto::node::{
 use futures::{StreamExt, stream::FuturesUnordered};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{future::Future, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncBufRead, AsyncWrite, AsyncWriteExt},
     time::timeout,
@@ -79,7 +82,9 @@ where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let media = backend.media(session);
+    let mut media = backend.media(session).map(Arc::new);
+    // A key added or removed changes the media tools; the agent hears so.
+    let mut keys = spawn_env::changes();
     let mut lines = LineReader::new(reader, MAX_MESSAGE);
     let mut running = FuturesUnordered::new();
     let mut open = true;
@@ -93,13 +98,22 @@ where
                 }
                 Some(Line::Text(text)) if text.trim().is_empty() => {}
                 Some(Line::Text(text)) => match serde_json::from_str::<Value>(&text) {
-                    Ok(message) => running.push(answer(backend, session, media.as_ref(), message)),
+                    Ok(message) => running.push(answer(backend, session, media.clone(), message)),
                     Err(e) => {
                         let error = failure(Value::Null, -32700, &format!("not JSON: {e}"));
                         write(&mut writer, &error).await?;
                     }
                 },
             },
+            Ok(()) = keys.changed(), if open => {
+                let before = listed(media.as_deref());
+                media = backend.media(session).map(Arc::new);
+
+                if listed(media.as_deref()) != before {
+                    let note = json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" });
+                    write(&mut writer, &note).await?;
+                }
+            }
             Some(answered) = running.next() => {
                 if let Some(answered) = answered {
                     write(&mut writer, &answered).await?;
@@ -130,7 +144,7 @@ fn failure(id: Value, code: i32, message: &str) -> Value {
 async fn answer<B: Backend>(
     backend: &B,
     session: &str,
-    media: Option<&Media>,
+    media: Option<Arc<Media>>,
     message: Value,
 ) -> Option<Value> {
     let method = message.get("method")?.as_str()?.to_owned();
@@ -142,12 +156,12 @@ async fn answer<B: Backend>(
             let version = asked
                 .filter(|asked| VERSIONS.contains(asked))
                 .unwrap_or(VERSIONS[0]);
-            let brief = media.and_then(Media::brief).unwrap_or_default();
+            let brief = media.as_deref().and_then(Media::brief).unwrap_or_default();
             success(
                 id,
                 json!({
                     "protocolVersion": version,
-                    "capabilities": { "tools": { "listChanged": false } },
+                    "capabilities": { "tools": { "listChanged": true } },
                     "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
                     "instructions": format!("{}{brief}", super::BRIEF),
                 }),
@@ -157,7 +171,7 @@ async fn answer<B: Backend>(
         "tools/list" => {
             let mut tools = catalog::tools(backend.reviewer(session), backend.alone());
 
-            if let (Some(listed), Some(media)) = (tools.as_array_mut(), media) {
+            if let (Some(listed), Some(media)) = (tools.as_array_mut(), media.as_deref()) {
                 listed.extend(media.listed());
             }
 
@@ -172,7 +186,7 @@ async fn answer<B: Backend>(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let called = match media.filter(|media| media.offers(name)) {
+            let called = match media.as_deref().filter(|media| media.offers(name)) {
                 Some(media) => {
                     let (text, failed) = media.call(name, args).await;
                     Called {
@@ -197,6 +211,11 @@ async fn answer<B: Backend>(
         }
         other => failure(id, -32601, &format!("unknown method {other}")),
     })
+}
+
+/// The media tools `media` lists, to see whether they changed.
+fn listed(media: Option<&Media>) -> Vec<Value> {
+    media.map(Media::listed).unwrap_or_default()
 }
 
 /// A tool's result for the agent, with a device's screen when it shows one.

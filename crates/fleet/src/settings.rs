@@ -292,6 +292,7 @@ impl Desk {
         agent: &str,
         change: impl FnOnce(&mut HarnessConfig),
     ) -> Result<()> {
+        let _write = WRITES.lock().await;
         let key = Self::harness_key(agent);
         let mut config =
             read::<HarnessConfig>(&self.mesh, &key).unwrap_or_else(|| HarnessConfig::new(agent));
@@ -317,6 +318,7 @@ impl Desk {
     ) -> Result<()> {
         check_agent(agent)?;
         let settings = check_settings(settings)?;
+        let _write = WRITES.lock().await;
         let key = Self::harness_key(agent);
         let submitted: Vec<String> = settings.env.iter().map(|var| var.name.clone()).collect();
         let mut kept =

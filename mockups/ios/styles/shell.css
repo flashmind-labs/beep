@@ -127,3 +127,6 @@ button:disabled { cursor: default; }
 body { -webkit-user-select: none; user-select: none }
 .log, input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text }
 :is(button, [role="button"], summary, select), :is(button, [role="button"], summary, select) * { -webkit-user-select: none !important; user-select: none !important }
+
+.entry-time { color: var(--dim); font-size: 10px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; margin-inline: 6px; }
+.dcoderen.agent > .entry-time { display: block; margin: 0 0 4px; }

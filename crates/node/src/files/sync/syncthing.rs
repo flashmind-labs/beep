@@ -1,6 +1,6 @@
 //! Hands one checkout between Beep and Syncthing without pausing its share.
 
-use super::{Held, Syncs, halt, lock, open_target, spawn_blocking};
+use super::{Held, Stopped, Syncs, halt, lock, open_target, spawn_blocking};
 use anyhow::Result;
 use beep_proto::node::sync::SyncthingFiles;
 
@@ -41,8 +41,8 @@ impl Syncs {
             if let Some(running) = running {
                 let project = running.project.clone();
                 let from = running.from;
-                halt(running).await;
-                stopped.push((project, from));
+                let shared = halt(running).await;
+                stopped.push((project, from, shared));
             }
         }
 
@@ -51,13 +51,15 @@ impl Syncs {
             .syncthing
             .project_files(root.path(), enabled)
             .await;
-        for (project, from) in stopped {
+        for (project, from, shared) in stopped {
             if let Some(managed) = self
                 .inner
                 .syncthing
                 .check(std::path::Path::new(&project.folder))
                 .await
             {
+                // Syncthing writes the folder now: start from a fresh scan.
+                self.forget(&shared).await;
                 lock(&self.inner.held).insert(
                     project.name.clone(),
                     Held {
@@ -71,7 +73,18 @@ impl Syncs {
                     Ok(running) => {
                         lock(&self.inner.projects).insert(project.name, running);
                     }
-                    Err(e) => log::warn!("could not resume project sync: {e:#}"),
+                    Err(e) => {
+                        let message = format!("{e:#}");
+                        log::warn!("could not resume project sync: {message}");
+                        lock(&self.inner.stopped).insert(
+                            project.name.clone(),
+                            Stopped {
+                                project,
+                                from,
+                                message,
+                            },
+                        );
+                    }
                 }
             }
         }

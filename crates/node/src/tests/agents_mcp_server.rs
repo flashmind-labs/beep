@@ -677,3 +677,52 @@ async fn legacy_mcp_names_also_validate_before_routing() {
 
     assert!(fake.calls.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_saved_key_tells_the_agent_its_tools_changed() {
+    use crate::machine::provision::spawn_env::{self, TEST_LOCK};
+    use beep_proto::{SecretText, node::EnvSecret};
+
+    let _env = TEST_LOCK.lock().await;
+    let folder = tempfile::tempdir().unwrap();
+    let mut fake = Fake::new("allow");
+    fake.media = Some(folder.path().to_owned());
+    let (client, server) = duplex(64 * 1024);
+    let (server_read, server_write) = tokio::io::split(server);
+    let (client_read, mut client_write) = tokio::io::split(client);
+    let mut lines = BufReader::new(client_read).lines();
+    let mut next = async || serde_json::from_str::<Value>(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    let names = |answer: &Value| -> Vec<String> {
+        answer["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let list = |id: i64| format!("{}\n", request(id, "tools/list", json!({})));
+
+    let served = async {
+        serve(&fake, "a3f9c1", BufReader::new(server_read), server_write)
+            .await
+            .unwrap();
+    };
+    let client = async {
+        client_write.write_all(list(1).as_bytes()).await.unwrap();
+        let before = next().await;
+        assert!(!names(&before).contains(&"image".to_owned()));
+
+        spawn_env::set_vars(vec![EnvSecret {
+            name: "OPENROUTER_API_KEY".into(),
+            value: SecretText::new("sk-or-test"),
+        }]);
+        assert_eq!(next().await["method"], "notifications/tools/list_changed");
+
+        client_write.write_all(list(2).as_bytes()).await.unwrap();
+        let after = next().await;
+        assert!(names(&after).contains(&"image".to_owned()), "{after}");
+        client_write.shutdown().await.unwrap();
+    };
+    tokio::join!(served, client);
+    spawn_env::set_vars(Vec::new());
+}

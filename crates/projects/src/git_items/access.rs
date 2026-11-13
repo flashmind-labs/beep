@@ -6,9 +6,11 @@ use super::{Caller, board::Login, github, host::HostError};
 use crate::imports::hosts::Hosts;
 use beep_proto::Service;
 use futures::future::join_all;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
+    hash::{DefaultHasher, Hash, Hasher},
     sync::{Mutex, PoisonError},
     time::{Duration, Instant},
 };
@@ -73,21 +75,36 @@ impl RepoReply {
 }
 
 struct Answer {
+    /// Which tokens it was asked with, see [`fingerprint`].
+    tokens: u64,
     at: Instant,
     writable: bool,
 }
 
 static KNOWN: Mutex<Option<HashMap<Repo, Answer>>> = Mutex::new(None);
 
-/// The kept answer for `repo`, while it is fresh.
-pub fn known(repo: &Repo) -> Option<bool> {
-    let known = KNOWN.lock().unwrap_or_else(PoisonError::into_inner);
-    let answer = known.as_ref()?.get(repo)?;
-    (answer.at.elapsed() < KEEP).then_some(answer.writable)
+/// A one-way hash of the set of tokens, so an answer is asked again when they change. Kept in
+/// memory only; the tokens themselves are never stored.
+fn fingerprint(logins: &[Login<'_>]) -> u64 {
+    let mut secrets: Vec<&str> = logins
+        .iter()
+        .map(|login| login.secret.expose_secret())
+        .collect();
+    secrets.sort_unstable();
+    let mut hasher = DefaultHasher::new();
+    secrets.hash(&mut hasher);
+    hasher.finish()
 }
 
-/// Keeps what the host said about `repo`.
-fn remember(repo: Repo, writable: bool) {
+/// The kept answer for `repo` given `tokens`, while it is fresh.
+fn known(repo: &Repo, tokens: u64) -> Option<bool> {
+    let known = KNOWN.lock().unwrap_or_else(PoisonError::into_inner);
+    let answer = known.as_ref()?.get(repo)?;
+    (answer.tokens == tokens && answer.at.elapsed() < KEEP).then_some(answer.writable)
+}
+
+/// Keeps what the host said about `repo` to `tokens`.
+fn remember(repo: Repo, tokens: u64, writable: bool) {
     KNOWN
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -95,6 +112,7 @@ fn remember(repo: Repo, writable: bool) {
         .insert(
             repo,
             Answer {
+                tokens,
                 at: Instant::now(),
                 writable,
             },
@@ -118,7 +136,9 @@ fn repo_url(login: &Login<'_>, repo: &Repo) -> Option<String> {
 
 /// Whether the user's tokens say they may push to `repo`; `None` when none could say.
 async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> Option<bool> {
-    if let Some(writable) = known(repo) {
+    let tokens = fingerprint(logins);
+
+    if let Some(writable) = known(repo, tokens) {
         return Some(writable);
     }
 
@@ -139,7 +159,7 @@ async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> Option<b
 
         match caller.get::<RepoReply>(&url).await {
             Ok(reply) if reply.writable() => {
-                remember(repo.clone(), true);
+                remember(repo.clone(), tokens, true);
                 return Some(true);
             }
             Ok(_) => answered = true,
@@ -150,7 +170,7 @@ async fn check(hosts: &dyn Hosts, logins: &[Login<'_>], repo: &Repo) -> Option<b
     }
 
     if answered {
-        remember(repo.clone(), false);
+        remember(repo.clone(), tokens, false);
     }
 
     answered.then_some(false)

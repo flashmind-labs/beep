@@ -888,15 +888,27 @@ fn start(app: &AppHandle, key: SessionKey, window: String) {
 /// Starts a flusher for each session with messages kept from the last run.
 pub fn resume(app: &AppHandle) {
     let outbox = app.state::<Arc<Outbox>>();
-    let keys = outbox.with(|held| {
-        let keys = held.waiting();
-        held.flushing.extend(keys.iter().cloned());
-        keys
-    });
+    let keys = outbox.with(|held| held.waiting());
 
-    for key in keys {
-        start(app, key, String::new());
+    if keys.is_empty() {
+        return;
     }
+
+    // Setup runs while the mesh opens, and `start` needs its members.
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let fleet = app.state::<Arc<Fleet>>().inner().clone();
+        // A mesh that fails to open leaves no members: `start` drops the flushers.
+        let _ = fleet.ready().await;
+
+        // Marked only now, so a send while the mesh opens still starts its own flusher.
+        let outbox = app.state::<Arc<Outbox>>().inner().clone();
+        for key in keys {
+            if outbox.with(|held| held.flushing.insert(key.clone())) {
+                start(&app, key, String::new());
+            }
+        }
+    });
 }
 
 /// Sends a message to `key`'s session through the outbox, after the ones

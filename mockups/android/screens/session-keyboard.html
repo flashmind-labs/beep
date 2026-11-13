@@ -12,7 +12,9 @@
   <link href="../../ios/styles/keyboards.css" rel="stylesheet"/>
   <link href="../../ios/styles/terminal.css" rel="stylesheet"/>
   <link href="../../ios/styles/machines-projects.css" rel="stylesheet"/>
- </head>
+ <style>.uploading .fld { opacity: .5; cursor: wait } .uploading .caret { display: none } .uploading .send { opacity: .4 }</style>
+<script>if (new URLSearchParams(location.search).has("upload")) document.addEventListener("DOMContentLoaded", () => { document.body.classList.add("uploading"); document.querySelector(".send").setAttribute("aria-disabled", "true"); });</script>
+</head>
  <body class="android screen">
   <figure>
    <div class="ph">
@@ -82,6 +84,7 @@
         You
        </b>
        Retry the sync upload when the link drops, and add a test.
+      <p><a href="#" title="Play uploaded video">recording.mov</a></p>
       </div>
       <div class="sum">
        <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="14">

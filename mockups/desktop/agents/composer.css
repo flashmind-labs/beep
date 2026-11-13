@@ -151,3 +151,5 @@
 .mac .sessioncard .sessionbody > :last-child { margin-bottom: 0 }
 .mac .sessioncard table { max-width: 100%; border-collapse: collapse; margin: 12px 0 }
 .mac .sessioncard th, .mac .sessioncard td { padding: 8px 12px; border: 1px solid var(--d-border); text-align: left }
+
+.mac .dinput .uploading { opacity: .5; cursor: wait }

@@ -106,7 +106,14 @@
     input.rows = 1;
     input.setAttribute("aria-label", "Message");
     input.placeholder = isNew ? "What should we work on?" : "Message Claude Code";
-    input.textContent = d.text;
+    const uploading = prior.classList.contains("uploading");
+    input.textContent = uploading ? prior.textContent : d.text;
+    if (uploading) {
+      input.classList.add("uploading");
+      input.readOnly = true;
+      input.setAttribute("aria-busy", "true");
+      box.querySelector(".agc-send")?.setAttribute("disabled", "");
+    }
     prior.replaceWith(input);
     box.querySelector(".agc-send")?.setAttribute("data-ms-send", "");
     const files = document.createElement("div");

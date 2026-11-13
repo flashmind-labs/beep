@@ -9,9 +9,9 @@ use std::{
     ffi::{OsStr, OsString},
     path::PathBuf,
     str::FromStr,
-    sync::RwLock,
+    sync::{LazyLock, RwLock},
 };
-use tokio::process::Command;
+use tokio::{process::Command, sync::watch};
 
 /// Which credentials a process gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,10 +70,27 @@ pub(super) fn set_path(dirs: Vec<PathBuf>) {
     write_lock(&SPAWN_ENV).path = dirs;
 }
 
+/// Ticks when the credentials change, for what offers tools by them.
+static CHANGED: LazyLock<watch::Sender<()>> = LazyLock::new(|| watch::Sender::new(()));
+
 /// Sets `vars` on every process started from now on, in place of the
 /// credentials set before.
 pub(crate) fn set_vars(vars: Vec<EnvSecret>) {
-    write_lock(&SPAWN_ENV).vars = vars;
+    let changed = {
+        let mut spawn = write_lock(&SPAWN_ENV);
+        let changed = spawn.vars != vars;
+        spawn.vars = vars;
+        changed
+    };
+
+    if changed {
+        CHANGED.send_replace(());
+    }
+}
+
+/// Ticks each time `set_vars` changes the credentials.
+pub(crate) fn changes() -> watch::Receiver<()> {
+    CHANGED.subscribe()
 }
 
 /// Gives `command` the tools' folders and the credentials `scope` admits.

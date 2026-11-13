@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, imageLines, linkCodeFiles, linkImagePaths, markWarnings, parseTool, subagent, tailLines } from "../src/agents/agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, parseTool, subagent, tailLines } from "../src/agents/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -109,4 +109,14 @@ test("subagent models preserve native links and result text", () => {
     count: 0, steps: [], agent: "general-purpose", model: "sonnet", session: "subagent:claude:parent:child", result: "Done",
   });
   assert.equal(subagent("[steps] 0\n[model] gpt-example\nDone")?.model, "gpt-example");
+});
+
+test("exitCode reads every spelling and takes the last by default", () => {
+  assert.equal(exitCode("exited with code 2"), 2);
+  assert.equal(exitCode("Process exited with status 3"), 3);
+  assert.equal(exitCode("status 1"), 1);
+  assert.equal(exitCode("exit code: 101"), 101);
+  assert.equal(exitCode("exit code 1\nrun exit 0 to quit"), 0);
+  assert.equal(exitCode("exit code 1\nrun exit 0 to quit", true), 1);
+  assert.equal(exitCode("nothing"), null);
 });

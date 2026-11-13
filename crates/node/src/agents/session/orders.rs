@@ -9,12 +9,8 @@ use crate::agents::{
     live::{Live, cut},
 };
 use agent_client_protocol::{
-    Agent,
-    v1::schema::{
-        CancelNotification, RequestPermissionRequest, RequestPermissionResponse,
-        SetSessionModeRequest,
-    },
-    v1::{ConnectionTo, Responder},
+    Agent, ConnectionTo, Responder,
+    v1::schema::{CancelNotification, RequestPermissionResponse},
 };
 use anyhow::Result;
 use beep_proto::ModelId;
@@ -113,6 +109,17 @@ impl Actor {
         }
     }
 
+    /// Whether `prompt` fits beside the queued prompts and the steers.
+    fn room_for(&self, prompt: &Prompt) -> Result<(), String> {
+        queue_room(
+            self.queued
+                .iter()
+                .chain(&self.steers)
+                .chain(self.steering.iter().map(|steer| &steer.prompt)),
+            prompt,
+        )
+    }
+
     /// Queues a prompt, or a steer, and starts it when the agent is idle.
     fn enqueue(
         &mut self,
@@ -124,18 +131,9 @@ impl Actor {
             return Ok(Err(MOVING_REFUSAL.to_owned()));
         }
 
-        let prompt = match self.fitted(prompt) {
-            Ok(prompt) => prompt,
-            Err(refused) => return Ok(Err(refused)),
-        };
+        let prompt = self.fitted(prompt);
 
-        if let Err(full) = queue_room(
-            self.queued
-                .iter()
-                .chain(&self.steers)
-                .chain(self.steering.iter().map(|steer| &steer.prompt)),
-            &prompt,
-        ) {
+        if let Err(full) = self.room_for(&prompt) {
             return Ok(Err(full));
         }
 
@@ -260,7 +258,9 @@ impl Actor {
             ));
         }
 
-        let request = SetSessionModeRequest::new(session, mode.clone());
+        let request = self
+            .mode_request(session, &mode)
+            .map_err(|error| error.to_string())?;
         self.send(cx, request, move |result| Reply::ModeSet {
             was,
             result: result.map(drop),
@@ -295,7 +295,7 @@ impl Actor {
     /// plan mode. Gives the responder back for any other request.
     pub(super) fn plan_ready(
         &mut self,
-        request: &RequestPermissionRequest,
+        plan: Option<String>,
         asked: &Question,
         responder: Responder<RequestPermissionResponse>,
     ) -> Option<Responder<RequestPermissionResponse>> {
@@ -305,7 +305,7 @@ impl Actor {
             return Some(responder);
         }
 
-        let Some(plan) = acp::plan_of(request) else {
+        let Some(plan) = plan else {
             return Some(responder);
         };
         let answers = acp::allow_option(&asked.options)
@@ -386,24 +386,13 @@ impl Actor {
         Ok(())
     }
 
-    /// The prompt as the agent takes it: without its images for an agent that
-    /// takes none, as each is a preview of a file the text mentions. Refused
-    /// while the agent has yet to say.
-    fn fitted(&self, mut prompt: Prompt) -> Result<Prompt, String> {
-        if prompt.images.is_empty() {
-            return Ok(prompt);
+    /// Keep images until initialization tells us whether the agent takes them.
+    fn fitted(&self, mut prompt: Prompt) -> Prompt {
+        if self.takes_images == Some(false) {
+            prompt.images.clear();
         }
 
-        match self.takes_images {
-            Some(true) => Ok(prompt),
-            Some(false) => {
-                prompt.images.clear();
-                Ok(prompt)
-            }
-            None => {
-                Err("the agent is still starting; send the images again once it is ready".into())
-            }
-        }
+        prompt
     }
 
     /// Allows a permission request the agent sent despite running without
@@ -507,7 +496,7 @@ impl Actor {
         let follow_up = follow_up.map(Prompt::from);
 
         if let Some(prompt) = &follow_up
-            && let Err(full) = queue_room(&self.queued, prompt)
+            && let Err(full) = self.room_for(prompt)
         {
             return Ok(Err(full));
         }
@@ -578,6 +567,13 @@ impl Actor {
 
     /// Has `kind` wait for the server, about this session as it stands.
     pub(super) fn alert(&self, kind: AlertKind) {
+        // Child results reach the parent through family updates.
+        if matches!(kind, AlertKind::TurnEnded { .. })
+            && watched::read_sent(&self.live, |live| live.info.parent.is_some())
+        {
+            return;
+        }
+
         let named = watched::read_sent(&self.live, |live| {
             live.agent_session.is_some().then(|| {
                 (

@@ -60,3 +60,13 @@ fn output_keeps_its_start_and_end_on_character_boundaries() {
     assert!(kept.ends_with("bbbend"));
     assert!(kept.len() <= HEAD + 1 + TAIL + 1);
 }
+
+#[test]
+fn a_short_head_takes_nothing_once_the_tail_has_content() {
+    let mut clip = Clip::default();
+    clip.push(&"a".repeat(HEAD - 1));
+    clip.push("éé");
+    clip.push("z");
+    let kept = clip.finish();
+    assert!(kept.ends_with("ééz"));
+}

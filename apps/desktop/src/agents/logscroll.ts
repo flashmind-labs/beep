@@ -21,7 +21,8 @@ export function atBottom(b: ScrollBox) {
 /// it from `was`: any move up lets go, even inside the slack, and reaching
 /// the bottom takes it back. A move up from past the end (a bounce
 /// settling) is not the reader's.
-export function followsAfterScroll(stuck: boolean, was: number, b: ScrollBox) {
+export function followsAfterScroll(stuck: boolean, was: number, b: ScrollBox, layoutChanged = false) {
+  if (stuck && layoutChanged) return true;
   if (b.scrollTop < Math.min(was, b.scrollHeight - b.clientHeight)) return false;
   return stuck || atBottom(b);
 }

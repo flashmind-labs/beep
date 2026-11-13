@@ -7,6 +7,67 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.29] - 2026-11-13
+
+### Added
+
+- Desktop: prefer ACP v2 for agents, fall back to v1 when an agent selects it, and allow `BEEP_ACP_VERSION=1` in the harness environment to select v1.
+- Desktop: open uploaded attachments from messages, and play video from the original local copy on the uploading device while that copy is available.
+
+### Fixed
+
+- Desktop: avoid duplicate ACP v2 subagent steps, keep idle sessions inactive after failed compaction, and retain model, effort and mode controls after incomplete configuration replies.
+- Desktop: switching conversations no longer stops uploads or sends files to the wrong chat.
+- Desktop: a submitted message sends to the conversation it was written in, even after its attachments finish uploading.
+- Desktop: conversations already at the bottom stay there when sending images.
+- Desktop: interruption notices appear as status instead of becoming part of the next user prompt.
+
+## [0.8.28] - 2026-11-13
+
+### Added
+
+- Desktop: prompts, agent responses, and tools show discreet timestamps when available.
+
+### Changed
+
+- Desktop: child conversations stay in the parent agent's Subagents section and no longer appear in conversation lists or completion notifications.
+
+### Fixed
+
+- Desktop: submitted prompts remain visible and greyed out while attachments upload, then send automatically.
+- Desktop: image prompts sent while a resumed agent starts no longer need to be retried.
+- Desktop: a node connection that goes silent is noticed and opened again
+  instead of waiting forever.
+- Desktop: messages kept for an agent on another machine are sent after the
+  app restarts.
+- Desktop: on Linux, logs are written under the XDG state folder instead of
+  ~/Library/Logs/Beep.
+- Desktop: one terminal that cannot be cleaned up no longer empties the whole
+  terminal list.
+- Desktop: a refused pause, resolve or start-over of file sync shows its
+  error.
+- Desktop: Send in a review works again after a failed send, and "Try again"
+  in a problem report works more than once.
+- Desktop: Preview in the Files menu opens the preview instead of the source.
+- Desktop: a failed command shows the same exit code in every row.
+- Desktop: Home shows Gemini CLI, pi and flsh by name.
+- Desktop: a session in a nested project is counted under the same project
+  everywhere.
+- Desktop: one machine on an older version no longer stops agent modes from
+  loading for other machines.
+- Desktop: terminal text with both strikethrough and overline shows both.
+- Desktop: saving two agent settings at once keeps both, and a newly added
+  token with push access is used at once.
+- Desktop: a refused clone from GitLab, Bitbucket or another Git host is
+  reported as not found or no access.
+
+## [0.8.27] - 2026-11-13
+
+### Fixed
+
+- Desktop: App labels and controls no longer select text accidentally; chat messages and editable fields remain selectable.
+- Desktop: Clicking the emulator no longer shows a blue focus border.
+
 ## [0.8.26] - 2026-11-13
 
 ### Fixed

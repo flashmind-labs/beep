@@ -35,6 +35,16 @@ test("latest duplicate wins, ended sessions stay out, and machine and harness id
   assert.notEqual(conversationKey(a), conversationKey(harness));
 });
 
+test("child conversations stay out of the picker even when current or their parent is absent", () => {
+  const history = new ConversationHistory();
+  const parent = session("parent");
+  const child = session("child", { parent: { machine_id: "machine", id: "parent", key: "" } });
+  const native = session("subagent:codex:worker");
+  const orphan = session("orphan", { parent: { machine_id: "remote", id: "missing", key: "" } });
+  history.visit(child);
+  assert.deepEqual(history.order([child, parent, native, orphan], child), [parent]);
+});
+
 test("subagents sit under their parent in the order they started, and a known parent that is not listed heads them", () => {
   const parent = session("p", { agent: "claude" });
   const late = session("subagent:claude:p:late", { agent: "claude", status: "working", started_at: 20 });

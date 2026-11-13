@@ -54,3 +54,11 @@ test("a kept row goes back to where it was on screen", () => {
   assert.equal(keptScrollTop(500, 120, 20), 400);
   assert.equal(keptScrollTop(30, 120, 20), 0);
 });
+
+
+test("a layout adjustment after sending attachments preserves following the bottom", () => {
+  const adjusted = { scrollTop: 800, scrollHeight: 2300, clientHeight: 1100 };
+  assert.equal(followsAfterScroll(true, 1000, adjusted, true), true);
+  assert.equal(followsAfterScroll(true, 1000, adjusted, false), false);
+  assert.equal(followsAfterScroll(false, 1000, adjusted, true), false);
+});

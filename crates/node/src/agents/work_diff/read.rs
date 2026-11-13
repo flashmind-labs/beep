@@ -323,6 +323,8 @@ fn git_command(dir: &Path, args: &[&str]) -> Command {
         // Reading takes no locks, so a running agent's own git is never in
         // its way.
         .env("GIT_OPTIONAL_LOCKS", "0")
+        // Callers match git's English messages.
+        .env("LC_ALL", "C")
         .stdin(Stdio::null());
     command
 }
