@@ -5,7 +5,7 @@ import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import { isHtmlFile } from "./html-preview-state.ts";
 import { type MediaTab, type TreeText, P, saveWorkFile } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
-import { readError } from "./read.ts";
+import { fileError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
 
@@ -23,7 +23,7 @@ export async function togglePreview(tab: MediaTab) {
     if (result.kind !== "html") throw new Error("This file cannot be previewed as HTML.");
     preview.src = result.src;
   } catch (error) {
-    preview.error = readError(error);
+    preview.error = fileError(error, tab.rel);
   } finally {
     preview.loading = false; touchTab(tab);
   }

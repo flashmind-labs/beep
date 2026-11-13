@@ -59,12 +59,24 @@ function joined(parts: readonly Uint8Array[], done: number, mime: string) {
 
 /// What an error from reading a file says to the user.
 export function readError(e: unknown) {
-  const said = e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? e.message : e;
-  const text = String(said).replace(/^bad request: /, "");
-  if (/no longer|not found|gone/i.test(text)) return `File gone, or ${P.session?.machine_name ?? "the machine"} is offline.`;
+  const text = errorText(e);
+  if (isMissing(text)) return `Not found on ${machineName()}.`;
   if (/unknown op|unknown request|not serve|too old|closes the stream/i.test(text)) return "beep-node there is too old. Update it.";
   return text;
 }
+
+/// What an error from reading the file at `path` says, naming the path when it is missing.
+export function fileError(e: unknown, path: string) {
+  return isMissing(errorText(e)) ? `${path} not found on ${machineName()}.` : readError(e);
+}
+
+function errorText(e: unknown) {
+  const said = e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? e.message : e;
+  return String(said).replace(/^bad request: /, "");
+}
+
+const isMissing = (text: string) => /no longer|not found|gone/i.test(text);
+const machineName = () => P.session?.machine_name ?? "the machine";
 
 /// Reads the start of a text tab's file.
 export async function loadText(t: MediaTab) {
@@ -76,7 +88,7 @@ export async function loadText(t: MediaTab) {
     t.size = t.text.size;
   } catch (e) {
     if (lookElsewhere(t)) return loadText(t);
-    t.error = readError(e);
+    t.error = fileError(e, t.rel);
   }
 
   if (P.tabs.includes(t)) {
@@ -168,7 +180,7 @@ export async function load(t: MediaTab) {
   } catch (e) {
     if (!P.tabs.includes(t)) return;
     if (lookElsewhere(t)) return load(t);
-    t.error = readError(e);
+    t.error = fileError(e, t.path);
   }
 
   // Drawn again now its bytes are here.

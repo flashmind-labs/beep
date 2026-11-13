@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { STALE } from "../ui/active.ts";
 import type { MenuItem } from "../ui/menu.ts";
 import { readView } from "../agentpane/view-memory.ts";
-import { type DiffFile, type DiffView, type Extent, contextFile, hunkToExpand, filesInTreeOrder, reviewText, withLoaded } from "./diff-state.ts";
+import { type DiffFile, type DiffView, type ContextEdit, type Extent, contextFile, editExtents, filesInTreeOrder, reviewText, withLoaded } from "./diff-state.ts";
 import { Viewer, reasonOf, reconcile, remember, say } from "./diff-viewer.ts";
 import { DiffViewer } from "./diff-view.tsx";
 import { addAgentComments } from "./diff-comments.ts";
@@ -173,14 +173,22 @@ export async function loadFull(v: Viewer, f: DiffFile) {
   reconcile(v, new Set([f.path]));
 }
 
-/// Shows ten more lines of context in file `f`, above or below one hunk:
-/// the one next to the old line `after`, in that direction.
-export async function expandContext(v: Viewer, f: DiffFile, direction: keyof Extent, after: number) {
-  if (!v.state.view || v.state.pending.has(f.path) || !f.hunks.length) return;
+/// Shows more context around hunks of file `f`, or takes it away again.
+export async function editContext(v: Viewer, f: DiffFile, edits: readonly ContextEdit[]) {
+  const view = v.state.view;
+  if (!view || v.state.pending.has(f.path)) return;
   const seq = v.seq;
   const kept = v.context.get(f.path) ?? { original: f, extents: f.hunks.map(() => ({ above: 0, below: 0 })) };
-  const at = hunkToExpand(kept.original, direction, after);
-  const next = { original: kept.original, extents: kept.extents.map((extent, index) => index === at ? { ...extent, [direction]: extent[direction] + 10 } : extent) };
+  const next = { original: kept.original, extents: editExtents(kept.extents, edits) };
+
+  if (next.extents.every(extent => !extent.above && !extent.below)) {
+    v.context.delete(f.path);
+    v.set({ view: withLoaded(view, [kept.original]) });
+    reconcile(v, new Set([f.path]));
+    remember(v);
+    return;
+  }
+
   setPending(v, f.path, true);
 
   try {
@@ -194,7 +202,7 @@ export async function expandContext(v: Viewer, f: DiffFile, direction: keyof Ext
     reconcile(v, new Set([f.path]));
     remember(v);
   } catch (error) {
-    say(v, `Could not expand context: ${reasonOf(error)}`);
+    say(v, `Could not change context: ${reasonOf(error)}`);
   } finally {
     setPending(v, f.path, false);
   }

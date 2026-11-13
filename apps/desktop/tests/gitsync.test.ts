@@ -60,9 +60,10 @@ test("repair draft includes both checkouts and bounded recent session references
   const session = (id: string, machine_id: string, last_activity: number) => ({ id, machine_id, machine_name: machine_id, agent: "codex", title: id, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity, external: false, question: null });
   const prompt = syncRepairPrompt({ project: "acme/widget", machine: "a", error: "histories diverged", checkouts: [{ id: "a", name: "build-box", folder: "/srv/project" }, { id: "b", name: "laptop", folder: "/srv/widget" }], git: [row({ machine_id: "a" })], sessions: [session("old", "a", 1), session("recent", "a", 3), session("newest", "a", 4), session("other-side", "b", 2), session("unrelated", "c", 5)] });
   for (const text of ["build-box", "laptop", "/srv/project", "/srv/widget", "origin/main", "newest", "recent", "other-side", "read_session_transcript", "next_before", "not verified commit authors", "without cherry-picking", "Do not create commits or push without my approval"]) assert.ok(prompt.includes(text), text);
-  assert.ok(!prompt.includes('"session": "old"'));
+  assert.ok(!prompt.includes("`old`"));
   assert.ok(!prompt.includes("unrelated"));
-  assert.ok(prompt.indexOf('"session": "newest"') < prompt.indexOf('"session": "recent"'));
+  assert.ok(prompt.indexOf("`newest`") < prompt.indexOf("`recent`"));
+  assert.match(prompt, /^### laptop$/m);
 });
 
 test("local edits get a distinct warning without calling them a merge conflict", async () => {

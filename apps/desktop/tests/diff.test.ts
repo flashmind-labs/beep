@@ -46,7 +46,7 @@ test("rows number both sides and count the lines between hunks", () => {
       { old_start: 20, old_lines: 1, new_start: 20, new_lines: 2, section: "fn x() {", lines: [{ k: " ", t: "y" }, { k: "+", t: "z", e: true }] },
     ],
   });
-  const text = rows.map(r => r.kind === "line" ? `${r.old ?? "."} ${r.new ?? "."} ${r.k}${r.text}${r.eol ? "$" : ""}` : r.gap ? `gap ${r.gap.lines} ${r.text}` : r.text);
+  const text = rows.map(r => r.kind === "line" ? `${r.old ?? "."} ${r.new ?? "."} ${r.k}${r.text}${r.eol ? "$" : ""}` : r.gap ? `gap ${r.gap} ${r.text}` : r.text);
   assert.deepEqual(text, [
     "@@ -1,3 +1,3 @@", "1 1  a", "2 . -b", ". 2 +B", "3 3  c",
     "gap 16 @@ -20 +20,2 @@ fn x() {", "20 20  y", ". 21 +z$",
@@ -95,7 +95,7 @@ test("side by side shows context on both sides and starts a new run after it", (
 
 test("splitHeight counts wrapped lines", () => {
   const cell = (n: number) => ({ k: " " as const, num: 1, text: "x".repeat(n), eol: false });
-  const rows = [{ kind: "hunk" as const, text: "@@", gap: null }, { kind: "pair" as const, left: cell(10), right: cell(25) }];
+  const rows = [{ kind: "hunk" as const, text: "@@", index: 0, gap: 0, expanded: false }, { kind: "pair" as const, left: cell(10), right: cell(25) }];
   assert.equal(splitHeight(rows, 10), 19 + 19 * 3);
 });
 
@@ -130,25 +130,29 @@ test("expanded context keeps line numbers and review placement", async () => {
   assert.equal(contextFile(original, full, [{ above: 0, below: 10 }]).hunks[0].new_start, 14);
 });
 
-test("a gap between two hunks expands from either side alone", async () => {
-  const { contextFile, diffRows, hunkToExpand } = await import("../src/review/diff-state.ts");
+test("a gap between two hunks expands from either side alone and collapses", async () => {
+  const { contextFile, diffRows, editExtents } = await import("../src/review/diff-state.ts");
   const lines = Array.from({ length: 100 }, (_, i) => ({ k: " " as const, t: String(i + 1) }));
   const hunk = (start: number, count: number) => ({ old_start: start, new_start: start, old_lines: count, new_lines: count, section: "", lines: lines.slice(start - 1, start - 1 + count) });
   const full = file("sample.ts", { hunks: [hunk(1, 100)] });
   const original = file("sample.ts", { hunks: [hunk(10, 7), hunk(60, 7)] });
-  const gaps = (f: typeof original) => diffRows(f).flatMap(row => row.kind === "hunk" ? [row.gap] : []);
-  assert.deepEqual(gaps(original), [null, { lines: 43, after: 16 }]);
+  const none = [{ above: 0, below: 0 }, { above: 0, below: 0 }];
+  const shape = (f: typeof original) => f.hunks.map(h => [h.new_start, h.new_lines]);
+  const seam = (f: typeof original, extents: typeof none) => diffRows(f, extents).flatMap(row => row.kind === "hunk" && row.index ? [[row.gap, row.expanded]] : []);
+  assert.deepEqual(seam(original, none), [[43, false]]);
 
-  assert.equal(hunkToExpand(original, "below", 16), 0);
-  assert.equal(hunkToExpand(original, "above", 16), 1);
-  assert.equal(hunkToExpand(original, "above", 0), 0);
-  assert.equal(hunkToExpand(original, "below", Infinity), 1);
+  const down = editExtents(none, [{ hunk: 0, side: "below", show: true }]);
+  assert.deepEqual(shape(contextFile(original, full, down)), [[10, 17], [60, 7]]);
+  assert.deepEqual(seam(contextFile(original, full, down), down), [[33, true]]);
 
-  const down = contextFile(original, full, [{ above: 0, below: 10 }, { above: 0, below: 0 }]);
-  assert.deepEqual(down.hunks.map(h => [h.new_start, h.new_lines]), [[10, 17], [60, 7]]);
-  assert.deepEqual(gaps(down), [null, { lines: 33, after: 26 }]);
-  const joined = contextFile(original, full, [{ above: 0, below: 30 }, { above: 20, below: 0 }]);
-  assert.deepEqual(joined.hunks.map(h => [h.new_start, h.new_lines]), [[10, 57]]);
+  // Two hunks that come to touch stay two, so the seam can still collapse.
+  const joined = [{ above: 0, below: 30 }, { above: 20, below: 0 }];
+  assert.deepEqual(shape(contextFile(original, full, joined)), [[10, 30], [40, 27]]);
+  assert.deepEqual(seam(contextFile(original, full, joined), joined), [[0, true]]);
+
+  const back = editExtents(joined, [{ hunk: 0, side: "below", show: false }, { hunk: 1, side: "above", show: false }]);
+  assert.deepEqual(back, none);
+  assert.deepEqual(shape(contextFile(original, full, back)), shape(original));
 });
 
 test("folder chains compact up to branches and direct files", () => {
