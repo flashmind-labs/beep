@@ -44,6 +44,8 @@ host! {
         Tasks,
         #[strum(serialize = "terminal/1")]
         Terminal,
+        #[strum(serialize = "device/1")]
+        Device,
         #[strum(serialize = "sign-in/1")]
         SignIn,
         #[strum(serialize = "tool-updates/1")]

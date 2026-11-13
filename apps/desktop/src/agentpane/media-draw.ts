@@ -20,7 +20,7 @@ import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { writeClipboard } from "../ui/parts.ts";
-import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
+import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
 import { type DockModel, type DockView, docked, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 
@@ -105,6 +105,7 @@ export function paneTabItem(id: string): PaneTabItem {
   if (id === CHANGES) return { id, name: "Changes", icon: TAB_ICONS.changes, count: null, closeIcon: null };
   if (id === SUBS) return { id, name: "Subagents", icon: TAB_ICONS.subagents, count: P.subCount, closeIcon: null };
   if (id === RUNNING) return { id, name: "Running", icon: TAB_ICONS.running, count: runningCount(), closeIcon: null };
+  if (id === DEVICE) return { id, name: "Device", icon: TAB_ICONS.device, count: null, closeIcon: null };
   if (id === ARTS) return { id, name: "Artifacts", icon: TAB_ICONS.artifacts, count: artifactCount(), closeIcon: null };
   const tab = P.tabs.find(t => t.id === id);
   return { id, name: tab?.name ?? id, icon: TAB_ICONS[tab?.kind ?? "text"], count: null, closeIcon: "x" };
@@ -114,7 +115,7 @@ export function paneTabItem(id: string): PaneTabItem {
 function dockModel(d: Dock, ids: string[]): DockModel {
   const on = P.on[d];
   const shown = P.tabs.find(t => t.id === on);
-  const fixed = on === RUNNING ? RUNNING : on === SUBS ? SUBS : on === ARTS ? ARTS : on === CHANGES ? CHANGES : FILES;
+  const fixed = on === DEVICE ? DEVICE : on === RUNNING ? RUNNING : on === SUBS ? SUBS : on === ARTS ? ARTS : on === CHANGES ? CHANGES : FILES;
   const has = (id: string) => ids.includes(id);
   const views: DockView[] = [
     ...(has(FILES) ? [{ kind: "files" as const, hidden: on !== FILES }] : []),
@@ -122,6 +123,8 @@ function dockModel(d: Dock, ids: string[]): DockModel {
     ...(has(ARTS) ? [{ kind: "artifacts" as const, hidden: on !== ARTS }] : []),
     ...(has(RUNNING) ? [{ kind: "running" as const, hidden: on !== RUNNING }] : []),
     ...(has(SUBS) ? [{ kind: "subagents" as const, hidden: on !== SUBS }] : []),
+    // A folded dock hides the device too, which stops its stream.
+    ...(has(DEVICE) ? [{ kind: "device" as const, hidden: on !== DEVICE || P.layout.hidden[d] }] : []),
     ...P.tabs.filter(t => has(t.id)).map(t => ({ kind: "tab" as const, tab: t, rev: t.rev, hidden: t.id !== on })),
   ];
   const before = paneModel.getState().docks?.[d];
@@ -164,13 +167,13 @@ function syncDock(d: Dock, ids: string[]) {
   }
 }
 
-type Fixed = "subagents" | "files" | "changes" | "artifacts" | "running";
+type Fixed = "subagents" | "files" | "changes" | "artifacts" | "running" | "device";
 
-const FIXED_NAMES: Record<Fixed, string> = { running: "Running", subagents: "Subagents", artifacts: "Artifacts", changes: "Changes", files: "Files" };
+const FIXED_NAMES: Record<Fixed, string> = { device: "Device", running: "Running", subagents: "Subagents", artifacts: "Artifacts", changes: "Changes", files: "Files" };
 
 const TAB_ICONS: Record<TabKind | Fixed, IconName> = {
   files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", image: "paneImage", model: "paneModel",
-  video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents",
+  video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents", device: "paneDevice",
 };
 
 /// Pauses a tab's video or audio and its model's animation, whose frames would

@@ -1,0 +1,232 @@
+// The Device tab's logic: the devices the machines list, which one shows,
+// where the screen sits in its view, and how pointer and keys become the
+// node's input (`device/1`). device.ts keeps the state; device-view.tsx draws it.
+
+export type DevicePlatform = "Android" | "Ios";
+export type DevicePower = "Off" | "Booting" | "On";
+
+/// An emulator or simulator, as `device_list` gives it.
+export interface Device {
+  id: string;
+  name: string;
+  platform: DevicePlatform;
+  state: DevicePower;
+  os: string | null;
+}
+
+/// One machine's devices, or why it could not list them.
+export interface DeviceMachine {
+  machine_id: string;
+  machine_name: string;
+  devices: Device[];
+  error: string | null;
+}
+
+/// A machine that serves `device/1`.
+export interface DeviceHost {
+  machine_id: string;
+  machine_name: string;
+}
+
+/// The device the tab shows.
+export interface DevicePick {
+  machine: string;
+  device: string;
+}
+
+export type TouchPhase = "Down" | "Move" | "Up";
+export type DeviceKey = "Return" | "Delete" | "Tab" | "Escape" | "Left" | "Right" | "Up" | "Down";
+export type DeviceButton = "Home" | "Back" | "AppSwitch" | "Power" | "VolumeUp" | "VolumeDown" | "Rotate";
+
+/// Input as the node's `Input` reads in JSON.
+export type DeviceInput =
+  | { Touch: { phase: TouchPhase; x: number; y: number } }
+  | { Text: { text: string } }
+  | { Key: { key: DeviceKey } }
+  | { Button: { button: DeviceButton } };
+
+/// What the screen shows.
+export type ScreenState =
+  | { kind: "off" }
+  | { kind: "attaching" }
+  | { kind: "live" }
+  | { kind: "ended"; reason: string };
+
+/// A message on `device_attach`'s channel.
+export type ScreenMessage =
+  | { kind: "attached" }
+  | { kind: "frame"; width: number; height: number; jpeg: Uint8Array<ArrayBuffer> }
+  | { kind: "ended"; reason: string };
+
+export interface Size { width: number; height: number }
+export interface Rect { x: number; y: number; width: number; height: number }
+
+/// The smallest and largest frame side the node is asked for (`MAX_SIDE`).
+const MIN_SIDE = 160;
+const MAX_SIDE = 2048;
+/// Frame sides asked for go up in these steps, so small resizes ask nothing new.
+const SIDE_STEP = 128;
+
+// ----- Devices -----
+
+/// The device `pick` names among `machines`, or null.
+export function pickedDevice(machines: readonly DeviceMachine[], pick: DevicePick | null): Device | null {
+  if (!pick) return null;
+  return machines.find(m => m.machine_id === pick.machine)?.devices.find(d => d.id === pick.device) ?? null;
+}
+
+/// The device to show: `last` while it is still listed, else one on the
+/// session's machine, else one on the first machine with any; a running one
+/// first. Null when no machine has a device.
+export function defaultPick(machines: readonly DeviceMachine[], session: string | null, last: DevicePick | null): DevicePick | null {
+  if (last && pickedDevice(machines, last)) return last;
+  const own = machines.find(m => m.machine_id === session && m.devices.length > 0);
+  const machine = own ?? machines.find(m => m.devices.length > 0);
+  if (!machine) return null;
+  const device = machine.devices.find(d => d.state === "On") ?? machine.devices[0];
+  return { machine: machine.machine_id, device: device.id };
+}
+
+/// The picker's value for a pick, and back.
+export const pickValue = (pick: DevicePick) => `${pick.machine}\n${pick.device}`;
+
+export function readPickValue(value: string): DevicePick | null {
+  const at = value.indexOf("\n");
+  return at > 0 ? { machine: value.slice(0, at), device: value.slice(at + 1) } : null;
+}
+
+/// The hardware buttons a device has, in the row's order.
+export function buttonsFor(platform: DevicePlatform): DeviceButton[] {
+  switch (platform) {
+    case "Android": return ["Home", "Back", "AppSwitch", "Rotate", "Power", "VolumeDown", "VolumeUp"];
+    case "Ios": return ["Home", "Rotate", "Power", "VolumeDown", "VolumeUp"];
+  }
+}
+
+export const BUTTON_NAMES: Record<DeviceButton, string> = {
+  Home: "Home", Back: "Back", AppSwitch: "Recent apps", Power: "Power", VolumeUp: "Volume up", VolumeDown: "Volume down", Rotate: "Rotate",
+};
+
+/// The chip of a device's state.
+export function powerChip(state: DevicePower): { text: string; cls: string } {
+  switch (state) {
+    case "Off": return { text: "off", cls: "" };
+    case "Booting": return { text: "booting", cls: "wait" };
+    case "On": return { text: "on", cls: "run" };
+  }
+}
+
+/// `device_list`'s answer, checked; machines or devices that do not read are left out.
+export function readMachines(value: unknown): DeviceMachine[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => {
+    if (!isRecord(item) || typeof item.machine_id !== "string" || typeof item.machine_name !== "string") return [];
+    const devices = Array.isArray(item.devices) ? item.devices.flatMap(readDevice) : [];
+    return [{ machine_id: item.machine_id, machine_name: item.machine_name, devices, error: typeof item.error === "string" ? item.error : null }];
+  });
+}
+
+function readDevice(value: unknown): Device[] {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return [];
+  const platform = value.platform === "Android" || value.platform === "Ios" ? value.platform : null;
+  const state = value.state === "Off" || value.state === "Booting" || value.state === "On" ? value.state : null;
+  if (!platform || !state) return [];
+  return [{ id: value.id, name: value.name, platform, state, os: typeof value.os === "string" ? value.os : null }];
+}
+
+/// `device_hosts`' answer, checked.
+export function readHosts(value: unknown): DeviceHost[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(item => isRecord(item) && typeof item.machine_id === "string" && typeof item.machine_name === "string"
+    ? [{ machine_id: item.machine_id, machine_name: item.machine_name }] : []);
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+// ----- The screen -----
+
+/// Where an image of `image` size sits in a box of `box` size: as large as
+/// fits, its aspect kept, centered.
+export function fitRect(box: Size, image: Size): Rect {
+  if (box.width <= 0 || box.height <= 0 || image.width <= 0 || image.height <= 0) return { x: 0, y: 0, width: 0, height: 0 };
+  const scale = Math.min(box.width / image.width, box.height / image.height);
+  const width = image.width * scale, height = image.height * scale;
+  return { x: (box.width - width) / 2, y: (box.height - height) / 2, width, height };
+}
+
+/// A point in the box as fractions of the drawn image, or null outside it.
+/// With `clamp`, a point outside is moved to the image's edge, as a drag
+/// that leaves the screen keeps touching its edge.
+export function touchPoint(rect: Rect, x: number, y: number, clamp: boolean): { x: number; y: number } | null {
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const fx = (x - rect.x) / rect.width, fy = (y - rect.y) / rect.height;
+  const inside = fx >= 0 && fx <= 1 && fy >= 0 && fy <= 1;
+  if (!inside && !clamp) return null;
+  return { x: Math.min(1, Math.max(0, fx)), y: Math.min(1, Math.max(0, fy)) };
+}
+
+/// The longest frame side worth asking for a view of `box` CSS pixels.
+export function maxSide(box: Size, pixelRatio: number): number {
+  const want = Math.max(box.width, box.height) * (pixelRatio > 0 ? pixelRatio : 1);
+  const stepped = Math.ceil(want / SIDE_STEP) * SIDE_STEP;
+  return Math.min(MAX_SIDE, Math.max(MIN_SIDE, stepped));
+}
+
+/// A channel message, or null for one this page does not know. A frame
+/// comes raw: width and height as four little-endian bytes each, then the
+/// JPEG. Tauri hands raw bytes over as an ArrayBuffer, or as an array of
+/// numbers when its IPC falls back to postMessage.
+export function readScreenMessage(message: unknown): ScreenMessage | null {
+  const bytes = rawBytes(message);
+  if (bytes) {
+    if (bytes.length < 8) return null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, 8);
+    return { kind: "frame", width: view.getUint32(0, true), height: view.getUint32(4, true), jpeg: bytes.slice(8) };
+  }
+
+  if (!isRecord(message)) return null;
+  if (message.kind === "attached") return { kind: "attached" };
+  if (message.kind === "ended" && typeof message.reason === "string") return { kind: "ended", reason: message.reason };
+  return null;
+}
+
+function rawBytes(message: unknown): Uint8Array | null {
+  if (message instanceof ArrayBuffer) return new Uint8Array(message);
+  if (ArrayBuffer.isView(message)) return new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+  if (Array.isArray(message) && message.every(n => typeof n === "number")) return Uint8Array.from(message);
+  return null;
+}
+
+/// Input waiting while the input before it is on its way: a move replaces a
+/// move waiting last, so a drag never falls behind the finger.
+export function queueInput(queue: readonly DeviceInput[], input: DeviceInput): DeviceInput[] {
+  const last = queue.at(-1);
+  if (last && isMove(last) && isMove(input)) return [...queue.slice(0, -1), input];
+  return [...queue, input];
+}
+
+const isMove = (input: DeviceInput) => "Touch" in input && input.Touch.phase === "Move";
+
+// ----- Keys -----
+
+const KEYS: Record<string, DeviceKey> = {
+  Enter: "Return", Backspace: "Delete", Tab: "Tab", Escape: "Escape",
+  ArrowLeft: "Left", ArrowRight: "Right", ArrowUp: "Up", ArrowDown: "Down",
+};
+
+/// What a key pressed on the focused screen sends: a key with no text of
+/// its own, or null for text (which comes as typed) and for shortcuts with
+/// ⌘, ⌃ or ⌥, which stay the app's.
+export function keyInput(event: { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; isComposing: boolean }): DeviceInput | null {
+  if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return null;
+  const key = KEYS[event.key];
+  return key ? { Key: { key } } : null;
+}
+
+/// An error from a device command as the tab shows it.
+export function deviceError(e: unknown): string {
+  const said = e instanceof Error ? e.message : isRecord(e) && typeof e.message === "string" ? e.message : String(e);
+  const text = said.replace(/^bad request: /, "");
+  if (/unknown protocol|not serve|refused/i.test(text)) return "beep-node there is too old for devices. Update it.";
+  return text;
+}

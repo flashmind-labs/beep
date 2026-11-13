@@ -1,0 +1,20 @@
+/* The Device tab (#648): picker head, the screen fitted with its aspect, the button row. */
+.mac .ag-devhead { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--d-border); font-size: 12px }
+.mac .ag-devhead .sp { flex: 1 }
+.mac .ag-devpick { min-width: 0; max-width: 60%; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--d-border); background: var(--d-surface); color: var(--d-fg); font: inherit; font-size: 12px }
+.mac .ag-devhead .chip { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--d-border); color: var(--d-muted); font-size: 10.5px; font-weight: 600; line-height: 17px }
+.mac .ag-devhead .chip.run { color: var(--d-emerald); border-color: var(--d-emerald) }
+.mac .ag-devhead .chip.wait { color: #d9a441; border-color: #d9a441 }
+.mac .ag-devhead .chip.bad { color: #e5484d; border-color: #e5484d }
+.mac .ag-devhead .chip .dspin { width: 9px; height: 9px }
+.mac .ag-devstage { padding: 12px }
+.mac .ag-devscreen { height: 100%; max-height: 100%; aspect-ratio: 9 / 19.5; max-width: 100%; border-radius: 14px; overflow: hidden; outline: none; cursor: default; display: flex; flex-direction: column; background: linear-gradient(160deg, #2b3a67, #14203b 55%, #0d1426); color: #fff; font-size: 10px }
+.mac .ag-devscreen:focus-visible { box-shadow: 0 0 0 2px var(--d-emerald) }
+.mac .ag-devscreen .sb { display: flex; justify-content: space-between; padding: 6px 12px; opacity: .8 }
+.mac .ag-devscreen .clock { padding: 18px 14px; font-size: 30px; font-weight: 300 } .mac .ag-devscreen .clock small { display: block; font-size: 11px; opacity: .7 }
+.mac .ag-devscreen .apps { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); align-content: end; gap: 12px; padding: 14px }
+.mac .ag-devscreen .tray { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 10px 14px 16px; background: rgba(255,255,255,.08) }
+.mac .ag-devscreen i { aspect-ratio: 1; border-radius: 30%; background: rgba(255,255,255,.22) }
+.mac .ag-devnote { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--d-muted); font-size: 12px; text-align: center; padding: 16px }
+.mac .ag-devkeys .gap { width: 6px }
+.mac .ag-devkeys .dbtn:disabled { opacity: .4 }
