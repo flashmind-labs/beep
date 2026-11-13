@@ -48,3 +48,16 @@ body:not(.mobile) .dv-l.hunk .dv-c { color: var(--dim) }
 body:not(.mobile) .dv-g { border-right: 0 }
 body:not(.mobile) .dv-l.add { box-shadow: inset 2px 0 0 var(--dv-add-fg) }
 body:not(.mobile) .dv-l.del { box-shadow: inset 2px 0 0 var(--dv-del-fg) }
+
+/* ----- Start composer (a project's and a new session's): the same box as the message field,
+   the words on one line that grows, then one quiet line of choices. Enter starts. ----- */
+body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { padding: 8px 8px 5px 12px; gap: 4px; border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, var(--ink)) }
+body:not(.mobile) .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+body:not(.mobile) .cc-pjc .box.err { border-color: var(--err) }
+body:not(.mobile) .cc-pjc textarea, body:not(.mobile) .cc-pjc.centered textarea { min-height: 21px; font-size: 13.5px }
+body:not(.mobile) .cc-pjc .row { gap: 2px; margin-left: -6px }
+body:not(.mobile) .cc-pjc .pill, body:not(.mobile) .cc-pjc.centered .pill { height: 26px; padding: 0 6px; gap: 6px; border: 0; font-size: 12px; color: var(--muted) }
+body:not(.mobile) .cc-pjc .pill small { font-size: 12px; color: var(--dim) }
+body:not(.mobile) .cc-pjc .pill .cc-ag, body:not(.mobile) .cc-pjc.centered .pill .cc-ag { width: 16px; height: 16px; border: 0; background: none }
+body:not(.mobile) .cc-pjc .row > .dbtn.quiet { width: 26px; height: 26px; min-height: 0; padding: 0; justify-content: center; color: var(--muted) }
+body:not(.mobile) .cc-pjc :is(.agc-send, .row > button[type="submit"]) { display: none }
