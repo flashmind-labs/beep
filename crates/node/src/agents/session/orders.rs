@@ -113,6 +113,17 @@ impl Actor {
         }
     }
 
+    /// Whether `prompt` fits beside the queued prompts and the steers.
+    fn room_for(&self, prompt: &Prompt) -> Result<(), String> {
+        queue_room(
+            self.queued
+                .iter()
+                .chain(&self.steers)
+                .chain(self.steering.iter().map(|steer| &steer.prompt)),
+            prompt,
+        )
+    }
+
     /// Queues a prompt, or a steer, and starts it when the agent is idle.
     fn enqueue(
         &mut self,
@@ -129,13 +140,7 @@ impl Actor {
             Err(refused) => return Ok(Err(refused)),
         };
 
-        if let Err(full) = queue_room(
-            self.queued
-                .iter()
-                .chain(&self.steers)
-                .chain(self.steering.iter().map(|steer| &steer.prompt)),
-            &prompt,
-        ) {
+        if let Err(full) = self.room_for(&prompt) {
             return Ok(Err(full));
         }
 
@@ -507,7 +512,7 @@ impl Actor {
         let follow_up = follow_up.map(Prompt::from);
 
         if let Some(prompt) = &follow_up
-            && let Err(full) = queue_room(&self.queued, prompt)
+            && let Err(full) = self.room_for(prompt)
         {
             return Ok(Err(full));
         }

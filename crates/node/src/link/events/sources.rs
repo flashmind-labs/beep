@@ -84,7 +84,7 @@ impl Source {
 
     /// Whether one of the `changed` roots was bound without Git metadata and
     /// should ask Git again; at most once per `GIT_RETRY`.
-    pub(super) fn retry_git<'a>(&self, mut changed: impl Iterator<Item = &'a Topic>) -> bool {
+    fn retry_git<'a>(&self, mut changed: impl Iterator<Item = &'a Topic>) -> bool {
         let mut bare = crate::lock(&self.bare);
 
         if !changed.any(|topic| bare.topics.contains(topic))
@@ -184,5 +184,21 @@ pub(super) async fn reconcile(offers: &Offers, subscriptions: &Subscriptions) ->
         roots(subscriptions).len() <= MAX_FILE_ROOTS,
         TOO_MANY_ROOTS
     );
+    Ok(())
+}
+
+/// Asks Git again for every changed root a source bound without Git
+/// metadata: it may have become a repository.
+pub(super) async fn retry_git<'a>(
+    offers: &Offers,
+    subscriptions: &Subscriptions,
+    changed: impl Iterator<Item = &'a Topic> + Clone,
+) -> Result<()> {
+    for subscription in subscriptions.values() {
+        if subscription.source.retry_git(changed.clone()) {
+            subscription.source.reconcile(offers).await?;
+        }
+    }
+
     Ok(())
 }

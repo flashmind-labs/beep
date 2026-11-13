@@ -13,11 +13,22 @@ pub async fn host_name() -> String {
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
         .unwrap_or_default();
-    let name = name.split('.').next().unwrap_or_default();
+    short_name(&name)
+}
 
-    if name.is_empty() || name.len() > MAX_MACHINE_NAME {
+/// The first label of `host`, cut to `MAX_MACHINE_NAME` bytes at a character
+/// boundary; `NO_HOSTNAME` when that is empty.
+fn short_name(host: &str) -> String {
+    let name = host.split('.').next().unwrap_or_default();
+    let name = &name[..name.floor_char_boundary(MAX_MACHINE_NAME)];
+
+    if name.is_empty() {
         return NO_HOSTNAME.to_owned();
     }
 
     name.to_owned()
 }
+
+#[cfg(test)]
+#[path = "../tests/machine_host.rs"]
+mod tests;

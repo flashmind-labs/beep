@@ -15,7 +15,10 @@ use beep_proto::node::agent::Alert;
 use iroh::EndpointId;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::Notify;
@@ -82,6 +85,8 @@ struct Cursor {
 pub(crate) struct Follow<'a, T> {
     hub: &'a AlertHub<T>,
     id: EndpointId,
+    /// One more than the number of the alert `next` last gave, or 0.
+    given: AtomicU64,
 }
 
 impl<T: Clone> AlertHub<T> {
@@ -106,7 +111,11 @@ impl<T: Clone> AlertHub<T> {
 
     /// The stream of follower `id`, which carries on from where `id` left off.
     pub(crate) fn follow(&self, id: EndpointId) -> Follow<'_, T> {
-        Follow { hub: self, id }
+        Follow {
+            hub: self,
+            id,
+            given: AtomicU64::new(0),
+        }
     }
 
     /// Every alert recorded since the last call, oldest first.
@@ -184,6 +193,7 @@ impl<T: Clone> Follow<'_, T> {
                 held.start(self.id, Instant::now());
 
                 if let Some(kept) = held.after(self.id) {
+                    self.given.store(kept.number + 1, Ordering::Relaxed);
                     return kept.alert.clone();
                 }
             }
@@ -193,11 +203,11 @@ impl<T: Clone> Follow<'_, T> {
 
     /// The alert `next` gave went out: the follower has had it.
     pub(crate) fn sent(&self) {
-        let mut held = lock(&self.hub.held);
+        let Some(number) = self.given.swap(0, Ordering::Relaxed).checked_sub(1) else {
+            return;
+        };
 
-        if let Some(number) = held.after(self.id).map(|kept| kept.number) {
-            held.had(self.id, number);
-        }
+        lock(&self.hub.held).had(self.id, number);
     }
 }
 

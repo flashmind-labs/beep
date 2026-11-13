@@ -451,6 +451,33 @@ async fn a_declining_answer_waits_only_where_there_is_room() {
     session.close().await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn a_declining_answer_counts_steers_against_the_queue_limit() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session = Session::start(start_on(&script("pi", ASKING_ADAPTER, &log), dir, None)).unwrap();
+    settle(&session).await;
+    let question = session.info().question.expect("a question").id;
+
+    for n in 0..MAX_QUEUED - 1 {
+        let prompt = Command::Prompt(format!("later {n}").into());
+        session.order(prompt).await.unwrap();
+    }
+
+    let steer = Command::Steer("correction".to_owned().into());
+    session.order(steer).await.unwrap();
+
+    let answer = Command::Answer {
+        question,
+        reply: "neither, look in docs".into(),
+    };
+    assert!(session.order(answer).await.is_err());
+    assert!(session.info().question.is_some(), "still open");
+    session.close().await;
+}
+
 /// An adapter that puts a choice to the user, then ends its turn without
 /// waiting for it, logs the answer the node gives and exits.
 const ABANDONING_ADAPTER: &str = r#"
