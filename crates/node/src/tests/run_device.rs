@@ -29,7 +29,7 @@ async fn input_with_nothing_attached_fails_and_the_stream_goes_on() {
     let link = beep_proto::node::local_link();
     let (node_tx, node_rx) = link.node;
     let (mut tx, mut rx) = link.caller;
-    let serving = tokio::spawn(serve(node_tx, node_rx));
+    let serving = tokio::spawn(serve(node_tx, node_rx, no_agents()));
 
     let input = Input::Text {
         text: "hi".to_owned(),
@@ -42,12 +42,16 @@ async fn input_with_nothing_attached_fails_and_the_stream_goes_on() {
     serving.await.expect("joined").expect("served");
 }
 
+fn no_agents() -> Arc<Agents> {
+    Arc::new(Agents::new(Vec::new()))
+}
+
 /// One request on a stream of its own, and its reply.
 async fn ask(request: Request) -> Reply {
     let link = beep_proto::node::local_link();
     let (node_tx, node_rx) = link.node;
     let (mut tx, mut rx) = link.caller;
-    let _serving = AbortOnDropHandle::new(tokio::spawn(serve(node_tx, node_rx)));
+    let _serving = AbortOnDropHandle::new(tokio::spawn(serve(node_tx, node_rx, no_agents())));
     tx.send(&request).await.expect("sent");
     rx.recv().await.expect("read").expect("a reply")
 }
@@ -131,7 +135,7 @@ async fn a_real_device_shows_its_screen_and_takes_input() {
     let link = beep_proto::node::local_link();
     let (node_tx, node_rx) = link.node;
     let (mut tx, mut rx) = link.caller;
-    let _serving = AbortOnDropHandle::new(tokio::spawn(serve(node_tx, node_rx)));
+    let _serving = AbortOnDropHandle::new(tokio::spawn(serve(node_tx, node_rx, no_agents())));
     let attach = Request::Attach {
         id: id.clone(),
         max_side: 800,

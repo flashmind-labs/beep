@@ -60,3 +60,5 @@
 .sessioncard .kt b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px }
 .sessioncard .kl, .sessioncard .m { color: var(--muted); font-size: 12px; line-height: 16px }
 .sessioncard .ks { flex: none; border: 1px solid var(--border); border-radius: 9999px; padding: 2px 8px; font-size: 12px; line-height: 16px }
+
+.conversation-block { display:grid; gap:6px; padding:12px; margin-block:12px; border:1px solid var(--err); border-radius:8px; color:var(--err); overflow-wrap:anywhere }

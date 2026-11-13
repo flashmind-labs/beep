@@ -267,7 +267,7 @@ export function makeFileSync(deps: FileSyncDeps) {
 const TILE_MAX_AGE_MS = 30_000;
 
 /// "2.1 MB/s", or "" before the rate is known.
-function rateText(rate: number | null | undefined) {
+export function rateText(rate: number | null | undefined) {
   return rate && rate > 0 ? `${bytes(rate)}/s` : "";
 }
 

@@ -45,6 +45,12 @@ impl Agents {
             .is_some_and(|session| session.live.borrow().status() != Status::Ended)
     }
 
+    /// The folder `session` works in, if it is one of this node's.
+    pub(crate) fn folder_of(&self, session: &str) -> Option<PathBuf> {
+        self.get(session)
+            .map(|session| PathBuf::from(session.info().cwd))
+    }
+
     /// Puts `question` to the user in `session` and waits for the answer.
     /// Fails when the session ends or its turn is cancelled first.
     pub(crate) async fn ask(&self, session: &str, question: Asking) -> Result<Answered> {
@@ -392,14 +398,17 @@ impl Agents {
             .lock()
             .values()
             .filter_map(|s| {
-                let live = s.live.borrow();
-                live.agent_session.as_ref()?;
+                // Released before `info` reads the state again: a second read
+                // while this one is held waits behind any write queued in
+                // between, which waits on this one, and the node stops.
+                let listed = {
+                    let live = s.live.borrow();
+                    live.agent_session.is_some()
+                        && id.is_none_or(|id| live.info.id == id)
+                        && (!s.reviewer || reviewers && live.info.parent.is_some())
+                };
 
-                if id.is_some_and(|id| live.info.id != id) {
-                    return None;
-                }
-
-                if s.reviewer && !(reviewers && live.info.parent.is_some()) {
+                if !listed {
                     return None;
                 }
 

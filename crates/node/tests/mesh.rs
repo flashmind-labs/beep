@@ -1685,10 +1685,10 @@ async fn an_agent_queries_models_on_its_own_machine_and_a_peer() {
     a.join(&desktop.ticket(DeviceKind::Node).await).await;
     b.join(&desktop.ticket(DeviceKind::Node).await).await;
     let mut mcp = agent_mcp(&desktop, &a, work.path(), &sent).await;
-    assert!(mcp.tools().await.iter().any(|name| name == "harness_info"));
+    assert!(mcp.tools().await.iter().any(|name| name == "machines"));
     timeout(LIMIT, async {
         loop {
-            let (listed, failed) = mcp.call("list_machines", json!({})).await;
+            let (listed, failed) = mcp.call("machines", json!({"action": "list"})).await;
             assert!(!failed, "{listed}");
 
             if listed.contains("box-b: online") {
@@ -1701,18 +1701,18 @@ async fn an_agent_queries_models_on_its_own_machine_and_a_peer() {
     .await
     .expect("the peer comes online");
     for args in [
-        json!({"harness": "codex"}),
-        json!({"harness": "codex", "machine": "box-a"}),
+        json!({"action": "harness", "harness": "codex"}),
+        json!({"action": "harness", "harness": "codex", "machine": "box-a"}),
     ] {
-        let (text, failed) = mcp.call("harness_info", args).await;
+        let (text, failed) = mcp.call("machines", args).await;
         assert!(!failed, "{text}");
         let info: serde_json::Value = serde_json::from_str(&text).expect("harness info");
         assert_eq!(info["model_selection"], "Fixed");
     }
     let (text, failed) = mcp
         .call(
-            "harness_info",
-            json!({"harness": "codex", "machine": "box-b"}),
+            "machines",
+            json!({"action": "harness", "harness": "codex", "machine": "box-b"}),
         )
         .await;
     assert!(!failed, "{text}");
@@ -1783,25 +1783,20 @@ async fn a_repair_agent_reads_local_and_remote_transcripts_with_pagination() {
         "the transcript endpoint rejects other session requests"
     );
     let mut mcp = agent_mcp(&desktop, &a, work.path(), &sent).await;
-    assert!(
-        mcp.tools()
-            .await
-            .iter()
-            .any(|tool| tool == "read_session_transcript")
-    );
+    assert!(mcp.tools().await.iter().any(|tool| tool == "agent"));
 
     for (node, id, expected) in sessions {
         let (text, failed) = mcp
             .call(
-                "read_session_transcript",
-                json!({"machine":node.id.to_string(), "session":id, "last":1}),
+                "agent",
+                json!({"action": "transcript", "machine":node.id.to_string(), "session":id, "last":1}),
             )
             .await;
         assert!(!failed, "{text}");
         let page: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(page["entries"][0]["text"], format!("{expected} 2"));
         assert_eq!(page["next_before"], 2);
-        let (text, failed) = mcp.call("read_session_transcript", json!({"machine":node.id.to_string(), "session":id, "last":2, "before":page["next_before"]})).await;
+        let (text, failed) = mcp.call("agent", json!({"action": "transcript", "machine":node.id.to_string(), "session":id, "last":2, "before":page["next_before"]})).await;
         assert!(!failed, "{text}");
         let page: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(page["entries"][0]["text"], format!("{expected} 0"));
@@ -1810,11 +1805,11 @@ async fn a_repair_agent_reads_local_and_remote_transcripts_with_pagination() {
     }
 
     for args in [
-        json!({"session":"missing"}),
-        json!({"session":sessions[0].1, "last":51}),
-        json!({"machine":"missing-box", "session":sessions[1].1}),
+        json!({"action": "transcript", "session":"missing"}),
+        json!({"action": "transcript", "session":sessions[0].1, "last":51}),
+        json!({"action": "transcript", "machine":"missing-box", "session":sessions[1].1}),
     ] {
-        let (text, failed) = mcp.call("read_session_transcript", args).await;
+        let (text, failed) = mcp.call("agent", args).await;
         assert!(failed, "{text}");
     }
 }
@@ -1842,7 +1837,7 @@ async fn an_agent_sends_files_between_machines_that_share_no_folders() {
     let mut mcp = agent_mcp(&desktop, &a, work.path(), &sent).await;
     timeout(LIMIT, async {
         while !mcp
-            .call("list_machines", json!({}))
+            .call("machines", json!({"action": "list"}))
             .await
             .0
             .contains("box-b: online")
@@ -1894,7 +1889,7 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
     // The link to the other node may still be coming up.
     let listed = timeout(LIMIT, async {
         loop {
-            let (listed, failed) = mcp.call("list_machines", json!({})).await;
+            let (listed, failed) = mcp.call("machines", json!({"action": "list"})).await;
             assert!(!failed, "{listed}");
             // Each machine says what it is, from its own status report, which comes after the link.
             let os_lines = listed
@@ -2040,7 +2035,7 @@ async fn coding_agents_get_no_memory_tools() {
     node.join(&desktop.ticket(DeviceKind::Node).await).await;
     let mut mcp = agent_mcp(&desktop, &node, work.path(), &sent).await;
     let tools = mcp.tools().await;
-    assert!(tools.iter().any(|tool| tool == "remote_run"), "{tools:?}");
+    assert!(tools.iter().any(|tool| tool == "run"), "{tools:?}");
 
     for memory in ["remember", "recall", "update_memory", "forget"] {
         assert!(!tools.iter().any(|tool| tool == memory), "{tools:?}");
@@ -4406,6 +4401,7 @@ mod topic_streams {
                         url: format!("https://example.invalid/{name}"),
                         syncthing_files: None,
                         git_auto_recovery: false,
+                        ..ProjectRecord::default()
                     }
                     .to_bytes()
                     .expect("the project record encodes"),
@@ -4814,7 +4810,8 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
     // A second machine that never fetched them clones each library at its revision.
     let mut b = Node::start(Config::default()).await;
     b.join(&desktop.ticket(DeviceKind::Node).await).await;
-    b.has_logged("skill libraries: 4 installed, 0 problems").await;
+    b.has_logged("skill libraries: 4 installed, 0 problems")
+        .await;
     let home_b = b.home.path().to_path_buf();
     assert_eq!(
         tree(&home_b.join(".claude/skills/notes")),

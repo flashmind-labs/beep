@@ -84,6 +84,7 @@ pub(super) struct Spawn {
     pub(super) description: Option<String>,
     /// Its `subagent_type`: `Explore`, or a custom agent's name.
     pub(super) agent: Option<String>,
+    pub(super) model: Option<String>,
     /// The id the subagent's file is named by, once its result said it.
     pub(super) agent_id: Option<String>,
     pub(super) failed: bool,
@@ -380,6 +381,7 @@ impl Digest {
                                 entry,
                                 description: text_field(input, "description"),
                                 agent: text_field(input, "subagent_type"),
+                                model: text_field(input, "model"),
                                 ..Spawn::default()
                             },
                         );
@@ -1349,7 +1351,7 @@ pub(super) mod tests {
 
     #[test]
     fn a_bare_brief_block_is_not_the_users_text() {
-        let brief = crate::agents::mcp::BRIEF;
+        let brief = crate::agents::tags::tests::BARE_BRIEF;
         let text = user_entry(serde_json::json!([
             {"type": "text", "text": brief},
             {"type": "text", "text": "ok, let's keep going"}

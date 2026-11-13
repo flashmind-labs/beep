@@ -131,6 +131,7 @@ pub fn project(row: ImportRow, machine_name: String, cloned: bool) -> ImportedPr
         folder: row.folder,
         cloned,
         imported_at: row.imported_at.into(),
+        display_name: None,
     }
 }
 

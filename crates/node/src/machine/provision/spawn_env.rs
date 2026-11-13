@@ -72,7 +72,7 @@ pub(super) fn set_path(dirs: Vec<PathBuf>) {
 
 /// Sets `vars` on every process started from now on, in place of the
 /// credentials set before.
-pub(super) fn set_vars(vars: Vec<EnvSecret>) {
+pub(crate) fn set_vars(vars: Vec<EnvSecret>) {
     write_lock(&SPAWN_ENV).vars = vars;
 }
 

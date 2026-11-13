@@ -65,7 +65,7 @@ export function byRecent<T extends Parameters<typeof runningAt>[0]>(rows: readon
 export const runningKey = (r: Pick<RunningAgent, "machine_id" | "id">) => `agent:${r.machine_id}:${r.id}`;
 
 /// An imported project's folder on one machine.
-type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder"> & { url?: ProjectRow["url"] };
+type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder"> & { url?: ProjectRow["url"]; display_name?: string | null };
 
 /// The repo's path on its host from a remote, groups and all, without `.git`:
 /// `org/repo`, or `group/sub/repo` on GitLab.
@@ -82,7 +82,7 @@ export function remotePath(url: string | null | undefined) {
 export function repoOf(r: Pick<RunningAgent, "machine_id" | "cwd">, projects: readonly ProjectFolder[] = []) {
   const p = projectOf(r, projects);
   if (!p) return base(r.cwd);
-  return remotePath(p.url) ?? p.name.split("/").pop();
+  return p.display_name ?? remotePath(p.url) ?? p.name.split("/").pop();
 }
 
 /// `path` without trailing slashes: a moved session's folder can end in one.

@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.6.19"
+version = "0.6.20"
 edition = "2024"
 license = "MPL-2.0"
 rust-version = "1.99"
@@ -25,6 +25,8 @@ host = [
     "dep:chrono",
     "dep:dirs",
     "dep:dunce",
+    "dep:flashmind-tools",
+    "dep:flashmind-types",
     "dep:futures",
     "dep:hex",
     "dep:humantime",
@@ -165,6 +167,10 @@ uuid = { version = "1", features = ["v4"], optional = true }
 which = { version = "8", optional = true }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
+# The media and decision tools the MCP server offers from the saved API keys.
+flashmind-tools = { version = "0.3.3", default-features = false, features = ["http"], optional = true }
+flashmind-types = { version = "0.3.1", optional = true }
+
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
 rustix = { version = "1", features = ["fs", "process"], optional = true }
@@ -186,8 +192,8 @@ windows-sys = { version = "0.61", optional = true, features = [
     "Win32_System_WindowsProgramming",
 ] }
 
-# Compiles the vendored gRPC protos in Rust, with no `protoc` to install.
 [build-dependencies]
+# Compiles the vendored gRPC protos in Rust, with no `protoc` to install.
 protox = { version = "0.10", optional = true }
 tonic-prost-build = { version = "0.14", optional = true }
 

@@ -240,6 +240,7 @@ fn recorded(mesh: &Mesh) -> (Vec<ImportedProject>, Vec<ProjectSync>) {
             folder,
             cloned: false,
             imported_at: UNIX_EPOCH,
+            display_name: None,
         })
         .collect();
     let synced = mesh

@@ -13,7 +13,8 @@ D.dAddToMachine = () => {
     ${v === "browse" ? browse : ""}
     ${v === "failed" ? '<div style="color:var(--d-err);font-size:12.5px;margin-bottom:12px">/path/to/code/widget has other files. Choose another folder.</div>' : ""}
     <div style="display:flex;justify-content:flex-end;gap:8px"><button class="dbtn quiet" data-dgo="dProjectsPage">Cancel</button><button class="dbtn pri" data-dact="dset:pa:copying">Add</button></div>`;
-  const copying = `<div class="ip-wait" style="margin-bottom:14px"><span class="dspin"></span>Copying to laptop: 1,204 of 1,880 files</div>
+  const copying = `<div class="ip-wait"><span class="dspin"></span>Copying to laptop: 12 MB of 25 MB · 1.2 MB/s · under a minute</div>
+    <div class="fs-bar am-bar" style="margin-bottom:14px"><i style="width:48%"></i></div>
     <div style="display:flex;justify-content:flex-end"><button class="dbtn quiet" data-dgo="dProjectsPage">Close</button></div>`;
   const sheet = `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;padding-top:90px;justify-content:center;z-index:5">
     <div class="am-sheet ip-sheet" role="dialog" aria-label="Add to a machine">

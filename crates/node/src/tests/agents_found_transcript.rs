@@ -40,7 +40,7 @@ fn users(lines: &[Value], read: fn(&Path) -> io::Result<Vec<Entry>>) -> Vec<Stri
 
 #[test]
 fn a_pi_prompt_keeps_the_brief_apart() {
-    let brief = crate::agents::mcp::BRIEF;
+    let brief = crate::agents::tags::tests::BARE_BRIEF;
     let line = json!({"type": "message", "message": {"role": "user", "content": [
         {"type": "text", "text": brief},
         {"type": "text", "text": "ok, let's keep going"}
@@ -58,7 +58,7 @@ fn a_pi_prompt_keeps_the_brief_apart() {
 
 #[test]
 fn a_codex_prompt_keeps_the_brief_apart() {
-    let brief = crate::agents::mcp::BRIEF;
+    let brief = crate::agents::tags::tests::BARE_BRIEF;
     let glued = json!({"type": "event_msg", "payload": {"type": "user_message",
         "message": format!("{brief}\nok, let's keep going")}});
     let item = json!({"type": "event_msg", "payload": {"type": "item_completed",

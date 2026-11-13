@@ -93,7 +93,9 @@ and wire representations independently. Prefer explicit
 Every agent must record user-visible changes before finishing work, as a new
 file per change in `changelogs/unreleased/<app>/` (`desktop`, `node`,
 `android`, `ios` or `server`), named after the issue or branch, such as
-`579-ghostty-terminals.md`. Never edit another change's file or the
+`579-ghostty-terminals.md`. A subagent on a small model writes the entry:
+Haiku 5.5 (`claude-haiku-5-5`) under Claude ACP, Terra 6.1 (`gpt-6-1-terra`)
+under Codex ACP. Never edit another change's file or the
 `changelogs/<app>.md` files, so branches do not conflict. Record shared changes
 in each affected app. A file holds `### Added`, `### Changed`, `### Fixed`,
 `### Security` or `### Performance` sections of `- ` items; write from the
@@ -140,7 +142,7 @@ protocol's bytes only with a protocol name bump. The current mesh ALPNs are `bee
 
 ## Reports
 
-Use Beep MCP `beep_status` and `beep_logs` to debug; `file_report` asks the user
+Use the Beep MCP `beep` tool (status, logs) to debug; its report action asks the user
 before sending. Reports contain private logs: issues must contain only the
 report reference, never logs or names. `just reports`, `just report <reference>`
 and `just report-solved <reference>` manage stored reports.

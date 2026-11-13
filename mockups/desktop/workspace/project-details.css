@@ -123,3 +123,21 @@
 .mac .pj-runrow .rr-head:focus-visible { outline: 1px solid var(--accent, #4cb782); outline-offset: -1px }
 .mac .rr-st { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: var(--d-muted); background: color-mix(in srgb, var(--d-fg) 5%, transparent) }
 .mac .rr-st.done { color: #4cb782; background: color-mix(in srgb, #4cb782 12%, transparent) }
+
+.mac .pr-form .am-head { margin-bottom: 20px }
+.mac .pr-form .am-head b { font-size: 16px }
+.mac .pr-label { display: block; margin-bottom: 8px; color: var(--d-muted); font-size: 12px; font-weight: 500 }
+.mac .pr-form .gp-field { display: block; width: 100%; padding: 10px 12px }
+.mac .pr-form .pr-name { font-family: var(--body); font-size: 14px }
+.mac .pr-repositories { margin-top: 20px; border-top: 1px solid var(--d-border); padding-top: 16px }
+.mac .pr-repository + .pr-repository { margin-top: 16px }
+.mac .pr-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 18px; cursor: pointer }
+.mac .pr-option .dcheck { margin: 2px 0 0 }
+.mac .pr-option span { min-width: 0 }
+.mac .pr-option small { display: block; margin-top: 3px; color: var(--d-muted); font-size: 12px; overflow-wrap: anywhere }
+.mac .pr-repository-fields { margin-top: 16px }
+.mac .pr-repository-fields p { margin: 10px 0 0; color: var(--d-muted); font-size: 12px; line-height: 18px }
+.mac .pr-form .gp-foot { margin-top: 24px }
+
+.mac .pr-option .pr-host-saved { margin-left: auto; color: var(--d-emerald); font-size: 12px }
+.mac .pr-host-error { margin-top: 10px; color: var(--d-err); font-size: 12px; line-height: 18px }

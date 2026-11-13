@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, keyInput, maxSide, pickValue, queueInput,
-  readMachines, readPickValue, readScreenMessage, touchPoint,
+  type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, keyInput, maxSide, missingLine, pickValue, queueInput,
+  readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint, commandName, deviceCall, followedDevice, targetPick,
 } from "../src/agentpane/device-state.ts";
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null });
@@ -13,11 +13,49 @@ const machines: DeviceMachine[] = [
 ];
 
 test("the pick starts on the session's machine, a running device first", () => {
-  assert.deepEqual(defaultPick(machines, "c", null), { machine: "c", device: "phone" });
-  assert.deepEqual(defaultPick(machines, "a", null), { machine: "b", device: "tablet" });
-  assert.deepEqual(defaultPick(machines, null, { machine: "b", device: "pixel" }), { machine: "b", device: "pixel" });
-  assert.deepEqual(defaultPick(machines, "c", { machine: "b", device: "gone" }), { machine: "c", device: "phone" });
-  assert.equal(defaultPick([machines[0]], "a", null), null);
+  const android = ["Android" as const];
+  assert.deepEqual(defaultPick(machines, "c", null, android), { machine: "c", device: "phone" });
+  assert.deepEqual(defaultPick(machines, "a", null, android), { machine: "b", device: "tablet" });
+  assert.deepEqual(defaultPick(machines, null, { machine: "b", device: "pixel" }, android), { machine: "b", device: "pixel" });
+  assert.deepEqual(defaultPick(machines, "c", { machine: "b", device: "gone" }, android), { machine: "c", device: "phone" });
+  assert.equal(defaultPick([machines[0]], "a", null, android), null);
+});
+
+const simulator = (id: string, state: "Off" | "On" = "Off") => ({ id, name: id, platform: "Ios" as const, state, os: null });
+const mixed: DeviceMachine[] = [
+  { machine_id: "linux", machine_name: "build-box", devices: [device("pixel", "On")], error: null },
+  { machine_id: "mac", machine_name: "mac-box", devices: [device("pixel-mac"), simulator("iphone"), simulator("ipad", "On")], error: null },
+];
+
+test("the pick is a device of the project's platform, wherever it is", () => {
+  // An iOS project on a Linux box starts on the Mac's running simulator.
+  assert.deepEqual(defaultPick(mixed, "linux", null, ["Ios"]), { machine: "mac", device: "ipad" });
+  // An Android project stays on its own machine.
+  assert.deepEqual(defaultPick(mixed, "mac", null, ["Android"]), { machine: "mac", device: "pixel-mac" });
+  // Both platforms: the session's machine first.
+  assert.deepEqual(defaultPick(mixed, "linux", null, ["Android", "Ios"]), { machine: "linux", device: "pixel" });
+  // No device of the platform: nothing picked.
+  assert.equal(defaultPick([mixed[0]], "linux", null, ["Ios"]), null);
+  assert.equal(defaultPick(mixed, "linux", null, []), null);
+});
+
+test("only a mobile project with a device host has the tab", () => {
+  const hosts = [{ machine_id: "mac", machine_name: "mac-box" }];
+  assert.equal(showsDeviceTab(["Ios"], hosts), true);
+  assert.equal(showsDeviceTab([], hosts), false);
+  assert.equal(showsDeviceTab(["Android"], []), false);
+});
+
+test("a platform no machine has a device for gets one line", () => {
+  assert.equal(missingLine(mixed, ["Android", "Ios"]), null);
+  assert.equal(missingLine([mixed[0]], ["Android", "Ios"]), "No machine has an iOS simulator. A Mac with Xcode and idb_companion can run one.");
+  assert.equal(missingLine([], ["Android"]), "No machine has an Android emulator. Android Studio can make one.");
+  assert.equal(missingLine([], []), null);
+});
+
+test("platforms read from the node's answer, unknown ones left out", () => {
+  assert.deepEqual(readPlatforms(["Android", "Ios", "Web"]), ["Android", "Ios"]);
+  assert.deepEqual(readPlatforms(null), []);
 });
 
 test("a pick goes through the picker's value and back", () => {
@@ -79,4 +117,48 @@ test("device lists are checked, and only Android has Back and Recent apps", () =
   assert.equal(read[0].devices.length, 1);
   assert.ok(buttonsFor("Android").includes("Back"));
   assert.ok(!buttonsFor("Ios").includes("AppSwitch"));
+});
+
+const tool = (text: string) => ({ kind: "tool", text });
+
+test("a device call names its device and machine", () => {
+  assert.deepEqual(deviceCall("Beep: Boot iPhone 17 on mac-box"), { verb: "Boot", device: "iPhone 17", machine: "mac-box", detail: "" });
+  assert.deepEqual(deviceCall("Beep: Press home on Pixel 9 on build-box"), { verb: "Press", device: "Pixel 9", machine: "build-box", detail: "home" });
+  assert.equal(deviceCall("Beep: Type into Pixel 9 on build-box: turn on wifi")?.detail, "turn on wifi");
+  assert.equal(deviceCall("Beep: Boot a device on a machine"), null);
+  assert.equal(deviceCall("Beep: Run on build-box: make"), null);
+});
+
+test("the tab follows device calls that finish after the view opened, not history", () => {
+  const history = [tool("Beep: Boot Pixel 9 on build-box [completed]"), tool("Beep: Tap Pixel 9 on build-box: 1, 2 [in_progress]")];
+  const first = followedDevice(history, 10, null);
+  assert.equal(first.target, null);
+  assert.ok(first.follow);
+
+  // The call that ran when the view opened finishes; a failed one and a shutdown do not move the tab.
+  const later = [tool("Beep: Boot Pixel 9 on build-box [completed]"), tool("Beep: Tap Pixel 9 on build-box: 1, 2 [completed]")];
+  const tapped = followedDevice(later, 10, first.follow);
+  assert.deepEqual(tapped.target, { machine: "build-box", device: "Pixel 9" });
+  assert.equal(followedDevice(later, 10, tapped.follow).target, null);
+
+  const more = [...later, tool("Beep: Show iPhone 17 on mac-box (failed)"), tool("Beep: Shut down Pixel 9 on build-box [completed]"), tool("Run make [completed]")];
+  assert.equal(followedDevice(more, 10, tapped.follow).target, null);
+
+  // Older pages loaded above the first one are history too.
+  const older = [tool("Beep: Show iPhone 17 on mac-box [completed]"), ...later];
+  assert.equal(followedDevice(older, 9, tapped.follow).target, null);
+
+  // A log not read yet waits for its first entries.
+  assert.deepEqual(followedDevice([], 0, null), { follow: null, target: null });
+});
+
+test("a device call's target is found by machine name and device id or name", () => {
+  const listed: DeviceMachine[] = [
+    { machine_id: "k1", machine_name: "Mac Box", devices: [simulator("UDID-1"), { ...simulator("UDID-2"), name: "iPhone 17" }], error: null },
+  ];
+  assert.equal(commandName("Sam's Mac Box"), "sams-mac-box");
+  assert.deepEqual(targetPick(listed, { machine: "mac-box", device: "UDID-1" }), { machine: "k1", device: "UDID-1" });
+  assert.deepEqual(targetPick(listed, { machine: "mac-box", device: "iphone 17" }), { machine: "k1", device: "UDID-2" });
+  assert.equal(targetPick(listed, { machine: "gpu-box", device: "UDID-1" }), null);
+  assert.equal(targetPick(listed, { machine: "mac-box", device: "Pixel" }), null);
 });

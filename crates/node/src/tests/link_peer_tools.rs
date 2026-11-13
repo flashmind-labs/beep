@@ -34,7 +34,7 @@ async fn an_older_nodes_run_on_with_a_prompt_starts_no_agent_here() {
         let Reply::Done { text, failed } = answer(request, caller(table, true)).await else {
             panic!("not done");
         };
-        assert!(failed && text.contains("start_agent"), "{args}: {text}");
+        assert!(failed && text.contains("agent start"), "{args}: {text}");
         assert!(!text.contains("ran-here"));
     }
 }

@@ -16,7 +16,7 @@ test("the project menu groups sync toggles under a label with Remove last", asyn
   await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toBeVisible();
 
   const lines = await menu.locator('[role="menuitem"], [role="menuitemcheckbox"], [role="separator"], header').evaluateAll(nodes => nodes.map(node => node.getAttribute("role") === "separator" ? "-" : node.tagName === "HEADER" ? `# ${node.textContent}` : node.textContent));
-  expect(lines).toEqual(["Pin", "Open in New Window", "Skills…", "-", "# Sync on all machines", "Preserve edits before Git sync", "Sync ignored folders", "Choose ignored folders…", "Use Beep sync instead of Syncthing", "-", "Remove project…"]);
+  expect(lines).toEqual(["Pin", "Open in New Window", "Rename…", "Skills…", "-", "# Sync on all machines", "Preserve edits before Git sync", "Sync ignored folders", "Choose ignored folders…", "Use Beep sync instead of Syncthing", "-", "Remove project…"]);
   await expect(menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" })).toHaveAttribute("aria-checked", "false");
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toHaveAttribute("aria-checked", "true");
   await expect(menu.getByRole("menuitem", { name: "Remove project…" })).toHaveClass(/warn/);
@@ -61,6 +61,8 @@ test("the project menu moves by keyboard across its sections and a toggle asks b
   await page.keyboard.press("ArrowDown");
   await expect(menu.getByRole("menuitem", { name: "Open in New Window" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: "Rename…", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
   await expect(menu.getByRole("menuitem", { name: "Skills…" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
   const preserve = menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" });
@@ -73,8 +75,82 @@ test("the project menu moves by keyboard across its sections and a toggle asks b
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
   await expect(preserve).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(menu).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Preserve edits before Git sync?" })).toBeVisible();
+});
+
+test("project rename keeps its identity and only renames the repository when selected", async ({ page }) => {
+  await openDesktop(page, false);
+  const menu = await openMenu(page);
+  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  await expect(page.getByLabel("Project name", { exact: true })).toHaveValue(projectName);
+  await expect(page.getByLabel("Repository name on GitHub", { exact: true })).toHaveCount(0);
+  await page.getByLabel("Project name", { exact: true }).fill("New name");
+  await page.evaluate(project => window.__navigation.respond("center_home", {
+    machines: [], running: [], needs_you: [], projects: [{ name: project, display_name: "New name", url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 }],
+  }), projectName);
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repositories: [] }]);
+  await expect(page.getByRole("heading", { name: "New name", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "New name", exact: true })).toBeVisible();
+});
+
+test("repository rename sends its own name and shows errors without discarding the draft", async ({ page }) => {
+  await openDesktop(page, false);
+  await page.evaluate(() => window.__navigation.rejectOnce("rename_project"));
+  const menu = await openMenu(page);
+  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  await page.getByLabel("Project name", { exact: true }).fill("New name");
+  await page.getByRole("checkbox", { name: /GitHub/ }).check();
+  await page.getByLabel("Repository name on GitHub", { exact: true }).fill("new-repo");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repositories: [{ url: "https://example.test/example/widget", name: "new-repo" }] }]);
+  await expect(page.getByRole("alert")).toHaveText("Requested test failure");
+  await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("New name");
+});
+
+test("the rename sheet fits a phone and hides window-only actions", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDesktop(page, false);
+  await page.evaluate(() => Object.defineProperty(window, "__BEEP_PHONE__", { value: true }));
+  const menu = await openMenu(page);
+  await expect(menu.getByRole("menuitem", { name: "Open in New Window" })).toHaveCount(0);
+  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Rename project", exact: true });
+  await expect(dialog.getByLabel("Project name", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Rename", exact: true })).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds?.x).toBeGreaterThanOrEqual(0);
+  expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
+});
+
+test("GitHub and Forgejo rename independently and retry sends only the failed repository", async ({ page }) => {
+  const github = "https://github.com/example/widget", forgejo = "https://forge.example.test/team/widget";
+  await openDesktop(page, false, {
+    project_rename_repositories: [{ url: github, host: "GitHub", name: "widget" }, { url: forgejo, host: "Forgejo", name: "widget" }],
+    rename_project: [{ kind: "renamed", from: github, to: "https://github.com/example/new" }, { kind: "failed", url: forgejo, message: "Repository administration access is required." }],
+  });
+  const menu = await openMenu(page);
+  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  await page.getByRole("checkbox", { name: /GitHub/ }).check();
+  await page.getByRole("checkbox", { name: /Forgejo/ }).check();
+  await page.getByLabel("Repository name on GitHub").fill("new");
+  await page.getByLabel("Repository name on Forgejo").fill("new");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(page.getByText("Renamed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /GitHub/ })).toBeDisabled();
+  await expect(page.getByRole("alert")).toHaveText("Repository administration access is required.");
+  await expect(page.getByLabel("Repository name on Forgejo")).toHaveValue("new");
+  await page.evaluate(url => window.__navigation.respond("rename_project", [{ kind: "renamed", from: url, to: "https://forge.example.test/team/new" }]), forgejo);
+  await page.getByRole("button", { name: "Retry failed", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Rename project", exact: true })).toHaveCount(0);
+  const calls = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args));
+  expect(calls).toEqual([
+    { project: projectName, name: projectName, repositories: [{ url: github, name: "new" }, { url: forgejo, name: "new" }] },
+    { project: projectName, name: projectName, repositories: [{ url: forgejo, name: "new" }] },
+  ]);
 });

@@ -112,3 +112,42 @@ fn an_imported_url_matches_its_checkouts_in_any_form() {
         &forge()
     ));
 }
+
+#[test]
+fn repository_rename_preserves_transport_and_only_matches_the_repository() {
+    use beep_proto::node::mesh_state::RemoteRename;
+    let rename = RemoteRename {
+        from: "https://git.example.com/forge/team/old".into(),
+        to: "https://git.example.com/forge/team/new".into(),
+    };
+    for (old, new) in [
+        (
+            "https://git.example.com/forge/team/old.git",
+            "https://git.example.com/forge/team/new.git",
+        ),
+        (
+            "ssh://git@git.example.com:2222/team/old.git",
+            "ssh://git@git.example.com:2222/team/new.git",
+        ),
+        (
+            "git@git.example.com:team/old.git",
+            "git@git.example.com:team/new.git",
+        ),
+        (
+            "https://user:password@git.example.com/forge/team/old",
+            "https://user:password@git.example.com/forge/team/new",
+        ),
+    ] {
+        assert_eq!(renamed_remote(old, &rename).as_deref(), Some(new), "{old}");
+    }
+    for unrelated in [
+        "https://other.example.com/forge/team/old.git",
+        "https://git.example.com:8443/forge/team/old.git",
+        "https://git.example.com/forge/fork/old.git",
+        "https://git.example.com/other/team/old.git",
+        "git@git.example.com:other/old.git",
+        "https://git.example.com/forge/team/older.git",
+    ] {
+        assert_eq!(renamed_remote(unrelated, &rename), None, "{unrelated}");
+    }
+}

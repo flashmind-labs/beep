@@ -29,6 +29,7 @@ async fn projects_include_single_machine_imports_and_synced_folders() {
         Some(
             ProjectRecord {
                 url: "https://example.com/example/app".into(),
+                display_name: Some("New project".into()),
                 ..ProjectRecord::default()
             }
             .to_bytes()
@@ -68,6 +69,8 @@ async fn projects_include_single_machine_imports_and_synced_folders() {
     let listed = result(call(Some(&mesh), "{}"));
     assert_eq!(listed.as_array().unwrap().len(), 2);
     assert_eq!(listed[0]["name"], "example/app");
+    assert_eq!(listed[0]["display_name"], "New project");
+    assert_eq!(folder(&mesh, "new project", me).unwrap(), "/srv/app");
     assert_eq!(listed[0]["checkouts"][0]["cwd"], "/srv/app");
     assert_eq!(listed[1]["name"], "notes");
     assert_eq!(listed[1]["checkouts"][0]["machine"], "build-box");

@@ -69,7 +69,11 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
         }
 
         repos.insert(last_part(&p.project).unwrap_or(&p.project).to_lowercase());
-        let (id, name, machine) = (p.project.clone(), p.project.clone(), p.machine_name.clone());
+        let (id, name, machine) = (
+            p.project.clone(),
+            p.display_name.as_ref().unwrap_or(&p.project).clone(),
+            p.machine_name.clone(),
+        );
         entries.push(Entry::new(
             HitKind::Project,
             id,

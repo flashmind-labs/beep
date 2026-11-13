@@ -50,7 +50,7 @@ const session = (id: string, title: string): BrowserSession => ({
   status: "working", doing: null, started_at: 1, last_activity: 1, external: false, question: null,
 });
 const sessions: Fixture["sessions"] = [session("notice-one", "First notification"), session("notice-two", "Second notification")];
-const project: ProjectRow = { name: projectName, url: "https://example.test/example/widget", machine_id: machine, machine_name: machine, folder, cloned: true, imported_at: 1 };
+const project: ProjectRow = { display_name: null, name: projectName, url: "https://example.test/example/widget", machine_id: machine, machine_name: machine, folder, cloned: true, imported_at: 1 };
 const fixture: Fixture = {
   project, sessions, streaming: false,
   home: { machines: [], projects: [project], running: sessions, needs_you: [] },
@@ -109,6 +109,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     mac_control: { id: data.project.machine_id, name: data.project.machine_name, enabled: true, status: "connected", error: null, permissions: {} },
     agent_tree_text: { size: 10000, text: Array.from({ length: 500 }, (_, i) => `const value${i} = ${i};`).join("\n"), cut: false, binary: false },
     center_home: data.home,
+    project_rename_repositories: [{ url: data.project.url, host: "GitHub", name: "widget" }],
+    rename_project: [],
     project_git_state: [{ machine_id: data.project.machine_id, machine_name: data.project.machine_name, branch: "main", upstream: null, ahead: 0, behind: 0, error: null }],
     project_git_history: { machine_id: data.project.machine_id, machine_name: data.project.machine_name, root: data.project.folder, refs: [], worktrees: [], commits: [], next: null },
     project_machines: [{ id: data.project.machine_id, name: data.project.machine_name, online: true, folder: data.project.folder, checking: false, checked_at: 1 }],

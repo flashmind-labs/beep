@@ -32,3 +32,39 @@ for (const width of [1280, 390]) {
     }
   });
 }
+
+for (const width of [1280, 390]) {
+  test(`code copy stays at the right edge while scrolling at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.setContent('<div class="dbody"><div class="dcoderlog"><div class="dcoderen agent md"><pre class="dcode"><button class="dcopy">Copy</button><code></code></pre></div></div></div>');
+    await page.addStyleTag({ content: await readFile(new URL("../../dist/style.css", import.meta.url), "utf8") });
+    const code = page.locator('pre code');
+    const button = page.getByRole('button', { name: 'Copy', exact: true });
+    await code.evaluate(node => { node.textContent = 'sample command '.repeat(100) + '\nsecond line'; });
+    await button.focus();
+    const initial = await button.boundingBox();
+    expect(initial).not.toBeNull();
+
+    for (const fraction of [0.5, 1, 0]) {
+      const offset = await code.evaluate((node, fraction) => {
+        node.scrollLeft = (node.scrollWidth - node.clientWidth) * fraction;
+        return node.scrollLeft;
+      }, fraction);
+      if (fraction > 0) expect(offset).toBeGreaterThan(100);
+      else expect(offset).toBe(0);
+
+      const position = await button.boundingBox();
+      const bounds = await page.locator('pre').boundingBox();
+      expect(position).not.toBeNull();
+      expect(bounds).not.toBeNull();
+      if (initial && position && bounds) {
+        expect(Math.abs(position.x - initial.x)).toBeLessThanOrEqual(1);
+        const rightGap = bounds.x + bounds.width - position.x - position.width;
+        expect(rightGap).toBeGreaterThanOrEqual(0);
+        expect(rightGap).toBeLessThanOrEqual(10);
+      }
+    }
+
+    expect(await page.locator('.dbody').evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+  });
+}

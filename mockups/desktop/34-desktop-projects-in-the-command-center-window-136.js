@@ -50,6 +50,9 @@
 .mac .cc-org .twist.open svg { transform: rotate(90deg) }
 .mac .cc-org[aria-current="true"] { background: rgba(94,106,210,.26); color: var(--d-fg) }
 .mac .cc-si.pj-repo { padding-left: 18px }
+.mac .pj-toolbar { display: flex; align-items: center; gap: 12px; justify-content: space-between }
+.mac .pj-toolbar .pj-find { flex: 1; min-width: 0 }
+.mac .pj-sort { color: var(--d-fg); background: var(--d-bg); font: inherit; padding: 5px 8px; border: 1px solid var(--d-border); border-radius: 6px }
 .mac .pj-find { display: block; max-width: 320px }
 .mac .pj-find input { display: block; width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--d-border); border-radius: 6px; background: #0f1011; color: var(--d-fg); font: inherit; font-size: 13px }
 .mac .pj-find input::placeholder { color: var(--d-dim) }
@@ -111,7 +114,7 @@ D.dWinProjects = () => {
   // Search filters by name, folder and remote across groups; inside a group,
   // pinned first, then the most recent activity (agent sessions, visits).
   const q = S.d.pjs === "search" ? "relay" : S.d.pjs === "nomatch" ? "zzz" : "";
-  const find = empty ? "" : `<label class="pj-find"><input type="search" placeholder="Search projects" aria-label="Search projects" value="${q}"></label>`;
+  const find = empty ? "" : `<div class="pj-toolbar"><label class="pj-find"><input type="search" placeholder="Search projects" aria-label="Search projects" value="${q}"></label><select class="pj-sort" aria-label="Sort projects"><option>Default</option><option>Recent activity</option><option>Last opened</option></select></div>`;
   const orgs = PJ_ORGS().map(g => ({ ...g, repos: g.repos.filter(p => p.name.includes(q)) })).filter(g => g.repos.length);
   const body = empty
     ? `<div class="cc-panel cc-empty"><b>No projects yet</b><span>A folder or a repository to clone.</span><button class="dbtn pri" data-dgo="dAddProject">${CC_IC.plus} Add a project</button></div>`

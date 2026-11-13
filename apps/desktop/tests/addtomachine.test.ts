@@ -29,6 +29,13 @@ test("the copy counts against what the other machine holds", () => {
   assert.equal(line.done, false);
 });
 
+test("while one large file comes, the bytes, rate and time left show", () => {
+  const progress = { files_done: 0, files_total: 11, bytes_done: 12_300_000, bytes_total: 24_700_000, rate: 1_200_000, eta_secs: 10 };
+  const line = copyLine(detail(row("to", { status: "syncing", pending: 11, progress }), row("from", { files: 11 })), "to", "laptop");
+  assert.equal(line.text, "Copying to laptop: 12 MB of 25 MB · 1.2 MB/s · under a minute");
+  assert.equal(line.pct, 49);
+});
+
 test("a machine that just joined and says it is in sync is not done until it has the files", () => {
   assert.equal(copyLine(detail(row("to", {}), row("from", { files: 9 })), "to", "laptop").done, false);
   assert.equal(copyLine(detail(row("to", { status: "scanning", files: 9 }), row("from", { files: 9 })), "to", "laptop").done, false);

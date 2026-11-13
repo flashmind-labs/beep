@@ -437,6 +437,10 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-reply textarea:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 
 /* Its search, filtering as the user types. */
+.pj-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none }
+.pj-toolbar .pj-find { flex: 1; min-width: 0 }
+.pj-sort { flex: none; max-width: 150px }
+.pj-sort option { color: var(--fg); background: var(--bg) }
 .pj-find { display: block; width: 100%; max-width: 320px }
 .pj-find input { display: block; box-sizing: border-box; width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 3%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0 }
 .pj-find input::placeholder { color: var(--muted) }

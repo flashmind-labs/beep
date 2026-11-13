@@ -137,6 +137,15 @@ impl Reader {
         let payload = &value["payload"];
 
         match (value["type"].as_str(), payload["type"].as_str()) {
+            (Some("turn_context"), _) => {
+                if let Some(model) = payload["model"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty())
+                {
+                    self.run.model = Some(cut(model, MAX_STEP));
+                }
+            }
             (Some("response_item"), Some("function_call" | "custom_tool_call")) => {
                 self.call(payload);
             }

@@ -100,6 +100,7 @@
 .mac .am-wait { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--d-muted) }
 .mac .am-wait .left { font-variant-numeric: tabular-nums }
 .mac .am-wait .end { margin-left: auto }
+.mac .am-bar { margin-top: 10px }
 .mac .am-sub { font-size: 12.5px; color: var(--d-muted); margin: 8px 0 14px }
 .mac .ap-q { display: block; margin-bottom: 8px }
 .mac .ap-box { margin-bottom: 12px }

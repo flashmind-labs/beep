@@ -263,7 +263,8 @@ fn release(tool: Tool, version: &str, os: &str, arch: &str) -> Result<Download> 
         }
         Tool::Flsh => {
             let target = flsh_target(os, arch).ok_or_else(none)?;
-            let url = format!("{base}/flsh-{target}");
+            let ext = if os == "windows" { ".exe" } else { "" };
+            let url = format!("{base}/flsh-{target}{ext}");
             Download {
                 name: "flsh",
                 sha256: Sha256Of::Alone(format!("{url}.sha256")),
@@ -274,12 +275,12 @@ fn release(tool: Tool, version: &str, os: &str, arch: &str) -> Result<Download> 
     })
 }
 
-/// The target flsh is built for on `os` and `arch`; there is no Windows
-/// build.
+/// The target flsh is built for on `os` and `arch`.
 pub(super) fn flsh_target(os: &str, arch: &str) -> Option<String> {
-    let os = match os {
-        "linux" => "unknown-linux-gnu",
-        "macos" => "apple-darwin",
+    let os = match (os, arch) {
+        ("linux", _) => "unknown-linux-gnu",
+        ("macos", _) => "apple-darwin",
+        ("windows", "x86_64") => "pc-windows-msvc",
         _ => return None,
     };
     matches!(arch, "x86_64" | "aarch64").then(|| format!("{arch}-{os}"))

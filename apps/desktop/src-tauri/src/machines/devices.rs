@@ -1,7 +1,8 @@
 //! Android emulators and iOS simulators on the machines of the mesh
 //! (`device/1`): listing, booting and shutting them down, and following one's
-//! screen live while touching it, typing and pressing its buttons. Machines
-//! whose node does not serve `device/1` are left out.
+//! screen live while touching it, typing and pressing its buttons; and the
+//! mobile platforms a session's checkout builds for. Machines whose node
+//! does not serve `device/1` are left out.
 
 use crate::{
     error::{DesktopError, Result},
@@ -9,7 +10,9 @@ use crate::{
 };
 use beep_proto::{
     ApiError,
-    node::device::{Device, DeviceId, Frame, Input, MAX_SIDE, MAX_TEXT, PROTOCOL, Reply, Request},
+    node::device::{
+        Device, DeviceId, Frame, Input, MAX_SIDE, MAX_TEXT, PROTOCOL, Platform, Reply, Request,
+    },
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
@@ -28,6 +31,8 @@ use uuid::Uuid;
 
 /// How long a machine has to list its devices.
 const LIST_LIMIT: Duration = Duration::from_secs(10);
+/// How long a machine has to look through a checkout for its platforms.
+const PLATFORMS_LIMIT: Duration = Duration::from_secs(20);
 /// How long a machine has to start or stop a device.
 const POWER_LIMIT: Duration = Duration::from_secs(60);
 /// Machines asked at once.
@@ -117,6 +122,40 @@ async fn list(fleet: &Fleet, machine: EndpointId) -> Result<Vec<Device>> {
     match ask(fleet, machine, &Request::List {}, LIST_LIMIT).await? {
         Reply::Devices { devices } => Ok(devices),
         other => Err(answered(other)),
+    }
+}
+
+/// The mobile platforms the app in folder `root` on `machine_id` builds
+/// for. A node too old to tell, or one that may not read `root`, finds none;
+/// a machine that cannot be reached is an error, so the window asks again
+/// later.
+#[tauri::command]
+pub async fn device_platforms(
+    fleet: Machines<'_>,
+    machine_id: String,
+    root: String,
+) -> Result<Vec<Platform>> {
+    let machine = member(&fleet, &machine_id)?;
+    let client = fleet.client(machine).await?;
+    let request = Request::Platforms { root };
+    let (_tx, mut rx) = client.open_sending(PROTOCOL, &request).await?;
+    let name = || fleet.name_of(machine);
+
+    let heard = timeout(PLATFORMS_LIMIT, rx.recv::<Reply>())
+        .await
+        .map_err(|_| DesktopError::TimedOut(format!("{} did not answer in time.", name())))?;
+
+    match heard {
+        Ok(Some(Reply::Platforms { platforms })) => Ok(platforms),
+        // A released node cannot read the request and closes the stream.
+        Ok(None) | Err(_) => {
+            log::debug!("{} does not tell a checkout's platforms", name());
+            Ok(Vec::new())
+        }
+        Ok(Some(other)) => {
+            log::debug!("{} found no platforms: {other:?}", name());
+            Ok(Vec::new())
+        }
     }
 }
 

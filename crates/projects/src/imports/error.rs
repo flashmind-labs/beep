@@ -96,6 +96,10 @@ pub enum ImportError {
         "Your token for {host} cannot create repositories in {owner}. Check its scopes in Settings > Credentials."
     )]
     CannotCreate { owner: String, host: String },
+    #[error(
+        "Your token for {host} cannot rename this repository. Use a token with repository administration access."
+    )]
+    CannotRename { host: String },
     #[error("{0}")]
     Forge(HostError),
     #[error("git init failed on {machine}: {detail}")]

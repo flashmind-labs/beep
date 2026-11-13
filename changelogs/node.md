@@ -2,6 +2,34 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.20] - 2026-11-13
+
+### Added
+
+- Node: tells the desktop whether a session's checkout is an Android or iOS
+  app, from its project files, so the Device tab shows only for those.
+- Node: with an API key saved in Settings, every coding agent (Claude Code,
+  Codex, flsh) gets Beep MCP tools for images, video, speech, transcription,
+  3D models and decisions. The node runs them with the key, which never
+  reaches the agent, and saves what they make in the session's folder.
+- Node: coding agents get a `device` tool to list Android emulators and iOS
+  simulators on every machine, boot, show or shut one down, take
+  screenshots, and tap, swipe, type and press keys and buttons on it, so
+  they can test the apps they build. Another machine's devices are reached
+  only while that machine is lent to other devices.
+
+### Changed
+
+- Node: coding agents get the Beep tools as a few grouped tools (machines,
+  run, files, device, agent, review, ask_user, beep) that take an action,
+  using about half the context. Run and files only appear when there is
+  another machine.
+
+### Fixed
+
+- beep-node: sync progress counts bytes as a file arrives, so a large file
+  no longer sits at 0% until it is done.
+
 ## [0.6.19] - 2026-11-13
 
 ### Changed

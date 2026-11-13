@@ -6,7 +6,7 @@ import { Icon } from "../ui/icons.tsx";
 import { itemChips, type GitItemRow } from "../center/openitems-state.ts";
 import { projectWindowProps, openProjects, setProjectOnTop } from "../center/sidebar.ts";
 import { agentLabel, foundSessions, parseFolded, type FoundRow, type Project } from "./projects-state.ts";
-import { searchOverview, type OverviewGroup } from "./overview-state.ts";
+import { PROJECT_SORTS, parseProjectSort, searchOverview, type ProjectSort, type OverviewGroup } from "./overview-state.ts";
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
 import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.ts";
 import { state } from "../center/state.ts";
@@ -24,7 +24,7 @@ let folded = new Set<string>();
 try { folded = parseFolded(localStorage.getItem(FOLDED_KEY)); } catch { /* none kept */ }
 const groupKey = (group: Group) => group.group ? `group:${group.group.id}` : `org:${group.org ?? ""}`;
 
-export function ProjectsOverview({ groups: all, sync, editing, add }: { groups: Group[]; sync(name: string): string | null; editing: { id: string; draft: string } | null; add(): void }) {
+export function ProjectsOverview({ groups: all, sync, editing, add, sort, changeSort }: { sort: ProjectSort; changeSort(sort: ProjectSort): void; groups: Group[]; sync(name: string): string | null; editing: { id: string; draft: string } | null; add(): void }) {
   const [query, setQuery] = useState(kept);
   const groups = useMemo(() => searchOverview(all, query), [all, query]);
   const field = useRef<HTMLInputElement>(null);
@@ -59,7 +59,7 @@ export function ProjectsOverview({ groups: all, sync, editing, add }: { groups: 
   // A search shows every match, folded or not.
   const searching = !!query.trim();
 
-  return <><SearchField className="pj-find" aria-label="Search projects" value={query} onChange={search}><Input ref={field} placeholder="Search projects" spellCheck={false} autoComplete="off"/></SearchField>{!groups.length && query.trim() && <div className="cc-panel cc-empty pj-none"><span>No projects match.</span></div>}{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={groupKey(group)}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync} folded={!searching && shut.has(groupKey(group))} fold={() => fold(groupKey(group))}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><Button onClick={add}>Add</Button></div></>;
+  return <><div className="pj-toolbar"><SearchField className="pj-find" aria-label="Search projects" value={query} onChange={search}><Input ref={field} placeholder="Search projects" spellCheck={false} autoComplete="off"/></SearchField><select className="dbtn pj-sort" aria-label="Sort projects" value={sort} onChange={event => changeSort(parseProjectSort(event.currentTarget.value))}>{PROJECT_SORTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></div>{!groups.length && query.trim() && <div className="cc-panel cc-empty pj-none"><span>No projects match.</span></div>}{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={groupKey(group)}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync} folded={!searching && shut.has(groupKey(group))} fold={() => fold(groupKey(group))}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><Button  onClick={add}>Add</Button></div></>;
 }
 /// `/` or Cmd/Ctrl+F focuses the search while the overview shows and no
 /// field, dialog or other handler has the key.

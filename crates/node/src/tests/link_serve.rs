@@ -91,3 +91,16 @@ fn unknown_and_host_protocols_keep_their_original_names() {
         assert_eq!(protocol.to_string(), name);
     }
 }
+
+#[test]
+fn another_node_opens_devices_only_while_this_machine_is_lent() {
+    use beep_proto::node::{device, shell, status, tools};
+
+    for name in [status::PROTOCOL, tools::PROTOCOL, device::PROTOCOL] {
+        assert!(node_may_open(&SessionProtocol::from(name)), "{name}");
+    }
+
+    assert!(!node_may_open(&SessionProtocol::from(shell::PROTOCOL)));
+    assert_eq!(withheld(device::PROTOCOL, true), None);
+    assert!(withheld(device::PROTOCOL, false).is_some());
+}

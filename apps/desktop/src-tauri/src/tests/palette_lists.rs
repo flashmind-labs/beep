@@ -11,6 +11,7 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
         url: "https://example.com/acme/widget".into(),
         cloned: false,
         imported_at: SystemTime::UNIX_EPOCH,
+        display_name: None,
     };
     let session = MachineSession {
         id: "a".into(),
@@ -72,6 +73,7 @@ fn cached_projects_are_searchable_before_any_machine_answers() -> anyhow::Result
             folder: "/srv/project".into(),
             cloned: false,
             imported_at: SystemTime::UNIX_EPOCH,
+            display_name: None,
         }]),
         ..PaletteLists::default()
     };
