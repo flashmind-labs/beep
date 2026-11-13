@@ -429,5 +429,5 @@ export async function drainOutbox(o: OpenAgent): Promise<Draft[]> {
 
 const draftOf = ({ text, images }: Taken): Draft => ({
   typed: text, paths: [],
-  images: images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}` })),
+  images: images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}`, original: null })),
 });

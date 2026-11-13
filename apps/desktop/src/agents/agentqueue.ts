@@ -10,6 +10,9 @@ export interface Attached {
   /// Base64, and as a data URL for its chip.
   data: string;
   url: string;
+  /// The full picture this is a preview of: its path on the session's
+  /// machine, or the file waiting for a session to start.
+  original: string | File | null;
 }
 
 /// Where a steer is: on its way to the node, held there for the next tool

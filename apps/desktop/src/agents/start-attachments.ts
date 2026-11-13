@@ -1,10 +1,10 @@
 import { createElement } from "react";
-import { agentPics, fileBase64 } from "../chat/attach.ts";
+import { fileBase64 } from "../chat/attach.ts";
 import { draftText } from "../chat/compose.ts";
 import { bindPromptStash } from "../chat/stash.ts";
 import { stashFile } from "../chat/stash-state.ts";
 import type { Attached } from "./agentqueue.ts";
-import { attachImages } from "./images.ts";
+import { attachPreview } from "./images.ts";
 import { StartAttachmentChips } from "./start-attachments-view.tsx";
 import { FilePicker } from "./file-picker.tsx";
 import type { StartComposer } from "./start-composer.ts";
@@ -17,8 +17,11 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
   let serial = Promise.resolve();
   const remove = (kind: "image" | "file", index: number) => {
     if (locked) return;
-    if (kind === "image") images.splice(index, 1);
-    else files.pending.splice(index, 1);
+    if (kind === "image") {
+      const [image] = images.splice(index, 1);
+      const at = files.pending.findIndex(entry => entry.file === image.original);
+      if (at >= 0) files.pending.splice(at, 1);
+    } else files.pending.splice(index, 1);
     draw();
     c.input.focus();
   };
@@ -34,9 +37,8 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     reading++;
     changed();
     serial = serial.then(async () => {
-      const { pics, rest } = await agentPics(dropped);
-      files.add(rest, error);
-      await attachImages(images, pics, error);
+      files.add(dropped, error);
+      for (const file of dropped) if (file.type.startsWith("image/") && files.pending.some(entry => entry.file === file)) await attachPreview(images, file, file);
       draw();
     }).catch(e => error(String(e))).finally(() => { reading--; changed(); });
     return serial;
@@ -61,15 +63,18 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
         },
         capture: async () => {
           if (reading) throw new Error("Wait for the attachments to finish loading");
-          return { text: draftText(c.input.value), images: images.map(({ name, mime, size, data }) => ({ name, mime, size, data })), paths: [], files: await Promise.all(files.pending.map(async ({ file }) => ({ name: file.name, mime: file.type, size: file.size, data: await fileBase64(file) }))) };
+          return { text: draftText(c.input.value), images: images.filter(image => image.original === null).map(({ name, mime, size, data }) => ({ name, mime, size, data })), paths: [], files: await Promise.all(files.pending.map(async ({ file }) => ({ name: file.name, mime: file.type, size: file.size, data: await fileBase64(file) }))) };
         },
         clear: () => { c.setText(""); images.length = 0; files.pending.length = 0; draw(); c.input.dispatchEvent(new Event("input", { bubbles: true })); },
         prepare: async message => {
           const restoredFiles = message.files.map(stashFile);
           message.images.forEach(stashFile);
+          const restored: Attached[] = message.images.map(file => ({ ...file, url: `data:${file.mime};base64,${file.data}`, original: null }));
+          for (const file of restoredFiles) if (file.type.startsWith("image/")) await attachPreview(restored, file, file);
+
           return () => {
             c.setText([message.text, ...message.paths.map(path => `@${path}`)].filter(Boolean).join("\n"));
-            images.splice(0, images.length, ...message.images.map(file => ({ ...file, url: `data:${file.mime};base64,${file.data}` })));
+            images.splice(0, images.length, ...restored);
             files.pending.splice(0, files.pending.length, ...restoredFiles.map(file => ({ file })));
             draw(); c.input.dispatchEvent(new Event("input", { bubbles: true }));
           };

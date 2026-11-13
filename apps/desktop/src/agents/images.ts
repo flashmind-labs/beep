@@ -1,13 +1,13 @@
 // Images for a coding agent: attached to a message, and shown in its log.
 import { createElement } from "react";
 import type { Attached } from "./agentqueue.ts";
-import { fileBase64 } from "../chat/attach.ts";
+import { fileBase64, picPreview } from "../chat/attach.ts";
 import { S } from "../bar/core.ts";
 import { GONE } from "../chat/media.ts";
 import { MN } from "./workdrop.ts";
 import { AgentAttachments } from "./attachments-view.tsx";
 import { showAgentAttachments } from "./composer-ui.tsx";
-import { type OpenAgent, AG, AGENT_IMAGE_TYPES, AGENT_MAX_IMAGES, AGENT_MAX_IMAGE, AGENT_MAX_IMAGES_TOTAL, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
+import { type OpenAgent, AG, AGENT_MAX_IMAGES, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
 import { redrawAgentHints } from "./session-head.ts";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -34,31 +34,27 @@ export function agentAttachError(text: string) {
   AG.attTimer = setTimeout(() => { AG.attError = ""; drawAgentAttached(); }, 5000);
 }
 
-/// Adds pasted or dropped images to the session's next message, refusing
-/// what the agent cannot take rather than shrinking or dropping it.
-export async function agentAttach(files: Iterable<File>) {
+/// Adds a preview of the picture `file`, uploaded at `path`, to the session's
+/// next message.
+export async function agentAttach(file: File, path: string) {
   imagesReading++;
 
-  try { await attachImages(AG.att, files, agentAttachError); }
+  try { await attachPreview(AG.att, file, path); }
   finally { imagesReading--; drawAgentAttached(); }
 }
 
-/// Adds `files` to `list`, the images of one message, within what an agent
-/// takes; `error` says why one is refused.
-export async function attachImages(list: Attached[], files: Iterable<File>, error: (text: string) => void) {
-  for (const f of [...files]) {
-    if (!AGENT_IMAGE_TYPES.includes(f.type)) { error(`${f.name || "That file"} is not a PNG, JPEG, GIF or WebP image`); continue; }
-    if (list.length >= AGENT_MAX_IMAGES) { error(`Up to ${AGENT_MAX_IMAGES} images in one message`); break; }
-    if (f.size > AGENT_MAX_IMAGE) { error(`${f.name || "That image"} is over ${AGENT_MAX_IMAGE >> 20} MB`); continue; }
-    const used = list.reduce((n, a) => n + a.size, 0);
-    if (used + f.size > AGENT_MAX_IMAGES_TOTAL) { error(`Images up to ${AGENT_MAX_IMAGES_TOTAL >> 20} MB in all in one message`); continue; }
+/// Adds a small preview of the picture `file` to `list`, the images of one
+/// message. One that cannot be drawn, or past what a message takes, goes as
+/// its file alone.
+export async function attachPreview(list: Attached[], file: File, original: string | File) {
+  if (list.length >= AGENT_MAX_IMAGES) return;
 
-    try {
-      const data = await fileBase64(f);
-      list.push({ name: agentImageName(f, list), mime: f.type, size: f.size, data, url: `data:${f.type};base64,${data}` });
-    } catch {
-      error(`${f.name || "That image"} could not be read`);
-    }
+  try {
+    const preview = await picPreview(file);
+    const data = await fileBase64(preview);
+    if (list.length < AGENT_MAX_IMAGES) list.push({ name: agentImageName(preview, list), mime: preview.type, size: preview.size, data, url: `data:${preview.type};base64,${data}`, original });
+  } catch {
+    // The file is still mentioned.
   }
 }
 

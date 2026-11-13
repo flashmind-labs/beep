@@ -65,7 +65,7 @@ function openSession(status: string, polls = false): AgentPage {
 /// A pending steer of plain words.
 const words = (text: string): Waiting => ({ how: "steer", typed: text, text, paths: [], images: [], state: null, after: 0 });
 
-const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=" };
+const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 
 /// Enter in the session's field, with Option when `alt`.
 function enter(input: unknown, alt = false) {
