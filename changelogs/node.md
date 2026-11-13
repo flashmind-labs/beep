@@ -2,6 +2,13 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.16] - 2026-11-13
+
+### Fixed
+
+- beep-node: problem reports from builds without a configured server go to the
+  report receiver instead of the product website.
+
 ## [0.6.15] - 2026-11-12
 
 ### Added
