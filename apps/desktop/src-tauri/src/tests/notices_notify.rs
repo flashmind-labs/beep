@@ -40,3 +40,112 @@ fn any_other_notice_opens_home() {
     assert_eq!(click_target(&notice), CenterTarget::Home);
     assert_eq!(ask(&notice), None);
 }
+
+fn route(notice: &Notice) -> Route {
+    Route {
+        target: Some(click_target(notice)),
+        question: ask(notice).map(|key| key.to_string()),
+    }
+}
+
+#[test]
+fn notification_targets_survive_serialization_without_waiters() {
+    // More than the previous waiter cap, with independent targets recovered from each notification.
+    for question in 0..64 {
+        let (notice, key) = agent_notice(Some(question));
+        let stored = serde_json::to_string(&route(&notice)).unwrap();
+        let recovered = || serde_json::from_str(&stored).unwrap();
+        assert_eq!(
+            response(recovered(), Interaction::Open),
+            Response::Open(click_target(&notice))
+        );
+        assert_eq!(
+            response(recovered(), Interaction::Allow),
+            Response::Answer(key.clone(), true)
+        );
+        assert_eq!(
+            response(recovered(), Interaction::Deny),
+            Response::Answer(key, false)
+        );
+        assert_eq!(
+            response(recovered(), Interaction::Ignore),
+            Response::Nothing
+        );
+    }
+}
+
+#[test]
+fn plain_and_finished_notifications_cannot_answer_a_question() {
+    let (notice, _) = agent_notice(None);
+    for interaction in [Interaction::Allow, Interaction::Deny] {
+        assert_eq!(response(route(&notice), interaction), Response::Nothing);
+        assert_eq!(
+            response(
+                Route {
+                    target: None,
+                    question: Some("invalid".into())
+                },
+                interaction
+            ),
+            Response::Nothing
+        );
+        let (_, finished) = agent_notice(None);
+        assert_eq!(
+            response(
+                Route {
+                    target: None,
+                    question: Some(finished.to_string())
+                },
+                interaction
+            ),
+            Response::Nothing
+        );
+    }
+    assert_eq!(
+        response(
+            Route {
+                target: None,
+                question: None
+            },
+            Interaction::Open
+        ),
+        Response::Nothing
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+#[test]
+fn native_notification_keeps_its_actions_and_click_target() {
+    use objc2_foundation::{NSString, ns_string};
+
+    let (notice, key) = agent_notice(Some(3));
+    let notification =
+        mac::notification(&notice.title, &notice.body, &route(&notice), None).unwrap();
+    assert!(notification.hasActionButton());
+    assert_eq!(&*notification.actionButtonTitle(), ns_string!("Allow"));
+    assert_eq!(&*notification.otherButtonTitle(), ns_string!("Deny"));
+    let info = notification.userInfo().unwrap();
+    let value = info
+        .objectForKey(ns_string!("beep-route"))
+        .unwrap()
+        .downcast::<NSString>()
+        .unwrap();
+    let recovered: Route = serde_json::from_str(&value.to_string()).unwrap();
+    assert_eq!(
+        response(recovered, Interaction::Deny),
+        Response::Answer(key, false)
+    );
+
+    let plain = mac::notification(
+        "Notice",
+        "Finished",
+        &Route {
+            target: None,
+            question: None,
+        },
+        None,
+    )
+    .unwrap();
+    assert!(!plain.hasActionButton());
+}
