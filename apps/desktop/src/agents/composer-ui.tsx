@@ -158,7 +158,15 @@ export function StopButton({ stop }: { stop(): void }) {
   return <Button id="agstop" aria-label="Stop the turn" title="Stop main turn (subagents keep running)" style={shown ? undefined : { display: "none" }} disabled={stopping} onClick={stop}><AgentStopFace stopping={stopping} /></Button>;
 }
 
-const AttachmentSheet = lazy(async () => ({ default: (await import("../ui/aria-kit.tsx")).Sheet }));
+const AttachmentSheet = lazy(async () => {
+  const { ModalOverlay, Modal, Dialog } = await import("react-aria-components");
+
+  return { default: function AttachmentDialog({ onClose, children }: { onClose(): void; children: ReactNode }) {
+    return <ModalOverlay className="am-scrim" isOpen isDismissable onOpenChange={next => { if (!next) onClose(); }}>
+      <Modal><Dialog className="attachment-window" aria-label="Attachments">{children}</Dialog></Modal>
+    </ModalOverlay>;
+  } };
+});
 
 /// The input bar keeps one attachment control; its window shows every file.
 export function AttachmentBatch({ count, children }: { count: number; children: ReactNode }) {
@@ -171,7 +179,7 @@ export function AttachmentBatch({ count, children }: { count: number; children: 
   if (!count) return null;
 
   return <><Button ref={trigger} className="attachment-count" onMouseDown={event => event.preventDefault()} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>{count} {count === 1 ? "file" : "files"}</Button>
-    {open && <Suspense fallback={null}><AttachmentSheet label="Attachments" className="attachment-window" open={open} onClose={dismiss}>
+    {open && <Suspense fallback={null}><AttachmentSheet onClose={dismiss}>
       <header><b>{count} {count === 1 ? "attachment" : "attachments"}</b><Button ref={close} look="quiet" aria-label="Close attachments" onClick={dismiss}>Close</Button></header>
       <div ref={dialog} className="ag-att attachment-gallery" onClick={event => {
         if (!event.currentTarget.closest(".attachment-window")?.contains(document.activeElement)) close.current?.focus();
