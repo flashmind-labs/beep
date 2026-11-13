@@ -304,3 +304,24 @@ body:not(.mobile) .ag-worklist:has(.ag-tasks, .ag-queue .it) { box-sizing: borde
 body:not(.mobile) .ag-tasks { display: flex; box-sizing: border-box; width: 100%; height: 24px; margin: 0; padding: 0 10px; border: 0; border-radius: 0; background: none; font: 11px var(--mono); color: var(--muted) }
 body:not(.mobile) .ag-queue .it { height: 24px; padding: 0 10px; border-top: 0; font-size: 12px }
 body:not(.mobile) .ag-queue :is(.lbl, .it > span:not(.t), button) { font: 11px var(--mono) }
+
+/* ----- Attached files in the message field: a quiet count beside the plus, on the last line ----- */
+body:not(.mobile) #agfield #agatt { align-self: flex-end; gap: 0 }
+body:not(.mobile) #agfield .attachment-count { height: 26px; min-height: 0; padding: 0 8px; border-color: transparent; background: var(--ctl-fill); font: 11.5px var(--mono); color: var(--fg) }
+
+/* ----- Settings: a glass sheet like the palette, the app's own navigation rows, lists as lit cards -----
+   The blur sits on a layer behind, so menus opened inside stay placed against the window. */
+body:not(.mobile) .cc-set { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: none; box-shadow: 0 30px 80px -10px color-mix(in srgb, var(--shade) 80%, transparent), 0 0 60px -20px color-mix(in srgb, var(--accent) 45%, transparent) }
+body:not(.mobile) .cc-set::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--lit), color-mix(in srgb, var(--elev) 88%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+body:not(.mobile) .cc-set .dset-nav { border-right: 0; background: color-mix(in srgb, var(--shade) 22%, transparent) }
+body:not(.mobile) .cc-set .dset-nav > b, body:not(.mobile) .cc-set .dset-top b { font-size: 14px }
+body:not(.mobile) .cc-set .dset-pages .cc-si { padding: 5px 10px }
+body:not(.mobile) .cc-set .dset-pages .cc-si.sub { font-family: var(--mono); font-size: 11.5px }
+body:not(.mobile) .cc-set .dset-top { border-bottom: 0; padding-bottom: 6px }
+body:not(.mobile) .cc-set :is(.dset-ver, .dset-top kbd, .dmc-head .dmuted, .dmt .l1 .spec, .dmt .l1 .seen, .dsec) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .cc-set :is(.dsec, .dskins > small) { font-family: var(--mono); color: var(--dim); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) .cc-set .dset-box { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 3.5%, transparent) }
+body:not(.mobile) .dmach + .dmach { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
+body:not(.mobile) .dmt > .dmach:hover { background: color-mix(in srgb, var(--fg) 3%, transparent) }
+body:not(.mobile) :is(.dmnv, .dmag) { border-color: transparent; background: var(--ctl-fill) }
+body:not(.mobile) .dmt-t { border-radius: var(--radius-sm); background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 9%, transparent) }

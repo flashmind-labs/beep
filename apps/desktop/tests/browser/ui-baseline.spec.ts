@@ -262,6 +262,18 @@ test("terminals", async ({ page }) => {
 });
 
 const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [] };
+test("settings machines", async ({ page }) => {
+  const tool = (name: string, version: string) => ({ name, version, path: `/usr/bin/${name}` });
+  const env = (os_version: string, tools: string[]) => ({ os: "linux", os_version, arch: "x86_64", cpus: 16, memory_mb: 65536, tools: [tool("claude", "2.1.0"), tool("codex", "0.60.0"), ...tools.map(name => tool(name, "1.0.0"))], logins: [{ tool: "claude", signed_in: true, account: null }, { tool: "codex", signed_in: false, account: null }] });
+  const machines = [{ ...machine("build-box", "build-box", true, 2), env: env("Ubuntu 26.04", ["git", "docker", "cargo", "node"]) }, { ...machine("test-box", "test-box", false, 0), version: "0.8.0", env: env("Debian 14", ["git"]) }, { ...machine("phone", "Phone", true, 0), can_host: false }];
+  await openDesktop(page, false, { ...settingsResponses, list_machines: machines });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: /^Machines/ }).click();
+  await expect(page.locator(".dmach").first()).toBeVisible();
+  await baseline(page, "settings-machines");
+});
+
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {
