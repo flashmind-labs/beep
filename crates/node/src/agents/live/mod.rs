@@ -20,6 +20,7 @@ mod tasks;
 mod tools;
 mod transcript;
 mod updates;
+mod v2;
 
 pub(crate) use content::cut;
 use tools::ToolCall;
@@ -89,6 +90,7 @@ pub(crate) struct Live {
     /// The compactions already shown in the transcript.
     compactions: HashSet<CompactionId>,
     transcript: VecDeque<Entry>,
+    v2: v2::Projection,
     /// Entries dropped from the front of `transcript`.
     dropped: u64,
     /// The tool calls seen, by ACP id.
