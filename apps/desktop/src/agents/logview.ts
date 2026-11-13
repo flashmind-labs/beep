@@ -21,7 +21,7 @@ import { showLogShell } from "./log-shell.tsx";
 import type { LogShell } from "./log-shell-view.tsx";
 import { connectingNote } from "./reconnect-state.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
-import { answerHtml } from "./turnrows.ts";
+import { answerHtml, blockedReply } from "./turnrows.ts";
 import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
 import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, folderName } from "./agents.ts";
 import { stoppingNow } from "./session.ts";
@@ -41,7 +41,7 @@ import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { showAgentControl, showAgentStop } from "./composer-ui.tsx";
 import { AgentStatus } from "./mode-view.tsx";
-import type { ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
+import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
 
 /// Draws the log again. `keep` finds the row the reader just opened or
@@ -391,7 +391,7 @@ function entryRows(en: AgentEntry, at: number): TranscriptRow[] {
   const answers = en.kind === "user" && AG.log ? AG.log.answeredQuestions(en.text) : null;
   if (answers) return [{ kind: "note", id: `answers:${at}`, at, value: { kind: "answers", items: answers } }];
   if (en.kind === "user") return userRows(en, at);
-  if (en.kind === "agent") return [agentReply(en, at)];
+  if (en.kind === "agent") return agentReply(en, at);
   if (en.kind === "tool") return toolRows(en, at);
   if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return [{ kind: "note", id: `compacted:${at}`, at, value: { kind: "compacted" } }];
   // The files a turn's commands made: one file as "Made x.md", several as a
@@ -519,11 +519,16 @@ function rowsOf(p: AgentPage, ats: number[]) {
   return out;
 }
 
-function agentReply(en: AgentEntry, at: number): ReplyRow {
+function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const { text, names } = AG.log ? AG.log.imageLines(en.text) : { text: en.text, names: [] };
   const pics = names.length ? `<span class="pics">${names.map(entryPic).join("")}</span>` : "";
   const linked = (html: string) => AG.log ? AG.log.markWarnings(AG.log.linkCodeFiles(AG.log.linkImagePaths(html).html)) : html;
-  return { kind: "reply", row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(en.html)) : linked(esc(text))) + pics };
+  const html = en.html ?? esc(text);
+  const block = blockedReply(text, html);
+  const body = block?.html ?? html;
+  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics }] : [];
+  if (block) replies.push({ kind: "blocked", id: `${at}:blocked`, message: block.error });
+  return replies;
 }
 
 /// Calls of one kind in a row as one line, the first few targets beside

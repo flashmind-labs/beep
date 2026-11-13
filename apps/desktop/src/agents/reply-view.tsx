@@ -1,6 +1,7 @@
 // The said rows of a coding agent's log: the user's prompt, the agent's
 // reply and what came with a prompt (Beep's context, another session's
 // message, a child's reply). Their bodies are sanitized Markdown HTML.
+import { conversationBlocked } from "./turnrows.ts";
 import { memo } from "react";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { sessionMessageTitle, type PromptPart } from "./promptparts-state.ts";
@@ -8,12 +9,17 @@ import { SubIcon } from "./activity-view.tsx";
 
 /// Replies already contain the sanitized Markdown produced by the node.
 export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string }
+export interface BlockedRow { kind: "blocked"; id: string; message: string }
 export interface PromptRow { kind: "prompt"; row: string; html: string; pictures: string }
 export type ContextRow = { kind: "context"; id: string; type: "context"; text: string } | { kind: "context"; id: string; type: "session"; name: string; project: string | null; html: string } | { kind: "context"; id: string; type: "child"; part: Extract<PromptPart, { kind: "child" }>; body: string; agent: string | null; name: string; project: string | null };
 
 export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow }) {
   return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row} dangerouslySetInnerHTML={{ __html: reply.html }}/>;
 });
+
+export function AgentError({ message }: { message: string }) {
+  return <div className="derrcard" role="alert"><b>{conversationBlocked(message) ? "Conversation blocked" : "The turn did not finish"}</b><span>{message}</span></div>;
+}
 
 export const AgentPrompt = memo(function AgentPrompt({ prompt }: { prompt: PromptRow }) {
   return <div className="dcoderen user md" data-at={prompt.row}><b>You</b>{prompt.html && <div className="said" dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;

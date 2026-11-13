@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import type { TurnHeading } from "./turn-heading-view.tsx";
-import type { ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
+import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import type { ActivityRow } from "./activity-view.tsx";
 import { TurnRows } from "./log-shell-view.tsx";
 import { frameResize } from "../ui/dom.ts";
@@ -16,7 +16,7 @@ import { endOf, guess, shiftAbove, spacer, windowOf, type Resized } from "./logw
 import { keptScrollTop, pinWait } from "./logscroll.ts";
 import type { ChatBody } from "../ui/turn.ts";
 
-export type TranscriptRow = TurnHeading | ReplyRow | PromptRow | ContextRow | ActivityRow;
+export type TranscriptRow = TurnHeading | BlockedRow | ReplyRow | PromptRow | ContextRow | ActivityRow;
 
 /// One turn of the log: a key that stays while the turn does, and its
 /// rows, worked out only when it is drawn.
