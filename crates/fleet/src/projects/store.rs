@@ -73,9 +73,19 @@ impl MeshStore {
         projects(&self.mesh)
             .into_iter()
             .find(|stored| {
-                beep_projects::imports::repo::remote_key(&stored.record.url).is_some_and(|known| {
-                    Some(known) == beep_projects::imports::repo::remote_key(url)
-                })
+                std::iter::once(&stored.record.url)
+                    .chain(
+                        stored
+                            .record
+                            .remote_renames
+                            .iter()
+                            .flat_map(|rename| [&rename.from, &rename.to]),
+                    )
+                    .any(|known| {
+                        beep_projects::imports::repo::remote_key(known).is_some_and(|known| {
+                            Some(known) == beep_projects::imports::repo::remote_key(url)
+                        })
+                    })
             })
             .or_else(|| find_project(&self.mesh, project))
             .map_or_else(|| project.to_owned(), |stored| stored.name)

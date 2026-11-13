@@ -84,13 +84,13 @@ test("project rename keeps its identity and only renames the repository when sel
   const menu = await openMenu(page);
   await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue(projectName);
-  await expect(page.getByLabel("Repository name", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Repository name on GitHub", { exact: true })).toHaveCount(0);
   await page.getByLabel("Project name", { exact: true }).fill("New name");
   await page.evaluate(project => window.__navigation.respond("center_home", {
     machines: [], running: [], needs_you: [], projects: [{ name: project, display_name: "New name", url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 }],
   }), projectName);
   await page.getByRole("button", { name: "Rename", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repository: null }]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repositories: [] }]);
   await expect(page.getByRole("heading", { name: "New name", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "New name", exact: true })).toBeVisible();
 });
@@ -101,10 +101,10 @@ test("repository rename sends its own name and shows errors without discarding t
   const menu = await openMenu(page);
   await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
   await page.getByLabel("Project name", { exact: true }).fill("New name");
-  await page.getByRole("checkbox", { name: /Rename repository too/ }).check();
-  await page.getByLabel("Repository name", { exact: true }).fill("new-repo");
+  await page.getByRole("checkbox", { name: /GitHub/ }).check();
+  await page.getByLabel("Repository name on GitHub", { exact: true }).fill("new-repo");
   await page.getByRole("button", { name: "Rename", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repository: "new-repo" }]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repositories: [{ url: "https://example.test/example/widget", name: "new-repo" }] }]);
   await expect(page.getByRole("alert")).toHaveText("Requested test failure");
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("New name");
 });
@@ -123,4 +123,31 @@ test("the rename sheet fits a phone and hides window-only actions", async ({ pag
   expect(bounds).not.toBeNull();
   expect(bounds?.x).toBeGreaterThanOrEqual(0);
   expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
+});
+
+test("GitHub and Forgejo rename independently and retry sends only the failed repository", async ({ page }) => {
+  const github = "https://github.com/example/widget", forgejo = "https://forge.example.test/team/widget";
+  await openDesktop(page, false, {
+    project_rename_repositories: [{ url: github, host: "GitHub", name: "widget" }, { url: forgejo, host: "Forgejo", name: "widget" }],
+    rename_project: [{ kind: "renamed", from: github, to: "https://github.com/example/new" }, { kind: "failed", url: forgejo, message: "Repository administration access is required." }],
+  });
+  const menu = await openMenu(page);
+  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  await page.getByRole("checkbox", { name: /GitHub/ }).check();
+  await page.getByRole("checkbox", { name: /Forgejo/ }).check();
+  await page.getByLabel("Repository name on GitHub").fill("new");
+  await page.getByLabel("Repository name on Forgejo").fill("new");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(page.getByText("Renamed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /GitHub/ })).toBeDisabled();
+  await expect(page.getByRole("alert")).toHaveText("Repository administration access is required.");
+  await expect(page.getByLabel("Repository name on Forgejo")).toHaveValue("new");
+  await page.evaluate(url => window.__navigation.respond("rename_project", [{ kind: "renamed", from: url, to: "https://forge.example.test/team/new" }]), forgejo);
+  await page.getByRole("button", { name: "Retry failed", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Rename project", exact: true })).toHaveCount(0);
+  const calls = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args));
+  expect(calls).toEqual([
+    { project: projectName, name: projectName, repositories: [{ url: github, name: "new" }, { url: forgejo, name: "new" }] },
+    { project: projectName, name: projectName, repositories: [{ url: forgejo, name: "new" }] },
+  ]);
 });

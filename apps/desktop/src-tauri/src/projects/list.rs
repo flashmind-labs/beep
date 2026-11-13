@@ -8,6 +8,7 @@ use crate::{
     error::Result,
     fleet::projects::{FleetState, desk},
 };
+use beep_fleet::{RenameRepositoryTarget, RepositoryRename, RepositoryRenameResult};
 use beep_proto::ImportedProject;
 use serde::Serialize;
 use std::sync::Arc;
@@ -85,12 +86,21 @@ pub async fn rename_project(
     fleet: FleetState<'_>,
     project: String,
     name: String,
-    repository: Option<String>,
-) -> Result<()> {
-    desk(&fleet)
+    repositories: Vec<RepositoryRename>,
+) -> Result<Vec<RepositoryRenameResult>> {
+    let results = desk(&fleet)
         .await?
-        .rename_project(&project, &name, repository.as_deref())
+        .rename_project(&project, &name, &repositories)
         .await?;
     fleet.forget();
-    Ok(())
+    Ok(results)
+}
+
+/// Lists repository copies that can be selected independently for renaming.
+#[tauri::command]
+pub async fn project_rename_repositories(
+    fleet: FleetState<'_>,
+    project: String,
+) -> Result<Vec<RenameRepositoryTarget>> {
+    Ok(desk(&fleet).await?.rename_repositories(&project).await?)
 }

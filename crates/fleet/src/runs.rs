@@ -28,7 +28,11 @@ use beep_proto::{
     GitHostKind, HostedChecks, HostedRun, HostedRuns, ProjectRunDetail, RunState, RunsHost,
     Service, WorkflowRun,
 };
-use futures::future::{join, join_all};
+use futures::{
+    StreamExt,
+    future::{join, join_all},
+    stream,
+};
 use secrecy::ExposeSecret;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
@@ -53,6 +57,12 @@ struct Place {
     repo: String,
     /// The repository's web page on the host.
     web: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RemoteScope {
+    Nearest,
+    All,
 }
 
 impl Desk {
@@ -108,7 +118,7 @@ impl Desk {
         let servers = forgejo_of(&opened);
         let own = RepoRef::parse(&stored.record.url, &servers).map_err(|_| NO_HOST.to_owned())?;
         let remotes: Vec<RepoRef> = self
-            .checkout_remotes(stored)
+            .checkout_remotes(stored, RemoteScope::Nearest)
             .await
             .iter()
             .filter_map(|url| RepoRef::parse(url, &servers).ok())
@@ -116,9 +126,14 @@ impl Desk {
         let full = remotes
             .iter()
             .filter(|repo| repo.project().eq_ignore_ascii_case(&own.project()));
-        let named = remotes
-            .iter()
-            .filter(|repo| repo.name().eq_ignore_ascii_case(own.name()));
+        let named = remotes.iter().filter(|repo| {
+            repo.name().eq_ignore_ascii_case(own.name())
+                || stored
+                    .record
+                    .remote_renames
+                    .iter()
+                    .any(|rename| rename.to == repo.web_url())
+        });
         let mut repos: Vec<&RepoRef> = Vec::new();
 
         for repo in [&own].into_iter().chain(full).chain(named) {
@@ -150,40 +165,81 @@ impl Desk {
         }
     }
 
-    /// The remote URLs of one of the project's checkouts, this Mac's first, kept for
-    /// [`REMOTES_FOR`]; none when no machine answered.
-    async fn checkout_remotes(&self, stored: &Stored) -> Vec<String> {
-        if let Some(kept) = self.hosts.remotes(&stored.name, REMOTES_FOR) {
-            return kept;
+    /// Cached remotes for live views, or all checkouts for explicit repository discovery.
+    /// Saved renames apply even before an offline machine has updated its Git config.
+    pub(crate) async fn checkout_remotes(
+        &self,
+        stored: &Stored,
+        scope: RemoteScope,
+    ) -> Vec<String> {
+        let current = |urls: Vec<String>| {
+            urls.into_iter()
+                .map(|mut url| {
+                    for rename in &stored.record.remote_renames {
+                        if let Some(next) =
+                            beep_projects::imports::repo::renamed_remote(&url, rename)
+                        {
+                            url = next;
+                        }
+                    }
+                    url
+                })
+                .collect()
+        };
+        let cached = self.hosts.remotes(&stored.name, REMOTES_FOR);
+        if scope == RemoteScope::Nearest
+            && let Some(kept) = cached.as_ref()
+        {
+            return current(kept.clone());
         }
 
         let mut machines: Vec<_> = stored.places.keys().copied().collect();
         crate::nearest_first(&self.mesh, &mut machines, |machine| *machine);
         machines.sort_by_key(|machine| *machine != self.local);
-
-        for id in machines.into_iter().take(REMOTES_ASKED) {
-            let Some(seen) = self.seen_one(id).await else {
-                continue;
-            };
-            let Ok(shell) = seen.machine.shell() else {
-                continue;
-            };
-            let folder = stored.places[&id].folder.clone();
-
-            match run_script(shell, &remotes_script(&[folder]), READ_LIMIT).await {
-                Ok(out) => {
-                    let urls: Vec<String> = parse_remotes(&out)
-                        .into_iter()
-                        .flat_map(|folder| folder.remotes.into_iter().map(|(_, url)| url))
-                        .collect();
-                    self.hosts.keep_remotes(&stored.name, urls.clone());
-                    return urls;
+        if scope == RemoteScope::Nearest {
+            machines.truncate(REMOTES_ASKED);
+        }
+        // Explicit discovery reads all checkouts, including machine-specific remotes.
+        let mut reads = stream::iter(machines)
+            .map(|id| async move {
+                let seen = self.seen_one(id).await?;
+                let shell = seen.machine.shell().ok()?;
+                let folder = stored.places[&id].folder.clone();
+                match run_script(shell, &remotes_script(&[folder]), READ_LIMIT).await {
+                    Ok(out) => Some(
+                        parse_remotes(&out)
+                            .into_iter()
+                            .flat_map(|folder| folder.remotes.into_iter().map(|(_, url)| url))
+                            .collect::<Vec<_>>(),
+                    ),
+                    Err(error) => {
+                        log::info!("repository remotes could not be read: {error:#}");
+                        None
+                    }
                 }
-                Err(e) => log::info!("runs: remotes not read on {}: {e:#}", seen.machine.name),
+            })
+            .buffered(if scope == RemoteScope::All { 4 } else { 1 });
+        let mut found = if scope == RemoteScope::All {
+            cached.unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        while let Some(urls) = reads.next().await {
+            if let Some(urls) = urls {
+                for url in urls {
+                    if !found.contains(&url) {
+                        found.push(url);
+                    }
+                }
+                if scope == RemoteScope::Nearest {
+                    break;
+                }
             }
         }
-
-        Vec::new()
+        if !found.is_empty() {
+            self.hosts.keep_remotes(&stored.name, found.clone());
+        }
+        current(found)
     }
 
     /// The newest runs of the project from every host it is on, newest first, and the checks of

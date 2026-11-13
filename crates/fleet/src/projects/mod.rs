@@ -7,4 +7,5 @@ mod rename;
 mod store;
 
 pub use imports::ImportJob;
+pub use rename::{RenameRepositoryTarget, RepositoryRename, RepositoryRenameResult};
 pub(crate) use store::MeshStore;

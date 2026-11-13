@@ -16,14 +16,17 @@
         <h2>Rename project</h2>
         <label class="rename-label" for="project-name">Project name</label>
         <input id="project-name" value="acme/widget">
-        <div class="rename-repository">
-          <label class="rename-option"><input type="checkbox"><span>Rename repository too<small>github.com/acme/widget</small></span></label>
-          <div class="rename-fields">
-          <label class="rename-label" for="repo-name">Repository name</label>
-          <input id="repo-name" value="widget">
-          <p>Git remotes update when machines reconnect. Folders stay unchanged.</p>
+        <section class="rename-repositories">
+          <div class="rename-label">Also rename repositories</div>
+          <div class="rename-repository">
+            <label class="rename-option"><input type="checkbox"><span>GitHub<small>github.com/acme/widget</small></span></label>
+            <div class="rename-fields"><label class="rename-label" for="repo-github">Repository name on GitHub</label><input id="repo-github" value="widget"></div>
           </div>
-        </div>
+          <div class="rename-repository">
+            <label class="rename-option"><input type="checkbox"><span>Forgejo<small>forge.example.com/team/widget</small></span></label>
+            <div class="rename-fields"><label class="rename-label" for="repo-forgejo">Repository name on Forgejo</label><input id="repo-forgejo" value="widget"></div>
+          </div>
+        </section>
         <footer><button class="btn">Cancel</button><button class="btn pri">Rename</button></footer>
       </form>
     </div>

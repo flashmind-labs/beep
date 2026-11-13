@@ -3,7 +3,10 @@
 //! members of one mesh. Waits ride on `updates()` and outer timeouts; nothing sleeps.
 
 use async_trait::async_trait;
-use beep_fleet::{Changed, Desk, FleetError, ImportJob, Options, Peers, Session, project_id};
+use beep_fleet::{
+    Changed, Desk, FleetError, ImportJob, Options, Peers, RepositoryRename, RepositoryRenameResult,
+    Session, project_id,
+};
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
@@ -3308,7 +3311,7 @@ async fn project_rename_preserves_identity_checkouts_pins_and_sync() {
         .unwrap();
     desk.pin("acme/widget", true).await.unwrap();
     let pinned = dev.mesh.get(&Key::Pin("acme/widget".into()));
-    desk.rename_project("acme/widget", " New project ", None)
+    desk.rename_project("acme/widget", " New project ", &[])
         .await
         .unwrap();
     let renamed = ProjectRecord::from_bytes(&dev.mesh.get(&key).unwrap()).unwrap();
@@ -3322,7 +3325,7 @@ async fn project_rename_preserves_identity_checkouts_pins_and_sync() {
     assert_eq!(imported[0].project, "acme/widget");
     assert_eq!(imported[0].display_name.as_deref(), Some("New project"));
     for bad in ["", "  ", "name\nother"] {
-        assert!(desk.rename_project("acme/widget", bad, None).await.is_err());
+        assert!(desk.rename_project("acme/widget", bad, &[]).await.is_err());
     }
     let other = ProjectRecord {
         display_name: Some("Taken".into()),
@@ -3336,14 +3339,21 @@ async fn project_rename_preserves_identity_checkouts_pins_and_sync() {
         .await
         .unwrap();
     assert!(
-        desk.rename_project("acme/widget", "taken", None)
+        desk.rename_project("acme/widget", "taken", &[])
             .await
             .is_err()
     );
     assert!(
-        desk.rename_project("acme/widget", "New project", Some("../bad"))
-            .await
-            .is_err()
+        desk.rename_project(
+            "acme/widget",
+            "New project",
+            &[RepositoryRename {
+                url: "https://github.com/acme/widget".into(),
+                name: "../bad".into()
+            }]
+        )
+        .await
+        .is_err()
     );
     assert_eq!(
         ProjectRecord::from_bytes(&dev.mesh.get(&key).unwrap()).unwrap(),
@@ -3368,19 +3378,37 @@ async fn hosted_project_rename_records_remote_updates_and_reimport_keeps_identit
     };
     desk.import(job("acme/widget")).await.unwrap();
     let key = Key::Project("acme/widget".into());
-    let original = f.studio.mesh.get(&key).unwrap();
-    assert!(
-        desk.rename_project("acme/widget", "New name", Some("new"))
-            .await
-            .is_err()
-    );
-    assert_eq!(f.studio.mesh.get(&key).unwrap(), original);
+    let failed = desk
+        .rename_project(
+            "acme/widget",
+            "New name",
+            &[RepositoryRename {
+                url: "https://github.com/acme/widget".into(),
+                name: "new".into(),
+            }],
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        failed.as_slice(),
+        [RepositoryRenameResult::Failed { .. }]
+    ));
+    let saved = ProjectRecord::from_bytes(&f.studio.mesh.get(&key).unwrap()).unwrap();
+    assert_eq!(saved.display_name.as_deref(), Some("New name"));
+    assert!(saved.remote_renames.is_empty());
     desk.save_credential(&Service::GitHub, &SecretText::new(SECRET))
         .await
         .unwrap();
-    desk.rename_project("acme/widget", "New name", Some("new"))
-        .await
-        .unwrap();
+    desk.rename_project(
+        "acme/widget",
+        "New name",
+        &[RepositoryRename {
+            url: "https://github.com/acme/widget".into(),
+            name: "new".into(),
+        }],
+    )
+    .await
+    .unwrap();
     let record = ProjectRecord::from_bytes(&f.studio.mesh.get(&key).unwrap()).unwrap();
     assert_eq!(record.url, "https://github.com/acme/new");
     assert_eq!(record.display_name.as_deref(), Some("New name"));
@@ -3399,4 +3427,192 @@ async fn hosted_project_rename_records_remote_updates_and_reimport_keeps_identit
             .get(&Key::Project("acme/new".into()))
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn repository_copies_rename_independently_and_retries_keep_successful_hosts() {
+    use beep_proto::node::mesh_state::{Place, ProjectRecord};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let api = format!("http://{}", listener.local_addr().unwrap());
+    let deny = Arc::new(AtomicBool::new(true));
+    let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+    let denied = deny.clone();
+    let seen = requests.clone();
+    let server = tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut buffer = [0; 4096];
+            let size = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..size]);
+            let line = request.lines().next().unwrap_or_default().to_owned();
+            let forbidden = line.starts_with("PATCH /forge/") && denied.load(Ordering::SeqCst);
+            if line.starts_with("PATCH ") {
+                seen.lock().unwrap().push(line.clone());
+            }
+            let body = if line.starts_with("GET /user/orgs") {
+                r#"[{"login":"acme"}]"#
+            } else if line.contains("/actions/runs") {
+                r#"{"workflow_runs":[]}"#
+            } else {
+                r#"{"login":"octo"}"#
+            };
+            let status = if forbidden { "403 Forbidden" } else { "200 OK" };
+            let reply = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(reply.as_bytes()).await.unwrap();
+        }
+    });
+    let forge = format!("{api}/forge");
+    let remotes = Box::leak(format!("@@dir /srv/widget\nremote.origin.url https://github.com/acme/widget.git\nremote.forge.url {forge}/team/mirror-copy.git\nremote.forge-ssh.url git@127.0.0.1:team/mirror-copy.git\nremote.fork.url https://github.com/fork/widget.git\nremote.unrelated.url {forge}/team/other.git\n").into_boxed_str());
+    let f = fleet().await;
+    let node = Arc::new(FakeNode {
+        prints: vec![(
+            "get-regexp",
+            "@@dir /srv/widget\nremote.origin.url https://github.com/acme/widget.git\n",
+        )],
+        ..FakeNode::default()
+    });
+    let mirror = Arc::new(FakeNode {
+        prints: vec![("get-regexp", remotes)],
+        ..FakeNode::default()
+    });
+    let desk = desk(&f.studio, &[(&f.build, &node), (&f.laptop, &mirror)])
+        .await
+        .github_api(&api);
+    desk.save_credential(&Service::GitHub, &SecretText::new(SECRET))
+        .await
+        .unwrap();
+    desk.save_credential(
+        &Service::Forgejo {
+            url: forge.parse().unwrap(),
+        },
+        &SecretText::new("example-token"),
+    )
+    .await
+    .unwrap();
+    desk.import(ImportJob {
+        repo: "acme/widget",
+        machine_id: Some(&f.build.id.to_string()),
+        folder: None,
+        parent: None,
+        worktrees: &[],
+    })
+    .await
+    .unwrap();
+    f.studio
+        .mesh
+        .set(
+            Key::Project(format!("acme/widget/{}", f.laptop.id)),
+            Some(
+                Place {
+                    folder: "/srv/widget".into(),
+                    imported_ms: 0,
+                    fork: None,
+                }
+                .to_bytes()
+                .unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+    let targets = desk.rename_repositories("acme/widget").await.unwrap();
+    assert_eq!(
+        targets.len(),
+        2,
+        "SSH and HTTPS copies are deduplicated, forks and unrelated repos stay out"
+    );
+    assert_eq!(targets[0].url, "https://github.com/acme/widget");
+    assert_eq!(targets[1].url, format!("{forge}/team/mirror-copy"));
+    let choices = [
+        RepositoryRename {
+            url: targets[0].url.clone(),
+            name: "renamed".into(),
+        },
+        RepositoryRename {
+            url: targets[1].url.clone(),
+            name: "mirrored".into(),
+        },
+    ];
+    let results = desk
+        .rename_project("acme/widget", "New name", &choices)
+        .await
+        .unwrap();
+    assert!(matches!(
+        results.as_slice(),
+        [
+            RepositoryRenameResult::Renamed { .. },
+            RepositoryRenameResult::Failed { .. }
+        ]
+    ));
+    let key = Key::Project("acme/widget".into());
+    let saved = ProjectRecord::from_bytes(&f.studio.mesh.get(&key).unwrap()).unwrap();
+    assert_eq!(saved.remote_renames.len(), 1);
+    assert_eq!(saved.url, "https://github.com/acme/renamed");
+    assert_eq!(saved.display_name.as_deref(), Some("New name"));
+    deny.store(false, Ordering::SeqCst);
+    let retried = desk
+        .rename_project("acme/widget", "New name", &choices[1..])
+        .await
+        .unwrap();
+    assert!(matches!(
+        retried.as_slice(),
+        [RepositoryRenameResult::Renamed { .. }]
+    ));
+    let saved = ProjectRecord::from_bytes(&f.studio.mesh.get(&key).unwrap()).unwrap();
+    assert_eq!(saved.remote_renames.len(), 2);
+    assert_eq!(saved.remote_renames[1].to, format!("{forge}/team/mirrored"));
+    let repeated = desk
+        .rename_project("acme/widget", "New name", &choices)
+        .await
+        .unwrap();
+    assert!(
+        repeated
+            .iter()
+            .all(|result| matches!(result, RepositoryRenameResult::Renamed { .. }))
+    );
+    let targets = desk.rename_repositories("acme/widget").await.unwrap();
+    assert_eq!(targets[0].url, "https://github.com/acme/renamed");
+    assert_eq!(targets[1].url, format!("{forge}/team/mirrored"));
+    let runs = desk.runs("acme/widget").await.unwrap();
+    assert_eq!(runs.hosts.len(), 2);
+    assert!(runs.hosts.iter().any(|host| host.repo == "team/mirrored"));
+    let imported = desk
+        .import(ImportJob {
+            repo: &format!("{forge}/team/mirrored"),
+            machine_id: Some(&f.build.id.to_string()),
+            folder: None,
+            parent: None,
+            worktrees: &[],
+        })
+        .await
+        .unwrap();
+    assert_eq!(imported.project, "acme/widget");
+    assert_eq!(desk.imported().await.len(), 2);
+    let calls = requests.lock().unwrap().clone();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|line| line.starts_with("PATCH /repos/"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|line| line.starts_with("PATCH /forge/"))
+            .count(),
+        2
+    );
+    let forged = [RepositoryRename {
+        url: "https://github.com/other/widget".into(),
+        name: "renamed".into(),
+    }];
+    assert!(
+        desk.rename_project("acme/widget", "Unwanted", &forged)
+            .await
+            .is_err()
+    );
+    assert_eq!(requests.lock().unwrap().len(), calls.len());
+    server.abort();
 }

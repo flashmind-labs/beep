@@ -31,7 +31,8 @@ input.search::placeholder{color:var(--dim)}
 .rename-project h2 { margin: 0 0 24px; font-size: 17px; font-weight: 600; }
 .rename-project .rename-label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 .rename-project input { width: 100%; padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); color: var(--fg); font: inherit; font-size: 14px; }
-.rename-repository { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.rename-repositories { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.rename-repository + .rename-repository { margin-top: 16px; }
 .rename-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; }
 .rename-option input[type="checkbox"] { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
 .rename-option small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }

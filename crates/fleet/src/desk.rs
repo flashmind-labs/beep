@@ -262,13 +262,6 @@ impl DesktopHosts {
             .map(|(_, urls)| urls.clone())
     }
 
-    pub(crate) fn forget_remotes(&self, project: &str) {
-        self.remotes
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(project);
-    }
-
     pub(crate) fn keep_remotes(&self, project: &str, urls: Vec<String>) {
         let mut kept = self.remotes.lock().unwrap_or_else(PoisonError::into_inner);
         kept.insert(project.to_owned(), (Instant::now(), urls));

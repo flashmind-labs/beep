@@ -129,7 +129,8 @@
 .mac .pr-label { display: block; margin-bottom: 8px; color: var(--d-muted); font-size: 12px; font-weight: 500 }
 .mac .pr-form .gp-field { display: block; width: 100%; padding: 10px 12px }
 .mac .pr-form .pr-name { font-family: var(--body); font-size: 14px }
-.mac .pr-repository { margin-top: 20px; border-top: 1px solid var(--d-border); padding-top: 16px }
+.mac .pr-repositories { margin-top: 20px; border-top: 1px solid var(--d-border); padding-top: 16px }
+.mac .pr-repository + .pr-repository { margin-top: 16px }
 .mac .pr-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 18px; cursor: pointer }
 .mac .pr-option input { margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--d-emerald) }
 .mac .pr-option span { min-width: 0 }
@@ -137,3 +138,6 @@
 .mac .pr-repository-fields { margin-top: 16px }
 .mac .pr-repository-fields p { margin: 10px 0 0; color: var(--d-muted); font-size: 12px; line-height: 18px }
 .mac .pr-form .gp-foot { margin-top: 24px }
+
+.mac .pr-option .pr-host-saved { margin-left: auto; color: var(--d-emerald); font-size: 12px }
+.mac .pr-host-error { margin-top: 10px; color: var(--d-err); font-size: 12px; line-height: 18px }

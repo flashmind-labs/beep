@@ -34,6 +34,25 @@ async fn offline_renames_update_fetch_and_push_urls_and_keep_forks_and_worktrees
     run(
         root,
         &[
+            "remote",
+            "add",
+            "forge",
+            "https://forge.example.com/team/old.git",
+        ],
+    )
+    .await;
+    run(
+        root,
+        &[
+            "config",
+            "remote.forge.pushurl",
+            "git@forge.example.com:team/old.git",
+        ],
+    )
+    .await;
+    run(
+        root,
+        &[
             "-c",
             "user.name=Example",
             "-c",
@@ -66,6 +85,10 @@ async fn offline_renames_update_fetch_and_push_urls_and_keep_forks_and_worktrees
             from: "https://github.com/team/middle".into(),
             to: "https://github.com/team/new".into(),
         },
+        RemoteRename {
+            from: "https://forge.example.com/team/old".into(),
+            to: "https://forge.example.com/team/mirror".into(),
+        },
     ];
     update(root, &renames).await.unwrap();
     update(root, &renames).await.unwrap();
@@ -84,6 +107,18 @@ async fn offline_renames_update_fetch_and_push_urls_and_keep_forks_and_worktrees
     assert_eq!(
         run(&linked, &["remote", "get-url", "upstream"]).await,
         "git@github.com:team/new.git"
+    );
+    assert_eq!(
+        run(root, &["remote", "get-url", "forge"]).await,
+        "https://forge.example.com/team/mirror.git"
+    );
+    assert_eq!(
+        run(root, &["remote", "get-url", "--push", "forge"]).await,
+        "git@forge.example.com:team/mirror.git"
+    );
+    assert_eq!(
+        run(&linked, &["remote", "get-url", "forge"]).await,
+        "https://forge.example.com/team/mirror.git"
     );
     assert_eq!(run(&linked, &["branch", "--show-current"]).await, "feature");
     // A later clone or restored config also gets the saved renames.
