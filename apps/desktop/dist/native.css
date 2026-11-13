@@ -124,7 +124,7 @@ body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 body:not(.mobile) .cwin { isolation: isolate }
 body:not(.mobile) .cwin::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background-image: radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) 1px, transparent 1.6px), radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) .6px, transparent 1.1px);
-  background-size: 8px 8px, 8px 8px; background-position: 0 0, 4px 4px; opacity: .8;
+  background-size: 8px 8px, 8px 8px; background-position: 0 0, 4px 4px; opacity: .45;
   -webkit-mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%); mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%) }
 
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
