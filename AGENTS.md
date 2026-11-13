@@ -21,9 +21,9 @@ when the feature ships.
 
 ## UI
 
-Update the platform mock before changing an app's UI, then match the app to it:
-`mockups/desktop/index.html` (including the tray bar), and for the phone
-layout of the same app `mockups/ios/index.html` or `mockups/android/index.html`.
+Change the app's UI directly; there are no mockups. The committed screenshots of
+`apps/desktop/tests/browser/ui-baseline.spec.ts` are the visual record: update
+them with the change, and add one for a screen that has none.
 
 ## Code structure and readability
 

@@ -2,10 +2,6 @@ set dotenv-load
 
 server_config := ".dev/android-server.toml"
 
-# Serve the platform mockups on localhost
-mockups port="8000":
-    python3 -m http.server {{port}} --bind 127.0.0.1 --directory mockups
-
 # Build the server
 build-server:
     cargo build --package beep-server

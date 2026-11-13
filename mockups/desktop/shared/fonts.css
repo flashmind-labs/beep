@@ -1,3 +1,0 @@
-/* Local fonts keep the gallery available without a network connection. */
-@font-face { font-family: Inter; src: url('../../assets/inter.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap }
-@font-face { font-family: 'IBM Plex Mono'; src: url('../../assets/ibm-plex-mono.woff2') format('woff2'); font-weight: 100 700; font-style: normal; font-display: swap }
