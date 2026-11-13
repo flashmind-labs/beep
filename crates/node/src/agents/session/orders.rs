@@ -9,8 +9,12 @@ use crate::agents::{
     live::{Live, cut},
 };
 use agent_client_protocol::{
-    Agent, ConnectionTo, Responder,
-    v1::schema::{CancelNotification, RequestPermissionResponse},
+    Agent,
+    v1::schema::{
+        CancelNotification, RequestPermissionRequest, RequestPermissionResponse,
+        SetSessionModeRequest,
+    },
+    v1::{ConnectionTo, Responder},
 };
 use anyhow::Result;
 use beep_proto::ModelId;
@@ -258,9 +262,7 @@ impl Actor {
             ));
         }
 
-        let request = self
-            .mode_request(session, &mode)
-            .map_err(|error| error.to_string())?;
+        let request = SetSessionModeRequest::new(session, mode.clone());
         self.send(cx, request, move |result| Reply::ModeSet {
             was,
             result: result.map(drop),
@@ -295,7 +297,7 @@ impl Actor {
     /// plan mode. Gives the responder back for any other request.
     pub(super) fn plan_ready(
         &mut self,
-        plan: Option<String>,
+        request: &RequestPermissionRequest,
         asked: &Question,
         responder: Responder<RequestPermissionResponse>,
     ) -> Option<Responder<RequestPermissionResponse>> {
@@ -305,7 +307,7 @@ impl Actor {
             return Some(responder);
         }
 
-        let Some(plan) = plan else {
+        let Some(plan) = acp::plan_of(request) else {
             return Some(responder);
         };
         let answers = acp::allow_option(&asked.options)

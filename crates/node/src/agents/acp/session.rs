@@ -4,12 +4,13 @@ use agent_client_protocol::{
     UntypedMessage,
     schema::ProtocolVersion,
     v1::schema::{
-        AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities, CompactionCapabilities,
-        ContentBlock, Implementation, InitializeRequest, InitializeResponse, LoadSessionRequest,
-        McpServer, Meta, NewSessionRequest, NewSessionResponse, ResumeSessionRequest,
-        SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-        SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionModeState,
-        SetSessionConfigOptionRequest, SystemPrompt, TextContent,
+            AGENT_METHOD_NAMES, ClientCapabilities, ClientSessionCapabilities,
+            CompactionCapabilities, ContentBlock, Implementation, InitializeRequest,
+            InitializeResponse, LoadSessionRequest, McpServer, Meta, NewSessionRequest,
+            NewSessionResponse, ResumeSessionRequest, SessionConfigId, SessionConfigKind,
+            SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
+            SessionConfigSelectOptions, SessionId, SessionModeState, SetSessionConfigOptionRequest,
+            SystemPrompt, TextContent,
     },
 };
 use beep_proto::node::agent::{Effort, ModeOption, ModelOption};
@@ -86,7 +87,6 @@ pub(in crate::agents) struct Offered {
     pub(in crate::agents) thinking: Option<SessionConfigId>,
     /// The session modes it offers and the one it is in, when it has any.
     pub(in crate::agents) modes: Option<Modes>,
-    pub(in crate::agents) mode_config: Option<SessionConfigId>,
 }
 
 /// The session modes an agent offers, in the order it lists them.
