@@ -305,6 +305,14 @@ test("agent changes", async ({ page }) => {
   await baseline(page, "agent-changes");
 });
 
+test("another screen keeps its title after a session was open", async ({ page }) => {
+  await openAgent(page, { center_home: home });
+  await expect(page.locator("#title")).toBeHidden();
+  await page.evaluate(() => window.__navigation.open("home"));
+  await expect(page.locator("#title")).toBeVisible();
+  await expect(page.locator("#title")).toHaveText("Home");
+});
+
 test("agent question", async ({ page }) => {
   const question = { id: 1, text: "Run cargo test?", detail: "cargo test --workspace", options: [{ id: "allow", name: "Allow", allow: true }, { id: "always", name: "Always allow", allow: true }, { id: "deny", name: "Deny", allow: false }] };
   await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "asking", question } } });

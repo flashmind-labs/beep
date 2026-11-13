@@ -28,7 +28,7 @@ body:not(.mobile) .dcoderen.agent:has(+ .dcoderturn) { color: var(--muted) }
    The doubled id outranks the pane's own field rule in center.css. */
 body:not(.mobile) #agfield#agfield.dinput.small { position: relative; align-items: flex-end; margin: 0 14px 6px; padding: 5px 6px; gap: 4px; border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, var(--ink)); font-size: 13.5px }
 body:not(.mobile) #agfield#agfield.dinput.small:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-body:not(.mobile) #agfield.dinput.small > textarea { align-self: stretch; min-height: max(26px, var(--field-h, 0px)); padding: 0 4px; line-height: 26px }
+body:not(.mobile) #agfield.dinput.small > textarea { align-self: stretch; min-height: max(26px, var(--field-h, 0px)); padding: 3px 4px; line-height: 20px }
 body:not(.mobile) #agfield button[aria-label="Attach files"] { width: 26px; height: 26px; min-height: 0; margin: 0; color: var(--muted) }
 body:not(.mobile) #agfield :is(#agstop, #agnativeparent) { min-height: 26px; padding: 0 10px; font-size: 12px }
 body:not(.mobile) #agmodel .agc-pill { font-size: 12px; padding: 3px 6px; gap: 6px }
@@ -96,11 +96,13 @@ body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: colo
 body:not(.mobile) .dcoder .q .dups .dbtn.warn { color: var(--err) }
 body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--muted) }
 
-/* ----- Session screen: one slim title row. The window's top bar gives up its title here and
+/* ----- Session screen: one slim title row. A session's parts stay in the page while another
+   screen shows, so the rules ask for the open pane in its agent view, not for the parts.
+   The window's top bar gives up its title here and
    lays its tools over the row's end; the session's own head is the row, and drags the window. ----- */
-body:not(.mobile) .cc-main:has(.ag-head) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
-body:not(.mobile) .cc-main:has(.ag-head) > .cc-top > * { pointer-events: auto }
-body:not(.mobile) .cc-main:has(.ag-head) > .cc-top > :not(#tools, #usage, #bell) { display: none }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > * { pointer-events: auto }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell) { display: none }
 body:not(.mobile) .nt-bell { border: 0 }
 body:not(.mobile) .dhead.ag-head { height: 40px; padding: 0 112px 0 14px; gap: 8px; border-bottom: 0 }
 body:not(.mobile) .ag-head .dcoderav { width: 18px; height: 18px; border: 0; background: none }
@@ -122,22 +124,21 @@ body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
    are two cards set into it with the divider in the gap between them ----- */
-body:not(.mobile) .cc-main:has(.ag-head) { border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) { border-color: transparent; background: transparent; overflow: visible }
 body:not(.mobile) .dhead.ag-head { height: 34px; padding-left: 6px }
-body:not(.mobile) .cc-main:has(.ag-head) > .cc-top { height: 34px; padding-right: 4px }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { height: 34px; padding-right: 4px }
 body:not(.mobile) .agshell > :is(.agmain, .agpane) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .agshell > .agdiv { width: 6px; margin: 0 }
 body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px; background: transparent }
 
-/* ----- The message field floats over the foot of the conversation, which fades out under it ----- */
-body:not(.mobile) .agbodyw { -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), transparent); mask-image: linear-gradient(#000 calc(100% - 28px), transparent) }
+/* ----- The message field floats ----- */
 body:not(.mobile) #agfield#agfield.dinput.small { background: var(--elev); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
 
 /* ----- Every screen: the title row lies on the window and the screen below it is a card ----- */
 body:not(.mobile) .cc-main { border-color: transparent; background: transparent; overflow: visible }
 body:not(.mobile) .cc-top { min-height: 34px; padding: 0 4px 0 6px; border-bottom: 0 }
 body:not(.mobile) .cc-top h2 { font-size: 14px; font-weight: 600; letter-spacing: -.01em }
-body:not(.mobile) .cc-box:not(:has(.ag-head)) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { background: var(--elev); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
 
 /* ----- Terminals: the list and the terminal are two cards, as a session's conversation and pane are ----- */
@@ -227,7 +228,7 @@ body:not(.mobile) .ag-head .dstate.run::before { box-shadow: 0 0 10px 1px curren
 body:not(.mobile) :is(.cc-si[aria-current="true"], .cc-org[aria-current="true"], .cc-chat:has(.open[aria-current="true"])) { box-shadow: inset 2px 0 0 var(--accent) }
 
 /* Cards have a lit top edge. */
-body:not(.mobile) .cc-box:not(:has(.ag-head)):not(:has(.tl-view)), body:not(.mobile) .agshell > :is(.agmain, .agpane), body:not(.mobile) .tl-view > .tl > * { background: var(--lit), var(--ink) }
+body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])):not(:has(.tl-view)), body:not(.mobile) .agshell > :is(.agmain, .agpane), body:not(.mobile) .tl-view > .tl > * { background: var(--lit), var(--ink) }
 
 /* Your message carries the accent on its edge. */
 body:not(.mobile) .dcoderen.user { border-right: 2px solid var(--accent); background: color-mix(in srgb, var(--fg) 6%, transparent) }
@@ -275,3 +276,8 @@ body:not(.mobile) .dither-art { width: 1500px; height: 640px; top: -156px }
 body:not(.mobile) .cc-pjc.centered .agc-intro { position: relative }
 body:not(.mobile) .cc-pjc.centered .agc-intro::after { content: ""; position: absolute; z-index: -1; inset: -34px 2% -6px; pointer-events: none; background: radial-gradient(closest-side, color-mix(in srgb, var(--ink) 92%, transparent) 55%, transparent) }
 body:not(.mobile) .cc-pjc.centered .agc-intro p { color: color-mix(in srgb, var(--fg) 78%, transparent) }
+
+/* The session row keeps clear of the tools laid over its end, whatever their width (--top-w is
+   kept by src/center/window-shell.tsx), and the bar's words are not selectable. */
+body:not(.mobile) .dhead.ag-head { padding-right: calc(var(--top-w, 104px) + 8px) }
+body:not(.mobile) .cc-top { user-select: none; -webkit-user-select: none }
