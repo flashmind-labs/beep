@@ -153,7 +153,7 @@ async function sendBackground(session: OpenAgent, draft: Waiting, state: Mention
       restoreUploadDraft(draft, state, session);
     }
   } catch (error) {
-    state.error = String(error);
+    state.error = sendError(error).message;
     restoreUploadDraft(draft, state, session);
   }
 }
@@ -460,7 +460,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
     if (!images.length) AG.page!.entries.pop();
     input.disabled = false;
     backInField(draft ?? { typed: text, paths: [], images });
-    AG.note = String(e).replace(/^(bad request|error):\s*/i, "");
+    AG.note = sendError(e).message.replace(/^error:\s*/i, "");
     drawAgentBody();
     return false;
   }
