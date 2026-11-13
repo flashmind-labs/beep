@@ -818,12 +818,6 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-list button.hi { background: color-mix(in srgb, var(--fg) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent) }
 .agc-list button.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .agc-list button small { color: var(--muted); font-size: 11.5px; margin-left: auto; overflow: hidden; text-overflow: ellipsis }
-/* A model's thinking levels, under it once it is clicked. */
-.agc-list > .agc-models button { box-sizing: border-box; width: calc(100% - 12px) }
-.agc-levels { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 6px 6px; padding: 0 4px 0 14px; border-left: 1px solid var(--border); margin-left: 16px }
-.agc-list .agc-levels button { width: auto; min-height: 0; margin: 0; padding: 3px 8px; border: 1px solid var(--border); font-size: 12px; color: var(--muted) }
-.agc-list .agc-levels button:hover { color: var(--fg) }
-.agc-list .agc-levels button.on { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 .agc-list .none, .agc-think .none { margin: 8px 16px; font-size: 12px; color: var(--dim); line-height: 17px; display: flex; gap: 6px; align-items: center }
 .agc-think { border-left: 1px solid var(--border); padding: 14px 0 10px; display: grid; align-content: start; box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: thin }
 .agc-think h5 { margin: 0 16px 8px; font-size: 12px; font-weight: 500; color: var(--muted); display: flex; justify-content: space-between; gap: 6px }
