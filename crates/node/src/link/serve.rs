@@ -85,7 +85,10 @@ pub async fn serve(
     };
     let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
     traffic.measure_endpoint(endpoint.metrics().clone());
-    let _diagnostics = match super::diagnostics::start(&endpoint, &state.dir.join("metrics.log")) {
+    let diagnostics = super::diagnostics::install().and_then(|recorder| {
+        super::diagnostics::start(recorder, &endpoint, &state.dir.join("metrics.log"))
+    });
+    let _diagnostics = match diagnostics {
         Ok(task) => Some(task),
         Err(e) => {
             log::warn!("metrics unavailable: {e:#}");

@@ -5,6 +5,7 @@
 #[cfg(desktop)]
 pub(crate) mod app_menu;
 pub(crate) mod home;
+pub(crate) mod home_frame;
 pub(crate) mod home_sessions;
 pub(crate) mod shown;
 pub(crate) mod targets;
