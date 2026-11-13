@@ -138,7 +138,7 @@ expected 200, got 401</pre></details></span></div>`;
     ].join("");
     const kidView = `<div class="crumb"><button data-dact="dset:ags:agentkids">Fix the failing login test</button><span>›</span><b>Build the iOS target</b><span class="sp"></span><button class="dbtn" data-dact="dset:ags:agentkids">Open parent<kbd>esc</kbd></button></div>
       <div class="note">Started by Fix the failing login test on build-box. Codex on mac-box, in widget.</div>
-      <div class="dcoderen user"><b>Task</b><span>Build the iOS app and run the login UI tests</span></div>
+      <div class="dcoderen user"><b>Task</b><span>Build the iOS app and run the login UI tests</div></div>
       ${head("Working for 2m", false, false)}<div class="tools">${[step("ok", "Ran xcodebuild -scheme Widget build"), step("run", "Ran xcodebuild test -scheme WidgetUITests")].join("")}</div>
       <div class="dcoderen agent md">Allow <code>xcodebuild test</code> on mac-box? <button class="dbtn small pri" data-toast="Allowed">Allow</button> <button class="dbtn small quiet" data-toast="Denied">Deny</button></div>
       <div class="note">Only you can answer this: the parent cannot.</div>`;
@@ -146,7 +146,7 @@ expected 200, got 401</pre></details></span></div>`;
     // the parent gets a note that the user stopped it.
     const kidStopped = `<div class="crumb"><button data-dact="dset:ags:agentkids">Fix the failing login test</button><span>›</span><b>Build the iOS target</b><span class="sp"></span><button class="dbtn" data-dact="dset:ags:agentkids">Open parent<kbd>esc</kbd></button></div>
       <div class="note">Started by Fix the failing login test on build-box. Codex on mac-box, in widget.</div>
-      <div class="dcoderen user"><b>Task</b><span>Build the iOS app and run the login UI tests</span></div>
+      <div class="dcoderen user"><b>Task</b><span>Build the iOS app and run the login UI tests</div></div>
       ${head("Worked for 2m", false, false)}<div class="tools">${[step("ok", "Ran xcodebuild -scheme Widget build")].join("")}</div>
       <div class="note">Stopped by you</div>`;
     // ----- The transcript as rows -----
@@ -203,11 +203,12 @@ expected 200, got 401</pre></details></span></div>`;
     // own row under that session's name. Neither is in the user's box.
     const ctx = `<details class="dcoderen beepctx"><summary>Beep context</summary><pre>Beep: the beep MCP server's tools reach the user's other machines. list_machines says which machines there are...\n\nBeep: the user's standing rules:\n- Use the render box for Blender.</pre></details>`;
     const fromSession = [
+      `<div class="dcoderen kidreply sessioncard"><button type="button" class="kh" data-dact="dset:ags:agentchild"><span class="kt"><span class="kl">acme/app</span><b>Check the login tests</b></span><span class="ks">Done</span></button><div class="sessionbody md"><p>Updated the login assertions to match the shared error message.</p><table><thead><tr><th>Suite</th><th>Result</th></tr></thead><tbody><tr><td>Login</td><td>12 passed</td></tr><tr><td>Session</td><td>8 passed</td></tr></tbody></table><p>Tests passed. Ready for review.</p></div></div>`,
       ctx,
-      `<div class="dcoderen fromsession"><b>Other session wrote<span class="who">Fix the failing login test</span></b><span>Build the iOS app and run the login UI tests</span></div>`,
+      `<div class="dcoderen fromsession sessioncard"><div class="kh"><span class="kt"><span class="kl">acme/app</span><b>Fix the failing login test</b></span></div><div class="sessionbody">Build the iOS app and run the login UI tests</div></div>`,
       head("Worked for 2m", false, true, "fromsession"),
       `<div class="dcoderen agent md"><p>Built and ran <code>WidgetUITests</code>: 12 passed.</p></div>`,
-      `<div class="dcoderen fromsession"><b>Other session wrote<span class="who">Fix the failing login test</span></b><span>Now run them on the iPad simulator too.</span></div>`,
+      `<div class="dcoderen fromsession sessioncard"><div class="kh"><span class="kt"><span class="kl">acme/app</span><b>Fix the failing login test</b></span></div><div class="sessionbody">Now run them on the iPad simulator too.</div></div>`,
       head("Worked for 1m 10s", false, true, "fromsession"),
       `<div class="dcoderen agent md"><p>Same 12 pass on the iPad.</p></div>`,
       ctx,

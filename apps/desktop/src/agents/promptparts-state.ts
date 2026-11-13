@@ -45,3 +45,17 @@ export function promptParts(text: string): PromptPart[] {
         : { kind: "session", id: attribute(head, "id"), name: attribute(head, "name"), text: inner });
   }
 }
+
+// Some imported session titles were taken from the first tagged prompt.
+export function sessionMessageTitle(name: string): string {
+  const title = name.trim();
+  if (!/^<(from-session|beep-child|beep-context)([ >]|$)/.test(title)) return title;
+
+  const part = promptParts(title)[0];
+  if (part?.kind === "session" || part?.kind === "child") {
+    const nested = part.name.trim();
+    return nested.startsWith("<") ? "" : nested;
+  }
+
+  return "";
+}

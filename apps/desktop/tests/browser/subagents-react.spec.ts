@@ -41,3 +41,38 @@ test("transcript groups child agents and keeps their actions", async ({ page }) 
   await expect(first.locator("[data-kidstop]")).toHaveCount(1);
   await expect(group.locator('[data-kid="second@build-box"]')).toContainText("Inspect second");
 });
+
+for (const width of [1280, 390]) {
+  test(`session reply cards show the source project and title with wrapping tables at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openDesktop(page);
+    await page.evaluate(() => {
+      const invoke = window.__TAURI__.core.invoke;
+      window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+        const value = await invoke<T>(command, args);
+        if (command !== "agent_view" || !value || typeof value !== "object") return value;
+        return { ...value, entries: [{
+          kind: "user",
+          text: '<beep-child id="notice-two@build-box" name="&lt;from-session id=&quot;source&quot; name=&quot;Review login assertions&quot;&gt;Check tests&lt;/from-session&gt;" state="finished">Passed</beep-child>',
+          child_html: ['<p><strong>Updated the login tests.</strong> All checks passed.</p><table><thead><tr><th>Suite</th><th>Result</th><th>Details</th></tr></thead><tbody><tr><td>Login</td><td>12 passed</td><td>' + 'The login assertions match the shared error message. '.repeat(5) + '</td></tr></tbody></table><p>Ready for review.</p>'],
+        }] } as T;
+      };
+      window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } });
+    });
+    const card = page.locator(".kidreply");
+    await expect(card.locator(".kt b")).toHaveText("Second notification");
+    await expect(card.locator(".ks")).toHaveText("Done");
+    await expect(card.locator(".kl")).toHaveText("example/widget");
+    await expect(card.locator(".kh")).not.toContainText("notice-two");
+    await expect(card.locator(".sessionbody strong")).toHaveText("Updated the login tests.");
+    await expect(card.locator(".kh")).not.toContainText("<from-session");
+    await card.locator(".kh").focus();
+    await expect(card.locator(".kh")).toBeFocused();
+    expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    const table = card.locator("table");
+    expect(await table.evaluate(element => getComputedStyle(element).whiteSpace)).toBe("normal");
+    await table.evaluate(element => { element.scrollLeft = 0; });
+    await card.locator(".kh").evaluate(element => { if (element instanceof HTMLElement) element.blur(); });
+    await card.screenshot({ path: `test-results/session-message-${width}.png` });
+  });
+}

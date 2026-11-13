@@ -69,6 +69,22 @@ test("child replies keep their action and message during refresh", t => {
   assert.equal(bar.querySelector(".kidreply"), card); assert.equal(document.activeElement, action);
 });
 
+test("child message headers unwrap session prompts and preserve formatted replies", t => {
+  const { page } = setup();
+  t.after(() => { disposeQueue(); forgetAgentFollows(); });
+  page.entries = [{ kind: "user", text: '<beep-child id="child@build-box" name="&lt;from-session id=&quot;source&quot; name=&quot;Review login&quot;&gt;Check tests&lt;/from-session&gt;" state="finished">Passed</beep-child>', child_html: ['<p><strong>Passed</strong>.</p><table><tbody><tr><td>Login</td><td>12 passed</td></tr></tbody></table>'] }];
+  drawAgentBody();
+  const card = bar.querySelector(".kidreply"); assert.ok(card);
+  const action = card.querySelector("[data-kid]"); assert.ok(action);
+  assert.equal(action.querySelector("b")?.textContent, "Review login");
+  assert.equal(action.querySelector(".kl")?.textContent, "Session reply");
+  assert.equal(action.querySelector(".ks")?.textContent, "Done");
+  assert.equal(action.getAttribute("title"), "Open Review login");
+  assert.equal(action.textContent.includes("<from-session"), false);
+  assert.equal(card.querySelector(".sessionbody strong")?.textContent, "Passed");
+  assert.equal(card.querySelector("table td")?.textContent, "Login");
+});
+
 test("session status updates preserve the status element for writable and read-only sessions", t => {
   const { page } = setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
