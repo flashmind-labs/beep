@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 test("subagent pane shows native child actions and keeps rows on redraw", async ({ page }) => {
-  await openDesktop(page);
+  await openDesktop(page, false, {
+    agent_models: { pick: "listed", current: "gpt-example", models: [{ id: "gpt-example", name: "Example Model 1.0", description: null, provider: null }] },
+  });
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
@@ -15,7 +17,8 @@ test("subagent pane shows native child actions and keeps rows on redraw", async 
   await page.getByRole("tab", { name: /Subagents/ }).click();
   const row = page.locator(".agpview.subs .dsubrow");
   await expect(row).toContainText("Inspect files");
-  await expect(row).toContainText("gpt-example");
+  await expect(row).toContainText("Example Model 1.0");
+  await expect(row).not.toContainText("gpt-example");
   await expect(row).toHaveAttribute("data-native", "0");
   await expect(row.locator("[data-subclose]")).toHaveCount(1);
   await row.focus();
