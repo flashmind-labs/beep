@@ -462,6 +462,29 @@ impl Desk {
         }
     }
 
+    /// Starts `project`'s sync over on `machine` in the folder now at its
+    /// path, as for one that was replaced; nothing is deleted elsewhere.
+    pub async fn start_sync_over(&self, project: &str, machine: &str) -> Result<()> {
+        let machine: EndpointId = machine
+            .parse()
+            .map_err(|_| FleetError::refused("That machine is not known."))?;
+        let client = self.peers.client(machine).await?;
+        let reply: Reply = client
+            .call(
+                PROTOCOL,
+                &Request::StartOver {
+                    project: project.to_owned(),
+                },
+            )
+            .await?;
+
+        match reply {
+            Reply::StartedOver {} => Ok(()),
+            Reply::Error { message } => Err(FleetError::Refused(message)),
+            _ => Err(FleetError::refused("The machine answered something else.")),
+        }
+    }
+
     /// The machines Syncthing keeps a folder of `project` in step on.
     pub async fn syncthing(&self, name: &str) -> Vec<SyncthingPlace> {
         let Some(record) = find_project(&self.mesh, name) else {

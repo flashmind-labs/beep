@@ -8,7 +8,7 @@ use crate::{
     files::transfer::place::Folder,
 };
 use anyhow::{Context, Result, bail};
-use beep_proto::node::sync::FOLDER_MISSING;
+use beep_proto::node::sync::{FOLDER_CHANGED as CHANGED, FOLDER_MISSING};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -24,8 +24,6 @@ pub(super) struct RootId {
     pub(super) device: u64,
     pub(super) inode: u64,
 }
-
-const CHANGED: &str = "the folder changed or is not mounted";
 
 /// What `check` found.
 #[derive(Debug, Clone, PartialEq, Eq)]

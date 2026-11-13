@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
-const machine = { machine_id: "build-box", machine_name: "Build box", folder: "/srv/project", status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, git_only: false };
+const machine = { machine_id: "build-box", machine_name: "Build box", folder: "/srv/project", status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, can_start_over: false, git_only: false };
 const terminal = { id: "shell-one", project: "", machine_id: "build-box", machine_name: "build-box", name: "shell-one", command: "shell", cwd: "/srv/project", state: "running", code: null, started_at: 1 };
 const responses = {
   project_sync: [{ project: projectName, machine_id: "build-box", status: "in_sync", files: 18, pending: 0, error: null }],

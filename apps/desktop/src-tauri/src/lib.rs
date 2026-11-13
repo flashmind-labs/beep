@@ -341,6 +341,7 @@ pub fn run() {
             projects::file_sync::project_sync_detail,
             projects::file_sync::project_sync_pause,
             projects::file_sync::project_sync_resolve,
+            projects::file_sync::project_sync_start_over,
             projects::git_items::git_items,
             projects::groups::project_group_delete,
             projects::groups::project_group_save,

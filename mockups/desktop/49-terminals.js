@@ -81,27 +81,32 @@ DESK_SCREENS.find(g => g.group === "Command center").items.push(["dTerminals", "
 CC_IC.sync = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 00-14-4L4 9M4 5v4h4M4 13a8 8 0 0014 4l2-2M20 19v-4h-4"/></svg>';
 const fsCmp = `<div class="fs-cmp"><div class="fs-cmph"><span>Kept <b>notes.txt</b></span><span>Copy <b>notes (conflict 1a2b3c4d).txt</b></span><small>on build-box, studio</small></div><div class="dv-lines"><div class="dv-l hunk"><span class="dv-g"><span></span><span></span></span><span class="dv-c">@@ -1,3 +1,3 @@</span></div><div class="dv-l"><span class="dv-g"><span>1</span><span>1</span></span><span class="dv-c">Ship the sync page</span></div><div class="dv-l del"><span class="dv-g"><span>2</span><span></span></span><span class="dv-c">Review on Friday</span></div><div class="dv-l add"><span class="dv-g"><span></span><span>2</span></span><span class="dv-c">Review on Thursday</span></div><div class="dv-l"><span class="dv-g"><span>3</span><span>3</span></span><span class="dv-c">Release after</span></div></div></div>`;
 const fsConflict = (code, note) => { const file = !code.startsWith(".git/"); return `<div class="fs-conflict"><span class="t"><code>${code}</code><span>${note}</span></span><span class="acts">${file ? `<button class="dbtn small" aria-expanded="false" onclick="const r=this.closest('.fs-conflict'),o=r.classList.toggle('open');this.setAttribute('aria-expanded',o);this.textContent=o?'Hide':'Compare';o?r.insertAdjacentHTML('beforeend',fsCmp):r.querySelector('.fs-cmp').remove()">Compare</button>` : ""}<button class="dbtn pri small" data-toast="The bar is filled for you to send">Fix with an agent</button><button class="dbtn small" data-toast="Keeping this copy">Keep this copy</button><button class="dbtn small" data-toast="Keeping the original">Keep the original</button></span></div>`; };
-const fsMachine = (n, chip, meta, off, pct) => `<div class="fs-row"><div class="fs-h"><span class="ddot${off ? " off" : ""}"></span><b>${n}</b><span class="pb-chip${meta[2] === "wait" ? " wait" : ""}">${chip}</span></div>${pct ? `<div class="fs-bar"><i style="width:${pct}%"></i></div>` : ""}<div class="fs-m">${meta[0].map(x => `<span>${x}</span>`).join("")}${meta[1] ? `<code>${meta[1]}</code>` : ""}</div></div>`;
+const fsMachine = (n, chip, meta, off, pct, extra = "") => `<div class="fs-row"><div class="fs-h"><span class="ddot${off ? " off" : ""}"></span><b>${n}</b><span class="pb-chip${meta[2] === "wait" ? " wait" : ""}">${chip}</span></div>${pct ? `<div class="fs-bar"><i style="width:${pct}%"></i></div>` : ""}<div class="fs-m">${meta[0].map(x => `<span>${x}</span>`).join("")}${meta[1] ? `<code>${meta[1]}</code>` : ""}</div>${extra}</div>`;
+// A folder replaced at the same path, as by a fresh clone: sync stops so nothing is deleted elsewhere, until the user starts over with the new folder.
+const fsReplaced = `<div class="cc-err">This folder was replaced, so sync stopped.</div><div class="fs-m"><button class="dbtn small" title="Syncs the folder now at this path from nothing; nothing is deleted on other machines" data-toast="Syncing the folder that is there now">Start over with this folder</button></div>`;
 D.dSync = () => {
   const v = S.d.sy || "default";
   const none = v === "none", fine = v === "insync";
   const proj = (name, sub, machines, conflicts) => `<div class="cc-sec"><h4>${name}</h4><small>${sub}</small><span class="fs-tools"><button class="dbtn quiet small" data-toast="Paused on every machine">Pause</button></span></div>
     <div class="cc-panel fs-list">${machines}</div>${conflicts ? `<div class="cc-sec"><h4>Conflicts</h4><small>edited on two machines at once</small></div><div class="cc-panel fs-list">${conflicts}</div>` : ""}`;
-  const widget = fine
+  const replaced = v === "replaced";
+  const widget = replaced
+    ? proj("acme/widget", "1 needs attention", fsMachine("build-box", "in sync", [["1,880 files", "284 MB"], "/srv/project/widget"]) + fsMachine("laptop", "failed", [["Git sync"], "/srv/widget", "wait"], false, 0, fsReplaced), "")
+    : fine
     ? proj("acme/widget", "in sync", fsMachine("build-box", "in sync", [["1,880 files", "284 MB"], "/srv/project/widget"]) + fsMachine("studio", "in sync", [["1,880 files", "284 MB"], "/srv/widget"]) + fsMachine("laptop", "offline", [["Seen 2 h ago"], ""], true), "")
     : proj("acme/widget", "2 conflicts", fsMachine("build-box", "in sync", [["1,880 files", "284 MB"], "/srv/project/widget", "wait"]) + fsMachine("studio", "syncing 23%", [["142 of 610 files", "48 of 210 MB", "2.1 MB/s", "about 1 min"], "/srv/widget"], false, 23) + fsMachine("laptop", "offline", [["Seen 2 h ago"], ""], true),
       fsConflict("notes (conflict 1a2b3c4d).txt", "Another copy of notes.txt · on build-box, studio") + fsConflict(".git/refs/beep-conflicts/heads/main-5e6f7a8b", "Another commit of main · on build-box"));
-  const relay = fine
+  const relay = fine || replaced
     ? proj("acme/platform/mesh-relay", "in sync", fsMachine("build-box", "in sync", [["412 files", "9 MB"], "/srv/project/mesh-relay"]), "")
     : proj("acme/platform/mesh-relay", "1 conflict", fsMachine("build-box", "in sync", [["412 files", "9 MB"], "/srv/project/mesh-relay", "wait"]) + fsMachine("mac-box", "in sync", [["412 files", "9 MB"], "/srv/mesh-relay", "wait"]),
       fsConflict("docs/plan (conflict 9fbd5479).md", "Another copy of docs/plan.md · on build-box, mac-box"));
-  const sub = none ? "" : fine ? "2 projects, all in sync" : "3 conflicts in 2 projects";
+  const sub = none ? "" : fine ? "2 projects, all in sync" : replaced ? "1 needs attention" : "3 conflicts in 2 projects";
   const view = none
     ? '<div class="cc-panel cc-empty"><b>No project syncs yet</b><span>Add a project on two machines and its files sync here.</span></div>'
     : `<div class="fs-page">${widget}${relay}<div class="dmuted fs-note">Builds, ignored files and links stay on each machine.</div></div>`;
   return ccWin(ccSide("sync", none ? { noSync: true } : fine ? { sync: 0 } : {}), `<div class="cc-top"><h2>Sync</h2><small>${sub}</small></div><div class="cc-view">${view}</div>`);
 };
-VARIANTS.dSync = [["Conflicts", "default"], ["All in sync", "insync"], ["Nothing synced", "none"]].map(([l, k]) => [l, () => { S.d.sy = k; render(); }, () => (S.d.sy || "default") === k]);
+VARIANTS.dSync = [["Conflicts", "default"], ["All in sync", "insync"], ["Folder replaced", "replaced"], ["Nothing synced", "none"]].map(([l, k]) => [l, () => { S.d.sy = k; render(); }, () => (S.d.sy || "default") === k]);
 DESK_SCREENS.find(g => g.group === "Command center").items.push(["dSync", "Sync across projects", "CommandCenterWindow, SyncPage"]);
 
 document.addEventListener("keydown", e => {

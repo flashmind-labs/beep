@@ -513,6 +513,52 @@ async fn a_folder_swapped_for_an_empty_one_deletes_nothing() {
     );
     assert!(files(&a.folder()).is_empty());
     assert!(!a.folder().join(MARKER).exists());
+
+    // Started over, the new folder is filled and nothing is deleted.
+    a.running()
+        .transfers
+        .syncs()
+        .start_over(PROJECT)
+        .await
+        .expect("the project starts over");
+    nothing_deleted(&a, &b).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_replaced_while_syncing_starts_over_and_deletes_nothing() {
+    let (a, b) = pair().await;
+    synced_file(&a, &b).await;
+
+    // The folder is moved aside and a new one made at its path while the
+    // node runs, as a fresh clone does: sync refuses it.
+    let folder = a.folder();
+    fs::rename(&folder, folder.with_file_name("moved away")).unwrap();
+    fs::create_dir(&folder).unwrap();
+    let refused = a
+        .running()
+        .transfers
+        .syncs()
+        .rescan(PROJECT)
+        .await
+        .expect("the folder scans");
+    assert_eq!(refused.state, State::Failed, "{refused:?}");
+    assert!(
+        refused
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("is another folder now")),
+        "{refused:?}"
+    );
+
+    a.running()
+        .transfers
+        .syncs()
+        .start_over(PROJECT)
+        .await
+        .expect("the project starts over");
+
+    nothing_deleted(&a, &b).await;
+    assert!(a.folder().join(MARKER).exists());
 }
 
 #[tokio::test(flavor = "multi_thread")]

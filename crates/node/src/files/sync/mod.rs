@@ -931,6 +931,70 @@ impl Syncs {
             .with_context(|| format!("{project} stopped syncing"))
     }
 
+    /// Starts `project` over in the folder now at its path, with its
+    /// ignored-folder datasets: each stops, forgets what it saw, as one
+    /// turned off does, and starts again from a fresh scan that fetches what
+    /// the folder misses and deletes nothing elsewhere. For a folder that was
+    /// replaced, which sync otherwise refuses until the old one is back.
+    pub async fn start_over(&self, project: &str) -> Result<()> {
+        let _one = self.inner.configuring.lock().await;
+        let stopped: Vec<Running> = {
+            let mut projects = lock(&self.inner.projects);
+            let names: Vec<String> = projects
+                .keys()
+                .filter(|name| {
+                    name.as_str() == project
+                        || beep_proto::node::sync::ignored_folder(name)
+                            .is_some_and(|(owner, _)| owner == project)
+                })
+                .cloned()
+                .collect();
+
+            if !names.iter().any(|name| name == project) {
+                bail!("{project} is not synced on this machine");
+            }
+
+            names.iter().filter_map(|name| projects.remove(name)).collect()
+        };
+        let again: Vec<(Project, Source)> = stopped
+            .iter()
+            .map(|running| (running.project.clone(), running.from))
+            .collect();
+
+        for running in stopped {
+            self.stop(running).await;
+        }
+
+        let mut failed = None;
+
+        for (project, from) in again {
+            match self.run(&project, from).await {
+                Ok(running) => {
+                    log::info!("{}: started over in {}", project.name, project.folder);
+                    lock(&self.inner.projects).insert(project.name.clone(), running);
+                }
+                Err(e) => {
+                    let message = format!("{e:#}");
+                    log::warn!("{} does not start over: {message}", project.name);
+                    failed.get_or_insert_with(|| message.clone());
+                    lock(&self.inner.stopped).insert(
+                        project.name.clone(),
+                        Stopped {
+                            project,
+                            from,
+                            message,
+                        },
+                    );
+                }
+            }
+        }
+
+        match failed {
+            Some(message) => bail!(message),
+            None => Ok(()),
+        }
+    }
+
     /// What tells the server this node scans a project when asked.
     pub fn rescans(&self) -> Rescans {
         Rescans(self.clone())
@@ -1115,6 +1179,12 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
                 },
             }
         }
+        Request::StartOver { project } => match syncs.start_over(&project).await {
+            Ok(()) => Reply::StartedOver {},
+            Err(e) => Reply::Error {
+                message: format!("{e:#}"),
+            },
+        },
         Request::SyncthingFiles { folder, enabled } => {
             match syncs.syncthing_files(&folder, enabled).await {
                 Ok(files) => Reply::SyncthingFiles { files },

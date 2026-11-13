@@ -20,7 +20,7 @@ test("the browser opens where the path would go", () => {
   assert.equal(browseStart(""), null);
 });
 
-const row = (id: string, m: Partial<MachineDetail>): MachineDetail => ({ machine_id: id, machine_name: id, folder: "/f", status: "in_sync", files: 0, bytes: 0, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, ...m });
+const row = (id: string, m: Partial<MachineDetail>): MachineDetail => ({ machine_id: id, machine_name: id, folder: "/f", status: "in_sync", files: 0, bytes: 0, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_start_over: false, can_resolve: true, ...m });
 const detail = (...machines: MachineDetail[]): SyncDetail => ({ project: "acme/widget", pinned: false, paused: false, machines });
 
 test("the copy counts against what the other machine holds", () => {

@@ -7,7 +7,7 @@ function machine(over: Partial<MachineDetail> = {}): MachineDetail {
   return {
     machine_id: "m1", machine_name: "build-box", folder: "/srv/project", status: "in_sync",
     files: 12480, bytes: 1_200_000_000, pending: 0, conflicts: [], error: null, hint: null,
-    paused: false, progress: null, waiting: [], can_resolve: true, ...over,
+    paused: false, progress: null, waiting: [], can_start_over: false, can_resolve: true, ...over,
   };
 }
 
@@ -94,6 +94,7 @@ test("a machine that does not sync says why, and a missing folder says it comes 
   assert.match(stateNote(machine({ status: "missing" })) || "", /makes it again and fills it/);
   assert.deepEqual(stateChip(machine({ status: "parent_missing" })), { text: "disk missing", wait: true });
   assert.equal(stateNote(machine()), null);
+  assert.equal(stateNote(machine({ status: "failed", error: "not syncing: the folder changed or is not mounted", can_start_over: true })), "This folder was replaced, so sync stopped.");
 });
 
 test("machines Syncthing keeps are not counted as not syncing", () => {

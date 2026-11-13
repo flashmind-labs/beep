@@ -12,7 +12,7 @@ const machines = [
 const syncMachine = (id: string, status: string, error: string | null): MachineDetail => ({
   machine_id: id, machine_name: id, folder: "/srv/project", status, error,
   files: 18, bytes: 1024, pending: 0, conflicts: [], hint: null, paused: false,
-  progress: null, waiting: [], can_resolve: true, git_only: true,
+  progress: null, waiting: [], can_resolve: true, can_start_over: false, git_only: true,
 });
 const detail: SyncDetail = {
   project: projectName, pinned: false, paused: false,

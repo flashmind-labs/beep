@@ -6,7 +6,7 @@ import { byRecent, remotePath, runningKey, runningLine, runningWhen, sameSession
 test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
   const row = (project: string, machine_id: string, status: string) => ({ project, machine_id, status, files: 90, pending: 10, error: null });
   const rows = [row("done", "m", "in_sync"), row("stale", "m", "in_sync"), row("moving", "m", "syncing"), row("elsewhere", "other", "syncing")];
-  const base = { machine_id: "m", machine_name: "M", folder: "", bytes: 0, files: 90, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: false };
+  const base = { machine_id: "m", machine_name: "M", folder: "", bytes: 0, files: 90, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_start_over: false, can_resolve: false };
   const detail = (status: string, more = {}) => ({ project: "", pinned: false, paused: false, machines: [{ ...base, status, ...more }] });
   const details: Record<string, ReturnType<typeof detail>> = {
     stale: detail("syncing"),
