@@ -286,3 +286,15 @@ body:not(.mobile) .cc-pjc.centered .agc-intro p { color: color-mix(in srgb, var(
    kept by src/center/window-shell.tsx), and the bar's words are not selectable. */
 body:not(.mobile) .dhead.ag-head { padding-right: calc(var(--top-w, 104px) + 8px) }
 body:not(.mobile) .cc-top { user-select: none; -webkit-user-select: none }
+
+/* ----- Pane headers: the tab row and a tab's own toolbar are compact, 22px controls ----- */
+body:not(.mobile) :is(.agphead, .agdevhead) { --ctl-h: 22px }
+body:not(.mobile) .agphead { padding: 4px 6px }
+body:not(.mobile) .agtab { gap: 5px; padding-inline: 7px 6px; font-size: 10px; letter-spacing: .06em }
+body:not(.mobile) .agtab > svg { width: 13px; height: 13px }
+body:not(.mobile) .agpbtn { height: var(--ctl-h) }
+body:not(.mobile) .agpbtn:not(.agaddterm, .agwt) { width: var(--ctl-h) }
+body:not(.mobile) .agaddterm { font: 10.5px var(--mono) }
+body:not(.mobile) .agdevhead { padding: 4px 8px; border-bottom: 0 }
+body:not(.mobile) .agdevhead .dbtn { min-height: var(--ctl-h); padding: 0 8px; font-size: 11.5px }
+body:not(.mobile) .agdevpick { height: var(--ctl-h); padding: 0 6px; border-color: transparent; background-color: var(--ctl-fill); font: 11.5px var(--mono) }
