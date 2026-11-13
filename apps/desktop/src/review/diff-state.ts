@@ -68,14 +68,16 @@ export function isFolded(f: DiffFile, kept: ReadonlyMap<string, boolean>) {
 
 export const STATUS_LETTER: Record<DiffStatus, string> = { added: "A", modified: "M", deleted: "D", renamed: "R", binary: "B" };
 
-/// The unchanged lines left out between two hunks; `after` is the last old
-/// line shown before them.
-export interface DiffGap { kind: "gap"; lines: number; after: number }
+/// The unchanged lines left out before a hunk; `after` is the last old line
+/// shown before them.
+export interface DiffGap { lines: number; after: number }
+
+/// A hunk's header, with the gap that separates it from the hunk above.
+export interface HunkRow { kind: "hunk"; text: string; gap: DiffGap | null }
 
 /// One row of a file's body.
 export type DiffRow =
-  | { kind: "hunk"; text: string }
-  | DiffGap
+  | HunkRow
   | { kind: "line"; k: DiffLine["k"]; old: number | null; new: number | null; text: string; eol: boolean };
 
 export function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_start" | "new_lines" | "section">) {
@@ -83,8 +85,8 @@ export function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_st
   return `@@ -${side(h.old_start, h.old_lines)} +${side(h.new_start, h.new_lines)} @@${h.section ? ` ${h.section}` : ""}`;
 }
 
-/// `f`'s rows: each hunk's header, then its lines numbered on both sides,
-/// with how many unchanged lines lie between two hunks.
+/// `f`'s rows: each hunk's header, with the unchanged lines left out before
+/// it, then its lines numbered on both sides.
 export function diffRows(f: Pick<DiffFile, "hunks">): DiffRow[] {
   const out: DiffRow[] = [];
   let lastOld: number | null = null;
@@ -94,8 +96,8 @@ export function diffRows(f: Pick<DiffFile, "hunks">): DiffRow[] {
     // after is the start, not the one past it.
     let old = h.old_lines ? h.old_start : h.old_start + 1;
     let now = h.new_lines ? h.new_start : h.new_start + 1;
-    if (lastOld != null && old - lastOld > 1) out.push({ kind: "gap", lines: old - lastOld - 1, after: lastOld });
-    out.push({ kind: "hunk", text: hunkHeader(h) });
+    const gap = lastOld != null && old - lastOld > 1 ? { lines: old - lastOld - 1, after: lastOld } : null;
+    out.push({ kind: "hunk", text: hunkHeader(h), gap });
 
     for (const l of h.lines) {
       const row: DiffRow = { kind: "line", k: l.k, old: l.k === "+" ? null : old, new: l.k === "-" ? null : now, text: l.t, eol: !!l.e };
@@ -121,8 +123,7 @@ export interface SplitCell {
 /// A row of the side by side view: the removed lines on the left across
 /// from the added lines on the right, `null` where one side has none.
 export type SplitRow =
-  | { kind: "hunk"; text: string }
-  | DiffGap
+  | HunkRow
   | { kind: "pair"; left: SplitCell | null; right: SplitCell | null };
 
 /// `rows` laid out side by side: a run of removed lines is paired, row by
@@ -166,7 +167,7 @@ export function splitHeight(rows: readonly SplitRow[], cols: number) {
   const fit = Math.max(1, cols);
   const lines = (c: SplitCell | null) => (c ? Math.max(1, Math.ceil(c.text.length / fit)) : 1);
   let h = 0;
-  for (const r of rows) h += r.kind === "gap" ? 22 : r.kind === "hunk" ? 19 : 19 * Math.max(lines(r.left), lines(r.right));
+  for (const r of rows) h += r.kind === "hunk" ? 19 : 19 * Math.max(lines(r.left), lines(r.right));
   return h;
 }
 
@@ -470,21 +471,13 @@ export function contextFile(original: DiffFile, full: DiffFile, extents: readonl
 
 /// Heights the file list lays out by before a file is drawn and measured:
 /// its header, and each kind of row in its body.
-const HEAD_HEIGHT = 37, NOTE_HEIGHT = 40, ROW_HEIGHT = 19, GAP_HEIGHT = 22, CONTEXT_HEIGHT = 44;
+const HEAD_HEIGHT = 37, NOTE_HEIGHT = 40, ROW_HEIGHT = 19, CONTEXT_HEIGHT = 44;
 
 /// How tall `f`'s section is likely to be: its header, and its unified rows
 /// while it is open.
 export function estimateHeight(f: DiffFile, folded: boolean) {
   if (folded) return HEAD_HEIGHT;
   if (leftOutNote(f)) return HEAD_HEIGHT + NOTE_HEIGHT;
-  let rows = 0, gaps = 0, lastOld: number | null = null;
-
-  for (const h of f.hunks) {
-    const old = h.old_lines ? h.old_start : h.old_start + 1;
-    if (lastOld != null && old - lastOld > 1) gaps++;
-    rows += 1 + h.lines.length;
-    lastOld = old + h.old_lines - 1;
-  }
-
-  return HEAD_HEIGHT + CONTEXT_HEIGHT + rows * ROW_HEIGHT + gaps * GAP_HEIGHT;
+  const rows = f.hunks.reduce((sum, h) => sum + 1 + h.lines.length, 0);
+  return HEAD_HEIGHT + CONTEXT_HEIGHT + rows * ROW_HEIGHT;
 }

@@ -336,7 +336,6 @@ test("diff context and omitted-file controls request additional lines", async ({
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
   const diff = page.locator(".gh-detail .dv");
-  await expect(diff.locator(".dv-l.gap")).toHaveText("39 unchanged lines");
   await diff.getByRole("button", { name: "Show the previous 10 lines" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "project_git_diff" && call.args.context === 13))).toBe(true);
   await expect(diff.getByRole("button", { name: "Show 10 lines above" })).toBeVisible();

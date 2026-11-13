@@ -350,7 +350,7 @@ function bodyLayout(v: Viewer, file: DiffFile, split: boolean) {
   } else {
     for (let i = 0; i < rows.length; i += CHUNK) {
       const slice = rows.slice(i, i + CHUNK);
-      chunks.push({ rows: slice, height: slice.reduce((h, r) => h + (r.kind === "gap" ? 22 : 19), 0) });
+      chunks.push({ rows: slice, height: slice.length * 19 });
     }
   }
 

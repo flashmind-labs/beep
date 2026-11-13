@@ -1,4 +1,4 @@
-import { grouped, type DiffGap, type Extent } from "./diff-state.ts";
+import { type DiffGap, type Extent } from "./diff-state.ts";
 
 type Direction = keyof Extent;
 interface ContextProps { direction: Direction; expand(): void }
@@ -13,19 +13,15 @@ export function DiffContext({ direction, expand }: ContextProps) {
   </button>;
 }
 
-/// The unchanged lines between two hunks: the next ten after the hunk
-/// above, the last ten before the hunk below, or all of a short gap.
-export function DiffGapRow({ gap, expand }: { gap: DiffGap; expand: (direction: Direction, after: number) => void }) {
+/// The arrows in a hunk header's gutter that show the lines left out before
+/// it: the next ten after the hunk above, the last ten before this one, or
+/// all of a short gap.
+export function DiffGapButtons({ gap, expand }: { gap: DiffGap; expand: (direction: Direction, after: number) => void }) {
   const button = (direction: Direction, label: string, wide: boolean) =>
     <button type="button" className={`dv-gap-btn ${direction}${wide ? " wide" : ""}`} title={label} aria-label={label} onClick={() => expand(direction, gap.after)}>{ARROW}</button>;
-  const lines = `${grouped(gap.lines)} unchanged ${gap.lines === 1 ? "line" : "lines"}`;
 
-  return <div className="dv-l gap">
-    <span className="dv-g">
-      {gap.lines <= 10 ? button("below", `Show ${lines}`, true) : <>{button("below", "Show the next 10 lines", false)}{button("above", "Show the previous 10 lines", false)}</>}
-    </span>
-    <span className="dv-c">{lines}</span>
-  </div>;
+  if (gap.lines <= 10) return button("below", `Show ${gap.lines} ${gap.lines === 1 ? "line" : "lines"}`, true);
+  return <>{button("below", "Show the next 10 lines", false)}{button("above", "Show the previous 10 lines", false)}</>;
 }
 
 export function DiffOmitted({ text, label, load, busy }: { text: string; label: string | null; load: () => void; busy: boolean }) {

@@ -1,7 +1,7 @@
 // A chunk's rows, unified or side by side, with the comments on each line
 // under it. A click on a line's number opens a new comment there.
 import { Fragment, type ReactNode } from "react";
-import { DiffGapRow } from "./diff-body-controls.tsx";
+import { DiffGapButtons } from "./diff-body-controls.tsx";
 import { lineKey, type DiffRow, type Extent, type ReviewComment, type SplitCell, type SplitRow } from "./diff-state.ts";
 
 type Side = ReviewComment["side"];
@@ -23,8 +23,7 @@ export function DiffRows({ rows, comments, readOnly, gutter, expand, comment }: 
   const under = (keys: (string | null)[]) => keys.flatMap(key => key ? (comments.get(key) ?? []).map(comment) : []);
 
   return <>{rows.map((row, index) => {
-    if (row.kind === "hunk") return <div key={index} className="dv-l hunk"><span className="dv-g"><span/><span/></span><span className="dv-c">{row.text}</span></div>;
-    if (row.kind === "gap") return <DiffGapRow key={index} gap={row} expand={expand}/>;
+    if (row.kind === "hunk") return <div key={index} className="dv-l hunk"><span className="dv-g">{row.gap ? <DiffGapButtons gap={row.gap} expand={expand}/> : <><span/><span/></>}</span><span className="dv-c">{row.text}</span></div>;
 
     if (row.kind === "pair") {
       const { left, right } = row;

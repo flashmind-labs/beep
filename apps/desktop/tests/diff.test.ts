@@ -46,10 +46,10 @@ test("rows number both sides and count the lines between hunks", () => {
       { old_start: 20, old_lines: 1, new_start: 20, new_lines: 2, section: "fn x() {", lines: [{ k: " ", t: "y" }, { k: "+", t: "z", e: true }] },
     ],
   });
-  const text = rows.map(r => r.kind === "line" ? `${r.old ?? "."} ${r.new ?? "."} ${r.k}${r.text}${r.eol ? "$" : ""}` : r.kind === "gap" ? `gap ${r.lines}` : r.text);
+  const text = rows.map(r => r.kind === "line" ? `${r.old ?? "."} ${r.new ?? "."} ${r.k}${r.text}${r.eol ? "$" : ""}` : r.gap ? `gap ${r.gap.lines} ${r.text}` : r.text);
   assert.deepEqual(text, [
     "@@ -1,3 +1,3 @@", "1 1  a", "2 . -b", ". 2 +B", "3 3  c",
-    "gap 16", "@@ -20 +20,2 @@ fn x() {", "20 20  y", ". 21 +z$",
+    "gap 16 @@ -20 +20,2 @@ fn x() {", "20 20  y", ". 21 +z$",
   ]);
 });
 
@@ -95,8 +95,8 @@ test("side by side shows context on both sides and starts a new run after it", (
 
 test("splitHeight counts wrapped lines", () => {
   const cell = (n: number) => ({ k: " " as const, num: 1, text: "x".repeat(n), eol: false });
-  const rows = [{ kind: "hunk" as const, text: "@@" }, { kind: "gap" as const, lines: 3, after: 1 }, { kind: "pair" as const, left: cell(10), right: cell(25) }];
-  assert.equal(splitHeight(rows, 10), 19 + 22 + 19 * 3);
+  const rows = [{ kind: "hunk" as const, text: "@@", gap: null }, { kind: "pair" as const, left: cell(10), right: cell(25) }];
+  assert.equal(splitHeight(rows, 10), 19 + 19 * 3);
 });
 
 test("the header counts files and keeps the base in its tooltip", () => {
@@ -136,8 +136,8 @@ test("a gap between two hunks expands from either side alone", async () => {
   const hunk = (start: number, count: number) => ({ old_start: start, new_start: start, old_lines: count, new_lines: count, section: "", lines: lines.slice(start - 1, start - 1 + count) });
   const full = file("sample.ts", { hunks: [hunk(1, 100)] });
   const original = file("sample.ts", { hunks: [hunk(10, 7), hunk(60, 7)] });
-  const gap = diffRows(original).find(row => row.kind === "gap");
-  assert.deepEqual(gap, { kind: "gap", lines: 43, after: 16 });
+  const gaps = (f: typeof original) => diffRows(f).flatMap(row => row.kind === "hunk" ? [row.gap] : []);
+  assert.deepEqual(gaps(original), [null, { lines: 43, after: 16 }]);
 
   assert.equal(hunkToExpand(original, "below", 16), 0);
   assert.equal(hunkToExpand(original, "above", 16), 1);
@@ -146,7 +146,7 @@ test("a gap between two hunks expands from either side alone", async () => {
 
   const down = contextFile(original, full, [{ above: 0, below: 10 }, { above: 0, below: 0 }]);
   assert.deepEqual(down.hunks.map(h => [h.new_start, h.new_lines]), [[10, 17], [60, 7]]);
-  assert.deepEqual(diffRows(down).find(row => row.kind === "gap"), { kind: "gap", lines: 33, after: 26 });
+  assert.deepEqual(gaps(down), [null, { lines: 33, after: 26 }]);
   const joined = contextFile(original, full, [{ above: 0, below: 30 }, { above: 20, below: 0 }]);
   assert.deepEqual(joined.hunks.map(h => [h.new_start, h.new_lines]), [[10, 57]]);
 });
