@@ -12,8 +12,7 @@ use crate::agents::{
     made_files,
 };
 use agent_client_protocol::{
-    Agent,
-    v1::ConnectionTo,
+    Agent, ConnectionTo,
     v1::schema::{CancelNotification, PromptResponse, SessionId, SessionUpdate, ToolCallStatus},
 };
 use anyhow::Result;
@@ -313,10 +312,12 @@ impl Actor {
         self.live.send_if_modified(|live| {
             let before = live.info.state.subagents;
 
-            if stop == StopReason::Cancelled {
-                live.close_interrupted_subagents();
-            } else {
-                live.end_background_subagents();
+            if self.protocol == acp::Protocol::V1 {
+                if stop == StopReason::Cancelled {
+                    live.close_interrupted_subagents();
+                } else {
+                    live.end_background_subagents();
+                }
             }
 
             live.info.state.subagents != before
@@ -420,7 +421,7 @@ impl Actor {
     /// Sends `/compact` ahead of the waiting prompts.
     fn compact(&mut self, cx: &ConnectionTo<Agent>, session: &SessionId) {
         let prompt = Prompt::from(COMPACT_PROMPT.to_owned());
-        self.send(cx, acp::prompt(session, &prompt, None), Reply::Compacted);
+        self.send_prompt(cx, acp::prompt(session, &prompt, None), true);
         self.live.send_modify(|live| {
             // What it said before no longer holds once compacted.
             live.info.context = None;
@@ -483,6 +484,10 @@ impl Actor {
 
     /// Sends the next waiting prompt, if any.
     pub(super) fn next_prompt(&mut self, cx: &ConnectionTo<Agent>) {
+        if !self.ready_for_prompts {
+            return;
+        }
+
         let Some(session) = self.acp_session.clone() else {
             return;
         };
@@ -519,13 +524,9 @@ impl Actor {
         }
 
         let brief = self.brief.take();
-        self.send(
-            cx,
-            acp::prompt(&session, &prompt, brief.as_deref()),
-            Reply::Prompt,
-        );
         self.sent += 1;
         self.turn = Some(self.sent);
+        self.send_prompt(cx, acp::prompt(&session, &prompt, brief.as_deref()), false);
         // The new turn tells its own end.
         self.held_end = None;
         let queued = self.waiting();
@@ -536,6 +537,9 @@ impl Actor {
             }
 
             live.prompted(&prompt.shown());
+            if self.protocol == acp::Protocol::V2 {
+                live.v2_submitted();
+            }
             live.info.state.queued = queued;
             live.info.state.queued_messages = messages;
         });
@@ -547,8 +551,18 @@ impl Actor {
 /// model, else the response's own `usage`, which any agent may send.
 /// Nothing from an agent that says neither.
 pub(super) fn turn_tokens(done: &PromptResponse) -> TurnTokens {
+    reported_tokens(
+        done.meta.as_ref(),
+        done.usage.as_ref().map(|usage| usage.total_tokens),
+    )
+}
+
+pub(super) fn reported_tokens(
+    meta: Option<&serde_json::Map<String, Value>>,
+    usage: Option<u64>,
+) -> TurnTokens {
     let total = |count: &Value| count.get("totalTokens").and_then(Value::as_u64);
-    let quota = done.meta.as_ref().and_then(|meta| meta.get("quota"));
+    let quota = meta.and_then(|meta| meta.get("quota"));
     let models = quota
         .and_then(|quota| quota.get("model_usage"))
         .and_then(Value::as_array)
@@ -566,7 +580,7 @@ pub(super) fn turn_tokens(done: &PromptResponse) -> TurnTokens {
     let total = quota
         .and_then(|quota| quota.get("token_count"))
         .and_then(total)
-        .or_else(|| done.usage.as_ref().map(|usage| usage.total_tokens))
+        .or(usage)
         .unwrap_or(0);
     TurnTokens { total, models }
 }

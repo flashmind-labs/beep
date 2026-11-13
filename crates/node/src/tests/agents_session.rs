@@ -2525,3 +2525,7 @@ async fn stop_all_without_subagents_stops_the_turn_and_background_commands() {
     assert_eq!(session.info().state.status, Status::Idle);
     session.close().await;
 }
+
+#[cfg(unix)]
+#[path = "agents_session_v2.rs"]
+mod v2;

@@ -55,3 +55,30 @@ fn a_choice_with_nothing_to_reject_is_left_to_the_user() {
     assert_eq!(allowed(&choice), None);
     assert_eq!(allowed(&[]), None);
 }
+
+#[test]
+fn v2_permissions_keep_description_and_unknown_choice_kinds() {
+    let permission = permission_v2(&serde_json::json!({
+        "sessionId":"s", "title":"Choose", "description":"Pick an action",
+        "options":[{"optionId":"custom", "name":"Custom", "kind":"_future_kind"}]
+    }))
+    .unwrap();
+    assert_eq!(permission.question.text, "Choose");
+    assert_eq!(
+        permission.question.detail.as_deref(),
+        Some("Pick an action")
+    );
+    assert_eq!(permission.question.options[0].kind, OptionKind::Other);
+    assert!(allow_option(&permission.question.options).is_none());
+}
+
+#[test]
+fn v2_permissions_recognize_plan_approval_subjects() {
+    let permission = permission_v2(&serde_json::json!({
+        "sessionId":"s", "title":"Approve plan",
+        "subject":{"type":"tool_call", "toolCall":{"toolCallId":"plan-one", "rawInput":{"plan":"Read and test"}}},
+        "options":[{"optionId":"exit-plan-allow", "name":"Allow", "kind":"allow_once"},
+                   {"optionId":"reject", "name":"Reject", "kind":"reject_once"}]
+    })).unwrap();
+    assert_eq!(permission.plan.as_deref(), Some("Read and test"));
+}

@@ -252,17 +252,25 @@ impl Live {
             Some(parent) => {
                 if let Some(owner) = self.tools.get_mut(&parent) {
                     tool.entry = owner.entry;
-                    owner.steps.push(call.tool_call_id.clone());
+                    if !owner.steps.contains(&call.tool_call_id) {
+                        owner.steps.push(call.tool_call_id.clone());
+                    }
                 }
                 self.tools.insert(call.tool_call_id.clone(), tool);
                 self.write_tool(&parent);
             }
             None => {
-                tool.entry = self.push_entry(EntryKind::Tool, tool.entry_with(&[], None));
+                if let Some(previous) = self.tools.get(&call.tool_call_id) {
+                    tool.entry = previous.entry;
+                    tool.steps.clone_from(&previous.steps);
+                } else {
+                    tool.entry = self.push_entry(EntryKind::Tool, tool.entry_with(&[], None));
+                }
                 if let Some(entry) = self.entry_mut(tool.entry) {
                     entry.tool = Some(tool.details.clone());
                 }
                 self.tools.insert(call.tool_call_id.clone(), tool);
+                self.write_tool(&call.tool_call_id);
             }
         }
 
