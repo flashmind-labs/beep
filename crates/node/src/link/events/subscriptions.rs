@@ -59,7 +59,7 @@ pub(crate) async fn serve(
                     } else { Snapshots::validate(&wanted_queries) };
                     let source_topics = sources(&wanted, &wanted_queries);
                     let result = match valid {
-                        Ok(()) => sources::subscribe(&offers, &source_topics).await,
+                        Ok(()) => with_heartbeat(&mut tx, &mut heartbeat, sources::subscribe(&offers, &source_topics)).await?,
                         Err(error) => Err(error),
                     };
 
@@ -126,7 +126,7 @@ pub(crate) async fn serve(
                 let reconcile = lagged || broad_files(&sources(&topics, &queries))
                     && changed.keys().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
                 if reconcile {
-                    sources::reconcile(&offers, &subscriptions).await?;
+                    with_heartbeat(&mut tx, &mut heartbeat, sources::reconcile(&offers, &subscriptions)).await??;
                     roots = sources::roots(&subscriptions);
                 }
                 // Publication can add a previously unknown exact plugin topic.
@@ -138,6 +138,8 @@ pub(crate) async fn serve(
                     snapshots.reset();
                 }
 
+                with_heartbeat(&mut tx, &mut heartbeat, sources::retry_git(&offers, &subscriptions, changed.keys())).await??;
+
                 for (topic, kind) in changed {
                     snapshots.changed(&topic, kind);
                 }
@@ -145,7 +147,7 @@ pub(crate) async fn serve(
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
                 if changed.is_err() { return Ok(()); }
                 project_changes = watched::read_and_update(&mut membership, |mesh| mesh.as_ref().map(beep_mesh::Mesh::changes));
-                sources::reconcile(&offers, &subscriptions).await?;
+                with_heartbeat(&mut tx, &mut heartbeat, sources::reconcile(&offers, &subscriptions)).await??;
                 roots = sources::roots(&subscriptions);
                 snapshots.replace(&offers, &topics, &queries, &roots);
             },
@@ -157,12 +159,29 @@ pub(crate) async fn serve(
                 };
 
                 if reconcile {
-                    sources::reconcile(&offers, &subscriptions).await?;
+                    with_heartbeat(&mut tx, &mut heartbeat, sources::reconcile(&offers, &subscriptions)).await??;
                     roots = sources::roots(&subscriptions);
                     snapshots.replace(&offers, &topics, &queries, &roots);
                 }
             },
             _ = heartbeat.tick() => send(&mut tx, Reply::Pong { id: 0 }).await?,
+        }
+    }
+}
+
+/// Runs `work` while keeping the heartbeat going: git and mesh lookups can
+/// outlast the peer's idle deadline.
+pub(super) async fn with_heartbeat<T>(
+    tx: &mut LinkTx,
+    heartbeat: &mut tokio::time::Interval,
+    work: impl Future<Output = T>,
+) -> Result<T> {
+    let mut work = std::pin::pin!(work);
+
+    loop {
+        tokio::select! {
+            output = &mut work => return Ok(output),
+            _ = heartbeat.tick() => send(tx, Reply::Pong { id: 0 }).await?,
         }
     }
 }

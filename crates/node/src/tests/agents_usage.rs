@@ -39,3 +39,33 @@ fn a_rate_limit_event_updates_its_windows_only() {
     assert_eq!(plan.windows[1].used_percent, 2.0);
     assert_eq!(plan.windows[1].resets_at, Some(300));
 }
+
+#[test]
+fn only_changed_credits_move_the_plans() {
+    use beep_proto::{CreditScope, CreditUnit};
+
+    let hub = UsageHub::default();
+    let credits = |remaining: &str| ProviderCredits {
+        provider: "provider".into(),
+        scope: CreditScope::Account,
+        unit: CreditUnit::Usd,
+        remaining: Some(remaining.into()),
+        total: None,
+        used: None,
+        resets: None,
+    };
+    let mut plans = hub.plans();
+
+    hub.update_credits(&AgentSlug::CLAUDE, credits("5.00"), 10);
+    assert!(plans.has_changed().unwrap());
+    plans.mark_unchanged();
+
+    // The same balance seen later changes nothing, not even the timestamp.
+    hub.update_credits(&AgentSlug::CLAUDE, credits("5.00"), 20);
+    assert!(!plans.has_changed().unwrap());
+    assert_eq!(watched::read(&plans, |plans| plans["claude"].at), 10);
+
+    hub.update_credits(&AgentSlug::CLAUDE, credits("4.00"), 30);
+    assert!(plans.has_changed().unwrap());
+    assert_eq!(watched::read(&plans, |plans| plans["claude"].at), 30);
+}

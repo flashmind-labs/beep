@@ -503,6 +503,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
 
             if !stays {
                 task.abort();
+                self.tasks.remove(&task.id());
             }
 
             stays
@@ -677,3 +678,7 @@ fn remote_refs_changed(folder: &Path) -> Option<SystemTime> {
 
     newest
 }
+
+#[cfg(test)]
+#[path = "../../tests/machine_ci_watcher.rs"]
+mod tests;

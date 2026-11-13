@@ -370,3 +370,44 @@ async fn a_refused_clone_says_why() {
         "{refused:?}"
     );
 }
+
+#[tokio::test]
+async fn only_git_http_errors_count_as_a_refused_clone() {
+    let denied = FakeShell::prints(
+        "fatal: unable to access 'https://github.com/acme/widget/': The requested URL returned error: 403",
+        128,
+    );
+    let refused = run_clone(&denied, "build-box", &widget(), None, "/srv/w", None).await;
+    assert!(
+        matches!(refused, Err(ImportError::NotFound { .. })),
+        "{refused:?}"
+    );
+
+    for output in [
+        "fatal: repository 'https://gitlab.example/acme/widget/' not found",
+        "remote: Repository not found.\nfatal: Authentication failed",
+        "remote: Repository not found.",
+        "ERROR: Repository not found.",
+    ] {
+        let gone = FakeShell::prints(output, 128);
+        let refused = run_clone(&gone, "build-box", &widget(), None, "/srv/w", None).await;
+        assert!(
+            matches!(refused, Err(ImportError::NotFound { .. })),
+            "{output}: {refused:?}"
+        );
+    }
+
+    let missing = FakeShell::prints("sh: 1: git: not found", 127);
+    let failed = run_clone(&missing, "build-box", &widget(), None, "/srv/w", None).await;
+    assert!(
+        matches!(failed, Err(ImportError::Failed { .. })),
+        "{failed:?}"
+    );
+
+    let digits = FakeShell::prints("fatal: write error at object 4031 of 5012", 128);
+    let failed = run_clone(&digits, "build-box", &widget(), None, "/srv/w", None).await;
+    assert!(
+        matches!(failed, Err(ImportError::Failed { .. })),
+        "{failed:?}"
+    );
+}

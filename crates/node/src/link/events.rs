@@ -207,12 +207,7 @@ pub(crate) async fn serve(
                     snapshots.reset();
                 }
 
-                // A root bound without Git metadata may have become a repository.
-                for subscription in subscriptions.values() {
-                    if subscription.source.retry_git(changed.keys()) {
-                        subscription.source.reconcile(&offers).await?;
-                    }
-                }
+                sources::retry_git(&offers, &subscriptions, changed.keys()).await?;
 
                 for (topic, kind) in changed {
                     snapshots.changed(&topic, kind);

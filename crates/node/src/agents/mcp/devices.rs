@@ -23,7 +23,6 @@ use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    collections::HashMap,
     fmt::Write,
     sync::Mutex,
     time::Duration,
@@ -190,7 +189,7 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
         }
         Action::Shutdown(at) => {
             let (machine, device) = find(offers, mesh, &at).await?;
-            screens.close(machine.id, &at.device);
+            screens.close(machine.id, &device.id.0, &at.device);
             let shutdown = Request::Shutdown {
                 id: device.id.clone(),
             };
@@ -504,11 +503,20 @@ async fn open(offers: &Offers, mesh: &Mesh, machine: &Machine) -> Result<Link> {
 
 // ----- Attached devices -----
 
-/// The devices the agents look at and drive, each by its machine and the
-/// name or id it was called by, attached until they idle.
+/// The devices the agents look at and drive, attached until they idle,
+/// the least recently used first.
 #[derive(Default)]
 pub(crate) struct Screens {
-    open: Mutex<HashMap<(EndpointId, String), Viewer>>,
+    open: Mutex<Vec<Attached>>,
+}
+
+/// An attached device: its machine, the id of the device and the name or id
+/// it was called by.
+struct Attached {
+    machine: EndpointId,
+    id: String,
+    called: String,
+    viewer: Viewer,
 }
 
 /// One attached device: where its calls go, and the task that holds its
@@ -530,13 +538,18 @@ impl Screens {
     /// The attached device `at` names, attached now when it is not.
     async fn viewer(&self, offers: &Offers, mesh: &Mesh, at: &Target) -> Result<Viewer> {
         let machine = machine(mesh, &at.machine)?;
-        let key = (machine.id, at.device.trim().to_owned());
+        let called = at.device.trim();
 
-        if let Some(viewer) = crate::lock(&self.open).get(&key).filter(|v| !v.asks.is_closed()) {
-            return Ok(viewer.clone());
+        if let Some(viewer) = self.touch(machine.id, called) {
+            return Ok(viewer);
         }
 
         let (machine, device) = find(offers, mesh, at).await?;
+
+        // Attached by id earlier and called by name now: reuse that viewer.
+        if let Some(viewer) = self.touch(machine.id, &device.id.0) {
+            return Ok(viewer);
+        }
 
         if device.state == DeviceState::Off {
             bail!("{} on {} is off: boot it.", device.name, machine.name);
@@ -545,29 +558,55 @@ impl Screens {
         let mut link = open(offers, mesh, &machine).await?;
         link.tx
             .send(&Request::Attach {
-                id: device.id,
+                id: device.id.clone(),
                 max_side: SHOT_SIDE,
             })
             .await?;
         let viewer = Viewer::start(link, IDLE);
-        let mut open = crate::lock(&self.open);
-        open.retain(|_, v| !v.asks.is_closed());
-
-        if open.len() >= MAX_ATTACHED
-            && let Some(oldest) = open.keys().next().cloned()
-        {
-            open.remove(&oldest);
-        }
-
-        open.insert(key, viewer.clone());
+        self.attach(Attached {
+            machine: machine.id,
+            id: device.id.0,
+            called: called.to_owned(),
+            viewer: viewer.clone(),
+        });
         Ok(viewer)
     }
 
-    /// Detaches from the device `named` on `machine`.
-    fn close(&self, machine: EndpointId, named: &str) {
-        crate::lock(&self.open).remove(&(machine, named.trim().to_owned()));
+    /// The live viewer of the device called `called`, now the most recently
+    /// used.
+    fn touch(&self, machine: EndpointId, called: &str) -> Option<Viewer> {
+        let mut open = crate::lock(&self.open);
+        open.retain(|a| !a.viewer.asks.is_closed());
+        let at = open
+            .iter()
+            .position(|a| a.machine == machine && (a.called == called || a.id == called))?;
+        let attached = open.remove(at);
+        let viewer = attached.viewer.clone();
+        open.push(attached);
+        Some(viewer)
     }
 
+    /// Keeps `attached` as the most recently used, detaching the least
+    /// recently used ones beyond `MAX_ATTACHED`.
+    fn attach(&self, attached: Attached) {
+        let mut open = crate::lock(&self.open);
+        open.retain(|a| {
+            !a.viewer.asks.is_closed() && (a.machine != attached.machine || a.id != attached.id)
+        });
+        open.push(attached);
+
+        while open.len() > MAX_ATTACHED {
+            open.remove(0);
+        }
+    }
+
+    /// Detaches from the device with `id` on `machine`, and from any device
+    /// called `called`.
+    fn close(&self, machine: EndpointId, id: &str, called: &str) {
+        let called = called.trim();
+        crate::lock(&self.open)
+            .retain(|a| a.machine != machine || (a.id != id && a.called != called));
+    }
 }
 
 impl Viewer {

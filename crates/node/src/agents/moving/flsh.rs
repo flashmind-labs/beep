@@ -67,5 +67,5 @@ pub(super) async fn check(kind: &AgentKind, machine: &str) -> Result<()> {
 
 /// Why a session of a flsh too old on `machine` cannot move.
 pub(super) fn outdated(machine: &str) -> String {
-    format!("Update flsh on {machine} to 0.2.10 to move this session")
+    format!("Update flsh on {machine} to {FIRST_JSONL} to move this session")
 }

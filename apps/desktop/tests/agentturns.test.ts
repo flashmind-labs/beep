@@ -225,3 +225,18 @@ test("progress summary combines known thought time and tool results", () => {
   const tools = [t("cargo test [completed]")];
   assert.equal(progressSummary(tools, splitTurns(tools, 20)[0], 20), "Ran 1 command");
 });
+
+test("a failed command shows the same exit code however the output spells it", () => {
+  assert.equal(rowParts("cargo test [failed]\nexit code: 101").detail, "exit 101");
+  assert.equal(rowParts("cargo test [failed]\nexit 101").detail, "exit 101");
+});
+
+test("a failed command's exit code is read from every spelling, first one first", () => {
+  const detail = (out: string) => rowParts(`cargo test [failed]\n${out}`).detail;
+  assert.equal(detail("exited with code 2"), "exit 2");
+  assert.equal(detail("Process exited with status 3"), "exit 3");
+  assert.equal(detail("status 1"), "exit 1");
+  assert.equal(detail("exit code: 101"), "exit 101");
+  assert.equal(detail("exit code 1\nrun exit 0 to quit"), "exit 1");
+  assert.equal(detail("no code here"), "failed");
+});

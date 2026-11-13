@@ -7,19 +7,19 @@ import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, ope
 import { questionKey, steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 
-/// The server did not know the request, so it is not asked again.
-let oldServer = false;
+/// Machines too old to know the request, so they are not asked again.
+const oldMachines = new Set<string>();
 /// A switch on its way; a press meanwhile is dropped.
 let switching = false;
 
 /// The modes of the open session; null when it has none to switch between.
 export async function readModes(o: OpenAgent) {
   const s = AG.page?.session;
-  if (oldServer || !s || s.external || s.status === "ended") return null;
+  if (oldMachines.has(o.machine_id) || !s || s.external || s.status === "ended") return null;
 
   try {
     const modes = await invoke<AgentModes | null>("agent_modes", where(o), AGENT_READ_WAIT_MS);
-    if (!modes) oldServer = true;
+    if (!modes) oldMachines.add(o.machine_id);
     return modes;
   } catch (e) {
     console.warn("agent modes not read", e);

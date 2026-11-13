@@ -383,6 +383,10 @@ pub(crate) async fn memory_mb() -> Option<u64> {
 }
 
 async fn read_memory_mb() -> Option<u64> {
+    #[cfg(windows)]
+    return super::stats::memory().await.ok().map(|memory| memory.total_mb);
+
+    #[cfg(not(windows))]
     match env::consts::OS {
         "macos" => {
             let bytes: u64 = output("sysctl", &["-n", "hw.memsize"])
@@ -396,6 +400,7 @@ async fn read_memory_mb() -> Option<u64> {
     }
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 /// `MemTotal` from `/proc/meminfo`, which gives it in kB.
 fn mem_total_mb(meminfo: &str) -> Option<u64> {
     let line = meminfo.lines().find(|line| line.starts_with("MemTotal:"))?;

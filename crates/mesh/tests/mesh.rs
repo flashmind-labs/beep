@@ -1481,3 +1481,17 @@ async fn a_quiet_link_stays_up_with_older_and_newer_peers() {
         stays_up(older_transport(), transport_config()),
     );
 }
+
+#[tokio::test]
+async fn two_set_if_new_at_once_write_only_the_first() {
+    let dev = create("desktop").await;
+    let key = project("acme/once");
+    let (a, b) = tokio::join!(
+        dev.mesh.set_if_new(key.clone(), b"first".to_vec()),
+        dev.mesh.set_if_new(key.clone(), b"second".to_vec()),
+    );
+    let wrote = [a.expect("first call"), b.expect("second call")];
+
+    assert_eq!(wrote.iter().filter(|w| **w).count(), 1);
+    assert_eq!(dev.mesh.get(&key), Some(b"first".to_vec()));
+}

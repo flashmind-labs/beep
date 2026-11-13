@@ -188,16 +188,20 @@ export function makeFileSync(deps: FileSyncDeps) {
     s.busy = what;
     s.error = "";
     redraw();
+    let failure = "";
 
     try {
       await run();
     } catch (e) {
-      s.error = reason(e);
+      failure = reason(e);
     } finally {
       s.busy = null;
     }
 
     await load(name);
+
+    // The reload clears the error, so the refusal is set after it.
+    if (failure) s.error = failure;
     redraw();
   }
 
