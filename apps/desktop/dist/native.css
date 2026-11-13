@@ -120,13 +120,6 @@ body:not(.mobile) #agfield#agfield.dinput.small { width: calc(100% - 28px); max-
 body:not(.mobile) .dcoderen:is(.agent, .other) { font-size: 13.5px; line-height: 21px; color: var(--fg) }
 body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
-/* ----- Backdrop: a halftone of the accent fades in from the window's top corner, behind everything ----- */
-body:not(.mobile) .cwin { isolation: isolate }
-body:not(.mobile) .cwin::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background-image: radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) 1px, transparent 1.6px), radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) .6px, transparent 1.1px);
-  background-size: 8px 8px, 8px 8px; background-position: 0 0, 4px 4px; opacity: .45;
-  -webkit-mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%); mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%) }
-
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
    are two cards set into it with the divider in the gap between them ----- */
 body:not(.mobile) .cc-main:has(.ag-head) { border-color: transparent; background: transparent; overflow: visible }
@@ -201,6 +194,55 @@ body:not(.mobile) .cc-foot > button { padding: 0 5px }
 /* ----- On the macOS material the window is dark tinted glass: the desktop shows through only
    faintly, so the sidebar keeps the skin's own colour and its words stay readable. ----- */
 html[data-material="vibrant"] body:not(.mobile) .cwin { background: color-mix(in srgb, var(--deep) 78%, transparent) }
-html[data-material="vibrant"] body:not(.mobile) .cwin::before { opacity: .3 }
 html[data-material="vibrant"] body:not(.mobile) .cc-grp h3 { color: var(--muted) }
 html[data-material="vibrant"] body:not(.mobile) .cc-si { color: var(--fg) }
+
+/* ===== The look (#690): a dark, nearly one-colour window in the Linear manner. The chrome (labels,
+   tabs, buttons, statuses, numbers) is set in the mono face and the reading text in the sans;
+   corners are nearly square; glass is kept for layers that float; one soft glow of the accent
+   marks what matters now. ===== */
+body:not(.mobile) { --radius: 4px; --radius-sm: 3px; --label-size: 10.5px; --label-track: .08em; --label-case: uppercase;
+  --lit: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 16%, transparent) 30%, color-mix(in srgb, var(--accent) 60%, var(--fg)) 50%, color-mix(in srgb, var(--fg) 16%, transparent) 70%, transparent) top / 100% 1px no-repeat }
+
+/* A glow behind the title row, the one light in the window. */
+body:not(.mobile) .cwin { isolation: isolate }
+body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; left: 32%; top: -300px; width: 760px; height: 440px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent), transparent); filter: blur(30px) }
+
+/* Mono chrome. */
+body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th, .dcoder .sec, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
+body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) .agtab span { font: inherit }
+body:not(.mobile) :is(.cc-si .n, .pv-row .m, .pv-row .ago, .dcoderturn .hd, .dcoderturn .when, .aglocation, .cc-top small, .cc-pal .it .t small, .cc-pal .foot, .dhints, .agkeys, .cc-foot, .bd-card small, .mac-state) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) kbd { font-family: var(--mono) }
+body:not(.mobile) .cc-brand b { font-family: var(--mono); font-weight: 600; font-size: 16px; letter-spacing: -.02em }
+
+/* A status is a dot and a word; the running one glows. */
+body:not(.mobile) .dstate { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) .ag-head .dstate { font-size: 10.5px }
+body:not(.mobile) .ag-head .dstate.run::before { box-shadow: 0 0 10px 1px currentColor }
+
+/* The open row in the sidebar carries the accent on its edge. */
+body:not(.mobile) :is(.cc-si[aria-current="true"], .cc-org[aria-current="true"], .cc-chat:has(.open[aria-current="true"])) { box-shadow: inset 2px 0 0 var(--accent) }
+
+/* Cards have a lit top edge. */
+body:not(.mobile) .cc-box:not(:has(.ag-head)):not(:has(.tl-view)), body:not(.mobile) .agshell > :is(.agmain, .agpane), body:not(.mobile) .tl-view > .tl > * { background: var(--lit), var(--ink) }
+
+/* Your message carries the accent on its edge. */
+body:not(.mobile) .dcoderen.user { border-right: 2px solid var(--accent); background: color-mix(in srgb, var(--fg) 6%, transparent) }
+
+/* Glass: only layers that float. */
+body:not(.mobile) :is(.cc-pal, .agctx, .agc-pick, .agc-menu, .us-pop, .nt-pop) { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+body:not(.mobile) #agfield#agfield.dinput.small, body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+/* While you type, the field glows. */
+body:not(.mobile) #agfield#agfield.dinput.small:focus-within, body:not(.mobile) .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 40px -6px color-mix(in srgb, var(--accent) 50%, transparent) }
+/* The main action glows too. */
+body:not(.mobile) .dbtn.pri:not(:disabled) { box-shadow: 0 0 20px -5px var(--accent) }
+
+/* A question's answers are rows joined by hairlines. */
+body:not(.mobile) .dcard.dcoder:has(> .q) { border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 4%, var(--ink)) }
+body:not(.mobile) .dcoder .q .dups { gap: 1px; margin: 4px -12px -12px; border-top: 1px solid var(--border); background: var(--border) }
+body:not(.mobile) .dcoder .q .dups .dbtn { min-height: 32px; padding: 0 12px; border-radius: 0; background: var(--ink); font-size: 12px }
+body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: var(--elev) }
+body:not(.mobile) .dcoder .q .dups .dbtn.pri { box-shadow: none }
