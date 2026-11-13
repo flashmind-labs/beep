@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { reason } from "./format.ts";
 import type { ConfirmOptions, RenameOptions } from "./menu.ts";
+import { Checkbox } from "./kit.tsx";
 
 /// The box of a right-click menu at `at`, kept inside the window. A click
 /// outside it, leaving the window or a scroll closes it; Esc also gives focus back.
@@ -68,7 +69,7 @@ export function ConfirmView({ options, close, pending }: { options: ConfirmOptio
   };
   if (result !== null) return <><Heading title={options.title} /><div className="am-msg">{result}</div><div className="gp-foot"><button type="button" className="dbtn" onClick={close}>Close</button></div></>;
   const note = ticked && options.tick ? options.tick.note : options.note;
-  return <><Heading title={options.title} /><div className="am-msg">{options.text}</div>{options.tick && <label className="am-sub am-tick"><input type="checkbox" checked={ticked} onChange={event => { currentTick.current = event.currentTarget.checked; setTicked(currentTick.current); }} />{options.tick.label}</label>}<div className="am-sub" hidden={!note}>{note}</div><div className="am-msg bad" hidden={error === null}>{error}</div><div className="gp-foot"><button type="button" className="dbtn quiet" onClick={close}>Cancel</button><button ref={action} type="button" className="dbtn warn" disabled={busy} onClick={() => { void run(); }}>{options.action}</button></div></>;
+  return <><Heading title={options.title} /><div className="am-msg">{options.text}</div>{options.tick && <label className="am-sub am-tick"><Checkbox checked={ticked} change={checked => { currentTick.current = checked; setTicked(checked); }} />{options.tick.label}</label>}<div className="am-sub" hidden={!note}>{note}</div><div className="am-msg bad" hidden={error === null}>{error}</div><div className="gp-foot"><button type="button" className="dbtn quiet" onClick={close}>Cancel</button><button ref={action} type="button" className="dbtn warn" disabled={busy} onClick={() => { void run(); }}>{options.action}</button></div></>;
 }
 
 export function RenameView({ options, close, pending }: { options: RenameOptions; close(): void; pending(value: boolean): void }) {

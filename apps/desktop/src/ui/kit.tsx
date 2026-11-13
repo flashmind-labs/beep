@@ -1,7 +1,7 @@
 // Shared command-center building blocks. Each one draws the exact markup the
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type SyntheticEvent } from "react";
 import { copy } from "./parts.ts";
 
 /// A section: its head (title, count, then `action`) over a panel of `children`.
@@ -40,6 +40,28 @@ export function Chip({ kind, text, spin = false, title }: { kind: string; text: 
 /// A chip that toggles a choice on and off.
 export function ChipToggle({ label, selected, onToggle }: { label: string; selected: boolean; onToggle(): void }) {
   return <button type="button" className="dbtn dchip" aria-pressed={selected} onClick={onToggle}>{label}</button>;
+}
+
+/// Keeps a click or key on a control from reaching the row around it.
+const contain = (event: SyntheticEvent) => event.stopPropagation();
+
+/// The app's checkbox (`dcheck`). `mixed` draws the half-checked state for a
+/// choice only partly made. `contained` keeps clicks from the row it sits in.
+export function Checkbox({ checked, change, mixed = false, disabled = false, label, tabIndex, contained = false }: {
+  checked: boolean; change(checked: boolean): void; mixed?: boolean; disabled?: boolean; label?: string; tabIndex?: number; contained?: boolean;
+}) {
+  const box = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => { if (box.current) box.current.indeterminate = mixed; }, [mixed]);
+  return <input ref={box} type="checkbox" className="dcheck" checked={checked} disabled={disabled} aria-label={label} tabIndex={tabIndex}
+    onClick={contained ? contain : undefined} onKeyDown={contained ? contain : undefined} onChange={event => change(event.currentTarget.checked)} />;
+}
+
+/// The app's on/off switch (`dswitch`). `contained` keeps clicks and keys from the row it sits in.
+export function Switch({ on, flip, label, disabled = false, id, contained = false }: {
+  on: boolean; flip(): void; label: string; disabled?: boolean; id?: string; contained?: boolean;
+}) {
+  return <button type="button" className="dswitch" role="switch" id={id} aria-checked={on} aria-label={label} disabled={disabled}
+    onClick={event => { if (contained) contain(event); flip(); }} onKeyDown={contained ? contain : undefined} />;
 }
 
 /// A spinner: the ring (`dspin`), or with `dot` the still running dot

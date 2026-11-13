@@ -156,7 +156,7 @@ Error: Process completed with exit code 101.</pre></span>
     ? `<button class="pj-li nav" title="${i.t}"${i.id === lit ? ' aria-current="true"' : ""} ${pick(i.id)}><span class="t"><b>${i.t}</b></span><span class="c">${i.sub}</span></button>`
     : `<button class="pj-li" title="${i.t}"${i.id === lit ? ' aria-current="true"' : ""} ${i.open ? `data-dgo="${i.open}"` : pick(i.id)}><span class="lead">${i.lead || ""}</span><span class="t"><b>${i.t}</b><span>${i.sub}${(i.tags || []).map(l => `<i class="pj-tag lab">${l}</i>`).join("")}</span></span>${i.r ? `<span class="r">${i.r}</span>` : ""}</button>`;
   // Issues list at the right; one issue opens there with a way back.
-  details.issues = () => __listCtl("pji", true) + `<div class="pj-labels">${ISSUE_LABELS.map(l => `<button class="pj-tag lab" data-toast="Filter: ${l}">${l}</button>`).join("")}</div><div class="pj-rows">${PJ_ISSUES.map(i => S.d.pjis ? `<div class="pj-prow"><label><input type="checkbox"${i.id === "is92" ? " checked" : ""} aria-label="Pick #${i.t}"></label>${pjRow(i)}</div>` : pjRow(i)).join("")}</div>` + __listStart("pji", [["acme/widget", "#92 Auto-sync the SDK docs", ""]]);
+  details.issues = () => __listCtl("pji", true) + `<div class="pj-labels">${ISSUE_LABELS.map(l => `<button class="pj-tag lab" data-toast="Filter: ${l}">${l}</button>`).join("")}</div><div class="pj-rows">${PJ_ISSUES.map(i => S.d.pjis ? `<div class="pj-prow"><label><input type="checkbox" class="dcheck"${i.id === "is92" ? " checked" : ""} aria-label="Pick #${i.t}"></label>${pjRow(i)}</div>` : pjRow(i)).join("")}</div>` + __listStart("pji", [["acme/widget", "#92 Auto-sync the SDK docs", ""]]);
   for (const id of ["is92", "is53"]) {
     const page = details[id];
     details[id] = () => `<button class="dbtn quiet small pj-back" ${pick("issues")}>All issues</button>` + page();
@@ -229,7 +229,7 @@ Error: Process completed with exit code 101.</pre></span>
     const page = skinned(ccWin(side.innerHTML, main));
     if (S.d.pskills) return ccSheetOver(page, SETTINGS_SKILLS.projectSheet());
     if (S.d.igsform === "1") return ccSheetOver(page, `<div class="am-head"><b>Sync gitignored</b><kbd>esc</kbd></div>
-      <label class="am-line"><input type="checkbox" checked>Sync selected ignored folders on all machines</label>
+      <label class="am-line"><input type="checkbox" class="dcheck" checked>Sync selected ignored folders on all machines</label>
       <label class="am-label" for="ignored-folders">Folders relative to the project, one per line</label><textarea id="ignored-folders" class="ip-path ip-list" rows="4">assets/models
 data/captures</textarea>
       <div class="am-sub">Each folder must be wholly ignored by Git and contain no tracked or staged files. These folders use file sync, including conflict copies. Other uncommitted edits stay local. Build output, linked repositories and paths excluded in .beepignore stay local.</div>
@@ -253,7 +253,7 @@ data/captures</textarea>
     const target = S.d.pmremove || "mini-box";
     return ccSheetOver(page, `<div class="am-head"><b>Remove acme/widget from ${target}?</b><kbd>esc</kbd></div>
       <div class="am-msg">It stops syncing to ${target} and leaves the project's machines.</div>
-      <label class="am-sub" style="display:flex;gap:8px;align-items:center"><input type="checkbox"${del ? " checked" : ""} data-dact="dset:pwr:${del ? "confirm" : "delete"}" data-dgo="${back}">Also delete the folder on ${target}</label>
+      <label class="am-sub" style="display:flex;gap:8px;align-items:center"><input type="checkbox" class="dcheck"${del ? " checked" : ""} data-dact="dset:pwr:${del ? "confirm" : "delete"}" data-dgo="${back}">Also delete the folder on ${target}</label>
       <div class="am-sub"><code>${target === "studio" ? "/srv/widget" : "/srv/project/widget"}</code> ${del ? "is deleted on ${target} once it stops syncing there. The other machines keep their copies." : "stays on disk as it is."}</div>${err}
       <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:pwr:" data-dgo="${back}">Cancel</button><button class="dbtn warn" data-dact="dset:pwr:" data-dgo="${back}" data-toast="${del ? `Project removed from ${target}. Folder deleted there.` : `Project removed from ${target}. Its folder stays.`}">${del ? "Remove and delete" : "Remove"}</button></div>`);
   };

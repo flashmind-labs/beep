@@ -372,7 +372,7 @@ body.cbody
                       div.agfbar
                         input.agffind [aria-label="Filter files" placeholder="Filter files" spellcheck="false" value] value=""
                         label.agfign "Show ignored"
-                          input [type="checkbox"] value="on" unchecked
+                          input.dcheck [type="checkbox"] value="on" unchecked
                         button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
                       div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
                         div.agtrows style(height)

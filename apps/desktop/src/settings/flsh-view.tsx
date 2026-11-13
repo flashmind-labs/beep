@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshProblem, toggleQuantization, type FlshDraft, type Sort } from "./flsh-state.ts";
 import type { FlshPanel } from "./flsh.ts";
+import { Switch } from "../ui/kit.tsx";
 
 const DEFAULT_TRIGGER = "Model's default trigger";
 
@@ -31,5 +32,4 @@ export function FlshView({ panel }: { panel: FlshPanel }) {
 
 function Field({ label, help, children }: { label: string; help: string; children: ReactNode }) { return <div className="hv-f"><span><b>{label}</b><small>{help}</small></span>{children}</div>; }
 function Chips<T>({ label, values, selected, onPick, className = "fl-seg" }: { label: string; values: readonly (readonly [string, T])[]; selected: (value: T) => boolean; onPick: (value: T) => void; className?: string }) { return <span className={className} role="group" aria-label={label}>{values.map(([text, value]) => <button type="button" className="dbtn dchip" key={text} aria-pressed={selected(value)} onClick={() => onPick(value)}>{text}</button>)}</span>; }
-function Switch({ on, label, flip }: { on: boolean; label: string; flip: () => void }) { return <button type="button" className="dswitch" role="switch" aria-checked={on} aria-label={label} onClick={flip} />; }
 function Input({ value, placeholder, label, change }: { value: string; placeholder: string; label: string; change: (value: string) => void }) { return <input className="hv-in" value={value} placeholder={placeholder} aria-label={label} spellCheck={false} autoComplete="off" onChange={e => change(e.currentTarget.value)} />; }
