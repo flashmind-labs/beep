@@ -450,9 +450,9 @@ body.cbody
                                     div.dv-scroll
                                       div.dv-lines style(--len,--nw)
                                         div style(display)
-                                          button.above.dv-btn.dv-context [aria-label="Show 10 lines above" title="Show 10 lines above" type="button"]
+                                          div.dv-context
                                             span.dv-context-g
-                                              span style(display)
+                                              button.above.dv-gap-btn [aria-label="Show 10 lines above" title="Show 10 lines above" type="button"]
                                                 svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                                         div.dv-chunk
                                           div.dv-l.hunk
@@ -496,9 +496,9 @@ body.cbody
                                               span "23"
                                             span.dv-c "const value23 = 23;"
                                         div style(display)
-                                          button.below.dv-btn.dv-context [aria-label="Show 10 lines below" title="Show 10 lines below" type="button"]
+                                          div.dv-context
                                             span.dv-context-g
-                                              span style(display)
+                                              button.below.dv-gap-btn [aria-label="Show 10 lines below" title="Show 10 lines below" type="button"]
                                                 svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                             div style(display)
                         div.dv-keys

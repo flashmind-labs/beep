@@ -13,13 +13,13 @@ import { DiffRows } from "./diff-chunk.tsx";
 import { DiffComment } from "./diff-comment.tsx";
 import { DiffMessage, DiffMore } from "./diff-status.tsx";
 import {
-  type DiffFile, type DiffRow, type PlacedFile, type ReviewComment, type SplitRow, diffRows, isFolded, leftOutNote, lineLabel, matchesFilter,
+  type ContextEdit, type DiffFile, type DiffRow, type PlacedFile, type ReviewComment, type SplitRow, diffRows, isFolded, leftOutNote, lineLabel, matchesFilter,
   numberWidth, placeComments, splitHeight, splitRows,
 } from "./diff-state.ts";
 import { CH, CHUNK, GAP, MARGIN, type Viewer, indexOf, reasonOf, remember, say, selected, shown } from "./diff-viewer.ts";
 import { commentKey, openEditor } from "./diff-comments.ts";
 import { markCurrent, sizeOf, toggle } from "./diff-keys.ts";
-import { expandContext, loadFull } from "./diff.ts";
+import { editContext, loadFull } from "./diff.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 
 type CssVars = CSSProperties & Record<`--${string}`, string>;
@@ -320,12 +320,14 @@ const FileBody = memo(function FileBody({ v, file, split, busy, comments }: Body
   }
 
   if (!layout) return null;
+  const extents = v.context.get(file.path)?.extents, last = file.hunks.length - 1;
+  const edit = (edits: readonly ContextEdit[]) => void editContext(v, file, edits);
 
   return <div className="dv-scroll">
     <div className={split ? "dv-lines split" : "dv-lines"} style={layout.vars}>
-      <div style={{ display: "contents" }}><DiffContext direction="above" expand={() => void expandContext(v, file, "above", 0)} /></div>
+      <div style={{ display: "contents" }}><DiffContext direction="above" hunk={0} expanded={!!extents?.[0]?.above} edit={edit} /></div>
       {layout.chunks.map((chunk, index) => <Chunk key={index} v={v} file={file} rows={chunk.rows} estimate={chunk.height} comments={comments} />)}
-      <div style={{ display: "contents" }}><DiffContext direction="below" expand={() => void expandContext(v, file, "below", Infinity)} /></div>
+      <div style={{ display: "contents" }}><DiffContext direction="below" hunk={last} expanded={!!extents?.[last]?.below} edit={edit} /></div>
     </div>
   </div>;
 });
@@ -333,7 +335,7 @@ const FileBody = memo(function FileBody({ v, file, split, busy, comments }: Body
 /// A file's rows in chunks, each with the height it has before it draws.
 function bodyLayout(v: Viewer, file: DiffFile, split: boolean) {
   const width = Math.max(2, numberWidth(file));
-  const rows = diffRows(file);
+  const rows = diffRows(file, v.context.get(file.path)?.extents ?? null);
   // The widest line is known up front, so the sideways scroll does not
   // change as rows come and go.
   const len = rows.reduce((m, r) => (r.kind === "line" ? Math.max(m, r.text.length) : m), 0);
@@ -376,7 +378,7 @@ const Chunk = memo(function Chunk({ v, file, rows, estimate, comments }: ChunkPr
   return <div ref={box} className="dv-chunk" style={state.live ? undefined : { height: `${state.height}px` }}>
     {state.live && <DiffRows rows={rows} comments={comments}
       gutter={(side, line) => openEditor(v, { path: file.path, side, line, text: "" }, true)}
-      expand={(direction, after) => void expandContext(v, file, direction, after)} readOnly={!!v.src.readOnly}
+      edit={edits => void editContext(v, file, edits)} readOnly={!!v.src.readOnly}
       comment={comment => <CommentSlot key={commentKey(comment)} v={v} comment={comment} label="" />} />}
   </div>;
 });
