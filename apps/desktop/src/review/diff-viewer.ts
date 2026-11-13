@@ -10,7 +10,7 @@ import { latest } from "../ui/active.ts";
 import { readView, writeView } from "../agentpane/view-memory.ts";
 import type { Feedback } from "./feedback.ts";
 import { loadDraft } from "./draftstore.ts";
-import { matchesFilter, placeComments, sameDiffFile, type DiffFile, type DiffView, type ReviewComment } from "./diff-state.ts";
+import { matchesFilter, placeComments, sameDiffFile, type DiffFile, type DiffView, type Extent, type ReviewComment } from "./diff-state.ts";
 import type { DiffSource } from "./diff.ts";
 
 /// Wider than this, the file list shows on the left.
@@ -84,8 +84,8 @@ export class Viewer {
   /// Counts loads: a file read that a later load replaced is dropped.
   seq = 0;
   readonly reads = latest();
-  /// Lines of context shown around each expanded file.
-  readonly context = new Map<string, { original: DiffFile; above: number; below: number }>();
+  /// Lines of context shown around each hunk of an expanded file.
+  readonly context = new Map<string, { original: DiffFile; extents: Extent[] }>();
   readonly snapshots = new Map<ReviewComment, EditorSnapshot>();
   feedback: Feedback | null = null;
   flashTimer = 0;
@@ -148,7 +148,7 @@ export function remember(v: Viewer) {
   clearTimeout(v.rememberTimer);
   v.rememberTimer = 0;
   const s = v.state;
-  writeView(v.memoryKey, { scroll: v.files?.scrollTop ?? 0, filter: s.filter, folded: [...s.folded], context: [...v.context].map(([path, value]) => [path, value.above, value.below]) });
+  writeView(v.memoryKey, { scroll: v.files?.scrollTop ?? 0, filter: s.filter, folded: [...s.folded], context: [...v.context].map(([path, value]) => [path, value.extents.map(extent => [extent.above, extent.below])]) });
 }
 
 /// The files the filter lets through, kept per view and filter: the toolbar

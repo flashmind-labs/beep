@@ -631,23 +631,27 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.user { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); font-size: 13.5px; line-height: 20px }
 .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
 .dcoderen.user a { color: var(--accent); overflow-wrap: anywhere }
-.dcoderen.fromsession { display: grid; gap: 2px; padding: 6px 10px; border-left: 2px solid var(--border); font-size: 13px; line-height: 19px; white-space: pre-wrap }
-.dcoderen.fromsession b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
-.dcoderen.fromsession .who { margin-left: 6px; font-weight: 500 }
-/* A child's reply has its own session header and the usual Markdown body. */
-.dcoderen.kidreply { display: grid; border: 1px solid var(--border); border-radius: 8px; white-space: normal }
-.kidreply .kh { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; font-size: 12.5px; color: var(--muted) }
-.kidreply .kh:hover { background: var(--elev) }
-.kidreply .kh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
-.kidreply .kh > .dcoderav { width: 20px; height: 20px; border-radius: 4px; font-size: 8px; flex: none }
-.kidreply .kh > svg { flex: none }
-.kidreply .kh > b { color: var(--fg); font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
-.kidreply .kh .m { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 }
-.kidreply .kh .ks { margin-left: auto; flex: none; font-size: 12px }
-.kidreply .dcoderen.agent.md { padding: 10px 12px; overflow: hidden }
-.kidreply .md :is(p, ul, ol) { margin: 0 0 8px }
-.kidreply .md :is(ul, ol) { padding-left: 20px }
-.kidreply .md :not(pre) > code { font-family: var(--mono); font-size: 12.5px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
+/* Session messages keep attribution separate from their content. */
+.dcoderen.sessioncard { display: grid; min-width: 0; border: 1px solid var(--border); border-radius: 8px; white-space: normal }
+.sessioncard .kh { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px 16px; color: var(--muted); text-align: left }
+.sessioncard button.kh { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px 16px; color: var(--muted); text-align: left; cursor: pointer; border-radius: 8px }
+.sessioncard button.kh:hover { background: var(--elev) }
+.sessioncard button.kh:active { background: var(--surface) }
+.sessioncard button.kh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.sessioncard .kh > .dcoderav { width: 24px; height: 24px; border-radius: 4px; flex: none }
+.sessioncard .kh > svg { flex: none }
+.sessioncard .kt { display: grid; gap: 4px; flex: 1; min-width: 0 }
+.sessioncard .kl, .sessioncard .m { color: var(--muted); font-size: 12px; line-height: 16px }
+.sessioncard .kt b { color: var(--fg); font-weight: 600; font-size: 14px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.sessioncard .m { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.sessioncard .ks { flex: none; font-size: 12px; line-height: 16px; border: 1px solid var(--border); border-radius: 9999px; padding: 2px 8px }
+.sessioncard .ks[data-state="asking"] { color: var(--warn); border-color: currentColor }
+.sessioncard .sessionbody { min-width: 0; padding: 4px 16px 16px; font-size: 14px; line-height: 20px; overflow-wrap: anywhere }
+.fromsession .sessionbody { white-space: pre-wrap }
+.kidreply .md :is(p, ul, ol) { margin: 0 0 12px }
+.kidreply .md > :last-child { margin-bottom: 0 }
+.kidreply .md :is(ul, ol) { padding-left: 24px }
+.kidreply .md :not(pre) > code { font-family: var(--mono); font-size: 12px; background: var(--elev); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px }
 .kidreply .md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px }
 .kidreply .dcoderen.agent.md pre.dcode { display: flex; align-items: flex-start; gap: 8px; overflow: hidden }
 .kidreply .dcoderen.agent.md pre.dcode .dcopy { position: static; order: 1; flex: none; opacity: 1 }

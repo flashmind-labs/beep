@@ -325,7 +325,7 @@ test("diff toolbar keeps filtering, keyboard focus, split and folding controls w
 
 test("diff context and omitted-file controls request additional lines", async ({ page }) => {
   const files = [
-    { path: "source.ts", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [{ old_start: 1, new_start: 1, old_lines: 1, new_lines: 1, section: "", lines: [{ k: "+", t: "added" }] }] },
+    { path: "source.ts", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [{ old_start: 1, new_start: 1, old_lines: 1, new_lines: 1, section: "", lines: [{ k: "+", t: "added" }] }, { old_start: 40, new_start: 40, old_lines: 1, new_lines: 1, section: "", lines: [{ k: " ", t: "later" }] }] },
     { path: "lock.json", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: "lockfile", hunks: [] },
   ];
   await openDesktop(page, false, {
@@ -336,8 +336,9 @@ test("diff context and omitted-file controls request additional lines", async ({
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
   const diff = page.locator(".gh-detail .dv");
-  await diff.getByRole("button", { name: "Show 10 lines above" }).click();
+  await diff.getByRole("button", { name: "Show the previous 10 lines" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "project_git_diff" && call.args.context === 13))).toBe(true);
+  await expect(diff.getByRole("button", { name: "Show 10 lines above" })).toBeVisible();
   const lock = diff.locator('.dv-file[data-path="lock.json"]');
   await lock.locator(".dv-fh").click();
   await lock.getByRole("button", { name: "Show", exact: true }).click();

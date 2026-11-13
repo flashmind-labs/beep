@@ -7,7 +7,7 @@ import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, tokenCount } from "../ui/format.ts";
 import { beepCall, beepLine, commandOf, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
-import { S } from "../bar/core.ts";
+import { S, windowHooks } from "../bar/core.ts";
 import { drawPane } from "../agentpane/media-draw.ts";
 import type { SubagentRow } from "../agentpane/subagents-view.tsx";
 import type { ActivityRow, ToolActivity, ToolBody } from "./activity-view.tsx";
@@ -22,7 +22,7 @@ import { connectingNote } from "./reconnect-state.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.ts";
 import { answerHtml } from "./turnrows.ts";
 import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
-import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, agentKind } from "./agents.ts";
+import { type AgentEntry, type AgentPage, AG, agentLog, agentPics, agentThumbs, AGENT_ACTIVE, folderName } from "./agents.ts";
 import { stoppingNow } from "./session.ts";
 import { redrawAgentHints } from "./session-head.ts";
 import { promptParts } from "./promptparts-state.ts";
@@ -406,13 +406,12 @@ function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   const others = parts.flatMap((p, index): ContextRow[] => p.kind === "context"
     ? [{ kind: "context", id: `${at}:${index}`, type: "context", text: p.text }]
     : p.kind === "session"
-      ? [{ kind: "context", id: `${at}:${index}`, type: "session", name: p.name, html: linkified(p.text) }]
+      ? [{ kind: "context", id: `${at}:${index}`, type: "session", ...messageSource(p.id, p.name), html: linkified(p.text) }]
       : p.kind === "child"
         ? [((): ContextRow => {
           const row = childRow(sessions, p.id);
-          const meta = [row?.machine_name ?? p.id.split("@").slice(1).join("@"), row ? agentKind(row.agent).name : ""].filter(Boolean).join(" · ");
           const body = en.child_html?.[child++];
-          return { kind: "context", id: `${at}:${index}`, type: "child", part: p, body: body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, agent: row?.agent ?? null, meta };
+          return { kind: "context", id: `${at}:${index}`, type: "child", part: p, body: body != null ? answerHtml(body) : `<p>${linkified(p.text).replace(/\n/g, "<br>")}</p>`, agent: row?.agent ?? null, ...messageSource(p.id, p.name) };
         })()]
         : []);
   const own = parts.filter(p => p.kind === "user").map(p => p.text).join("\n");
@@ -425,6 +424,14 @@ function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
   const prompt: PromptRow = { kind: "prompt", row: String(at), html: said, pictures: names.map(entryPic).join("") };
   return [...others, prompt];
+}
+
+function messageSource(id: string, name: string): { name: string; project: string | null } {
+  const source = childRow(sessions, id);
+  return {
+    name: source?.title || name,
+    project: source ? windowHooks?.sessionProject?.(source)?.label || folderName(source.cwd) || null : null,
+  };
 }
 
 /// What this window knows of a session's turns: the ones it has seen, when it

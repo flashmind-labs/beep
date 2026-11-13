@@ -62,7 +62,6 @@
 .mac .dv-l.add { background: var(--dv-add-bg) } .mac .dv-l.add .dv-g { background: linear-gradient(var(--dv-add-gut), var(--dv-add-gut)), var(--dv-gut-bg); color: var(--dv-add-fg) } .mac .dv-l.add .dv-c::before { content: "+"; color: var(--dv-add-fg) }
 .mac .dv-l.del { background: var(--dv-del-bg) } .mac .dv-l.del .dv-g { background: linear-gradient(var(--dv-del-gut), var(--dv-del-gut)), var(--dv-gut-bg); color: var(--dv-del-fg) } .mac .dv-l.del .dv-c::before { content: "-"; color: var(--dv-del-fg) }
 .mac .dv-l.hunk { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) } .mac .dv-l.hunk .dv-g { background: linear-gradient(var(--dv-hunk-bg), var(--dv-hunk-bg)), var(--dv-gut-bg) } .mac .dv-l.hunk .dv-c { font-size: 11.5px } .mac .dv-l.hunk .dv-c::before { content: none }
-.mac .dv-l.gap { color: var(--muted); font: 11.5px/22px var(--body) } .mac .dv-l.gap .dv-c::before { content: none }
 .mac .dv-eol { margin-left: 8px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); font: 10.5px/15px var(--body) }
 .mac .dv-context { display: flex; align-items: center; width: 100%; height: 22px; padding: 0; border: 0; border-block: 1px solid var(--border); border-radius: 0; background: var(--dv-gut-bg); color: var(--muted); font: inherit; cursor: pointer }
 .mac .dv-context-g { position: sticky; left: 0; display: grid; place-items: center; flex: none; width: calc(var(--nw, 3) * 2ch + 28px); height: 100%; border-right: 1px solid var(--border); background: inherit }
@@ -71,6 +70,13 @@
 .mac .dv-context.below svg { transform: rotate(90deg) }
 .mac .dv-context:hover { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) }
 .mac .dv-context:focus-visible { outline: 2px solid var(--dv-hunk-fg); outline-offset: -2px }
+.mac .dv-gap-btn { display: grid; place-items: center; width: calc(var(--nw, 3) * 1ch + 14px); height: 19px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer }
+.mac .dv-gap-btn.wide { width: calc(var(--nw, 3) * 2ch + 28px) }
+.mac .dv-gap-btn svg { width: 14px; height: 14px }
+.mac .dv-gap-btn.above svg { transform: rotate(-90deg) }
+.mac .dv-gap-btn.below svg { transform: rotate(90deg) }
+.mac .dv-gap-btn:hover { background: var(--dv-hunk-fg); color: var(--dv-gut-bg) }
+.mac .dv-gap-btn:focus-visible { outline: 2px solid var(--dv-hunk-fg); outline-offset: -2px }
 .mac .dv-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; color: var(--muted); font-size: 12px } .mac .dv-note .dv-btn { height: 24px }
 .mac .dv-empty { margin: auto; padding: 24px; display: grid; justify-items: center; gap: 6px; text-align: center; color: var(--muted); font-size: 13px } .mac .dv-empty b { color: var(--fg); font-weight: 500 }
 .mac .dv-keys { flex: none; display: flex; gap: 12px; padding: 5px 12px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11px }
@@ -132,14 +138,15 @@
     flush();
     return `<div class="dv-lines split" style="--nw:2">${rows}</div>`;
   };
+  const gapButton = (direction, label) => `<button class="dv-gap-btn ${direction}" title="${label}" aria-label="${label}" data-toast="${label.replace("Show", "Shows")}">${TO}</button>`;
   const lineRows = f => {
     if (dvSplit) return splitRows(f);
     let o = 0, n = 0, rows = "", prevEnd = null;
     for (const l of f.lines) {
       if (l[0] === "@") {
         o = Math.max(l[1] - 1, 0); n = Math.max(l[2] - 1, 0);
-        if (prevEnd != null && o - prevEnd > 0) rows += `<div class="dv-l gap"><span class="dv-g"><span></span><span></span></span><span class="dv-c">${o - prevEnd} unchanged lines</span></div>`;
-        rows += `<div class="dv-l hunk"><span class="dv-g"><span>...</span><span>...</span></span><span class="dv-c">@@ -${l[1]} +${l[2]} @@ ${esc(l[3])}</span></div>`;
+        const gutter = prevEnd != null && o - prevEnd > 0 ? gapButton("below", "Show the next 10 lines") + gapButton("above", "Show the previous 10 lines") : "<span>...</span><span>...</span>";
+        rows += `<div class="dv-l hunk"><span class="dv-g">${gutter}</span><span class="dv-c">@@ -${l[1]} +${l[2]} @@ ${esc(l[3])}</span></div>`;
         continue;
       }
       const cls = l[0] === "+" ? " add" : l[0] === "-" ? " del" : "";
