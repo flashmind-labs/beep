@@ -5,7 +5,7 @@ export const QUANTIZATIONS = ["int4", "int8", "fp4", "fp6", "fp8", "fp16", "bf16
 export const SORTS = ["price", "throughput", "latency"] as const;
 export type Sort = (typeof SORTS)[number];
 
-/// The bounds the server holds a compaction threshold to.
+/// The bounds Beep holds a compaction threshold to.
 const MIN_TOKENS = 1_000;
 const MAX_TOKENS = 10_000_000;
 

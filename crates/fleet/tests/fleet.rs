@@ -832,21 +832,15 @@ async fn usage_sums_every_machine() {
     let studio = desk(&f.studio, &[(&f.build, &build), (&second, &mac)])
         .await
         .settle(Duration::from_millis(300));
-    let report = studio.usage_report().await.expect("usage reads");
-    assert_eq!(report.today.total.cost_usd, 3.5);
-    assert_eq!(report.today.tokens, 150);
-    assert_eq!(report.week.total.cost_usd, 3.5);
-    assert_eq!(report.today.harnesses.len(), 1);
-    assert_eq!(report.today.harnesses[0].tokens, 150);
-    // The freshest plan reading of an agent wins, and names the machine that read it.
-    assert_eq!(report.limits.len(), 1);
-    assert_eq!(report.limits[0].machine_name, "mac-box");
-    assert_eq!(report.limits[0].windows[0].used_percent, 40.0);
-    let view = studio.usage().await.expect("the view reads");
-    assert_eq!(view.week.cost_usd, 3.5);
     let bill = studio.spend().await.expect("the bill reads");
     assert_eq!(bill.today.cost_usd, 3.5);
     assert_eq!(bill.today.metered_tokens, 150);
+    assert_eq!(bill.week.cost_usd, 3.5);
+    assert_eq!(bill.today.harnesses.len(), 1);
+    // The freshest plan reading of an agent wins, and names the machine that read it.
+    assert_eq!(bill.limits.len(), 1);
+    assert_eq!(bill.limits[0].machine_name, "mac-box");
+    assert_eq!(bill.limits[0].windows[0].used_percent, 40.0);
 }
 
 fn plan_reply(agent: &str, used: f64, at: u64) -> SessionsReply {
@@ -2345,94 +2339,83 @@ async fn a_checkout_here_is_read_without_asking_the_other_machines() {
     assert_eq!(got, (1, 1, "fix".to_owned()));
 }
 
-/// A server that lists one credential with no value, as a real one does.
-struct LastFour;
+/// What an `unmoved/...` record says, as an account moved from a server left it.
+#[derive(serde::Serialize, serde::Deserialize)]
+enum Unmoved {
+    Credential(beep_proto::Credential),
+    HarnessEnv { agent: String, name: String },
+}
 
-#[async_trait]
-impl beep_fleet::migrate::Source for LastFour {
-    async fn account(&self) -> beep_fleet::Result<String> {
-        Ok("account".into())
-    }
-    async fn imports(&self) -> beep_fleet::Result<Vec<beep_proto::ImportedProject>> {
-        Ok(Vec::new())
-    }
-    async fn sync(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectSync>> {
-        Ok(Vec::new())
-    }
-    async fn groups(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectGroup>> {
-        Ok(Vec::new())
-    }
-    async fn on_top(&self) -> beep_fleet::Result<Vec<String>> {
-        Ok(Vec::new())
-    }
-    async fn credentials(&self) -> beep_fleet::Result<Vec<beep_proto::Credential>> {
-        let credential = |id: &str, kind, last4: &str| beep_proto::Credential {
-            id: id.into(),
-            kind,
-            last4: last4.into(),
-            account: None,
-            env_var: String::new(),
-            to_machines: true,
-            created_at: SystemTime::UNIX_EPOCH,
-            unreadable: false,
-        };
-        Ok(vec![
-            credential(
-                "7",
-                CredentialKind::ApiKey {
-                    provider: "anthropic".into(),
-                },
-                "9f3a",
-            ),
-            credential(
-                "8",
-                CredentialKind::Forgejo {
-                    url: "http://127.0.0.1:9".into(),
-                },
-                "5521",
-            ),
-        ])
-    }
-    async fn harness(
-        &self,
-        agent: &str,
-    ) -> beep_fleet::Result<Vec<beep_proto::MachineHarnessSettings>> {
-        if agent != "codex" {
-            return Ok(Vec::new());
-        }
+impl beep_proto::node::mesh_state::StateValue for Unmoved {}
 
-        Ok(vec![beep_proto::MachineHarnessSettings {
-            machine_id: SecretKey::generate().public().to_string(),
-            machine_name: "box".into(),
-            settings: beep_proto::HarnessSettings {
-                enabled: true,
-                program: String::new(),
-                home: String::new(),
-                args: Vec::new(),
-                env: vec![beep_proto::HarnessEnv {
+/// A credential a server listed with no value, as a moved account kept it.
+fn unmoved_credential(
+    id: &str,
+    kind: CredentialKind,
+    last4: &str,
+    account: Option<&str>,
+) -> Unmoved {
+    Unmoved::Credential(beep_proto::Credential {
+        id: id.into(),
+        kind,
+        last4: last4.into(),
+        account: account.map(Into::into),
+        env_var: String::new(),
+        to_machines: true,
+        created_at: SystemTime::UNIX_EPOCH,
+        unreadable: true,
+    })
+}
+
+/// Writes `records` under `unmoved/<name>`, as a move from a server did.
+async fn unmoved(mesh: &Mesh, records: Vec<(String, Unmoved)>) {
+    use beep_proto::node::mesh_state::StateValue;
+
+    for (name, record) in records {
+        mesh.set(
+            Key::Unmoved(name),
+            Some(record.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the record is written");
+    }
+}
+
+/// A Forgejo token and a codex variable left to enter again.
+async fn last_four(mesh: &Mesh) {
+    unmoved(
+        mesh,
+        vec![
+            (
+                "credential/8".into(),
+                unmoved_credential(
+                    "8",
+                    CredentialKind::Forgejo {
+                        url: "http://127.0.0.1:9".into(),
+                    },
+                    "5521",
+                    None,
+                ),
+            ),
+            (
+                "harness/codex/OPENAI_API_KEY".into(),
+                Unmoved::HarnessEnv {
+                    agent: "codex".into(),
                     name: "OPENAI_API_KEY".into(),
-                    value: None,
-                }],
-            },
-        }])
-    }
-    async fn flsh(&self) -> beep_fleet::Result<beep_proto::FlshSettings> {
-        Ok(beep_proto::FlshSettings::default())
-    }
-    async fn instructions(&self) -> beep_fleet::Result<Vec<beep_proto::InstructionsVersion>> {
-        Ok(Vec::new())
-    }
+                },
+            ),
+        ],
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn a_moved_credential_lists_as_one_to_enter_again_until_it_is_saved() {
     let studio = create("Studio").await;
-    beep_fleet::migrate::run(&studio.mesh, &LastFour)
-        .await
-        .expect("the account moves");
+    last_four(&studio.mesh).await;
     let desk = desk(&studio, &[]).await;
     let listed = desk.credentials();
-    // The API key stays on the server: no record asks for it.
+    // Only the Forgejo token asks to be entered again.
     assert_eq!(listed.len(), 1);
     assert!(listed[0].unreadable);
     assert_eq!(listed[0].last4, "5521");
@@ -2560,60 +2543,21 @@ async fn a_branch_diff_of_a_mesh_project_is_read_from_its_checkout_with_no_serve
     assert_eq!(asked[0].base, "");
 }
 
-/// A server that lists two GitHub accounts, with no values.
-struct TwoAccounts;
-
-#[async_trait]
-impl beep_fleet::migrate::Source for TwoAccounts {
-    async fn account(&self) -> beep_fleet::Result<String> {
-        Ok("account".into())
-    }
-    async fn imports(&self) -> beep_fleet::Result<Vec<beep_proto::ImportedProject>> {
-        Ok(Vec::new())
-    }
-    async fn sync(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectSync>> {
-        Ok(Vec::new())
-    }
-    async fn groups(&self) -> beep_fleet::Result<Vec<beep_proto::ProjectGroup>> {
-        Ok(Vec::new())
-    }
-    async fn on_top(&self) -> beep_fleet::Result<Vec<String>> {
-        Ok(Vec::new())
-    }
-    async fn credentials(&self) -> beep_fleet::Result<Vec<beep_proto::Credential>> {
-        let github = |id: &str, login: &str| beep_proto::Credential {
-            id: id.into(),
-            kind: CredentialKind::GitHub {},
-            last4: "9f3a".into(),
-            account: Some(login.into()),
-            env_var: "GH_TOKEN".into(),
-            to_machines: true,
-            created_at: SystemTime::UNIX_EPOCH,
-            unreadable: false,
-        };
-        Ok(vec![github("1", "octo"), github("2", "other")])
-    }
-    async fn harness(
-        &self,
-        _: &str,
-    ) -> beep_fleet::Result<Vec<beep_proto::MachineHarnessSettings>> {
-        Ok(Vec::new())
-    }
-    async fn flsh(&self) -> beep_fleet::Result<beep_proto::FlshSettings> {
-        Ok(beep_proto::FlshSettings::default())
-    }
-    async fn instructions(&self) -> beep_fleet::Result<Vec<beep_proto::InstructionsVersion>> {
-        Ok(Vec::new())
-    }
-}
-
 #[tokio::test]
 async fn saving_one_github_token_releases_only_its_own_record() {
     let f = fleet().await;
     let api = github().await;
-    beep_fleet::migrate::run(&f.studio.mesh, &TwoAccounts)
-        .await
-        .expect("the account moves");
+    let github = |id: &str, login| {
+        (
+            format!("credential/{id}"),
+            unmoved_credential(id, CredentialKind::GitHub {}, "9f3a", Some(login)),
+        )
+    };
+    unmoved(
+        &f.studio.mesh,
+        vec![github("1", "octo"), github("2", "other")],
+    )
+    .await;
     assert_eq!(f.studio.mesh.scan("unmoved/credential/").len(), 2);
     let studio = desk(&f.studio, &[]).await.github_api(&api);
     // The fake GitHub says every token is octo's.
@@ -2634,9 +2578,7 @@ async fn saving_one_github_token_releases_only_its_own_record() {
 #[tokio::test]
 async fn a_harness_variable_taken_out_drops_its_record_and_one_left_blank_keeps_it() {
     let studio = create("Studio").await;
-    beep_fleet::migrate::run(&studio.mesh, &LastFour)
-        .await
-        .expect("the account moves");
+    last_four(&studio.mesh).await;
     let desk = desk(&studio, &[]).await;
     let machine = studio.id.to_string();
     let settings = |env: Vec<beep_proto::HarnessEnv>| beep_proto::HarnessSettings {

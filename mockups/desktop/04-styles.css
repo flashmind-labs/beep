@@ -1,6 +1,3 @@
 /* batch-c lists */
-.mac .cc-pane.lp { display: flex; flex-direction: column; overflow: hidden }
-.mac .cc-pane.lp > .cc-panel { flex: 1; width: 100%; max-width: 960px; margin: 0 auto; min-height: 0; display: flex; flex-direction: column }
 .mac .dsec.flat { border: 0 }
-.mac .cc-pane.lp .dlist { flex: 1 1 auto; min-height: 0; overflow: auto; align-content: start; scrollbar-width: none }
 .mac .derr { color: var(--d-err); font-size: 12.5px }

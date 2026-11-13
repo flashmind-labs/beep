@@ -1,20 +1,19 @@
 import { type MeshEvent, subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { snapshotView } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
-import { invoke, listen } from "../ui/tauri.ts";
+import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
-import { applyTelemetry, keepUnchanged, withoutDismissed, type HomeView, type Telemetry } from "./home-state.ts";
+import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
 import { preloadModels } from "../agents/agentpicker.ts";
 import type { AgentHost } from "../agents/agents.ts";
 import { onlineMachines } from "./center.ts";
-import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pages, pagesAccount, keepPagesFile } from "./state.ts";
-import { cardKey, dismissedUpdates, problem, draw } from "./home.ts";
+import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pagesAccount } from "./state.ts";
+import { draw } from "./home.ts";
 import { readAllTerms } from "../terminals/view.ts";
 import { refreshGit } from "./openitems.ts";
 import { currentLocation, drawTop } from "./views.ts";
-import { reloadGroup, reloadChats, drawSide } from "./sidebar.ts";
-import { loadOverview } from "../project/projects.ts";
+import { reloadGroup, drawSide } from "./sidebar.ts";
 import { liveMode, runs } from "../project/sections.ts";
 import { drawProjects } from "../project/page.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
@@ -22,13 +21,13 @@ import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { followSync, readSync } from "../project/syncpage.ts";
 import { perfFresh } from "../ui/perf.ts";
 
-/// The server answered for Home in this window; until then Home may be
+/// The mesh answered for Home in this window; until then Home may be
 /// the one the app kept from before.
-export let fresh = false;
+let fresh = false;
 
 // ---------- Refresh ----------
 
-export let loading = false, again = false, retryTimer: ReturnType<typeof setTimeout> | undefined;
+let again = false, retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 let telemetry: Telemetry | undefined;
 let homeRead: Promise<void> | undefined;
@@ -49,7 +48,6 @@ export function homeCached() {
 /// Sections that did not change keep their objects; an unchanged Home draws nothing.
 async function readHome(): Promise<void> {
   if (homeRead) { again = true; return homeRead; }
-  loading = true;
   homeRead = (async () => {
     do {
       again = false;
@@ -57,7 +55,6 @@ async function readHome(): Promise<void> {
 
       try {
         const home = await invoke<HomeView>("center_home");
-        if (home.updates) home.updates = withoutDismissed(home.updates, dismissedUpdates);
         before = state.home === shown ? lastRead : null;
         next = keepUnchanged(before, home);
         fresh = true;
@@ -75,8 +72,6 @@ async function readHome(): Promise<void> {
         state.home = shown = telemetry ? applyTelemetry(next, telemetry) : next;
         keepConnecting(next.machines);
         if (onlineMachines(next) !== was) invoke<AgentHost[]>("agent_hosts").then(preloadModels).catch(e => console.warn("agent hosts:", e));
-        const live = new Set(next.needs_you.map(cardKey));
-        for (const key of state.outcomes.keys()) if (!live.has(key)) state.outcomes.delete(key);
       }
 
       // A change read off screen draws with the next read on screen.
@@ -96,7 +91,7 @@ async function readHome(): Promise<void> {
   })();
 
   try { await homeRead; }
-  finally { homeRead = undefined; loading = false; if (onScreen() && (!state.home || state.error !== null)) draw(); }
+  finally { homeRead = undefined; if (onScreen() && (!state.home || state.error !== null)) draw(); }
 }
 
 /// Home, the projects page while it shows, and the sidebar unless it draws later.
@@ -173,12 +168,11 @@ export async function refresh() {
     const terminals = onScreen() && (view === "home" || view === "terminals");
     // This computer's row in the machines group comes from `mac_control`.
     await Promise.all([readHome(), refreshMac().then(() => reloadGroup("machines", false)), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
-      reloadGroup("research", false), terminals ? readAllTerms() : undefined]);
-    if (currentLocation()?.view === "projects" && !state.picked && onScreen()) loadOverview();
+      terminals ? readAllTerms() : undefined]);
   } catch (error) {
     console.warn("Home:", error);
     started = false;
-    if (!fresh && !problem() && onScreen()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
+    if (!fresh && onScreen()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
   }
 }
 
@@ -197,7 +191,6 @@ onShownChange(visible => {
 
 // These are state changes. Agent tokens and terminal output have their own topics.
 subscribeChanges(topic("home"), { deliver: "each", receive: event => homeChanged(needsChanged(event)) });
-for (const name of ["work-question", "work-resolved", "group-approval", "approval-answered"]) listen(name, () => homeChanged(true));
 subscribeChanges(topic("machines"), { deliver: "latest", receive: async () => { await refreshMac(); await reloadGroup("machines"); } }, { wait: AMBIENT_MS });
 subscribeChanges(topic("projects"), { deliver: "latest", receive: refreshProjects }, { wait: AMBIENT_MS });
 // Sync progress changes many times a second during a transfer; the rows follow once a second.
@@ -217,8 +210,3 @@ subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => {
   if (kept) shown = state.home;
   draw();
 } }, { when: () => currentLocation()?.view === "home", wait: SLOW_MS });
-// Signed out or removed: the kept project pages go with the account.
-listen<string>("link-state", e => { if (e.payload !== "linked") { pages.setAccount(null); keepPagesFile(undefined); } });
-// The chat rows follow other devices at most once a second.
-const chatsChanged = ambient(reloadChats, AMBIENT_MS);
-for (const name of ["sessions-changed", "group-changed", "reconnected"]) listen(name, () => chatsChanged());

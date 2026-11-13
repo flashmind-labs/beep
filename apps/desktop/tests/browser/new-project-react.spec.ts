@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 const machine = { id: "one", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
-const home = { machines: [machine], projects: [], running: [], needs_you: [], coming_up: null, updates: null };
+const home = { machines: [machine], projects: [], running: [], needs_you: [] };
 const forge = { host: "github", github: true, owners: ["example", "other"], error: null };
 async function add(page: Page) {
   await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
@@ -23,7 +23,7 @@ test("new project preserves input and focus while options change", async ({ page
   await page.getByRole("menuitem", { name: "other", exact: true }).click();
   await expect(sheet.getByRole("button", { name: "other", exact: true })).toBeFocused();
   await sheet.getByRole("button", { name: "Create", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "create_project").map(call => call.args))).toEqual([{ name: "example-project", repository: { host: "github", owner: "other", private: false }, machineIds: ["one"] }]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "create_project").map(call => call.args))).toEqual([{ name: "example-project", repository: { host: "github", owner: "other", private: false }, machineIds: ["one"], folders: [{ machine_id: "one", folder: "" }] }]);
 });
 
 test("a stale forge response cannot replace a reopened form", async ({ page }) => {
@@ -99,7 +99,7 @@ test("local-only creation keeps exactly the selected online machine", async ({ p
   await expect(sheet.getByRole("button", { name: "Build box", exact: true })).toHaveAttribute("aria-pressed", "false");
   await expect(sheet.getByRole("button", { name: "Other box", exact: true })).toHaveAttribute("aria-pressed", "true");
   await sheet.getByRole("button", { name: "Create", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "create_project").map(call => call.args))).toEqual([{ name: "project", repository: null, machineIds: ["two"] }]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "create_project").map(call => call.args))).toEqual([{ name: "project", repository: null, machineIds: ["two"], folders: [{ machine_id: "two", folder: "" }] }]);
 });
 
 test("creation is disabled when no machine is online", async ({ page }) => {

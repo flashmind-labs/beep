@@ -33,7 +33,7 @@ pub struct TurnUsage {
     pub models: Vec<ModelTokens>,
     /// The agent's own id of the session, such as Claude Code's session
     /// id, when it said: the key a `SessionSpend` of the same session
-    /// has, so the server counts the session once.
+    /// has, so the caller counts the session once.
     pub agent_session: Option<String>,
 }
 
@@ -57,7 +57,7 @@ pub const MAX_SESSION_HOURS: usize = 4_000;
 /// What one session of a coding agent spent, as the node read it from the
 /// agent's own session log, sessions started outside Beep included. Sent
 /// on a `FollowUsage` stream that asked for `history`. Each report is whole
-/// from `since` on: it replaces what the server kept for the session from
+/// from `since` on: it replaces what the reader kept for the session from
 /// that hour, so reading a log again never counts it twice.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

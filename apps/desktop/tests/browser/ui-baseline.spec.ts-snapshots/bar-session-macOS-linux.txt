@@ -19,7 +19,7 @@ body
       div#agshell.agshell
         div#agmain.agmain
           div#agconv.agconv
-            div style(display)
+            div.agbodyw
               div#agbody.dbody
                 div.dagmain
                   div.dcoderlog
@@ -66,6 +66,7 @@ body
                             svg [fill="none" height="11" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="11"]
                 button#agjump.dagjump [hidden] "Jump to latest"
                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+              div.agrail.off
             div#agmovebox
             div#agplan
             div.ag-work

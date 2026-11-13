@@ -9,7 +9,6 @@
 .mac .cc-set .dset-pages .cc-si.sub { padding: 4px 10px 4px 24px; font-size: 12.5px; color: var(--d-muted) }
 .mac .cc-set .dset-pages .cc-si.sub[aria-current="true"] { color: var(--d-fg) }
 .mac .cc-set .dset-body { display: flex; flex-direction: column; min-width: 0; min-height: 0 }
-.mac .cc-set .dset-body > .cc-skel { margin: 14px 24px }
 .mac .cc-set .dset-top { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--d-border) }
 .mac .cc-set .dset-top .tt { display: grid }
 .mac .cc-set .dset-top b { font-size: 15px; font-weight: 600 }
@@ -190,25 +189,9 @@
 .mac .dchip[aria-pressed="true"] { background: color-mix(in srgb, var(--d-emerald) 28%, transparent); border-color: var(--d-emerald) }
 .mac .dchip.day { min-width: 34px; padding: 0 8px }
 .mac .dchip:disabled { opacity: .5 }
-.mac .dapps { padding-top: 4px }
-.mac .dapps .dsec { border: 0; padding-left: 10px }
 .mac .dalogo { width: 28px; height: 28px; border-radius: var(--radius-sm); flex: none; object-fit: contain; background: var(--d-elev); display: grid; place-items: center; font-weight: 600; font-size: 13px; color: var(--d-muted) }
-.mac .dappr, .mac .dlevel, .mac .daction { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: var(--radius-sm); min-height: 42px }
-.mac .dappr .tt, .mac .dlevel .tt { flex: 1; min-width: 0; display: grid; line-height: 18px }
-.mac .dappr .tt b, .mac .dlevel .tt b { font-size: 13.5px; font-weight: 500 }
-.mac .dappr .tt small, .mac .dlevel .tt small { font-size: 12px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .dappr.on { cursor: pointer }
-.mac .dappr.on:hover, .mac .dlevel:hover { background: var(--d-elev) }
-.mac .dappr .dmuted { display: inline-flex; gap: 6px; align-items: center; font-size: 12px }
-.mac .dlevel { width: 100%; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer }
-.mac .daction span:first-child { flex: 1; font-size: 13.5px }
-.mac .daction span:first-child small { display: block; font-size: 12px; color: var(--d-muted) }
-.mac .daction.off span:first-child { color: var(--d-muted) }
-.mac .dsplit { display: flex; justify-content: space-between }
-.mac .dsplit .over { color: var(--d-err) }
 .mac .dtag.ok { color: var(--d-emerald) }
 .mac .dtag.ask { color: #f2994a; align-self: auto; max-width: none; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--d-elev); white-space: nowrap }
-.mac .dappr .dtag, .mac .dappr .dbtn { flex: none; white-space: nowrap }
 .mac .dskel-rows { display: grid; gap: 12px; padding: 10px 0 12px }
 .mac .dskel { height: 10px; border-radius: 5px; background: var(--d-elev) }
 .mac .dgit { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 8px; row-gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--d-border); font-size: 13px }
@@ -234,8 +217,6 @@
 .mac .dskin:focus-visible { outline: 2px solid var(--d-emerald); outline-offset: 2px }
 .mac .cc-set-scrim { position: absolute }
 .mac .cc-set .dset-nav .cc-si .n { margin-left: auto; font-size: 11px; color: var(--d-dim) }
-.mac .dlradio { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--d-border); flex: none }
-.mac .dlevel[aria-checked="true"] .dlradio { border-color: var(--d-emerald); box-shadow: inset 0 0 0 3px var(--d-surface), inset 0 0 0 7px var(--d-emerald) }
 .mac .dset-page select, .mac .dform .dtoggle select { min-height: 28px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: var(--d-surface); color: var(--d-fg); font: inherit; font-size: 13px }
 .mac .dset-page input:not([type="checkbox"]), .mac .dsetcol input:not([type="checkbox"]) { min-height: 30px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: var(--d-surface); color: var(--d-fg); font: inherit; font-size: 13px; outline: 0; min-width: 0 }
 .mac .dset-page input.hv-in, .mac .hv-view input.hv-in { height: 32px; min-height: 0; padding: 0 11px; background: var(--d-ink); font-family: var(--mono); font-size: 12.5px; width: 100%; box-sizing: border-box }

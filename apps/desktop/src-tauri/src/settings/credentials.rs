@@ -1,7 +1,6 @@
 //! Settings, Credentials: the account's GitHub tokens and Forgejo servers.
 //! Secrets go into the mesh once, for every machine, and never come back; the
-//! bar sees only their last four characters. API keys are kept on the server
-//! only, never here.
+//! bar sees only their last four characters. API keys are not kept.
 
 use crate::{
     beep::epoch_ms,
@@ -55,7 +54,7 @@ pub struct CredentialView {
     env_var: String,
     /// Milliseconds since the Unix epoch.
     created_at: u64,
-    /// The server can no longer open it: the bar asks for it again.
+    /// It can no longer be opened: the bar asks for it again.
     unreadable: bool,
 }
 
@@ -211,7 +210,7 @@ pub async fn set_default_github_account(fleet: FleetState<'_>, id: String) -> Re
     Ok(())
 }
 
-/// The server's reason on its own, without the "bad request:" before it.
+/// A machine's reason on its own, without the "bad request:" before it.
 pub(crate) fn plain(e: DesktopError) -> DesktopError {
     match e {
         DesktopError::Api(ApiError::BadRequest { message }) => DesktopError::BadRequest(message),

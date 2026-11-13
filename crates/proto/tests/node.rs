@@ -27,26 +27,17 @@ mod skills {
 mod admin {
     mod traffic {
         use beep_proto::node::traffic::*;
-        use beep_proto::node::{EnvReport, Up};
-        use serde::Deserialize;
         use std::collections::BTreeMap;
 
         #[test]
-        fn traffic_round_trips_and_an_older_server_skips_it() {
-            let up = Up::Traffic(TrafficReport {
+        fn traffic_round_trips() {
+            let report = TrafficReport {
                 started_at_ms: 1_760_000_000_123,
                 counters: BTreeMap::from([("alpn.beep-sync/1.tx".to_owned(), 42)]),
-            });
-            let body = rmp_serde::to_vec_named(&up).unwrap();
-            assert_eq!(rmp_serde::from_slice::<Up>(&body).unwrap(), up);
-            // A server from before `Up::Traffic` fails to read the message, which
-            // its control loop skips.
-            #[derive(Debug, Deserialize)]
-            enum OldUp {
-                #[allow(dead_code)]
-                Env(EnvReport),
-            }
-            assert!(rmp_serde::from_slice::<OldUp>(&body).is_err());
+            };
+            let body = rmp_serde::to_vec(&report).unwrap();
+            let read: TrafficReport = beep_proto::lenient::from_slice(&body).unwrap();
+            assert_eq!(read, report);
         }
     }
 
@@ -130,113 +121,6 @@ mod admin {
                 );
             }
         }
-    }
-}
-
-mod control {
-    use beep_proto::node::*;
-    use serde::{Deserialize, Serialize};
-
-    #[test]
-    fn a_hello_without_a_workspace_still_reads() {
-        #[derive(Serialize)]
-        struct Older {
-            version: &'static str,
-            name: &'static str,
-            offers: Vec<&'static str>,
-        }
-        let body = rmp_serde::to_vec_named(&Older {
-            version: "0.1.0",
-            name: "box",
-            offers: vec!["shell/1"],
-        })
-        .unwrap();
-        let hello: NodeHello = rmp_serde::from_slice(&body).unwrap();
-        assert_eq!(hello.workspace, None);
-        assert_eq!(hello.setup, None);
-        let newer = NodeHello {
-            workspace: Some("/home/user".into()),
-            setup: Some(NodeSetup {
-                token: "bk1-test".into(),
-                name: None,
-            }),
-            ..hello
-        };
-        let body = rmp_serde::to_vec_named(&newer).unwrap();
-        assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), newer);
-    }
-
-    #[test]
-    fn an_older_node_skips_credentials() {
-        // What a node from before `Down::Credentials` knew.
-        #[derive(Debug, Deserialize)]
-        enum OldDown {
-            Welcome {},
-        }
-        let body =
-            rmp_serde::to_vec_named(&Down::Credentials(MachineCredentials::default())).unwrap();
-        assert!(rmp_serde::from_slice::<OldDown>(&body).is_err());
-        let hello = NodeHello {
-            version: "0.1.0".into(),
-            name: "box".into(),
-            offers: vec![],
-            workspace: None,
-            setup: None,
-            credentials: true,
-            checkouts: true,
-            agent_settings: true,
-            branch_checkouts: true,
-        };
-        let body = rmp_serde::to_vec_named(&hello).unwrap();
-        assert_eq!(rmp_serde::from_slice::<NodeHello>(&body).unwrap(), hello);
-    }
-
-    #[test]
-    fn an_older_node_reads_a_welcome_that_offers_tools() {
-        // What a node from before `tools` knew.
-        #[derive(Debug, Deserialize)]
-        enum OldDown {
-            Welcome {},
-        }
-        let body = rmp_serde::to_vec_named(&Down::Welcome { tools: true }).unwrap();
-        assert!(matches!(
-            rmp_serde::from_slice::<OldDown>(&body),
-            Ok(OldDown::Welcome {})
-        ));
-        // And a newer node reads an older server's welcome.
-        #[derive(Serialize)]
-        enum Older {
-            Welcome {},
-        }
-        let body = rmp_serde::to_vec_named(&Older::Welcome {}).unwrap();
-        assert_eq!(
-            rmp_serde::from_slice::<Down>(&body).unwrap(),
-            Down::Welcome { tools: false }
-        );
-    }
-
-    #[test]
-    fn stats_round_trip_and_an_older_server_skips_them() {
-        let up = Up::Stats(StatsReport {
-            disks: vec![DiskUsage {
-                path: "/home/user".into(),
-                free_bytes: 212_000_000_000,
-                total_bytes: 500_000_000_000,
-            }],
-            memory_used_mb: 9_300,
-            memory_total_mb: 32_768,
-            load: Some(1.25),
-        });
-        let body = rmp_serde::to_vec_named(&up).unwrap();
-        assert_eq!(rmp_serde::from_slice::<Up>(&body).unwrap(), up);
-        // What a server from before `Up::Stats` knew: it fails to read the
-        // message, which its control loop skips.
-        #[derive(Debug, Deserialize)]
-        enum OldUp {
-            #[allow(dead_code)]
-            Env(EnvReport),
-        }
-        assert!(rmp_serde::from_slice::<OldUp>(&body).is_err());
     }
 }
 
@@ -335,20 +219,6 @@ mod stream {
     use beep_proto::node::*;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Serialize)]
-    struct NewerHello {
-        version: String,
-        name: String,
-        offers: Vec<String>,
-        workspace: Option<String>,
-        setup: Option<String>,
-        credentials: bool,
-        checkouts: bool,
-        agent_settings: bool,
-        branch_checkouts: bool,
-        added_later: u32,
-    }
-
     #[derive(Debug, PartialEq, Deserialize)]
     struct Pair {
         a: u8,
@@ -366,23 +236,6 @@ mod stream {
             caller: (mut tx, _),
             node: (_, mut rx),
         } = local_link();
-        tx.send(&NewerHello {
-            version: "9.0.0".into(),
-            name: "box".into(),
-            offers: vec!["shell/1".into()],
-            workspace: None,
-            setup: None,
-            credentials: true,
-            checkouts: true,
-            agent_settings: true,
-            branch_checkouts: true,
-            added_later: 5,
-        })
-        .await
-        .expect("sends");
-        let hello: NodeHello = rx.recv().await.expect("reads").expect("a message");
-        assert_eq!(hello.name, "box");
-        assert!(hello.branch_checkouts);
         tx.send(&NewerPair { a: 1, b: 2 }).await.expect("sends");
         assert_eq!(rx.recv::<Pair>().await.expect("reads"), Some(Pair { a: 1 }));
     }

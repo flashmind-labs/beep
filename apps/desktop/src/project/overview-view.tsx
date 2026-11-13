@@ -5,7 +5,7 @@ import { formatAgo, plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { itemChips, type GitItemRow } from "../center/openitems-state.ts";
 import { projectWindowProps, openProjects, setProjectOnTop } from "../center/sidebar.ts";
-import { agentLabel, foundSessions, parseFolded, type FoundRow, type OverviewCard, type Project } from "./projects-state.ts";
+import { agentLabel, foundSessions, parseFolded, type FoundRow, type Project } from "./projects-state.ts";
 import { searchOverview, type OverviewGroup } from "./overview-state.ts";
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
 import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.ts";
@@ -13,7 +13,7 @@ import { state } from "../center/state.ts";
 import { redrawProjects } from "./sections.ts";
 import { dialogOpen } from "../ui/parts.ts";
 
-type Group = OverviewGroup<Project, OverviewCard>;
+type Group = OverviewGroup<Project>;
 /// What the search field holds, kept while the user is on other pages.
 let kept = "";
 

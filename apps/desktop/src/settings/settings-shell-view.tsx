@@ -30,16 +30,15 @@ export function SettingsSection({ page, title, children }: { page: SettingsPage;
   return <section id={`set-${page}-sec`} data-sec={page}><div className="dsec flat top">{title}</div><div id={`set-${page}`} style={page === "general" || page === "mac" ? { display: "contents" } : {}}>{children}</div></section>;
 }
 
-/// A page drawn by its own code: Apps renders here as children, Machines and
-/// the embedded window views draw into `hostRef`.
-export function SettingsHost({ page, loading, hostRef, children }: { page: SettingsPage; loading: boolean; hostRef: Ref<HTMLDivElement>; children: ReactNode }) {
-  return <section id={`set-${page}-sec`} data-sec={page}><div className="dset-host" id={`set-${page}-host`} ref={hostRef}>{loading && <div className="dskel-rows">{[78, 56, 68].map(width => <div key={width} className="dskel" style={{ width: `${width}%` }} />)}</div>}{children}</div></section>;
+/// A page drawn by its own code: Machines and the embedded window views draw into `hostRef`.
+export function SettingsHost({ page, hostRef }: { page: SettingsPage; hostRef: Ref<HTMLDivElement> }) {
+  return <section id={`set-${page}-sec`} data-sec={page}><div className="dset-host" id={`set-${page}-host`} ref={hostRef} /></section>;
 }
 
-export function AgentSettingsSection({ linked, bar, accounts, overview }: { linked: boolean; bar: ReactNode; accounts: ReactNode; overview: ReactNode }) {
-  return <section id="set-agents-sec" data-sec="agents"><div className="dsec flat top">{linked ? "Agent accounts" : "Coding agents"}</div>
+export function AgentSettingsSection({ bar, accounts, overview }: { bar: ReactNode; accounts: ReactNode; overview: ReactNode }) {
+  return <section id="set-agents-sec" data-sec="agents"><div className="dsec flat top">Agent accounts</div>
     {bar !== null && <div id="set-agent-bar" style={{ display: "contents" }}>{bar}</div>}
-    {accounts !== null && <div id="set-agents">{accounts}</div>}
+    <div id="set-agents">{accounts}</div>
     {overview !== null && <div id="set-agent-overview" style={{ display: "contents" }}>{overview}</div>}
   </section>;
 }

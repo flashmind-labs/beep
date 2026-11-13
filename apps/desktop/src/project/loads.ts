@@ -5,14 +5,14 @@ import { retainedHost } from "./page-view.tsx";
 import { refreshMoves, moveStore } from "../agents/move-store.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
-// Reading a project page: its view, agent, machines and sessions, kept
-// fresh while the user moves between projects, and prefetched ahead.
+// Reading a project page: its machines, lists and sessions, kept fresh
+// while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
-import { failure, formatAgo, reason } from "../ui/format.ts";
+import { formatAgo, reason } from "../ui/format.ts";
 import { copy } from "../ui/parts.ts";
 import { type MenuItem } from "../ui/menu.ts";
 import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
-import { keyedReads, parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
+import { parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
 import type { RecentSessions } from "./split-view.tsx";
@@ -20,13 +20,12 @@ import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Projec
 import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
-import { agentFor, pageAgent, type ProjectAgent, type ProjectView } from "./agent.ts";
+import { localProjectId } from "./localid.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
 import { openUrl, refreshGit, replyItem } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.ts";
 import { projectRows, importSheet, addProject, importFromPage, loadFound } from "../center/sidebar.ts";
-import { loadOverview } from "./projects.ts";
-import { terms, fsync, revs, thr, runs, redrawProjects, redrawProjectsPage } from "./sections.ts";
+import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { drawProjects } from "./page.ts";
 import { refresh, onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.ts";
@@ -34,64 +33,6 @@ import type { RunningAgent } from "../agents/running-state.ts";
 import { syncRepairPrompt, agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
 import { openHandoff } from "./handoff.tsx";
 import { perfFresh } from "../ui/perf.ts";
-
-/// Each project's tasks, workers and chat, read one at a time per project
-/// and kept under the project they were asked for, so an answer for the
-/// project left behind never draws over the one opened since.
-const viewReads = keyedReads<ProjectView>({
-  read: name => {
-    const agent = agentFor(state.agents, name);
-    if (!agent) return Promise.reject(new Error(`${name} has no project agent`));
-    return invoke<ProjectView>("center_project", { projectId: agent.project_id, chatId: agent.chat_id });
-  },
-  got: (name, view) => {
-    state.pview.set(name, { view, error: null });
-    keep("view", name, view);
-  },
-  failed: (name, e) => state.pview.set(name, { view: state.pview.get(name)?.view ?? null, error: failure(e) }),
-  shown: () => (currentLocation()?.view === "projects" ? state.picked : null),
-  redraw: redrawProjectsPage,
-});
-
-/// Reads project `name`'s view when it has an agent; `after` asks for a
-/// read that starts after now, as once something changed.
-function loadView(name: string, after = false) {
-  return agentFor(state.agents, name) ? viewReads.load(name, after) : undefined;
-}
-
-/// Reads the project agents and, beside them, the picked project's tasks,
-/// workers and chat.
-let agentLoading = false, agentAgain = false;
-export async function loadProjectAgent(after = true) {
-  if (agentLoading) { agentAgain = true; return; }
-  agentLoading = true;
-  const picked = state.picked;
-  const early = picked ? loadView(picked, after) : undefined;
-
-  // The project agent needs a subscription: no panel, and no call to ask for one.
-  if (!state.subscribed) {
-    agentLoading = false;
-    state.agents = null;
-    if (state.picked && (state.picked !== picked || !early)) loadView(state.picked);
-    redrawProjectsPage();
-    return;
-  }
-
-  try {
-    state.agents = await invoke<ProjectAgent[] | null>("center_projects");
-  } catch (e) {
-    console.warn("project agents:", e);
-    if (state.agents === undefined) state.agents = null;
-  } finally {
-    agentLoading = false;
-  }
-
-  // A project whose agent was not known before reads now.
-  if (state.picked && (state.picked !== picked || !early)) loadView(state.picked);
-  // The header's Board and List switch shows once the project has an agent.
-  redrawProjectsPage();
-  if (agentAgain) { agentAgain = false; loadProjectAgent(); }
-}
 
 // ---------- Switching projects ----------
 
@@ -112,13 +53,13 @@ export function noteRecent(name: string) {
 const whereChanges = new Changes();
 const sessionChanges = new Changes();
 const termChanges = new Changes();
-const overviewChanges = new Changes();
+const foundChanges = new Changes();
 subscribeEach([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
 // Home changes with every session's state and with moves.
 subscribeEach(topic("home"), () => sessionChanges.changed());
 for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
 subscribeEach(topic("terminals"), () => termChanges.changed());
-subscribeEach(topic("projects"), () => overviewChanges.changed());
+subscribeEach(topic("projects"), () => foundChanges.changed());
 
 /// Marks what opening project `name` reads behind its kept page.
 export function markDue(name: string) {
@@ -138,16 +79,12 @@ function loadTerms(name: string) {
 /// what changed since it was read, and what no topic follows once it is
 /// old. The drawing asks for the rest as it is due.
 export function revalidate(name: string) {
-  // The page drew its kept view or sessions: time until both are read again.
-  const kept = pages.at("view", name) !== undefined || pages.at("sessions", name) !== undefined;
+  // The page drew its kept sessions: time until they are read again.
+  const kept = pages.at("sessions", name) !== undefined;
   const reads: (Promise<unknown> | undefined)[] = [];
-  if (pages.due("view", name, UNWATCHED_MS)) reads.push(loadView(name));
-  const agent = pageAgent(state.agents, name, state.subscribed);
-
-  if (agent) {
-    thr.ensure(agent.project_id);
-    runs.ensure(agent.project_id);
-  }
+  const id = localProjectId(name);
+  thr.ensure(id);
+  runs.ensure(id);
 
   loadTerms(name);
   fsync.ensure(name, UNWATCHED_MS);
@@ -156,11 +93,10 @@ export function revalidate(name: string) {
   if (kept && fresh.length) void Promise.allSettled(fresh).then(perfFresh("project"));
 }
 
-/// The Projects overview: the found checkouts and the task summaries, read
-/// the first time and after a project change.
+/// The Projects overview: the found checkouts, read the first time and after
+/// a project change.
 export function revalidateOverview() {
-  if (!state.found || overviewChanges.dirty("found")) { overviewChanges.read("found"); void loadFound(); }
-  if (state.overview === undefined || overviewChanges.dirty("overview")) { overviewChanges.read("overview"); void loadOverview(); }
+  if (!state.found || foundChanges.dirty("found")) { foundChanges.read("found"); void loadFound(); }
 }
 
 /// Reads project `name` ahead without drawing it: only what changed since
@@ -169,15 +105,9 @@ export function revalidateOverview() {
 function prefetch(name: string): Promise<unknown> {
   const p = (projectRows() || []).find(r => r.name === name);
   if (!p?.imported) return Promise.resolve();
-  const agent = pageAgent(state.agents, name, state.subscribed);
-  const reads: (Promise<unknown> | undefined)[] = [revs.ensure(name), pages.due("terminals", name) ? loadTerms(name) : undefined, fsync.ensure(name, UNWATCHED_MS)];
-
-  if (agent) {
-    if (agentFor(state.agents, name) && pages.due("view", name, UNWATCHED_MS)) reads.push(loadView(name));
-    // The code host's lists at their own pace: an ask keeps the server
-    // reading the host for that project a while.
-    reads.push(thr.ensure(agent.project_id), runs.ensure(agent.project_id));
-  }
+  const id = localProjectId(name);
+  // The code host's lists at their own pace.
+  const reads: (Promise<unknown> | undefined)[] = [pages.due("terminals", name) ? loadTerms(name) : undefined, fsync.ensure(name, UNWATCHED_MS), thr.ensure(id), runs.ensure(id)];
 
   if (whereChanges.dirty(name) && pages.due("where", name)) reads.push(loadWhere(name));
   if (sessionChanges.dirty(name) && pages.due("sessions", name)) reads.push(loadSessions(name));
@@ -221,28 +151,6 @@ export function prefetchRecentSoon() {
 /// A project's checkout on each machine, for the start form.
 export function projectPlaces(p: Project) {
   return p.machines.filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
-}
-
-/// What became of "Copy here", by project and machine.
-const copies = new Map<string, { state: "copying" | "already" | "failed"; text?: string }>();
-
-/// Copies `p` onto machine `m`; a server too old to clones instead.
-async function copyHere(p: Project, m: WhereRow, key: string) {
-  copies.set(key, { state: "copying" });
-  redrawProjectsPage();
-
-  try {
-    const copy = await invoke<{ folder: string; from: string | null } | null>("project_copy", { project: p.name, machineId: m.id });
-    copies.delete(key);
-    if (!copy) importSheet(repoFromRemote(p.url), m.id);
-    else if (!copy.from) copies.set(key, { state: "already" });
-    refresh();
-    await loadWhere(p.name);
-  } catch (e) {
-    copies.set(key, { state: "failed", text: reason(e) });
-  }
-
-  redrawProjectsPage();
 }
 
 /// The projects whose checkouts' branches are being read, and those to read
@@ -308,12 +216,10 @@ export function gitControls(p: Project, m: WhereRow, online: boolean) {
 }
 
 export function missingMachine(p: Project, m: WhereRow) {
-  const key = `${p.name}\n${m.id}`, copied = copies.get(key);
-  const text = copied?.text || m.text || "", title = m.kind === "none" && m.checked_at ? `Checked ${formatAgo(m.checked_at, "since")}` : "";
+  const text = m.text || "", title = m.kind === "none" && m.checked_at ? `Checked ${formatAgo(m.checked_at, "since")}` : "";
   let action: { label: string; disabled: boolean; run(): void } | null = null;
   if (!state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
     if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m, macId: state.mac?.id || null, added: () => { refresh(); loadWhere(p.name); } }) };
-    else if (m.kind === "none" && m.copy && copied?.state !== "failed") action = { label: copied ? "Copying…" : "Copy here", disabled: !!copied, run: () => void copyHere(p, m, key) };
     else if (m.kind === "none" && p.url) { const url = p.url; action = { label: "Clone here", disabled: false, run: () => importSheet(repoFromRemote(url), m.id) }; }
   }
   return { text, title, syncthing: m.kind === "none" ? m.syncthing ?? null : null, action };
@@ -370,7 +276,7 @@ async function readWhere(name: string) {
 
   try {
     const [machines, places] = await Promise.all([
-      invoke<ProjectMachineRow[] | null>("project_machines", { project: name }),
+      invoke<ProjectMachineRow[]>("project_machines", { project: name }),
       invoke<SyncthingPlace[]>("project_syncthing", { project: name }).catch(e => { console.warn("project syncthing:", e); return []; }),
     ]);
     got = withSyncthing(machines, places);

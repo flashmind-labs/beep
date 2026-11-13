@@ -9,7 +9,7 @@ use std::{fmt, str::FromStr};
 
 pub const PROTOCOL: &str = "desktop/1";
 
-/// What the server sends.
+/// What the caller sends.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {

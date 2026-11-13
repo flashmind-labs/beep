@@ -1,5 +1,4 @@
-// Settings, Credentials: git hosts (GitHub, one row per Forgejo server). API
-// keys are kept on the server only, never here.
+// Settings, Credentials: git hosts (GitHub, one row per Forgejo server).
 
 /// A saved credential (CredentialView), with what its kind adds.
 export type Credential = {
@@ -9,7 +8,7 @@ export type Credential = {
   env_var: string;
   /// Milliseconds since the Unix epoch.
   created_at: number;
-  /// The server can no longer open it: the row asks for it again.
+  /// Beep can no longer open it: the row asks for it again.
   unreadable?: boolean;
 } & ({ kind: "github" } | { kind: "forgejo"; url: string });
 
@@ -144,8 +143,8 @@ export function cliHost(key: string) {
 }
 
 
-/// The GitHub accounts: from `ListGitHubAccounts` when the server answered
-/// it, else the one GitHub row of the credentials list, as the default.
+/// The GitHub accounts: from `list_github_accounts` when it was read, else
+/// the one GitHub row of the credentials list, as the default.
 export function githubAccounts(state: CredState): GitHubAccount[] {
   if (Array.isArray(state.github)) return state.github;
   const row = (state.list ?? []).find(c => c.kind === "github");

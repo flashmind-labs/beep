@@ -2,14 +2,14 @@
 //! machines, and installing them.
 
 use crate::{
-    beep::Service,
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, agents, files as direct},
 };
 use beep_proto::{
-    Machine, ToolUpdate, UpdateMachineTool,
+    Machine, ToolUpdate,
     node::{
         harness::{harness, is_newer, parse_version},
+        setup::Need,
         tool_update::Tool,
     },
 };
@@ -22,8 +22,6 @@ use std::{
 };
 use tauri::State;
 
-/// How long a machine has to download and install a release.
-const UPDATE_LIMIT: Duration = Duration::from_secs(11 * 60);
 /// How long the newest coding agent releases found are kept.
 const RELEASES_FOR: Duration = Duration::from_secs(55 * 60);
 /// How long one npm registry lookup may take.
@@ -184,16 +182,11 @@ async fn agent_releases(packages: &BTreeSet<&'static str>) -> HashMap<&'static s
 /// Installs the newest `tool` on `machine_id`; gives the version installed.
 #[tauri::command]
 pub async fn update_machine_tool(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     tool: String,
 ) -> Result<String> {
-    let Some(machine) = fleet.member(&machine_id) else {
-        return beep
-            .call_within(UpdateMachineTool { machine_id, tool }, UPDATE_LIMIT)
-            .await;
-    };
+    let machine = fleet.machine(&machine_id)?;
     let Ok(named) = tool.parse::<Tool>() else {
         return update_agent(&fleet, machine, &tool).await;
     };
@@ -207,6 +200,20 @@ pub async fn update_machine_tool(
         .ok_or_else(|| DesktopError::BadRequest(format!("No update found for {named}.")))?;
     direct::update_tool(&fleet, machine, named, &latest).await?;
     Ok(latest)
+}
+
+/// Has `machine_id` install `need` (`git` or `node`) for its agents: `true`
+/// once installed, `false` when the system finishes it in a window of its
+/// own, such as the Xcode tools dialog on macOS.
+#[tauri::command]
+pub async fn machine_set_up(fleet: Machines<'_>, machine_id: String, need: Need) -> Result<bool> {
+    let machine = fleet
+        .member(&machine_id)
+        .ok_or_else(|| DesktopError::BadRequest("The machine is not in the mesh.".into()))?;
+    let client = fleet.client(machine).await?;
+    beep_mesh::machine::set_up(&client, need)
+        .await
+        .map_err(|e| DesktopError::BadRequest(format!("Could not install {need}: {e:#}")))
 }
 
 /// Updates coding agent `agent` on `machine`; gives the version it reports

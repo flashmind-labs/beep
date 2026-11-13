@@ -4,13 +4,14 @@
 //! process serves the mesh either way; the setting only lends it. On for a
 //! fresh install.
 
-use crate::{beep::Beep, machines::desktop, platform::logfile};
+use crate::{beep::state::Prefs, machines::desktop, platform::logfile};
 use beep_node::{
     agents::{mcp, skills::Skills},
     link::{self, Offers, listen_hooks, state::Search},
     machine::{provision::Provision, service::logs::Logs},
 };
 use beep_proto::node::desktop::{Permission, Permissions};
+use iroh::EndpointId;
 use serde::Serialize;
 use std::{
     future::pending,
@@ -165,10 +166,10 @@ impl Machine {
         &self.name
     }
 
-    pub fn view(&self, beep: &Beep) -> View {
-        let enabled = beep.use_mac();
+    pub fn view(&self, prefs: &Prefs, id: EndpointId) -> View {
+        let enabled = prefs.use_mac();
         View {
-            id: beep.id().to_string(),
+            id: id.to_string(),
             name: self.name.clone(),
             enabled,
             status: if enabled {
@@ -182,8 +183,8 @@ impl Machine {
 
     /// Lends this Mac to the other devices of the mesh, or not, to match the
     /// setting.
-    pub fn sync(&self, beep: &Beep) {
-        self.home.offers.lend_to_peers(beep.use_mac());
+    pub fn sync(&self, prefs: &Prefs) {
+        self.home.offers.lend_to_peers(prefs.use_mac());
     }
 }
 

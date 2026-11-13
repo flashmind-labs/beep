@@ -1,9 +1,8 @@
 //! The commands the Report a problem sheet calls: collect a draft, send it,
 //! and open the GitHub issue with the user's own `gh`. Sending signs with
-//! the device key and needs no server link.
+//! the device key.
 
 use crate::{
-    beep::Service,
     error::{DesktopError, Result},
     fleet::Fleet,
     machines::this_mac::Machine,
@@ -95,7 +94,7 @@ async fn reach(fleet: &Fleet, id: EndpointId, name: &str) -> Result<PeerClient, 
 /// Sends `draft` with `text`, signed by this Mac's key, straight to the
 /// report endpoint.
 #[tauri::command]
-pub async fn report_send(beep: Service<'_>, draft: Draft, text: String) -> Result<Sent> {
+pub async fn report_send(fleet: State<'_, Arc<Fleet>>, draft: Draft, text: String) -> Result<Sent> {
     // Redacting every file again and deflating them is CPU work: off the async workers.
     let body = spawn_blocking(move || -> Result<Vec<u8>, BundleError> {
         let mut draft = draft;
@@ -105,7 +104,7 @@ pub async fn report_send(beep: Service<'_>, draft: Draft, text: String) -> Resul
     .await?
     .map_err(anyhow::Error::from)?;
     let url = server_url().map_err(anyhow::Error::from)?;
-    let receipt = send(&url, body, &beep.device_key())
+    let receipt = send(&url, body, &fleet.secret_key())
         .await
         .map_err(anyhow::Error::from)?;
     Ok(Sent {

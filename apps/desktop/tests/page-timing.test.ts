@@ -27,10 +27,8 @@ test("page labels never include project or session arguments", () => {
   assert.equal(pageName("pane", { draft: { project: "private" } }), "agent");
   assert.equal(pageName("pane", "private"), "pane");
   assert.equal(pageName("projects", { project: "private" }), "projects");
-  assert.equal(pageName("pane", "chats"), "chats");
-  assert.equal(pageName("pane", "invite-phone"), "invite-phone");
-  assert.equal(pageName("pane", "appperms"), "appperms");
-  assert.equal(pageName("pane", "mcp"), "mcp");
+  assert.equal(pageName("pane", "agents"), "agents");
+  assert.equal(pageName("pane", "settings"), "settings");
 });
 
 test("the view selected by the completed mount names the timing", () => {

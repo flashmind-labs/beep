@@ -6,11 +6,7 @@ import { join } from "node:path";
 /// Commands Rust registers that nothing in src calls yet. Wire one up or
 /// delete it from Rust, then remove it here.
 // add_branch_worktree belonged to the retired branches panel, which had no callers after Git history replaced it.
-const UNCALLED = ["add_branch_worktree", "agent_preview", "center_open_project", "center_project_send", "mesh_command", "mesh_remove", "open_center"];
-
-/// The one name built at run time: orb.ts calls `${act}_notice`, and `act` is
-/// "play", "open" or "dismiss".
-const BUILT = ["dismiss_notice", "open_notice", "play_notice"];
+const UNCALLED = ["add_branch_worktree", "agent_preview", "center_open_project", "mesh_command", "mesh_remove", "open_center"];
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e => {
@@ -57,7 +53,7 @@ function calls() {
 }
 
 /// Every quoted lowercase word in src. Commands also reach `invoke` through
-/// helpers (`loadList("list_skills")`, a `cmd` parameter), so a registered name
+/// helpers (`snapshotView("center_project_run")`, a `cmd` parameter), so a registered name
 /// that appears quoted anywhere counts as called.
 function quoted() {
   return new Set(sources("src").flatMap(f => [...readFileSync(f, "utf8").matchAll(/["']([a-z][a-z0-9_]*)["']/g)].map(m => m[1])));
@@ -71,12 +67,7 @@ test("every invoked command is registered in generate_handler", () => {
 
 test("every registered command is called, or listed in UNCALLED", () => {
   const used = quoted();
-  const idle = registered().filter(n => !used.has(n) && !BUILT.includes(n));
+  const idle = registered().filter(n => !used.has(n));
   assert.deepEqual(idle.filter(n => !UNCALLED.includes(n)), [], "registered but never called");
   assert.deepEqual(UNCALLED.filter(n => !idle.includes(n)), [], "listed in UNCALLED but now called or gone");
-});
-
-test("every name in BUILT is a registered command", () => {
-  const reg = new Set(registered());
-  assert.deepEqual(BUILT.filter(n => !reg.has(n)), []);
 });

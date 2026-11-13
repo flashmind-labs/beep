@@ -123,19 +123,11 @@ pub(crate) fn listen(app: &AppHandle) {
         crate::center::home_sessions::HOME_CHANGED,
         "sessions-changed",
         "agent-title-changed",
-        "work-question",
-        "work-resolved",
-        "group-approval",
-        "approval-answered",
         "reconnected",
     ] {
         let handle = app.clone();
         app.listen(event, move |_| changed(handle.clone(), Topic::new("home")));
     }
-    let handle = app.clone();
-    app.listen("link-state", move |_| {
-        changed(handle.clone(), Topic::new("*"))
-    });
 }
 
 /// Source reads may wait for node projections, so they run outside the stream reader.
@@ -450,12 +442,12 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             append(
                 &mut views,
                 "list_machines",
-                crate::machines::list::list_machines(app.clone(), app.state(), app.state()).await,
+                crate::machines::list::list_machines(app.state()).await,
             );
             views.extend(View::new(
                 "mac_control",
                 json!({}),
-                crate::bar::app::mac_control(app.state(), app.state()),
+                crate::bar::app::mac_control(app.state(), app.state(), app.state()),
             ));
         }
         "projects" => {
@@ -467,14 +459,13 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             append(
                 &mut views,
                 "project_groups",
-                crate::projects::groups::project_groups(app.state(), app.state(), app.state())
-                    .await,
+                crate::projects::groups::project_groups(app.state(), app.state()).await,
             );
         }
         "sync" => append(
             &mut views,
             "project_sync",
-            crate::projects::file_sync::project_sync(app.state(), app.state(), app.state()).await,
+            crate::projects::file_sync::project_sync(app.state(), app.state()).await,
         ),
         "usage" => append(
             &mut views,

@@ -11,7 +11,7 @@
 //! `term <machine> <cwd|-> <command>`, `diff <machine> <root>`,
 //! `read <machine> <root> <path>`, `bench <n> list|read <machine> [root path]`,
 //! `exec <machine> <command>`, `import <repo> <machine> [folder]`,
-//! `syncset <project> <machine>=<folder>...`, `syncstatus`,
+//! `syncset <project> <machine>=<folder>...`, `syncstatus [project]`,
 //! `remove <machine>`, `quit`.
 //!
 //! A ticket is written to `<dir>/ticket-<label>`, never printed.
@@ -34,7 +34,6 @@ use beep_proto::node::{
     mesh_state::{StateValue, SyncSpec},
     process::TaskId,
     status::{self, Report},
-    sync::{PROTOCOL as SYNC, Reply as SyncReply, Request as SyncRequest},
     terminal::{Reply as TermReply, Request as TermRequest, Size},
 };
 use beep_proto::port::bind_endpoint;
@@ -95,7 +94,6 @@ fn key_in(dir: &Path) -> Result<SecretKey> {
 struct Driver {
     dir: PathBuf,
     mesh: Mesh,
-    me: EndpointId,
     desk: Desk,
     sessions: HashMap<String, Opened>,
 }
@@ -372,27 +370,24 @@ impl Driver {
                     .await?;
                 println!("sync spec for {project} written to the mesh");
             }
-            ["syncstatus"] => {
-                for d in self.mesh.devices() {
-                    if !d.online || d.device.id == self.me {
+            ["syncstatus", only @ ..] => {
+                // The desktop's view: every machine in each spec, offline ones too.
+                for project in self.desk.sync().await {
+                    if only.first().is_some_and(|only| *only != project.project) {
                         continue;
                     }
 
-                    let Ok(client) = beep_mesh::with_deadline(d.device.id, &self.mesh).await else {
-                        continue;
-                    };
-                    let reply: Result<SyncReply, _> =
-                        client.call(SYNC, &SyncRequest::Status {}).await;
-                    match reply {
-                        Ok(SyncReply::Status { projects }) => {
-                            for p in projects {
-                                println!(
-                                    "  {} {} {:?} files={} pending={} err={:?}",
-                                    d.device.name, p.name, p.state, p.files, p.pending, p.error
-                                );
-                            }
-                        }
-                        other => println!("  {} sync: {other:?}", d.device.name),
+                    for m in project.machines {
+                        let status: &'static str = m.status.into();
+                        println!(
+                            "  {} {} {status} files={} pending={} conflicts={} error={}",
+                            project.project,
+                            m.machine_name,
+                            m.files,
+                            m.pending,
+                            m.conflicts.len(),
+                            m.error.as_deref().unwrap_or("-").replace(' ', "_"),
+                        );
                     }
                 }
             }
@@ -556,7 +551,6 @@ async fn main() -> Result<()> {
     let mut driver = Driver {
         dir,
         mesh,
-        me,
         desk,
         sessions: HashMap::new(),
     };

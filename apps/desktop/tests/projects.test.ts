@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
 import { START, folderUnder, projectUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { awaitsView, foundFor, mergeProjects, plainPath, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
+import { foundFor, mergeProjects, plainPath, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
 import { overviewGroups, overviewSub } from "../src/project/overview-state.ts";
-import type { RunningAgent, RunningRow } from "../src/agents/running-state.ts";
+import type { RunningAgent } from "../src/agents/running-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },
@@ -18,7 +18,6 @@ test("agents in an imported checkout count for it; others are no project", () =>
     agent("m1", "/srv/work/projects/org/app/.worktrees/fix", 80),
     agent("m2", "/Users/u/code/notes", 30),
     agent("m9", "/home/x/app", 5),
-    { kind: "research", topic: "x" } as RunningRow,
   ]);
   assert.deepEqual(rows.map(r => r.name), ["org/app"]);
   assert.equal(rows[0].agents, 2);
@@ -143,7 +142,7 @@ test("a project's sessions redraw only when a read brings a different list", () 
   assert.deepEqual(nextSessions(undefined, null), { list: [], changed: true });
 });
 
-test("an old server's page lists the imported folders", () => {
+test("a page whose machines are not read yet lists the imported folders", () => {
   const rows = whereRows({ machines: [{ id: "m1", name: "build-box", folder: "/srv/app" }] }, null, null);
   assert.deepEqual(rows, [{ kind: "here", id: "m1", name: "build-box", folder: "/srv/app", mac: false }]);
   assert.equal(whereCount(rows, false), "1 machine");
@@ -237,15 +236,6 @@ test("a card names what keeps its project in step", () => {
   assert.equal(syncedBy("st", held, [{ syncthing: "Work" }]), "Syncthing");
 });
 
-test("a project's page waits, not the agentless layout, until its agents are known", () => {
-  const p = { name: "org/app", imported: true };
-  assert.equal(awaitsView(p, undefined), true);
-  assert.equal(awaitsView(p, [{ name: "org/app" }]), true);
-  assert.equal(awaitsView(p, [{ name: "org/other" }]), false);
-  assert.equal(awaitsView(p, null), false);
-  assert.equal(awaitsView({ ...p, imported: false }, undefined), false);
-});
-
 test("a repository's found checkout matches whatever the case of its name", () => {
   const row = { name: "Org/App", remote: "org/app", places: [], agents: [], last_activity: 0 };
   assert.equal(foundFor([row], "org/app"), row);
@@ -296,7 +286,7 @@ test("the header has one button per forge, the project's own first, one per serv
 });
 
 
-test("overview cards keep local groups, pins and live agents without task summaries", () => {
+test("overview cards keep local groups, pins and live agents", () => {
   const rows = [
     { name: "acme/widget", machines: [{ folder: "~/work/widget" }], agents: 2 },
     { name: "acme/relay", machines: [], agents: 1 },
@@ -304,26 +294,16 @@ test("overview cards keep local groups, pins and live agents without task summar
     { name: "notes", machines: [], agents: 0 },
   ];
 
-  for (const summaries of [undefined, null, []]) {
-    const groups = overviewGroups(rows, summaries, ["acme/pines"], [field]);
-    assert.deepEqual(groups.map(g => [g.group?.name ?? g.org, g.cards.map(c => c.name)]), [
-      ["work", ["acme/widget"]],
-      ["acme", ["acme/pines", "acme/relay"]],
-      [null, ["notes"]],
-    ]);
-    assert.equal(groups[0].cards[0].repo, "acme/widget");
-    assert.equal(groups[1].cards[0].pinned, true);
-    assert.ok(groups.flatMap(g => g.cards).every(c => c.sum === null));
-    assert.equal(overviewSub(groups), "4 projects in 1 group and 1 org, 3 agents running");
-  }
-});
-
-test("overview headings use task workers when available, without counting agents twice", () => {
-  const rows = [{ name: "acme/widget", agents: 5 }, { name: "acme/relay", agents: 2 }];
-  const groups = overviewGroups(rows, [{ name: "acme/widget", workers: 1 }], [], []);
-  assert.equal(overviewSub(groups), "2 projects in 1 org, 3 workers running");
-  assert.equal(overviewSub(overviewGroups(rows, [{ name: "acme/widget", workers: 0 }], [], [])), "2 projects in 1 org, 2 workers running");
-  assert.equal(overviewSub(overviewGroups<{ name: string; agents: number }>([{ name: "notes", agents: 0 }], null, [], [])), "1 project, no agents running");
+  const groups = overviewGroups(rows, ["acme/pines"], [field]);
+  assert.deepEqual(groups.map(g => [g.group?.name ?? g.org, g.cards.map(c => c.name)]), [
+    ["work", ["acme/widget"]],
+    ["acme", ["acme/pines", "acme/relay"]],
+    [null, ["notes"]],
+  ]);
+  assert.equal(groups[0].cards[0].repo, "acme/widget");
+  assert.equal(groups[1].cards[0].pinned, true);
+  assert.equal(overviewSub(groups), "4 projects in 1 group and 1 org, 3 agents running");
+  assert.equal(overviewSub(overviewGroups<{ name: string; agents: number }>([{ name: "notes", agents: 0 }], [], [])), "1 project, no agents running");
 });
 
 test("project lists a moved conversation once with its target title and state", () => {

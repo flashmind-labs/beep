@@ -1,6 +1,6 @@
 //! `files/1`: files on a node, inside the folders its owner shared in
 //! `node.toml`. A node offers it only when it shares some. Each request gets
-//! one `Reply`, in order, on a stream that stays open until the server closes
+//! one `Reply`, in order, on a stream that stays open until the caller closes
 //! it. A path is absolute, or relative to the first shared folder; the node
 //! refuses anything that resolves outside the shared folders, symlinks
 //! included.
@@ -12,7 +12,7 @@ pub const PROTOCOL: &str = "files/1";
 /// The most bytes one `Read` returns or one `Write` takes.
 pub const MAX_CHUNK: u32 = 4 * 1024 * 1024;
 
-/// What the server sends.
+/// What the caller sends.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {

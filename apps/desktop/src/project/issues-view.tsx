@@ -3,7 +3,6 @@ import { LabelGroup, Row } from "./split-view.tsx";
 import type { LabelFilter, SplitItem } from "./split.ts";
 
 interface Props {
-  error: string | null;
   items: readonly SplitItem[];
   filter: LabelFilter;
   controls: ReactNode;
@@ -13,9 +12,8 @@ interface Props {
   openTile: (key: string) => void;
 }
 
-export function ProjectIssues({ error, items, filter, controls, start, selection, pick, openTile }: Props) {
+export function ProjectIssues({ items, filter, controls, start, selection, pick, openTile }: Props) {
   return <>
-    {error && <div className="cc-note"><span className="ddot bad"/><span className="cc-err">Could not refresh the project: {error}</span></div>}
     {controls}
     <LabelGroup filter={filter}/>
     <div className="pj-rows">{items.map(item => {

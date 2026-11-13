@@ -8,25 +8,22 @@ import { invoke, recordTiming } from "../ui/tauri.ts";
 import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
-import { chatProject, shortName } from "../project/agent.ts";
-import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName, state } from "./state.ts";
+import { shortName } from "../project/agent.ts";
+import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName } from "./state.ts";
 import { drawSide, openProjects, projectRows } from "./sidebar.ts";
 import { instructionsView, openSettings, providersView } from "../settings/sheet.ts";
-import { paneView, threadChats } from "./threadcard.ts";
+import { paneView } from "./pane.ts";
 import { homeView } from "./home.ts";
 import { ProjectsPage, projectsView } from "../project/page.ts";
 import { SyncRoute, syncView } from "../project/syncpage.ts";
-import { ResearchList, researchView } from "../research/page.ts";
-import { ResearchOpenPage, researchOpenView } from "../research/open.ts";
 import { TerminalsPage, terminalsView } from "../terminals/view.ts";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
-import { viewHidden } from "../settings/subscription.ts";
-import { G, S } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
 import { canGoBack, syncMobile } from "./mobile.ts";
 import { placeWindowParts } from "./window-root.ts";
 import { shell, windowHost } from "./window-shell.tsx";
-import { movePlaying } from "../ui/motion.ts";
+import { movePlaying, swipePlaying, type Swipe } from "../ui/motion.ts";
 
 let currentPage: Location | null = null;
 
@@ -39,20 +36,18 @@ function viewOf(name: ViewName): CenterView {
     case "sync": return syncView;
     case "instructions": return instructionsView;
     case "providers": return providersView;
-    case "research": return researchView;
-    case "researchopen": return researchOpenView;
     case "terminals": return terminalsView;
   }
 }
 
 /// The pages after Home and the pane, in the order their boxes follow them in `#main`.
-const PAGES = ["projects", "sync", "instructions", "providers", "research", "researchopen", "terminals"] as const;
+const PAGES = ["projects", "sync", "instructions", "providers", "terminals"] as const;
 type Page = typeof PAGES[number];
 const boxes = new Map<Page, HTMLElement>();
 const keepBox = Object.fromEntries(PAGES.map(name => [name, (el: HTMLDivElement | null) => { if (el) boxes.set(name, el); else boxes.delete(name); }]));
 /// How often each page drew; 0 leaves its box empty.
 const shown = createStore<{ drawn: Record<Page, number> }>(() => ({
-  drawn: { projects: 0, sync: 0, instructions: 0, providers: 0, research: 0, researchopen: 0, terminals: 0 },
+  drawn: { projects: 0, sync: 0, instructions: 0, providers: 0, terminals: 0 },
 }));
 
 /// Draws page `name` in its box again, or empties the box.
@@ -77,8 +72,6 @@ const PageContent = memo(function PageContent({ name }: { name: Page; drawn: num
   switch (name) {
     case "projects": return createElement(ProjectsPage);
     case "sync": return createElement(SyncRoute);
-    case "research": return createElement(ResearchList);
-    case "researchopen": return createElement(ResearchOpenPage);
     case "terminals": return createElement(TerminalsPage);
     case "instructions": case "providers": return null;
   }
@@ -107,25 +100,13 @@ function opensAgent(arg: PaneTarget): arg is Extract<PaneTarget, { agent: unknow
 /// The project a project window shows alone; null in the main window.
 export let windowProject: string | null = null;
 export function setWindowProject(name: string | null) { windowProject = name; }
-/// Chats this project window opened from its page, such as a PR's, kept
-/// in it before the thread chats list has them.
-export const ownChats = new Set<string>();
 
 /// What a project window keeps for itself; null in the main window.
 function windowScope(): ProjectScope | null {
   const project = windowProject;
   if (!project) return null;
   const p = (projectRows() || []).find(r => r.name === project);
-  return {
-    project,
-    chatProject: s => chatProject(state.agents, s)?.name ?? threadChats?.get(s)?.project ?? (ownChats.has(s) ? project : null),
-    folders: p?.machines ?? [],
-  };
-}
-
-/// Opens research `session` as a page of the window.
-export function openResearch(session: string) {
-  return go("researchopen", { session });
+  return { project, folders: p?.machines ?? [] };
 }
 
 /// Shows `target` in the main window, bringing it up.
@@ -164,6 +145,9 @@ export function currentLocation(): Location | null {
   return currentPage;
 }
 
+/// Whether there is a page to go back or forward to.
+export const hasHistory = (forward: boolean) => pages.has(forward);
+
 /// Goes one page back (⌘[) or forward (⌘]), if there is one; false when there is none.
 export function goHistory(forward: boolean): boolean {
   const current = currentLocation();
@@ -185,27 +169,18 @@ export function goHistory(forward: boolean): boolean {
 export function go(...[name, arg]: NavigationArgs): boolean {
   switch (name) {
     case "home": return goTo({ view: name, arg: null });
-    case "research": return goTo({ view: name, arg: null });
     case "sync": return goTo({ view: name, arg: null });
     case "terminals": return goTo({ view: name, arg: null });
     case "pane": return goTo({ view: name, arg: arg ?? null });
     case "projects": return goTo({ view: name, arg: arg ?? null });
     case "providers": return goTo({ view: name, arg: arg ?? null });
     case "instructions": return goTo({ view: name, arg: arg ?? null });
-    case "researchopen": return goTo({ view: name, arg });
   }
 }
 
 export function goTo(target: Location): boolean {
   const page = withReturnTarget(target, currentLocation());
   const { view: name, arg } = page;
-
-  // A link to a page only a subscription has lands on Home, and a new or old chat on the
-  // agent's start form.
-  if (viewHidden(name, arg, state.subscribed, S.server)) {
-    const chat = !!arg && typeof arg === "object" && "chat" in arg;
-    return chat ? go("pane", { agentnew: { prompt: "" } }) : go("home");
-  }
 
   if (route(windowScope(), page) === "main") {
     toMain(mainTarget(page));
@@ -253,12 +228,15 @@ function pageMotion(phone: boolean, back: boolean, hasBack: boolean): PageMotion
   return hasBack ? "push" : "fade";
 }
 
-const MOTION: Record<PageMotion, { frames: Keyframe[]; ms: number }> = {
+const MOTION: Record<PageMotion | Swipe, { frames: Keyframe[]; ms: number }> = {
   // Opacity only, so popovers measured while it plays land where they belong. It starts
   // half drawn and short, so the page reads as there at once.
   fade: { frames: [{ opacity: .5 }, { opacity: 1 }], ms: 100 },
   push: { frames: [{ opacity: .6, transform: "translateX(28%)" }, { opacity: 1, transform: "none" }], ms: 240 },
   pop: { frames: [{ opacity: .6, transform: "translateX(-22%)" }, { opacity: 1, transform: "none" }], ms: 220 },
+  // A swiped page comes in from the side the last one left room on.
+  back: { frames: [{ opacity: .3, transform: "translateX(-56px)" }, { opacity: 1, transform: "none" }], ms: 200 },
+  forward: { frames: [{ opacity: .3, transform: "translateX(56px)" }, { opacity: 1, transform: "none" }], ms: 200 },
 };
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -269,7 +247,7 @@ function animateIn(box: HTMLElement, back: boolean) {
   if (reduceMotion.matches || document.hidden || move === "next") return;
   const phone = document.body.classList.contains("mobile");
   // A card growing into the head, or back, carries the eye: the page under it only fades.
-  const { frames, ms } = MOTION[move ? "fade" : pageMotion(phone, back, phone && canGoBack())];
+  const { frames, ms } = MOTION[swipePlaying() ?? (move ? "fade" : pageMotion(phone, back, phone && canGoBack()))];
   for (const running of box.getAnimations()) running.cancel();
   box.animate(frames, { duration: ms, easing: "cubic-bezier(.2, .8, .2, 1)" });
 }
@@ -292,7 +270,7 @@ export function drawTop() {
   const view = currentPage ? viewOf(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
   const project = windowProject;
-  const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? [S.view, S.session, G.id] : null]);
+  const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? S.view : null]);
   placeWindowParts({
     "project-back": project ? createElement("button", { type: "button", className: "dbtn small pw-back", id: "pw-back", title: `Back to ${project} (esc)`, hidden: currentPage?.view === "projects", onClick: () => void openProjects(project) }, shortName(project)) : null,
     title: head.title || "Beep",

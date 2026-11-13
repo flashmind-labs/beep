@@ -36,10 +36,10 @@ const AGENT_MOCK = (() => {
         <div class="ag-f"><span>Machine</span><div class="dchips">${machines}</div><span class="note">${note}</span>${why}</div>
         <div class="ag-f"><span>Folder</span><div class="box mono${chosen ? "" : " ph"}">${chosen ? "/srv/project" : none ? "Workspace or home folder" : "Workspace or home folder"}</div></div>
         <div class="ag-f"><span>Agent</span><div class="dchips">${agents}</div></div>
-        <div class="ag-acts"><button class="dbtn pri"${none ? " disabled" : ` data-dgo="dAgentSession" data-dact="dset:ags:working"`}>Start<kbd>⌘${DI.ret}</kbd></button><button class="dbtn quiet" data-dgo="dWinChat">Cancel</button><span class="hint">Or ask Beep in a chat to start one</span></div>
+        <div class="ag-acts"><button class="dbtn pri"${none ? " disabled" : ` data-dgo="dAgentSession" data-dact="dset:ags:working"`}>Start<kbd>⌘${DI.ret}</kbd></button><button class="dbtn quiet" data-dgo="dHome">Cancel</button></div>
       </div>`;
     const help = none ? `<div class="cc-panel ag-none"><b>No machine can run an agent yet</b>
-        <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Run <code>beep-node link</code> there.</li><li>Paste the link it prints into a chat here.</li></ol>
+        <ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Open Machines, then Add a machine, and run the command it gives you there.</li></ol>
         <div class="ag-acts"><button class="dbtn" data-dgo="dMachines">Machines settings</button></div></div>` : "";
     return ccWin(ccSidePj("agents"), `<div class="cc-top"><h2>Start a coding agent</h2><small>It runs on your machine; follow it and answer it here</small><span class="tools"><button class="dbtn" data-dgo="dAgents">All sessions</button></span></div>
       <div class="cc-view"><div class="ag-wrap">${form}${help}</div></div>

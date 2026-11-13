@@ -1,7 +1,5 @@
 // ---- Desktop: projects in the command center window (#136) ----
-// One Beep agent per project acts as its project manager: it plans tasks, mirrors them as issues and runs each
-// as a Claude Code or Codex worker in its own worktree on a machine that fits. The overview lists projects;
-// a project shows its tasks, its workers and the project chat.
+// The overview lists projects; a project shows its coding agents, machines, PRs and issues.
 (() => {
   const st = document.createElement("style");
   st.textContent = `.mac .pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px }
@@ -14,12 +12,7 @@
 .mac .pj-card .line { font-size: 12px; color: var(--d-muted); line-height: 17px; overflow-wrap: anywhere }
 .mac .pj-card .line b { color: var(--d-fg); font-weight: 500 }
 .mac .pj-card .line.sync { font-size: 11px; color: var(--d-dim) }
-.mac .pj-bar { display: flex; height: 5px; border-radius: 5px; overflow: hidden; background: var(--d-elev); gap: 2px }
-.mac .pj-bar i { display: block; height: 100% }
 .mac .pj-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start }
-.mac .pj-machs { display: flex; flex-wrap: wrap; gap: 6px }
-.mac .pj-mach { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 999px; border: 1px solid var(--d-border); background: var(--d-elev); font-size: 12px; color: var(--d-fg) }
-.mac .pj-mach small { color: var(--d-muted); font-size: 11px }
 .mac .pj-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 8px 12px; align-items: center }
 .mac .pj-task + .pj-task { border-top: 1px solid var(--d-border) }
 .mac .pj-task .t { font-size: 13px; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -27,8 +20,6 @@
 .mac .pj-task .m a { color: #8A9CF0; text-decoration: none }
 .mac .pj-task .acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap }
 .mac .pj-task.ask { background: rgba(242,201,76,.06) }
-.mac .pj-label { font: inherit; font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--d-border); background: none; color: var(--d-muted); cursor: pointer; margin-left: 4px }
-.mac .pj-label.on { color: var(--d-text); border-color: #8A9CF0; background: rgba(138,156,240,.12) }
 .mac .pj-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 7px 11px; border-bottom: 1px solid var(--d-border) }
 .mac .pj-labels .lbl, .mac .pj-labels small { font-size: 11px; color: var(--d-muted) }
 .mac .pj-st { font-size: 10.5px; font-weight: 600; padding: 0 7px; line-height: 17px; border-radius: 999px; border: 1px solid var(--d-border); color: var(--d-muted); white-space: nowrap; display: inline-flex; gap: 6px; align-items: center }
@@ -38,18 +29,6 @@
 .mac .pj-st.done { color: var(--d-dim) }
 .mac .pj-st.dropped { color: var(--d-dim); text-decoration: line-through }
 .mac .pj-st .dspin { width: 9px; height: 9px }
-.mac .pj-tree { padding: 6px 0 }
-.mac .pj-node { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 9px; padding: 6px 10px; align-items: start }
-.mac .pj-node.child { margin-left: 18px; padding-left: 14px; border-left: 1px solid var(--d-border) }
-.mac .pj-node .t { display: grid; line-height: 17px; min-width: 0 }
-.mac .pj-node .t b { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-node .t span { font-size: 11.5px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-node .out { grid-column: 2; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: rgba(227,228,230,.75); background: var(--d-ink); border: 1px solid var(--d-border); border-radius: 6px; padding: 4px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-plan { display: grid; gap: 6px; padding: 10px; border-radius: 8px; border: 1px solid var(--d-border); background: var(--d-elev) }
-.mac .pj-plan b { font-size: 13px }
-.mac .pj-plan ol { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 12.5px }
-.mac .pj-plan ol small { color: var(--d-muted) }
-.mac .pj-issue .t a { color: #8A9CF0; text-decoration: none; margin-right: 2px }
 .mac .pj-start { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: center; margin-top: 4px; font-size: 12px }
 .mac .pj-start .lbl { color: var(--d-muted) }
 .mac .pj-start .seg { display: flex; flex-wrap: wrap; gap: 4px }
@@ -57,11 +36,6 @@
 .mac .pj-start .seg button[aria-pressed="true"] { background: rgba(94,106,210,.26); border-color: rgba(94,106,210,.55) }
 .mac .pj-start code { justify-self: start }
 .mac .pj-start .acts { grid-column: 1 / -1 }
-.mac .pj-chk { color: var(--d-muted) }
-.mac .pj-chk.run { color: var(--d-emerald); display: inline-flex; gap: 6px; align-items: center }
-.mac .pj-chk.bad, .mac .pj-task .m a.pj-chk.bad { color: #F2C94C }
-.mac .pj-host { display: inline-block; font-size: 10.5px; line-height: 15px; padding: 0 5px; margin-right: 6px; border: 1px solid var(--d-line, rgba(255,255,255,.14)); border-radius: 4px; color: var(--d-muted); vertical-align: 1px; font-weight: 500 }
-.mac .cc-sec small.hosterr { color: #F2C94C }
 .mac .pj-run { grid-column: 1 / -1; display: grid; gap: 8px; margin-top: 6px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--d-border); background: var(--d-elev) }
 .mac .pj-jobs { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12px; align-items: baseline }
 .mac .pj-jobs b { font-weight: 500 } .mac .pj-jobs b.bad { color: #F2C94C } .mac .pj-jobs small { color: var(--d-muted) }
@@ -70,10 +44,6 @@
 .mac .pj-step small { color: var(--d-muted) } .mac .pj-step.bad { color: #F2C94C } .mac .pj-step.skip { color: var(--d-dim) }
 .mac .pj-log small { color: var(--d-muted); font-size: 11px }
 .mac .pj-log pre { margin: 4px 0 0; padding: 8px; border-radius: 7px; background: rgba(0,0,0,.25); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; max-height: 220px; overflow: auto }
-.mac .pj-draft { grid-column: 1 / -1; display: grid; gap: 6px; margin-top: 4px; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--d-border); background: var(--d-elev) }
-.mac .pj-draft small { color: var(--d-muted); font-size: 11px }
-.mac .pj-draft .q { font-size: 12.5px; line-height: 18px; border-left: 2px solid rgba(94,106,210,.6); padding-left: 9px }
-.mac .pj-draft .acts { display: flex; gap: 6px }
 .mac .cc-org { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px; padding: 3px 8px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 11.5px; text-align: left; color: var(--d-muted); cursor: pointer }
 .mac .cc-org:hover { color: var(--d-fg) }
 .mac .cc-org .twist { flex: none; width: 10px; display: grid; place-items: center; color: var(--d-dim) }
@@ -108,10 +78,10 @@
 })();
 
 const PJ = [
-  { name: "acme/widget", color: "var(--d-coral)", tasks: { running: 2, review: 1, blocked: 0, planned: 2, done: 7 }, issues: 3, workers: 2, at: 60, machines: "build-box, mac-box", sync: "Beep sync", last: "Bump the sync crate: its PR waits for your review<small> · 1 h</small>" },
-  { name: "acme/relay", pin: true, color: "#6FA8DC", tasks: { running: 1, review: 0, blocked: 1, planned: 0, done: 3 }, issues: 1, workers: 1, at: 12, machines: "build-box", sync: "Syncthing", last: "fix-clippy is blocked<small> · 12 min</small>" },
-  { name: "northwind/pines", color: "#B18CE0", tasks: { running: 0, review: 0, blocked: 0, planned: 1, done: 2 }, workers: 0, at: 2880, machines: "gpu-box", last: "Next: Rebuild the index on gpu-box<small> · 2 d</small>" },
-  { name: "northwind/a-very-long-project-name-that-needs-more-room-than-a-card", color: "#7BC47F", tasks: { running: 0, review: 0, blocked: 0, planned: 0, done: 0 }, workers: 0, at: 30, machines: "gpu-box", sync: "Beep sync", last: "No tasks yet" },
+  { name: "acme/widget", color: "var(--d-coral)", issues: 3, workers: 2, at: 60, machines: "build-box, mac-box", sync: "Beep sync", last: "Codex: bump the sync crate<small> · 1 h</small>" },
+  { name: "acme/relay", pin: true, color: "#6FA8DC", issues: 1, workers: 1, at: 12, machines: "build-box", sync: "Syncthing", last: "Claude Code on fix-clippy needs you<small> · 12 min</small>" },
+  { name: "northwind/pines", color: "#B18CE0", workers: 0, at: 2880, machines: "gpu-box", last: "Claude Code rebuilt the index on gpu-box<small> · 2 d</small>" },
+  { name: "northwind/a-very-long-project-name-that-needs-more-room-than-a-card", color: "#7BC47F", workers: 0, at: 30, machines: "gpu-box", sync: "Beep sync", last: "No agents yet" },
 ];
 // Projects are grouped by GitHub org (or user); inside a group only the repo name shows.
 const PJ_ORGS = () => [...new Set(PJ.map(p => p.name.split("/")[0]))].map(org => ({ org, repos: PJ.filter(p => p.name.startsWith(org + "/")) }));
@@ -123,29 +93,23 @@ const pjHead = (key, label, cur, repos, cls = "") => {
   return `<button class="cc-org${cls}" aria-expanded="${!folded}"${folded && repos.some(p => p.name === cur) ? ' aria-current="true"' : ""} data-dact="dset:pjfold:${folded ? "" : key}"><span class="twist${folded ? "" : " open"}">${PJ_TWIST}</span>${label}</button>`;
 };
 const pjSideOrgs = cur => PJ_ORGS().map(g => ({ ...g, repos: g.repos.filter(p => !p.pin) })).filter(g => g.repos.length).map(g => pjHead(g.org, `${g.org}/`, cur, g.repos) + (S.d.pjfold === g.org ? "" : g.repos.map(p => pjRow(cur, p)).join(""))).join("");
-const PJ_COLORS = { running: "var(--d-emerald)", review: "#8A9CF0", blocked: "#F2C94C", planned: "#5D6168", done: "#2A2B2E" };
 
-// The sidebar's Projects group lists real projects once the server answers ListProjects.
+// The sidebar's Projects group lists the projects of the mesh.
 const pjRow = (cur, p, full) => `<button class="cc-si${full ? "" : " pj-repo"}"${cur === p.name ? ' aria-current="true"' : ""} data-dgo="dWinProject"><span class="cc-pdot" style="background:${p.color}"></span><span class="tt">${full ? p.name : pjRepo(p)}</span>${p.workers ? `<span class="n">${p.workers}</span>` : ""}<span class="pa" role="button" aria-label="${p.pin ? "Unpin" : "Pin to top"}" data-toast="${p.pin ? "Unpinned " : "Pinned "}${p.name}">${DI.pin}</span></button>`;
 const ccSidePj = (cur, o = {}) => ccSide(cur, o).replace(/<div class="cc-grp"><h3>Projects<\/h3>[\s\S]*?<\/div>/,
-  o.old ? "" : `<div class="cc-grp"><h3><a class="cc-h3l" href="#" data-dgo="dWinProjects" title="All projects">Projects</a><button aria-label="Add a project" data-dgo="dAddProject">${CC_IC.plus}</button></h3>
+  `<div class="cc-grp"><h3><a class="cc-h3l" href="#" data-dgo="dWinProjects" title="All projects">Projects</a><button aria-label="Add a project" data-dgo="dAddProject">${CC_IC.plus}</button></h3>
     ${pjSideOrgs(cur)}
 </div>`);
 
 D.dWinProjects = () => {
   const empty = S.d.pjs === "empty";
-  const local = S.d.pjs === "local";
   const card = p => {
-    const open = p.tasks.running + p.tasks.review + p.tasks.blocked + p.tasks.planned;
-    const total = open + p.tasks.done;
-    return `<button class="pj-card" data-dgo="dWinProject"><div class="h"><span class="cc-pdot" style="background:${p.color}"></span><b title="${p.name}">${pjRepo(p)}</b><span class="pa" role="button" aria-label="${p.pin ? "Unpin" : "Pin to top"}" data-toast="${p.pin ? "Unpinned " : "Pinned "}${p.name}" style="display:grid;color:${p.pin ? "var(--d-coral)" : "var(--d-dim)"}">${DI.pin}</span><small>${p.workers ? p.workers + (local ? (p.workers === 1 ? " agent" : " agents") : (p.workers === 1 ? " worker" : " workers")) : "idle"}</small></div>
-      ${local ? `<span class="line">${p.workers ? "Last activity 12 min ago" : "No recent activity"}</span><span class="line sync">on build-box, mac-box</span>` : `<div class="pj-bar">${Object.entries(p.tasks).filter(([, n]) => n).map(([k, n]) => `<i style="width:${n / total * 100}%;background:${PJ_COLORS[k]}" title="${n} ${k}"></i>`).join("")}</div>
-      <span class="line"><b>${open} open</b>${p.tasks.review ? ` · ${p.tasks.review} in review` : ""}${p.tasks.blocked ? ` · ${p.tasks.blocked} blocked` : ""} · ${p.tasks.done} done</span>
-      <span class="line">${p.last}</span>`}
+    return `<button class="pj-card" data-dgo="dWinProject"><div class="h"><span class="cc-pdot" style="background:${p.color}"></span><b title="${p.name}">${pjRepo(p)}</b><span class="pa" role="button" aria-label="${p.pin ? "Unpin" : "Pin to top"}" data-toast="${p.pin ? "Unpinned " : "Pinned "}${p.name}" style="display:grid;color:${p.pin ? "var(--d-coral)" : "var(--d-dim)"}">${DI.pin}</span><small>${p.workers ? p.workers + (p.workers === 1 ? " agent" : " agents") : "idle"}</small></div>
+      <span class="line">${p.workers ? "Last activity 12 min ago" : "No recent activity"}</span><span class="line sync">on ${p.machines}</span>
       ${p.sync ? `<span class="line sync">${p.sync}</span>` : ""}</button>`;
   };
   // Search filters by name, folder and remote across groups; inside a group,
-  // pinned first, then the most recent activity (agent sessions, visits, tasks).
+  // pinned first, then the most recent activity (agent sessions, visits).
   const q = S.d.pjs === "search" ? "relay" : S.d.pjs === "nomatch" ? "zzz" : "";
   const find = empty ? "" : `<label class="pj-find"><input type="search" placeholder="Search projects" aria-label="Search projects" value="${q}"></label>`;
   const orgs = PJ_ORGS().map(g => ({ ...g, repos: g.repos.filter(p => p.name.includes(q)) })).filter(g => g.repos.length);
@@ -166,6 +130,6 @@ D.dWinProjects = () => {
       ${[["retry-flag", "PR #812 · needs reply", "build-box", ".worktrees/retry-flag", 1], ["fix-windows-paths", "pushed 2 weeks ago, no PR", "", "", 0], ["main", "default branch", "build-box", "/srv/uploader", 1]].map(([b, meta, m, wt, has]) =>
         `<div class="pj-task" style="padding:6px 0"><span class="t"><code>${b}</code></span>${has ? `<span class="pj-st running" style="color:var(--d-muted);border-color:var(--d-border)">${m}</span>` : ""}<span class="m"><span>${meta}</span>${has ? `<span>${wt}</span>` : ""}</span>${has ? "" : `<span class="pj-start"><span class="lbl">Worktree</span><span class="seg"><button aria-pressed="true">build-box</button><button>mac-box</button><button>Skip</button></span></span>`}</div>`).join("")}
       <span class="acts" style="display:flex;gap:6px"><button class="dbtn pri" data-toast="Imported; worktree for fix-windows-paths created on build-box">Import<kbd>⌘${DI.ret}</kbd></button><button class="dbtn quiet" data-toast="Cancelled">Cancel</button></span></div>`;
-  return ccWin(ccSidePj("projects"), `<div class="cc-top"><h2>Projects</h2><small>${empty ? "" : (local ? "4 projects in 2 orgs, 3 agents running" : "4 projects in 2 orgs, 3 workers running")}</small></div><div class="cc-view">${imp ? importCard : ""}${body}${empty ? "" : apFoundSection()}${outside}</div>`);
+  return ccWin(ccSidePj("projects"), `<div class="cc-top"><h2>Projects</h2><small>${empty ? "" : "4 projects in 2 orgs, 3 agents running"}</small></div><div class="cc-view">${imp ? importCard : ""}${body}${empty ? "" : apFoundSection()}${outside}</div>`);
 };
-VARIANTS.dWinProjects = [["Projects", "list"], ["Without task summaries", "local"], ["None yet", "empty"], ["Import with branches", "import"], ["Search", "search"], ["Search without a match", "nomatch"]].map(([l, k]) => [l, () => { S.d.pjs = k; render(); }, () => (S.d.pjs || "list") === k]);
+VARIANTS.dWinProjects = [["Projects", "list"], ["None yet", "empty"], ["Import with branches", "import"], ["Search", "search"], ["Search without a match", "nomatch"]].map(([l, k]) => [l, () => { S.d.pjs = k; render(); }, () => (S.d.pjs || "list") === k]);

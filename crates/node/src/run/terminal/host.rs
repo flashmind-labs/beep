@@ -48,7 +48,7 @@ const IDLE_EXIT: Duration = Duration::from_secs(10);
 const START_WAIT: Duration = Duration::from_secs(10);
 /// How often it looks meanwhile.
 const START_POLL: Duration = Duration::from_millis(25);
-/// The most connections served at once: one per stream of the server's.
+/// The most connections served at once: one per stream of the caller's.
 const MAX_CONNECTIONS: usize = 64;
 
 /// The node's folder, where its host listens.

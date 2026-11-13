@@ -3,7 +3,7 @@
 
 use crate::{Mesh, MeshError};
 use beep_proto::node::events::{Read, Value};
-use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, link_on, local_link};
+use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, local_link};
 use futures::Stream;
 use futures::stream::unfold;
 use iroh::EndpointId;
@@ -176,7 +176,7 @@ impl PeerClient {
                         .open_bi()
                         .await
                         .map_err(|e| MeshError::Link(e.into()))?;
-                    Ok(link_on(&connection, send, recv))
+                    Ok(link(send, recv))
                 })
             })),
             peer: Some(peer),
@@ -193,7 +193,6 @@ impl PeerClient {
             via: Via::Peer(Arc::new(move || {
                 let mesh = mesh.clone();
                 Box::pin(async move {
-                    // Mesh streams are always compact.
                     let (send, recv) = mesh
                         .open_bi(peer)
                         .await
@@ -432,7 +431,7 @@ impl PeerClient {
                     .open_bi()
                     .await
                     .map_err(|error| MeshError::Link(error.into()))?;
-                let (mut tx, rx) = link_on(connection, send, recv);
+                let (mut tx, rx) = link(send, recv);
                 tx.send(&beep_proto::node::commands::Open::Session {
                     protocol: protocol.to_owned(),
                 })
@@ -667,5 +666,5 @@ async fn open_connection(connection: &Connection) -> Result<(LinkTx, LinkRx), Me
         .await
         .map_err(|error| MeshError::Link(error.into()))?
         .map_err(|error| MeshError::Link(error.into()))?;
-    Ok(link_on(connection, send, recv))
+    Ok(link(send, recv))
 }

@@ -1,6 +1,7 @@
-// HTML source and its preview share a file tab.
+// HTML source and its preview share a file tab. A link in a reply opens it
+// in Preview; Source switches to the code.
 (() => {
-  let preview = false;
+  let preview = true;
   D.dHtmlPreview = () => {
     const previous = S.d.ags;
     S.d.ags = 'filetext';

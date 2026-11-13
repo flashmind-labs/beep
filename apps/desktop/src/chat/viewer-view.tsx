@@ -1,26 +1,22 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { commandKey } from "../ui/platform.ts";
-import { hostOf } from "../settings/apps.ts";
+import { useLayoutEffect, useRef, useState } from "react";
+import { commandKey, revealLabel } from "../ui/platform.ts";
 import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
-import { fileKind, fileSize, GONE_PIC, loadPic, viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
+import { viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
 import { useDialogRef } from "../ui/parts.ts";
 import { pinchStep, zoomAt, type ImageView, type Touches } from "../agentpane/media-state.ts";
 
 function ViewerImage({ picture }: { picture: ViewerPic }) {
-  const file = picture.file;
-  const [url, setUrl] = useState<string | null>(file ? null : picture.url);
   const [gone, setGone] = useState(false);
-  useEffect(() => {
-    if (!file) return;
-    let active = true;
-    void loadPic(file.id, file.mime).then(value => { if (active) { if (value) setUrl(value); else setGone(true); } });
-    return () => { active = false; };
-  }, [file?.id, file?.mime]);
   const zoom = usePinchZoom();
-  return gone ? <div className="dmuted dcenter dfill">{GONE_PIC}</div> : <img ref={zoom} alt={picture.caption ?? ""} src={url ?? undefined} onError={() => setGone(true)} />;
+  return gone ? <div className="dmuted dcenter dfill">Picture no longer available</div> : <img ref={zoom} alt={picture.caption ?? ""} src={picture.url} onError={() => setGone(true)} />;
+}
+
+/// The host of `url`, or `url` when it has none.
+function hostOf(url: string) {
+  try { return new URL(url).host; } catch { return url; }
 }
 
 /// Two fingers zoom the picture about their midpoint and one pans it while
@@ -71,9 +67,9 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
   const picture = pictures[at], many = pictures.length > 1;
   const close = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { close.current?.focus(); }, [at]);
-  const name = picture.file ? picture.file.name : picture.name || hostOf(picture.url);
-  const about = [many ? `${at + 1} of ${pictures.length}` : "", picture.file ? [fileKind(picture.file), picture.file.size ? fileSize(picture.file.size) : ""].filter(Boolean).join(", ") : ""].filter(Boolean).join(" · ");
-  const keeps = !!picture.file || !!picture.saves, dialog = useDialogRef();
+  const name = picture.name || hostOf(picture.url);
+  const about = many ? `${at + 1} of ${pictures.length}` : "";
+  const keeps = !!picture.saves, dialog = useDialogRef();
   const keys: [string, string][] = [...(many ? [["← →", "move"] as [string, string]] : []), ...(keeps ? [["⌘S", "save"] as [string, string], ["⌘C", "copy"] as [string, string]] : []), ["esc", "close"]];
   return <div ref={dialog} className="dover dviewer" id="viewer" role="dialog" aria-modal="true" aria-label={name} onKeyDown={event => {
     event.stopPropagation();
@@ -89,5 +85,5 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
 }
 
 export function ViewerNotice({ text, path, bad }: { text: string; path: string | null; bad: boolean }) {
-  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <button className="dbtn" onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>Show in Finder</button>}</div>;
+  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <button className="dbtn" onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>{revealLabel()}</button>}</div>;
 }

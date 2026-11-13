@@ -1,11 +1,10 @@
 //! Msgpack messages on one stream of the node link.
 
-use super::control::NODE_ALPN_NAMED;
 use crate::lenient;
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
-use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::endpoint::{RecvStream, SendStream};
 use serde::{Serialize, de::DeserializeOwned};
 use std::io;
 use std::pin::Pin;
@@ -71,21 +70,9 @@ impl AsyncRead for In {
     }
 }
 
-/// How a `LinkTx` writes a struct.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Encoding {
-    /// An array of its fields, read by position.
-    Compact,
-    /// A map with the field names, which only the link to a server of the
-    /// `beep-node/1` kind needs: released nodes and servers read maps, and
-    /// skip a field they do not know only when it is named.
-    Named,
-}
-
 /// Sends messages on one stream of the node link.
 pub struct LinkTx {
     framed: FramedWrite<Out, LengthDelimitedCodec>,
-    encoding: Encoding,
 }
 
 /// Reads messages from one stream of the node link.
@@ -111,11 +98,11 @@ pub fn local_link() -> LocalLink {
     let (node_writes, from_node) = duplex(LOCAL_BUFFER);
     LocalLink {
         caller: (
-            LinkTx::new(Out::Local(to_node), Encoding::Compact),
+            LinkTx::new(Out::Local(to_node)),
             LinkRx(FramedRead::new(In::Local(from_node), codec())),
         ),
         node: (
-            LinkTx::new(Out::Local(node_writes), Encoding::Compact),
+            LinkTx::new(Out::Local(node_writes)),
             LinkRx(FramedRead::new(In::Local(node_reads), codec())),
         ),
     }
@@ -123,39 +110,21 @@ pub fn local_link() -> LocalLink {
 
 /// A stream whose messages are compact, as every stream of the mesh is.
 pub fn link(send: SendStream, recv: RecvStream) -> (LinkTx, LinkRx) {
-    link_encoded(send, recv, Encoding::Compact)
-}
-
-/// A stream of `connection`, written the way its protocol is: maps on
-/// `beep-node/1`, compact otherwise.
-pub fn link_on(connection: &Connection, send: SendStream, recv: RecvStream) -> (LinkTx, LinkRx) {
-    let encoding = match connection.alpn() {
-        NODE_ALPN_NAMED => Encoding::Named,
-        _ => Encoding::Compact,
-    };
-    link_encoded(send, recv, encoding)
-}
-
-fn link_encoded(send: SendStream, recv: RecvStream, encoding: Encoding) -> (LinkTx, LinkRx) {
     (
-        LinkTx::new(Out::Net(send), encoding),
+        LinkTx::new(Out::Net(send)),
         LinkRx(FramedRead::new(In::Net(recv), codec())),
     )
 }
 
 impl LinkTx {
-    fn new(out: Out, encoding: Encoding) -> Self {
+    fn new(out: Out) -> Self {
         Self {
             framed: FramedWrite::new(out, codec()),
-            encoding,
         }
     }
 
     pub async fn send<T: Serialize>(&mut self, message: &T) -> Result<()> {
-        let body = match self.encoding {
-            Encoding::Compact => rmp_serde::to_vec(message)?,
-            Encoding::Named => rmp_serde::to_vec_named(message)?,
-        };
+        let body = rmp_serde::to_vec(message)?;
         self.framed.send(Into::<Bytes>::into(body)).await?;
         Ok(())
     }
@@ -176,12 +145,6 @@ impl LinkTx {
 }
 
 impl LinkRx {
-    /// Reads no message longer than `max` bytes from now on, such as a
-    /// hello from a key nobody linked yet; `MAX_FRAME` is the default.
-    pub fn set_max_frame(&mut self, max: usize) {
-        self.0.decoder_mut().set_max_frame_length(max);
-    }
-
     /// The next message, `None` once the peer finished the stream.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
         self.recv_with(lenient::from_slice).await
@@ -204,7 +167,3 @@ impl LinkRx {
         Ok(Some(message))
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/node_stream.rs"]
-mod tests;

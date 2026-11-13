@@ -1,16 +1,15 @@
-//! The machines' agent sessions for Home. The server asks every machine for
+//! The machines' agent sessions for Home. Home asks every machine for
 //! them, so one slow machine would hold all of Home back: Home waits a
 //! moment, then draws with the last list, and the answer that comes later
 //! has it draw again.
 
 use crate::{
     agents::sessions::machine_sessions,
-    beep::{AsyncMutex, Beep},
     center::cache_view,
     center::view_cache::{View, ViewCache},
     error::{DesktopError, Result},
-    fleet::Fleet,
-    machines::list::Outside,
+    fleet::{AsyncMutex, Fleet},
+    machines::list::MachineLists,
 };
 use anyhow::anyhow;
 use beep_proto::{
@@ -36,7 +35,7 @@ pub const HOME_CHANGED: &str = "home-changed";
 
 pub struct AgentSessions {
     last: Mutex<Option<Listed>>,
-    /// Held while the server is asked, so only one ask runs at a time.
+    /// Held while the machines are asked, so only one ask runs at a time.
     asking: Arc<AsyncMutex<()>>,
 }
 
@@ -69,7 +68,7 @@ impl AgentSessions {
                 sessions,
             }),
             Some(Err(e)) => {
-                // Only a head start: the server's list replaces it.
+                // Only a head start: the machines' list replaces it.
                 log::info!("the saved agent sessions do not parse: {e}");
                 None
             }
@@ -137,10 +136,9 @@ impl AgentSessions {
     pub async fn list(
         self: &Arc<Self>,
         app: &AppHandle,
-        beep: &Arc<Beep>,
         cache: &Arc<ViewCache>,
     ) -> Result<Vec<MachineSession>> {
-        let mut sessions = self.list_cached(app, beep, cache).await?;
+        let mut sessions = self.list_cached(app, cache).await?;
         // A presence event may have arrived while the cached read was in flight.
         app.state::<Arc<Fleet>>().apply_presence(&mut sessions);
         sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
@@ -150,7 +148,6 @@ impl AgentSessions {
     async fn list_cached(
         self: &Arc<Self>,
         app: &AppHandle,
-        beep: &Arc<Beep>,
         cache: &Arc<ViewCache>,
     ) -> Result<Vec<MachineSession>> {
         let last = self.last().clone();
@@ -176,22 +173,20 @@ impl AgentSessions {
 
             return Ok(machine_sessions(
                 app,
-                beep,
                 &app.state::<Arc<Fleet>>(),
-                &app.state::<Outside>(),
+                &app.state::<MachineLists>(),
             )
             .await);
         };
         let (tx, rx) = oneshot::channel();
         let me = self.clone();
         let app = app.clone();
-        let beep = beep.clone();
         let fleet = app.state::<Arc<Fleet>>().inner().clone();
         let cache = cache.clone();
         tauri::async_runtime::spawn(async move {
             let _asking = asking;
             let listed: Result<Vec<MachineSession>> =
-                Ok(machine_sessions(&app, &beep, &fleet, &app.state::<Outside>()).await);
+                Ok(machine_sessions(&app, &fleet, &app.state::<MachineLists>()).await);
             let answered = listed.is_ok();
 
             if let Ok(sessions) = &listed {

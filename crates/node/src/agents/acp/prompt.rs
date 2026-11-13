@@ -52,9 +52,8 @@ impl Prompt {
         })
     }
 
-    /// A prompt with images, refused as the server refuses it: too many,
-    /// too large, or not the image it says it is. The node checks again
-    /// because a server is not the only thing that can reach it.
+    /// A prompt with images, refused when there are too many, they are too
+    /// large, or one is not the image it says it is.
     pub(in crate::agents) fn with_images(
         text: String,
         images: Vec<Upload>,

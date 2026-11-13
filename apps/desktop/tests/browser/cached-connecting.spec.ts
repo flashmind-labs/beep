@@ -3,7 +3,7 @@ import { openDesktop } from "./harness.ts";
 
 const card = (online: boolean, connecting: boolean) => ({ id: "build-box", name: "build-box", online, connecting, can_host: true, joined: true, seen_at: 1, version: "", env: null, apps: [], gpus: [], capabilities: [], agents: 1, stats: null });
 const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Fix the build script", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } as const;
-const home = (online: boolean, connecting: boolean) => ({ machines: [card(online, connecting)], projects: [], running: [agent], needs_you: [], coming_up: null, updates: null });
+const home = (online: boolean, connecting: boolean) => ({ machines: [card(online, connecting)], projects: [], running: [agent], needs_you: [] });
 
 /// Holds `command` from the first call until `window.release(command)`.
 async function holdFromStart(page: Page, command: string) {

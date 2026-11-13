@@ -20,34 +20,34 @@ test("a section is due until read, then again after the refresh time", () => {
   assert.equal(cache.due("threads", "p1"), true);
   // Another project and another section are their own.
   assert.equal(cache.due("threads", "p2"), true);
-  assert.equal(cache.due("branches", "p1"), true);
+  assert.equal(cache.due("runs", "p1"), true);
 });
 
 test("restoring keeps what was read since, when newer", () => {
   const c = clock();
   const cache = new PageCache(null, c.tick);
-  cache.put("view", "p", "read now");
+  cache.put("where", "p", "read now");
   const file = { format: PAGE_CACHE_FORMAT, account: "a", slots: {
-    "view\np": { data: "saved", at: c.now - 1000, used: c.now - 1000 },
-    "view\nq": { data: "saved q", at: c.now - 1000, used: c.now - 1000 },
+    "where\np": { data: "saved", at: c.now - 1000, used: c.now - 1000 },
+    "where\nq": { data: "saved q", at: c.now - 1000, used: c.now - 1000 },
   } };
   cache.restore(file, "a");
   assert.equal(cache.account, "a");
-  assert.equal(cache.get("view", "p"), "read now");
-  assert.equal(cache.get("view", "q"), "saved q");
+  assert.equal(cache.get("where", "p"), "read now");
+  assert.equal(cache.get("where", "q"), "saved q");
 });
 
 test("a saved cache comes back for its account only", () => {
   const c = clock();
   const cache = new PageCache("acct-a", c.tick);
-  cache.put("view", "org/repo", { tasks: [1] });
+  cache.put("sessions", "org/repo", { tasks: [1] });
   cache.put("where", "org/repo", [{ id: "m" }]);
   const file = JSON.parse(JSON.stringify(cache.toFile()));
 
   const again = PageCache.from(file, "acct-a", c.tick);
-  assert.deepEqual(again.get("view", "org/repo"), { tasks: [1] });
+  assert.deepEqual(again.get("sessions", "org/repo"), { tasks: [1] });
   assert.deepEqual(again.get("where", "org/repo"), [{ id: "m" }]);
-  assert.equal(again.at("view", "org/repo"), c.now);
+  assert.equal(again.at("where", "org/repo"), c.now);
 
   assert.equal(PageCache.from(file, "acct-b", c.tick).size, 0);
   assert.equal(PageCache.from(file, null, c.tick).size, 0);
@@ -56,12 +56,12 @@ test("a saved cache comes back for its account only", () => {
 test("a file of another format, a broken one or unknown sections start empty", () => {
   const c = clock();
   const slot = { data: 1, at: c.now, used: c.now };
-  assert.equal(PageCache.from({ format: PAGE_CACHE_FORMAT + 1, account: "a", slots: { "view\np": slot } }, "a", c.tick).size, 0);
+  assert.equal(PageCache.from({ format: PAGE_CACHE_FORMAT + 1, account: "a", slots: { "where\np": slot } }, "a", c.tick).size, 0);
   assert.equal(PageCache.from("nonsense", "a", c.tick).size, 0);
   assert.equal(PageCache.from(null, "a", c.tick).size, 0);
-  const mixed = PageCache.from({ format: PAGE_CACHE_FORMAT, account: "a", slots: { "view\np": slot, "later\np": slot, "where\nq": { data: 1 } } }, "a", c.tick);
+  const mixed = PageCache.from({ format: PAGE_CACHE_FORMAT, account: "a", slots: { "where\np": slot, "later\np": slot, "where\nq": { data: 1 } } }, "a", c.tick);
   assert.equal(mixed.size, 1);
-  assert.equal(mixed.get("view", "p"), 1);
+  assert.equal(mixed.get("where", "p"), 1);
 });
 
 test("eviction keeps the most recently used within the slot and size caps", () => {
@@ -90,12 +90,12 @@ test("saving drops what does not fit from memory too, and using a slot keeps it"
 test("sign-out and another account clear it", () => {
   // Learning the account of data read before keeps it.
   const early = new PageCache(null);
-  early.put("view", "p", 1);
+  early.put("where", "p", 1);
   early.setAccount("a");
   assert.equal(early.size, 1);
 
   const cache = new PageCache("a");
-  cache.put("view", "p", 1);
+  cache.put("where", "p", 1);
   cache.takeChanged();
   cache.setAccount("a");
   assert.equal(cache.size, 1);
@@ -103,7 +103,7 @@ test("sign-out and another account clear it", () => {
   assert.equal(cache.size, 0);
   assert.equal(cache.account, "b");
   assert.equal(cache.takeChanged(), true);
-  cache.put("view", "p", 1);
+  cache.put("where", "p", 1);
   cache.setAccount(null);
   assert.equal(cache.size, 0);
   assert.equal(cache.toFile(), null);

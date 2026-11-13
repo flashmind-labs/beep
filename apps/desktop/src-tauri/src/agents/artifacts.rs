@@ -19,7 +19,6 @@
 
 use crate::{
     agents::files::read_part,
-    beep::Beep,
     chat::markdown,
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
@@ -262,7 +261,6 @@ pub enum ArtifactView {
 /// ready to show.
 #[tauri::command]
 pub async fn agent_artifact(
-    beep: State<'_, Arc<Beep>>,
     fleet: Machines<'_>,
     pages: State<'_, Pages>,
     machine_id: String,
@@ -294,7 +292,7 @@ pub async fn agent_artifact(
     } else {
         String::new()
     };
-    let (data, size) = read_whole(&beep, &fleet, machine_id, root, path).await?;
+    let (data, size) = read_whole(&fleet, machine_id, root, path).await?;
     Ok(match kind {
         Kind::Html => ArtifactView::Html {
             size,
@@ -346,7 +344,6 @@ pub async fn agent_artifacts_present(
 /// All of `path` in `root`, a part at a time, and its size; refused past
 /// `MAX_ARTIFACT`.
 async fn read_whole(
-    beep: &Beep,
     fleet: &Fleet,
     machine_id: String,
     root: String,
@@ -358,7 +355,6 @@ async fn read_whole(
     loop {
         let offset = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
         let part = read_part(
-            beep,
             fleet,
             ReadWorkFile {
                 machine_id: machine_id.clone(),
@@ -502,8 +498,8 @@ impl FileRead {
 }
 
 /// A file beside a page, read whole through the Files tab's read path.
-pub async fn read_sibling(beep: &Beep, fleet: &Fleet, file: Sibling) -> Result<Vec<u8>> {
-    let (data, _) = read_whole(beep, fleet, file.machine_id, file.root, file.path).await?;
+pub async fn read_sibling(fleet: &Fleet, file: Sibling) -> Result<Vec<u8>> {
+    let (data, _) = read_whole(fleet, file.machine_id, file.root, file.path).await?;
     Ok(data)
 }
 

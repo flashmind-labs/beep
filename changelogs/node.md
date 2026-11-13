@@ -2,6 +2,50 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.16] - 2026-11-13
+
+### Fixed
+
+- beep-node: problem reports from builds without a configured server go to the
+  report receiver instead of the product website.
+
+## [0.6.15] - 2026-11-12
+
+### Added
+
+- Node: installs Node.js into its own folder without an admin password, and
+  Git with Homebrew or the Xcode tools on macOS or winget on Windows, when a
+  desktop asks during setup.
+
+### Changed
+
+- Node: resuming a Claude Code session whose folder was deleted names that
+  folder and says to recreate it.
+
+## [0.6.14] - 2026-11-12
+
+### Added
+
+- Node: serves audio files to the desktop's agent pane, so they play there.
+
+### Fixed
+
+- Node: images a Claude Code subagent took load in its parent session's log
+  after the node restarts, instead of staying empty tiles.
+
+## [0.6.13] - 2026-11-12
+
+### Changed
+
+- Node: agents learn that file paths relative to their folder open in the
+  desktop's file pane at the line given, and that videos, 3D models and the
+  files they write show there too.
+
+### Performance
+
+- Node: desktops and phones fetch media files from chats over iroh-blobs, so
+  an unchanged file is not sent again.
+
 ## [0.6.12] - 2026-11-12
 
 ### Changed

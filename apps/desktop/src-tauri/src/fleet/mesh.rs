@@ -20,7 +20,7 @@ use std::{
 };
 
 /// The mesh in `dir`, or a new one with this Mac, a desktop, as its first
-/// device. No account or server comes into it.
+/// device. No account comes into it.
 pub(super) async fn open_or_create(
     dir: &Path,
     endpoint: &Endpoint,

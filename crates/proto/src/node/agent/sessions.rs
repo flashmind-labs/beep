@@ -8,7 +8,7 @@ use super::{
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 
-/// What the server sends on an `agents/1` stream: one request, one reply.
+/// What the caller sends on an `agents/1` stream: one request, one reply.
 /// A node older than a request closes the stream or answers `Error`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::IntoStaticStr)]
 #[non_exhaustive]
@@ -20,7 +20,7 @@ pub enum SessionsRequest {
         session: String,
         last: u32,
         /// Keep the agent's thoughts, as `EntryKind::Thought` entries. A
-        /// server from before them leaves it out and gets none, so it
+        /// caller from before them leaves it out and gets none, so it
         /// never shows a thought as an unknown entry.
         #[serde(default)]
         thoughts: bool,
@@ -43,7 +43,7 @@ pub enum SessionsRequest {
         session: Option<String>,
     },
     /// Follows these external sessions: `Watching` first, then `Activity`
-    /// as they finish turns or wait for the user, until the server closes
+    /// as they finish turns or wait for the user, until the caller closes
     /// the stream.
     Watch {
         sessions: Vec<String>,
@@ -88,16 +88,14 @@ pub enum SessionsRequest {
     UpdateHarness {
         agent: String,
     },
-    /// Sends each picture a running session's transcript newly shows, as
-    /// `SessionImage` replies, until the server closes the stream; the server
-    /// keeps them so they show while the node is offline. Pictures that came
-    /// while no stream was open wait, a bounded few.
+    /// Refused: no current caller follows pictures. Kept so the request
+    /// numbers stay.
     FollowImages {},
     /// Sends what each finished turn spent, as `TurnUsage` replies, and how
     /// much of each agent's plan is left, as `PlanUsage` replies (all of them
-    /// first, then each time one changes), until the server closes the stream.
+    /// first, then each time one changes), until the caller closes the stream.
     /// Turns that ended while no stream was open wait, a bounded few. On this
-    /// stream the server may later send `RefreshPlanUsage`; anything else is
+    /// stream the caller may later send `RefreshPlanUsage`; anything else is
     /// its goodbye.
     FollowUsage {
         /// Also sends what sessions spent as the agents' own logs on the
@@ -118,8 +116,7 @@ pub enum SessionsRequest {
         path: String,
         offset: u64,
     },
-    /// The folder `path` inside the working folder `root`, as `ListWorkFolder`
-    /// asks it. Answered with `Folder`, or `Error` saying why, for a path
+    /// The folder `path` inside the working folder `root`. Answered with `Folder`, or `Error` saying why, for a path
     /// outside `root` among others.
     Folder {
         root: String,
@@ -149,18 +146,18 @@ pub enum SessionsRequest {
         data: Vec<u8>,
     },
     /// The custom agents the harnesses define for the project folder `folder`
-    /// and in the node's home, as `ListCustomAgents` asks them. Answered with
+    /// and in the node's home. Answered with
     /// `CustomAgents`, or `Error` saying why.
     CustomAgents {
         folder: String,
     },
     /// Sends what the user would want to hear about the node's sessions, as
-    /// `Alert` replies, until the server closes the stream: a question a
+    /// `Alert` replies, until the caller closes the stream: a question a
     /// session asks, a turn that ended with no prompt queued behind it, and a
     /// session that failed. Alerts that came while no stream was open wait, a
     /// bounded few.
     FollowAlerts {},
-    /// What changed in the checkout `ask.root`, as `GetWorkDiff` asks it.
+    /// What changed in the checkout `ask.root`.
     /// Answered with `Diff`, or `Error` saying why.
     Diff {
         ask: DiffAsk,
@@ -333,6 +330,13 @@ pub enum SessionsRequest {
     ExternalNamed {
         sessions: Vec<ExternalAsk>,
     },
+    /// Lets the asking device fetch the media file `path`, absolute or
+    /// starting `~/`, from the node's blob store for a few minutes. Answered
+    /// with `Shared`, `NoFile` when there is no such file, or `Error`. A node
+    /// from before it closes the stream: read the file with `File` then.
+    Share {
+        path: String,
+    },
 }
 
 /// One session asked for by `SessionsRequest::ExternalNamed`.
@@ -380,6 +384,7 @@ impl SessionsRequest {
             | Self::Models { .. }
             | Self::Harnesses { .. }
             | Self::File { .. }
+            | Self::Share { .. }
             | Self::Folder { .. }
             | Self::ReadFile { .. }
             | Self::CustomAgents { .. }
@@ -418,7 +423,7 @@ impl SessionsRequest {
     }
 }
 
-/// What `SessionsRequest::Diff` reads, as `GetWorkDiff` names it.
+/// What `SessionsRequest::Diff` reads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiffAsk {
     /// The folder in the checkout, absolute or starting `~/`.
@@ -587,6 +592,13 @@ pub enum SessionsReply {
     AdaptersInstalling {},
     /// Sent only in response to `EditFiles`.
     FilesEdited {},
+    /// The answer to `Share`: the file's BLAKE3 hash, a raw blob the asking
+    /// device may fetch over iroh-blobs, and its size.
+    Shared {
+        #[serde(with = "serde_bytes")]
+        hash: [u8; 32],
+        size: u64,
+    },
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by

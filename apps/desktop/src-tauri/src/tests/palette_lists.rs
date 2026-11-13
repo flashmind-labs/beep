@@ -1,5 +1,4 @@
 use super::*;
-use beep_proto::MemorySource;
 use std::time::SystemTime;
 
 #[test]
@@ -36,13 +35,6 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
             name: "fix".into(),
             ahead: 1,
             subject: "Retry".into(),
-        }]),
-        prs: Some(vec![PrRow {
-            repo: project.project.clone(),
-            number: 1,
-            title: "Retry".into(),
-            url: "https://example.com/pull/1".into(),
-            detail: String::new(),
         }]),
         retired_places: vec![Place::from(&project)],
         forgotten_projects: [project.project.clone()].into(),
@@ -85,7 +77,6 @@ fn cached_projects_are_searchable_before_any_machine_answers() -> anyhow::Result
     };
     views.put(View::Palette, serde_json::to_value(lists)?);
     views.write_unsaved();
-    views.keep_local();
     let upgraded = ViewCache::load(path, "0.2.1");
     let cache = PaletteCache::load(&upgraded)?;
     let index: serde_json::Value = serde_json::from_str(&cache.held().index)?;
@@ -99,16 +90,6 @@ fn cached_projects_are_searchable_before_any_machine_answers() -> anyhow::Result
 #[test]
 fn lists_come_back_from_the_views_file() {
     let lists = PaletteLists {
-        memories: Some(vec![Memory {
-            id: "m".to_owned(),
-            content: "likes tea".to_owned(),
-            category: "facts".to_owned(),
-            source: MemorySource::User {},
-            updated: "2026-01-01".to_owned(),
-            valid_from: None,
-            valid_until: None,
-            quote: None,
-        }]),
         machines: Some(vec![Machine {
             id: "b".to_owned(),
             name: "build-box".to_owned(),
@@ -117,12 +98,9 @@ fn lists_come_back_from_the_views_file() {
             version: String::new(),
             env: None,
         }]),
-        chats: Some(Vec::new()),
         ..PaletteLists::default()
     };
     let saved = serde_json::to_value(&lists).expect("the lists are plain data");
     let back: PaletteLists = serde_json::from_value(saved).expect("they read back");
-    assert_eq!(back.memories.expect("kept")[0].content, "likes tea");
     assert_eq!(back.machines.expect("kept")[0].name, "build-box");
-    assert!(back.chats.is_none(), "chats have their own file");
 }

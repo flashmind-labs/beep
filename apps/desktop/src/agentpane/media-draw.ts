@@ -22,6 +22,7 @@ import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { writeClipboard } from "../ui/parts.ts";
 import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
 import { type DockModel, type DockView, docked, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
+import { savedIn } from "../ui/platform.ts";
 
 // ----- Tabs -----
 
@@ -172,21 +173,21 @@ const FIXED_NAMES: Record<Fixed, string> = { device: "Device", running: "Running
 
 const TAB_ICONS: Record<TabKind | Fixed, IconName> = {
   files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", image: "paneImage", model: "paneModel",
-  video: "paneVideo", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents", device: "paneDevice",
+  video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents", device: "paneDevice",
 };
 
-/// Pauses a tab's video and its model's animation, whose frames would
+/// Pauses a tab's video or audio and its model's animation, whose frames would
 /// otherwise keep drawing out of sight.
 function stopPlaying(t: MediaTab) {
-  t.video?.pause();
+  t.player?.pause();
   t.model?.anim?.play(false);
 }
 
 /// Loads a tab's video again where it stood: WebKit can lose its picture
 /// while it is out of sight and show it dark, sound and controls still there.
 function showFrame(t: MediaTab) {
-  const video = t.video;
-  if (!video || video.readyState === 0) return;
+  const video = t.player;
+  if (!(video instanceof HTMLVideoElement) || video.readyState === 0) return;
   const at = video.currentTime;
   video.addEventListener("loadedmetadata", () => { video.currentTime = at; }, { once: true });
   video.load();
@@ -223,9 +224,9 @@ export function tabMenu(e: MouseEvent, id: string) {
     const rel = t.rel;
     items.push({ label: "Save", on: () => saveWorkFile(rel, note, t.root) });
   } else if (t.path && P.session) {
-    const { machine_id } = P.session, file = t.path;
-    items.push({ label: "Save", on: () => void invoke<string>("agent_file_save", { machineId: machine_id, path: file })
-      .then(to => { note(`Saved to Downloads as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
+    const { machine_id, id: session } = P.session, file = t.path;
+    items.push({ label: "Save", on: () => void invoke<string>("agent_file_save", { machineId: machine_id, path: file, session })
+      .then(to => { note(`Saved to ${savedIn(to)} as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
       .catch(err => note(readError(err))) });
   }
 

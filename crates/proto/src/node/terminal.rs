@@ -5,7 +5,7 @@
 //!
 //! A stream opens with one `Request`. `Start`, `List` and `Stop` get one
 //! `Reply` each, like `process/1`. `Attach` turns the stream into a live
-//! view: the node sends `Output` from the asked offset on, and the server
+//! view: the node sends `Output` from the asked offset on, and the caller
 //! may send `Input` and `Resize` until it closes the stream or the node
 //! sends `Ended`.
 
@@ -45,7 +45,7 @@ impl Size {
     }
 }
 
-/// What the server sends.
+/// What the caller sends.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {

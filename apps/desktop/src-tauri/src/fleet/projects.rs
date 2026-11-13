@@ -1,16 +1,12 @@
 //! Projects, sync and the git hosts, through the mesh. The work is in `beep_fleet`; this gives it
-//! the machines of the mesh and mirrors a change to the server when one is linked, so phones and
-//! the project agent see it.
+//! the machines of the mesh.
 
 use super::Fleet;
-use crate::{
-    beep::Beep,
-    error::{DesktopError, Result},
-};
+use crate::error::{DesktopError, Result};
 use async_trait::async_trait;
 use beep_fleet::{Desk, FleetError, Peers, Session};
 use beep_mesh::{Mesh, PeerClient};
-use beep_proto::{ImportedProject, MirrorImport, RemoveProject, node::EnvReport};
+use beep_proto::node::EnvReport;
 use iroh::EndpointId;
 use std::sync::Arc;
 use tauri::State;
@@ -53,58 +49,12 @@ pub(crate) async fn desk(session: &Arc<Session>) -> Result<Desk> {
     Ok(session.desk().await?)
 }
 
-/// The desk, or `None` when the mesh is not there and a server is linked to answer instead; with
-/// neither, the error.
-pub(crate) async fn desk_or_server(session: &Arc<Session>, beep: &Beep) -> Result<Option<Desk>> {
-    match desk(session).await {
-        Ok(desk) => Ok(Some(desk)),
-        Err(e) if beep.has_server() => {
-            log::info!("no mesh, so the server answers: {e}");
-            Ok(None)
-        }
-        Err(e) => Err(e),
-    }
-}
-
-/// The desk and the name of the mesh project `id` is the id of. `None` for an id the server made.
-/// It waits for the mesh to open, and fails when there is none, so an id the mesh would know is
-/// never taken for a server's while the mesh is still opening.
+/// The desk and the name of the mesh project `id` is the id of, `None` for an id the mesh does not
+/// know. It waits for the mesh to open, and fails when there is none.
 pub(crate) async fn mesh_project(
     session: &Arc<Session>,
     id: Uuid,
 ) -> Result<Option<(Desk, String)>> {
     let desk = desk(session).await?;
     Ok(desk.project_name(id).map(|name| (desk, name)))
-}
-
-/// Tells the server that `imported` landed, so phones and the project agent list it. The server
-/// is not needed for the import, so a refusal or no answer is logged and the import stands.
-pub(crate) async fn mirror_import(beep: &Beep, imported: &ImportedProject) {
-    if !beep.has_server() {
-        return;
-    }
-
-    let request = MirrorImport {
-        project: imported.project.clone(),
-        machine_id: imported.machine_id.clone(),
-        folder: imported.folder.clone(),
-        url: imported.url.clone(),
-    };
-
-    if let Err(e) = beep.call(request).await {
-        log::info!("the server did not take an import: {e}");
-    }
-}
-
-/// Tells the server a project was removed. The caller hears if it did not: the project is gone
-/// from the mesh all the same.
-pub(crate) async fn mirror_remove(beep: &Beep, project: &str) -> Result<()> {
-    if !beep.has_server() {
-        return Ok(());
-    }
-
-    let request = RemoveProject {
-        project: project.to_owned(),
-    };
-    beep.call(request).await
 }

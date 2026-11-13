@@ -3,8 +3,8 @@ import { openDesktop } from "./harness.ts";
 
 test("palette search keeps its field and selected result across index refreshes", async ({ page }) => {
   const project = (id: string, title: string) => ({ kind: "project", id, title, detail: "Project", keys: [title.toLowerCase()] });
-  const index = { actions: [], settings: [], code: [], projects: [project("one", "Example one"), project("two", "Example two")], sessions: [], chats: [], memories: [], routines: [], machines: [] };
-  await openDesktop(page, false, { center_palette_index: index, center_find_prompts: [], center_find_text: [] });
+  const index = { actions: [], settings: [], code: [], projects: [project("one", "Example one"), project("two", "Example two")], sessions: [], machines: [] };
+  await openDesktop(page, false, { center_palette_index: index, center_find_prompts: [] });
   await page.getByRole("button", { name: /^Search/ }).click();
   const dialog = page.getByRole("dialog", { name: "Search" }), input = dialog.getByRole("combobox");
   await input.fill("Example");

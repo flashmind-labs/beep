@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 use chrono::NaiveDate;
-use iroh::EndpointId;
+use iroh_base::EndpointId;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 

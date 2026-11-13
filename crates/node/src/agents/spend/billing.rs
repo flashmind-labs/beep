@@ -59,7 +59,7 @@ pub(crate) struct AccountFiles {
 }
 
 /// How each agent signs in here, read again each pass. What stays unknown
-/// the server counts as a subscription for Claude Code and Codex.
+/// the caller counts as a subscription for Claude Code and Codex.
 #[derive(Debug, Default)]
 pub(super) struct Accounts {
     /// From Claude Code's user settings.

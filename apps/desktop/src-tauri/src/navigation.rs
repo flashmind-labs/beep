@@ -33,7 +33,7 @@ fn allowed(url: &Url) -> bool {
     app_origin
         && matches!(
             url.path(),
-            "" | "/" | "/index.html" | "/center.html" | "/orb.html" | "/diagrams/index.html"
+            "" | "/" | "/index.html" | "/center.html" | "/diagrams/index.html"
         )
 }
 

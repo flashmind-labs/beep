@@ -221,7 +221,7 @@ for (const [when, settled] of [["before", false], ["after", true]] as const) {
 
     // The first delta waits for its frame; the view is left before it comes.
     send("delta", 1, "first", "working");
-    S.view = "chat";
+    S.view = "waiting";
     if (settled) await settle();
     send("delta", 2, "second", "idle");
     runFrames();
@@ -615,10 +615,10 @@ for (const from of [{ view: "home", arg: null }, { view: "projects", arg: { proj
     assert.equal(agentKeys(event, true), false);
     assert.deepEqual(steers(), ["close"]);
     assert.equal(prevented, 1);
-    S.view = "chat";
+    S.view = "waiting";
     finish(null);
     await settle();
-    assert.equal(S.view, "chat");
+    assert.equal(S.view, "waiting");
   });
 }
 
@@ -642,8 +642,7 @@ test("closing removes list rows and counts before the reply, survives stale read
   agentsListDom(t);
   const row = (machine_id: string) => ({ machine_id, machine_name: "build-box", id: "close-list", agent: "claude", title: machine_id, cwd: "/srv/project", status: "idle", external: false, question: null, doing: null, started_at: 0, last_activity: 0 });
   const closing = row("first-machine"), other = row("second-machine");
-  const research = { kind: "research" as const, session: "r1", topic: "Research", status: "working", round: 1, sources: 0, started_at: 0 };
-  const running = [{ ...closing, kind: "agent" as const }, { ...other, kind: "agent" as const }, research];
+  const running = [{ ...closing, kind: "agent" as const }, { ...other, kind: "agent" as const }];
   answers.agent_sessions = [closing, other];
   await loadSessions();
   S.view = "agents";
@@ -658,7 +657,7 @@ test("closing removes list rows and counts before the reply, survives stale read
   assert.match(bar.innerHTML, /second-machine/);
   assert.match(bar.innerHTML, /1 live on 1 machine/);
   assert.equal(agentsList.getState().selected, 0, "selection stays on a row after the list shrinks");
-  assert.deepEqual(visibleRunning(running), [running[1], research]);
+  assert.deepEqual(visibleRunning(running), [running[1]]);
   // A cached response must not bring back a row while its close is pending.
   await loadSessions();
   drawAgents(false);

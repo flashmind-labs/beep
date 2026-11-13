@@ -1,8 +1,8 @@
 # End-to-end tests
 
-Real `beep-server` and `beep-node` processes on three [Boat](https://boat.dev)
-VMs: `server` (beep-server, Postgres in Docker, and `beep-probe` playing the
-phone), `node-a` and `node-b`. `multinode` adds `node-c` and `node-d`, two more
+Real `beep-node` processes on [Boat](https://boat.dev) VMs, over the mesh
+with no server: `desk` runs `crates/fleet/examples/e2e_desktop`, a headless
+desktop that owns the mesh, and `node-a` and `node-b` run `beep-node`. `multinode` adds `node-c` and `node-d`, two more
 VMs that exist only when that scenario is chosen.
 
     just e2e            # every scenario on one fleet
@@ -15,23 +15,28 @@ binaries over, runs the scenarios, and then always prints the Boat cost and
 deletes the VMs, on failure and on Ctrl-C too. On a failure it first copies
 every VM's logs to `tests/e2e/.logs/` and prints their tails.
 
-Each scenario starts from nothing: a new database and server, both nodes
-linked with setup tokens (`CreateNodeToken`, `beep-node setup`), and project
-`e2e` synced at `~/ws/e2e` on both (`SetProjectSync`). The VMs only dial out;
+Each scenario starts from nothing: a new desktop and mesh, both nodes named
+after their role and joined with the desktop's tickets (`ticket`, then
+`beep-node mesh join`), and project `e2e` synced at `~/ws/e2e` on both
+(`syncset`). Sync status comes from the desktop's view (`syncstatus`), which
+asks each node. The scripts drive the desktop through a FIFO, one command at
+a time (`desk` in `lib/beep.sh`). The VMs only dial out;
 iroh finds its paths through relays and hole punching, so nothing is hosted.
 
 | Scenario | Checks |
 | --- | --- |
 | `sync` | New small files, a nested tree and a 48 MB random file on node-a reach node-b with the same sha256. Edits, a deleted file and folder, a renamed file and folder follow. A file from node-b reaches node-a. A conflicting edit made while node-b is stopped leaves the newer edit at the path and the other in a `name (conflict xxxxxxxx).ext` copy, on both nodes. |
-| `reconnect` | With node-a's egress capped by tc, node-b is stopped partway through fetching a 200 MB file, with SIGTERM and then SIGKILL, and started again. The file arrives whole, no partial folder is left and the server sees both in sync. |
-| `interrupt` | With node-a's egress capped by tc, a 500 MB file is moving to node-b when node-b is restarted, then node-a is restarted, then node-b's network is cut with iptables DROP for 30 s (ssh still let through) and restored. Each time node-b receives about what was left after the interruption, not the whole file again (bytes on its uplinks), the file arrives with node-a's sha256, no partial folder or journal entry is left on either node, and the server sees both in sync. |
+| `reconnect` | With node-a's egress capped by tc, node-b is stopped partway through fetching a 200 MB file, with SIGTERM and then SIGKILL, and started again. The file arrives whole, no partial folder is left and the desktop sees both in sync. |
+| `interrupt` | With node-a's egress capped by tc, a 500 MB file is moving to node-b when node-b is restarted, then node-a is restarted, then node-b's network is cut with iptables DROP for 30 s (ssh still let through) and restored. Each time node-b receives about what was left after the interruption, not the whole file again (bytes on its uplinks), the file arrives with node-a's sha256, no partial folder or journal entry is left on either node, and the desktop sees both in sync. |
 | `scale` | node-a makes 20000 small files in a tree 8 folders deep plus 300 files of 1 MB; node-b ends up with the same sorted sha256 manifest. node-a deletes the tree; node-b keeps none of it and no empty folder. The same tree made on node-b reaches node-a. A 256 MB file times MB/s. |
 | `powercut` | node-b reboots without a flush (`/proc/sysrq-trigger`) partway through taking in a tree from node-a, three times. Every file at its path after the reboot is whole; node-b then reaches node-a's manifest, node-a's does not change, and there are no conflict copies. |
-| `multinode` | Four nodes. Changes from all of them at one moment converge. One path changed on every node at one moment, over rounds (all add, all edit, all edit with one mtime, one deletes while the others edit, all delete): every node picks one winner, the newest edit wins, losing edits stay as conflict copies, a delete never beats an edit. node-d stops while the others add, edit, delete and rename: the others converge without it, it catches up to their manifest, no deleted file returns, and the server says in sync only once it is. |
+| `multinode` | Four nodes. Changes from all of them at one moment converge. One path changed on every node at one moment, over rounds (all add, all edit, all edit with one mtime, one deletes while the others edit, all delete): every node picks one winner, the newest edit wins, losing edits stay as conflict copies, a delete never beats an edit. node-d stops while the others add, edit, delete and rename: the others converge without it, it catches up to their manifest, no deleted file returns, and the desktop says in sync only once it is. |
 
 Env:
 
 - `E2E_KEEP=1` keeps the VMs after a run; `E2E_SKIP_BUILD=1` reuses the last build.
+- `E2E_DESK_WAIT` (default 300): seconds to wait for the desktop's reply to a
+  command.
 - `E2E_BOAT_TYPE` (default `small`), `E2E_TTL_HOURS` (default 2: how long a
   VM lives if teardown never runs).
 - `E2E_BIG_MB`, `E2E_RESUME_MB`, `E2E_RESUME_RATE`, `E2E_SPEED_MB` size the

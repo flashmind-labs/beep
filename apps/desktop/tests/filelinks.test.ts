@@ -22,7 +22,7 @@ function context(href: string, open: (ref: FileRef) => void = () => {}) {
   const code = document.createElement("code");
   link.append(code);
   const event = { target: code, clientX: 20, clientY: 30, preventDefault() {}, stopPropagation() {} } as unknown as MouseEvent;
-  fileLinkMenu(event, folder, open);
+  fileLinkMenu(event, folder, "session-1", open);
 }
 
 function click(label: string) {
@@ -94,6 +94,6 @@ test("a remote file opens through the default app", async () => {
   click("Open in default app");
   await settle();
   assert.deepEqual(calls.find(c => c.cmd === "agent_file_open")?.args, {
-    machineId: folder.machineId, path: "/srv/project/mockups/index.html",
+    machineId: folder.machineId, path: "/srv/project/mockups/index.html", session: "session-1",
   });
 });

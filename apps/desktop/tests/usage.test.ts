@@ -19,8 +19,7 @@ test("subscription use shows as tokens under its own line", () => {
   assert.equal(harnessLine({ ...covered, cost_usd: 0 }), "1B");
   assert.equal(harnessLine({ ...covered, subscription: false, cost_usd: 5.85, tokens: 600_000 }), "$5.85 · 0.6M");
   const project = { project: "widget", cost_usd: 2.1, unpriced: [], metered_tokens: 800_000, subscription: [{ name: "claude", tokens: 210_000_000 }] };
-  assert.equal(projectExtra(project, true), "210.8M");
-  assert.equal(projectExtra({ ...project, unpriced: [{ name: "codex", tokens: 1_100_000 }] }, false), "1.1M Codex tokens");
+  assert.equal(projectExtra(project), "210.8M");
 });
 
 test("token counts move up a unit before they read 1000", () => {
@@ -53,7 +52,7 @@ test("credits preserve zero, precision and unknown balances without counting as 
   assert.equal(creditAmount(credit, credit.total), "unavailable");
   assert.equal(creditScope("api_key"), "API key limit");
   const empty = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
-  assert.ok(hasUsage({ limits: [{ agent: "flsh", plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: null }));
+  assert.ok(hasUsage({ limits: [{ agent: "flsh", plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: empty }));
 });
 
 test("the pill shows each plan's binding window, the one most used", () => {

@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { createStore } from "zustand/vanilla";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { AgentListRow } from "./agents-list-view.tsx";
-import { formatAgo } from "../ui/format.ts";
+import { cap, formatAgo } from "../ui/format.ts";
 import { machineConnecting, machinesReachNow, onConnecting, type MachinesReach } from "../machines/machine-state.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
@@ -19,15 +19,13 @@ import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentn
 import { preloadModels } from "./agentpicker.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, OutboxRow, Waiting } from "./agentqueue.ts";
-import { drawQueue, openAgentInWindow, renderChat } from "../chat/chat.ts";
+import { mainTarget } from "../project/projectwindow.ts";
 import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
 import { draftEsc } from "./draft-state.ts";
-import { type AgentReturn, bar, PANE, S, windowHooks } from "../bar/core.ts";
+import { type AgentReturn, bar, PANE, S, toWindow, windowHooks } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { renderWaiting } from "../bar/waiting.ts";
-import { openSession } from "../chat/history.ts";
-import { cap } from "../chat/tools.ts";
 import { openAgent, closeOpenSession, submitAgentMessage } from "./session.ts";
 import { openEditorKey } from "./session-head.ts";
 import { sessionMenu } from "./sessionmenu.ts";
@@ -217,8 +215,6 @@ interface AgentForm {
   /// The project's checkout on each machine, when the form was opened
   /// from one, so picking another machine picks its folder.
   places?: { machine: string; cwd: string }[];
-  /// The chat the form was opened from, which hears how the session goes.
-  chat: string | null;
   /// The model picked or typed; empty for the agent's own.
   model?: string;
   /// The machine and agent `model` was picked for, as `machine/agent`.
@@ -264,7 +260,7 @@ interface AgentState {
   draft: string | null;
   page: AgentPage | null;
   why: string;
-  /// Where Esc goes: "chat", "agents", or a window view.
+  /// Where Esc goes: "agents", "waiting", "hide", or a window view.
   back: AgentReturn;
   timer: ReturnType<typeof setTimeout> | undefined;
   inflight: OpenAgent | null;
@@ -278,11 +274,10 @@ interface AgentState {
   changed: number;
   answering: number | null;
   /// Images pasted or dropped into the session's field, the error from the last
-  /// one and when it goes, and the session the server turned images down for.
+  /// one and when it goes.
   att: Attached[];
   attError: string;
   attTimer: ReturnType<typeof setTimeout> | undefined;
-  noImages: string | null;
   /// The pasted blocks left open ("place:block"), and the module that reads
   /// tool entries, once loaded.
   opened: Set<number | string>;
@@ -315,10 +310,10 @@ interface AgentState {
 export const AG: AgentState = {
   readError: "", link: LINKED,
   hosts: null, error: "", busy: false,
-  form: { prompt: "", machine: "", agent: null, cwd: "", chat: null },
-  open: null, draft: null, page: null, why: "", back: "chat", timer: undefined, inflight: null, note: "",
+  form: { prompt: "", machine: "", agent: null, cwd: "" },
+  open: null, draft: null, page: null, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
-  att: [], attError: "", attTimer: undefined, noImages: null,
+  att: [], attError: "", attTimer: undefined,
   opened: new Set(), steps: new Map(), log: null, all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
   older: { stop: "", loading: false, gaveUp: false },
 };
@@ -396,7 +391,6 @@ export async function loadAgentHosts() {
     hostChanges.changed();
   }
 
-  drawQueue();
   if (S.view === "agentnew") drawAgentNew();
 }
 
@@ -627,6 +621,9 @@ export function agentBack(closed = false) {
     if (project) return project.open();
   }
 
-  if (S.link === "unlinked" && !windowHooks) return void invoke("hide_bar");
-  return S.session ? openSession(S.session) : renderChat();
+  if (windowHooks) return windowHooks.goBack({ view: "home", arg: null }, !closed);
+  void invoke("hide_bar");
 }
+
+/// Opens agent session `session` in the window.
+export const openAgentInWindow = (session: AgentRow) => toWindow(mainTarget({ view: "pane", arg: { agent: session } }));

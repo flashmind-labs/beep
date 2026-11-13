@@ -56,20 +56,14 @@ html, body.cbody { background: var(--ink) }
 .cc-row + .cc-row { border-top: 1px solid var(--border) }
 button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 /* A row's title over one muted line, in every list. */
-.cc-row .t, .cc-line .t, .pj-li .t, .pj-node .t, .rv-shard .t { display: grid; min-width: 0; line-height: 18px }
-.cc-pal .it .t small, :is(.cc-row, .pj-li, .pj-node, .rv-shard) .t span, .cc-line .t > span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-:is(.cc-row, .cc-line, .pj-li, .pj-node, .rv-shard) .t b { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-:is(.pj-node, .rv-shard) .t b { font-size: 12.5px }
+.cc-row .t, .cc-line .t, .pj-li .t { display: grid; min-width: 0; line-height: 18px }
+.cc-pal .it .t small, .cc-line .t > span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-row .r { font-size: 11.5px; color: var(--muted); display: grid; justify-items: end; gap: 2px; font-variant-numeric: tabular-nums }
 .cc-ag { width: 28px; height: 28px; border-radius: var(--radius-sm); display: grid; place-items: center; font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); background: var(--elev) }
 .cc-ag.claude { color: #F2A27A } .cc-ag.codex { color: var(--fg) }
 .cc-ag.beep { color: var(--muted) }
-.rv-find > .chip { justify-self: start }
 /* Small spinners inside chips and one-line facts. */
-.rv-pill .dspin, .rv-fact .dspin, .rv-ver .dspin, .th-card .who .dspin { width: 9px; height: 9px }
 .sw-spin { vertical-align: middle }
-.cc-when { width: 58px; text-align: center; font-size: 10.5px; font-weight: 600; color: var(--muted); line-height: 13px; font-variant-numeric: tabular-nums }
-.cc-when b { display: block; font-size: 12.5px; color: var(--fg) }
 .cc-note { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--elev); font-size: 12.5px; line-height: 18px; color: color-mix(in srgb, var(--fg) 90%, transparent) }
 .cc-note .ddot { margin-top: 1px }
 .cc-empty { padding: 22px 18px; display: grid; justify-items: center; gap: 8px; text-align: center; font-size: 13px; line-height: 19px; color: var(--muted) }
@@ -87,7 +81,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-view > * { flex: none }
 .cc-comp .cc-err { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .cc-row.bare { grid-template-columns: minmax(0, 1fr) auto }
-.cc-row:has(.cc-when) { grid-template-columns: 58px minmax(0, 1fr) auto }
 
 /* Views: one box each under the top bar; only the shown one is visible. */
 .cc-box { flex: 1; min-height: 0; display: flex; flex-direction: column }
@@ -97,8 +90,6 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* A chat's scope beside its title: General, or its project. */
 #scope { display: flex }
 #scope:empty { display: none }
-.chip.pj-scope { background: none; cursor: pointer }
-.chip.pj-scope:hover { color: var(--fg) }
 .chip .cc-pdot { width: 6px; height: 6px; border-radius: 2px; background: var(--dim) }
 #pane-box > .dbar { flex: 1; min-height: 0; height: auto }
 /* The bar's lists, widened into a panel in the pane, as in the mock. A coding agent
@@ -347,22 +338,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-task .m code { font-family: var(--mono); font-size: 11px }
 .pj-task .acts { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; flex-wrap: wrap }
 .pj-task .acts .dbtn.quiet:first-child { margin-left: -9px }
-.pj-tree { padding: 6px 0 }
-.pj-node { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 9px; padding: 6px 10px; align-items: start }
-.pj-node.child { margin-left: 18px; padding-left: 14px; border-left: 1px solid var(--border) }
-.pj-node.over { opacity: .7 }
-.pj-node.link { cursor: pointer; border-radius: var(--radius-sm) }
-.pj-node.link:hover .t b { color: var(--link) }
-.pj-node .acts { grid-column: 2; display: flex; gap: 6px; align-items: center }
-.pj-node .acts .dbtn { margin-left: -9px }
-.pj-node .out { grid-column: 2; font-family: var(--mono); font-size: 11px; color: color-mix(in srgb, var(--fg) 75%, transparent); background: var(--ink); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.pj-plan { display: grid; gap: 6px; padding: 10px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--elev) }
-.pj-plan b { font-size: 13px; font-weight: 600 }
-.pj-plan > small { font-size: 11px; color: var(--muted) }
-.pj-plan ol { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 12.5px }
-.pj-plan ol small { color: var(--muted) }
-.pj-plan .acts { display: flex; gap: 6px; align-items: center }
-.pj-plan .ok { font-size: 12px; color: var(--accent) }
 /* How fresh a section's kept data is: its age, or a spinner while it reads again. */
 .sw-age { font-size: 11px; color: var(--muted); white-space: nowrap }
 .cc-sec h4 .sw-spin, .cc-sec h4 .sw-age { margin-left: 8px; letter-spacing: 0; text-transform: none; font-weight: 400 }
@@ -370,7 +345,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pb-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden }
 .pb-seg button { font: inherit; font-size: 12px; padding: 4px 10px; background: none; border: 0; color: var(--muted); cursor: pointer }
 .pb-seg button[aria-pressed="true"] { background: var(--elev); color: inherit }
-.pj-needs { display: grid; gap: 8px }
 /* The project page: everything going on in a list at the left, the picked
    row's detail at the right, each scrolling on its own. */
 .cc-view.split { padding: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) }
@@ -461,7 +435,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-reply textarea { box-sizing: border-box; width: 100%; min-height: 72px; resize: vertical; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: color-mix(in srgb, var(--shade) 25%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0; user-select: text }
 .pj-reply textarea:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 
-/* The Projects overview: one card per project, grouped by org. */
 /* Its search, filtering as the user types. */
 .pj-find { display: block; width: 100%; max-width: 320px }
 .pj-find input { display: block; box-sizing: border-box; width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 3%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0 }
@@ -504,13 +477,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-card .line { color: var(--muted); line-height: 17px; overflow-wrap: anywhere }
 .pj-card .line b { color: var(--fg); font-weight: 600 }
 .pj-card .line.sync { font-size: 11px; color: var(--dim) }
-.pj-bar { display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: color-mix(in srgb, var(--fg) 8%, transparent) }
-.pj-bar i { display: block; height: 100% }
-.pj-bar i.running { background: var(--accent) }
-.pj-bar i.review { background: var(--link) }
-.pj-bar i.blocked { background: var(--warn) }
-.pj-bar i.planned { background: var(--dim) }
-.pj-bar i.done { background: var(--border) }
 .pj-add { grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 14px }
 
 /* Instructions: an editor over saved versions, the agent files on each
@@ -529,7 +495,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .in-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
 .in-acts small { margin-left: auto; color: var(--muted); font-size: 11.5px }
 .cc-sec small.bad { color: var(--err) }
-.in-side { grid-template-columns: minmax(0, 1fr) auto }
 .in-sidecol { display: grid; gap: 14px }
 .in-layers { margin: 0; padding: 6px 0; list-style: none; counter-reset: l }
 .in-layers li { counter-increment: l; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 8px; padding: 6px 10px; font-size: 12.5px; line-height: 17px }
@@ -595,64 +560,14 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .fs-note { font-size: 12px }
 
 /* Review before merge: facts, findings, the reviewers' shards, the actions. */
-.rv-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
-.rv-head h3 { margin: 0; font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.02em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.rv-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 0 9px; line-height: 21px; border-radius: 999px; border: 1px solid; white-space: nowrap }
-.rv-pill.changes { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 8%, transparent) }
-.rv-pill.ready { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent) }
-.rv-pill.blocked { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, transparent); background: color-mix(in srgb, var(--err) 8%, transparent) }
-.rv-pill.running { color: var(--muted); border-color: var(--border) }
-.rv-facts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px }
-.rv-fact { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--elev); font-size: 12px; white-space: nowrap }
-.rv-fact b { font-weight: 600 }
-.rv-fact code { font-family: var(--mono); font-size: 11.5px }
-.rv-fact.bad { border-color: color-mix(in srgb, var(--err) 50%, transparent); color: var(--err) }
-.rv-fact .ddot.bad { background: var(--err) }
 .cc-note .ddot.warn { background: var(--warn) }
-.rv-tools { margin-left: auto; display: flex; gap: 6px }
-.rv-cfl { align-items: flex-start; margin-bottom: 12px }
-.rv-cfl .ddot { margin-top: 6px; background: var(--err) }
-.rv-cfl-t { display: grid; gap: 2px }
-.rv-cfl-t span { color: var(--muted) }
-.rv-cfl-t code { font-family: var(--mono); font-size: 11.5px }
-.rv-find { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 3px 10px; padding: 10px 12px; align-items: start }
-.rv-find + .rv-find { border-top: 1px solid var(--border) }
-.rv-find.gone { opacity: .7 }
-.rv-find .t { display: grid; gap: 2px; min-width: 0 }
-.rv-find .t b { font-size: 13px; font-weight: 500; line-height: 18px }
-.rv-find .t code { font-family: var(--mono); font-size: 11.5px; color: var(--link); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.rv-find .t span { font-size: 11.5px; color: var(--muted) }
-.rv-side { display: grid; justify-items: end; gap: 4px }
-.rv-ver { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--accent); white-space: nowrap }
-.rv-ver.wait { color: var(--muted) }
-.rv-more { padding: 14px; border-top: 1px solid var(--border) }
-.rv-sum { max-width: 50ch }
-.rv-sum-row { padding: 8px 12px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted) }
-.rv-shard { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 2px 10px; padding: 8px 12px; align-items: center }
-.rv-shard + .rv-shard { border-top: 1px solid var(--border) }
-.rv-shard .t b { font-family: var(--mono) }
-.rv-shard .chip { max-width: 180px; overflow: hidden; text-overflow: ellipsis }
-.rv-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; padding: 10px 0 12px; border-top: 1px solid var(--border); background: var(--ink) }
-.rv-bar small { flex-basis: 100%; font-size: 12px; color: var(--muted) }
 
 /* An open issue being started: the agent and machine to pick. */
 .pj-task.ask { background: color-mix(in srgb, var(--warn) 5%, transparent) }
 .pj-task .t a { color: var(--link); text-decoration: none; font-weight: 600 }
-/* A chat still answering: a spinner where the pin button was. */
-.cc-chat > .cc-run { flex: none; width: 10px; height: 10px; margin: 0 10px 0 8px }
 /* Chats about one pull request or issue, under their project. */
 .cc-pjthreads { display: contents }
-.cc-si.cc-chat.cc-thread .open { padding-left: 30px }
-.cc-chat.cc-thread .open .tt { color: var(--muted) }
-.cc-chat.cc-thread:has(.open[aria-current="true"]) .open .tt { color: var(--fg) }
 /* The thread a chat is about, atop it, and its header's tags. */
-.th-scope { display: inline-flex; align-items: center; gap: 6px }
-.th-card { flex: none; display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--elev); font-size: 12.5px; line-height: 18px; user-select: text }
-.th-card[hidden] { display: none }
-.th-card .who { color: var(--muted); font-size: 11.5px; display: inline-flex; align-items: center; gap: 6px }
-.th-card .c + .c { border-top: 1px solid var(--border); padding-top: 6px }
-.th-card .tx { white-space: pre-wrap; overflow-wrap: anywhere }
-.th-card > .dbtn { justify-self: start }
 
 /* Coding agents: each machine's harnesses on the left, the picked one's settings on the right.
    In Settings the left pane lists the agents, so the page shows one under a toolbar. */
@@ -817,8 +732,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .nt-copy .nt-acts { flex: none; margin-top: 0 }
 .nt-hint { color: var(--muted) }
 .nt-rep { flex: none; display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border) }
-.nt-ask { flex: 1; min-width: 0; height: 30px; padding: 0 10px; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--fg); font: inherit; font-size: 13px }
-.nt-ask:focus { outline: 2px solid var(--accent); outline-offset: -1px }
 /* When the server last read a section's list; the Actions section beside Where it lives. */
 .cc-sec small.sw-age { color: var(--dim); margin-left: auto }
 .cc-sec small.sw-mode { font-size: 11px; font-weight: 500; white-space: nowrap; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; cursor: default }
@@ -870,14 +783,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-log pre { margin: 4px 0 0; padding: 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--shade) 25%, transparent); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; user-select: text }
 .pj-run .acts { display: flex; gap: 6px }
 /* Research: the page's field, its table and the sidebar's running spinner. */
-.cc-rnew { display: flex; gap: 8px; align-items: center; padding: 6px 6px 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); color: var(--dim) }
-.cc-rnew:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-.cc-rnew input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: inherit; font-size: 13px; caret-color: var(--accent) }
-.cc-rnew input::placeholder { color: var(--dim) }
-.cc-mt.cc-rt { grid-template-columns: minmax(180px, 2fr) max-content minmax(150px, 1.2fr) 64px 92px }
-.cc-mt.cc-rt > .r { cursor: pointer }
-.cc-mt.cc-rt .nm b button { padding: 0; border: 0; background: none;font: inherit; color: inherit; cursor: pointer; max-width: 100%; text-align: left; min-width: 0; overflow: hidden; display: flex }
-.cc-mt.cc-rt .nm b button:hover { color: var(--accent) }
 .cc-grp.research .cc-si > .dspin { flex: none; width: 10px; height: 10px; margin-left: auto }
 
 /* A list as tall as its first rows, the rest scrolls (fitRows). The script sets the exact
@@ -900,7 +805,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .fb-more pre { margin: 6px 0 0; max-height: 220px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--ink); border: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere }
 .pj-task.ca-row > .t, .pj-task.ca-row > .m { grid-column: 1 }
 .pj-task.ca-row > .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding-left: 12px }
-
 
 .model-context-scroll { overflow-x: auto }
 .model-context { min-width: 560px }
@@ -1024,12 +928,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .cc-side-toggle:active { transform: scale(.98) }
 .cc-side-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .cwin.side-collapsed { grid-template-columns: 80px minmax(0, 1fr) }
-.side-collapsed .cc-brand b, .side-collapsed > .cc-grip,
-.side-collapsed .cc-foot, .side-collapsed .cc-grp h3,
-.side-collapsed .cc-si.none, .side-collapsed .cc-thread,
-.side-collapsed .cc-si > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot):not(.open),
-.side-collapsed .cc-si .open > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot),
-.side-collapsed .cc-org > :not(svg):not(.sidebar-icon):not(.twist) { display: none }
+.side-collapsed .cc-brand b, .side-collapsed > .cc-grip, .side-collapsed .cc-foot, .side-collapsed .cc-grp h3, .side-collapsed .cc-si.none, .side-collapsed .cc-si > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot):not(.open), .side-collapsed .cc-si .open > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot), .side-collapsed .cc-org > :not(svg):not(.sidebar-icon):not(.twist) { display: none }
 .side-collapsed .cc-si, .side-collapsed .cc-org { justify-content: center; padding: 8px; min-height: 32px; box-sizing: border-box }
 .side-collapsed .cc-si .open { justify-content: center; padding: 0 }
 .side-collapsed .cc-si:focus-visible, .side-collapsed .cc-org:focus-visible, .side-collapsed .cc-si .open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
@@ -1053,7 +952,22 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .bd-card .ft .sp { flex: 1 }
 .bd-empty { padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 11.5px; color: var(--muted) }
 .pj-board { overflow: auto; min-height: 0; padding: 0 16px 130px; display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin }
-@container (max-width: 760px) { .bd-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+.bd-pick { display: inline-flex; align-items: center; gap: 3px }
+.bd-pick svg { width: 12px; height: 12px }
+/* Home: a row for each project under the lanes' titles, named above its cards. */
+.bd-rows { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 12px; align-items: start }
+.bd-rows > * { min-width: 0 }
+.bd-rows > .hd { padding: 0 0 8px }
+.bd-rows > .pj { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 0 8px; border-top: 1px solid var(--border); font-weight: 600; font-size: 13px; line-height: 18px }
+.bd-rows > .pj > :last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.bd-rows > .pj button { all: unset; cursor: pointer }
+.bd-rows > .pj button:hover, .bd-rows > .pj button:focus-visible { text-decoration: underline }
+/* A cell shows about two cards and scrolls to the rest. */
+.bd-rows > .bd-lane:not(.hd) { max-height: 236px; overflow-y: auto; scrollbar-width: thin; padding-bottom: 12px }
+
+@container (max-width: 760px) {
+  .bd-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+}
 
 /* Moves: one short transition per navigation, never ambient. A board card grows into the
    session's head and back, over a page that fades in by itself. Only the card and the head

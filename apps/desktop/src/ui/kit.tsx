@@ -31,11 +31,6 @@ export function EmptyPanel({ title = null, text = null, error = false, spin = fa
   return <div className="cc-panel cc-empty">{spin && <Spinner />}{title !== null && <b>{title}</b>}{text !== null && <span className={error ? "cc-err" : undefined}>{text}</span>}</div>;
 }
 
-/// A failure under a section head, with a red dot.
-export function ErrorNote({ text }: { text: string }) {
-  return <div className="cc-note"><span className="ddot bad" /><span className="cc-err">{text}</span></div>;
-}
-
 /// A status chip: `kind` colors it (`run`, `wait`, `bad`, `done`, ...), with
 /// a running dot first while it `spin`s.
 export function Chip({ kind, text, spin = false, title }: { kind: string; text: ReactNode; spin?: boolean; title?: string }) {

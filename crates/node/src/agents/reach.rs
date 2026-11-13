@@ -1,4 +1,4 @@
-//! Which folders the server may reach on this node through the file
+//! Which folders the caller may reach on this node through the file
 //! requests (`Reach`, `Access`). Every path is checked with its links and
 //! `..` resolved.
 

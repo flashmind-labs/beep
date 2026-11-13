@@ -201,7 +201,7 @@ struct Last {
 }
 
 /// A host's rate limit is not a desktop's to spend on every call, so Home's list is kept for a few
-/// minutes, as the server keeps it.
+/// minutes.
 static BOARD: Mutex<Option<Last>> = Mutex::new(None);
 
 fn fresh(key: &[String]) -> Option<GitUpdate> {

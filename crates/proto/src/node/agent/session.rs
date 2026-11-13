@@ -1,4 +1,4 @@
-//! One agent session's stream: what the server asks and what the node sends.
+//! One agent session's stream: what the caller asks and what the node sends.
 
 use super::{CheckoutPlan, Effort};
 use crate::{AgentContext, AgentToolCall, ModelId, ProviderCredits, Upload};
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use strum::ParseError;
 
-/// What the server sends on an agent stream.
+/// What the caller sends on an agent stream.
 /// A node older than a request answers that it does not know it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -18,8 +18,7 @@ pub enum Request {
     /// With `checkout`, it first makes the branch or worktree it names in
     /// `cwd`'s git checkout and starts there. `images` go with the first
     /// prompt, as `PromptImages` sends them. A node from before any of
-    /// these ignores it; one that makes checkouts says so with
-    /// `NodeHello::checkouts`.
+    /// these ignores it.
     Start {
         cwd: Option<String>,
         prompt: String,

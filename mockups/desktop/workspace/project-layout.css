@@ -22,11 +22,6 @@
 .mac .cc-pjc input.branch:focus { border-color: color-mix(in srgb, var(--d-emerald) 60%, transparent) }
 .mac .cc-pjc [hidden] { display: none }
 .mac .cc-pjc .ag-att { padding: 0 }
-.mac .cc-mt.cc-pt { grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) 60px 100px }
-.mac .cc-mt.cc-pt .acts { display: flex; gap: 6px; align-items: center; justify-content: flex-end }
-.mac .cc-mt.cc-pt .nm b button { padding: 0; font: inherit; color: inherit; cursor: pointer; max-width: 100%; text-align: left }
-.mac .cc-mt.cc-pt .nm b button:hover { color: var(--d-emerald) }
-.mac .cc-mt.cc-pt .nm .os b { font-weight: 500; color: var(--d-fg); font-size: 10.5px }
 .mac .cc-mt.pj-where .nm > b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .mac .cc-mt.pj-where .nm.wide { grid-column: span 2 }
 .mac .cc-mt.pj-where > .acts { flex-wrap: nowrap }
@@ -86,29 +81,9 @@
 .mac .pj-st.done { color: var(--d-dim) }
 .mac .pj-st.dropped { color: var(--d-dim); text-decoration: line-through }
 .mac .pj-st .dspin { width: 9px; height: 9px }
-.mac .pj-tree { padding: 6px 0 }
-.mac .pj-node { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 2px 9px; padding: 6px 10px; align-items: start }
-.mac .pj-node.child { margin-left: 18px; padding-left: 14px; border-left: 1px solid var(--d-border) }
-.mac .pj-node.over { opacity: .7 }
-.mac .pj-node.link { cursor: pointer; border-radius: var(--radius-sm) }
-.mac .pj-node.link:hover .t b { color: #8a9cf0 }
-.mac .pj-node .t { display: grid; line-height: 17px; min-width: 0 }
-.mac .pj-node .t b { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-node .t span { font-size: 11.5px; color: var(--d-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-node .acts { grid-column: 2; display: flex; gap: 6px; align-items: center }
-.mac .pj-node .acts .dbtn { margin-left: -9px }
-.mac .pj-node .out { grid-column: 2; font-family: var(--mono); font-size: 11px; color: color-mix(in srgb, var(--d-fg) 75%, transparent); background: var(--d-ink); border: 1px solid var(--d-border); border-radius: var(--radius-sm); padding: 4px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.mac .pj-plan { display: grid; gap: 6px; padding: 10px; border-radius: var(--radius); border: 1px solid var(--d-border); background: var(--d-elev) }
-.mac .pj-plan b { font-size: 13px; font-weight: 600 }
-.mac .pj-plan > small { font-size: 11px; color: var(--d-muted) }
-.mac .pj-plan ol { margin: 0; padding-left: 18px; display: grid; gap: 3px; font-size: 12.5px }
-.mac .pj-plan ol small { color: var(--d-muted) }
-.mac .pj-plan .acts { display: flex; gap: 6px; align-items: center }
-.mac .pj-plan .ok { font-size: 12px; color: var(--d-emerald) }
 .mac .sw-age { font-size: 11px; color: var(--d-muted); white-space: nowrap }
 .mac .cc-sec h4 .sw-spin, .mac .cc-sec h4 .sw-age { margin-left: 8px; letter-spacing: 0; text-transform: none; font-weight: 400 }
 .mac .pj-task.found { background: color-mix(in srgb, #8a9cf0 8%, transparent) }
-.mac .pj-needs { display: grid; gap: 8px }
 .mac .cc-view.split { padding: 0; overflow: hidden; display: block }
 .mac .pj-split { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); height: 100%; min-height: 0 }
 .mac .pj-list { overflow: auto; border-right: 1px solid var(--d-border); padding-bottom: 10px; scrollbar-width: thin }

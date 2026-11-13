@@ -7,6 +7,77 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.20] - 2026-11-13
+
+### Fixed
+
+- Desktop: problem reports from builds without a configured server go to the
+  report receiver instead of the product website.
+- Desktop: the Review button on a Home board card opens its menu instead of
+  opening the pull request.
+
+## [0.8.19] - 2026-11-12
+
+### Added
+
+- Desktop: Start on the first-run screen checks this computer for Git,
+  Node.js, Claude Code and Codex, installs what is missing with one Set up
+  button, then opens each agent's sign-in. Any item can be skipped.
+
+### Changed
+
+- Desktop: Settings shows Agent accounts, where you set the Claude Code token
+  and the Codex API key your machines use.
+- Desktop: Home's board names each project above its row, with the project's
+  dot, so the cards get the full width and no longer repeat the project's
+  name.
+- Desktop: a link to an HTML file in an agent's reply opens the page rendered
+  in the file pane; Source shows its code.
+
+## [0.8.18] - 2026-11-12
+
+### Added
+
+- Desktop: audio files (MP3, M4A, AAC, WAV, FLAC, Ogg, Opus) named in an agent's reply or opened from Files play in the side pane.
+- Desktop: a two-finger swipe sideways on the trackpad goes back or forward.
+  The page follows the fingers and comes back if they stop short.
+
+### Changed
+
+- Desktop: Home's board has a row for each project, with the projects that
+  wait on you first. A project's name opens it, a cell shows about two cards
+  and scrolls to the rest, and a project's sync conflicts share one card.
+- Desktop: the Review button of a pull request on the board is a menu: Open
+  shows it on its host, and Review with agent starts an agent's review.
+
+## [0.8.17] - 2026-11-12
+
+### Added
+
+- Desktop: a file path an agent writes in inline code, such as
+  `src/main.rs:42`, opens in the file pane, and a line number in a file link
+  scrolls to and marks that line.
+- Desktop: Settings > General has "Save files to", for choosing the folder
+  saved files go to on macOS, Windows and Linux. Downloads stays the default.
+
+### Changed
+
+- Desktop: a coding agent notification names its project first, such as
+  "org/web: Claude Code on build-box finished".
+- Desktop: a relative file link opens the file from the worktree the agent
+  works in, falling back to the session's folder.
+
+### Fixed
+
+- Desktop: each project remembers its selected coding agent, model and thinking level.
+
+### Performance
+
+- Desktop: a picture, video, 3D model or PDF opened from a chat downloads
+  once and opens from the local copy after that while it is unchanged. An
+  interrupted download resumes. Closing the session deletes the files only it
+  opened, and files not opened for a day are removed.
+
 ## [0.8.16] - 2026-11-12
 
 ### Added

@@ -3,7 +3,7 @@
 // project opens a window with that project only: no sidebar, the project's name as the title and a row
 // of tabs for its sections (the board's tiles). What opens from the project, an agent session, a
 // terminal, a PR thread or a run, opens in this window with a back button to the project (Esc too).
-// Home, other projects, chats outside the project and Settings open in the main window. Cmd-K lists
+// Home, other projects, sessions outside the project and Settings open in the main window. Cmd-K lists
 // the project's hits first; Cmd-W closes the window.
 (() => {
   const st = document.createElement("style");
@@ -15,7 +15,6 @@
 .mac .pw-tabs button { font: inherit; font-size: 12px; color: var(--d-muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px 7px; white-space: nowrap; cursor: pointer }
 .mac .pw-tabs button:hover { color: var(--d-fg) }
 .mac .pw-tabs button[aria-current="true"] { color: var(--d-fg); border-bottom-color: var(--d-emerald) }
-.mac .cc-win.pw .pb-back { display: none }
 .mac .pw-back { padding: 2px 8px }`;
   document.head.append(st);
 })();

@@ -441,7 +441,7 @@ impl Live {
     }
 
     /// Sets what `tool` showed: its text, and a line for each picture,
-    /// kept for the server. Returns the pictures, for `tool_images`.
+    /// kept for the caller. Returns the pictures, for `tool_images`.
     fn tool_output(&mut self, tool: &mut ToolCall, content: &[ToolCallContent]) -> Vec<Picture> {
         let shown = output(content, Path::new(&self.info.cwd));
         tool.output = shown.text;

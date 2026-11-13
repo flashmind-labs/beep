@@ -1,7 +1,7 @@
 //! What coding agents on the machines of the mesh want the user for, sent by the machines
 //! themselves: one `FollowAlerts` and one `FollowRuns` stream per machine, kept open while the
-//! machine is a member and online. The alerts become the same notices the server pushes, and an
-//! answer goes back to the machine. No server is involved.
+//! machine is a member and online. The alerts become notices, and an answer goes back to the
+//! machine.
 
 use crate::{
     error::{FleetError, Result},
@@ -353,10 +353,6 @@ async fn stream(
                     title: alert.notice_title(&key.machine_name, project.as_deref()),
                     body: alert.notice_body(),
                     session_id: key.to_string(),
-                    app: None,
-                    approval: None,
-                    changed: false,
-                    group: false,
                 };
                 let options = match alert.kind {
                     beep_proto::node::agent::AlertKind::Asks { question } => question.options,

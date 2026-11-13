@@ -2,6 +2,7 @@
 //! `flsh` and Beep's skills, and `Provision::apply` hands the processes the
 //! node starts the user's credentials, kept in memory.
 
+mod setup;
 mod skills;
 pub(crate) mod spawn_env;
 mod teacli;
@@ -14,6 +15,7 @@ use crate::{AsyncMutex, lock};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     ForgejoLogin, LinkRx, LinkTx, MachineCredentials,
+    setup::{Need, Reply as SetupReply, Request as SetupRequest},
     tool_update::{Available, Check, Reply, Request, Tool},
 };
 use std::{
@@ -62,7 +64,7 @@ impl Provision {
             updates: watch::channel(None).0,
             recheck: Notify::new(),
         };
-        spawn_env::set_path(vec![provision.bin()]);
+        spawn_env::set_path(provision.tool_dirs());
         Arc::new(provision)
     }
 
@@ -85,7 +87,7 @@ impl Provision {
             let checks = provision.clone();
             let checks = tokio::spawn(async move { checks.check_loop().await });
             let _checks = AbortOnDropHandle::new(checks);
-            // Tokens wait for the server: a node that stopped while they
+            // Tokens wait for the mesh: a node that stopped while they
             // were revoked must not keep using them.
             provision.configure_teacli().await;
             let dir = provision.dir.clone();
@@ -205,7 +207,7 @@ impl Provision {
         installed
     }
 
-    /// Serves one `tool-update/1` stream: installs the release the server
+    /// Serves one `tool-update/1` stream: installs the release the caller
     /// names, then has the machine probed again.
     pub(crate) async fn serve_updates(&self, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         let Some(Request::Install { tool, version }) = rx.recv::<Request>().await? else {
@@ -222,6 +224,42 @@ impl Provision {
         };
         tx.send(&reply).await?;
         tx.finish().await
+    }
+
+    /// Serves one `setup/1` stream: installs what the desktop asks for,
+    /// then has the machine probed again.
+    pub(crate) async fn serve_setup(&self, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+        let Some(SetupRequest::Install { need }) = rx.recv::<SetupRequest>().await? else {
+            return Ok(());
+        };
+        let reply = self.set_up(need).await.unwrap_or_else(|e| {
+            log::warn!("{need} not installed: {e:#}");
+            SetupReply::Failed {
+                reason: format!("{e:#}"),
+            }
+        });
+        tx.send(&reply).await?;
+        tx.finish().await
+    }
+
+    async fn set_up(&self, need: Need) -> Result<SetupReply> {
+        let reply = {
+            let _one = self.installing.lock().await;
+            log::info!("installing {need}");
+
+            match need {
+                Need::Node => {
+                    setup::install_node(&self.dir).await?;
+                    SetupReply::Installed {}
+                }
+                Need::Git => setup::install_git().await?,
+            }
+        };
+
+        // Puts the folders it installed into on processes' PATH.
+        self.configure_teacli().await;
+        self.changed.notify_one();
+        Ok(reply)
     }
 
     async fn update(&self, tool: Tool, version: &str) -> Result<()> {
@@ -254,7 +292,7 @@ impl Provision {
     }
 
     /// Drops the credentials, from memory and from teacli's config, when
-    /// the server can no longer say they are current.
+    /// the node stops.
     pub async fn forget(&self) {
         spawn_env::set_vars(Vec::new());
         lock(&self.forgejo).clear();
@@ -293,8 +331,15 @@ impl Provision {
         if shim {
             path.push(teacli::shims_dir(&self.dir));
         }
-        path.push(self.bin());
+        path.extend(self.tool_dirs());
         spawn_env::set_path(path);
+    }
+
+    /// The node's `bin`, then what the setup installed.
+    fn tool_dirs(&self) -> Vec<PathBuf> {
+        std::iter::once(self.bin())
+            .chain(setup::path_dirs(&self.dir))
+            .collect()
     }
 
     /// The node's `bin` then the inherited `PATH`, without the shims: where

@@ -6,13 +6,9 @@ use serde::{Serialize, Serializer};
 pub enum DesktopError {
     #[error("{0}")]
     Api(#[from] ApiError),
-    #[error("not linked to a phone yet")]
-    Unlinked,
-    #[error("this computer was removed from the account")]
-    Revoked,
-    /// A call that only a server answers, made with none.
-    #[error("no server")]
-    NoServer,
+    /// A machine the mesh does not hold.
+    #[error("That machine is not in the mesh.")]
+    NotInMesh,
     /// The mesh is not open: still opening, or it could not be.
     #[error("the mesh is not open: {0}")]
     NoMesh(String),
@@ -66,7 +62,6 @@ impl From<beep_fleet::FleetError> for DesktopError {
             FleetError::Offline(name) => Self::Offline(name),
             FleetError::NoMesh(why) => Self::NoMesh(why),
             FleetError::Mesh(e) => Self::Mesh(e),
-            FleetError::NeedsServer => Self::NoServer,
             FleetError::NotFound => Self::Api(ApiError::NotFound {}),
             FleetError::Conflict(message) => Self::Api(ApiError::Conflict { message }),
             FleetError::Refused(text) => Self::BadRequest(text),

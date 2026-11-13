@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A large transfer that is interrupted resumes where it stopped.
 #
-# Topology as in the sync scenario: server, node-a and node-b, one project
+# Topology as in the sync scenario: desk, node-a and node-b, one project
 # synced on both nodes. node-a's egress is capped with tc so a 500 MB file
 # takes about a minute to cross. While node-b is partway through fetching
 # one (a fifth to three fifths of it in its blob store):
@@ -15,7 +15,7 @@
 #     new start
 #   - the file arrives on node-b with node-a's sha256
 #   - no partial folder or journal entry is left on either node
-#   - the server reports both in sync
+#   - the desktop reports both in sync
 set -uo pipefail
 
 E2E="$(cd "$(dirname "$0")/.." && pwd)"
@@ -86,7 +86,7 @@ interrupt(){
 
   if ! poll 900 on node-b "test -f ~/ws/$PROJECT/$name"; then
     fail "$name did not reach node-b after: $what"
-    probe sync-status "$PROJECT" | sed 's/^/   /'
+    sync_status | sed 's/^/   /'
     return
   fi
 
@@ -116,8 +116,8 @@ interrupt(){
     fi
   done
 
-  wait_for 120 "both in sync" in_sync && pass "the server sees both in sync" \
-    || { fail "the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
+  wait_for 120 "both in sync" in_sync && pass "the desktop sees both in sync" \
+    || { fail "the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
 }
 
 fresh_world

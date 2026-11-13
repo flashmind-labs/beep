@@ -202,43 +202,10 @@ fn math_is_cleaned_too() {
 }
 
 #[test]
-fn product_blocks_in_a_row_share_one_row() {
-    let a = r#"{"title":"Kettle","url":"https://shop.example/k","price":"€40"}"#;
-    let b = r#"{"title":"Toaster","url":"https://shop.example/t"}"#;
-    let html = to_html(&format!(
-        "Two picks:\n\n```product\n{a}\n```\n\n```product\n{b}\n```\n\nThe kettle is better."
-    ));
-    assert_eq!(html.matches("class=\"dprods\"").count(), 1, "{html}");
-    assert_eq!(html.matches("class=\"dprod\"").count(), 2, "{html}");
-    assert!(html.contains("<p>The kettle is better.</p>"), "{html}");
-    assert!(!html.contains(ROW_MARK), "{html}");
-    assert!(!html.contains("<pre>"), "{html}");
-
-    let apart = to_html(&format!("```product\n{a}\n```\nand\n```product\n{b}\n```"));
-    assert_eq!(apart.matches("class=\"dprods\"").count(), 2, "{apart}");
-}
-
-#[test]
-fn bad_product_shows_as_code_unless_still_streaming() {
-    let html = to_html("```product\n{\"title\": oops}\n```");
-    assert!(html.contains("<pre>"), "{html}");
-    assert!(!html.contains("dprod"), "{html}");
-
-    let streaming = to_html("Picks:\n\n```product\n{\"title\":\"Ket");
-    assert!(streaming.contains("dprod pending"), "{streaming}");
-    assert!(!streaming.contains("<pre>"), "{streaming}");
-
-    let quoted = to_html("> ```product\n> {\"title\": oops}\n> ```");
-    assert!(quoted.contains("<pre>"), "{quoted}");
-    assert!(!quoted.contains("dprod"), "{quoted}");
-}
-
-#[test]
-fn a_reply_cannot_fake_a_row() {
-    let html = to_html("x \u{E000}0\u{E000} <button data-copy=\"https://x.example\">y</button>");
+fn a_reply_cannot_add_a_button() {
+    let html = to_html("x <button data-copy=\"https://x.example\">y</button>");
     assert!(!html.contains("<button"), "{html}");
     assert!(!html.contains("data-copy"), "{html}");
-    assert!(!html.contains(ROW_MARK), "{html}");
 }
 
 #[test]

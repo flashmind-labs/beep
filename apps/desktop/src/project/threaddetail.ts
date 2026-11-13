@@ -1,6 +1,6 @@
 // The project page's pane for one pull request or issue: its state, labels,
 // description and comments, read from the host through a machine with the
-// project, or the server. The app renders the text as Markdown and drops raw
+// project. The app renders the text as Markdown and drops raw
 // HTML before it gets here, so the HTML it gives is safe to insert. Commenting stays on the host.
 import { createElement, useReducer, type ComponentProps } from "react";
 import { invoke } from "../ui/tauri.ts";
@@ -44,7 +44,7 @@ export interface ThreadStub {
   opened_at: number;
 }
 
-/// A read: null from a server too old to give one.
+/// A read: null when no machine with the project could give one.
 type Read = { data?: ThreadDetailRow | null; error?: string; at: number; reading: boolean };
 
 /// How long a read stays good before the pane reads it again.
@@ -58,9 +58,8 @@ export function forgeLabel(url: string) {
 /// A comment being written or posted under one thread.
 type Draft = { text: string; posting: boolean; error?: string };
 
-/// `comment()` says whether the pane offers a comment box: with no server,
-/// the comment goes to the host through a machine with the project.
-export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: string) => unknown; comment: () => boolean }) {
+/// A comment goes to the host through a machine with the project.
+export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: string) => unknown }) {
   const reads = new Map<string, Read>();
   const drafts = new Map<string, Draft>();
 
@@ -92,7 +91,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
         .finally(() => { draft.posting = false; deps.redraw(); });
     };
     const view = (redraw: () => void): ComponentProps<typeof ThreadDetailView> => ({
-      stub, data, error: readState.error, acts, comment: deps.comment(), text: draft.text, posting: draft.posting, draftError: draft.error,
+      stub, data, error: readState.error, acts, text: draft.text, posting: draft.posting, draftError: draft.error,
       edit: (value: string) => { draft.text = value; redraw(); }, post, open: (url: string) => { void deps.openUrl(url); },
     });
     return createElement("div", { style: { display: "contents" }, key }, createElement(ThreadPane, { view }));

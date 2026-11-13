@@ -1,11 +1,4 @@
 
-// Terminals on every machine (#144). A PTY on the node outlives the window and the app, like a
-// tmux session: open one anywhere, close the window, attach again from any device.
-const CC_TERMS = [
-  { name: "Build box", terms: [["dev-server", "acme/widget · .worktrees/login-copy", "run", "attached on phone"], ["logs", "~/srv/relay", "run", "idle 12 min"], ["cargo watch", "acme/relay", "run", ""]] },
-  { name: "Mac Studio", terms: [["ios-sim", "acme/widget · apps/ios", "run", ""], ["shell", "~", "exit", "exited 0, 3 h ago"]] },
-  { name: "MacBook Air", terms: [] },
-];
 CC_IC.term = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 (() => {
   const st = document.createElement("style");
@@ -40,7 +33,7 @@ const TL_T = {
 const TL_M = [["build-box", ["cw", "tl"]], ["studio", ["nd"]], ["laptop", []], ["phone", []]];
 D.dTerminals = () => {
   const v = S.d.tl || "default";
-  const empty = v === "empty", off = v === "offline", nw = v === "new" || v === "nomachine", none = v === "nomachine", old = v === "old", wait = v === "loading";
+  const empty = v === "empty", off = v === "offline", nw = v === "new" || v === "nomachine", none = v === "nomachine", wait = v === "loading";
   const act = k => `data-tl="${k === "close" ? "pick" : k === "attached" ? "default" : k}"`;
   const OPEN = { default: ["cw", "attached"], watching: ["cw", "attached", { watching: true }], attaching: ["cw", "attaching"], reconnecting: ["cw", "attaching", { tries: 2 }], detached: ["cw", "detached"], error: ["cw", "detached"], gap: ["cw", "attached", { gap: true }], viewonly: ["cw", "view_only"], ended: ["nd", "ended"], offline: ["nd", "ended", { st: "offline" }] };
   const oz = OPEN[v];
@@ -66,10 +59,9 @@ D.dTerminals = () => {
     .replace('class="tm-screen"', 'class="tm-screen" tabindex="0" aria-label="Terminal output"')
     .replace('</span><button class="dbtn small', '</span><button class="dbtn small" type="button" title="Focus terminal (Shift+Esc)" data-tl-focus>Focus</button><button class="dbtn small');
   else right = `<div class="cc-conn"><b>${wait ? "Loading…" : empty ? "No terminals yet" : "Pick a terminal"}</b><button class="dbtn pri" data-tl="new" data-dact="dset:tlm:">New terminal</button></div>`;
-  const head = `<div class="cc-top"><h2>Terminals</h2><small>${old || wait ? "" : empty ? "None open" : "3 on 2 machines"}</small>
-      <span class="tools">${old ? "" : '<button class="dbtn pri small" data-tl="new" data-dact="dset:tlm:">New terminal</button>'}</span></div>`;
-  const view = old ? '<div class="cc-panel cc-empty"><b>The server needs an update before it lists terminals on every machine.</b></div>'
-    : `${v === "error" ? `<div class="cc-err">The terminal's stream keeps dropping.</div>` : ""}<div class="tl"><div class="tl-list">${list}</div>${right}</div>`;
+  const head = `<div class="cc-top"><h2>Terminals</h2><small>${wait ? "" : empty ? "None open" : "3 on 2 machines"}</small>
+      <span class="tools"><button class="dbtn pri small" data-tl="new" data-dact="dset:tlm:">New terminal</button></span></div>`;
+  const view = `${v === "error" ? `<div class="cc-err">The terminal's stream keeps dropping.</div>` : ""}<div class="tl"><div class="tl-list">${list}</div>${right}</div>`;
   return ccWin(ccSide("terminals"), `${head}<div class="cc-view tl-view">${view}</div>`);
 };
 document.getElementById("desk").addEventListener("click", e => {
@@ -81,7 +73,7 @@ document.getElementById("desk").addEventListener("click", e => {
   if (!b) return;
   S.d.tl = b.dataset.tl; render();
 });
-VARIANTS.dTerminals = [["Attached", "default"], ["Watching", "watching"], ["Attaching", "attaching"], ["Reconnecting", "reconnecting"], ["Detached", "detached"], ["Stream keeps dropping", "error"], ["Earlier output lost", "gap"], ["View only", "viewonly"], ["Ended", "ended"], ["Machine offline", "offline"], ["Pick a terminal", "pick"], ["New terminal", "new"], ["No machine online", "nomachine"], ["Empty", "empty"], ["Loading", "loading"], ["Server too old", "old"]].map(([l, k]) => [l, () => { S.d.tl = k; S.d.tlo = ""; S.d.tlm = ""; render(); }, () => (S.d.tl || "default") === k]);
+VARIANTS.dTerminals = [["Attached", "default"], ["Watching", "watching"], ["Attaching", "attaching"], ["Reconnecting", "reconnecting"], ["Detached", "detached"], ["Stream keeps dropping", "error"], ["Earlier output lost", "gap"], ["View only", "viewonly"], ["Ended", "ended"], ["Machine offline", "offline"], ["Pick a terminal", "pick"], ["New terminal", "new"], ["No machine online", "nomachine"], ["Empty", "empty"], ["Loading", "loading"]].map(([l, k]) => [l, () => { S.d.tl = k; S.d.tlo = ""; S.d.tlm = ""; render(); }, () => (S.d.tl || "default") === k]);
 DESK_SCREENS.find(g => g.group === "Command center").items.push(["dTerminals", "Terminals on every machine", "CommandCenterWindow, TerminalsPage"]);
 
 // Sync (#195): every syncing project's machines and conflicts on one page. A conflict has Fix with an

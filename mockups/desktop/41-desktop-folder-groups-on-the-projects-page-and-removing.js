@@ -81,17 +81,16 @@ const ccSheetOver = (html, sheet) => html.replace(/<\/div><\/div>\s*$/, `<div st
 }
 
 // Remove a machine: right-click its row on Home, in the sidebar or on a project's Machines tile,
-// then Remove, then confirm. The server unlinks its key and drops its connection; the node then
-// says on its own side that it was removed. This Mac is not offered: unlinking it is in
-// Settings > Account.
+// then Remove, then confirm. The mesh drops its key and its connection; the node then
+// says on its own side that it was removed. This Mac is not offered.
 {
   window.__mrmOver = html => {
     const v = S.d.mrm;
     if (v !== "menu" && v !== "confirm" && v !== "failed") return html;
     if (v === "menu") return html.replace('class="cc-win"', 'class="cc-win" style="position:relative"').replace(/<\/div><\/div>(\s*<\/div>)?\s*$/, m => `<div class="cc-menu" style="top:640px;left:420px" role="menu"><span class="lbl">laptop</span><button class="warn on" role="menuitem" data-dact="dset:mrm:confirm" data-dgo="dHome">Remove…</button></div>` + m);
-    const err = v === "failed" ? `<div class="am-msg bad">The server took too long. Try again.</div>` : "";
+    const err = v === "failed" ? `<div class="am-msg bad">The machine took too long. Try again.</div>` : "";
     return html.replace('class="cc-win"', 'class="cc-win" style="position:relative"').replace(/<\/div><\/div>(\s*<\/div>)?\s*$/, m => `<div class="am-scrim" style="position:absolute"><div class="am-sheet" role="dialog" aria-modal="true" aria-label="Remove laptop?"><div class="am-head"><b>Remove laptop?</b><kbd>esc</kbd></div>
-      <div class="am-msg">It is unlinked and agents running there stop.</div><div class="am-sub">Its files stay on the machine.</div>${err}
+      <div class="am-msg">It leaves the mesh and agents running there stop.</div><div class="am-sub">Its files stay on the machine.</div>${err}
       <div class="gp-foot"><button class="dbtn quiet" data-dact="dset:mrm:" data-dgo="dHome">Cancel</button><button class="dbtn warn" data-dact="dset:mrm:" data-dgo="dHome" data-toast="laptop removed">Remove</button></div></div></div>` + m);
   };
   VARIANTS.dHome.push(...[["Machine menu", "menu"], ["Remove a machine", "confirm"], ["Remove failed", "failed"]]

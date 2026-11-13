@@ -1,4 +1,4 @@
-//! The macros that declare wire enums and the request table.
+//! The macros that declare wire enums and structs.
 
 macro_rules! one {
     ($x:tt) => {
@@ -58,32 +58,12 @@ macro_rules! wire_enum {
                 d.deserialize_seq(V)
             }
         }
-
-        #[cfg(test)]
-        impl $crate::compat::Sample for $enum {
-            fn samples() -> Vec<Self> {
-                let mut out = Vec::new();
-                $(sample_each!(out, [Self::$name] { $($field),* });)*
-                out
-            }
-        }
     };
 }
 
-/// `wire_enum!` for an enum Kotlin and Swift see too.
-macro_rules! ffi_enum {
-    ($(#[$meta:meta])* pub enum $enum:ident $body:tt) => {
-        wire_enum! {
-            $(#[$meta])*
-            pub enum $enum $body
-        }
-    };
-}
-
-/// Plain structs on the wire: serde, the usual derives (`Debug`, `Clone`,
-/// `PartialEq`; a struct's own `#[derive]` adds to them), and the samples the
-/// compat test checks them with. The apps' wire encodes them with field
-/// names, the node link as their fields in order.
+/// Plain structs on the wire: serde and the usual derives (`Debug`, `Clone`,
+/// `PartialEq`; a struct's own `#[derive]` adds to them). The node link
+/// encodes them as their fields in order.
 macro_rules! wire_structs {
     ($($(#[$meta:meta])* pub struct $name:ident {
         $($(#[$fmeta:meta])* pub $field:ident: $ty:ty),* $(,)?
@@ -93,71 +73,5 @@ macro_rules! wire_structs {
         pub struct $name {
             $($(#[$fmeta])* pub $field: $ty,)*
         }
-
-        #[cfg(test)]
-        sample_struct!($name { $($field),* });
     )*};
-}
-
-/// `wire_structs!` for structs Kotlin and Swift see too.
-macro_rules! ffi_structs {
-    ($($(#[$meta:meta])* pub struct $name:ident $body:tt)*) => {
-        wire_structs! {
-            $(
-                $(#[$meta])*
-                pub struct $name $body
-            )*
-        }
-    };
-}
-
-/// Declares every request: its op, its fields and what it replies with.
-macro_rules! requests {
-    ($($(#[$meta:meta])* $op:literal $name:ident { $($(#[$fmeta:meta])* $field:ident: $ty:ty),* $(,)? } => $kind:ident<$reply:ty>)*) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        #[repr(u16)]
-        pub enum Op {
-            $($name = $op,)*
-        }
-
-        impl Op {
-            pub const ALL: &[Op] = &[$(Op::$name),*];
-        }
-
-        /// Hands `visit` every request type with its reply type, in op order.
-        #[cfg(test)]
-        pub(crate) fn each_request(visit: &mut impl $crate::compat::Visit) {
-            $(visit.request::<$name, $reply>();)*
-        }
-
-        impl TryFrom<u16> for Op {
-            type Error = ApiError;
-
-            fn try_from(op: u16) -> Result<Self, ApiError> {
-                match op {
-                    $($op => Ok(Op::$name),)*
-                    _ => Err(ApiError::bad_request(format!("unknown op {op}"))),
-                }
-            }
-        }
-
-        $(
-            $(#[$meta])*
-            #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-            pub struct $name {
-                $($(#[$fmeta])* pub $field: $ty,)*
-            }
-
-            impl Rpc for $name {
-                const OP: Op = Op::$name;
-            }
-
-            impl $kind for $name {
-                type Reply = $reply;
-            }
-
-            #[cfg(test)]
-            sample_struct!($name { $($field),* });
-        )*
-    };
 }

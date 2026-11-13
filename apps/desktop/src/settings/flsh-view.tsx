@@ -9,7 +9,6 @@ export function FlshView({ panel }: { panel: FlshPanel }) {
   const state = useStore(panel.state);
   useEffect(() => { void panel.load(); }, [panel]);
   if (state.saved === null) return <><h4>OpenRouter routing</h4><div className="hv-note">Loading flsh's settings…</div></>;
-  if (state.saved === false) return <><h4>OpenRouter routing</h4><div className="hv-note">The server needs an update before it keeps flsh's settings.</div></>;
   const draft = state.draft ?? flshDraft(state.saved);
   const set = (change: Partial<FlshDraft>) => panel.change(change);
   const problem = flshProblem(draft);

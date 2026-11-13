@@ -281,7 +281,7 @@ impl Protocol for Folders {
     }
 }
 
-/// Serves one `files/1` stream until the server closes it.
+/// Serves one `files/1` stream until the caller closes it.
 async fn serve(mut tx: LinkTx, mut rx: LinkRx, folders: Folders) -> Result<()> {
     while let Some(request) = rx.recv::<Request>().await? {
         let folders = folders.clone();

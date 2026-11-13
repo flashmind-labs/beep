@@ -354,7 +354,7 @@ impl Syncs {
         lock(&self.inner.lists).clear_mesh();
     }
 
-    /// Whether the mesh owns the project list, so the server's is ignored.
+    /// Whether the mesh owns the project list, so the caller's is ignored.
     fn follows_mesh(&self) -> bool {
         lock(&self.inner.mesh)
             .as_ref()

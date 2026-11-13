@@ -2,7 +2,6 @@
 //! by the node where the checkout is.
 
 use crate::{
-    beep::Service,
     error::Result,
     fleet::{
         Machines,
@@ -11,7 +10,7 @@ use crate::{
     },
 };
 use beep_proto::{
-    DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, GetWorkDiff, WorkDiff,
+    DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, WorkDiff,
     node::agent::{AgentCommand, DiffAsk, WorkPlace, Worktree},
 };
 use serde::Serialize;
@@ -136,7 +135,6 @@ pub(crate) fn view(diff: WorkDiff) -> DiffView {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri exposes each argument to the web view.
 pub async fn work_diff(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     root: String,
@@ -146,30 +144,15 @@ pub async fn work_diff(
     context: Option<u32>,
 ) -> Result<DiffView> {
     let base = if uncommitted { "@" } else { "" }.to_owned();
-    let diff = match fleet.member(&machine_id) {
-        Some(machine) => {
-            let ask = DiffAsk {
-                root,
-                base,
-                head: String::new(),
-                only,
-                lockfiles,
-                context: context.unwrap_or(3),
-            };
-            direct::work_diff(&fleet, machine, ask).await?
-        }
-        None => {
-            beep.call(GetWorkDiff {
-                machine_id,
-                root,
-                base,
-                head: String::new(),
-                only,
-                lockfiles,
-            })
-            .await?
-        }
+    let ask = DiffAsk {
+        root,
+        base,
+        head: String::new(),
+        only,
+        lockfiles,
+        context: context.unwrap_or(3),
     };
+    let diff = direct::work_diff(&fleet, fleet.machine(&machine_id)?, ask).await?;
     Ok(view(diff))
 }
 
@@ -177,8 +160,8 @@ pub async fn work_diff(
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Places {
-    /// Each asked session's checkout, in order; `None` for a machine only a
-    /// server reaches or a node that does not say.
+    /// Each asked session's checkout, in order; `None` for a node that does
+    /// not say.
     Found { places: Vec<Option<WorkPlace>> },
     /// The machine did not answer yet, as while it starts or its link comes
     /// up: ask again later.
@@ -209,7 +192,7 @@ pub async fn agent_places(
 }
 
 /// The slash commands and skills the running session `session` offers on
-/// `machine_id`. Empty for a machine only a server reaches.
+/// `machine_id`. Empty for a machine outside the mesh.
 #[tauri::command]
 pub async fn agent_commands(
     fleet: Machines<'_>,
@@ -223,7 +206,7 @@ pub async fn agent_commands(
 }
 
 /// The worktrees of the repository holding the session folder `folder` on
-/// `machine_id`. Empty for a machine only a server reaches.
+/// `machine_id`. Empty for a machine outside the mesh.
 #[tauri::command]
 pub async fn agent_worktrees(
     fleet: Machines<'_>,

@@ -184,7 +184,7 @@ async function readTrees() {
       if (W.pick && !roots.includes(W.pick)) W.pick = null;
     }
   } catch {
-    // A node from before worktrees, or a machine only a server reaches: no list.
+    // A node from before worktrees, or one out of reach: no list.
   } finally {
     if (W.place?.id === p.id) W.reading = false;
   }

@@ -5,11 +5,12 @@ import { commandKey } from "../ui/platform.ts";
 // or not), kept per window.
 
 /// What the pane shows a file as.
-export type MediaKind = "image" | "video" | "model" | "pdf";
+export type MediaKind = "image" | "video" | "audio" | "model" | "pdf";
 
 const KINDS: Record<string, MediaKind> = {
   png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", avif: "image",
   mp4: "video", m4v: "video", webm: "video", mov: "video",
+  mp3: "audio", m4a: "audio", aac: "audio", wav: "audio", flac: "audio", ogg: "audio", oga: "audio", opus: "audio",
   glb: "model", gltf: "model", obj: "model", stl: "model",
   pdf: "pdf",
 };

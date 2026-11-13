@@ -26,7 +26,7 @@ test("the window follows only the project it shows", async () => {
 test("an event reads again only what it changed, and the chip says live or polling", async () => {
   const { live, reads } = setup();
   await live.follow("p1");
-  assert.equal(live.mode("p1"), null, "unknown until the server says");
+  assert.equal(live.mode("p1"), null, "unknown until the desktop says");
   live.heard({ project_id: "p1", live: true, polling_why: null, lists: false, runs: false });
   assert.deepEqual(reads, []);
   assert.deepEqual(live.mode("p1"), { live: true, why: null });
@@ -34,9 +34,6 @@ test("an event reads again only what it changed, and the chip says live or polli
   assert.deepEqual(reads, [["p1", false, true]]);
   live.heard({ project_id: "p1", live: false, polling_why: "Live updates need admin rights.", lists: false, runs: false });
   assert.deepEqual(live.mode("p1"), { live: false, why: "Live updates need admin rights." });
-  // A server too old to say shows no chip.
-  live.heard({ project_id: "p1", live: null, polling_why: null, lists: false, runs: false });
-  assert.equal(live.mode("p1"), null);
 });
 
 test("hidden and unrelated project snapshots do not read views", async () => {

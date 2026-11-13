@@ -1,42 +1,18 @@
 // What Home's rows say and how its sections are laid out, apart from the DOM
 // so it can be tested.
-import { agentName, type AgentQuestion, type ChatApproval, type RunningRow } from "../agents/running-state.ts";
+import { agentName, type AgentQuestion, type RunningAgent } from "../agents/running-state.ts";
 import type { MachineTraffic } from "../machines/traffic-state.ts";
 import type { CardStats, MachineCard } from "../machines/machine-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
-/// A Needs you row.
-export type NeedsYou =
-  | { kind: "chat"; session_id: string; session_title: string; pending: ChatApproval }
-  | { kind: "agent"; machine_id: string; machine_name: string; agent: string; session: string; title: string | null; question: AgentQuestion };
+/// A Needs you row: a coding agent's question.
+export interface NeedsYou { kind: "agent"; machine_id: string; machine_name: string; agent: string; session: string; title: string | null; question: AgentQuestion }
 
-/// A routine coming up (CronRow).
-export interface CronRow {
-  id: string;
-  label: string;
-  prompt: string;
-  schedule: string;
-  /// RFC 3339, in UTC.
-  next_run_at: string;
-}
-
-/// Something the event triage agent found in one of the user's apps (UpdateRow).
-export interface UpdateRow {
-  id: number;
-  summary: string;
-  app: string;
-  app_name: string;
-  at: number;
-}
-
-/// What `center_home` gives. A section is null when the server cannot list
-/// it for this account.
+/// What `center_home` gives. A section is null when it cannot be listed.
 export interface HomeView {
   machines: MachineCard[] | null;
-  running: RunningRow[] | null;
+  running: RunningAgent[] | null;
   needs_you: NeedsYou[];
-  coming_up: CronRow[] | null;
-  updates: UpdateRow[] | null;
   projects: ProjectRow[] | null;
 }
 
@@ -55,14 +31,13 @@ export function applyTelemetry(home: HomeView, telemetry: Telemetry): HomeView {
   }) ?? null };
 }
 
-/// A serverless window opens before the mesh has answered. Keep this out of
-/// the stored state so a cached or live Home can still replace it.
-export function homeForDisplay(home: HomeView | null, server: boolean): HomeView | null {
-  if (home || server) return home;
-  return { machines: [], running: [], needs_you: [], coming_up: null, updates: null, projects: [] };
+/// The window opens before the mesh has answered. Keep this out of the
+/// stored state so a cached or live Home can still replace it.
+export function homeForDisplay(home: HomeView | null): HomeView {
+  return home ?? { machines: [], running: [], needs_you: [], projects: [] };
 }
 
-const SECTIONS = ["machines", "running", "needs_you", "coming_up", "updates", "projects"] as const;
+const SECTIONS = ["machines", "running", "needs_you", "projects"] as const;
 
 /// `after` with each section equal to `before`'s kept as `before`'s object,
 /// so views that compare by reference skip it; null when nothing changed.
@@ -79,26 +54,7 @@ export function keepUnchanged(before: HomeView | null, after: HomeView): HomeVie
   return changed ? kept : null;
 }
 
-/// A Needs you row: a title, one muted line and its one button. A chat
-/// approval is allowed from the row; an agent's question opens its session.
-export function needsLine(n:
-  | { kind: "chat"; session_title: string; pending: { approval: Pick<ChatApproval["approval"], "app" | "action"> } }
-  | { kind: "agent"; agent: string; title: string | null; machine_name: string; question: Pick<AgentQuestion, "text"> }) {
-  if (n.kind === "chat") {
-    const a = n.pending.approval;
-    const action = a.action ? a.action[0].toUpperCase() + a.action.slice(1) : "Allow this";
-    return { title: `${action}?`, sub: [a.app, n.session_title].filter(Boolean).join(" · "), button: "Allow" };
-  }
-
+/// A Needs you row: a title, one muted line and its one button, which opens the session.
+export function needsLine(n: Pick<NeedsYou, "agent" | "title" | "machine_name"> & { question: Pick<AgentQuestion, "text"> }) {
   return { title: n.question.text, sub: [agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · "), button: "Answer" };
-}
-
-/// Drops the updates in `dismissed`, a Set of ids, from `listed`: updates the
-/// user dismissed stay off Home even when a list read before the dismiss
-/// reached the server comes back with them. An id a list no longer has is gone
-/// on the server too, so it leaves the set.
-export function withoutDismissed<T extends { id: number }>(listed: T[], dismissed: Set<number>): T[] {
-  const ids = new Set(listed.map(u => u.id));
-  for (const id of dismissed) if (!ids.has(id)) dismissed.delete(id);
-  return listed.filter(u => !dismissed.has(u.id));
 }

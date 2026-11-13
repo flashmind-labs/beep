@@ -1,7 +1,6 @@
 //! Coding agents on the machines of the mesh, asked directly: the sessions,
 //! starting, steering and answering them, their pictures and files, and
-//! the harnesses and sign-ins of each machine. What each returns is what
-//! the server returned for the same request, so the windows are the same.
+//! the harnesses and sign-ins of each machine.
 
 use super::Fleet;
 use crate::error::{DesktopError, Result};
@@ -491,7 +490,6 @@ pub(crate) async fn preview_machine(
         cwd,
         prompt: prompt.clone(),
         needs,
-        chat: None,
         model: None,
         effort: None,
         checkout: None,
@@ -654,7 +652,7 @@ pub(crate) async fn file(
 ) -> Result<AgentFileChunk> {
     if media_mime(&get.path).is_none() {
         return Err(ApiError::bad_request(
-            "Only pictures, videos, 3D models and PDFs can be shown.",
+            "Only pictures, videos, audio, 3D models and PDFs can be shown.",
         )
         .into());
     }

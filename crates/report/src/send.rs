@@ -2,7 +2,7 @@
 
 use beep_proto::ApiError;
 use beep_proto::report::{
-    KEY_HEADER, PATH, Receipt, SIGNATURE_HEADER, TIME_HEADER, default_server, signed_message,
+    DEFAULT_SERVER, KEY_HEADER, PATH, Receipt, SIGNATURE_HEADER, TIME_HEADER, signed_message,
 };
 use iroh::SecretKey;
 use reqwest::header::CONTENT_TYPE;
@@ -37,7 +37,8 @@ pub fn server_url() -> Result<Url, SendError> {
             // A build without the variable, or with it empty, leaves the default.
             option_env!("BEEP_SERVER_URL")
                 .filter(|url| !url.is_empty())
-                .map_or_else(default_server, str::to_owned)
+                .unwrap_or(DEFAULT_SERVER)
+                .to_owned()
         }
         Err(e) => return Err(SendError::Url(e.to_string())),
     };

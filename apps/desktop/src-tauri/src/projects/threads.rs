@@ -1,25 +1,24 @@
-//! A project's open issues and the user's pull requests and issues there:
-//! starting work on an issue or hiding it, asking the agent for a reply,
-//! and the chats about one thread.
+//! A mesh project's open issues and pull requests, one read in full, and
+//! commenting on one.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::epoch_ms,
     chat::markdown::untrusted_html,
     error::{DesktopError, Result},
     fleet::projects::{FleetState, mesh_project},
-    projects::{known, needs_update},
 };
+use beep_fleet::Desk;
 use beep_proto::{
-    GetProjectThread, GetPullRequestHead, GetThreadDetail, GitItemKind, IssueStart,
-    ListProjectIssues, ListProjectPullRequests, ListProjectThreads, ListThreadChats,
-    OpenThreadChat, ProjectIssue, ProjectPullRequest, ProjectThread, PullRequestHead,
-    ReplyToThread, ThreadChat, ThreadDetail, ThreadPost, ThreadView, TrackProjectIssue,
+    ApiError, GitItemKind, ProjectIssue, ProjectPullRequest, PullRequestHead, ThreadDetail,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-fn outdated(e: DesktopError) -> DesktopError {
-    needs_update(e, "for this")
+/// The desk and the name of the mesh project `project_id` is the id of.
+async fn named(fleet: &FleetState<'_>, project_id: Uuid) -> Result<(Desk, String)> {
+    mesh_project(fleet, project_id)
+        .await?
+        .ok_or(DesktopError::Api(ApiError::NotFound {}))
 }
 
 /// An open issue no task tracks yet.
@@ -54,35 +53,6 @@ fn kind_name(kind: GitItemKind) -> &'static str {
     match kind {
         GitItemKind::PullRequest {} => "pr",
         GitItemKind::Issue {} => "issue",
-    }
-}
-
-/// One of the user's open pull requests or issues.
-#[derive(Debug, Serialize)]
-pub struct ThreadRow {
-    kind: &'static str,
-    repo: String,
-    number: u64,
-    title: String,
-    url: String,
-    last_other: String,
-    needs_reply: bool,
-    /// In milliseconds since the Unix epoch.
-    updated_at: u64,
-}
-
-impl From<ProjectThread> for ThreadRow {
-    fn from(t: ProjectThread) -> Self {
-        Self {
-            kind: kind_name(t.kind),
-            repo: t.repo,
-            number: t.number,
-            title: t.title,
-            url: t.url,
-            last_other: t.last_other,
-            needs_reply: t.needs_reply,
-            updated_at: epoch_ms(t.updated_at),
-        }
     }
 }
 
@@ -124,234 +94,15 @@ impl From<ProjectPullRequest> for PullRequestRow {
     }
 }
 
-/// A chat about one thread.
-#[derive(Debug, Serialize)]
-pub struct ThreadChatRow {
-    chat_id: Uuid,
-    kind: &'static str,
-    repo: String,
-    number: u64,
-    title: String,
-}
-
-impl From<ThreadChat> for ThreadChatRow {
-    fn from(c: ThreadChat) -> Self {
-        Self {
-            chat_id: c.chat_id,
-            kind: kind_name(c.kind),
-            repo: c.repo,
-            number: c.number,
-            title: c.title,
-        }
-    }
-}
-
-/// A comment or review on a thread, for the card atop its chat.
-#[derive(Debug, Serialize)]
-pub struct ThreadPostRow {
-    author: String,
-    /// In milliseconds since the Unix epoch.
-    at: u64,
-    body: String,
-}
-
-impl From<ThreadPost> for ThreadPostRow {
-    fn from(p: ThreadPost) -> Self {
-        Self {
-            author: p.author,
-            at: epoch_ms(p.at),
-            body: p.body,
-        }
-    }
-}
-
-/// A pull request or issue read from its host now, for the card atop the
-/// chat about it.
-#[derive(Debug, Serialize)]
-pub struct ThreadCardRow {
-    kind: &'static str,
-    number: u64,
-    title: String,
-    url: String,
-    author: String,
-    body: String,
-    needs_reply: bool,
-    comments: Vec<ThreadPostRow>,
-    earlier: u32,
-}
-
-impl From<ThreadView> for ThreadCardRow {
-    fn from(t: ThreadView) -> Self {
-        Self {
-            kind: kind_name(t.kind),
-            number: t.number,
-            title: t.title,
-            url: t.url,
-            author: t.author,
-            body: t.body,
-            needs_reply: t.needs_reply,
-            comments: t.comments.into_iter().map(Into::into).collect(),
-            earlier: t.earlier,
-        }
-    }
-}
-
-/// The project's open issues no task tracks; `None` from a server too old
-/// to list them.
-#[tauri::command]
-pub async fn center_project_issues(
-    fleet: FleetState<'_>,
-    beep: Service<'_>,
-    project_id: Uuid,
-) -> Result<Option<Vec<IssueRow>>> {
-    if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
-        let issues = desk.issues(&name).await?;
-        return Ok(Some(issues.into_iter().map(Into::into).collect()));
-    }
-
-    Ok(known(beep.call(ListProjectIssues { project_id }).await)?
-        .map(|rows| rows.into_iter().map(Into::into).collect()))
-}
-
-/// Makes a task of issue `number`: with `agent`, a worker starts on it on
-/// `node_id` (or a machine picked at start); without, the project agent
-/// plans it.
-#[tauri::command]
-pub async fn center_track_issue(
-    beep: Service<'_>,
-    project_id: Uuid,
-    number: u64,
-    agent: Option<String>,
-    node_id: Option<String>,
-) -> Result<Uuid> {
-    let start = agent.map(|agent| IssueStart { agent, node_id });
-    let task = beep
-        .call(TrackProjectIssue {
-            project_id,
-            number,
-            start,
-        })
-        .await
-        .map_err(outdated)?;
-    Ok(task.id)
-}
-
-/// The user's open pull requests and issues in the project; `None` with no
-/// server or one too old to list them.
-#[tauri::command]
-pub async fn center_project_threads(
-    beep: Service<'_>,
-    project_id: Uuid,
-) -> Result<Option<Vec<ThreadRow>>> {
-    if !beep.has_server() {
-        return Ok(None);
-    }
-
-    Ok(known(beep.call(ListProjectThreads { project_id }).await)?
-        .map(|rows| rows.into_iter().map(Into::into).collect()))
-}
-
-/// Every open pull request of the project, newest first; `None` from a
-/// server too old to list them.
-#[tauri::command]
-pub async fn center_project_pull_requests(
-    fleet: FleetState<'_>,
-    beep: Service<'_>,
-    project_id: Uuid,
-) -> Result<Option<Vec<PullRequestRow>>> {
-    if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
-        let prs = desk.pull_requests(&name).await?;
-        return Ok(Some(prs.into_iter().map(Into::into).collect()));
-    }
-
-    Ok(
-        known(beep.call(ListProjectPullRequests { project_id }).await)?
-            .map(|rows| rows.into_iter().map(Into::into).collect()),
-    )
-}
-
 /// The branch pull request `number` is made from, for Continue.
 #[tauri::command]
 pub async fn center_pull_request_head(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project_id: Uuid,
     number: u64,
 ) -> Result<PullRequestHead> {
-    if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
-        return Ok(desk.pr_head(&name, number).await?);
-    }
-
-    beep.call(GetPullRequestHead { project_id, number })
-        .await
-        .map_err(outdated)
-}
-
-/// Asks the project agent to draft a reply; gives the project chat.
-#[tauri::command]
-pub async fn center_reply_thread(
-    beep: Service<'_>,
-    project_id: Uuid,
-    repo: String,
-    number: u64,
-) -> Result<Uuid> {
-    beep.call(ReplyToThread {
-        project_id,
-        repo,
-        number,
-    })
-    .await
-    .map_err(outdated)
-}
-
-#[tauri::command]
-pub async fn center_open_thread_chat(
-    beep: Service<'_>,
-    project_id: Uuid,
-    repo: String,
-    number: u64,
-) -> Result<ThreadChatRow> {
-    let chat = beep
-        .call(OpenThreadChat {
-            project_id,
-            repo,
-            number,
-        })
-        .await
-        .map_err(outdated)?;
-    Ok(chat.into())
-}
-
-/// The project's thread chats; `None` with no server or one too old to keep
-/// them.
-#[tauri::command]
-pub async fn center_thread_chats(
-    beep: Service<'_>,
-    project_id: Uuid,
-) -> Result<Option<Vec<ThreadChatRow>>> {
-    if !beep.has_server() {
-        return Ok(None);
-    }
-
-    Ok(known(beep.call(ListThreadChats { project_id }).await)?
-        .map(|rows| rows.into_iter().map(Into::into).collect()))
-}
-
-/// Thread `number` of `repo` read from its host now; `None` from a server
-/// too old to read one.
-#[tauri::command]
-pub async fn center_thread_view(
-    beep: Service<'_>,
-    project_id: Uuid,
-    repo: String,
-    number: u64,
-) -> Result<Option<ThreadCardRow>> {
-    let read = beep.call(GetProjectThread {
-        project_id,
-        repo,
-        number,
-    });
-    Ok(known(read.await)?.map(Into::into))
+    let (desk, name) = named(&fleet, project_id).await?;
+    Ok(desk.pr_head(&name, number).await?)
 }
 
 /// A comment or review with its text as cleaned HTML.
@@ -418,20 +169,15 @@ impl From<ThreadDetail> for ThreadDetailRow {
 }
 
 /// Pull request or issue `number` of the project read in full from its
-/// host now, through a machine of the mesh that has the project, else the
-/// server; `None` from a server too old to read one.
+/// host now, through a machine of the mesh that has the project.
 #[tauri::command]
 pub async fn center_thread_detail(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     project_id: Uuid,
     number: u64,
 ) -> Result<Option<ThreadDetailRow>> {
-    if let Some((desk, name)) = mesh_project(&fleet, project_id).await? {
-        return Ok(Some(desk.thread_detail(&name, number).await?.into()));
-    }
-
-    Ok(known(beep.call(GetThreadDetail { project_id, number }).await)?.map(Into::into))
+    let (desk, name) = named(&fleet, project_id).await?;
+    Ok(Some(desk.thread_detail(&name, number).await?.into()))
 }
 
 /// Whether a thread is a pull request or an issue, as the page names it.
@@ -452,9 +198,7 @@ pub async fn center_comment_thread(
     number: u64,
     body: String,
 ) -> Result<()> {
-    let Some((desk, name)) = mesh_project(&fleet, project_id).await? else {
-        return Err(DesktopError::NoServer);
-    };
+    let (desk, name) = named(&fleet, project_id).await?;
     let kind = match kind {
         ThreadKind::Pr => GitItemKind::PullRequest {},
         ThreadKind::Issue => GitItemKind::Issue {},

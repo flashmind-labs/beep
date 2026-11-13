@@ -38,7 +38,7 @@ test("Stop all on a session with nothing else running stops at once", async ({ p
 
 test("Stop all asks first while a session that is not open has subagents running", async ({ page }) => {
   const sessions = [{ ...running, question: null, subagents: 2 }];
-  await openDesktop(page, false, { agent_steer: [], center_home: { machines: [], projects: [], running: sessions, needs_you: [], coming_up: null, updates: null } });
+  await openDesktop(page, false, { agent_steer: [], center_home: { machines: [], projects: [], running: sessions, needs_you: [] } });
 
   await menuOnHome(page);
   await page.getByRole("menuitem", { name: "Stop all" }).click();

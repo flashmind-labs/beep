@@ -152,7 +152,9 @@ test("the screen fits its element and draws text, colours and images, placeholde
   const loaded = await page.evaluate(async () => (await document.fonts.load("12px 'Symbols Nerd Font Mono'", "\u{f07b}")).map(face => face.status));
   expect(loaded).toEqual(["loaded"]);
 
-  // The theme's foreground draws the text.
+  // The theme's foreground draws the text. A full line, since thin glyphs leave few pixels
+  // at exactly that colour.
+  await page.evaluate(() => window.term.write("the quick brown fox jumps over the lazy dog\r\n"));
   await expect.poll(() => pixels(page, [0xcf, 0xe3, 0xd8])).toBeGreaterThan(20);
 });
 

@@ -1,18 +1,18 @@
 //! Project sync between machines.
 
-ffi_structs! {
-    /// One project's sync in detail, as `GetProjectSyncDetail` gives it.
+wire_structs! {
+    /// One project's sync in detail.
     pub struct ProjectSyncDetail {
         pub project: String,
         pub pinned: bool,
-        /// Paused on every machine with `PauseProjectSync`.
+        /// Paused on every machine.
         pub paused: bool,
         pub machines: Vec<MachineSyncDetail>,
     }
 
     /// One machine's sync of a project in detail.
     pub struct MachineSyncDetail {
-        /// How it stands, as `ListProjectSync` gives it. While paused its
+        /// How it stands. While paused its
         /// status is `InSync`, or `Offline` when it does not answer.
         pub sync: MachineSync,
         /// The machine reports itself paused.
@@ -22,7 +22,7 @@ ffi_structs! {
         /// Some paths it still has to bring, or that failed and are tried
         /// again, at most 50.
         pub waiting: Vec<String>,
-        /// Its beep-node can settle conflicts with `ResolveSyncConflict`.
+        /// Its beep-node can settle conflicts.
         pub can_resolve: bool,
     }
 
@@ -39,8 +39,8 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
-    /// Which side of a conflict `ResolveSyncConflict` keeps: the file the
+wire_enum! {
+    /// Which side of a conflict settling it keeps: the file the
     /// copy stands beside (`Original`), or the conflict copy (`Copy`).
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum ConflictKeep {
@@ -49,9 +49,8 @@ ffi_enum! {
     }
 }
 
-ffi_structs! {
-    /// A machine whose folder of a project Syncthing keeps in step, as
-    /// `ListProjectSyncthing` gives it.
+wire_structs! {
+    /// A machine whose folder of a project Syncthing keeps in step.
     #[derive(Eq)]
     pub struct SyncthingPlace {
         /// The `Machine::id` it is.
@@ -97,7 +96,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// Where a machine's sync of a project stands: `Offline` (offline or
     /// did not answer), `Scanning` (looking for changes on disk),
     /// `Syncing` (fetching or writing what another machine changed),
@@ -110,41 +109,5 @@ ffi_enum! {
         2 Syncing {}
         3 InSync {}
         4 Failed {}
-    }
-}
-
-ffi_structs! {
-    /// What a project's sync leaves out on one machine.
-    pub struct SyncSkipped {
-        pub paths: Vec<SkippedFile>,
-        /// Files in a git repository that git carries between machines rather
-        /// than sync.
-        pub through_git: u64,
-        /// More paths are left out than `paths` lists.
-        pub truncated: bool,
-    }
-
-    /// A file or folder sync leaves out, and the rule that does.
-    pub struct SkippedFile {
-        /// Relative to the project folder, parts joined with `/`.
-        pub path: String,
-        pub folder: bool,
-        pub rule: SkipRule,
-    }
-}
-
-ffi_enum! {
-    /// Why sync leaves a path out, in the order the rules apply: `Git`
-    /// (`.git`, and in a git repository the files git carries), the
-    /// project's `.gitignore`, a `Default` for the kind of project its
-    /// `marker` file shows (such as `target/` for `Cargo.toml`), the
-    /// project's `.beepignore`, or a symlink or special file (`Link`).
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum SkipRule {
-        0 Git {}
-        1 GitIgnore {}
-        2 Default { marker: String }
-        3 BeepIgnore {}
-        4 Link {}
     }
 }

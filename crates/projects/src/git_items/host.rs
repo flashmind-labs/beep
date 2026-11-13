@@ -20,8 +20,6 @@ pub enum HostError {
     Timeout(String),
     #[error("Could not reach {0}.")]
     Unreachable(String),
-    #[error("{0} is on your own network, which Beep's server cannot reach.")]
-    Private(String),
     #[error("{host} answered with an error ({status}).")]
     Status { host: String, status: u16 },
     #[error("{0} sent a reply Beep could not read.")]

@@ -1,9 +1,7 @@
 // What the project page's list says of each kind of thing in a project: its
 // count and the few rows that matter now, as pure functions the tests check.
-import type { TaskRow, WorkerRow } from "./agent.ts";
 import type { WhereRow } from "./projects-state.ts";
 import { machineSync } from "../machines/machine-state.ts";
-import type { RunningAgent } from "../agents/running-state.ts";
 import type { SyncRow } from "./filesync.ts";
 
 /// One row of a tile: an optional dot, its text with an optional code
@@ -25,46 +23,6 @@ export interface TileData {
   count: string;
   rows: TileRow[];
   empty: string;
-}
-
-/// Open task states, in the order the tile lists them.
-const OPEN: Record<string, number> = { running: 0, blocked: 1, review: 2, planned: 3 };
-
-/// A coding-agent session's key in `askingSessions`.
-export function sessionKey(machineId: string, session: string) { return `${machineId}\n${session}`; }
-
-/// The sessions that wait on the user: running agents that ask, and the
-/// agent questions Home lists.
-export function askingSessions(
-  running: readonly Partial<Pick<RunningAgent, "machine_id" | "id" | "status">>[] | null | undefined,
-  needs?: readonly { kind: string; machine_id?: string; session?: string }[] | null,
-) {
-  const out = new Set<string>();
-  for (const r of running || []) if (r.status === "asking" && r.machine_id && r.id) out.add(sessionKey(r.machine_id, r.id));
-  for (const n of needs || []) if (n.kind === "agent" && n.machine_id && n.session) out.add(sessionKey(n.machine_id, n.session));
-  return out;
-}
-
-type TileTask = Pick<TaskRow, "title" | "state"> & Partial<Pick<TaskRow, "id" | "worker">>;
-type TileWorker = Pick<WorkerRow, "id" | "machine_id" | "session">;
-
-/// The Tasks tile: open tasks, running ones first.
-export function taskTile(tasks: readonly TileTask[] | null | undefined, workers?: readonly TileWorker[] | null, asking?: ReadonlySet<string> | null): TileData {
-  const list = tasks || [];
-  const open = list.filter(t => t.state in OPEN).sort((a, b) => OPEN[a.state] - OPEN[b.state]);
-  const running = list.filter(t => t.state === "running").length;
-  const count = running ? `${running} running` : open.length ? `${open.length} open` : list.length ? "all done" : "";
-  const asks = (t: TileTask) => {
-    const w = t.worker && (workers || []).find(x => x.id === t.worker);
-    return !!(w && w.session && asking?.has(sessionKey(w.machine_id, w.session)));
-  };
-  const rows = open.map(t => ({
-    id: t.id,
-    text: t.title,
-    chip: asks(t) ? { cls: "wait", text: "asks" }
-      : t.state === "review" ? { cls: "wait", text: "review" } : t.state === "blocked" ? { cls: "wait", text: "blocked" } : null,
-  }));
-  return { count, rows, empty: list.length ? "Nothing open" : "No tasks yet" };
 }
 
 /// A machine row as the tile reads it: `whereRows` gives them.

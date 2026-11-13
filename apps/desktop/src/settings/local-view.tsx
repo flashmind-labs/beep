@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { SKINS, frontLayout, setFrontLayout, setSkin, skinId, type FrontLayout, type FrontPage } from "../ui/skin.ts";
+import { useStore } from "zustand";
+import { conversationAppearance, setConversationAppearance } from "../ui/conversation-appearance.ts";
 import type { MacControl } from "./settings.ts";
 
 const LAYOUTS: readonly { id: FrontLayout; label: string }[] = [{ id: "board", label: "Board" }, { id: "list", label: "List" }];
@@ -19,8 +21,12 @@ function LayoutPick({ page, name, note }: { page: FrontPage; name: string; note:
 
 export function AppearanceView() {
   const [selected, setSelected] = useState(skinId);
+  const appearance = useStore(conversationAppearance);
   useEffect(() => { const changed = (event: StorageEvent) => { if (event.key === "beep.skin") setSelected(skinId()); }; window.addEventListener("storage", changed); return () => window.removeEventListener("storage", changed); }, []);
-  return <>{[false, true].map(light => <div className="dskins" key={String(light)}><small>{light ? "Light" : "Dark"}</small><div>{SKINS.filter(skin => !!skin.light === light).map(skin => <button className="dskin" key={skin.id} data-skin-pick={skin.id} aria-pressed={skin.id === selected} onClick={() => { setSkin(skin.id); setSelected(skin.id); }}><i style={{ background: skin.swatch }} />{skin.name}</button>)}</div></div>)}{FRONT_PAGES.map(front => <LayoutPick key={front.page} {...front}/>)}</>;
+  return <>{[false, true].map(light => <div className="dskins" key={String(light)}><small>{light ? "Light" : "Dark"}</small><div>{SKINS.filter(skin => !!skin.light === light).map(skin => <button className="dskin" key={skin.id} data-skin-pick={skin.id} aria-pressed={skin.id === selected} onClick={() => { setSkin(skin.id); setSelected(skin.id); }}><i style={{ background: skin.swatch }} />{skin.name}</button>)}</div></div>)}{FRONT_PAGES.map(front => <LayoutPick key={front.page} {...front}/>)}
+    <div className="dtoggle"><span><b>Conversation scrollbar</b><small>Show the scrollbar beside agent conversations</small></span><button type="button" className="dswitch" role="switch" aria-label="Conversation scrollbar" aria-checked={appearance.scrollbar} onClick={() => setConversationAppearance("scrollbar", !appearance.scrollbar)} /></div>
+    <div className="dtoggle"><span><b>Prompt marks</b><small>Mark your messages in the conversation scrollbar</small></span><button type="button" className="dswitch" role="switch" aria-label="Prompt marks" aria-checked={appearance.promptMarks} onClick={() => setConversationAppearance("promptMarks", !appearance.promptMarks)} /></div>
+  </>;
 }
 export function ComputerView({ mac, busy, setEnabled, allow }: { mac: MacControl; busy: boolean; setEnabled(enabled: boolean): void; allow(permission: "ScreenRecording" | "Accessibility"): void }) {
   const p = mac.permissions, desktopControl = !navigator.userAgent.includes("Windows");

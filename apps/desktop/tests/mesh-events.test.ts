@@ -387,7 +387,7 @@ test("hiding pauses the reader and showing again reads only what changed", async
 
 test("explicit refreshes bypass view snapshots and writes discard stale views", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  t.after(() => { clearViews(); delete answers.save_credential; delete answers.send_prompt; });
+  t.after(() => { clearViews(); delete answers.save_credential; delete answers.agent_steer; });
   installViews({ views: [{ command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } }] });
   calls.length = 0;
   await invoke("center_project_runs", { projectId: "example", refresh: true });
@@ -404,8 +404,8 @@ test("explicit refreshes bypass view snapshots and writes discard stale views", 
     { command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } },
     { command: "center_home", args: {}, value: { sessions: [] } },
   ] });
-  await invoke("send_prompt", { session: "example", text: "fixture" });
-  assert.equal(snapshotView("center_home"), null, "a prompt drops the sessions view");
+  await invoke("agent_steer", { session: "example", text: "fixture" });
+  assert.equal(snapshotView("center_home"), null, "a steer drops the sessions view");
   assert.ok(snapshotView("center_project_runs", { projectId: "example" }), "and keeps the others");
   t.mock.timers.tick(5000);
 });

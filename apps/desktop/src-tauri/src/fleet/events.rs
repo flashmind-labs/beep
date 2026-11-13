@@ -1429,9 +1429,9 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
             });
         }
         name if lists_sessions_again(name) => {
-            let outside = app.state::<crate::machines::list::Outside>();
-            outside.sessions.stale();
-            outside.scans.stale();
+            let lists = app.state::<crate::machines::list::MachineLists>();
+            lists.sessions.stale();
+            lists.scans.stale();
             app.state::<Arc<crate::center::home_sessions::AgentSessions>>()
                 .stale();
             app.state::<crate::palette::lists::PaletteCache>()
@@ -1449,7 +1449,7 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
     }
 
     if matches!(topic.name(), "terminals" | "*") {
-        app.state::<crate::machines::list::Outside>()
+        app.state::<crate::machines::list::MachineLists>()
             .terminals
             .stale();
     }

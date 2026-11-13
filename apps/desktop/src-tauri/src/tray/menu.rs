@@ -1,76 +1,46 @@
-//! The tray icon and its menu: Recent chats, what waits on the user and
-//! the app's own items, and what a click on one opens.
+//! The tray icon and its menu: what waits on the user and the app's own
+//! items, and what a click on one opens.
 
 use super::waiting::{self, WaitingList};
 use crate::{
     bar,
-    beep::{Beep, SERVER_ENABLED, state::LinkState},
     center::{self, CenterTarget},
-    machines::this_mac::Machine,
     platform::update,
 };
-use beep_proto::Session;
-use std::{
-    cmp::Reverse,
-    sync::{Arc, Mutex, PoisonError},
-};
 use tauri::{
-    App, AppHandle, Emitter, Manager, Wry,
+    App, AppHandle, Manager, Wry,
     image::Image,
-    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
 
 const TRAY: &str = "beep";
-/// Chats listed under Recent in the tray menu.
-const RECENT: usize = 5;
-/// Menu ids of Recent's items start with this, then the session id.
-const CHAT_ITEM: &str = "chat:";
 /// Report a Problem, in the tray menu and the app's Help menu.
 pub(crate) const REPORT: &str = "report-problem";
 
-/// The latest chats, kept so the tray menu can be built without waiting on
-/// the server.
-#[derive(Default)]
-pub(crate) struct Recent(Mutex<Vec<Session>>);
-
-/// Puts the icon in the menu bar and fetches Recent for its menu.
-pub(crate) fn install(app: &App, beep: &Beep) -> tauri::Result<()> {
+/// Puts the icon in the menu bar.
+pub(crate) fn install(app: &App) -> tauri::Result<()> {
     let handle = app.handle();
     let icon = Image::from_bytes(include_bytes!("../../icons/tray.png"))?;
     TrayIconBuilder::with_id(TRAY)
         .icon(icon)
         .icon_as_template(true)
         .tooltip(waiting::tooltip(0))
-        .menu(&menu(handle, beep)?)
+        .menu(&menu(handle)?)
         .show_menu_on_left_click(true)
         .on_menu_event(on_menu)
         .build(app)?;
-    tauri::async_runtime::spawn(refresh_recent(handle.clone()));
     Ok(())
 }
 
-fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
-    let link = beep.link_state();
-    let linked = link == LinkState::Linked;
-    let status = match link {
-        LinkState::Linked => "Linked to your phone",
-        LinkState::Unlinked if beep.signed_out() => "Signed out of the Beep server",
-        LinkState::Unlinked => "No subscription",
-        LinkState::Revoked => "Removed from the account",
-    };
-    let quick = if SERVER_ENABLED {
-        "Quick chat"
-    } else {
-        "Quick agent"
-    };
+fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let menu = Menu::new(app)?;
     let item = |id: &str, title: &str, enabled: bool, keys: Option<&str>| {
         menu.append(&MenuItem::with_id(app, id, title, enabled, keys)?)
     };
     let separator = || menu.append(&PredefinedMenuItem::separator(app)?);
     item("open-center", "Open Beep", true, None)?;
-    item("open-bar", quick, true, None)?;
+    item("open-bar", "Quick agent", true, None)?;
     // A menu shortcut cannot show a double tap, so it gets a line of its own.
     let shortcut = if cfg!(target_os = "windows") {
         "Or press Ctrl+Alt+Space, anywhere"
@@ -79,44 +49,6 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
     };
     item("hotkey", shortcut, false, None)?;
     separator()?;
-    // The server's state, only where there is a server.
-    if SERVER_ENABLED {
-        item("status", status, false, None)?;
-        separator()?;
-    }
-    // Without a subscription the assistant's items are not there at all.
-    if linked {
-        item("new", "New chat", true, Some("CmdOrCtrl+n"))?;
-        let chats = app
-            .state::<Recent>()
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        let recent = Submenu::with_id(app, "recent", "Recent", !chats.is_empty())?;
-
-        for chat in &chats {
-            let title = if chat.title.is_empty() {
-                "New chat"
-            } else {
-                chat.title.as_str()
-            };
-            let id = format!("{CHAT_ITEM}{}", chat.id);
-            recent.append(&MenuItem::with_id(app, id, title, true, None::<&str>)?)?;
-        }
-
-        menu.append(&recent)?;
-        for (id, title, keys) in [
-            ("memories", "Memories", "CmdOrCtrl+m"),
-            ("routines", "Routines", "CmdOrCtrl+j"),
-            ("skills", "Skills", "CmdOrCtrl+l"),
-            ("research", "Research", "CmdOrCtrl+r"),
-        ] {
-            item(id, title, true, Some(keys))?;
-        }
-        item("apps", "Apps", true, None)?;
-        separator()?;
-    }
 
     let waiting = app.state::<WaitingList>().entries();
 
@@ -133,15 +65,6 @@ fn menu(app: &AppHandle, beep: &Beep) -> tauri::Result<Menu<Wry>> {
         }
 
         separator()?;
-    }
-
-    if SERVER_ENABLED && !linked {
-        let title = if beep.signed_out() {
-            "Sign in"
-        } else {
-            "Subscription"
-        };
-        item("link", title, true, None)?;
     }
 
     item(REPORT, "Report a Problem", true, None)?;
@@ -162,9 +85,7 @@ pub(crate) fn refresh(app: &AppHandle) {
     let Some(tray) = app.tray_by_id(TRAY) else {
         return;
     };
-    let beep = app.state::<Arc<Beep>>();
-
-    match menu(app, &beep) {
+    match menu(app) {
         Ok(menu) => {
             let _ = tray.set_menu(Some(menu));
         }
@@ -182,48 +103,10 @@ pub(crate) fn refresh(app: &AppHandle) {
     }
 }
 
-/// Tells the bar and the tray this Mac now signs into an account.
-pub(crate) fn became_linked(app: &AppHandle) {
-    let _ = app.emit("link-state", LinkState::Linked);
-    app.state::<Machine>().sync(&app.state::<Arc<Beep>>());
-    refresh(app);
-    tauri::async_runtime::spawn(refresh_recent(app.clone()));
-    // Signing in brings an account with a server into the mesh.
-    crate::fleet::migrate::start(app.clone());
-    app.state::<WaitingList>().poke();
-}
-
-/// Fetches the latest chats for Recent and rebuilds the menu.
-pub(crate) async fn refresh_recent(app: AppHandle) {
-    let beep = app.state::<Arc<Beep>>().inner().clone();
-
-    if beep.link_state() != LinkState::Linked {
-        return;
-    }
-
-    match beep.sessions().await {
-        Ok(mut chats) => {
-            // The server lists pinned chats first; Recent is by time.
-            chats.sort_by_key(|c| Reverse(c.updated_at));
-            chats.truncate(RECENT);
-            *app.state::<Recent>()
-                .0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = chats;
-            refresh(&app);
-        }
-        Err(e) => log::warn!("listing chats for the tray: {e}"),
-    }
-}
-
-/// The window view a tray item opens once linked, if it opens one.
+/// The window view a tray item opens, if it opens one.
 fn tray_target(id: &str) -> Option<CenterTarget> {
     match id {
-        "apps" => Some(CenterTarget::Apps),
-        "memories" => Some(CenterTarget::Memories),
-        "routines" => Some(CenterTarget::Routines),
-        "skills" => Some(CenterTarget::Skills),
-        "settings" | "link" => Some(CenterTarget::Settings),
+        "settings" => Some(CenterTarget::Settings),
         REPORT => Some(CenterTarget::Report),
         waiting::MORE => Some(CenterTarget::Home),
         _ => None,
@@ -247,18 +130,9 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
         return;
     }
 
-    if let Some(id) = event.id().as_ref().strip_prefix(CHAT_ITEM) {
-        app.state::<Arc<Beep>>().set_session(Some(id.to_owned()));
-        bar::show(app, Some("open"));
-        return;
-    }
-    // Without a subscription only Settings, where it is signed in, and
-    // Report a Problem open. This handler hears every menu's events, so the
-    // Help menu's Report a Problem opens here too.
-    if let Some(target) = tray_target(event.id().as_ref())
-        && (app.state::<Arc<Beep>>().link_state() == LinkState::Linked
-            || matches!(target, CenterTarget::Settings | CenterTarget::Report))
-    {
+    // This handler hears every menu's events, so the Help menu's Report a
+    // Problem opens here too.
+    if let Some(target) = tray_target(event.id().as_ref()) {
         let pending = app.state::<center::Pending>();
 
         if let Err(e) = center::open_on(app, &pending, target) {
@@ -274,14 +148,6 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             if let Err(e) = center::open(app) {
                 log::warn!("opening the command center: {e}");
             }
-        }
-        "new" => {
-            app.state::<Arc<Beep>>().set_session(None);
-            bar::show(app, Some("new"));
-        }
-        // Without a subscription these stay in the bar, which says so.
-        view @ ("apps" | "memories" | "research" | "routines" | "skills") => {
-            bar::show(app, Some(view))
         }
         "check-update" => {
             let app = app.clone();

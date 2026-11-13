@@ -8,7 +8,6 @@ use std::process::Command;
 
 use super::work_copy;
 use crate::{
-    beep::Service,
     error::{DesktopError, Result},
     fleet::Machines,
 };
@@ -59,13 +58,12 @@ fn inside(root: &Path, rel: &str) -> Option<PathBuf> {
 
 /// The file `path` under `root` on `machine_id`, here on this Mac.
 async fn resolve(
-    beep: &Service<'_>,
     fleet: &Machines<'_>,
     machine_id: &str,
     root: &str,
     path: &str,
 ) -> Option<PathBuf> {
-    let folder = work_copy::exact_folder_here(beep, fleet, machine_id, root).await?;
+    let folder = work_copy::exact_folder_here(fleet, machine_id, root).await?;
     let path = path.to_owned();
     spawn_blocking(move || inside(&folder, &path))
         .await
@@ -77,13 +75,12 @@ async fn resolve(
 /// apps that can open it; `None` when it is not here.
 #[tauri::command]
 pub async fn local_file(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     root: String,
     path: String,
 ) -> Result<Option<LocalFile>> {
-    let Some(file) = resolve(&beep, &fleet, &machine_id, &root, &path).await else {
+    let Some(file) = resolve(&fleet, &machine_id, &root, &path).await else {
         return Ok(None);
     };
     let apps = spawn_blocking(move || apps_for(&file))
@@ -95,14 +92,13 @@ pub async fn local_file(
 /// Opens or reveals the file `local_file` found for the same arguments.
 #[tauri::command]
 pub async fn open_local_file(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     root: String,
     path: String,
     action: Action,
 ) -> Result<()> {
-    let file = resolve(&beep, &fleet, &machine_id, &root, &path)
+    let file = resolve(&fleet, &machine_id, &root, &path)
         .await
         .ok_or_else(|| DesktopError::BadRequest("that file is not on this Mac".into()))?;
     spawn_blocking(move || {

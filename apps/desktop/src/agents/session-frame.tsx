@@ -15,6 +15,7 @@ import { MoveBox, MoveHere } from "./move-view.tsx";
 import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, WorkLine } from "./composer-ui.tsx";
 import { cancelContinue, continuing } from "./continue-here.ts";
 import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.ts";
+import { conversationAppearance } from "../ui/conversation-appearance.ts";
 import { syncJump } from "./logview.ts";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
@@ -184,8 +185,9 @@ export function showSessionFrame(frame: Frame, inPlace: boolean, release: () => 
 
 function BodySlot({ body }: { body: ChatBody }) {
   const host = useRef<HTMLDivElement>(null);
+  const scrollbar = useStore(conversationAppearance, state => state.scrollbar);
   useLayoutEffect(() => { const slot = host.current; slot?.prepend(body); return () => body.remove(); }, [body]);
-  return <div ref={host} className="agbodyw"><ConversationRail body={body}/></div>;
+  return <div ref={host} className="agbodyw">{scrollbar && <ConversationRail body={body}/>}</div>;
 }
 
 /// The conversation's scrollbar: where the view is, and a tick at each message
@@ -197,6 +199,7 @@ const THUMB_MIN = 24;
 
 function ConversationRail({ body }: { body: ChatBody }) {
   const rail = useRef<HTMLDivElement>(null);
+  const promptMarksEnabled = useStore(conversationAppearance, state => state.promptMarks);
   const [view, setView] = useState(NO_RAIL);
   const [peek, setPeek] = useState<string | null>(null);
 
@@ -209,7 +212,7 @@ function ConversationRail({ body }: { body: ChatBody }) {
       const height = box.clientHeight, scale = height / total;
       const thumbHeight = Math.max(THUMB_MIN, shown * scale);
       const thumbTop = (body.scrollTop / (total - shown)) * (height - thumbHeight);
-      const ticks = promptMarks(body).map(mark => ({ key: mark.key, prompt: mark.prompt, top: Math.min(height - 2, mark.top * scale) }));
+      const ticks = (promptMarksEnabled ? promptMarks(body) : []).map(mark => ({ key: mark.key, prompt: mark.prompt, top: Math.min(height - 2, mark.top * scale) }));
       setView({ thumb: { top: thumbTop, height: thumbHeight }, ticks });
     };
     const later = () => { frame ||= requestAnimationFrame(read); };
@@ -219,7 +222,7 @@ function ConversationRail({ body }: { body: ChatBody }) {
     const drawn = onLogDrawn(body, later);
     later();
     return () => { cancelAnimationFrame(frame); sized.disconnect(); body.removeEventListener("scroll", later); drawn(); };
-  }, [body]);
+  }, [body, promptMarksEnabled]);
 
   const jump = (key: string) => {
     revealLogUnit(body, key);
@@ -250,18 +253,18 @@ function ConversationRail({ body }: { body: ChatBody }) {
   };
 
   // The message under the pointer, beside its tick.
-  const shown = view.ticks.find(tick => tick.key === peek) ?? null;
+  const ticks = promptMarksEnabled ? view.ticks : [];
+  const shown = ticks.find(tick => tick.key === peek) ?? null;
 
   return <div className={view.thumb ? "agrail" : "agrail off"} ref={rail} onPointerDown={press}>
     {view.thumb && <div className="th" style={{ top: view.thumb.top, height: view.thumb.height }}/>}
-    {view.ticks.map(tick => <button type="button" className="tk" key={tick.key} style={{ top: tick.top }} aria-label={`Jump to your message: ${tick.prompt.slice(0, 80)}`}
+    {ticks.map(tick => <button type="button" className="tk" key={tick.key} style={{ top: tick.top }} aria-label={`Jump to your message: ${tick.prompt.slice(0, 80)}`}
       onClick={() => jump(tick.key)} onPointerEnter={() => setPeek(tick.key)} onPointerLeave={() => setPeek(null)} onFocus={() => setPeek(tick.key)} onBlur={() => setPeek(null)}/>)}
     {shown && <div className="agpeek" style={{ top: shown.top }} aria-hidden="true">{shown.prompt}</div>}
   </div>;
 }
 
 const sameHints = (a: AgentHintsModel, b: AgentHintsModel) => a.project === b.project && a.value.window === b.value.window
-  && a.value.model === b.value.model && a.value.link?.[0] === b.value.link?.[0] && a.value.link?.[1] === b.value.link?.[1]
   && a.value.items.length === b.value.items.length && a.value.items.every((item, i) => item.join("\n") === b.value.items[i].join("\n"));
 
 export function updateSessionHints(hints: AgentHintsModel) {

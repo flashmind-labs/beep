@@ -7,27 +7,15 @@ use beep_proto::AgentNoticeKey;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, PoisonError};
 use tauri::{AppHandle, Emitter, Runtime, State};
-use uuid::Uuid;
 
 /// A view of the window that the bar, the tray or another window can hand
-/// over to. `Chat { session: None }` is a new chat.
+/// over to.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CenterTarget {
     Home,
-    Chat {
-        session: Option<Uuid>,
-    },
-    Chats,
-    Memories,
-    Routines,
-    Skills,
-    Apps,
     Settings,
     Instructions,
-    Group {
-        id: String,
-    },
     /// A coding agent's session, as a Running now row names it.
     Agent(Box<AgentTarget>),
     Providers,
@@ -40,19 +28,6 @@ pub(crate) enum CenterTarget {
         run: Option<RunAt>,
     },
     Terminals,
-    Research,
-    /// One research, opened as a page of the window.
-    OpenResearch {
-        session: Uuid,
-    },
-    /// The notifications pane, with alert `session` opened when there is one.
-    Notice {
-        session: Option<Uuid>,
-    },
-    /// A new chat that starts with `prompt`, as a project window's ⌘K asks.
-    Ask {
-        prompt: String,
-    },
     /// The Report a problem sheet, over the page on screen.
     Report,
 }

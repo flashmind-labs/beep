@@ -1,19 +1,19 @@
 //! The "Add a machine" sheet: a one-time ticket from this Mac that the
 //! machine redeems with `beep-node mesh join <ticket>`. While open, the
-//! sheet polls `node_token_machine` to learn which machine joined with it.
-//! Only a desktop mints tickets: the server never does.
+//! sheet polls `ticket_machine` to learn which machine joined with it.
+//! Only a desktop mints tickets.
 
 use crate::{
-    beep::{Service, identity::computer_name, qr_svg},
+    beep::identity::computer_name,
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
 use beep_mesh::{DeviceKind, JoinTicket, MeshError};
-use beep_proto::{GetMachineSearch, SetMachineSearch};
 use iroh_tickets::Ticket;
+use qrcode::{QrCode, render::svg::Color};
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
-use tauri::{AppHandle, State};
+use tauri::State;
 
 /// A ticket as the sheet shows it.
 #[derive(Debug, Serialize)]
@@ -80,56 +80,56 @@ const USED: &str = "This ticket expired or was already used. Ask for a new one."
 /// Joins the mesh a ticket from another desktop names, under this Mac's name. A Mac that is
 /// alone in its own mesh leaves it and brings its settings along.
 #[tauri::command]
-pub async fn mesh_join(app: AppHandle, fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<()> {
+pub async fn mesh_join(fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<()> {
     let ticket = JoinTicket::parse(&ticket).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
-    let joined = match fleet.join(&ticket, &computer_name()).await {
+
+    match fleet.join(&ticket, &computer_name()).await {
         Err(DesktopError::Mesh(MeshError::Refused(_))) => {
             Err(DesktopError::BadRequest(USED.into()))
         }
-        other => other,
-    };
-    // The move was cancelled to let the mesh close; it runs again on whichever mesh is open.
-    crate::fleet::migrate::start(app);
-    joined
+        Err(e) => Err(e),
+        Ok(()) => {
+            fleet.drop_api_keys().await;
+            Ok(())
+        }
+    }
 }
 
-/// The id of the machine that joined with `token`, `None` while it is
+/// `data` as a QR code for a phone to scan.
+fn qr_svg(data: &str) -> Result<String> {
+    let qr = QrCode::new(data.as_bytes()).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
+    Ok(qr
+        .render::<Color>()
+        .quiet_zone(false)
+        .dark_color(Color("#0A0E0C"))
+        .light_color(Color("#F4F8F5"))
+        .build())
+}
+
+/// The id of the machine that joined with `ticket`, `None` while it is
 /// unused. The desktop records the authenticated key that redeemed the secret.
 #[tauri::command]
-pub async fn node_token_machine(
+pub async fn ticket_machine(
     fleet: State<'_, Arc<Fleet>>,
-    token: String,
+    ticket: String,
 ) -> Result<Option<String>> {
-    let ticket = JoinTicket::parse(&token).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
+    let ticket = JoinTicket::parse(&ticket).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
     let joined = fleet.ready().await?.joined_with(&ticket).await?;
     Ok(joined.map(|id| id.to_string()))
 }
 
 /// Where `machine_id` looks for git checkouts, `~/` for home.
 #[tauri::command]
-pub async fn machine_search(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    machine_id: String,
-) -> Result<String> {
-    if let Some(machine) = fleet.member(&machine_id) {
-        return direct::machine_search(&fleet, machine).await;
-    }
-
-    beep.call(GetMachineSearch { machine_id }).await
+pub async fn machine_search(fleet: Machines<'_>, machine_id: String) -> Result<String> {
+    direct::machine_search(&fleet, fleet.machine(&machine_id)?).await
 }
 
 /// Has `machine_id` look for git checkouts in `search` and walk it again.
 #[tauri::command]
 pub async fn set_machine_search(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     search: String,
 ) -> Result<String> {
-    if let Some(machine) = fleet.member(&machine_id) {
-        return direct::set_machine_search(&fleet, machine, &search).await;
-    }
-
-    beep.call(SetMachineSearch { machine_id, search }).await
+    direct::set_machine_search(&fleet, fleet.machine(&machine_id)?, &search).await
 }

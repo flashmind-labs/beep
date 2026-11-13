@@ -27,7 +27,7 @@ test("late command results cannot remount a removed composer", async ({ page }) 
   await page.evaluate(() => { window.__navigation.hold("agent_commands"); window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }); });
   await page.locator("#agmsg").fill("/");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_commands").length)).toBe(1);
-  await page.evaluate(() => window.__navigation.open("chats"));
+  await page.evaluate(() => window.__navigation.open("home"));
   await page.evaluate(() => window.__navigation.release("agent_commands"));
   await expect(page.locator(".cm-menu")).toHaveCount(0);
 });

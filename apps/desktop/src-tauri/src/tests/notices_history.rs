@@ -206,10 +206,6 @@ fn notice(key: &AgentNoticeKey) -> Notice {
         session_id: key.to_string(),
         title: "Codex is ready".into(),
         body: "The turn ended".into(),
-        app: None,
-        approval: None,
-        changed: false,
-        group: false,
     }
 }
 

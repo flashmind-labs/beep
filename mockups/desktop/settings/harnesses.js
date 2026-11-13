@@ -1,6 +1,6 @@
 const SETTINGS_HARNESSES = (() => {
-  const { chev, tile, sm, dt, swi, sec, skel, dsetGo, generalBody, SK, SKL, skinsHtml, CHOICES, modelsBody, letter, waiting, appsList, appPerm, mcpPage, macBody, box, mrow, agentForm, claudeBox, codexBox, acctBody, CODING, codingAgents } = SETTINGS_ACCOUNTS;
-  const { GH, FJ, ED, RM, chip, ico, editRm, cliChip, gitRow, note, lk, cd, MS, credForm, ghPage, waitCode, paste, ghAccount, choice, credsBody, insTab, insSec, insBody, accountBody } = SETTINGS_CREDENTIALS;
+  const { tile, swi, dsetGo, box } = SETTINGS_ACCOUNTS;
+  const { note } = SETTINGS_CREDENTIALS;
   const HV = {
     hermes: { name: "Hermes", ver: "0.20.0", status: "Installed", list: "Installed", unknown: true, home: "HERMES_HOME", hdef: "~/.hermes", prog: "hermes" },
     claude: { name: "Claude Code", ver: "2.1.312", latest: "2.1.320", status: "Signed in as you@example.com · Max plan", list: "Signed in · Max plan", home: "CLAUDE_CONFIG_DIR", hdef: "~/.claude", prog: "claude", diffs: { program: ["mac-box", "win-box"], args: ["win-box"] } },
@@ -99,7 +99,6 @@ const SETTINGS_HARNESSES = (() => {
     const wrap = inner => `<div class="cc-view hv-view in-set">${inner}</div>`;
     if (st === "none") return `<div class="cc-view hv-view in-set"><div class="hv-bar">${hvPicker().replace(/aria-pressed="true"/, 'aria-pressed="false"')}<span class="sp"></span></div><div class="cc-panel cc-empty"><b>No machine online</b><span>Coding agents show here for machines that are online.</span></div></div>`;
     if (st === "asking") return wrap(`<div class="cc-panel cc-empty"><b>Asking build-box…</b></div>`);
-    if (st === "old") return wrap(`<div class="cc-err">The server needs an update before it shows coding agents here.</div>`);
     if (st === "gone") return wrap(`<div class="cc-panel cc-empty"><b>build-box does not report ${HV[a].name}</b></div>`);
     const h = HV[a], off = st === "off";
     const on = !h.missing && !off;

@@ -1,6 +1,6 @@
 //! The bell's history on this Mac: what the mesh told the user, kept in one
 //! file (the newest `KEEP`, none older than `MAX_AGE_MS`), so the pane lists
-//! it with no server. Coding agents' notices and CI runs come from `route`;
+//! it at once. Coding agents' notices and CI runs come from `route`;
 //! sync conflicts, failed moves and machines that went away from `watch`.
 
 use super::notify;

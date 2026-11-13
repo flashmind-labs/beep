@@ -1,10 +1,11 @@
-// The first launch of an app with no subscription: start here, or link another desktop.
+// The first launch: start here, or link another desktop. Start sets this computer up for
+// agents when it lacks something.
 import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { joinTicket } from "../machines/jointicket.ts";
 import { invoke } from "../ui/tauri.ts";
-import { firstRunDue } from "../settings/subscription.ts";
 import { FirstRunScreen } from "./firstrun-view.tsx";
+import { setupRun, thisComputer } from "./firstrun-setup.ts";
 
 const KEY = "beep.firstRunDone";
 
@@ -28,11 +29,11 @@ async function linked() {
   return false;
 }
 
-/// Shows the first-run window over the app when it is due. The choice is kept, so it shows once.
-/// A Mac already linked to other machines has made it: the window shows only once the mesh says
-/// this Mac is alone, so it never flashes up there. Home does not wait for it.
-export async function firstRun(subscribed: boolean, signedOut = false) {
-  if (!firstRunDue(subscribed, stored(), signedOut)) return;
+/// Shows the first-run window over the app until it is answered. The choice is kept, so it shows
+/// once. A Mac already linked to other machines has made it: the window shows only once the mesh
+/// says this Mac is alone, so it never flashes up there. Home does not wait for it.
+export async function firstRun() {
+  if (stored() !== null) return;
   if (await linked()) return keep();
   const screen = createDocumentScope<"first-run">();
   let closed = false;
@@ -41,5 +42,11 @@ export async function firstRun(subscribed: boolean, signedOut = false) {
     closed = true;
     keep(); screen.dispose();
   };
-  screen.set([{ slot: "first-run", host: document.body, content: createElement("div", null, createElement(FirstRunScreen, { done: leave, join: joinTicket })) }]);
+  screen.set([{ slot: "first-run", host: document.body, content: createElement("div", null, createElement(FirstRunScreen, { done: leave, join: joinTicket, prepare })) }]);
+}
+
+/// Set up for this computer, or null when there is none to run here.
+async function prepare() {
+  const machine = await thisComputer();
+  return machine ? setupRun(machine) : null;
 }

@@ -1,8 +1,7 @@
 //! Pulling and pushing the branch a project's checkout has out, on the machine that holds it.
 
-use super::branches::{Placed, placed};
+use super::branches::placed;
 use crate::{
-    beep::Service,
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
@@ -75,17 +74,18 @@ async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
     row
 }
 
-/// The branch each online machine's checkout of `project` has out. Nothing for a project only
-/// the server knows.
+/// The branch each online machine's checkout of `project` has out. Nothing for a project the
+/// mesh does not record.
 #[tauri::command]
-pub async fn project_git_state(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    project: String,
-) -> Result<Vec<GitRow>> {
-    let Placed::Mesh(places) = placed(&beep, &fleet, &project).await? else {
+pub async fn project_git_state(fleet: Machines<'_>, project: String) -> Result<Vec<GitRow>> {
+    if !fleet
+        .mesh()
+        .is_some_and(|mesh| beep_fleet::has_project(&mesh, &project))
+    {
         return Ok(Vec::new());
-    };
+    }
+
+    let places = placed(&fleet, &project)?;
     Ok(join_all(
         places
             .iter()
@@ -98,7 +98,6 @@ pub async fn project_git_state(
 /// reads the checkout again.
 #[tauri::command]
 pub async fn project_git_move(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     project: String,
     machine_id: String,
@@ -107,15 +106,12 @@ pub async fn project_git_move(
 ) -> Result<GitRow> {
     let branch = branch_name(&branch)
         .ok_or_else(|| DesktopError::BadRequest("That is not a branch name.".into()))?;
-    let machine: EndpointId = fleet
-        .member(&machine_id)
-        .ok_or_else(|| DesktopError::BadRequest("That machine is not in the mesh.".into()))?;
+    let machine: EndpointId = fleet.machine(&machine_id)?;
     let name = fleet.name_of(machine);
-    let place = match placed(&beep, &fleet, &project).await? {
-        Placed::Mesh(places) => places.into_iter().find(|place| place.machine == machine),
-        Placed::Server => None,
-    }
-    .ok_or_else(|| DesktopError::BadRequest(format!("{name} has no checkout of {project}.")))?;
+    let place = placed(&fleet, &project)?
+        .into_iter()
+        .find(|place| place.machine == machine)
+        .ok_or_else(|| DesktopError::BadRequest(format!("{name} has no checkout of {project}.")))?;
     let shell = PeerShell::on(&fleet, machine).await?;
     run_move(&shell, &place.folder, branch, direction)
         .await

@@ -1,21 +1,16 @@
-//! `tools/1`: the Beep MCP server's tools, which coding agents on a node
-//! call to work across the user's machines. Unlike the other protocols the
-//! node opens these streams, on its connection to the server, and only
-//! when the welcome said the server takes them (`Down::Welcome::tools`).
-//! Each stream starts with `Open`, then carries one `Request` and its
-//! `Reply`. The server runs the call on the machine it names, so the
-//! user's rules for their machines apply as for Beep's own tools.
+//! `tools/1`: the Beep MCP tools, which coding agents on a node call to
+//! work across the user's machines. The node runs each `Request` itself,
+//! reaching the machine it names over the mesh, and answers with a `Reply`.
 
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
 pub const PROTOCOL: &str = "tools/1";
 
-/// How the text of a call the user's rules refuse starts, as the server and a node that stands in
-/// for it both say it.
+/// How the text of a call the user's rules refuse starts.
 pub const REFUSED: &str = "Not done: the user set";
 
-/// The tools the server runs. `ask_user` is not among them: the node puts
+/// The tools a node runs. `ask_user` is not among them: the node puts
 /// that question to the user itself.
 #[derive(
     Debug,
@@ -49,7 +44,7 @@ pub enum Tool {
     UpdateMemory,
     Forget,
     /// Starts a coding agent linked to the calling session, on the machine
-    /// that answers. Between nodes only: the server never runs it.
+    /// that answers.
     StartAgent,
     AgentStatus,
     SendToAgent,
@@ -88,7 +83,7 @@ pub enum Tool {
     BeepMetrics,
     /// Projects and their checkouts from this node's replicated mesh state.
     ListProjects,
-    /// A tool a newer node calls that this server does not know.
+    /// A tool a newer node calls that this one does not know.
     #[serde(other)]
     Unknown,
 }
@@ -97,12 +92,12 @@ pub enum Tool {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Approved {
-    /// Not asked yet: the server checks the user's rules.
+    /// Not asked yet.
     #[default]
     No,
     /// The user allowed this one call.
     Once,
-    /// The user allowed it from now on: the server keeps that in the rules.
+    /// The user allowed it from now on.
     Always,
 }
 
@@ -125,7 +120,7 @@ pub struct Field {
     pub value: String,
 }
 
-/// What the server answers.
+/// What the node answers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Reply {

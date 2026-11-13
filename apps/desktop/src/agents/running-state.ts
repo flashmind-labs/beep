@@ -1,10 +1,9 @@
 // What Home and the Projects page say about coding agents running or waiting:
 // their rows, lines and keys, apart from the DOM so it can be tested.
-import type { ApprovalField } from "../chat/approval-cards.ts";
 import { base, formatAgo } from "../ui/format.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
-/// A coding agent's session running now.
+/// A coding agent's session running now: a Running now row (RunningAgent).
 export interface RunningAgent {
   kind: "agent";
   machine_id: string;
@@ -20,27 +19,6 @@ export interface RunningAgent {
   external: boolean;
   /// Its subagents that still run.
   subagents?: number;
-}
-
-/// A research running now.
-interface RunningResearch {
-  kind: "research";
-  session: string;
-  topic: string;
-  status: string;
-  round: number;
-  sources: number;
-  started_at: number;
-}
-
-/// A Running now row (RunningRow).
-export type RunningRow = RunningAgent | RunningResearch;
-
-/// An approval a chat waits on (PendingApproval).
-export interface ChatApproval {
-  run_id: string;
-  query_id: string;
-  approval: { app: string; action: string; fields: ApprovalField[] };
 }
 
 /// What a coding agent asks (AgentQuestion).
@@ -59,23 +37,22 @@ export function agentName(name: string | null | undefined) {
 
 /// A Running now row: a title and one muted line.
 export function runningLine(
-  r: Pick<RunningResearch, "kind" | "topic" | "round"> | Pick<RunningAgent, "kind" | "agent" | "title" | "cwd" | "machine_id" | "machine_name">,
+  r: Pick<RunningAgent, "agent" | "title" | "cwd" | "machine_id" | "machine_name">,
   projects: readonly ProjectFolder[] = [],
 ) {
-  if (r.kind === "research") return { title: r.topic, sub: `Research · round ${r.round}` };
   const project = repoOf(r, projects);
   return { title: r.title || project || agentName(r.agent), sub: [project, r.machine_name].filter(Boolean).join(" · ") };
 }
 
 /// When a Running now row last moved: now for an agent in a turn, else its
-/// last step or reply (its end, once it stopped), a research's start.
-const runningAt = (r: (Pick<RunningAgent, "kind" | "started_at" | "last_activity"> & { status?: string }) | Pick<RunningResearch, "kind" | "started_at">) =>
-  r.kind !== "agent" ? r.started_at : r.status === "working" ? Date.now() : r.last_activity || r.started_at;
+/// last step or reply (its end, once it stopped).
+const runningAt = (r: Pick<RunningAgent, "started_at" | "last_activity"> & { status?: string }) =>
+  r.status === "working" ? Date.now() : r.last_activity || r.started_at;
 
 /// Idle sessions show how long ago they were last active.
 export function runningWhen(r: Parameters<typeof runningAt>[0]) {
   const time = formatAgo(runningAt(r), "short");
-  if (r.kind !== "agent" || r.status !== "idle" || time === "now") return time;
+  if (r.status !== "idle" || time === "now") return time;
   return `${time.replace(" min", "m").replace(" h", "h").replace(" d", "d")} ago`;
 }
 
@@ -85,8 +62,7 @@ export function byRecent<T extends Parameters<typeof runningAt>[0]>(rows: readon
 }
 
 /// What names a Running now row across redraws.
-export const runningKey = (r: Pick<RunningAgent, "kind" | "machine_id" | "id"> | Pick<RunningResearch, "kind" | "session">) =>
-  r.kind === "agent" ? `agent:${r.machine_id}:${r.id}` : `research:${r.session}`;
+export const runningKey = (r: Pick<RunningAgent, "machine_id" | "id">) => `agent:${r.machine_id}:${r.id}`;
 
 /// An imported project's folder on one machine.
 type ProjectFolder = Pick<ProjectRow, "name" | "machine_id" | "folder"> & { url?: ProjectRow["url"] };

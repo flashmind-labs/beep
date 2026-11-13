@@ -79,7 +79,7 @@ function redrawGroups() {
 }
 
 // The machines Home lists, each with its online dot. It shows once Home has
-// loaded, empty or not, unless the server is too old to list machines.
+// loaded, empty or not.
 registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
   order: 5.5,
   title: "Machines",

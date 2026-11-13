@@ -5,7 +5,10 @@ mod schedule;
 mod store;
 
 use super::{index::Entry, lists::PaletteCache, places::Place, projects::session_entry};
-use crate::{beep::AsyncMutex, error::Result, fleet::Fleet};
+use crate::{
+    error::Result,
+    fleet::{AsyncMutex, Fleet},
+};
 use anyhow::{Context, bail};
 use beep_mesh::machine::sessions::{Reading, Sessions};
 use beep_node::agents::tags::own_words;
@@ -170,7 +173,7 @@ impl PromptIndex {
     }
 }
 
-/// Called only after the node or server accepted the message. Indexing
+/// Called only after the node accepted the message. Indexing
 /// failures do not turn a successful send into an apparent failed send.
 pub(crate) async fn sent(app: &AppHandle, session: MachineSession, text: &str) {
     let text = own_words(text);
@@ -195,30 +198,6 @@ pub(crate) async fn sent(app: &AppHandle, session: MachineSession, text: &str) {
     }
 
     index.changed();
-}
-
-pub(crate) async fn sent_existing(app: &AppHandle, machine: &str, session: &str, text: &str) {
-    let known = app
-        .state::<PaletteCache>()
-        .sessions()
-        .into_iter()
-        .find(|s| s.machine_id == machine && s.id == session);
-    let known = match known {
-        Some(known) => Some(known),
-        None => {
-            let index = app.state::<Arc<PromptIndex>>().inner().clone();
-            let id = format!("{machine} {session}");
-
-            match spawn_blocking(move || index.reader().session(&id)).await {
-                Ok(Ok(known)) => known,
-                _ => None,
-            }
-        }
-    };
-
-    if let Some(known) = known {
-        sent(app, known, text).await;
-    }
 }
 
 pub(super) async fn follow(app: &AppHandle) {

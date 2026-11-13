@@ -1,12 +1,13 @@
-//! The bar: one borderless window that shows and hides in place, and the
-//! commands its page and the orb's call. Only the user opens it.
+//! The bar: one borderless window that shows and hides in place on two taps
+//! of Option, and the commands its page calls. Only the user opens it.
 
 pub(crate) mod app;
-pub(crate) mod live;
+#[cfg(desktop)]
+pub(crate) mod hotkey;
 pub(crate) mod pasted_image;
 pub(crate) mod window;
 pub(crate) mod zoom;
 
-#[cfg(desktop)]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) use window::toggle;
-pub(crate) use window::{LABEL, hide, is_focused, is_open, show};
+pub(crate) use window::{LABEL, hide, is_open, show};

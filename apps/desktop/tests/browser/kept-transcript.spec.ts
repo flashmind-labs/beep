@@ -114,7 +114,7 @@ test("a kept log scrolled up into older entries comes back where the reader left
 
 test("a deleted session's kept log is not drawn again", async ({ page }) => {
   const ended = { ...running, title: "First notification", status: "ended", question: null };
-  await openDesktop(page, false, { agent_deletable: true, agent_delete: null, center_home: { machines: [], projects: [], running: [ended], needs_you: [], coming_up: null, updates: null } });
+  await openDesktop(page, false, { agent_deletable: true, agent_delete: null, center_home: { machines: [], projects: [], running: [ended], needs_you: [] } });
   const body = page.locator("#agbody");
   await page.evaluate(session => window.__navigation.open({ agent: session }), ended);
   await expect(body).toHaveCount(1);

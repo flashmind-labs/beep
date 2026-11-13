@@ -7,7 +7,7 @@ use crate::agents::{Answered, Asking, Line, LineReader};
 use anyhow::Result;
 use beep_proto::node::{
     agent::{AnswerOption, OptionKind},
-    tools::{Approved, Field, Reply, Request, Tool},
+    tools::{Approved, Reply, Request, Tool},
 };
 use futures::{StreamExt, stream::FuturesUnordered};
 use serde::Deserialize;
@@ -27,13 +27,9 @@ const ASK_LIMIT: Duration = Duration::from_secs(60 * 60);
 /// The MCP versions this server speaks, newest first.
 const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
-const ALLOW: &str = "allow";
-const ALWAYS: &str = "always";
-const DENY: &str = "deny";
-
 /// Where calls go.
 pub(crate) trait Backend: Sync {
-    /// Runs one call on the server.
+    /// Runs one call on the node.
     fn call(&self, request: &Request) -> impl Future<Output = Result<Reply>> + Send;
     /// Reads a transcript independently of the acting tools/1 requests.
     fn read_transcript(&self, _args: Value) -> impl Future<Output = Result<Reply>> + Send {
@@ -233,66 +229,17 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
         }
         Ok(tool) => tool,
     };
-    let mut request = Request {
+    let request = Request {
         session: session.to_owned(),
         tool,
         args: args.to_string(),
         approved: Approved::No,
     };
 
-    loop {
-        let reply = match backend.call(&request).await {
-            Ok(reply) => reply,
-            Err(e) => return Called::failed(format!("{e:#}")),
-        };
-
-        match reply {
-            Reply::Done { text, failed } => return Called { text, failed },
-            Reply::Ask {
-                app,
-                action,
-                fields,
-            } if request.approved == Approved::No => {
-                let question = approval(&app, &action, &fields);
-                request.approved = match asked(backend, session, question).await {
-                    Ok(Answered::Picked(option)) if option.id == ALLOW => Approved::Once,
-                    Ok(Answered::Picked(option)) if option.id == ALWAYS => Approved::Always,
-                    Ok(_) => {
-                        return Called::failed(format!(
-                            "The user did not allow {name}. Do not try it again unless they ask."
-                        ));
-                    }
-                    Err(e) => return Called::failed(format!("Not run: {e:#}")),
-                };
-            }
-            Reply::Ask { .. } => {
-                return Called::failed("The server asked again after the user allowed it.");
-            }
-            other => return Called::failed(format!("The server answered {other:?}.")),
-        }
-    }
-}
-
-/// The question that asks to allow a call.
-fn approval(app: &str, action: &str, fields: &[Field]) -> Asking {
-    let detail = fields
-        .iter()
-        .map(|field| format!("{}: {}", field.label, field.value))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let option = |id: &str, name: &str, kind| AnswerOption {
-        id: id.into(),
-        name: name.into(),
-        kind,
-    };
-    Asking {
-        text: format!("Allow {action}? ({app})"),
-        detail: (!detail.is_empty()).then_some(detail),
-        options: vec![
-            option(ALLOW, "Allow", OptionKind::AllowOnce),
-            option(ALWAYS, "Always allow", OptionKind::AllowAlways),
-            option(DENY, "Deny", OptionKind::RejectOnce),
-        ],
+    match backend.call(&request).await {
+        Ok(Reply::Done { text, failed }) => Called { text, failed },
+        Ok(other) => Called::failed(format!("Unexpected reply {other:?}.")),
+        Err(e) => Called::failed(format!("{e:#}")),
     }
 }
 

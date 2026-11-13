@@ -1,13 +1,12 @@
-// Whether the project page shown updates live (only an older server says so)
-// or by polling, and the reads it starts.
+// Whether the project page shown updates live or by polling, and the reads
+// it starts.
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { installViews, type ViewSnapshot } from "../ui/snapshot-state.ts";
 
-/// What the server says of a followed project (LiveRow).
+/// What the desktop says of a followed project (LiveRow).
 export interface LiveRow {
   project_id: string;
-  /// Null from a server too old to say.
-  live: boolean | null;
+  live: boolean;
   polling_why: string | null;
   lists: boolean;
   runs: boolean;
@@ -63,13 +62,12 @@ export function makeProjectLive(deps: LiveDeps) {
     return pending;
   }
 
-  /// What the server said of `row.project_id`.
+  /// What the desktop said of `row.project_id`.
   function heard(row: LiveRow) {
     const id = row.project_id;
     if (id !== current) return;
     installViews(row);
-    if (row.live === null) modes.delete(id);
-    else modes.set(id, { live: row.live, why: row.polling_why });
+    modes.set(id, { live: row.live, why: row.polling_why });
     if (row.lists || row.runs) reload(id, row.lists, row.runs);
     redraw();
   }

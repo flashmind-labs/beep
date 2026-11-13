@@ -51,10 +51,10 @@ test("what holds the copy up is said", () => {
 
 const machine = (id: string, m: object) => ({ id, name: id, online: true, folder: null, checking: false, checked_at: null, ...m });
 
-test("a mesh project's machine without it gets Add, a server's gets Copy here", () => {
+test("a mesh project's machine without it gets Add", () => {
   const none = (mesh: boolean) => whereRows(null, [machine("a", { folder: "/f", mesh }), machine("b", { mesh })], null).find(r => r.id === "b")!;
-  assert.deepEqual([none(true).add, none(true).copy], [true, false]);
-  assert.deepEqual([none(false).add, none(false).copy], [false, true]);
+  assert.equal(none(true).add, true);
+  assert.equal(none(false).add, false);
 });
 
 test("no Add from a copy Syncthing holds or from an offline machine, and the row names Syncthing", () => {

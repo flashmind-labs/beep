@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 pub const PATH: &str = "/v1/reports";
 
 /// The server reports go to when nothing else is set.
-pub fn default_server() -> String {
-    format!("https://{}", crate::urls::LINK_HOST)
-}
+pub const DEFAULT_SERVER: &str = "https://beepapi.flashmind.com";
 /// The sender's endpoint id, as `EndpointId` displays it.
 pub const KEY_HEADER: &str = "beep-key";
 /// When it was signed, Unix milliseconds.

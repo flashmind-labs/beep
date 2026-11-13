@@ -1,14 +1,14 @@
 //! The projects the sidebar, Home and the Projects page list: imported
-//! rows, project agents, pins to the top, and removing one.
+//! rows, pins to the top, and removing one.
 
 use crate::{
-    beep::{Service, epoch_ms},
+    beep::epoch_ms,
+    center::kept,
     center::view_cache::{View, ViewCache},
-    center::{self, kept},
     error::Result,
-    fleet::projects::{FleetState, desk, desk_or_server, mirror_remove},
+    fleet::projects::{FleetState, desk},
 };
-use beep_proto::{ImportedProject, ListProjects, ProjectAgent, RemoveProject};
+use beep_proto::ImportedProject;
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
@@ -41,23 +41,7 @@ impl From<ImportedProject> for ProjectRow {
     }
 }
 
-/// Every project agent of the user's; `None` from a server too old to have
-/// them, and the page offers no project chat.
-#[tauri::command]
-pub async fn center_projects(
-    beep: Service<'_>,
-    cache: State<'_, Arc<ViewCache>>,
-) -> Result<Option<Vec<ProjectAgent>>> {
-    let agents = match beep.call(ListProjects {}).await {
-        Ok(agents) => Ok(Some(agents)),
-        Err(e) if center::is_unsupported(&e) => Ok(None),
-        Err(e) => Err(e),
-    };
-    kept(&cache, View::Agents, agents)
-}
-
-/// The projects pinned to the top of the sidebar, oldest pin first; none
-/// from a server too old to pin them.
+/// The projects pinned to the top of the sidebar, oldest pin first.
 #[tauri::command]
 pub async fn projects_on_top(
     fleet: FleetState<'_>,
@@ -77,45 +61,18 @@ pub async fn pin_project_to_top(
     Ok(desk(&fleet).await?.pin(&project, pinned).await?)
 }
 
-/// Removes `project` (`org/repo`) from Beep: it is forgotten and no longer synced, and the
-/// server, if there is one, drops its chat and tasks. No files are deleted on any machine.
+/// Removes `project` (`org/repo`) from Beep: it is forgotten and no longer synced. No files are
+/// deleted on any machine.
 #[tauri::command]
-pub async fn remove_project(
-    app: AppHandle,
-    fleet: FleetState<'_>,
-    beep: Service<'_>,
-    project: String,
-) -> Result<()> {
+pub async fn remove_project(app: AppHandle, fleet: FleetState<'_>, project: String) -> Result<()> {
     let index = app.state::<Arc<crate::palette::prompts::PromptIndex>>();
-    let projects_guard = index.project_lock().await;
-    let Some(desk) = desk_or_server(&fleet, &beep).await? else {
-        beep.call(RemoveProject {
-            project: project.clone(),
-        })
-        .await?;
-        index.forget_project(&app, &project).await?;
-        return Ok(());
-    };
+    let _projects = index.project_lock().await;
+    let desk = desk(&fleet).await?;
     // Record locations even if the menu has not read this new import yet.
     index.sync_projects(desk.imported().await).await?;
-
-    match desk.remove(&project).await {
-        Ok(()) => {
-            // Nothing read of it is kept.
-            fleet.forget();
-            index.forget_project(&app, &project).await?;
-            drop(projects_guard);
-            mirror_remove(&beep, &project).await
-        }
-        // A project only the server has, until it is moved into the mesh.
-        Err(beep_fleet::FleetError::NotFound) if beep.has_server() => {
-            beep.call(RemoveProject {
-                project: project.clone(),
-            })
-            .await?;
-            index.forget_project(&app, &project).await?;
-            Ok(())
-        }
-        Err(e) => Err(e.into()),
-    }
+    desk.remove(&project).await?;
+    // Nothing read of it is kept.
+    fleet.forget();
+    index.forget_project(&app, &project).await?;
+    Ok(())
 }

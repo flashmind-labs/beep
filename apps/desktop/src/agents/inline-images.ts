@@ -55,13 +55,13 @@ function imagePath(cwd: string, src: string) {
   return resolvePath(cwd, decodeURIComponent(src));
 }
 
-async function readImage(machineId: string, path: string, current: () => boolean) {
+async function readImage(machineId: string, path: string, session: string, current: () => boolean) {
   const parts: Uint8Array<ArrayBuffer>[] = [];
   let offset = 0, size = -1, mime = "";
 
   do {
     if (!current()) return;
-    const part = await invoke<FilePart>("agent_file", { machineId, path, offset });
+    const part = await invoke<FilePart>("agent_file", { machineId, path, offset, session });
     if (!current()) return;
     if (!Number.isSafeInteger(part.size) || part.size <= 0 || part.size > MAX_IMAGE || !part.mime.startsWith("image/")) return null;
     if (size >= 0 && (size !== part.size || mime !== part.mime)) throw new Error("Image changed while reading");
@@ -83,7 +83,7 @@ async function readImage(machineId: string, path: string, current: () => boolean
 
 /// Only the current view may draw results or start another chunk. Concurrent
 /// reads and retained bytes are bounded across redraws and session switches.
-export function fillInlineImages(root: HTMLElement, session: { machine_id: string; cwd: string }, current: () => boolean) {
+export function fillInlineImages(root: HTMLElement, session: { machine_id: string; id: string; cwd: string }, current: () => boolean) {
   clearTimeout(retry);
   refill = () => { if (root.isConnected && current()) fillInlineImages(root, session, current); };
   let wait = Infinity;
@@ -107,7 +107,7 @@ export function fillInlineImages(root: HTMLElement, session: { machine_id: strin
     if (pending.has(key) || pending.size >= 3) continue;
     pending.add(key);
     const active = () => root.isConnected && current();
-    void readImage(session.machine_id, path, active).then(url => {
+    void readImage(session.machine_id, path, session.id, active).then(url => {
       if (url !== undefined) keep(key, { url, missing: false, fails: 0, until: 0 });
     }, e => {
       if (!active()) return;

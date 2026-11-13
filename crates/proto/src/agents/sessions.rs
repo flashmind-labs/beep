@@ -1,10 +1,12 @@
 //! Coding-agent sessions on the user's machines.
 
-use crate::{AgentEffort, ApiError, MachineCapability, ModelId, ProviderCredits, Upload};
+use crate::{
+    AgentCheckoutPlan, AgentEffort, ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
+};
 use std::time::SystemTime;
 use uuid::Uuid;
 
-ffi_structs! {
+wire_structs! {
     /// How many sessions of one agent ran in a found folder.
     pub struct FoundAgent {
         /// Such as `claude`, `codex`, `pi`, `flsh` or `opencode`.
@@ -12,8 +14,7 @@ ffi_structs! {
         pub sessions: u32,
     }
 
-    /// A project and its agent chat, as `GetProjectAgent` and `ListProjects`
-    /// return it.
+    /// A project and its agent chat.
     pub struct ProjectAgent {
         pub project_id: Uuid,
         /// `org/repo`.
@@ -21,19 +22,6 @@ ffi_structs! {
         pub chat_id: Uuid,
         pub open_tasks: u32,
         pub open_workers: u32,
-    }
-
-    /// An image sent to a coding agent, as `ListAgentImages` gives it.
-    pub struct AgentImage {
-        /// As the session's log names it.
-        pub name: String,
-        /// The file to download.
-        pub file_id: String,
-        pub mime: String,
-        /// [`image_key`] of its bytes: an agent that replays the session
-        /// gives the image back without its name, and the node logs it as
-        /// `[image: image-<key>]`.
-        pub key: String,
     }
 
     /// One picture of a coding agent session's log, as `GetAgentImage` gives it.
@@ -65,8 +53,8 @@ pub const AGENT_FILE_CHUNK: usize = 4 * 1024 * 1024;
 /// The largest file `GetAgentFile` reads.
 pub const MAX_AGENT_FILE: u64 = 128 * 1024 * 1024;
 
-ffi_structs! {
-    /// A machine that can run coding agents, as `ListAgentHosts` lists it.
+wire_structs! {
+    /// A machine that can run coding agents.
     pub struct AgentHost {
         /// The `Machine::id` it is.
         pub machine_id: String,
@@ -189,7 +177,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
     #[strum(serialize_all = "snake_case")]
     pub enum AgentPlanStatus {
@@ -199,7 +187,7 @@ ffi_enum! {
     }
 }
 
-ffi_structs! {
+wire_structs! {
     /// One entry of a session's transcript.
     pub struct AgentEntry {
         pub kind: AgentEntryKind,
@@ -220,7 +208,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// Who an entry is from: a prompt, the agent's text, a tool call, a
     /// permission question and its answer, or what the agent thought and
     /// for how many milliseconds (`None` while it still thinks, or when
@@ -237,27 +225,22 @@ ffi_enum! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// What `SteerAgentSession` does to a session: `Prompt` sends it a
     /// message after the running turn, `Cancel` stops the turn and drops
     /// waiting messages, `Close` ends the session and stops the agent.
     /// `PromptImages` is `Prompt` with images after the text, as
-    /// `check_agent_images` allows them; `text` may then be empty. A
-    /// server older than `Feature::AGENT_IMAGES` refuses it, and so does an
-    /// agent that takes no images. `Configure` switches the running session
+    /// `check_agent_images` allows them; `text` may then be empty. An
+    /// agent that takes no images refuses it. `Configure` switches the running session
     /// to `model` and thinking `effort` (either may be `None` to keep it),
-    /// from its next turn; a server older than `Feature::AGENT_CONFIGURE`
-    /// refuses it, and so does a node or agent that cannot switch.
+    /// from its next turn; a node or agent that cannot switch refuses it.
     /// `Steer` is `PromptImages` for the running turn: the node delivers it
     /// once the agent's current tool call finishes rather than after the
-    /// whole turn, and like `Prompt` when no turn runs. A server older than
-    /// `Feature::AGENT_STEER` refuses it. `DropSteers` takes back the steers
+    /// whole turn, and like `Prompt` when no turn runs. `DropSteers` takes back the steers
     /// not yet delivered. `SetMode` switches the running session to `mode`, one
-    /// `GetAgentSessionModes` lists; a server older than `Feature::AGENT_MODES`
-    /// refuses it.
+    /// `GetAgentSessionModes` lists.
     /// `StopTask` stops one of the commands `GetAgentSessionTasks` lists
-    /// without ending the turn; a server older than `Feature::AGENT_TASKS`
-    /// refuses it.
+    /// without ending the turn.
     /// `Cancel` stops only the main agent's turn; `StopAll` also ends the
     /// session's subagents, background commands and the agents it started.
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,9 +337,8 @@ pub fn sniff_image(data: &[u8]) -> Option<&'static str> {
     }
 }
 
-ffi_structs! {
-    /// A coding-agent session on one of the user's machines, as
-    /// `ListAgentSessions` lists it.
+wire_structs! {
+    /// A coding-agent session on one of the user's machines.
     pub struct MachineSession {
         /// The `Machine::id` it runs on.
         pub machine_id: String,
@@ -383,7 +365,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// What a session is doing. `Waiting` and `Running` are only for
     /// external sessions: waiting for the user, or running with nothing
     /// more known.
@@ -400,7 +382,7 @@ ffi_enum! {
     }
 }
 
-ffi_structs! {
+wire_structs! {
     /// A permission question a session asks before it acts.
     pub struct AgentQuestion {
         pub id: u32,
@@ -418,4 +400,116 @@ ffi_structs! {
         /// It lets the agent go ahead, once or always.
         pub allow: bool,
     }
+}
+
+/// Starts a coding-agent session on `prompt` in `cwd` (the machine's
+/// workspace or home folder when `None`). Without `machine_id`, Auto picks
+/// a machine that offers `agent` (any when `None`) and has every capability
+/// in `needs` and those the prompt and folder call for. `model` is an id
+/// from `ListAgentModels`, the agent's default when `None`; `effort` is one
+/// of `node::agent::efforts(agent)`. `checkout` first makes a branch or
+/// worktree in `cwd`'s git checkout, named from the prompt.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StartAgentSession {
+    pub machine_id: Option<String>,
+    pub agent: Option<String>,
+    pub cwd: Option<String>,
+    pub prompt: String,
+    pub needs: Vec<MachineCapability>,
+    pub model: Option<String>,
+    pub effort: Option<AgentEffort>,
+    pub checkout: Option<AgentCheckoutPlan>,
+}
+
+/// The machine `StartAgentSession` without a `machine_id` would start on
+/// now, and why, without starting anything.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewAgentMachine {
+    pub agent: Option<String>,
+    pub cwd: Option<String>,
+    pub prompt: String,
+    pub needs: Vec<MachineCapability>,
+}
+
+/// Resumes a session started outside Beep, by the agent's own id: it then
+/// runs as a session Beep started, in its folder, on `prompt` when given.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResumeAgentSession {
+    pub machine_id: String,
+    pub agent: String,
+    pub session: String,
+    pub prompt: Option<String>,
+}
+
+/// One session with its plan, the files it changed and the last `last`
+/// entries of its transcript (at most 200). `before`, when given, is the
+/// index of the entry the `last` entries end before, to read further back.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAgentSession {
+    pub machine_id: String,
+    pub agent: String,
+    pub session: String,
+    pub last: u32,
+    pub before: Option<u64>,
+}
+
+/// Sends a session Beep started a message, stops its turn or ends it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SteerAgentSession {
+    pub machine_id: String,
+    pub agent: String,
+    pub session: String,
+    pub steer: AgentSteer,
+}
+
+/// The models the coding agent `agent` can run on `machine_id`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListAgentModels {
+    pub machine_id: String,
+    pub agent: String,
+}
+
+/// The picture of a `[image: image-<key>]` line in a session's log.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAgentImage {
+    pub machine_id: String,
+    pub session: String,
+    pub key: String,
+}
+
+/// Up to [`AGENT_FILE_CHUNK`] bytes from `offset` of a media file a coding
+/// agent made, such as a video, 3D model, PDF or picture. `path` is
+/// absolute or starts `~/`; only files [`media_mime`](crate::media_mime)
+/// knows, of at most [`MAX_AGENT_FILE`] bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAgentFile {
+    pub machine_id: String,
+    pub path: String,
+    pub offset: u64,
+}
+
+/// What a session Beep runs has used: how full its context is, and the
+/// tokens and cost of its finished turns.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAgentSessionUsage {
+    pub machine_id: String,
+    pub agent: String,
+    pub session: String,
+}
+
+/// The modes of a session Beep runs, the one it is in, and the plan it
+/// waits on approval of.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAgentSessionModes {
+    pub machine_id: String,
+    pub agent: String,
+    pub session: String,
+}
+
+/// The commands a session Beep runs has in the background, running or ended.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAgentSessionTasks {
+    pub machine_id: String,
+    pub agent: String,
+    pub session: String,
 }

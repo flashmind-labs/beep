@@ -7,7 +7,10 @@ use crate::AsyncMutex;
 use crate::error::Result;
 use beep_mesh::{Key, Mesh};
 pub(crate) use beep_proto::node::mesh_state::Place;
-use beep_proto::node::mesh_state::{ProjectSyncSettings, StateValue, SyncSpec};
+use beep_proto::{
+    Credential,
+    node::mesh_state::{ProjectSyncSettings, StateValue, SyncSpec},
+};
 use chrono::{DateTime, Utc};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -24,6 +27,29 @@ pub(crate) static WRITES: AsyncMutex<()> = AsyncMutex::const_new(());
 /// `project/<org/repo>/<machine>`, so two desktops that import it on different machines never
 /// overwrite each other.
 pub use beep_proto::node::mesh_state::ProjectRecord;
+
+/// What an `unmoved/...` record says: a value an account moved from a server held that the mesh
+/// has none of. Settings lists it to enter again, and a node counts it as the mesh holding that
+/// family.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) enum Unmoved {
+    /// A credential, shown with its last four characters.
+    Credential(Credential),
+    /// The name of an env var of a harness, never its value.
+    HarnessEnv { agent: String, name: String },
+}
+
+impl StateValue for Unmoved {}
+
+pub(crate) const UNMOVED_CREDENTIAL: &str = "unmoved/credential/";
+
+pub(crate) fn unmoved_credential(id: &str) -> Key {
+    Key::Unmoved(format!("credential/{id}"))
+}
+
+pub(crate) fn unmoved_env(agent: &str, name: &str) -> Key {
+    Key::Unmoved(format!("harness/{agent}/{name}"))
+}
 
 /// `group/<id>`: folders the sidebar lists projects under.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -18,6 +18,10 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
+          button.cc-si [aria-label="Terminals" title="Terminals" type="button"]
+            span.sidebar-icon style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.tt "Terminals"
         div.cc-grp.projects
           h3
             button.cc-gt [type="button"] "Projects"
@@ -28,33 +32,30 @@ body.cbody
               span.open.twist
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "example/"
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="example/gadget" title="example/gadget build-box: /srv/example/gadget" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "gadget"
-                  span.n "1"
-                button.pa [aria-label="Pin to top" data-id="example/gadget" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="example/widget" title="example/widget build-box: /srv/example/widget" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "widget"
-                  span.n "1"
-                button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/gadget" title="example/gadget build-box: /srv/example/gadget" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "gadget"
+                span.n "1"
+              button.pa [aria-label="Pin to top" data-id="example/gadget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/widget" title="example/widget build-box: /srv/example/widget" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "widget"
+                span.n "1"
+              button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
             button.cc-org [aria-expanded="true" aria-label="tools/" title="tools/" type="button"]
               span.open.twist
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "tools/"
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="tools/delta" title="tools/delta build-box: /srv/tools/delta" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "delta"
-                button.pa [aria-label="Pin to top" data-id="tools/delta" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="tools/delta" title="tools/delta build-box: /srv/tools/delta" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "delta"
+              button.pa [aria-label="Pin to top" data-id="tools/delta" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
         div.cc-grp.machines
           h3
             button.cc-gt [type="button"] "Machines"
@@ -119,75 +120,56 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-            span.bd-switch [aria-label="Layout" role="group"]
-              button [aria-pressed="true" type="button"] "Board"
-              button [aria-pressed="false" type="button"] "List"
           div#sec-needs
-            div.bd-lanes
-              div.bd-lane
+            div.bd-rows
+              div.bd-lane.hd
                 h4 "Needs you"
                   span
-                div.bd-empty "Nothing here"
-              div.bd-lane
+              div.bd-lane.hd
                 h4
                   button [type="button"] "Working"
                   span "1"
+              div.bd-lane.hd
+                h4 "Ready to review"
+                  span "1"
+              div.bd-lane.hd
+                h4
+                  button [type="button"] "Done today"
+                  span
+              h3.pj [title="example/widget"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                button [type="button"] "example/widget"
+              div.bd-lane
+              div.bd-lane
                 div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                   b "Fix the login redirect"
                   span.sub
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/widget · build-box"
+                    span "build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
               div.bd-lane
-                h4 "Ready to review"
-                  span "1"
+              div.bd-lane
+              h3.pj [title="example/gadget"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                button [type="button"] "example/gadget"
+              div.bd-lane
+              div.bd-lane
+              div.bd-lane
                 div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                   b "Update the changelog"
                   span.sub
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/gadget · build-box"
+                    span "build-box"
                   span.ft "10m ago"
                     span.sp
               div.bd-lane
-                h4
-                  button [type="button"] "Done today"
-                  span
-                div.bd-empty "Nothing here"
-          div#sec-updates
-            div.cc-sec
-              h4 "Updates"
-                span.n "2"
-              button.dbtn.quiet.small [type="button"] "Clear"
-            div.cc-panel
-              div.cc-line.cc-row
-                span.beep.cc-ag "A"
-                button.t [title="Ask Beep about this" type="button"]
-                  b "Release 0.9.0 is out"
-                  span "App · 11:00"
-                span.r
-                  button.dbtn.quiet [aria-label="Dismiss" type="button"] style(padding-bottom,padding-left,padding-right,padding-top)
-                    svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-              div.cc-line.cc-row
-                span.beep.cc-ag "C"
-                button.t [title="Ask Beep about this" type="button"]
-                  b "Nightly build passed"
-                  span "CI · 10:00"
-                span.r
-                  button.dbtn.quiet [aria-label="Dismiss" type="button"] style(padding-bottom,padding-left,padding-right,padding-top)
-                    svg [fill="none" height="12" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-        form#home-comp.cc-comp style(display;display:none)
-          input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep, or start an agent on a machine" spellcheck="false" type="text" value] value=""
-          span#home-err.cc-err [role="status"]
-          button#home-agent.dbtn [title="Start a coding agent on a machine" type="button"] "Agent"
-          button.dbtn.pri [type="submit"] "Send"
-            kbd "⏎"
       div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="chat"]
+        div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box
         div.cc-view [data-project]
           div style(display)
@@ -215,8 +197,6 @@ body.cbody
                 b "Add a project"
                 span "A folder or a repository to clone."
               button.dbtn [type="button"] "Add"
-      div.cc-box [hidden]
-      div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

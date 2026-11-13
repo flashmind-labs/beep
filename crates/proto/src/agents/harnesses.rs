@@ -7,15 +7,14 @@ use crate::{
 use std::{collections::HashSet, time::SystemTime};
 
 wire_structs! {
-    /// One machine's settings for a harness (`ListHarnessSettings`).
+    /// One machine's settings for a harness.
     pub struct MachineHarnessSettings {
         pub machine_id: String,
         pub machine_name: String,
         pub settings: HarnessSettings,
     }
 
-    /// One custom agent a coding agent harness defines, as
-    /// `ListCustomAgents` reads it: a named prompt with a description, and
+    /// One custom agent a coding agent harness defines: a named prompt with a description, and
     /// optionally the model, tools and color it runs with.
     #[derive(Eq)]
     pub struct CustomAgent {
@@ -44,10 +43,10 @@ wire_structs! {
     }
 }
 
-/// The most of a custom agent's prompt `ListCustomAgents` gives.
+/// The most of a custom agent's prompt a node gives.
 pub const MAX_CUSTOM_AGENT_PROMPT: usize = 16 * 1024;
 
-/// The most custom agents one `ListCustomAgents` gives.
+/// The most custom agents a node gives.
 pub const MAX_CUSTOM_AGENTS: usize = 200;
 
 wire_enum! {
@@ -83,8 +82,7 @@ wire_enum! {
 }
 
 wire_structs! {
-    /// The coding agent harnesses on one machine, as `ListAgentHarnesses`
-    /// gives them.
+    /// The coding agent harnesses on one machine.
     pub struct AgentHarnesses {
         pub machine_id: String,
         pub machine_name: String,
@@ -121,7 +119,7 @@ wire_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// How a harness signs in on a machine. `BeepToken` is the token Beep
     /// keeps for it (Agent accounts), handed to every session it starts.
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,17 +146,16 @@ wire_structs! {
         pub env: Vec<HarnessEnv>,
     }
 
-    /// An env var a harness gets. The server never sends a value back: in
-    /// replies `value` is always `None`. Not for the phone app, which has no
-    /// `SecretText` type.
+    /// An env var a harness gets. In replies `value` is always `None`. Not
+    /// for the phone app, which has no `SecretText` type.
     pub struct HarnessEnv {
         pub name: String,
         pub value: Option<SecretText>,
     }
 }
 
-ffi_structs! {
-    /// How the user's coding agents sign in, as `GetAgentAccounts` gives it.
+wire_structs! {
+    /// How the user's coding agents sign in.
     pub struct AgentAccounts {
         /// The Claude Code token the machines get, when there is one.
         pub claude: Option<AgentToken>,
@@ -168,12 +165,12 @@ ffi_structs! {
         pub machines: Vec<AgentMachine>,
     }
 
-    /// A token Beep keeps for a coding agent. The secret stays on the server.
+    /// A token Beep keeps for a coding agent.
     pub struct AgentToken {
         /// The secret's last four characters.
         pub last4: String,
         pub created_at: SystemTime,
-        /// The server can no longer open it; the user has to sign in again.
+        /// Beep can no longer open it; the user has to sign in again.
         pub unreadable: bool,
     }
 
@@ -205,7 +202,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// How a Codex device sign-in stands. `Gone` is no longer on its
     /// machine, such as after a restart, or the machine is offline.
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -248,7 +245,7 @@ impl AgentAccount {
     }
 }
 
-ffi_structs! {
+wire_structs! {
     /// The models a coding agent can run on a machine, as `ListAgentModels`
     /// gives them.
     pub struct AgentModels {
@@ -260,7 +257,7 @@ ffi_structs! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// How the start form picks a coding agent's model: `Fixed` when none
     /// can be picked (the agent runs its own, or the machine's beep-node is
     /// too old to pick one), `Listed` from `AgentModels::models`, `Named`
@@ -274,7 +271,7 @@ ffi_enum! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// What a coding agent starts on, as `StartAgentSession::checkout`
     /// asks: a new `beep/<slug>` branch in the checkout itself, or one in a
     /// new worktree at `.worktrees/beep-<slug>`, made from `base` (the
@@ -282,9 +279,8 @@ ffi_enum! {
     /// a branch named `branch` rather than from the prompt.
     /// `BranchWorktree` starts on the existing branch `branch`: in the
     /// worktree that has it checked out, else in a new one at
-    /// `.worktrees/<branch>` after fetching it from `origin`. A server
-    /// older than `Feature::BRANCH_WORKTREES` refuses both, and so does a
-    /// node from before them. See `node::agent::CheckoutPlan`.
+    /// `.worktrees/<branch>` after fetching it from `origin`. A node from
+    /// before them refuses both. See `node::agent::CheckoutPlan`.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum AgentCheckoutPlan {
         0 NewBranch { base: Option<String> }
@@ -294,7 +290,7 @@ ffi_enum! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// How hard a coding agent thinks, as `StartAgentSession::effort`
     /// asks. Which levels an agent takes is `node::agent::efforts`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
@@ -310,7 +306,7 @@ ffi_enum! {
     }
 }
 
-ffi_structs! {
+wire_structs! {
     /// One model a coding agent offers.
     #[derive(Eq)]
     pub struct AgentModel {
@@ -341,30 +337,7 @@ ffi_structs! {
         pub saved_at: SystemTime,
     }
 
-    /// The agent files on one machine, as `ReadAgentFiles` reads them.
-    pub struct MachineAgentFiles {
-        pub machine_id: String,
-        pub machine_name: String,
-        pub files: Vec<AgentFile>,
-        /// Why the machine could not be read or written; `files` is then empty.
-        pub error: Option<String>,
-    }
-
-    /// One coding agent's instructions file on a machine.
-    pub struct AgentFile {
-        /// `claude`, `codex`, `gemini` or `pi`.
-        pub agent: String,
-        /// Under the home folder, such as `~/.claude/CLAUDE.md`.
-        pub path: String,
-        /// Its text; `None` when the agent's folder is there but the file is
-        /// not.
-        pub text: Option<String>,
-        /// It holds the newest instructions between Beep's markers.
-        pub synced: bool,
-    }
-
-    /// A credential as `ListCredentials` lists it. The secret stays on the
-    /// server.
+    /// A credential as the apps list it, without its secret.
     pub struct Credential {
         pub id: String,
         pub kind: CredentialKind,
@@ -379,15 +352,15 @@ ffi_structs! {
         /// Whether the caller's machines get it.
         pub to_machines: bool,
         pub created_at: SystemTime,
-        /// The server can no longer open it; the user has to enter it again.
+        /// Beep can no longer open it; the user has to enter it again.
         /// Machines do not get it.
         pub unreadable: bool,
     }
 }
 
-ffi_enum! {
-    /// What `CheckCredential` found. `machine` is the name of the machine
-    /// that reached the server, `None` when Beep's server did. `message`
+wire_enum! {
+    /// What checking a credential found. `machine` is the name of the machine
+    /// that reached the host, `None` when the desktop did. `message`
     /// says what happened, for the user.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum CredentialCheck {
@@ -397,7 +370,7 @@ ffi_enum! {
     }
 }
 
-ffi_enum! {
+wire_enum! {
     /// What a credential is for. `url` is a Forgejo or Gitea server's base
     /// URL, such as `https://git.example.com`; `provider` an `ApiProvider`
     /// slug, such as `openrouter`.
@@ -410,7 +383,7 @@ ffi_enum! {
 }
 
 /// The providers an API key can be saved for. On the wire a provider is its
-/// slug, so a newer server can add one without changing a reply's shape.
+/// slug, so a newer app can add one without changing a reply's shape.
 #[derive(
     Debug,
     Clone,

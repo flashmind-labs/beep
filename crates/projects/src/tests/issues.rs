@@ -60,9 +60,15 @@ async fn host_failure_preserves_diagnostic_output() {
 
 struct Store {
     name: RepoName,
-    home: Option<EndpointId>,
     imports: Vec<ImportedPlace>,
-    host: IssueHost,
+}
+
+/// The project imported from `url` on `machine(1)`.
+fn imported(url: &str) -> Vec<ImportedPlace> {
+    vec![ImportedPlace {
+        url: url.into(),
+        machine: Some(machine(1)),
+    }]
 }
 
 #[async_trait]
@@ -70,17 +76,8 @@ impl ProjectStore for Store {
     fn name(&self) -> &RepoName {
         &self.name
     }
-    fn issues_role(&self) -> Option<&IssueHost> {
-        Some(&self.host)
-    }
-    async fn home_machine(&self) -> Result<Option<EndpointId>> {
-        Ok(self.home)
-    }
     async fn imports(&self) -> Result<Vec<ImportedPlace>> {
         Ok(self.imports.clone())
-    }
-    async fn tracked_issues(&self, _: &IssueHost) -> Result<Vec<u64>> {
-        Ok(Vec::new())
     }
 }
 
@@ -269,9 +266,7 @@ async fn gh_failures_stay_errors_on_the_pull_request_list() {
     ]));
     let store = Store {
         name: repo(),
-        home: Some(machine(1)),
-        imports: Vec::new(),
-        host: IssueHost::Github,
+        imports: imported("https://github.com/acme/widget"),
     };
     let prs = list_open_prs(&store, &Fleet2(shell)).await;
     assert!(matches!(prs, Err(SourceError::Refused(_))));
@@ -284,9 +279,7 @@ fn forge() -> IssueHost {
 fn forgejo_store() -> Store {
     Store {
         name: repo(),
-        home: Some(machine(1)),
-        imports: Vec::new(),
-        host: forge(),
+        imports: imported("https://forge.example/acme/widget"),
     }
 }
 
@@ -348,14 +341,12 @@ async fn a_machine_that_fails_gives_way_to_the_next() {
 async fn sources_skip_offline_machines_and_repeats() {
     let store = Store {
         name: repo(),
-        home: None,
         imports: [1, 1, 2]
             .map(|seed| ImportedPlace {
                 url: "https://github.com/acme/widget".into(),
                 machine: Some(machine(seed)),
             })
             .to_vec(),
-        host: IssueHost::Github,
     };
     let online = FixedShell::exits(0, "");
     let fleet = Fleet {
@@ -383,9 +374,7 @@ async fn open_pull_requests_are_marked_when_the_account_opened_them() {
     let fleet = Fleet2(shell);
     let store = Store {
         name: repo(),
-        home: Some(machine(1)),
-        imports: Vec::new(),
-        host: IssueHost::Github,
+        imports: imported("https://github.com/acme/widget"),
     };
     let listed = list_open_prs(&store, &fleet).await.expect("the list reads");
     let marks: Vec<(u64, bool)> = listed.iter().map(|p| (p.pr.number, p.mine)).collect();
@@ -396,27 +385,23 @@ async fn open_pull_requests_are_marked_when_the_account_opened_them() {
 async fn an_import_on_an_unknown_machine_still_names_the_host() {
     let store = Store {
         name: repo(),
-        home: None,
         imports: vec![ImportedPlace {
             url: "https://github.com/acme/widget".into(),
             machine: None,
         }],
-        host: IssueHost::Github,
     };
     let found = host_and_machines(&store)
         .await
         .expect("the store reads")
         .expect("a host");
     assert_eq!(found.host, IssueHost::Github);
-    assert!(found.machines.is_empty() && !found.home);
+    assert!(found.machines.is_empty());
 }
 
 fn github_home() -> Store {
     Store {
         name: repo(),
-        home: Some(machine(1)),
-        imports: Vec::new(),
-        host: IssueHost::Github,
+        imports: imported("https://github.com/acme/widget"),
     }
 }
 

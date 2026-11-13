@@ -124,16 +124,6 @@ impl Store {
         })
     }
 
-    pub fn session(&self, id: &str) -> Result<Option<MachineSession>> {
-        let data: Option<String> = self
-            .0
-            .query_row("SELECT data FROM sessions WHERE id=?1", [id], |row| {
-                row.get(0)
-            })
-            .optional()?;
-        Ok(data.map(|data| serde_json::from_str(&data)).transpose()?)
-    }
-
     /// Projects come only from the authoritative imported-project list.
     /// Session scans cannot create them, so a late scan cannot undo deletion.
     pub fn sync_projects(&mut self, projects: &[ImportedProject]) -> Result<Vec<Place>> {

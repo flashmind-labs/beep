@@ -1,5 +1,5 @@
 use super::*;
-use iroh::SecretKey;
+use iroh_base::SecretKey;
 
 fn monday() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 11, 2).expect("a real date")

@@ -1,21 +1,17 @@
 //! The machines running beep-node, as Settings lists them: the machines of
-//! the mesh, each with its live status, and the machines the server links
-//! that are not in it.
+//! the mesh, each with its live status.
 
 use crate::{
-    beep::{Beep, Service, epoch_ms},
+    beep::epoch_ms,
     center::home_sessions::HOME_CHANGED,
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
     fleet::{ClockOff, Fleet, Machines, files as direct},
-    projects::unknown_op,
 };
 use beep_projects::imports::found::MachineFound;
 use beep_proto::{
-    AgentHost, ApiError, Call, GetMachineLog, ListMachineDetails, ListMachineStats,
-    ListMachineTraffic, ListMachines, ListUpdatableMachines, Machine, MachineDetails, MachineEnv,
-    MachineSession, MachineStats, MachineTraffic, MachineUpdate, RemoveMachine, Terminal,
-    TrafficCounter, UpdatableMachine, UpdateMachine,
+    Machine, MachineEnv, MachineSession, MachineTraffic, MachineUpdate, Terminal, TrafficCounter,
+    UpdatableMachine,
     node::{AdapterInstall, logs::MAX_LINES},
 };
 use iroh::EndpointId;
@@ -31,10 +27,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Manager, State};
-
-/// How long a machine has to read its log; the server gives it 30 seconds.
-const LOG_TIMEOUT: Duration = Duration::from_secs(40);
+use tauri::{AppHandle, Emitter, State};
 
 /// A machine as the bar shows it.
 #[derive(Debug, Serialize)]
@@ -71,9 +64,8 @@ impl From<Machine> for MachineView {
     }
 }
 
-/// What the server last listed for one request: the machines outside the
-/// mesh, which are reached through it. Read at once, and refreshed in the
-/// background, so a slow or absent server delays nothing.
+/// What the machines last listed for one request. Read at once, and
+/// refreshed in the background, so a slow machine delays nothing.
 pub struct Held<T> {
     list: Mutex<Vec<T>>,
     refreshing: AtomicBool,
@@ -134,7 +126,7 @@ impl<T: Clone + Send + 'static> Held<T> {
                 changed
             }
             Err(e) => {
-                log::debug!("the server's machines are not listed: {e}");
+                log::debug!("a list was not read again: {e}");
                 false
             }
         }
@@ -224,62 +216,19 @@ impl<T: Clone + Send + 'static> Held<T> {
     pub(crate) fn stale(&self) {
         *self.read_at.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
-
-    /// `mesh` and the machines the server last listed that it lacks, at
-    /// once. With a server, the list is read again in the background, and
-    /// the windows redraw when `same` tells the new list from the last.
-    pub(crate) fn merged<R>(
-        self: &Arc<Self>,
-        app: &AppHandle,
-        mesh: Vec<T>,
-        request: R,
-        id: impl Fn(&T) -> &str,
-        same: fn(&T, &T) -> bool,
-    ) -> Vec<T>
-    where
-        R: Call<Reply = Vec<T>> + Sync,
-    {
-        let beep = app.state::<Arc<Beep>>().inner().clone();
-
-        if !beep.has_server() {
-            return mesh;
-        }
-
-        self.refresh_with(app, async move { beep.call(request).await }, same);
-        outside(mesh, &self.last(), id)
-    }
 }
 
-/// `mesh`, then the entries of `server` that are not in it.
-fn outside<T: Clone>(mut mesh: Vec<T>, server: &[T], id: impl Fn(&T) -> &str) -> Vec<T> {
-    let more: Vec<T> = server
-        .iter()
-        .filter(|item| !mesh.iter().any(|held| id(held) == id(item)))
-        .cloned()
-        .collect();
-    mesh.extend(more);
-    mesh
-}
-
-/// What the server listed that is not in the mesh, per kind of list.
+/// What the machines of the mesh last listed, per kind of list.
 #[derive(Default)]
-pub struct Outside {
-    machines: Arc<Held<Machine>>,
-    details: Arc<Held<MachineDetails>>,
-    stats: Arc<Held<MachineStats>>,
-    traffic: Arc<Held<MachineTraffic>>,
-    updatable: Arc<Held<UpdatableMachine>>,
-    pub(crate) hosts: Arc<Held<AgentHost>>,
+pub struct MachineLists {
     /// Beep's sessions on this Mac, from the node in this process.
     pub(crate) local: Arc<Held<MachineSession>>,
-    /// Beep's sessions on the other machines of the mesh, and the server's.
+    /// Beep's sessions on the other machines of the mesh.
     pub(crate) sessions: Arc<Held<MachineSession>>,
     /// The sessions started outside Beep, found by scanning every machine.
     pub(crate) scans: Arc<Held<MachineSession>>,
     /// The terminals on the other machines of the mesh, as they stand.
     pub(crate) terminals: Arc<Held<Terminal>>,
-    /// The terminals the server keeps.
-    pub(crate) server_terminals: Arc<Held<Terminal>>,
     /// The checkouts each machine of the mesh named last.
     pub(crate) found: FoundOn,
     /// The machines whose sessions are listed again now, and whether another
@@ -307,57 +256,9 @@ impl FoundOn {
     }
 }
 
-/// The machines of the mesh, and those only the server lists. A machine
-/// that has not said its beep-node version has the server's.
-pub(crate) fn machines(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<Machine> {
-    let mut mesh = fleet.status().machines();
-    let server = held.machines.last();
-
-    for machine in mesh.iter_mut().filter(|m| m.version.is_empty()) {
-        if let Some(listed) = server.iter().find(|s| s.id == machine.id) {
-            machine.version.clone_from(&listed.version);
-        }
-    }
-
-    held.machines.merged(
-        app,
-        mesh,
-        ListMachines {},
-        |machine| &machine.id,
-        |old, new| old.id == new.id && old.online == new.online,
-    )
-}
-
-pub(crate) fn details(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<MachineDetails> {
-    let mesh = fleet.status().details();
-    held.details.merged(
-        app,
-        mesh,
-        ListMachineDetails {},
-        |details| &details.id,
-        |old, new| old == new,
-    )
-}
-
-pub(crate) fn stats(app: &AppHandle, fleet: &Fleet, held: &Outside) -> Vec<MachineStats> {
-    let mesh = fleet.status().stats();
-    // Live values: a new reading is never news.
-    held.stats.merged(
-        app,
-        mesh,
-        ListMachineStats {},
-        |stats| &stats.id,
-        |_, _| true,
-    )
-}
-
 #[tauri::command]
-pub async fn list_machines(
-    app: AppHandle,
-    fleet: State<'_, Arc<Fleet>>,
-    held: State<'_, Outside>,
-) -> Result<Vec<MachineView>> {
-    let machines = machines(&app, &fleet, &held);
+pub async fn list_machines(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<MachineView>> {
+    let machines = fleet.status().machines();
     let temporary = fleet
         .mesh()
         .map(|mesh| mesh.temporaries())
@@ -404,20 +305,8 @@ impl From<MachineTraffic> for TrafficView {
 }
 
 #[tauri::command]
-pub async fn machine_traffic(
-    app: AppHandle,
-    fleet: State<'_, Arc<Fleet>>,
-    held: State<'_, Outside>,
-) -> Result<Vec<TrafficView>> {
-    let mesh = fleet.status().traffic();
-    let traffic = held.traffic.merged(
-        &app,
-        mesh,
-        ListMachineTraffic {},
-        |traffic| &traffic.id,
-        // Counters that grow: a new reading is never news.
-        |_, _| true,
-    );
+pub async fn machine_traffic(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<TrafficView>> {
+    let traffic = fleet.status().traffic();
     Ok(traffic.into_iter().map(TrafficView::from).collect())
 }
 
@@ -428,109 +317,22 @@ pub async fn mesh_remove(fleet: State<'_, Arc<Fleet>>, id: EndpointId) -> Result
     fleet.remove(id).await
 }
 
-/// Removes one of the account's machines, online or not. A member leaves the
-/// mesh; and when the app is linked, the server drops the machine too, so it
-/// gets no more credentials and cannot be run on. A server that cannot be
-/// reached now is asked again at launch.
+/// Removes a machine of the mesh by its id as text, as `mesh_remove` does.
 #[tauri::command]
-pub async fn remove_machine(
-    beep: Service<'_>,
-    fleet: State<'_, Arc<Fleet>>,
-    id: String,
-) -> Result<()> {
-    if let Ok(machine) = id.parse::<EndpointId>()
-        && fleet.machines().iter().any(|m| m.device.id == machine)
-    {
-        fleet.remove(machine).await?;
-
-        if !beep.linked() {
-            return Ok(());
-        }
-
-        beep.owe_unlink(&id);
-        return unlink(&beep, &id).await.map_err(|e| {
-            log::warn!("the server still lists a removed machine: {e}");
-            DesktopError::BadRequest(
-                "Removed from the mesh, but the server still lists this machine. \
-                 It will try again at launch."
-                    .into(),
-            )
-        });
-    }
-
-    if !beep.has_server() {
-        return Err(DesktopError::BadRequest("that is not a machine".into()));
-    }
-
-    match beep.call(RemoveMachine { machine_id: id }).await {
-        Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
-            "The server needs an update before machines can be removed here.".into(),
-        )),
-        done => done,
-    }
+pub async fn remove_machine(fleet: State<'_, Arc<Fleet>>, id: String) -> Result<()> {
+    let machine = id
+        .parse::<EndpointId>()
+        .ok()
+        .filter(|machine| fleet.machines().iter().any(|m| m.device.id == *machine))
+        .ok_or_else(|| DesktopError::BadRequest("that is not a machine".into()))?;
+    fleet.remove(machine).await
 }
-
-/// Asks the server to drop `id`. Done once it has: a machine it does not
-/// list, such as one that only joined by ticket, is as good as dropped.
-async fn unlink(beep: &Beep, id: &str) -> Result<()> {
-    let done = beep
-        .call(RemoveMachine {
-            machine_id: id.to_owned(),
-        })
-        .await;
-    if dropped(&done) {
-        beep.settle_unlink(id);
-        return Ok(());
-    }
-
-    done
-}
-
-/// Whether the server no longer has the machine after `reply`, or never
-/// will take the request: a bad request (a server too old to know it, or
-/// the machine is this one) would be refused again at every launch.
-fn dropped(reply: &Result<()>) -> bool {
-    matches!(
-        reply,
-        Ok(())
-            | Err(DesktopError::Api(
-                ApiError::NotFound {} | ApiError::BadRequest { .. }
-            ))
-    )
-}
-
-/// Asks the server again for each removal it did not take earlier.
-pub(crate) async fn retry_unlinks(beep: Arc<Beep>) {
-    if !beep.linked() {
-        return;
-    }
-
-    for id in beep.owed_unlinks() {
-        if let Err(e) = unlink(&beep, &id).await {
-            log::warn!("the server still lists a removed machine: {e}");
-        }
-    }
-}
-
-/// How long a node has to download and install a release.
-const UPDATE_TIMEOUT: Duration = Duration::from_secs(6 * 60);
 
 /// The machines Update works on: those of the mesh that update over
-/// `update/1`, and those the server updates.
+/// `update/1`.
 #[tauri::command]
-pub async fn updatable_machines(
-    app: AppHandle,
-    fleet: State<'_, Arc<Fleet>>,
-    held: State<'_, Outside>,
-) -> Result<Vec<UpdatableMachine>> {
-    let mesh = fleet.status().updatable();
-    Ok(held.updatable.merged(
-        &app,
-        mesh,
-        ListUpdatableMachines {},
-        |machine| &machine.id,
-        |old, new| old.id == new.id,
-    ))
+pub async fn updatable_machines(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<UpdatableMachine>> {
+    Ok(fleet.status().updatable())
 }
 
 /// The newest beep-node release, looked up at most hourly; `None` while the
@@ -542,29 +344,15 @@ pub async fn node_release(fleet: Machines<'_>) -> Result<Option<String>> {
 
 /// The recent log of one of the account's machines.
 #[tauri::command]
-pub async fn machine_log(beep: Service<'_>, fleet: Machines<'_>, id: String) -> Result<String> {
-    if let Some(machine) = fleet.member(&id) {
-        return direct::machine_log(&fleet, machine, MAX_LINES).await;
-    }
-
-    let request = GetMachineLog {
-        machine_id: id,
-        lines: MAX_LINES,
-    };
-
-    match beep.call_within(request, LOG_TIMEOUT).await {
-        Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
-            "The server needs an update before logs can be read here.".into(),
-        )),
-        read => read,
-    }
+pub async fn machine_log(fleet: Machines<'_>, id: String) -> Result<String> {
+    direct::machine_log(&fleet, fleet.machine(&id)?, MAX_LINES).await
 }
 
 /// Saves a machine's log to Downloads for a report and returns where it went.
 #[tauri::command]
 pub fn save_machine_log(app: AppHandle, name: String, text: String) -> Result<PathBuf> {
     let to = free_name(
-        &app.path().download_dir()?,
+        &crate::platform::saves_dir(&app)?,
         &file_name(&format!("{name}.log")),
     );
     fs::write(&to, text).map_err(anyhow::Error::from)?;
@@ -574,26 +362,8 @@ pub fn save_machine_log(app: AppHandle, name: String, text: String) -> Result<Pa
 /// Has one of the account's machines update its beep-node and restart
 /// once its agent sessions are idle.
 #[tauri::command]
-pub async fn update_machine(
-    beep: Service<'_>,
-    fleet: Machines<'_>,
-    id: String,
-) -> Result<MachineUpdate> {
-    if let Some(machine) = fleet.member(&id) {
-        return direct::update_machine(&fleet, machine, false).await;
-    }
-
-    let request = UpdateMachine {
-        machine_id: id,
-        stop_sessions: false,
-    };
-
-    match beep.call_within(request, UPDATE_TIMEOUT).await {
-        Err(e) if unknown_op(&e) => Err(DesktopError::BadRequest(
-            "The server needs an update before machines can be updated here.".into(),
-        )),
-        done => done,
-    }
+pub async fn update_machine(fleet: Machines<'_>, id: String) -> Result<MachineUpdate> {
+    direct::update_machine(&fleet, fleet.machine(&id)?, false).await
 }
 
 #[cfg(test)]

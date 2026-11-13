@@ -53,7 +53,7 @@ const sessions: Fixture["sessions"] = [session("notice-one", "First notification
 const project: ProjectRow = { name: projectName, url: "https://example.test/example/widget", machine_id: machine, machine_name: machine, folder, cloned: true, imported_at: 1 };
 const fixture: Fixture = {
   project, sessions, streaming: false,
-  home: { machines: [], projects: [project], running: sessions, needs_you: [], coming_up: null, updates: null },
+  home: { machines: [], projects: [project], running: sessions, needs_you: [] },
 };
 
 /// WebKit reports viewport keys it does not know as console errors; the
@@ -88,6 +88,8 @@ export async function openDesktop(page: Page, streaming = false, responses: Reco
 }
 
 function installNativeBoundary(data: Fixture & { responses: Record<string, unknown> }): void {
+  // The first-run screen was answered, so it stays out of every test's page.
+  try { localStorage.setItem("beep.firstRunDone", "1"); } catch { /* the page has no storage */ }
   interface EventChannel { onmessage(event: unknown): void }
   const channel = (value: unknown): value is EventChannel => value !== null && typeof value === "object" && "onmessage" in value && typeof value.onmessage === "function";
   const rejected = new Set<string>();
@@ -104,7 +106,6 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   let pending: CenterTarget | ProjectTileTarget | null = null;
   let pendingReads = 0;
   const answers: Record<string, unknown> = {
-    status: { link: "unlinked", signed_out: true, server: false, live: false, session: null },
     mac_control: { id: data.project.machine_id, name: data.project.machine_name, enabled: true, status: "connected", error: null, permissions: {} },
     agent_tree_text: { size: 10000, text: Array.from({ length: 500 }, (_, i) => `const value${i} = ${i};`).join("\n"), cut: false, binary: false },
     center_home: data.home,
@@ -112,8 +113,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     project_git_history: { machine_id: data.project.machine_id, machine_name: data.project.machine_name, root: data.project.folder, refs: [], worktrees: [], commits: [], next: null },
     project_machines: [{ id: data.project.machine_id, name: data.project.machine_name, online: true, folder: data.project.folder, checking: false, checked_at: 1 }],
     agent_sessions: data.sessions, project_sessions: data.sessions, projects_sessions: data.sessions,
+    center_project_runs: { runs: [], checks: [], synced_at: null, error: null, rate_limited_until: null, hosts: [] },
   };
-  const emptyLists = ["list_machines", "list_sessions", "list_groups", "agent_hosts", "agent_reviews", "agent_tasks", "agent_artifacts", "agent_running", "agent_editors", "editors", "project_overview", "project_groups", "projects_on_top", "project_sync", "found_projects", "project_syncthing", "machine_traffic", "tool_updates", "updatable_machines", "notes_list", "list_research", "terminal_list", "outbox_list"];
+  const emptyLists = ["list_machines", "agent_hosts", "agent_reviews", "agent_tasks", "agent_artifacts", "agent_running", "agent_editors", "editors", "project_groups", "projects_on_top", "project_sync", "found_projects", "project_syncthing", "machine_traffic", "tool_updates", "updatable_machines", "notes_list", "terminal_list", "terminals_list", "terminals_all", "outbox_list"];
   for (const command of emptyLists) answers[command] = [];
   Object.assign(answers, data.responses);
   const boundary: NativeBoundary = {

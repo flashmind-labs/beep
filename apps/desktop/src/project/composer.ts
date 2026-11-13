@@ -15,7 +15,7 @@ import { invoke } from "../ui/tauri.ts";
 import { commandKey } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.ts";
-import { pageAgent } from "./agent.ts";
+import { localProjectId } from "./localid.ts";
 import { addHosts, type BarTarget, barCheckout, barPlace, barPrompt, forgeOf, nextBarMachine, reviewPrompt, reviewSession, type ReviewSession, reviewTitle, sessionIn, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine } from "../agents/agentnew.ts";
 import { type BaseBranches, baseFor, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, startPlace } from "../agents/agentpick.ts";
@@ -349,7 +349,7 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
 
     try {
       const effort = same ? pc.picked.effort : null;
-      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), chat: null, model, effort, checkout });
+      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, checkout });
       if (model || effort) sessionPicks.set(session.session.id, { model: model ?? "", effort });
     } catch (e) {
       return { started, failed: row, error: reason(e) };
@@ -365,9 +365,7 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
 /// Continue: reads the pull request's branch, then fills the bar to start
 /// on it. A fork's branch is not on `origin`, so it is refused.
 export async function continuePr(name: string, pr: PullRequestRow) {
-  const agent = pageAgent(state.agents, name, state.subscribed);
-  if (!agent) return;
-  const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
+  const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   if (head.fork) throw new Error(`PR #${pr.number} comes from a fork, so its branch ${head.branch} is not in this repository.`);
   fillBar(name, `Continue PR #${pr.number}: ${pr.title} (${pr.url}). Read the review comments and failing checks first.`, { kind: "pr", number: pr.number, branch: head.branch });
 }
@@ -377,9 +375,7 @@ export async function continuePr(name: string, pr: PullRequestRow) {
 /// fork's branch is not on `origin`, so that review starts on a new worktree
 /// from the default branch and reads the diff through the forge CLI.
 export async function reviewPr(name: string, pr: PullRequestRow) {
-  const agent = pageAgent(state.agents, name, state.subscribed);
-  if (!agent) return;
-  const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: agent.project_id, number: pr.number });
+  const head = await invoke<PullRequestHead>("center_pull_request_head", { projectId: localProjectId(name), number: pr.number });
   const forge = forgeOf(pr.url);
   await ensureSessions().catch(e => console.warn("agent sessions:", e));
   const review = { number: pr.number, earlier: earlierReview(name, pr.number) };
@@ -458,7 +454,7 @@ async function startFromBar() {
     const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, progress => c.update({ progress }));
     if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
-    const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, chat: null, model, effort, checkout, images });
+    const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, model, effort, checkout, images });
     if (model || effort) sessionPicks.set(started.session.id, { model: model ?? "", effort });
     c.setText("");
     barAttachments.clear();

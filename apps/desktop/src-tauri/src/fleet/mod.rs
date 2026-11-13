@@ -1,7 +1,6 @@
-//! The machines this Mac reaches itself, with no server in between: the
-//! mesh it belongs to, and the node in this process. A call to this Mac
-//! never touches the network; a call to another machine goes over its
-//! mesh connection.
+//! The machines this Mac reaches itself: the mesh it belongs to, and the
+//! node in this process. A call to this Mac never touches the network; a
+//! call to another machine goes over its mesh connection.
 //!
 //! The mesh opens, or is made on first launch with this Mac as its first
 //! device, off the main thread. Nothing the first paint needs waits on it.
@@ -16,7 +15,6 @@ pub(crate) mod events;
 pub(crate) mod files;
 #[cfg(desktop)]
 mod mesh;
-pub(crate) mod migrate;
 mod parents;
 pub(crate) mod phone;
 mod presence;
@@ -25,7 +23,7 @@ mod status;
 pub(crate) mod terminals;
 
 use crate::{
-    beep::AsyncMutex,
+    agents::work_copy::Copies,
     error::{DesktopError, Result},
 };
 use beep_mesh::{
@@ -34,7 +32,7 @@ use beep_mesh::{
 };
 #[cfg(desktop)]
 use beep_node::{files::Folders, link::Offers, link::peers::Peers};
-use iroh::{Endpoint, EndpointId, protocol::Router};
+use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 #[cfg(desktop)]
 use mesh::Serving;
 pub(crate) use parents::SessionParent;
@@ -47,27 +45,15 @@ use std::{
     time::Duration,
 };
 use tauri::State;
-use tauri::async_runtime::JoinHandle;
 use tokio::{
     sync::watch,
     time::{Instant, sleep, timeout},
 };
 
+pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
+
 /// The machines of the mesh, as a command takes them.
 pub(crate) type Machines<'a> = State<'a, Arc<Fleet>>;
-
-/// What a server adds to a list of the mesh's machines: nothing when there
-/// is no server or it cannot answer.
-pub(crate) fn extra<T>(result: Result<Vec<T>>) -> Vec<T> {
-    match result {
-        Ok(rows) => rows,
-        Err(DesktopError::NoServer | DesktopError::Unlinked | DesktopError::Revoked) => Vec::new(),
-        Err(e) => {
-            log::warn!("the server's list was left out: {e}");
-            Vec::new()
-        }
-    }
-}
 
 /// How long a call to another machine waits for the mesh to open.
 const OPENING: Duration = Duration::from_secs(10);
@@ -203,8 +189,8 @@ pub struct Fleet {
     away: Mutex<Option<SystemTime>>,
     /// One `join` at a time.
     joining: AsyncMutex<()>,
-    /// The account move running now, which holds the mesh.
-    move_task: Mutex<Option<JoinHandle<()>>>,
+    /// What is known of this Mac's copies of the machines' project folders.
+    copies: Copies,
     /// The newest release of each tool a node installs.
     releases: ToolReleases,
     /// Who started each session the nodes listed, to nest them.
@@ -245,7 +231,7 @@ impl Fleet {
             serving: Mutex::default(),
             observing: Mutex::default(),
             joining: AsyncMutex::new(()),
-            move_task: Mutex::default(),
+            copies: Copies::default(),
             releases: ToolReleases::default(),
             parents: parents::Parents::default(),
             presence: presence::Presence::default(),
@@ -268,7 +254,7 @@ impl Fleet {
             observing: Mutex::default(),
             away: Mutex::default(),
             joining: AsyncMutex::new(()),
-            move_task: Mutex::default(),
+            copies: Copies::default(),
             releases: ToolReleases::default(),
             parents: parents::Parents::default(),
             presence: presence::Presence::default(),
@@ -352,34 +338,6 @@ impl Fleet {
         }
     }
 
-    /// Keeps `task`, the account move, as the one running; a move before it is cancelled.
-    pub(crate) fn moving(&self, task: JoinHandle<()>) {
-        let before = self
-            .move_task
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .replace(task);
-        if let Some(before) = before {
-            before.abort();
-        }
-    }
-
-    /// Cancels the account move and waits until it lets go of the mesh. It starts again with
-    /// the next launch, or the next sign-in or join.
-    #[cfg(desktop)]
-    async fn stop_move(&self) {
-        let task = self
-            .move_task
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        if let Some(task) = task {
-            task.abort();
-            // Cancelled or finished: either way its mesh handle is gone.
-            let _ = task.await;
-        }
-    }
-
     /// Joins the mesh `ticket` names, as `name`. A Mac that made its own mesh
     /// on first launch leaves it while it is the mesh's only device, and
     /// brings its settings along: they are signed for the old mesh, so they
@@ -397,8 +355,6 @@ impl Fleet {
                 "this Mac is in a mesh with other devices".into(),
             ));
         }
-        // The move holds the mesh while it reads the server, and a mesh in use cannot close.
-        self.stop_move().await;
         // On disk first, so a crash after the swap still brings them along.
         carry::save(&self.dir, &old.scan(""))?;
         peers.leave().await;
@@ -475,6 +431,11 @@ impl Fleet {
         tokio::join!(serving, observing, self.status.stop());
     }
 
+    /// What is known of this Mac's copies of the machines' project folders.
+    pub(crate) fn copies(&self) -> &Copies {
+        &self.copies
+    }
+
     /// The newest release of each tool a node installs.
     pub(crate) fn releases(&self) -> &ToolReleases {
         &self.releases
@@ -482,6 +443,11 @@ impl Fleet {
 
     pub fn id(&self) -> EndpointId {
         self.me
+    }
+
+    /// The endpoint this app reaches the mesh on.
+    pub fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
     }
 
     /// The mesh, once it is open.
@@ -509,6 +475,23 @@ impl Fleet {
             Opened::Unpaired => Err(DesktopError::NoMesh("this phone is not paired".into())),
             Opened::Failed(why) => Err(DesktopError::NoMesh(why)),
             Opened::Opening => Err(DesktopError::NoMesh("still opening".into())),
+        }
+    }
+
+    /// Removes the API keys an older desktop gave the machines; Beep keeps none.
+    pub async fn drop_api_keys(&self) {
+        let mesh = match self.ready().await {
+            Ok(mesh) => mesh,
+            Err(e) => {
+                log::warn!("the mesh is not open, so API keys are not removed: {e}");
+                return;
+            }
+        };
+
+        match beep_fleet::drop_api_keys(&mesh).await {
+            Ok(0) => {}
+            Ok(gone) => log::info!("removed {gone} API keys from the mesh"),
+            Err(e) => log::warn!("API keys not removed from the mesh: {e}"),
         }
     }
 
@@ -716,10 +699,20 @@ impl Fleet {
     }
 
     /// `machine` as a member of the mesh, or this Mac. `None` for a machine
-    /// the mesh does not hold, which only a server can reach.
+    /// the mesh does not hold.
     pub fn member(&self, machine: &str) -> Option<EndpointId> {
         let id: EndpointId = machine.parse().ok()?;
         (id == self.me || self.mesh()?.is_member(id)).then_some(id)
+    }
+
+    /// This app's key, which signs what it sends, such as a problem report.
+    pub(crate) fn secret_key(&self) -> SecretKey {
+        self.endpoint.secret_key().clone()
+    }
+
+    /// `member`, or `NotInMesh`.
+    pub fn machine(&self, machine: &str) -> Result<EndpointId> {
+        self.member(machine).ok_or(DesktopError::NotInMesh)
     }
 
     /// The members that are online now, this Mac among them.

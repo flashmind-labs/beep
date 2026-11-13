@@ -2,29 +2,21 @@
 //! their settings, and installing or updating one there.
 
 use crate::{
-    beep::{Service, epoch_ms},
-    error::{DesktopError, Result},
+    beep::epoch_ms,
+    error::Result,
     fleet::{
         Machines, agents as direct,
         projects::{FleetState, desk},
     },
-    projects::unknown_op,
     settings::credentials::plain,
 };
 use beep_proto::ModelId;
 use beep_proto::{
-    AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn, ListAgentHarnesses,
-    MachineHarnessSettings, SecretText, UpdateAgentHarness,
+    AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn,
+    MachineHarnessSettings, SecretText,
     node::harness::{AutoCompact, ModelCompact},
 };
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-
-/// How long the server may take to ask the machine: it runs each
-/// harness's version and sign-in commands there.
-const LIST_LIMIT: Duration = Duration::from_secs(60);
-/// How long an install or update may take on the machine.
-const UPDATE_LIMIT: Duration = Duration::from_secs(12 * 60);
 
 /// One machine's harnesses as the page shows them.
 #[derive(Debug, Serialize)]
@@ -191,29 +183,18 @@ impl From<AgentHarnesses> for HarnessesView {
     }
 }
 
-/// The harnesses on `machine_id`; `None` from a server too old to say.
-/// `refresh` looks the newest versions up again.
+/// The harnesses on `machine_id`. `refresh` looks the newest versions up
+/// again.
 #[tauri::command]
 pub async fn agent_harnesses(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     refresh: bool,
 ) -> Result<Option<HarnessesView>> {
-    let request = ListAgentHarnesses {
-        machine_id,
-        refresh,
-    };
-    let asked = match fleet.member(&request.machine_id) {
-        Some(machine) => direct::harnesses(&fleet, machine, refresh).await,
-        None => beep.call_within(request, LIST_LIMIT).await,
-    };
-
-    match asked {
-        Ok(list) => Ok(Some(list.into())),
-        Err(e) if unknown_op(&e) => Ok(None),
-        Err(e) => Err(plain(e)),
-    }
+    let list = direct::harnesses(&fleet, fleet.machine(&machine_id)?, refresh)
+        .await
+        .map_err(plain)?;
+    Ok(Some(list.into()))
 }
 
 /// Saves the settings of `agent` on `machine_id`.
@@ -235,19 +216,13 @@ pub async fn harness_settings_save(
 /// after.
 #[tauri::command]
 pub async fn agent_harness_update(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
 ) -> Result<HarnessesView> {
-    let updated = match fleet.member(&machine_id) {
-        Some(machine) => direct::update_harness(&fleet, machine, &agent).await,
-        None => {
-            beep.call_within(UpdateAgentHarness { machine_id, agent }, UPDATE_LIMIT)
-                .await
-        }
-    }
-    .map_err(plain)?;
+    let updated = direct::update_harness(&fleet, fleet.machine(&machine_id)?, &agent)
+        .await
+        .map_err(plain)?;
     Ok(updated.into())
 }
 
@@ -255,14 +230,10 @@ pub async fn agent_harness_update(
 /// how it goes comes with the machine's next report.
 #[tauri::command]
 pub async fn agent_adapters_install(fleet: Machines<'_>, machine_id: String) -> Result<()> {
-    let machine = fleet
-        .member(&machine_id)
-        .ok_or_else(|| DesktopError::BadRequest("The machine is not in the mesh.".into()))?;
-    direct::install_adapters(&fleet, machine).await
+    direct::install_adapters(&fleet, fleet.machine(&machine_id)?).await
 }
 
-/// The settings of `agent` on each of the user's machines; `None` from a
-/// server too old to say.
+/// The settings of `agent` on each of the user's machines.
 #[tauri::command]
 pub async fn harness_settings_all(
     fleet: FleetState<'_>,

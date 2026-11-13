@@ -17,7 +17,7 @@
     items.forEach(([id]) => used.add(id));
     return { label, items };
   });
-  children.push({ label: 'Chats and assistant', items: appItems.filter(([id]) => !used.has(id)) });
+  children.push({ label: 'Other', items: appItems.filter(([id]) => !used.has(id)) });
   const tree = [
     { label: 'App screens', children: children.filter(group => group.items.length) },
     { label: 'Design ideas', children: DESK_SCREENS.filter(group => group.group.startsWith('Ideas')).map(group => ({ label: group.group, items: group.items })) },

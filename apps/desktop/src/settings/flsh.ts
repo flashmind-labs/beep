@@ -5,7 +5,7 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import { EMPTY, flshDraft, flshInput, flshProblem, type FlshDraft, type FlshSettings } from "./flsh-state.ts";
 
 export interface FlshState {
-  saved: FlshSettings | false | null;
+  saved: FlshSettings | null;
   draft: FlshDraft | null;
   error: string;
   saving: boolean;
@@ -21,7 +21,7 @@ export function flshPanel(invoke: typeof Invoke) {
     if (state.getState().requested) return;
     set({ requested: true });
 
-    try { set({ saved: (await invoke<FlshSettings | null>("flsh_settings_get")) ?? false, error: "" }); }
+    try { set({ saved: await invoke<FlshSettings>("flsh_settings_get"), error: "" }); }
     catch (e) { set({ saved: EMPTY, error: fail(e) }); }
   }
 
@@ -32,7 +32,7 @@ export function flshPanel(invoke: typeof Invoke) {
 
     try {
       await invoke("flsh_settings_save", { settings: flshInput(submitted) });
-      const saved = (await invoke<FlshSettings | null>("flsh_settings_get")) ?? false;
+      const saved = await invoke<FlshSettings>("flsh_settings_get");
       set(now => ({ saved, draft: now.draft === submitted ? null : now.draft, error: "" }));
     } catch (e) { set({ error: fail(e) }); }
     finally { set({ saving: false }); }

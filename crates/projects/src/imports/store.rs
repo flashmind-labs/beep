@@ -1,5 +1,5 @@
-//! What an import reads and writes about the user's projects, kept by the server in Postgres and
-//! by the desktop in its mesh state.
+//! What an import reads and writes about the user's projects, kept by the desktop in its mesh
+//! state.
 
 use super::records::{ImportRow, NewImport};
 use crate::model::RepoName;

@@ -1,23 +1,19 @@
-//! What waits on the user, for the tray menu: the approvals chats wait on
-//! and the questions coding agents ask, as Home lists them under Needs you.
+//! What waits on the user, for the tray menu: the questions coding agents
+//! ask, as Home lists them under Needs you.
 
 use crate::{
     agents::sessions::machine_sessions,
-    beep::Beep,
     center::{self, AgentTarget, CenterTarget, NeedsYou},
-    error::{DesktopError, Result},
     fleet::Fleet,
-    machines::list::Outside,
+    machines::list::MachineLists,
     notices::history,
 };
-use beep_proto::ListPendingApprovals;
 use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
 use tauri::{AppHandle, Manager};
 use tokio::{
-    join,
     sync::Notify,
     time::{sleep, timeout},
 };
@@ -46,12 +42,12 @@ pub struct Entry {
     /// Its menu id, `ITEM` and then what names the question.
     pub id: String,
     pub label: String,
-    /// What a click opens: its chat or agent session.
+    /// What a click opens: its agent session.
     pub target: CenterTarget,
 }
 
 /// The latest list, kept so the tray menu can be built without waiting on
-/// the server.
+/// the machines.
 #[derive(Default)]
 pub struct WaitingList {
     entries: Mutex<Vec<Entry>>,
@@ -98,17 +94,6 @@ pub fn entries(needs: Vec<NeedsYou>) -> Vec<Entry> {
     needs
         .into_iter()
         .map(|need| match need {
-            NeedsYou::Chat {
-                session_id,
-                pending,
-                ..
-            } => Entry {
-                id: format!("{ITEM}chat:{}", pending.query_id),
-                label: chat_label(&pending.approval.app, &pending.approval.action),
-                target: CenterTarget::Chat {
-                    session: Some(session_id),
-                },
-            },
             NeedsYou::Agent {
                 machine_id,
                 machine_name,
@@ -134,17 +119,6 @@ pub fn entries(needs: Vec<NeedsYou>) -> Vec<Entry> {
 /// The menu id of `question` of `session` on `machine_id`.
 pub(crate) fn agent_item(machine_id: &str, session: &str, question: u32) -> String {
     format!("{ITEM}agent:{machine_id}:{session}:{question}")
-}
-
-/// "Allow Fastmail: send email?", as the approval card asks it.
-fn chat_label(app: &str, action: &str) -> String {
-    let label = match (app.trim(), action.trim()) {
-        ("", "") => "Allow this?".to_owned(),
-        ("", action) => format!("Allow {action}?"),
-        (app, "") => format!("Allow {app}?"),
-        (app, action) => format!("Allow {app}: {action}?"),
-    };
-    shorten(&label)
 }
 
 /// `text` on one line, cut to `LABEL_MAX` characters.
@@ -181,7 +155,7 @@ pub fn tooltip(count: usize) -> String {
 /// Machines poke on every question or finished turn they send, and when
 /// they connect; the slow look catches an entry answered elsewhere and a
 /// session that ended with no alert.
-pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
+pub async fn follow(app: AppHandle) {
     let list = app.state::<WaitingList>();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
     list.poke();
@@ -191,51 +165,27 @@ pub async fn follow(app: AppHandle, beep: Arc<Beep>) {
         // Timing out is the usual way round: nothing poked.
         let _ = timeout(wait, list.wake.notified()).await;
         wait = (wait * 2).min(QUIET);
-        {
-            match fetch(&app, &beep, &fleet).await {
-                Ok(entries) => {
-                    let before = list.entries();
-                    let gone: Vec<String> = before
-                        .into_iter()
-                        .map(|e| e.id)
-                        .filter(|id| !entries.iter().any(|e| &e.id == id))
-                        .collect();
-                    if list.set(entries) {
-                        wait = EVERY;
-                        crate::tray::refresh(&app);
-                        history::no_longer_waiting(&app, &gone);
-                    }
-                }
-                // The tray keeps what it showed until a fetch works.
-                Err(e) => log::warn!("listing what waits for the tray: {e}"),
-            }
+        let entries = fetch(&app, &fleet).await;
+        let gone: Vec<String> = list
+            .entries()
+            .into_iter()
+            .map(|e| e.id)
+            .filter(|id| !entries.iter().any(|e| &e.id == id))
+            .collect();
+
+        if list.set(entries) {
+            wait = EVERY;
+            crate::tray::refresh(&app);
+            history::no_longer_waiting(&app, &gone);
         }
+
         sleep(GAP).await;
     }
 }
 
-async fn fetch(app: &AppHandle, beep: &Arc<Beep>, fleet: &Arc<Fleet>) -> Result<Vec<Entry>> {
-    let held = app.state::<Outside>();
-    let (sessions, approvals) = join!(
-        machine_sessions(app, beep, fleet, &held),
-        beep.call(ListPendingApprovals {}),
-    );
-    // With no server, or none linked, nothing waits there.
-    let approvals = match approvals {
-        Err(DesktopError::NoServer | DesktopError::Unlinked | DesktopError::Revoked) => Vec::new(),
-        other => supported(other)?,
-    };
-    // Chats are not listed for their times, so approvals keep the server's
-    // order after the agents' questions.
-    Ok(entries(center::needs_you(sessions.iter(), approvals, &[])))
-}
-
-/// An empty list for a request this server or account cannot make.
-fn supported<T>(listed: Result<Vec<T>>) -> Result<Vec<T>> {
-    match listed {
-        Err(e) if center::is_unsupported(&e) => Ok(Vec::new()),
-        other => other,
-    }
+async fn fetch(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<Entry> {
+    let sessions = machine_sessions(app, fleet, &app.state::<MachineLists>()).await;
+    entries(center::needs_you(sessions.iter()))
 }
 
 #[cfg(test)]

@@ -1,7 +1,6 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
-import { pane } from "../bar/pane.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.ts";
@@ -9,7 +8,7 @@ import { projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitem
 import { state } from "./state.ts";
 import { draw } from "./home.ts";
 import { currentLocation, go } from "./views.ts";
-import { reloadChats, loadFound } from "./sidebar.ts";
+import { loadFound } from "./sidebar.ts";
 import { refresh } from "./refresh.ts";
 import { single } from "../ui/active.ts";
 
@@ -17,18 +16,9 @@ export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
 }
 
-/// Reply opens a new chat with Beep that asks for help with the item; Beep
-/// reads it with its GitHub tools, and posting asks first.
-export async function replyItem(item: GitItemRow) {
-  go("pane", { chat: { session: null } });
-
-  try {
-    await pane.compose(`Help me reply to ${item.url}`);
-  } catch (e) {
-    console.warn("starting a reply:", e);
-  }
-
-  reloadChats();
+/// Reply opens the agent's start form with a prompt to help reply to the item.
+export function replyItem(item: GitItemRow) {
+  go("pane", { agentnew: { prompt: `Help me reply to ${item.url}` } });
 }
 
 export type OpenRepo = ReturnType<typeof projectsWithOpen>[number];

@@ -1,24 +1,21 @@
-//! Notices as macOS notifications. A click opens what a notice is about,
-//! its chat, group or coding-agent session, in the command center; one
-//! that asks for approval, or an agent's question, also has Allow and Deny.
+//! Notices as macOS notifications. A click opens what a notice is about, a
+//! coding-agent session or Home, in the command center; an agent's question
+//! also has Allow and Deny.
 // Off macOS a notice is plain text, so the click and answer paths go unused.
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use crate::{
-    beep::{Beep, Decision},
     center::{self, AgentTarget, CenterTarget},
-    chat::approvals::{self, ChatAnswer},
     error::{DesktopError, Result},
     fleet::{Fleet, alerts},
-    notices::{history, work},
+    notices::history,
     tray::waiting::WaitingList,
 };
-use beep_proto::{AgentNoticeKey, AnswerAgentQuestion, AnswerGroupApproval, ApiError, Notice};
+use beep_proto::{AgentNoticeKey, ApiError, Notice};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt;
-use uuid::Uuid;
 
 /// The buttons on a notification that asks.
 const ALLOW: &str = "Allow";
@@ -51,17 +48,10 @@ fn notification_icon(app: &AppHandle) -> Option<String> {
     }
 }
 
-/// Shows `notice`, which opens its chat or group when clicked and, when it
-/// asks for approval, answers it from Allow or Deny.
+/// Shows `notice`, which opens its session when clicked and, when it asks a
+/// question, answers it from Allow or Deny.
 pub fn notice(app: &AppHandle, notice: &Notice) {
     show(app, notice, click_target(notice));
-}
-
-/// Shows `notice`, an alert the assistant raised on its own, which opens it
-/// in the notifications pane when clicked.
-pub fn alert(app: &AppHandle, notice: &Notice) {
-    let session = Uuid::parse_str(&notice.session_id).ok();
-    show(app, notice, CenterTarget::Notice { session });
 }
 
 /// A notification with nothing to answer that opens `target` when clicked.
@@ -70,10 +60,6 @@ pub(crate) fn opening(app: &AppHandle, title: &str, body: &str, target: CenterTa
         title: title.to_owned(),
         body: body.to_owned(),
         session_id: String::new(),
-        app: None,
-        approval: None,
-        changed: false,
-        group: false,
     };
     show(app, &notice, target);
 }
@@ -90,66 +76,16 @@ fn show(app: &AppHandle, notice: &Notice, target: CenterTarget) {
 
 /// What a click on `notice` opens.
 fn click_target(notice: &Notice) -> CenterTarget {
-    if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
-        return CenterTarget::Agent(AgentTarget::notified(&key));
+    match notice.session_id.parse::<AgentNoticeKey>() {
+        Ok(key) => CenterTarget::Agent(AgentTarget::notified(&key)),
+        Err(_) => CenterTarget::Home,
     }
-
-    if notice.group {
-        return CenterTarget::Group {
-            id: notice.session_id.clone(),
-        };
-    }
-
-    if let Ok(session) = Uuid::parse_str(&notice.session_id) {
-        return CenterTarget::Chat {
-            session: Some(session),
-        };
-    }
-    // An app that lost its login: Apps is where it signs in again.
-    if notice.app.is_some() {
-        return CenterTarget::Apps;
-    }
-
-    CenterTarget::Home
 }
 
-/// What Allow and Deny on a notice answer.
-#[derive(Debug, Clone, PartialEq)]
-enum Ask {
-    /// A turn in chat `session` waits on it.
-    Turn { session: String, query_id: String },
-    /// Background work in chat `session` asked it.
-    Work { session: String, query_id: String },
-    /// Someone in group `group` asked Beep for it.
-    Group { group: String, query_id: String },
-    /// A coding-agent session asks it, as the key names.
-    Agent(AgentNoticeKey),
-}
-
-/// The question `notice` asks, if it asks one.
-fn ask(notice: &Notice) -> Option<Ask> {
-    if let Ok(key) = notice.session_id.parse::<AgentNoticeKey>() {
-        return key.question.is_some().then_some(Ask::Agent(key));
-    }
-
-    let pending = notice.approval.as_ref()?;
-    // A resolved question is news that it stopped waiting, not a question.
-    if notice.changed {
-        return None;
-    }
-
-    let query_id = pending.query_id.clone();
-    let session = notice.session_id.clone();
-    Some(if notice.group {
-        Ask::Group {
-            group: session,
-            query_id,
-        }
-    } else if pending.run_id.is_empty() {
-        Ask::Work { session, query_id }
-    } else {
-        Ask::Turn { session, query_id }
-    })
+/// The coding-agent question `notice` asks, if it asks one.
+fn ask(notice: &Notice) -> Option<AgentNoticeKey> {
+    let key = notice.session_id.parse::<AgentNoticeKey>().ok()?;
+    key.question.is_some().then_some(key)
 }
 
 /// Opens `target` in the command center, from the main thread as the tray
@@ -169,28 +105,14 @@ fn open(app: &AppHandle, target: CenterTarget) {
     }
 }
 
-/// Answers `ask` from a notification's button. A failure shows as another
+/// Answers `key` from a notification's button. A failure shows as another
 /// notification, since nothing else is on screen; one already answered
 /// elsewhere only goes to the log.
-async fn answer(app: AppHandle, ask: Ask, allow: bool) {
-    let agent = match &ask {
-        Ask::Agent(key) => Some(key.clone()),
-        _ => None,
-    };
-    let answered = send_answer(&app, ask, allow).await;
-    app.state::<WaitingList>().poke();
-
-    match answered {
-        Ok(()) => {
-            if let Some(key) = agent {
-                history::answered(&app, &key);
-            }
-        }
+async fn answer(app: AppHandle, key: AgentNoticeKey, allow: bool) {
+    match answer_agent(&app, key.clone(), allow).await {
+        Ok(()) => history::answered(&app, &key),
         Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) => {
-            if let Some(key) = agent {
-                history::answered(&app, &key);
-            }
-
+            history::answered(&app, &key);
             log::info!("a notification answered a question that no longer waits");
         }
         Err(e) => {
@@ -200,66 +122,18 @@ async fn answer(app: AppHandle, ask: Ask, allow: bool) {
     }
 }
 
-async fn send_answer(app: &AppHandle, ask: Ask, allow: bool) -> Result<()> {
-    let decision = if allow {
-        Decision::Allow
-    } else {
-        Decision::Deny
-    };
-    let beep = app.state::<Arc<Beep>>().inner().clone();
-    let fleet = app.state::<Arc<Fleet>>().inner().clone();
-
-    match ask {
-        Ask::Turn { session, query_id } => {
-            let answer = ChatAnswer {
-                session,
-                query_id,
-                decision,
-            };
-            approvals::answer_chat(app, answer, None).await
-        }
-        // A withdrawn question is fine too: the work stopped or someone
-        // answered it, and its resolved notice clears the card.
-        Ask::Work { session, query_id } => work::answer(&beep, &session, query_id, decision)
-            .await
-            .map(|_| ()),
-        Ask::Group { group, query_id } => {
-            beep.call(AnswerGroupApproval { query_id, allow }).await?;
-
-            if let Err(e) = app.emit("group-changed", &group) {
-                log::warn!("telling the windows a group approval was answered: {e}");
-            }
-
-            Ok(())
-        }
-        // A machine of the mesh is asked directly; any other through the
-        // server. Both refuse an answer to a question the session no
-        // longer asks, as a conflict.
-        Ask::Agent(key) => {
-            let Some(question) = key.question else {
-                return Ok(());
-            };
-
-            if alerts::reaches(&fleet, &key.machine_id) {
-                return alerts::answer(&fleet, &key, agent_reply(allow)).await;
-            }
-
-            beep.call(AnswerAgentQuestion {
-                machine_id: key.machine_id,
-                agent: key.agent,
-                session: key.session,
-                question,
-                reply: agent_reply(allow).into(),
-            })
-            .await
-        }
-    }
-}
-
-/// Answers the question `key` names, as Allow or Deny on its notification
-/// do, from the bell's pane.
+/// Answers the question `key` names on the machine of the mesh that asked
+/// it, as Allow or Deny on its notification do. The machine refuses an
+/// answer to a question the session no longer asks, as a conflict.
 pub(crate) async fn answer_agent(app: &AppHandle, key: AgentNoticeKey, allow: bool) -> Result<()> {
-    let answered = send_answer(app, Ask::Agent(key), allow).await;
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    let answered = if key.question.is_none() {
+        Ok(())
+    } else if alerts::reaches(&fleet, &key.machine_id) {
+        alerts::answer(&fleet, &key, agent_reply(allow)).await
+    } else {
+        Err(DesktopError::NotInMesh)
+    };
     app.state::<WaitingList>().poke();
     answered
 }

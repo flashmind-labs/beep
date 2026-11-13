@@ -4,7 +4,7 @@ import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
 import { harnessMark } from "../ui/icons.tsx";
 import { money, tokenCount } from "../ui/format.ts";
 import { useDialogRef } from "../ui/parts.ts";
-import { asOf, harnessLine, harnessName, modelTotals, PERIODS, pillPlans, planName, projectExtra, resetName, shortName, showsDollars, todayLine, unpricedLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.ts";
+import { asOf, harnessLine, harnessName, modelTotals, PERIODS, pillPlans, planName, projectExtra, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.ts";
 
 function Bar({ used }: { used: number }) { return <span className="bar"><i className={used > WARN_USED ? "warn" : ""} style={{ width: `${used}%` }} /></span>; }
 /// A harness's mark, else its short name: never a letter tile.
@@ -25,10 +25,10 @@ function SpendRow({ name, cost, extra, strong = false, title }: { name: React.Re
   return <div className="us-row" title={title}>{typeof name === "string" ? <Tag>{name}</Tag> : name}<Tag className="us-r">{cost}{extra && <small>{cost ? " · " : ""}{extra}</small>}</Tag></div>;
 }
 function Period({ view, periodKey, allProjects, pick, more }: { view: UsageView; periodKey: PeriodKey; allProjects: boolean; pick(key: PeriodKey): void; more(): void }) {
-  const period = view[periodKey] ?? view.today, metered = !!view.metered, shown = allProjects ? period.projects : period.projects.slice(0, 5), extra = period.projects.length - 5;
-  const models = modelTotals(period.harnesses), tokens = period.tokens ? tokenCount(period.tokens) : metered ? "" : unpricedLine(period.total.unpriced), paid = period.total.cost_usd > 0 || !tokens;
-  return <div><div className="us-seg">{PERIODS.filter(p => p.key !== "month" || view.month != null).map(p => <button type="button" key={p.key} className={p.key === periodKey ? "on" : ""} aria-pressed={p.key === periodKey} onClick={() => pick(p.key)}>{p.label}</button>)}</div>
-    {period.projects.length ? <><h5><span>By project</span>{!metered && <span>at API prices</span>}</h5>{shown.map((spend, i) => <SpendRow key={i} name={spend.project} cost={spend.cost_usd > 0 ? money(spend.cost_usd) : ""} extra={projectExtra(spend, metered)} />)}{extra > 0 && <button type="button" className="us-more" onClick={more}>{allProjects ? "Show less" : `Show ${extra} more`}</button>}</> : periodKey === "today" && <div className="us-row"><small>Nothing yet today</small></div>}
+  const period = view[periodKey], shown = allProjects ? period.projects : period.projects.slice(0, 5), extra = period.projects.length - 5;
+  const models = modelTotals(period.harnesses), tokens = period.tokens ? tokenCount(period.tokens) : "", paid = period.total.cost_usd > 0 || !tokens;
+  return <div><div className="us-seg">{PERIODS.map(p => <button type="button" key={p.key} className={p.key === periodKey ? "on" : ""} aria-pressed={p.key === periodKey} onClick={() => pick(p.key)}>{p.label}</button>)}</div>
+    {period.projects.length ? <><h5><span>By project</span></h5>{shown.map((spend, i) => <SpendRow key={i} name={spend.project} cost={spend.cost_usd > 0 ? money(spend.cost_usd) : ""} extra={projectExtra(spend)} />)}{extra > 0 && <button type="button" className="us-more" onClick={more}>{allProjects ? "Show less" : `Show ${extra} more`}</button>}</> : periodKey === "today" && <div className="us-row"><small>Nothing yet today</small></div>}
     {!!period.harnesses.length && <><h5 className={period.projects.length ? "us-sub" : ""}><span>By harness</span></h5>{period.harnesses.map((spend, i) => <SpendRow key={i} title={spend.models.length ? spend.models.map(m => `${m.name}: ${tokenCount(m.tokens)} tokens`).join("\n") : undefined} name={<small>{harnessName(spend)}</small>} cost="" extra={harnessLine(spend)} />)}</>}
     {!!models.length && <><h5 className="us-sub"><span>By model</span></h5>{models.map(model => <SpendRow key={model.name} name={<small>{model.name}</small>} cost="" extra={tokenCount(model.tokens)} />)}</>}
     {(period.total.cost_usd > 0 || !!tokens) && <SpendRow name="Total" cost={paid ? money(period.total.cost_usd) : ""} extra={tokens} strong />}
@@ -52,6 +52,6 @@ export function UsageWidget({ view, open, period, allProjects, toggle, pick, mor
       {view.limits.flatMap(plan => plan.credits ?? []).map((credit, n) => credit.remaining != null && <span className="us-x" key={n}>{providerName(credit.provider)} <b>{credit.remaining_short ?? creditAmount(credit, credit.remaining)}</b> left</span>)}
       {(!plans.length || view.today.total.cost_usd > 0) && <span className="us-x"><b>{todayLine(view.today)}</b> today</span>}
     </button>
-    {open && <div ref={dialog} className="us-pop" style={{ transform: place.shift ? `translateX(${place.shift}px)` : undefined, maxHeight: place.maxHeight || undefined }} role="dialog" aria-label="Plan usage and cost">{view.limits.filter(plan => plan.windows.length || plan.credits?.length).map((plan, i) => <Limits key={i} plan={plan} now={Date.now()} />)}<Period view={view} periodKey={period} allProjects={allProjects} pick={pick} more={more} />{showsDollars(shown) && <div className="us-note">{view.metered ? "Dollars are API spend. ~ is what plan use would cost on the API, not in the total." : "Dollars are what the same work would cost at API prices."}</div>}</div>}
+    {open && <div ref={dialog} className="us-pop" style={{ transform: place.shift ? `translateX(${place.shift}px)` : undefined, maxHeight: place.maxHeight || undefined }} role="dialog" aria-label="Plan usage and cost">{view.limits.filter(plan => plan.windows.length || plan.credits?.length).map((plan, i) => <Limits key={i} plan={plan} now={Date.now()} />)}<Period view={view} periodKey={period} allProjects={allProjects} pick={pick} more={more} />{showsDollars(shown) && <div className="us-note">Dollars are API spend. ~ is what plan use would cost on the API, not in the total.</div>}</div>}
   </>;
 }

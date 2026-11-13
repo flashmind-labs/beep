@@ -3,9 +3,8 @@
 
 use super::ProjectRow;
 use crate::{
-    beep::Service,
     error::Result,
-    fleet::projects::{FleetState, desk, mirror_import},
+    fleet::projects::{FleetState, desk},
 };
 use beep_proto::{
     CheckoutFailure, CreateProject, CreatedProject, GitHostKind, NewRepository, ProjectFolder,
@@ -66,7 +65,6 @@ pub async fn project_forges(fleet: FleetState<'_>) -> Result<Option<Vec<ForgeRow
 #[tauri::command]
 pub async fn create_project(
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     name: String,
     repository: Option<NewRepository>,
     machine_ids: Vec<String>,
@@ -78,11 +76,5 @@ pub async fn create_project(
         machine_ids,
         folders: folders.unwrap_or_default(),
     };
-    let created = desk(&fleet).await?.create(&request).await?;
-
-    for landed in &created.imported {
-        mirror_import(&beep, landed).await;
-    }
-
-    Ok(created.into())
+    Ok(desk(&fleet).await?.create(&request).await?.into())
 }

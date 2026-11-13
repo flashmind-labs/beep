@@ -111,11 +111,10 @@ async function loadProjects() {
 
 /// The start form with `prompt`; `from` is where Esc goes back to.
 /// `at` presets the machine and folder, as a project's "Start an agent here" does.
-export function renderAgentNew(prompt = "", from: AgentReturn = "chat", at: AgentPlace | null = null) {
-  const chat = S.view === "chat" ? S.session : null;
+export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: AgentPlace | null = null) {
   S.view = "agentnew";
   AG.back = from;
-  AG.form = { prompt, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, chat, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
+  AG.form = { prompt, machine: at?.machine || lastMachine(at?.project), agent: null, cwd: at?.cwd || "", places: at?.places, project: at?.project ?? null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false };
   restoreProjectPick();
   AG.error = "";
   AG.busy = false;
@@ -637,7 +636,6 @@ export async function startAgent() {
       cwd: cwd || null,
       prompt,
       images,
-      chat: f.chat,
       model,
       effort,
       checkout,

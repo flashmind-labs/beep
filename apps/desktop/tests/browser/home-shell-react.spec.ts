@@ -24,20 +24,6 @@ test("Home refresh retains its tab, focus, content and scroll", async ({ page })
   await expect(page.locator("#sec-machines")).toBeVisible();
 });
 
-test("Overview keeps unchanged update rows and focus when another update changes", async ({ page }) => {
-  const home = { machines: [], projects: [], running: [], needs_you: [], coming_up: null,
-    updates: [{ id: 1, summary: "First update", app: "app", app_name: "App", at: 1 }, { id: 2, summary: "Second update", app: "app", app_name: "App", at: 1 }] };
-  await openDesktop(page, false, { center_home: home });
-  const second = page.getByRole("button", { name: "Second update" });
-  await expect(second).toBeVisible();
-  await second.focus();
-  await second.evaluate(element => { (window as any).__homeRow = element; });
-  await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, updates: [{ ...home.updates[0], summary: "Changed update" }, home.updates[1]] });
-  await expect(page.getByRole("button", { name: "Changed update" })).toBeVisible();
-  await expect(second).toBeFocused();
-  expect(await second.evaluate(element => element === (window as any).__homeRow)).toBe(true);
-});
-
 test("Git items retain a focused row during a Home refresh", async ({ page }) => {
   const item = (number: number, title: string) => ({ host: "example.test", repo: "org/repo", number, title, kind: "issue", url: `https://example.test/org/repo/issues/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [] });
   const git = { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "First issue"), item(2, "Second issue")] };
@@ -84,7 +70,7 @@ test("Git issue filters and selection keep their controls and choices", async ({
 
 test("Machines retains a focused terminal action when another machine changes", async ({ page }) => {
   const machine = (id: string, name: string) => ({ id, name, online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null });
-  const home = { machines: [machine("one", "Build box"), machine("two", "Test box")], projects: [], running: [], needs_you: [], coming_up: null, updates: null };
+  const home = { machines: [machine("one", "Build box"), machine("two", "Test box")], projects: [], running: [], needs_you: [] };
   await openDesktop(page, false, { center_home: home, terminals_all: [] });
   await page.getByRole("tab", { name: "Machines" }).click();
   const terminal = page.locator("#sec-machines .act").nth(1).getByRole("button", { name: "New terminal" });
@@ -99,9 +85,9 @@ test("Machines retains a focused terminal action when another machine changes", 
 });
 
 test("Home shows unavailable and recently offline notices", async ({ page }) => {
-  const home = { machines: null, projects: [], running: null, needs_you: [], coming_up: null, updates: null };
+  const home = { machines: null, projects: [], running: null, needs_you: [] };
   await openDesktop(page, false, { center_home: home });
-  await expect(page.getByText("Machines and running sessions aren't available for this account or server.")).toBeVisible();
+  await expect(page.getByText("Machines and running sessions could not be read.")).toBeVisible();
   const machine = { id: "one", name: "Build box", online: false, can_host: true, seen_at: Date.now(), version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [machine], running: [] });
   await expect(page.getByText("Build box is offline.")).toBeVisible();

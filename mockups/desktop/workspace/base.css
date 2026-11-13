@@ -76,7 +76,6 @@
 .mac .pj-tag.lab { cursor: pointer }
 .mac .pj-tag.lab:hover { color: var(--d-fg) }
 .mac .pj-tag.lab.on { color: var(--d-fg); border-color: var(--d-emerald) }
-.mac .cc-comp.hc { margin: 0; padding: 6px 10px 7px 16px; border: 0; border-top: 1px solid var(--d-border); border-radius: 0; background: var(--d-surface) }
 .mac .nb-main { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; height: 100% }
 .mac .nb-strip { display: flex; border-bottom: 1px solid var(--d-border); background: var(--d-surface); font-size: 12px; min-width: 0; overflow: hidden }
 .mac .nb-strip > span { display: flex; gap: 8px; align-items: center; padding: 7px 14px; border-right: 1px solid var(--d-border); white-space: nowrap; color: var(--d-muted) }
@@ -104,8 +103,6 @@
 .mac .nb-dock .ph { color: var(--d-dim); margin-right: auto; font-size: 13px }
 .mac .nb-split { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0 }
 .mac .nb-list { border-right: 1px solid var(--d-border); overflow: auto; padding-bottom: 8px }
-.mac .nb-lg { font-size: 12px; font-weight: 600; color: var(--d-muted); padding: 11px 14px 4px; display: flex; gap: 8px }
-.mac .nb-lg .c { font-weight: 400 }
 .mac .nb-li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; padding: 6px 14px; align-items: center; cursor: pointer; font-size: 13px; border: 0; background: none; color: inherit; text-align: left; width: 100% }
 .mac .nb-li .t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .mac .nb-li[aria-current="true"] { background: var(--d-elev); box-shadow: inset 2px 0 var(--d-emerald) }

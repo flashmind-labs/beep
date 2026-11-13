@@ -1,18 +1,16 @@
 import { useState } from "react";
-import { S } from "../bar/core.ts";
 import { WINDOWS } from "./platform.ts";
 import { openSheet } from "./parts.ts";
-import { filterShortcuts, visibleShortcuts, type ShortcutSection } from "./shortcuts.ts";
+import { filterShortcuts, SHORTCUTS, type ShortcutSection } from "./shortcuts.ts";
 
 let shut: (() => void) | null = null;
 
 /// Opens the sheet over the page, or closes it when it is open (⌘/ both ways).
 export function toggleShortcuts() {
   if (shut) return shut();
-  const all = visibleShortcuts({ server: S.link === "linked", live: S.live });
   const { close, render } = openSheet("Keyboard shortcuts", "am-sheet ks-sheet", { onClose: () => { shut = null; } });
   shut = close;
-  render(<ShortcutSheet all={all} />);
+  render(<ShortcutSheet all={SHORTCUTS} />);
 }
 
 function ShortcutSheet({ all }: { all: readonly ShortcutSection[] }) {

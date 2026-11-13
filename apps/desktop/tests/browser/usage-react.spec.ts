@@ -4,7 +4,7 @@ import { openDesktop } from "./harness.ts";
 test("usage updates retain the open popover and selected period", async ({ page }) => {
   const spend = { project: "Example", cost_usd: 2, unpriced: [] };
   const period = { total: spend, tokens: 0, projects: [spend], harnesses: [] };
-  const usage = { limits: [{ agent: "codex", plan: "pro", machine_name: "Build box", as_of: 0, windows: [{ minutes: 300, used_percent: 20, resets_at: null, scope: null }] }], today: period, week: period, month: null, metered: true };
+  const usage = { limits: [{ agent: "codex", plan: "pro", machine_name: "Build box", as_of: 0, windows: [{ minutes: 300, used_percent: 20, resets_at: null, scope: null }] }], today: period, week: period, month: period };
   await openDesktop(page, false, { usage_get: usage });
   const button = page.getByRole("button", { name: /Codex/ });
   await button.click();
@@ -35,7 +35,7 @@ const subscribed = (() => {
       { agent: "claude", plan: "max", machine_name: "build-box", as_of: Date.now(), windows: [window(300, 38), window(10_080, 76)], credits: [] },
       { agent: "codex", plan: "pro", machine_name: "build-box", as_of: Date.now(), windows: [window(10_080, 20)], credits: [] },
     ],
-    today: period, week: period, month: period, metered: true,
+    today: period, week: period, month: period,
   };
 })();
 
@@ -67,7 +67,7 @@ test("a provider balance shows whole dollars in the pill and cents in the popove
   const period = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
   const credit = { provider: "openrouter", scope: "account", unit: "usd", remaining: "622.3218671", total: "1000", used: "377.6781329", resets: null };
   const written = { ...credit, remaining_short: "$622", remaining_full: "$622.32", used_full: "$377.68", total_full: "$1,000.00" };
-  const usage = (credits: object[]) => ({ limits: [{ agent: "flsh", plan: null, machine_name: "build-box", as_of: Date.now(), windows: [], credits }], today: period, week: period, month: null, metered: true });
+  const usage = (credits: object[]) => ({ limits: [{ agent: "flsh", plan: null, machine_name: "build-box", as_of: Date.now(), windows: [], credits }], today: period, week: period, month: period });
   await openDesktop(page, false, { usage_get: usage([written]) });
   const pill = page.locator(".us-pill");
   await expect(pill).toContainText("OpenRouter $622 left");

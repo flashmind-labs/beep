@@ -60,8 +60,7 @@ pub struct Linked {
 }
 
 /// `beep_sessions`, with who started each: what an app needs to nest a
-/// child under its parent. `MachineSession` stays as it is for the server's
-/// apps.
+/// child under its parent.
 /// With `reviewers`, also the running reviewers that have a parent.
 pub async fn linked_sessions<S: Sessions + ?Sized>(
     node: &S,

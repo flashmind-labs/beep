@@ -79,7 +79,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
       return void pollAgent(true);
     }
 
-    if (from === undefined) AG.back = S.view === "agents" ? "agents" : "chat";
+    if (from === undefined) AG.back = S.view === "agents" ? "agents" : "hide";
     S.view = "agent";
     Object.assign(AG, { sig: "", rest: "" });
     // Its log goes back where the reader left it, or to its end.
@@ -88,7 +88,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     return void pollAgent(true);
   }
 
-  if (from === undefined) from = S.view === "agents" ? "agents" : "chat";
+  if (from === undefined) from = S.view === "agents" ? "agents" : "hide";
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
   if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
@@ -102,7 +102,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     open,
     page: held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
-    att: [], attError: "", noImages: null, opened: new Set(), steps: new Map(), all: new Set(),
+    att: [], attError: "", opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id })) ?? [],
     outbox: [], stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
@@ -212,9 +212,10 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     b.addEventListener("keydown", toolKey);
   }
 
-  b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, openLinked);
+  b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, s.id, openLinked);
   drawAgentBody();
-  agentMessage.current?.focus();
+  // On a touch layout a focused composer raises the keyboard and lays the page out for it.
+  if (!document.body.classList.contains("mobile")) agentMessage.current?.focus();
   bar.onclick = agentClick;
 }
 
@@ -528,12 +529,7 @@ const titlesChanged = ambient(() => S.view === "agents" ? ensureSessions().then(
 listen<Retitled>("agent-title-changed", e => { void retitleOpen(e.payload); titlesChanged(); });
 
 // A notice about a session that asks may mean it was answered elsewhere.
-for (const name of ["sessions-changed", "work-resolved"]) {
-  listen(name, () => { if (AG.page?.session.status === "asking" && S.view === "agent") pollAgent(); });
-}
-
-/// Whether the server turned images down for the open session.
-export const noAgentImages = () => AG.noImages != null && AG.noImages === AG.open?.session;
+listen("sessions-changed", () => { if (AG.page?.session.status === "asking" && S.view === "agent") pollAgent(); });
 
 /// Whether the open session's turn runs, so Enter steers and ⌘. stops.
 export const turnRuns = () => {

@@ -74,7 +74,7 @@ pub fn kill_all() {
     }
 }
 
-/// Serves one session stream until the server closes it.
+/// Serves one session stream until the caller closes it.
 pub async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     while let Some(request) = rx.recv::<Request>().await? {
         let reply = TASKS.answer(request).await;

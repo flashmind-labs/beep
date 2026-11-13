@@ -9,7 +9,7 @@ import { snapshotView } from "../ui/snapshot-state.ts";
 // current job and step; a run opened shows its jobs and steps and, when it
 // failed, the end of its failing step's log with Fix this.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import type { ProjectAgent } from "./agent.ts";
+import type { ProjectRef } from "./localid.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { reason } from "../ui/format.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
@@ -59,8 +59,7 @@ export interface RunRow {
   finished_at: number | null;
   progress: RunProgress | null;
   pull_requests: number[];
-  /// The host it ran on, such as `github.com`; null from a server that
-  /// reads one host.
+  /// The host it ran on, such as `github.com`.
   host?: string | null;
 }
 
@@ -83,7 +82,7 @@ export interface HostRow {
   synced_at: number | null;
   error: string | null;
   rate_limited_until: number | null;
-  /// The repository's web page there; missing from a server.
+  /// The repository's web page there.
   url?: string | null;
 }
 
@@ -94,7 +93,6 @@ export interface RunsRow {
   synced_at: number | null;
   error: string | null;
   rate_limited_until: number | null;
-  /// Empty or missing from a server that reads one host.
   hosts?: HostRow[];
 }
 
@@ -107,9 +105,8 @@ export function hostLabel(host: string | null | undefined, hosts: readonly Pick<
 
 /// The board's Actions tile: the newest runs, a chip on each, and the
 /// host beside a run when the runs come from more than one.
-function runTile(d: Pick<RunsRow, "runs" | "hosts"> | null | undefined, error = ""): TileData {
+function runTile(d: Pick<RunsRow, "runs" | "hosts"> | undefined, error = ""): TileData {
   if (d === undefined) return { count: "", rows: [], empty: "Loading…" };
-  if (d === null) return { count: "", rows: [], empty: "The server needs an update before it shows runs" };
   if (error && !d.runs.length) return { count: "", rows: [], empty: error };
   const hosts = d.hosts ?? [];
   return {
@@ -267,15 +264,14 @@ interface RunDeps {
   /// The chip saying whether the project is live or polling.
   mode?: (id: string) => LiveMode | null;
   /// Where the runs are kept between windows; in memory only without it.
-  kept?: SectionStore<RunsRow | null>;
+  kept?: SectionStore<RunsRow>;
   /// Called when a read changes the hosts the runs come from.
   hostsChanged?: () => void;
 }
 
-/// One project's runs: undefined while they load, null from a server too old to
-/// read them.
+/// One project's runs: undefined while they load.
 interface ProjectRuns {
-  data: RunsRow | null | undefined;
+  data: RunsRow | undefined;
   error: string;
   /// The run opened, by `runKey`, and the run itself to read it again.
   open: string | null;
@@ -285,17 +281,15 @@ interface ProjectRuns {
   only?: string | null;
 }
 
-type Agent = Pick<ProjectAgent, "project_id" | "name">;
-
 /// The latest a rate limit of any host the runs come from lifts.
-function limitOf(d: RunsRow | null | undefined) {
+function limitOf(d: RunsRow | undefined) {
   const all = [d?.rate_limited_until ?? null, ...(d?.hosts ?? []).map(x => x.rate_limited_until)].filter((t): t is number => !!t);
   return all.length ? Math.max(...all) : null;
 }
 
 export function makeRuns(deps: RunDeps) {
   const { invoke, redraw, openUrl, fix } = deps;
-  const kept = deps.kept ?? new PageCache(null).section<RunsRow | null>("runs");
+  const kept = deps.kept ?? new PageCache(null).section<RunsRow>("runs");
   const all = new Map<string, ProjectRuns>();
   /// When each project's runs were last asked for, so a draw asks again
   /// only once they are old.
@@ -350,7 +344,7 @@ export function makeRuns(deps: RunDeps) {
     const was = JSON.stringify([s.data, s.error]), hostsWere = JSON.stringify(s.data?.hosts ?? []);
 
     try {
-      s.data = await invoke<RunsRow | null>("center_project_runs", { projectId: id, refresh });
+      s.data = await invoke<RunsRow>("center_project_runs", { projectId: id, refresh });
       s.error = "";
       kept.put(id, s.data);
     } catch (e) {
@@ -473,7 +467,7 @@ export function makeRuns(deps: RunDeps) {
   }
 
   /// The Actions section. Its key is the project, so its rows stay while live updates arrive.
-  function section(agent: Agent) {
+  function section(agent: ProjectRef) {
     const id = agent.project_id, s = of(id);
     ensure(id);
     schedule(id);

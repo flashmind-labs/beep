@@ -25,25 +25,6 @@ test("mobile navigation retains tab buttons and places Back before the heading",
   expect(await home.evaluate(element => element === Reflect.get(window, "mobileHome"))).toBe(true);
 });
 
-test("mobile keyboard dismissal preserves the composer and its draft", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await openDesktop(page, false, { status: { link: "linked", signed_out: false, server: true, live: false, session: null }, open_session: [], session_agents: [], session_files: [], session_sources: [], list_questions: [] });
-  await page.evaluate(() => window.__navigation.open({ chat: { session: "mobile-chat" } }));
-  const input = page.locator("#ask");
-  await input.fill("Draft to keep");
-  const hide = page.getByRole("button", { name: "Hide the keyboard" });
-  await expect(hide).toBeVisible();
-  await input.evaluate(element => Reflect.set(window, "mobileDraft", element));
-  await hide.click();
-  await expect(input).not.toBeFocused();
-  await expect(input).toHaveValue("Draft to keep");
-  expect(await input.evaluate(element => element === Reflect.get(window, "mobileDraft"))).toBe(true);
-  await input.focus();
-  await expect(hide).toBeVisible();
-  await page.evaluate(() => window.__navigation.open("home"));
-  await expect(hide).toBeHidden();
-});
-
 test("on a phone, sheets and menus opened outside the main area lose shortcut hints", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openDesktop(page);

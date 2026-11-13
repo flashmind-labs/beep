@@ -10,7 +10,7 @@ export interface ViewSnapshot {
 const VIEW_COMMANDS = [
   "center_home", "list_machines", "mac_control", "projects_on_top", "project_groups",
   "project_sync", "git_items", "usage_get", "agent_accounts", "center_project_lists",
-  "center_project_runs", "center_project_run", "center_project_issues", "center_project_pull_requests",
+  "center_project_runs", "center_project_run",
 ] as const;
 export type ViewCommand = typeof VIEW_COMMANDS[number];
 const COMMANDS = new Set<string>(VIEW_COMMANDS);
@@ -96,29 +96,24 @@ export type WriteScope =
   | { kind: "all" };
 
 const SESSIONS: readonly ViewCommand[] = ["center_home"];
-const FORGE: readonly ViewCommand[] = ["center_project_lists", "center_project_issues", "center_project_pull_requests", "git_items", "center_home"];
+const FORGE: readonly ViewCommand[] = ["center_project_lists", "git_items", "center_home"];
 const ACCOUNTS: readonly ViewCommand[] = ["agent_accounts", "usage_get"];
 /// Frequent writes and the views they change. Other writes drop every view.
 const WRITES: Readonly<Record<string, readonly ViewCommand[]>> = {
-  send_prompt: SESSIONS, agent_steer: SESSIONS, agent_start: SESSIONS, agent_resume: SESSIONS,
+  agent_steer: SESSIONS, agent_start: SESSIONS, agent_resume: SESSIONS,
   agent_delete: SESSIONS, agent_title_save: SESSIONS, agent_stop_process: SESSIONS, agent_close_external: SESSIONS, agent_review_start: SESSIONS,
-  center_answer_agent: SESSIONS, answer_approval: SESSIONS, answer_group_approval: SESSIONS, answer_work: SESSIONS,
-  center_dismiss_updates: SESSIONS, center_stop_worker: SESSIONS, center_update_task: SESSIONS,
-  cancel_run: SESSIONS, delete_session: SESSIONS, new_chat: SESSIONS, pin_session: SESSIONS,
-  rename_session: SESSIONS, rerun_prompt: SESSIONS, stop_research: SESSIONS, send_to_group: SESSIONS,
-  session_move: SESSIONS, session_move_cancel: SESSIONS,
-  terminal_open: ["center_home", "list_machines"], terminal_start: ["center_home", "list_machines"],
+  center_answer_agent: SESSIONS, session_move: SESSIONS, session_move_cancel: SESSIONS,
+  terminal_open: ["center_home", "list_machines"],
   terminal_close: ["center_home", "list_machines"],
   agent_file_save: ["project_sync"], agent_tree_edit: ["project_sync"], agent_tree_upload: ["project_sync"],
   agent_files_sync: ["project_sync"], project_sync_pause: ["project_sync"], project_sync_resolve: ["project_sync"],
-  save_file: [], save_picture: [], save_machine_log: [],
-  set_zoom_level: [], set_send_on_pause: [], set_notice_voice: [], set_agent_notices: [], set_autostart: [],
+  save_picture: [], save_machine_log: [],
+  set_zoom_level: [], set_agent_notices: [], set_autostart: [], choose_save_folder: [], use_downloads: [],
   set_machine_search: [],
   set_mac_control: ["mac_control"], allow_mac_permission: ["mac_control"],
   pin_project_to_top: ["projects_on_top"],
   save_agent_token: ACCOUNTS, use_cli_login: ACCOUNTS,
-  review_dismiss: FORGE, review_fix: FORGE, review_merge: FORGE, review_post: FORGE, review_start: FORGE,
-  center_reply_thread: FORGE, center_comment_thread: FORGE, center_track_issue: FORGE,
+  center_comment_thread: FORGE,
 };
 
 export function writeScope(command: string): WriteScope {

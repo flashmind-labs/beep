@@ -2,21 +2,20 @@
 //! applied to every window as it loads and whenever it changes. The pages
 //! work out the next level and hear "zoom" to fit their terminals again.
 
-use crate::beep::{Beep, Service, state::Zoom};
-use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, Runtime, Webview};
+use crate::beep::state::{Prefs, Zoom};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, Webview};
 
 /// The saved level, in percent.
 #[tauri::command]
-pub fn zoom_level(beep: Service<'_>) -> u16 {
-    beep.zoom().percent()
+pub fn zoom_level(prefs: State<'_, Prefs>) -> u16 {
+    prefs.zoom().percent()
 }
 
 /// Saves `percent` (brought into range) and zooms every window to it.
 #[tauri::command]
-pub fn set_zoom_level(app: AppHandle, beep: Service<'_>, percent: u16) -> u16 {
+pub fn set_zoom_level(app: AppHandle, prefs: State<'_, Prefs>, percent: u16) -> u16 {
     let zoom = Zoom::new(percent);
-    beep.set_zoom(zoom);
+    prefs.set_zoom(zoom);
     apply_all(&app, zoom);
 
     if let Err(e) = app.emit("zoom", zoom.percent()) {
@@ -34,18 +33,18 @@ pub(crate) fn on_load<R: Runtime>(webview: &Webview<R>) {
         return;
     }
 
-    let Some(beep) = webview.try_state::<Arc<Beep>>() else {
+    let Some(prefs) = webview.try_state::<Prefs>() else {
         return;
     };
 
-    if let Err(e) = webview.set_zoom(beep.zoom().factor()) {
+    if let Err(e) = webview.set_zoom(prefs.zoom().factor()) {
         log::warn!("zooming {}: {e}", webview.label());
     }
 }
 
 /// Zooms every open window to the saved level, once the app is set up.
-pub(crate) fn apply_saved(app: &AppHandle, beep: &Beep) {
-    apply_all(app, beep.zoom());
+pub(crate) fn apply_saved(app: &AppHandle, prefs: &Prefs) {
+    apply_all(app, prefs.zoom());
 }
 
 /// A window that fails keeps its zoom; the others still change.

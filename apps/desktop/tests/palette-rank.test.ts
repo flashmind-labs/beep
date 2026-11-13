@@ -7,19 +7,19 @@ function entry(kind: HitKind, title: string, id = title, detail = ""): Entry {
 }
 
 function index(lists: Partial<PaletteIndex> = {}): PaletteIndex {
-  return { actions: [], settings: [], code: [], projects: [], sessions: [], chats: [], memories: [], routines: [], machines: [], ...lists };
+  return { actions: [], settings: [], code: [], projects: [], sessions: [], machines: [], ...lists };
 }
 
 const titles = (hits: Entry[]) => hits.map(h => h.title);
 
 test("a prefix beats a word start, which beats a substring", () => {
-  const routines = ["Prebrief", "Morning brief", "Brief review"].map(t => entry("routine", t));
-  assert.deepEqual(titles(rank("bri", index({ routines }))), ["Brief review", "Morning brief", "Prebrief"]);
+  const settings = ["Prebrief", "Morning brief", "Brief review"].map(t => entry("setting", t));
+  assert.deepEqual(titles(rank("bri", index({ settings }))), ["Brief review", "Morning brief", "Prebrief"]);
 });
 
 test("a later word start counts when an earlier match is inside a word", () => {
-  const routines = [entry("routine", "Debrief or brief"), entry("routine", "Debrief")];
-  assert.deepEqual(titles(rank("brief", index({ routines }))), ["Debrief or brief", "Debrief"]);
+  const settings = [entry("setting", "Debrief or brief"), entry("setting", "Debrief")];
+  assert.deepEqual(titles(rank("brief", index({ settings }))), ["Debrief or brief", "Debrief"]);
 });
 
 test("the best of an entry's keys is its tier, ties in list order", () => {
@@ -34,39 +34,21 @@ test("the query is trimmed and case does not matter", () => {
 });
 
 test("each group shows eight", () => {
-  const memories = Array.from({ length: 20 }, (_, i) => entry("memory", `likes tea ${i}`));
-  assert.equal(rank("tea", index({ memories })).length, 8);
+  const projects = Array.from({ length: 20 }, (_, i) => entry("project", `acme/tea-${i}`));
+  assert.equal(rank("tea", index({ projects })).length, 8);
 });
 
-test("nothing typed lists every action, then the newest chats", () => {
+test("nothing typed lists every action", () => {
   const actions = [entry("action", "Home"), entry("action", "Settings")];
-  const chats = Array.from({ length: 7 }, (_, i) => entry("chat", `chat ${i}`));
-  const hits = rank("", index({ actions, chats }));
-  assert.deepEqual(titles(hits), ["Home", "Settings", "chat 0", "chat 1", "chat 2", "chat 3", "chat 4"]);
-});
-
-test("a title match beats a chat found only by its text", () => {
-  const chats = [entry("chat", "Groceries", "a"), entry("chat", "Trip plan", "b")];
-  const text = [entry("chat", "Groceries", "a", "...trip...")];
-  const hits = rank("trip", index({ chats }), text);
-  assert.deepEqual(hits.map(h => h.id), ["b", "a"]);
-  assert.equal(hits[1].detail, "...trip...");
-});
-
-test("a chat found by title and text is one hit with the first snippet", () => {
-  const chats = [entry("chat", "Trip plan", "a")];
-  const text = [entry("chat", "Trip plan", "a", "first"), entry("chat", "Trip plan", "a", "second")];
-  const hits = rank("trip", index({ chats }), text);
-  assert.equal(hits.length, 1);
-  assert.equal(hits[0].detail, "first");
-  assert.equal(chats[0].detail, "", "the index keeps its own entry");
+  const projects = [entry("project", "acme/widget")];
+  assert.deepEqual(titles(rank("", index({ actions, projects }))), ["Home", "Settings"]);
 });
 
 test("the top hit leads when several groups match, and lists once", () => {
   const hits = rank("acme", index({
     projects: [entry("project", "acme/widget")],
     code: [entry("code", "acme/widget PR")],
-    chats: [entry("chat", "Acme ideas")],
+    machines: [entry("machine", "acme box")],
   }));
   assert.equal(hits[0].kind, "project");
   assert.equal(hits[0].top, true);
@@ -75,12 +57,12 @@ test("the top hit leads when several groups match, and lists once", () => {
 });
 
 test("no top hit from one group, or without a prefix match", () => {
-  assert.ok(rank("morning", index({ routines: [entry("routine", "Morning brief")] })).every(h => !h.top));
-  const noPrefix = index({ routines: [entry("routine", "A morning")], machines: [entry("machine", "the morning box")] });
+  assert.ok(rank("morning", index({ settings: [entry("setting", "Morning brief")] })).every(h => !h.top));
+  const noPrefix = index({ settings: [entry("setting", "A morning")], machines: [entry("machine", "the morning box")] });
   assert.ok(rank("morning", noPrefix).every(h => !h.top));
 });
 
-/// Enough for a heavy account: about 3,600 entries.
+/// Enough for a heavy account: about 2,700 entries.
 function bigIndex(): PaletteIndex {
   const many = (n: number, make: (i: number) => Entry) => Array.from({ length: n }, (_, i) => make(i));
   return index({
@@ -88,10 +70,7 @@ function bigIndex(): PaletteIndex {
     settings: many(30, i => entry("setting", `Setting number ${i}`)),
     code: many(200, i => ({ ...entry("code", `acme/project-${i % 100} · PR #${i} Fix issue ${i} in the login flow`), keys: [`fix issue ${i} in the login flow`, `acme/project-${i % 100}`, `#${i}`] })),
     projects: many(200, i => entry("project", `acme/project-${i}`)),
-    sessions: many(300, i => ({ ...entry("agent_session", `Agent work ${i}`), keys: [`agent work ${i}`, `folder-${i % 60}`, "claude code", "claude", `box-${i % 10}`] })),
-    chats: many(1800, i => entry("chat", `Chat number ${i} about the login flow`, String(i))),
-    memories: many(1000, i => entry("memory", `the user likes thing number ${i} a lot, and said so in a long sentence`)),
-    routines: many(50, i => entry("routine", `Routine ${i}`)),
+    sessions: many(2250, i => ({ ...entry("agent_session", `Agent work ${i} on the login flow`), keys: [`agent work ${i} on the login flow`, `folder-${i % 60}`, "claude code", "claude", `box-${i % 10}`] })),
     machines: many(10, i => entry("machine", `box-${i}`)),
   });
 }
@@ -111,7 +90,7 @@ test("a keystroke over a big index stays under a millisecond", () => {
 
   times.sort((a, b) => a - b);
   const [median, p95, worst] = [times[500], times[950], times[999]];
-  console.log(`palette rank over 3600 entries: median ${median.toFixed(3)} ms, p95 ${p95.toFixed(3)} ms, max ${worst.toFixed(3)} ms`);
+  console.log(`palette rank over 2700 entries: median ${median.toFixed(3)} ms, p95 ${p95.toFixed(3)} ms, max ${worst.toFixed(3)} ms`);
   // The median, as a busy host can stall any single run.
   assert.ok(median < 1, `median ${median} ms`);
 });
@@ -128,14 +107,14 @@ test("prompt matches join coding sessions, with an excerpt and the session to op
   assert.equal(hits[0].snippet, prompt.snippet);
 });
 
-test("title and prompt hits deduplicate without merging a chat with the same id", () => {
+test("title and prompt hits deduplicate without merging other kinds with the same id", () => {
   const listed = entry("agent_session", "Retry fixes", "same", "Codex · widget");
   const prompt = { ...listed, snippet: "Prompt: Add a retry button" };
-  const chat = entry("chat", "Retry discussion", "same");
-  const hits = rank("retry", index({ sessions: [listed], chats: [chat] }), [prompt]);
+  const project = entry("project", "Retry tools", "same");
+  const hits = rank("retry", index({ sessions: [listed], projects: [project] }), [prompt]);
   assert.equal(hits.filter(hit => hit.kind === "agent_session").length, 1);
   assert.equal(hits.find(hit => hit.kind === "agent_session")?.detail, prompt.detail);
   assert.equal(hits.find(hit => hit.kind === "agent_session")?.snippet, prompt.snippet);
-  assert.equal(hits.filter(hit => hit.kind === "chat").length, 1);
+  assert.equal(hits.filter(hit => hit.kind === "project").length, 1);
   assert.equal(listed.detail, "Codex · widget");
 });

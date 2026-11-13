@@ -1,20 +1,22 @@
 # Beep on the e2e fleet: build the static binaries, ship them, and start a
-# fresh server and two linked nodes for each scenario. Sourced after
+# fresh desktop and linked nodes for each scenario. Sourced after
 # lib/common.sh.
 #
 # Layout on every VM (the sandbox's own `user`):
-#   ~/beep/bin    beep-server and beep-probe (server), beep-node (nodes)
-#   ~/beep/state  the server's key and config, the phone's key, a node's --dir
-#   ~/beep/logs   server.log, node.log
+#   ~/beep/bin    e2e_desktop (desk), beep-node (nodes)
+#   ~/beep/state  the desktop's mesh and key, or a node's --dir
+#   ~/beep/logs   desk.out (command replies) and desk.log on desk, node.log
+#   ~/beep/desk.in  a FIFO the desktop reads its commands from
 #   ~/ws          a node's --workspace, the folder it shares
-# Postgres runs in Docker on the server VM, bound to 127.0.0.1 only.
+# There is no server: the desk VM runs crates/fleet/examples/e2e_desktop, a
+# headless desktop that makes the mesh, mints join tickets and writes the
+# project's sync spec, as the app does.
 
 TARGET=x86_64-unknown-linux-musl
 BIN_DIR="$ROOT/target/$TARGET/release"
 PROJECT=e2e
 # The nodes a scenario links and syncs; it may set more after sourcing this.
 NODES=(node-a node-b)
-declare -A MACHINE
 
 # fleet_nodes : every node role the fleet has, used by this scenario or not.
 fleet_nodes(){ awk '$2 ~ /^node-/ { print $2 }' "$FLEET"; }
@@ -22,8 +24,15 @@ fleet_nodes(){ awk '$2 ~ /^node-/ { print $2 }' "$FLEET"; }
 # What a node runs with: its state, its workspace and its logging.
 NODE_ENV="RUST_LOG=${E2E_NODE_LOG:-info,beep_node=debug,iroh=warn,tracing::span=warn}"
 NODE_CMD='~/beep/bin/beep-node --dir ~/beep/state --workspace ~/ws'
-PG_IMAGE=pgvector/pgvector:pg17
-DB_URL=postgres://beep:beep@127.0.0.1:55432/beep
+DESK_ENV="RUST_LOG=${E2E_DESK_LOG:-info,beep_fleet=debug,beep_mesh=debug,iroh=warn,tracing::span=warn}"
+
+# binary <name> : where the build put a shipped binary.
+binary(){
+  case "$1" in
+    e2e_desktop) echo "$BIN_DIR/examples/$1" ;;
+    *) echo "$BIN_DIR/$1" ;;
+  esac
+}
 
 # build : the static musl binaries, once per run. E2E_SKIP_BUILD=1 reuses them.
 build(){
@@ -32,10 +41,10 @@ build(){
     return 0
   fi
 
-  step "build static beep-server, beep-probe and beep-node ($TARGET)"
-  ( cd "$ROOT" && CC_x86_64_unknown_linux_musl="${CC_x86_64_unknown_linux_musl:-musl-gcc}" \
-      cargo build --release --target "$TARGET" -p beep-server --bin beep-server --bin beep-probe \
-      -p beep-node --bin beep-node )
+  step "build static e2e_desktop and beep-node ($TARGET)"
+  ( cd "$ROOT" && export CC_x86_64_unknown_linux_musl="${CC_x86_64_unknown_linux_musl:-musl-gcc}" \
+      && cargo build --release --target "$TARGET" -p beep-fleet --example e2e_desktop \
+      && cargo build --release --target "$TARGET" -p beep-node --bin beep-node )
 }
 
 # ship <role> <binary> : a stripped, gzipped copy to ~/beep/bin on a VM.
@@ -45,25 +54,24 @@ ship(){
     && on "$role" "gunzip -f ~/beep/bin/$bin.gz && chmod +x ~/beep/bin/$bin"
 }
 
-# deploy : copy the binaries to the fleet and pull Postgres on the server.
+# deploy : copy the binaries to the fleet.
 deploy(){
   step "deploy binaries"
   local f
   STAGE="$(mktemp -d)"
 
-  for f in beep-server beep-probe beep-node; do
-    [[ -x "$BIN_DIR/$f" ]] || { echo "missing $BIN_DIR/$f: build first" >&2; return 1; }
-    strip -o "$STAGE/$f" "$BIN_DIR/$f" && gzip -1 "$STAGE/$f" || return 1
+  for f in e2e_desktop beep-node; do
+    [[ -x "$(binary "$f")" ]] || { echo "missing $(binary "$f"): build first" >&2; return 1; }
+    strip -o "$STAGE/$f" "$(binary "$f")" && gzip -1 "$STAGE/$f" || return 1
   done
 
   local pids=() role failed=0
 
-  for role in server $(fleet_nodes); do
+  for role in desk $(fleet_nodes); do
     on "$role" 'mkdir -p ~/beep/bin ~/beep/state ~/beep/logs' || return 1
   done
 
-  ( ship server beep-server && ship server beep-probe \
-      && on server "docker pull -q $PG_IMAGE > /dev/null" ) &
+  ship desk e2e_desktop &
   pids+=($!)
 
   for role in $(fleet_nodes); do
@@ -74,62 +82,69 @@ deploy(){
   for role in "${pids[@]}"; do wait "$role" || failed=1; done
   rm -rf "$STAGE"
   [[ "$failed" == 0 ]] || { echo "deploy failed" >&2; return 1; }
-  pass "binaries on all three VMs"
+  pass "binaries on every VM"
 }
 
-# fresh_world : stop everything, wipe all state and the database, then start
-# the server and link $NODES to one account. Sets SERVER_ID and MACHINE (each
-# node's machine id by role).
+# fresh_world : stop everything, wipe all state, then start a new desktop
+# with a new mesh and join $NODES to it, each named after its role.
 fresh_world(){
-  step "fresh server, database and nodes"
+  step "fresh desktop, mesh and nodes"
   local role
 
   for role in $(fleet_nodes); do
     stop_node "$role" KILL
     on "$role" 'rm -rf ~/beep/state ~/ws ~/beep/logs/*; mkdir -p ~/beep/state ~/ws' || true
   done
-  on server "$(stop_pid server INT); docker rm -f beep-pg > /dev/null 2>&1; rm -rf ~/beep/state ~/beep/logs/*; mkdir -p ~/beep/state
-docker run -d --name beep-pg -e POSTGRES_USER=beep -e POSTGRES_PASSWORD=beep -e POSTGRES_DB=beep \
-  -p 127.0.0.1:55432:5432 $PG_IMAGE > /dev/null
-for i in \$(seq 1 60); do docker logs beep-pg 2>&1 | grep -q 'init process complete' && docker exec beep-pg pg_isready -U beep > /dev/null 2>&1 && exit 0; sleep 1; done
-exit 1" || abort "Postgres did not start"
-  # No model is ever called: the key only has to be present.
-  on server "cat > ~/beep/state/config.toml <<EOF
-secret_key = \"\$HOME/beep/state/server-key\"
-database_url = \"$DB_URL\"
-model = \"openrouter:openai/gpt-6-luna\"
-provider_key = \"e2e-no-model\"
-EOF"
-  # Every descriptor redirected, or the ssh session waits on the server.
-  on server '(cd ~/beep/state && RUST_LOG=info,beep_server=debug,iroh=warn,tracing::span=warn exec setsid ~/beep/bin/beep-server ~/beep/state/config.toml) >> ~/beep/logs/server.log 2>&1 < /dev/null & echo $! > ~/beep/server.pid'
-  server_id_seen(){ on server "grep -o 'node_id=[0-9a-f]*' ~/beep/logs/server.log | head -1 | grep -q ." ; }
-  wait_for 90 "the server bound its endpoint" server_id_seen || abort "the server did not start"
-  SERVER_ID="$(on server "grep -o 'node_id=[0-9a-f]*' ~/beep/logs/server.log | head -1 | cut -d= -f2")"
-  note "server $SERVER_ID"
-  pass "server up"
+  # The FIFO is held open for writing by the desktop itself (`<>`), so it
+  # never reads an end of file between commands.
+  on desk "$(stop_pid desk INT); rm -rf ~/beep/state ~/beep/logs/* ~/beep/desk.in; mkdir -p ~/beep/state && mkfifo ~/beep/desk.in" \
+    || abort "could not reset the desk VM"
+  # Every descriptor redirected, or the ssh session waits on the desktop.
+  on desk "($DESK_ENV exec setsid ~/beep/bin/e2e_desktop --dir ~/beep/state --name desk <> ~/beep/desk.in > ~/beep/logs/desk.out 2> ~/beep/logs/desk.log) < /dev/null & echo \$! > ~/beep/desk.pid"
+  desk_up(){ on desk "grep -q '^up as ' ~/beep/logs/desk.out"; }
+  wait_for 60 "the desktop is up" desk_up || abort "the desktop did not start"
+  pass "desktop up"
+
   for role in "${NODES[@]}"; do
-    MACHINE[$role]="$(link_node "$role")" || abort "$role did not link"
-    note "$role ${MACHINE[$role]}"
+    link_node "$role" || abort "$role did not join"
   done
-  pass "${#NODES[@]} nodes linked to one account"
+  pass "${#NODES[@]} nodes joined the desktop's mesh"
 }
 
-# probe <args...> : beep-probe on the server VM, signed in as the phone.
-probe(){
-  on server "BEEP_IDENTITY=~/beep/state/phone-key ~/beep/bin/beep-probe http://127.0.0.1:47122 $*"
+# desk <command...> : one e2e_desktop command (see its doc comment); prints
+# its reply and fails when it says FAIL or gives none in E2E_DESK_WAIT
+# seconds (default 300). Commands run one at a time.
+desk(){
+  local polls=$(( ${E2E_DESK_WAIT:-300} * 5 ))
+  on desk "o=~/beep/logs/desk.out; n=\$(wc -l < \$o)
+printf '%s\n' '$*' > ~/beep/desk.in
+for i in \$(seq 1 $polls); do
+  if tail -n +\$((n + 1)) \$o | grep -qE '^(ok|FAIL) \('; then
+    tail -n +\$((n + 1)) \$o | awk 'NR == 1 && /^> / { next } /^ok \(/ { exit 0 } /^FAIL \(/ { print; exit 1 } { print }'
+    exit
+  fi
+  sleep 0.2
+done
+echo 'no reply from the desktop to: $*'; exit 1"
 }
 
-# link_node <role> : make a setup token, link the role's node with it, start
-# it, and echo its machine id.
+# sync_status : the desktop's line per machine for the project:
+# `project machine status files= pending= conflicts= error=`.
+sync_status(){ desk syncstatus "$PROJECT"; }
+
+# link_node <role> : a node for the role, named after it, started and joined
+# with a ticket from the desktop, which then sees it online.
 link_node(){
-  local role="$1" token id
-  token="$(probe token "$role" | tail -1)"
-  [[ "$token" == bk1-* ]] || { echo "no setup token: $token" >&2; return 1; }
-  on "$role" "$NODE_ENV $NODE_CMD setup $token --no-run --name $role >> ~/beep/logs/node.log 2>&1" || return 1
+  local role="$1" ticket
+  # A key of its own and the role as its name, before its first run.
+  on "$role" "head -c 32 /dev/urandom > ~/beep/state/key && chmod 600 ~/beep/state/key \
+&& printf 'name = \"%s\"\n' $role > ~/beep/state/node.toml" || return 1
   start_node "$role"
-  id="$(probe token-machine "$token" | tail -1)"
-  [[ -n "$id" ]] || { echo "the token was not claimed" >&2; return 1; }
-  echo "$id"
+  desk ticket "$role" > /dev/null || { echo "no ticket for $role" >&2; return 1; }
+  ticket="$(on desk "cat ~/beep/state/ticket-$role")"
+  [[ -n "$ticket" ]] || { echo "the ticket for $role is empty" >&2; return 1; }
+  on "$role" "$NODE_ENV $NODE_CMD mesh join '$ticket' >> ~/beep/logs/node.log 2>&1" || return 1
+  desk wait "$role" 60 > /dev/null || { echo "the desktop never saw $role online" >&2; return 1; }
 }
 
 # fd_watch : sample every node's open fds and inotify use until fd_report.
@@ -195,14 +210,14 @@ fetch_logs(){
   step "logs (full copies in $E2E/.logs)"
   local role f
   rm -rf "$E2E/.logs"
-  for role in server $(fleet_nodes); do
+  for role in desk $(fleet_nodes); do
     mkdir -p "$E2E/.logs/$role"
-    for f in server.log node.log; do
+    for f in desk.out desk.log node.log; do
       get "$role" "beep/logs/$f" "$E2E/.logs/$role/$f" 2> /dev/null || continue
       echo "--- $role $f (last ${E2E_LOG_LINES:-60} lines) ---"
       tail -n "${E2E_LOG_LINES:-60}" "$E2E/.logs/$role/$f"
     done
-    if [[ "$role" != server ]]; then
+    if [[ "$role" != desk ]]; then
       echo "--- $role ~/ws ---"
       on "$role" 'cd ~/ws && find . -maxdepth 4 | sort | head -50' 2> /dev/null || true
     fi
@@ -230,22 +245,23 @@ show_diff(){
 
 # turn_on_sync : the project folder on every node, synced, as the app does.
 turn_on_sync(){
-  local role folder
+  local role folder places=()
   for role in "${NODES[@]}"; do
     folder="$(on "$role" "mkdir -p ~/ws/$PROJECT && realpath ~/ws/$PROJECT")"
-    probe sync-on "$PROJECT" "${MACHINE[$role]}" "$folder" > /dev/null || abort "sync-on $role refused"
+    places+=("$role=$folder")
   done
+  desk syncset "$PROJECT" "${places[@]}" > /dev/null || abort "syncset $PROJECT refused"
   pass "sync on for $PROJECT on ${#NODES[@]} nodes"
 }
 
-# in_sync : the server reports every machine in sync with nothing pending.
+# in_sync : the desktop reports every machine in sync with nothing pending.
 in_sync(){
-  local out; out="$(probe sync-status "$PROJECT")" || return 1
+  local out; out="$(sync_status)" || return 1
   [[ "$(grep -c ' in_sync files=.* pending=0 ' <<< "$out")" == "${#NODES[@]}" ]]
 }
 
 # synced <seconds> <what> : wait until node-b matches node-a file for file
-# and the server sees both in sync; PASS or FAIL with the difference.
+# and the desktop sees both in sync; PASS or FAIL with the difference.
 synced(){
   local limit="$1" what="$2"
   if wait_for "$limit" "$what" same_files && wait_for 60 "both in sync" in_sync; then
@@ -253,7 +269,7 @@ synced(){
   else
     fail "$what"
     show_diff
-    probe sync-status "$PROJECT" | sed 's/^/   /'
+    sync_status | sed 's/^/   /'
   fi
 }
 

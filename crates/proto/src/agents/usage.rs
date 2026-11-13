@@ -4,43 +4,6 @@ use crate::{AgentSlug, ModelId};
 use std::time::SystemTime;
 
 wire_structs! {
-    /// What `GetUsageReport` gives.
-    pub struct UsageReport {
-        /// As in `UsageView`.
-        pub limits: Vec<PlanLimits>,
-        pub today: PeriodSpend,
-        /// From Monday.
-        pub week: PeriodSpend,
-        /// From the first of the month.
-        pub month: PeriodSpend,
-    }
-
-    /// What coding agents spent over one period.
-    pub struct PeriodSpend {
-        /// Every project together, `project` empty.
-        pub total: ProjectSpend,
-        /// Every token, priced or not.
-        pub tokens: u64,
-        /// By project, the most expensive first, only those that spent.
-        pub projects: Vec<ProjectSpend>,
-        /// By harness, the most expensive first, only those that spent.
-        pub harnesses: Vec<HarnessSpend>,
-    }
-
-    /// What `GetUsage` gives.
-    pub struct UsageView {
-        /// One per agent whose plan a machine reported, the freshest report
-        /// of any machine: Claude Code, then Codex.
-        pub limits: Vec<PlanLimits>,
-        /// Today's spending in the caller's timezone, by project, the most
-        /// expensive first.
-        pub today: Vec<ProjectSpend>,
-        /// Today's spending by harness, only those that spent anything.
-        pub harnesses: Vec<HarnessSpend>,
-        /// The whole week so far, from Monday.
-        pub week: ProjectSpend,
-    }
-
     /// A coding agent's plan usage and provider balances.
     pub struct PlanLimits {
         /// The agent, such as `claude`, `codex` or `flsh`.
@@ -71,33 +34,10 @@ wire_structs! {
         pub scope: Option<String>,
     }
 
-    /// What coding agents spent in one project, or in all of them.
-    pub struct ProjectSpend {
-        /// `org/repo`, else the folder's name; empty for a total.
-        pub project: String,
-        /// At API prices, in US dollars: an estimate on a flat-rate plan.
-        pub cost_usd: f64,
-        /// The tokens of the agents that report no cost, such as Codex.
-        pub unpriced: Vec<AgentTokens>,
-    }
-
     /// The tokens one agent used.
     pub struct AgentTokens {
         pub agent: AgentSlug,
         pub tokens: u64,
-    }
-
-    /// What one coding agent harness spent today.
-    pub struct HarnessSpend {
-        /// Its slug, such as `claude`.
-        pub agent: AgentSlug,
-        /// At API prices, in US dollars, when it reports a cost; `None` for
-        /// one that reports tokens only, such as Codex.
-        pub cost_usd: Option<f64>,
-        /// Every token its turns used.
-        pub tokens: u64,
-        /// The tokens by model, the most first, when it says.
-        pub models: Vec<ModelSpend>,
     }
 
     /// The tokens one model used.
@@ -106,9 +46,10 @@ wire_structs! {
         pub tokens: u64,
     }
 
-    /// What `GetSpendReport` gives.
+    /// Spend by project, harness and model.
     pub struct SpendReport {
-        /// As in `UsageView`.
+        /// One per agent whose plan a machine reported, the freshest report
+        /// of any machine: Claude Code, then Codex.
         pub limits: Vec<PlanLimits>,
         pub today: SpendPeriod,
         /// From Monday.
@@ -150,13 +91,11 @@ wire_structs! {
     pub struct HarnessBill {
         /// Its slug, such as `claude`.
         pub agent: AgentSlug,
-        /// A subscription covered it: tokens only, `cost_usd` is `None` in a
-        /// server's reply.
+        /// A subscription covered it: tokens only.
         pub subscription: bool,
-        /// Metered API spend in US dollars; `None` when none of it was priced
-        /// or a subscription covered it. The desktop's own report (never sent
-        /// by a server) fills it on a subscription bill with the estimate at
-        /// API prices, which is in no total.
+        /// Metered API spend in US dollars; `None` when none of it was
+        /// priced. On a subscription bill it holds the estimate at API
+        /// prices, which is in no total.
         pub cost_usd: Option<f64>,
         pub tokens: u64,
         /// The tokens by model, the most first, when it says.
@@ -164,7 +103,7 @@ wire_structs! {
     }
 }
 
-ffi_structs! {
+wire_structs! {
     /// A provider's credit snapshot, with decimal amounts encoded as strings.
     pub struct ProviderCredits {
         pub provider: String,

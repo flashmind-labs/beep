@@ -1,15 +1,11 @@
 //! Project views share one source per project while any window follows it.
-//! Server subscriptions and periodic forge reads publish project changes locally.
+//! Periodic forge reads publish project changes locally.
 
 use crate::{
-    beep::{Beep, Service},
     error::Result,
     fleet::projects::{FleetState, mesh_project},
-    projects::unknown_op,
 };
 use beep_fleet::Changed;
-use beep_node::link::reconnect::Backoff;
-use beep_proto::{ProjectChange, WatchProject};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -32,25 +28,12 @@ const MAX_FOLLOWED: usize = 8;
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct LiveRow {
     pub(crate) project_id: Uuid,
-    /// None from a server too old to say.
+    /// None while it is not known.
     live: Option<bool>,
     polling_why: Option<String>,
     pub(crate) lists: bool,
     pub(crate) runs: bool,
     views: Vec<crate::fleet::event_views::View>,
-}
-
-impl LiveRow {
-    fn of(project_id: Uuid, change: ProjectChange) -> Self {
-        Self {
-            project_id,
-            live: Some(change.live),
-            polling_why: change.polling_why,
-            lists: change.lists,
-            runs: change.runs,
-            views: Vec::new(),
-        }
-    }
 }
 
 /// The followed projects, each with the task that follows it.
@@ -225,23 +208,18 @@ pub async fn follow_project(
     app: AppHandle,
     window: WebviewWindow,
     fleet: FleetState<'_>,
-    beep: Service<'_>,
     followed: State<'_, Followed>,
     project_id: Uuid,
 ) -> Result<()> {
-    let on_mesh = mesh_project(&fleet, project_id).await?;
+    let Some((_, project)) = mesh_project(&fleet, project_id).await? else {
+        return Ok(());
+    };
     let alive_app = app.clone();
     followed.add(
         window.label(),
         project_id,
         || alive_app.get_webview_window(window.label()).is_some(),
-        || {
-            if let Some((_, project)) = on_mesh {
-                tauri::async_runtime::spawn(poll(app, fleet.inner().clone(), project_id, project))
-            } else {
-                tauri::async_runtime::spawn(follow(app, beep.inner().clone(), project_id))
-            }
-        },
+        || tauri::async_runtime::spawn(poll(app, fleet.inner().clone(), project_id, project)),
     );
     Ok(())
 }
@@ -361,60 +339,6 @@ async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid,
     }
 }
 
-async fn follow(app: AppHandle, beep: Arc<Beep>, project_id: Uuid) {
-    let mut backoff = Backoff::eager();
-    let mut again = false;
-
-    loop {
-        let mut replies = match beep.stream(WatchProject { project_id }).await {
-            Ok(replies) => replies,
-            Err(e) if unknown_op(&e) => {
-                emit(
-                    &app,
-                    &LiveRow {
-                        project_id,
-                        live: None,
-                        polling_why: None,
-                        lists: false,
-                        runs: false,
-                        views: Vec::new(),
-                    },
-                );
-                return;
-            }
-            Err(e) => {
-                log::info!("following a project page: {e}");
-                tokio::time::sleep(backoff.pause()).await;
-                continue;
-            }
-        };
-
-        loop {
-            match replies.next().await {
-                Ok(Some(change)) => {
-                    backoff.reset();
-                    let mut row = LiveRow::of(project_id, change);
-                    // Back after a break: what changed meanwhile was missed.
-                    if again {
-                        row.lists = true;
-                        row.runs = true;
-                        again = false;
-                    }
-
-                    emit(&app, &row);
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    log::info!("a project page's updates stopped: {e}");
-                    break;
-                }
-            }
-        }
-        again = true;
-        tokio::time::sleep(backoff.pause()).await;
-    }
-}
-
 fn emit(app: &AppHandle, row: &LiveRow) {
     crate::fleet::event_views::project_changed(app.clone(), row.clone());
 }
@@ -427,13 +351,7 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
     let args = serde_json::json!({ "projectId": row.project_id });
 
     if row.lists {
-        match crate::projects::runs::center_project_lists(
-            app.state(),
-            app.state(),
-            row.project_id,
-            false,
-        )
-        .await
+        match crate::projects::runs::center_project_lists(app.state(), row.project_id, false).await
         {
             Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
                 "center_project_lists",
@@ -449,14 +367,7 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
     }
 
     if row.runs {
-        match crate::projects::runs::center_project_runs(
-            app.state(),
-            app.state(),
-            row.project_id,
-            false,
-        )
-        .await
-        {
+        match crate::projects::runs::center_project_runs(app.state(), row.project_id, false).await {
             Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
                 "center_project_runs",
                 args,
@@ -471,7 +382,6 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
         for run in app.state::<Followed>().selected(row.project_id) {
             let args = serde_json::json!({ "projectId": row.project_id, "runId": run.id, "host": run.host });
             match crate::projects::runs::center_project_run(
-                app.state(),
                 app.state(),
                 row.project_id,
                 run.id,

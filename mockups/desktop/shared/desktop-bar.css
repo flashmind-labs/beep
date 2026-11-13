@@ -31,14 +31,9 @@
 .dinput { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 16px; font-size: 19px; line-height: 26px; min-width: 0 }
 .dinput .ph { color: var(--d-dim) }
 .dinput .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.dinput.multi { align-items: flex-start }
-.dinput.multi .txt { white-space: pre-wrap; overflow: visible }
 .dchat .pin { color: var(--d-coral); display: grid; flex: none }
 .dchat .run { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--d-emerald); flex: none }
 .dinput.small { font-size: 15px; line-height: 21px; padding: 10px 16px; border-top: 1px solid var(--d-border) }
-.dinput.dgrip { position: relative }
-.dinput.dgrip::after { content: ""; position: absolute; left: 50%; bottom: 1px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--d-border); opacity: 0; transition: opacity .15s; cursor: ns-resize }
-.dinput.dgrip:hover::after { opacity: 1 }
 .dlogo { width: 28px; height: 28px; border-radius: 8px; background: var(--d-coral); color: var(--d-ink); display: grid; place-items: center; flex: none;
   font-family: var(--display); font-weight: 600; font-size: 16px }
 .dbody { flex: 1; min-height: 0; overflow: auto; padding: 2px 26px 16px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; line-height: 21px; scrollbar-width: none }
@@ -53,26 +48,14 @@
 .ddot.off { background: var(--d-dim) } .ddot.bad { background: var(--d-err) }
 /* Connecting: shown from what the app kept, the machine not reached yet. A static ring. */
 .ddot.dial { background: transparent; box-shadow: inset 0 0 0 1.5px var(--d-dim) }
-/* The hint row only shows the link when something is wrong; clicking it opens the link window. */
-.dhints button.st { border: 0; background: transparent; padding: 0; font: inherit; color: var(--d-fg) }
-/* Lists and chats fade at an edge that has more to scroll. */
+/* Lists fade at an edge that has more to scroll. */
 .dfade { mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft, 0px), #000 calc(100% - var(--fb, 0px)), transparent 100%) }
-/* Shortcut sheet: every key in the bar, opened with Cmd-/. */
-.dkeys { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; padding: 12px 18px 16px; border-top: 1px solid var(--d-border) }
-.dkeys .kg { display: grid; gap: 2px; align-content: start }
-.dkeys .dsec { padding: 0 0 4px }
-.dkeys .kr { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; line-height: 22px }
-.dsteps { display: grid; gap: 4px }
-/* Chat turns in the bar use the coding agent session's log (.dcoderlog): the reply's blocks keep their spacing, the map jumps to each "You". */
+/* The coding agent session's log (.dcoderlog): the reply's blocks keep their spacing, the map jumps to each "You". */
 .dcoderlog .dcoderen.agent { display: grid; gap: 10px }
 .dcoderlog .agwarn { color: var(--d-warn) }
 .dcoderlog .dcoderen.user[id] { scroll-margin-top: 6px }
-.dcoderlog > .drerunof { justify-self: end; margin-top: -8px }
 .dbody .dcoderlog .dcoderen.tool.row .tt { background: none; border: 0; border-radius: 0; padding: 0 }
 .dbar .ag-queue + .dhints { margin-top: 8px }
-.dstep { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--d-muted); line-height: 20px }
-.dstep .s { width: 16px; height: 16px; display: grid; place-items: center; flex: none }
-.dstep.run { color: var(--d-fg) }
 .dhost { padding: 0 5px; border-radius: 4px; background: var(--d-elev); border: 1px solid var(--d-border); color: var(--d-muted); font-size: 11.5px }
 /* A spinner turns while the user waits on an action; an agent's own work shows the still running dot. */
 .dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--d-border); border-top-color: var(--d-emerald); animation: spin .8s linear infinite }
@@ -102,30 +85,9 @@
 .dchat .w { font-size: 12px; color: var(--d-muted); font-variant-numeric: tabular-nums; flex: none }
 .dchat[aria-selected="true"] { background: rgba(94,106,210,.28) }
 .dchat mark { background: rgba(242,153,74,.3); color: inherit; border-radius: 3px; padding: 0 1px }
-/* Shown while the user reads back during a reply; it jumps to the newest text. */
-.dlatest { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 2; border-radius: 999px; box-shadow: 0 6px 18px rgba(0,0,0,.45) }
-/* Prompt map: one tick per question on the right edge; hover shows the prompt, click jumps to it. */
-.dturn { display: flex; flex-direction: column; gap: 8px; scroll-margin-top: 6px }
-.dturn + .dturn { padding-top: 14px }
-/* The prompt sits in the user's bubble on the right, like the phone and the group chat, so it stands apart from the reply. */
-.dturn .dask { align-self: flex-end; max-width: 78%; padding: 6px 10px; border-radius: 12px 12px 4px 12px; background: rgba(94,106,210,.22); white-space: pre-wrap; overflow-wrap: anywhere }
-.dmap { position: absolute; right: 4px; top: 60px; bottom: 44px; width: 18px; z-index: 2; opacity: .6; transition: opacity .15s }
-.dmap:hover { opacity: 1 }
-.dmap .tk { position: absolute; right: 0; width: 18px; height: 12px; margin-top: -6px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; justify-content: flex-end }
-.dmap .tk i { display: block; width: 8px; height: 2px; border-radius: 2px; background: var(--d-muted); transition: width .15s, background .15s }
-.dmap .tk.on i { background: var(--d-fg); width: 12px }
-.dmap .tk:hover i, .dmap .tk.hov i { background: var(--d-emerald); width: 14px }
-.dmap .tip { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); max-width: 300px; padding: 5px 9px; border-radius: 8px; background: var(--d-elev); border: 1px solid var(--d-border);
-  box-shadow: 0 6px 18px rgba(0,0,0,.45); font-size: 12.5px; line-height: 17px; color: var(--d-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; display: none }
-.dmap .tk:hover .tip, .dmap .tk.hov .tip { display: block }
-.dpre { position: relative; margin: 0; padding: 10px 40px 10px 12px; border-radius: 9px; background: var(--d-elev); border: 1px solid var(--d-border); font-family: var(--mono); font-size: 12.5px; overflow-x: auto }
-.dpre code { background: none; border: 0; padding: 0 }
 .dcopy { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--d-muted); font-size: 12px; padding: 3px 6px; border-radius: 6px }
 .dcopy:hover { color: var(--d-fg); background: var(--d-elev) }
-.dpre .dcopy { position: absolute; top: 6px; right: 6px }
-.dreplyacts { display: flex; margin: -4px 0 0 -6px }
-/* Desktop rerun: a menu off the reply's actions, admins only. */
-.drerun { position: relative; display: inline-flex }
+/* A menu of choices under a button. */
 .dmenu { position: absolute; left: 0; top: 30px; z-index: 3; width: 290px; padding: 5px; border-radius: 8px; background: var(--d-elev); border: 1px solid var(--d-border); box-shadow: 0 14px 40px rgba(0,0,0,.5) }
 .dmenu .mi { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; width: 100%; padding: 6px 9px; border: 0; background: transparent; border-radius: 7px; text-align: left; color: var(--d-fg); font-size: 13px; line-height: 18px }
 .dmenu .mi small { grid-column: 1; font-size: 11.5px; color: var(--d-muted) }
@@ -135,7 +97,6 @@
 .dmenu .mi b { font-weight: 500 }
 .dmenu .think { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 9px 4px; border-top: 1px solid var(--d-border); margin-top: 4px; font-size: 11.5px; color: var(--d-muted) }
 .dmenu .think .dchip { min-height: 22px; padding: 0 8px; font-size: 11.5px }
-.drerunof { align-self: flex-end; font-size: 11px; color: var(--d-muted); margin-top: -4px }
 
 .mac blockquote + .dcopy { background: transparent; border: 0; box-shadow: none; display: flex; margin: 8px 0 16px; padding: 8px; cursor: pointer }
 

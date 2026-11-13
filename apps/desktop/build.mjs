@@ -21,7 +21,6 @@ const options = {
   entryPoints: {
     app: "src/bar/app.ts",
     center: "src/center/center.ts",
-    orb: "src/orb/orb.ts",
   },
   outdir: "dist",
   bundle: true,

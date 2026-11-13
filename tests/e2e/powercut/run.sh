@@ -79,8 +79,8 @@ for ((cut = 1; cut <= CUTS; cut++)); do
     fail "cut $cut: conflict copies on node-a and node-b: $copies"
   fi
 
-  wait_for 120 "both in sync" in_sync && pass "cut $cut: the server sees both in sync" \
-    || { fail "cut $cut: the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
+  wait_for 120 "both in sync" in_sync && pass "cut $cut: the desktop sees both in sync" \
+    || { fail "cut $cut: the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
 done
 
 (( midway > 0 )) && pass "$midway of $CUTS cuts landed with files still to come" \

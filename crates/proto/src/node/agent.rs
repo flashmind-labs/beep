@@ -3,8 +3,8 @@
 //!
 //! Each agent is its own protocol, `<agent>/1` (`claude/1`, `codex/1`), and
 //! all of them speak the messages here. A stream is one agent session: the
-//! server opens it with `Start` or `Attach`, the node answers `Attached` with
-//! the session as it stands, then the server steers it with `Prompt`,
+//! caller opens it with `Start` or `Attach`, the node answers `Attached` with
+//! the session as it stands, then the caller steers it with `Prompt`,
 //! `Answer`, `Cancel` and `Close` (each answered by one `Ack`) while the node
 //! sends `State`, `Question` and `TurnDone` as they happen. Sessions live in
 //! the daemon, not in the stream: when the stream drops the agent keeps
@@ -14,7 +14,7 @@
 //! stream. It also lists the sessions the user started on the machine
 //! outside Beep (`External`), such as Claude Code in a terminal, and
 //! `Watch` follows them: one request, then `Activity` replies until the
-//! server closes the stream. `Resume` takes one of them over once nothing
+//! caller closes the stream. `Resume` takes one of them over once nothing
 //! else runs it.
 mod checkout;
 mod external;

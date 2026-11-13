@@ -3,13 +3,12 @@
 
 use crate::{
     agents::{kept_transcripts::SessionKey, outbox, sessions::closed},
-    beep::Service,
     error::{DesktopError, Result},
     fleet::{Machines, agents as direct, asked::ORDER_LIMIT},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
-    AgentSteer, ApiError, ModelId, SteerAgentSession, Upload, check_agent_images, image_key,
+    AgentSteer, ModelId, SteerAgentSession, Upload, check_agent_images, image_key,
     node::agent::Effort,
 };
 use serde::{Deserialize, Serialize};
@@ -145,22 +144,6 @@ pub(crate) fn uploads(images: Vec<PastedImage>) -> Result<Vec<Upload>> {
     Ok(images)
 }
 
-/// The same message as a prompt for after the turn, for a server from
-/// before steering, which reads op 5 of `AgentSteer` as unknown.
-fn queued_instead(steer: &AgentSteer) -> Option<AgentSteer> {
-    let AgentSteer::Steer { text, images } = steer else {
-        return None;
-    };
-    Some(if images.is_empty() {
-        AgentSteer::Prompt { text: text.clone() }
-    } else {
-        AgentSteer::PromptImages {
-            text: text.clone(),
-            images: images.clone(),
-        }
-    })
-}
-
 /// Whether a node of `version` reads `StopAll`: one after 0.5.0. A node
 /// that has not said its version is taken as older.
 fn stops_all(version: Option<&str>) -> bool {
@@ -169,19 +152,11 @@ fn stops_all(version: Option<&str>) -> bool {
         .is_some_and(|version| version > semver::Version::new(0, 5, 0))
 }
 
-/// True when the server refused one of `ops` of `AgentSteer` as unknown:
-/// 3 `PromptImages`, 4 `Configure`, 5 and 6 `Steer`, 8 `StopTask`.
-fn older_than(error: &DesktopError, ops: &[u8]) -> bool {
-    matches!(error, DesktopError::Api(ApiError::BadRequest { message })
-        if ops.iter().any(|op| message.contains(&format!("unknown op {op}"))))
-}
-
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn agent_steer(
     app: AppHandle,
     window: WebviewWindow,
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
@@ -190,11 +165,10 @@ pub async fn agent_steer(
     // What the window saw of the session when it sent a message.
     seen: Option<outbox::Seen>,
 ) -> Result<Vec<String>, SteerError> {
-    // A message to a machine of the mesh goes after any waiting for it, and
-    // waits on this device while the machine cannot be reached.
-    if matches!(steer, Steer::Prompt { .. } | Steer::InTurn { .. })
-        && fleet.member(&machine_id).is_some()
-    {
+    // A message goes after any waiting for its machine, and waits on this
+    // device while the machine cannot be reached.
+    if matches!(steer, Steer::Prompt { .. } | Steer::InTurn { .. }) {
+        fleet.machine(&machine_id)?;
         AgentSteer::try_from(steer.clone())?;
         let key = SessionKey {
             machine_id,
@@ -207,7 +181,6 @@ pub async fn agent_steer(
     Ok(sent(
         app,
         window.label(),
-        beep,
         fleet,
         machine_id,
         agent,
@@ -218,11 +191,9 @@ pub async fn agent_steer(
 }
 
 // The arguments are those of `agent_steer`.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn sent(
     app: AppHandle,
     window: &str,
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
@@ -244,127 +215,88 @@ pub(crate) async fn sent(
         _ => Vec::new(),
     };
 
-    if let Some(machine) = fleet.member(&machine_id) {
-        let steer = match steer {
-            // A node that cannot read it would end its whole event stream.
-            AgentSteer::StopAll {} if !stops_all(fleet.status().version(machine).as_deref()) => {
-                AgentSteer::Cancel {}
-            }
-            steer => steer,
-        };
-        let close = matches!(steer, AgentSteer::Close {});
-        let operation = beep_proto::node::events::Operation::Agent {
-            agent: agent.clone(),
-            session: session.clone(),
-            request: beep_mesh::machine::node_request(steer.clone())?,
-        };
-
-        if let Some(reply) = app
-            .state::<crate::fleet::events::Events>()
-            .call(window, machine, operation)
-            .await?
-        {
-            let beep_proto::node::events::CallReply::Agent { info } = reply else {
-                return Err(DesktopError::BadRequest(
-                    "unexpected session acknowledgement".into(),
-                ));
-            };
-
-            if let Some(prompt) = &indexed_prompt {
-                let host = beep_mesh::machine::Host {
-                    id: machine_id.clone(),
-                    name: fleet.name_of(machine),
-                };
-                crate::palette::prompts::sent(
-                    &app,
-                    beep_mesh::machine::beep_session(&host, *info),
-                    prompt,
-                )
-                .await;
-            }
-
-            if close {
-                closed(&app, &machine_id, &session);
-            }
-
-            return Ok(keys);
+    let machine = fleet.machine(&machine_id)?;
+    let steer = match steer {
+        // A node that cannot read it would end its whole event stream.
+        AgentSteer::StopAll {} if !stops_all(fleet.status().version(machine).as_deref()) => {
+            AgentSteer::Cancel {}
         }
+        steer => steer,
+    };
+    let close = matches!(steer, AgentSteer::Close {});
+    let operation = beep_proto::node::events::Operation::Agent {
+        agent: agent.clone(),
+        session: session.clone(),
+        request: beep_mesh::machine::node_request(steer.clone())?,
+    };
 
-        let order = SteerAgentSession {
-            machine_id: machine_id.clone(),
-            agent,
-            session: session.clone(),
-            steer,
+    if let Some(reply) = app
+        .state::<crate::fleet::events::Events>()
+        .call(window, machine, operation)
+        .await?
+    {
+        let beep_proto::node::events::CallReply::Agent { info } = reply else {
+            return Err(DesktopError::BadRequest(
+                "unexpected session acknowledgement".into(),
+            ));
         };
-        let sent = direct::steer(&fleet, machine, order);
-        let opened = fleet
-            .asked(
-                machine,
-                &session,
-                "sending to the session",
-                ORDER_LIMIT,
-                sent,
-            )
-            .await?;
+
         if let Some(prompt) = &indexed_prompt {
             let host = beep_mesh::machine::Host {
                 id: machine_id.clone(),
                 name: fleet.name_of(machine),
             };
-            let metadata = beep_mesh::machine::beep_session(&host, opened.info.clone());
-            crate::palette::prompts::sent(&app, metadata, prompt).await;
+            crate::palette::prompts::sent(
+                &app,
+                beep_mesh::machine::beep_session(&host, *info),
+                prompt,
+            )
+            .await;
         }
 
         if close {
-            // The lists show it ended once the machine says so, about two
-            // seconds on; bounded by `until_ended`, nothing else owns it.
-            let fleet = fleet.inner().clone();
-            tauri::async_runtime::spawn(async move {
-                direct::until_ended(&fleet, machine, opened).await;
-                closed(&app, &machine_id, &session);
-            });
+            closed(&app, &machine_id, &session);
         }
 
         return Ok(keys);
     }
 
-    let images = !keys.is_empty();
-    let configure = matches!(steer, AgentSteer::Configure { .. });
-    let fallback = queued_instead(&steer);
-    let call = |steer: AgentSteer| SteerAgentSession {
+    let order = SteerAgentSession {
         machine_id: machine_id.clone(),
-        agent: agent.clone(),
+        agent,
         session: session.clone(),
         steer,
     };
-    let sent = match (beep.call(call(steer)).await, fallback) {
-        // A server from before steering takes it as a message for after
-        // the turn, which is the nearest it can do.
-        (Err(e), Some(prompt)) if older_than(&e, &[5, 6]) => beep.call(call(prompt)).await,
-        (sent, _) => sent,
-    };
-
-    if sent.is_ok()
-        && let Some(prompt) = &indexed_prompt
-    {
-        crate::palette::prompts::sent_existing(&app, &machine_id, &session, prompt).await;
+    let sent = direct::steer(&fleet, machine, order);
+    let opened = fleet
+        .asked(
+            machine,
+            &session,
+            "sending to the session",
+            ORDER_LIMIT,
+            sent,
+        )
+        .await?;
+    if let Some(prompt) = &indexed_prompt {
+        let host = beep_mesh::machine::Host {
+            id: machine_id.clone(),
+            name: fleet.name_of(machine),
+        };
+        let metadata = beep_mesh::machine::beep_session(&host, opened.info.clone());
+        crate::palette::prompts::sent(&app, metadata, prompt).await;
     }
 
-    match sent {
-        Err(e) if images && older_than(&e, &[3]) => Err(DesktopError::BadRequest(
-            "This Beep server does not take images yet. Send the message without them.".into(),
-        )),
-        Err(e) if configure && older_than(&e, &[4]) => Err(DesktopError::BadRequest(
-            "This Beep server cannot switch a running session's model yet.".into(),
-        )),
-        Err(e) if older_than(&e, &[5, 6]) => Err(DesktopError::BadRequest(
-            "This Beep server cannot take a message back yet.".into(),
-        )),
-        Err(e) if older_than(&e, &[8]) => Err(DesktopError::BadRequest(
-            "This Beep server cannot stop background commands yet.".into(),
-        )),
-        other => other.map(|()| keys),
+    if close {
+        // The lists show it ended once the machine says so, about two
+        // seconds on; bounded by `until_ended`, nothing else owns it.
+        let fleet = fleet.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            direct::until_ended(&fleet, machine, opened).await;
+            closed(&app, &machine_id, &session);
+        });
     }
+
+    Ok(keys)
 }
 
 #[cfg(test)]

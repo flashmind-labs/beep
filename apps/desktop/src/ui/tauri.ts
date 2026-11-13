@@ -84,8 +84,7 @@ type Timing = { kind: "page" | "data" | "command"; name: string; ms: number; out
 const TIMED_COMMANDS = new Set([
   "machine_clocks", "project_sync_detail", "agent_worktrees", "session_moves", "session_move_progress",
   "agent_view", "agent_modes", "agent_tasks", "agent_sessions", "agent_hosts", "center_home",
-  "project_sync", "project_overview", "center_project", "project_git_state", "center_project_lists",
-  "center_project_issues", "center_project_pull_requests", "center_project_runs",
+  "project_sync", "project_git_state", "center_project_lists", "center_project_runs",
 ]);
 let timings: Timing[] = [];
 let timingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -112,15 +111,12 @@ const COMMAND_WAIT_MS = 120_000;
 /// Commands that wait on the user (sign-ins, dialogs) or do long work
 /// (installs, moves, imports, reports, runs): no limit unless their call sets one.
 const UNTIMED = new Set([
-  "agent_adapters_install", "agent_file_save", "agent_review", "agent_review_start", "agent_tree_upload",
-  "allow_mac_permission", "claude_sign_in", "complete_login", "connect_app", "connect_mcp_server", "create_project",
-  "export_research", "follow_project", "follow_run", "found_machines", "found_projects", "gh_sign_in", "harness_compact",
-  "import_project", "join_account", "link_offer", "login_hosted", "machine_sign_in", "mesh_join", "pick_folder",
-  "project_add_to_machine", "project_copy", "project_git_move", "report_collect", "report_issue", "report_send",
-  "rerun_prompt", "rescan_found", "research_begin", "research_send", "review_fix", "review_merge", "review_start",
-  "save_file", "save_machine_log", "save_picture", "send_prompt", "send_to_group", "session_move", "sign_in",
-  "start_login", "start_over", "terminal_attach", "terminal_open", "terminal_output", "terminal_start", "update_machine",
-  "update_machine_tool", "use_cli_login", "use_own_server",
+  "agent_adapters_install", "agent_file", "agent_file_open", "agent_file_save", "agent_review", "agent_review_start", "agent_tree_upload",
+  "allow_mac_permission", "claude_sign_in", "create_project", "follow_project", "found_machines", "found_projects",
+  "gh_sign_in", "harness_compact", "import_project", "machine_sign_in", "mesh_join", "pick_folder",
+  "project_add_to_machine", "project_git_move", "report_collect", "report_issue", "report_send", "rescan_found",
+  "save_machine_log", "save_picture", "session_move", "terminal_attach", "terminal_open", "terminal_output",
+  "update_machine", "update_machine_tool", "use_cli_login",
 ]);
 
 /// Calls a Rust command, logging it with its machine and session when it

@@ -103,7 +103,7 @@ async function poll() {
   const token = state.token;
 
   try {
-    const id = await invoke<string | null>("node_token_machine", { token });
+    const id = await invoke<string | null>("ticket_machine", { ticket: token });
     if (!id) return;
 
     if (kind === "phone") {

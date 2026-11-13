@@ -39,6 +39,6 @@ test("a running session shows Close but not Delete", () => {
   }
 });
 
-test("a machine only a server reaches is not offered Delete", () => {
+test("a machine this device cannot ask to delete is not offered Delete", () => {
   assert.equal(sessionOffers({ status: "ended", external: false, agent: "claude" }, false).delete, false);
 });

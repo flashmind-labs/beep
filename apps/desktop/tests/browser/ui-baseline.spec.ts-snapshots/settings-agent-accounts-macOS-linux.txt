@@ -18,13 +18,10 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Home"
-        div.cc-grp.chats
-          h3
-            button.cc-gt [type="button"] "Chats"
-            button [aria-label="New chat" type="button"]
+          button.cc-si [aria-label="Terminals" title="Terminals" type="button"]
+            span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-          span.cc-si.none "No chats yet"
-          div style(display)
+            span.tt "Terminals"
         div.cc-grp.projects
           h3
             button.cc-gt [type="button"] "Projects"
@@ -35,14 +32,13 @@ body.cbody
               span.open.twist
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "example/"
-            div.cc-pjthreads
-              div.cc-chat.cc-si.pj-repo
-                button.open [aria-label="example/widget" title="example/widget build-box: /srv/project" type="button"]
-                  span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
-                  span.tt "widget"
-                  span.n "2"
-                button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
-                  svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
+            div.cc-chat.cc-si.pj-repo
+              button.open [aria-label="example/widget" title="example/widget build-box: /srv/project" type="button"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                span.tt "widget"
+                span.n "2"
+              button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]
+                svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
         div.cc-grp.machines
           h3
             button.cc-gt [type="button"] "Machines"
@@ -92,58 +88,51 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-            span.bd-switch [aria-label="Layout" role="group"]
-              button [aria-pressed="true" type="button"] "Board"
-              button [aria-pressed="false" type="button"] "List"
           div#sec-needs
-            div.bd-lanes
-              div.bd-lane
+            div.bd-rows
+              div.bd-lane.hd
                 h4 "Needs you"
                   span
-                div.bd-empty "Nothing here"
-              div.bd-lane
+              div.bd-lane.hd
                 h4
                   button [type="button"] "Working"
                   span "2"
+              div.bd-lane.hd
+                h4 "Ready to review"
+                  span
+              div.bd-lane.hd
+                h4
+                  button [type="button"] "Done today"
+                  span
+              h3.pj [title="example/widget"]
+                span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                button [type="button"] "example/widget"
+              div.bd-lane
+              div.bd-lane
                 div.bd-card [data-card="agent:build-box:notice-one" role="button" tabindex="0"]
                   b "First notification"
                   span.sub
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/widget · build-box"
+                    span "build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
                 div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                   b "Second notification"
                   span.sub
                     span.cc-ag.codex.mark
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "example/widget · build-box"
+                    span "build-box"
                   span.ft
                     span.cc-running "now"
-                      span.dspin [aria-label="Working" role="img"]
+                      span.drun [aria-label="Working" role="img"]
                     span.sp
               div.bd-lane
-                h4 "Ready to review"
-                  span
-                div.bd-empty "Nothing here"
               div.bd-lane
-                h4
-                  button [type="button"] "Done today"
-                  span
-                div.bd-empty "Nothing here"
-        form#home-comp.cc-comp
-          input#home-ask [aria-label="Ask Beep" autocomplete="off" placeholder="Ask Beep anything" spellcheck="false" type="text" value] value=""
-          span#home-err.cc-err [role="status"]
-          button#home-agent.dbtn [title="Start a coding agent on a machine" type="button"] style(display;display:none) "Agent"
-          button.dbtn.pri [type="submit"] "Send"
-            kbd "⏎"
       div#pane-box.cc-box [hidden]
-        div#bar.dbar [aria-label="Chat" data-mode="window" data-view="chat"]
-      div.cc-box [hidden]
-      div.cc-box [hidden]
+        div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
@@ -174,10 +163,6 @@ body.cbody
             span.tt "General"
           button.cc-si [data-goto="appearance"]
             span.tt "Appearance"
-          button.cc-si [data-goto="models"]
-            span.tt "Models"
-          button.cc-si [data-goto="apps"]
-            span.tt "Apps"
           button.cc-si [data-goto="mac"]
             span.tt "This computer"
           button.cc-si [data-goto="machines"]
@@ -200,8 +185,6 @@ body.cbody
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]
             span.tt "Instructions"
-          button.cc-si [data-goto="devices"]
-            span.tt "Beep server"
         small.dset-ver "Beep desktop 0.9.0"
       div.dset-body
         div.dset-top
@@ -212,28 +195,7 @@ body.cbody
           section#set-agents-sec [data-sec="agents"]
             div.dsec.flat.top "Agent accounts"
             div#set-agents
-              div.dlead "How your coding agents sign in on your machines."
-              div.dbox
-                div.dline
-                  span.cc-ag.claude.mark
-                    svg [aria-hidden="true" viewBox="0 0 24 24"]
-                  span.dstack
-                    b.dtitle "Claude Code"
-                  span.dacts
-                    button.dbtn.pri "Sign in"
-                    button.dbtn.quiet "Paste a token"
-                div.dfine.dmt6 "Sign in for all to give every machine one token. Beep keeps it encrypted and never writes it to their disks."
-              div.dbox
-                div.dline
-                  span.cc-ag.codex.mark
-                    svg [aria-hidden="true" viewBox="0 0 24 24"]
-                  span.dstack
-                    b.dtitle "Codex"
-                    span.dsub "signs in on each machine"
-                  span.dacts
-                    button.dbtn "Use an API key"
-                div.dmt6
-                  div.dfine.dpy "No machine has Codex yet."
+              div.dmuted "Could not load your agent accounts."
             div#set-agent-overview style(display)
               div.dset-h "Coding agents"
               div.dset-box

@@ -1,7 +1,6 @@
 //! Replies arrive as Markdown; the bar shows them as HTML cleaned of
 //! anything that could run. Math in `$x$`, `$$x$$`, `\(x\)` or `\[x\]`
-//! becomes MathML, which WebKit draws natively. ```product blocks become
-//! product cards.
+//! becomes MathML, which WebKit draws natively.
 
 use std::ops::Range;
 
@@ -10,12 +9,9 @@ use pulldown_cmark::{
 };
 use pulldown_latex::{ParserError, RenderConfig, Storage, config::DisplayMode, push_mathml};
 
-use crate::chat::products::{self, Product};
-
-// Stands in for a row of product cards until the HTML is cleaned. A
-// private-use character, removed from the reply first so it cannot fake one.
-const ROW_MARK: char = '\u{E000}';
-// Stands in for a pasted block in a user's message, as `ROW_MARK` does.
+// Stands in for a pasted block in a user's message until the HTML is
+// cleaned. A private-use character, removed from the message first so it
+// cannot fake one.
 const PASTE_MARK: char = '\u{E001}';
 
 // MathML Core elements, and the attributes pulldown-latex writes on them.
@@ -80,25 +76,20 @@ pub fn to_html(markdown: &str) -> String {
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_GFM
         | Options::ENABLE_MATH;
-    let source = dollar_delimiters(&markdown.replace(ROW_MARK, ""));
-    let mut rows = Vec::new();
-    let parsed = Parser::new_ext(&source, options)
+    let source = dollar_delimiters(markdown);
+    let events = Parser::new_ext(&source, options)
         .into_offset_iter()
-        .map(|(event, range)| {
-            let event = match event {
-                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang)))
-                    if lang.trim() == "mermaid" && !closed(&source[range.clone()]) =>
-                {
-                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(
-                        "mermaid-pending".into(),
-                    )))
-                }
-                other => other,
-            };
-            (event, range)
+        .map(|(event, range)| match event {
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang)))
+                if lang.trim() == "mermaid" && !closed(&source[range]) =>
+            {
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(
+                    "mermaid-pending".into(),
+                )))
+            }
+            other => other,
         });
-    let events = product_rows(&source, parsed, &mut rows);
-    let events = autolink(TextMergeStream::new(events.into_iter()))
+    let events = autolink(TextMergeStream::new(events))
         .into_iter()
         .map(|event| {
             let (latex, display, delim) = match &event {
@@ -118,7 +109,7 @@ pub fn to_html(markdown: &str) -> String {
     let out = restore_ip_hosts(out);
     // The renderer copies some LaTeX through unescaped (`\operatorname{<b>}`),
     // so its MathML goes through the cleaner like everything else.
-    let mut clean = ammonia::Builder::default()
+    ammonia::Builder::default()
         .add_tags(MATH_TAGS)
         .add_generic_attributes(MATH_ATTRIBUTES)
         .attribute_filter(|_, attribute, value| match attribute {
@@ -126,13 +117,7 @@ pub fn to_html(markdown: &str) -> String {
             _ => Some(value.into()),
         })
         .clean(&out)
-        .to_string();
-    // The cards are built from escaped fields, so they go in after cleaning.
-    for (i, cards) in rows.iter().enumerate() {
-        clean = clean.replacen(&row_mark(i), &products::row(cards), 1);
-    }
-
-    clean
+        .to_string()
 }
 
 /// Markdown someone else wrote, such as an issue on a code host, as HTML.
@@ -181,10 +166,14 @@ pub fn user_html(markdown: &str) -> String {
     // The folds are built from escaped text, so they go in after cleaning.
     for (i, body) in pastes.iter().enumerate() {
         let lines = body.split('\n').count();
+        let mut text = String::with_capacity(body.len());
+        html::push_html(
+            &mut text,
+            std::iter::once(Event::Text(body.as_str().into())),
+        );
         let fold = format!(
-            r#"<details class="paste" data-paste="{i}"><summary>Pasted text · {lines} {}</summary><pre>{}</pre></details>"#,
+            r#"<details class="paste" data-paste="{i}"><summary>Pasted text · {lines} {}</summary><pre>{text}</pre></details>"#,
             if lines == 1 { "line" } else { "lines" },
-            products::escape(body),
         );
         let mark = paste_mark(i);
         let own_paragraph = format!("<p>{mark}</p>");
@@ -232,79 +221,6 @@ fn pasted_blocks(text: &str) -> (String, Vec<String>) {
 
     out.push_str(rest);
     (out, pastes)
-}
-
-fn row_mark(i: usize) -> String {
-    format!("{ROW_MARK}{i}{ROW_MARK}")
-}
-
-/// Replaces ```product blocks with row marks, collecting each row's cards.
-/// A block that is not a product stays a code block, unless it is still
-/// streaming in, when it shows as a card waiting for its contents.
-fn product_rows<'a>(
-    source: &str,
-    parsed: impl Iterator<Item = (Event<'a>, Range<usize>)>,
-    rows: &mut Vec<Vec<String>>,
-) -> Vec<Event<'a>> {
-    let mut out = Vec::new();
-    // Set while the last event out is a row mark, so the next card joins it.
-    let mut open_row = false;
-    let mut block: Option<(Vec<Event<'a>>, Range<usize>)> = None;
-
-    for (event, range) in parsed {
-        let Some((events, _)) = block.as_mut() else {
-            match &event {
-                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang)))
-                    if lang.trim() == "product" =>
-                {
-                    block = Some((vec![event], range));
-                }
-                _ => {
-                    out.push(event);
-                    open_row = false;
-                }
-            }
-            continue;
-        };
-        let end = matches!(event, Event::End(TagEnd::CodeBlock));
-        events.push(event);
-
-        if !end {
-            continue;
-        }
-
-        let Some((events, range)) = block.take() else {
-            continue;
-        };
-        let json: String = events
-            .iter()
-            .filter_map(|e| match e {
-                Event::Text(text) => Some(text.as_ref()),
-                _ => None,
-            })
-            .collect();
-        let card = match Product::parse(&json) {
-            Some(product) => product.card(),
-            None if !closed(&source[range]) => products::pending_card().to_owned(),
-            None => {
-                out.extend(events);
-                open_row = false;
-                continue;
-            }
-        };
-
-        if !open_row {
-            out.push(Event::Text(CowStr::from(row_mark(rows.len()))));
-            rows.push(Vec::new());
-            open_row = true;
-        }
-
-        if let Some(row) = rows.last_mut() {
-            row.push(card);
-        }
-    }
-
-    out
 }
 
 /// Turns bare `http(s)://` addresses in text into links, as GitHub does,

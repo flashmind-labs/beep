@@ -1,7 +1,7 @@
 //! The coding agent harnesses on a node (Claude Code, Codex, pi, ...): what
 //! the node finds of each, asked with `SessionsRequest::Harnesses` on
-//! `agents/1`, and the user's settings for them, which the server sends
-//! with `Down::AgentSettings` and the node applies when it starts one.
+//! `agents/1`, and the user's settings for them, which the mesh carries and the node
+//! applies when it starts one.
 //!
 //! Like the rest of the node link these are compact msgpack, so a field is
 //! added only at the end with `#[serde(default)]`.
@@ -125,7 +125,7 @@ pub struct AgentSettings {
     pub harnesses: Vec<HarnessConfig>,
     /// The user's flsh settings, the same on every machine, which the node
     /// writes to flsh's config before it starts flsh. `None` until the
-    /// user saves some, and from a server before them: the node then
+    /// user saves some: the node then
     /// leaves flsh's config alone.
     pub flsh: Option<crate::FlshSettings>,
 }
@@ -134,7 +134,7 @@ pub struct AgentSettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarnessConfig {
     pub agent: String,
-    /// Off: the node refuses to start it and the server does not offer it.
+    /// Off: the node refuses to start it.
     #[serde(default = "on")]
     pub enabled: bool,
     /// The program to start in place of the one the node found.

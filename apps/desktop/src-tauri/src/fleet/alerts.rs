@@ -1,9 +1,8 @@
 //! What coding agents on the machines of the mesh want the user for, sent
 //! by the machines themselves. The alerts and runs streams are
 //! `beep_fleet::alerts`; this adds the native CLI sessions each machine
-//! tells, and routes all of it to the app. The alerts become the same
-//! notices the server pushes, so they route the same way, and an answer
-//! goes back to the machine. No server is involved.
+//! tells, and routes all of it to the app. An answer goes back to the
+//! machine.
 
 use super::{Fleet, Opened};
 use crate::error::Result;
@@ -16,7 +15,6 @@ use beep_proto::{
 };
 use iroh::EndpointId;
 use std::{
-    collections::HashMap,
     str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
@@ -25,9 +23,6 @@ use tokio::{select, sync::mpsc, time::sleep};
 
 /// Notices and connections waiting for the app to route them.
 const QUEUE: usize = 64;
-/// How long a notice that came one way waits for the same one to come the
-/// other way.
-const TWICE: Duration = Duration::from_secs(60);
 /// How long a stream stays open before it counts as working.
 const HELD: Duration = Duration::from_secs(30);
 
@@ -207,44 +202,6 @@ pub(crate) async fn answer(fleet: &Fleet, key: &AgentNoticeKey, reply: &str) -> 
 pub(crate) fn reaches(fleet: &Fleet, machine: &str) -> bool {
     EndpointId::from_str(machine)
         .is_ok_and(|id| id == fleet.id() || fleet.mesh().is_some_and(|mesh| mesh.is_member(id)))
-}
-
-/// Which way a notice came.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Via {
-    Server,
-    Machine,
-}
-
-/// Coding-agent notices heard lately, so one that comes both from the
-/// server and from the machine shows once.
-#[derive(Default)]
-pub(crate) struct Heard(HashMap<AgentNoticeKey, (Via, Instant)>);
-
-impl Heard {
-    /// Whether `key`, heard `via` at `now`, is news. The same notice from
-    /// the other way, lately, is not, and is forgotten once matched. From
-    /// the same way it is news: another turn of the session ended.
-    pub(crate) fn first(&mut self, key: &AgentNoticeKey, via: Via, now: Instant) -> bool {
-        self.0
-            .retain(|_, (_, at)| now.saturating_duration_since(*at) < TWICE);
-        // The server and the mesh may call the machine differently.
-        let key = AgentNoticeKey {
-            machine_name: String::new(),
-            ..key.clone()
-        };
-
-        match self.0.get(&key) {
-            Some((was, _)) if *was != via => {
-                self.0.remove(&key);
-                false
-            }
-            _ => {
-                self.0.insert(key, (via, now));
-                true
-            }
-        }
-    }
 }
 
 #[cfg(test)]

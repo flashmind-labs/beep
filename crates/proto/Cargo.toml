@@ -2,14 +2,11 @@
 name = "beep-proto"
 version = "0.1.0"
 edition = "2024"
+license = "MPL-2.0"
 rust-version = "1.99"
 publish = false
 
 [features]
-# Sealing push notices to a phone, done by the server.
-seal = ["dep:chacha20poly1305"]
-# The apps' HTTP client of the server.
-client = ["https", "reqwest/stream", "tokio-util/io"]
 # The HTTPS client setup every crate shares: rustls with ring and webpki roots.
 https = ["dep:reqwest", "dep:rustls", "dep:webpki-roots"]
 # HTTP/2 for the HTTPS client; a phone speaks HTTP/1.1.
@@ -19,12 +16,8 @@ logging = ["dep:tracing", "dep:tracing-log", "dep:tracing-subscriber"]
 
 [dependencies]
 anyhow = "1"
-base64 = "0.23"
 blake3 = "1"
-curve25519-dalek = "5"
-ed25519-dalek = "3"
 bytes = "1"
-chacha20poly1305 = { version = "0.11", optional = true }
 flashmind-types = { git = "https://github.com/flashmind-labs/flashmind.git" }
 futures = "0.3"
 # Lean for the phone; a node and the server turn on the defaults.

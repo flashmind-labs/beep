@@ -1,7 +1,6 @@
-//! What a desktop or the server asks of one node, and how the node's
-//! answers read to an app: the typed requests, the checks on what an app
-//! may send, and the conversions to the apps' own reply types. Both callers
-//! share it; neither keeps its own copy.
+//! What a desktop asks of one node, and how the node's answers read to an
+//! app: the typed requests, the checks on what an app may send, and the
+//! conversions to the apps' own reply types.
 
 pub mod agent;
 pub mod agent_files;
@@ -27,9 +26,9 @@ pub use listing::{
 };
 pub use node::{
     Exec, Tasks, Updated, exec, files, install_tool, log, rescan_search, search, set_search,
-    sign_in, tool_updates, update_node,
+    set_up, sign_in, tool_updates, update_node,
 };
-pub use sessions::{NodeFile, NodeImage, NodeWork, Sessions, WorkRead, WorkWrite};
+pub use sessions::{NodeFile, NodeImage, NodeShare, NodeWork, Sessions, WorkRead, WorkWrite};
 
 use crate::MeshError;
 use anyhow::anyhow;

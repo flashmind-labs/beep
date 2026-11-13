@@ -68,7 +68,7 @@ summary(){
 # abort <message> : fail and stop the scenario; the dispatcher fetches logs.
 abort(){ fail "$*"; timings; echo "aborting"; exit 1; }
 
-# vm_id <role> : the sandbox id of server, node-a or node-b.
+# vm_id <role> : the sandbox id of desk, node-a or node-b.
 vm_id(){
   local id role
   [[ -f "$FLEET" ]] || { echo "no $FLEET: provision first" >&2; return 1; }

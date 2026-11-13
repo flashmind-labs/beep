@@ -1,5 +1,5 @@
 import { Spinner } from "../ui/kit.tsx";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { ModelControls } from "./model-controls.tsx";
 import { fileSize } from "../chat/media.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -7,16 +7,18 @@ import { baseName, resolvePath } from "./media-state.ts";
 import { P, type MediaTab } from "./media.ts";
 import { readError, readFile } from "./read.ts";
 import { noteTab } from "./media-draw.ts";
+import { savedIn } from "../ui/platform.ts";
 
 export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: string | null; label: string }) {
   if (!tab.path) return null;
   const path = tab.path;
   const note = (text: string) => noteTab(tab, text);
-  const open = () => { if (machine) void invoke("agent_file_open", { machineId: machine, path }).catch(error => note(readError(error))); };
+  const session = P.session?.id ?? null;
+  const open = () => { if (machine) void invoke("agent_file_open", { machineId: machine, path, session }).catch(error => note(readError(error))); };
   const save = () => {
     if (!machine) return;
-    void invoke<string>("agent_file_save", { machineId: machine, path }).then(to => {
-      note(`Saved to Downloads as ${baseName(to)}`);
+    void invoke<string>("agent_file_save", { machineId: machine, path, session }).then(to => {
+      note(`Saved to ${savedIn(to)} as ${baseName(to)}`);
       void invoke("reveal_file", { path: to }).catch(() => {});
     }).catch(error => note(readError(error)));
   };
@@ -28,18 +30,43 @@ export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: s
 export function VideoView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
   const [meta, setMeta] = useState(fileSize(tab.size));
   const [failed, setFailed] = useState(false);
-  const video = (node: HTMLVideoElement | null) => {
-    if (node) { tab.video = node; return; }
-    if (tab.video) tab.videoAt = tab.video.currentTime;
-    tab.video = null;
-  };
-  return <>{failed ? <div className="agpmsg">This video does not play here. Open it in QuickTime instead.</div> : <div className="agpstage"><video ref={video} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
-    const node = event.currentTarget, seconds = Math.round(node.duration);
-    const time = Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · ` : "";
-    setMeta(`${time}${node.videoWidth}×${node.videoHeight} · ${fileSize(tab.size)}`);
-    if (tab.videoAt) { node.currentTime = tab.videoAt; tab.videoAt = 0; }
+  const player = useCallback((node: HTMLMediaElement | null) => keepPlayer(tab, node), [tab]);
+  return <>{failed ? <div className="agpmsg">This video does not play here. Open it in QuickTime instead.</div> : <div className="agpstage"><video ref={player} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
+    const node = event.currentTarget;
+    setMeta(`${duration(node.duration)}${node.videoWidth}×${node.videoHeight} · ${fileSize(tab.size)}`);
+    resume(tab, node);
   }} onError={() => setFailed(true)} onEnded={event => event.currentTarget.load()} /></div>}
   <div className="agpacts"><span className="meta">{tab.note ?? meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open in QuickTime" /></div></>;
+}
+
+/// An audio tab, kept playing across docks like a video.
+export function AudioView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
+  const [meta, setMeta] = useState(fileSize(tab.size));
+  const [failed, setFailed] = useState(false);
+  const player = useCallback((node: HTMLMediaElement | null) => keepPlayer(tab, node), [tab]);
+  return <>{failed ? <div className="agpmsg">This audio does not play here. Open it in another app instead.</div> : <div className="agpstage audio"><audio ref={player} controls preload="auto" src={tab.url ?? undefined} onLoadedMetadata={event => {
+    const node = event.currentTarget;
+    setMeta(`${duration(node.duration)}${fileSize(tab.size)}`);
+    resume(tab, node);
+  }} onError={() => setFailed(true)} /></div>}
+  <div className="agpacts"><span className="meta">{tab.note ?? meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open" /></div></>;
+}
+
+/// Keeps a tab's player, and where it stood when its view went.
+function keepPlayer(tab: MediaTab, node: HTMLMediaElement | null) {
+  if (node) { tab.player = node; return; }
+  if (tab.player) tab.playerAt = tab.player.currentTime;
+  tab.player = null;
+}
+
+function resume(tab: MediaTab, node: HTMLMediaElement) {
+  if (tab.playerAt) { node.currentTime = tab.playerAt; tab.playerAt = 0; }
+}
+
+/// `m:ss · ` for a length in seconds, or "" when it is not known.
+function duration(length: number) {
+  const seconds = Math.round(length);
+  return Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · ` : "";
 }
 
 export function PdfView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
@@ -109,7 +136,7 @@ function sibling(tab: MediaTab) {
     if (!P.session || !dir || /^[a-z]+:/i.test(uri)) return null;
 
     try {
-      return (await readFile(P.session.machine_id, resolvePath(dir, decodeURIComponent(uri)), () => {})).bytes;
+      return (await readFile(P.session.machine_id, resolvePath(dir, decodeURIComponent(uri)), P.session.id, () => {})).bytes;
     } catch {
       return null;
     }

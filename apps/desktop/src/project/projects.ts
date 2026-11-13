@@ -8,8 +8,7 @@ import { moveStore } from "../agents/move-store.ts";
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
-import { invoke } from "../ui/tauri.ts";
-import { awaitsView, projectRunning, whereRows, whereCount, syncedBy, type OverviewCard, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
+import { projectRunning, whereRows, whereCount, syncedBy, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
 import { projectActivity, overviewGroups } from "./overview-state.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
@@ -21,17 +20,15 @@ import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { addProject } from "../center/sidebar.ts";
 import { splitOn, projectSplit, disposeProjectShell } from "./split.ts";
 import { hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx";
-import { redrawProjects, redrawProjectsPage, pc, terms, fsync } from "./sections.ts";
+import { redrawProjects, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.ts";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.ts";
 import { terminalNote, terminalWhere } from "../terminals/terminals.ts";
 import { go } from "../center/views.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
-import { single } from "../ui/active.ts";
-import { EmptyPanel, ErrorNote } from "../ui/kit.tsx";
 
-/// Every project as a card, grouped by org: its tasks per state, its
-/// workers, what changed last and where it lives. It stays in one host while the
+/// Every project as a card, grouped by org: its agents, when it was last
+/// active and where it lives. It stays in one host while the
 /// Projects page is mounted, so opening a project and coming back keeps its groups drawn.
 let overviewHost: HTMLElement | null = null;
 
@@ -43,7 +40,7 @@ export function disposeOverview() {
 
 export function overviewSection(rows: Project[]): PagePart[] {
   visiting = null;
-  const groups = overviewGroups(rows, state.overview, state.top, state.groups, overviewOrder(rows));
+  const groups = overviewGroups(rows, state.top, state.groups, overviewOrder(rows));
   overviewHost ??= retainedHost(null);
   showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming,
     sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)), add: addProject,
@@ -79,23 +76,10 @@ function overviewOrder(rows: readonly Project[]) {
   const busy = !!box && (box.matches(":hover") || box.contains(document.activeElement));
   if (ranked && ranked.names === names && (busy || Date.now() - ranked.at < RANK_MS)) return ranked.activity;
 
-  const sums = new Map((state.overview ?? []).map(o => [o.name, o]));
-  const activity = new Map(rows.map(p => [p.name, projectActivity(p, state.sessions.get(p.name), visits.get(p.name), sums.get(p.name))]));
+  const activity = new Map(rows.map(p => [p.name, projectActivity(p, state.sessions.get(p.name), visits.get(p.name))]));
   ranked = { names, at: Date.now(), activity };
   return activity;
 }
-
-/// Optional task summaries for the cards. Local projects draw before this
-/// read and remain visible if it fails or the server has no summaries.
-export const loadOverview = single(async () => {
-  try {
-    state.overview = await invoke<OverviewCard[] | null>("project_overview");
-  } catch (e) {
-    console.warn("project overview:", e);
-  }
-
-  if (!state.picked) redrawProjectsPage();
-});
 
 /// One project: where it lives on every machine, with "Start an agent here"
 /// per folder and "Copy here" where it is not, and the coding agents
@@ -112,15 +96,7 @@ export function projectDetail(p: Project): PagePart[] {
   if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
   disposeProjectShell();
 
-  // The project agent's view is on its way, or who has an agent is not known yet.
-  if (awaitsView(p, state.agents)) {
-    const error = state.pview.get(p.name)?.error;
-    return [error
-      ? viewPart("error", createElement(ErrorNote, { text: `Could not read the project: ${error}` }))
-      : viewPart("reading", createElement(EmptyPanel, { text: "Reading the project…" }))];
-  }
-
-  // Without a project agent there are no tasks, runs or code host lists.
+  // A project only agents ran in has no checkout to list runs or code host lists for.
   return [viewPart("fallback", createElement("div", { key: p.name, className: "pj-cols pj-half" }, createElement(ProjectFallback, {
     session: sessionsList(p, running),
     machines: whereSection(p, rows, !!machines), running: agentsSection(running), agents: customAgentsSection(rows),
@@ -175,7 +151,7 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
     const terminals = m.folder ? all?.filter(t => t.machine_id === m.id) ?? [] : [];
     items.push({ id: m.id, name: m.name, online, folder: m.folder ? plainPath(m.folder) : null, change, remove, missing, git, menu,
       terminals: terminals.map(t => ({ id: t.id, name: t.name, title: `${t.machine_name}: ${t.command} in ${t.cwd}`, sub: `${t.machine_name} · ${terminalWhere(t)}`, note: terminalNote(t, ms => formatAgo(ms, "short")), running: t.state === "running", open: () => { go("pane", { draft: { project: p.name, machine: t.machine_id, terminal: t } }); } })),
-      terminalSummary: all === undefined ? "Reading…" : all === null ? "Unavailable" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
+      terminalSummary: all === undefined ? "Reading…" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
   }
   const note = pageFresh("where", p.name, readingWhere.has(p.name));
   return createElement("section", { key: p.name, className: "pm-section" }, createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,

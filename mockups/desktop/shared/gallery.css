@@ -43,7 +43,6 @@ nav.index button[aria-current="true"] { color: var(--fg); background: var(--pane
 .phone { width: 380px; max-width: 100%; padding: 10px; border-radius: 44px; background: var(--m-frame) }
 .screen { position: relative; height: 760px; border-radius: 34px; overflow: hidden; background: var(--m-page); color: var(--m-ink);
   display: flex; flex-direction: column; font-family: var(--body) }
-.cam { width: 10px; height: 10px; border-radius: 50%; background: var(--m-frame) }
 #app { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column }
 .toast { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); background: var(--m-ink); color: var(--m-page);
   padding: 8px 14px; border-radius: 8px; font-size: 13px; white-space: nowrap; z-index: 20 }

@@ -15,7 +15,7 @@ answers.tool_updates = [];
 
 /// Another page opens in the bar, as when the user leaves Machines.
 function leave() {
-  S.view = "chat";
+  S.view = "waiting";
   flushSync(() => openBarPage(() => {}).show({ view: "none" }));
 }
 

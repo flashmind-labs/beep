@@ -10,7 +10,6 @@ use agent_client_protocol::v1::schema::SessionUpdate;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::node::agent::{EntryKind, Status};
 use beep_proto::{AgentContext, image_key};
-use futures::FutureExt;
 use serde_json::Value;
 use serde_json::json;
 use std::path::Path;
@@ -287,17 +286,6 @@ fn a_tool_result_image_shows_on_its_tool_and_goes_to_the_server() {
         "shown with the tools folded"
     );
     assert!(live.picture(&image_key(&png)).is_some());
-    let sent = live.images.next_unsent().now_or_never().expect("one waits");
-    assert_eq!(sent.session, "a3f9c1");
-    assert_eq!(sent.picture.data, png);
-    // The same picture again is not sent twice.
-    live.apply(&update(json!({
-        "sessionUpdate": "tool_call_update",
-        "toolCallId": "t1",
-        "content": [{"type": "content", "content": {"type": "image", "mimeType": "image/png",
-            "data": STANDARD.encode(&png)}}]
-    })));
-    assert!(live.images.next_unsent().now_or_never().is_none());
 }
 
 #[test]

@@ -5,24 +5,10 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { createStore, useStore } from "zustand";
 import { bar } from "./core.ts";
-import { LinkScreenView } from "./link-view.tsx";
 import { WaitingList } from "./waiting-view.tsx";
-import { ModelView } from "../settings/model-view.tsx";
 import { SettingsBarShell, SettingsFailure } from "../settings/settings-shell-view.tsx";
-import { AppBarFrame } from "../settings/apps-list-view.tsx";
-import { GrantsList, RoutineEditor, RoutinesList } from "../lists/routines-view.tsx";
-import { SkillDetail, SkillsList } from "../lists/skills-view.tsx";
-import { SkillEditor } from "../lists/skill-editor.tsx";
-import { MemoriesShell } from "../lists/memories-shell.tsx";
 import { MachineList, MachineLoading } from "../machines/list-view.tsx";
 import { MachineDetail } from "../machines/detail-view.tsx";
-import { ChatShell } from "../chat/chat-shell.tsx";
-import { ChatsShell } from "../chat/chats-view.tsx";
-import { GroupShell } from "../chat/group-shell-view.tsx";
-import { GroupInfoPage } from "../chat/group-info-view.tsx";
-import { GroupInviteView } from "../chat/group-invite-view.tsx";
-import { GroupFormView } from "../chat/group-form-view.tsx";
-import { ResearchesView } from "../research/researches-view.tsx";
 import { AgentsList } from "../agents/agents-list-view.tsx";
 import { AgentNewShell } from "../agents/agentnew-shell.tsx";
 import { SessionFrame } from "../agents/session-frame.tsx";
@@ -30,29 +16,12 @@ import { SessionFrame } from "../agents/session-frame.tsx";
 /// What the bar shows, with what it draws from.
 export type BarPage =
   | { view: "none" }
-  | { view: "chat"; props: ComponentProps<typeof ChatShell> }
-  | { view: "chats"; props: ComponentProps<typeof ChatsShell> }
-  | { view: "group"; props: ComponentProps<typeof GroupShell> }
-  | { view: "group-info"; props: ComponentProps<typeof GroupInfoPage> }
-  | { view: "group-invite"; props: ComponentProps<typeof GroupInviteView> }
-  | { view: "group-form"; props: ComponentProps<typeof GroupFormView> }
-  | { view: "research"; props: ComponentProps<typeof ResearchesView> }
   | { view: "agents"; props: ComponentProps<typeof AgentsList> }
   | { view: "agent-new"; props: ComponentProps<typeof AgentNewShell> }
   | { view: "session"; props: ComponentProps<typeof SessionFrame> }
-  | { view: "link"; props: ComponentProps<typeof LinkScreenView> }
   | { view: "waiting"; props: ComponentProps<typeof WaitingList> }
-  | { view: "model"; props: ComponentProps<typeof ModelView> }
   | { view: "settings"; props: ComponentProps<typeof SettingsBarShell> }
   | { view: "settings-failure"; error: string }
-  | { view: "apps"; props: ComponentProps<typeof AppBarFrame> }
-  | { view: "routines"; props: ComponentProps<typeof RoutinesList> }
-  | { view: "routine-editor"; props: ComponentProps<typeof RoutineEditor> }
-  | { view: "grants"; props: ComponentProps<typeof GrantsList> }
-  | { view: "skills"; props: ComponentProps<typeof SkillsList> }
-  | { view: "skill"; props: ComponentProps<typeof SkillDetail> }
-  | { view: "skill-editor"; props: ComponentProps<typeof SkillEditor> }
-  | { view: "memories"; props: ComponentProps<typeof MemoriesShell> }
   | { view: "machines"; props: ComponentProps<typeof MachineList> }
   | { view: "machine"; props: ComponentProps<typeof MachineDetail> }
   | { view: "machine-loading" };
@@ -115,29 +84,12 @@ function BarApp() {
 function Page({ page }: { page: BarPage }) {
   switch (page.view) {
     case "none": return null;
-    case "chat": return <ChatShell {...page.props} />;
-    case "chats": return <ChatsShell {...page.props} />;
-    case "group": return <GroupShell {...page.props} />;
-    case "group-info": return <GroupInfoPage {...page.props} />;
-    case "group-invite": return <GroupInviteView {...page.props} />;
-    case "group-form": return <GroupFormView {...page.props} />;
-    case "research": return <ResearchesView {...page.props} />;
     case "agents": return <AgentsList {...page.props} />;
     case "agent-new": return <AgentNewShell {...page.props} />;
     case "session": return <SessionFrame {...page.props} />;
-    case "link": return <LinkScreenView {...page.props} />;
     case "waiting": return <WaitingList {...page.props} />;
-    case "model": return <ModelView {...page.props} />;
     case "settings": return <SettingsBarShell {...page.props} />;
     case "settings-failure": return <SettingsFailure error={page.error} />;
-    case "apps": return <AppBarFrame {...page.props} />;
-    case "routines": return <RoutinesList {...page.props} />;
-    case "routine-editor": return <RoutineEditor {...page.props} />;
-    case "grants": return <GrantsList {...page.props} />;
-    case "skills": return <SkillsList {...page.props} />;
-    case "skill": return <SkillDetail {...page.props} />;
-    case "skill-editor": return <SkillEditor key={page.props.skill.id} {...page.props} />;
-    case "memories": return <MemoriesShell {...page.props} />;
     case "machines": return <MachineList {...page.props} />;
     case "machine": return <MachineDetail {...page.props} />;
     case "machine-loading": return <MachineLoading />;

@@ -53,7 +53,7 @@ export type CodexFlow =
   | { error: string; starting?: undefined; task?: undefined; code?: undefined };
 
 export interface AgentAccountsState {
-  data: AgentAccounts | null | false | undefined;
+  data: AgentAccounts | null | undefined;
   edit?: string | null;
   busy?: string;
   error?: string;

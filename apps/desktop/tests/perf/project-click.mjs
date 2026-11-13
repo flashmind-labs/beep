@@ -5,8 +5,7 @@ import { fileURLToPath } from "node:url";
 import { makeData } from "./data.mjs";
 import { playwright, serve, stubInit } from "./stub.mjs";
 
-const data = makeData({ chats: 0, memories: 0, machines: 1, projects: 2, items: 0, sessions: 2 });
-data.status = { link: "unlinked", signed_out: true, server: false };
+const data = makeData({ machines: 1, projects: 2, items: 0, sessions: 2 });
 const project = data.center_home.projects[0];
 const session = data.center_home.running[0];
 const past = { ...session, id: "past-session", title: "Past session", status: "ended" };

@@ -109,8 +109,7 @@ sync: 1 project paused`],
     ["dAgentDebug", "Debug with an agent", "ReportSheet, AgentNew"]);
 })();
 // Keyboard shortcuts (#363): Settings > General > Keyboard shortcuts, and ⌘/ anywhere in the window.
-// One list in code feeds it; sections follow where a key works. Keys of hidden features
-// (the assistant, live mode) are left out while those are off. The filter matches keys and words.
+// One list in code feeds it; sections follow where a key works. The filter matches keys and words.
 (() => {
   const SECTIONS = [
     ["Anywhere", [["⌥ ⌥", "Open or hide the quick bar"], ["⌥Tab", "Switch active conversations; hold Option to choose"], ["⌥⇧Tab", "Previous active conversation"]]],

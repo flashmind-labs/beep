@@ -28,7 +28,7 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, agent, desktop, sign_in, tool_update, version,
+    LinkRx, LinkTx, Open, Opened, agent, desktop, sign_in, setup, tool_update, version,
 };
 use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
 use std::{
@@ -423,7 +423,14 @@ impl Offers {
         .chain(
             self.provision
                 .iter()
-                .flat_map(|_| [tool_update::PROTOCOL, tool_update::FLSH, tool_update::CHECK])
+                .flat_map(|_| {
+                    [
+                        tool_update::PROTOCOL,
+                        tool_update::FLSH,
+                        tool_update::CHECK,
+                        setup::PROTOCOL,
+                    ]
+                })
                 .map(str::to_owned),
         )
         .chain(self.extra.iter().map(|protocol| protocol.name().to_owned()))
@@ -597,6 +604,10 @@ pub(super) async fn serve_open(
             tx.send(&Opened::Ready {}).await?;
             provision.serve_updates(tx, rx).await
         }
+        SessionProtocol::Setup if let Some(provision) = &offers.provision => {
+            tx.send(&Opened::Ready {}).await?;
+            provision.serve_setup(tx, rx).await
+        }
         SessionProtocol::Commands => {
             tx.send(&Opened::Ready {}).await?;
             super::commands::serve_open(tx, rx, offers, who.id()).await
@@ -619,7 +630,8 @@ pub(super) async fn serve_open(
         }
         SessionProtocol::Agents => {
             tx.send(&Opened::Ready {}).await?;
-            crate::agents::serve_sessions(tx, rx, offers.agents, who.id()).await
+            let transfers = offers.transfers.get();
+            crate::agents::serve_sessions(tx, rx, offers.agents, who.id(), transfers).await
         }
         other => match offers.agents.kind(other.as_ref()) {
             Some(kind) => {

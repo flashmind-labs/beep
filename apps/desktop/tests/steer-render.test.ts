@@ -307,7 +307,7 @@ test("leaving the agent disposes its queue view but keeps pending messages", asy
   AG.queue = [item];
   drawQueue();
   assert.ok(bar.querySelector("#agqueue"));
-  S.view = "chat";
+  S.view = "waiting";
   await settle();
   assert.equal(bar.querySelector("#agqueue"), null);
   assert.equal(AG.queue[0], item);

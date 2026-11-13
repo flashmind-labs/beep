@@ -290,14 +290,6 @@ impl ProjectStore for Project {
         &self.name
     }
 
-    fn issues_role(&self) -> Option<&IssueHost> {
-        None
-    }
-
-    async fn home_machine(&self) -> Result<Option<EndpointId>> {
-        Ok(None)
-    }
-
     async fn imports(&self) -> Result<Vec<ImportedPlace>> {
         Ok(self
             .machines
@@ -307,10 +299,6 @@ impl ProjectStore for Project {
                 machine: Some(*machine),
             })
             .collect())
-    }
-
-    async fn tracked_issues(&self, _: &IssueHost) -> Result<Vec<u64>> {
-        Ok(Vec::new())
     }
 }
 

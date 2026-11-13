@@ -30,7 +30,7 @@ test("editor discovery retries after failure and redraws every waiting header", 
 });
 
 test("a late folder lookup cannot overwrite the current session's editor button", async () => {
-  showSessionFrame({ head: createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") }), field: null, body: document.createElement("div"), hints: { value: { items: [], window: false, model: null, link: null }, project: null } }, false, () => {});
+  showSessionFrame({ head: createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") }), field: null, body: document.createElement("div"), hints: { value: { items: [], window: false }, project: null } }, false, () => {});
   let resolve!: (folder: string) => void;
   answers.session_folder_here = new Promise<string>(done => { resolve = done; });
   const previous = drawEditors("m1", "/srv/previous", () => true);
@@ -50,7 +50,7 @@ test("a late folder lookup cannot overwrite the current session's editor button"
 });
 
 test("a replacement header gets editor buttons even for the same folder", async () => {
-  showSessionFrame({ head: createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") }), field: null, body: document.createElement("div"), hints: { value: { items: [], window: false, model: null, link: null }, project: null } }, false, () => {});
+  showSessionFrame({ head: createElement(DraftHead, { project: "project", openProject() {}, machine: createStore<string>(() => "") }), field: null, body: document.createElement("div"), hints: { value: { items: [], window: false }, project: null } }, false, () => {});
   answers.session_folder_here = "/srv/current";
   await drawEditors("m1", "/srv/current", () => true);
   assert.equal(bar.querySelector("#agedit button")!.textContent, "Open in VS Code");

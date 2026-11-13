@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A node that stops in the middle of a sync picks it up again.
 #
-# Topology as in the sync scenario: server, node-a and node-b, one project
+# Topology as in the sync scenario: desk, node-a and node-b, one project
 # synced on both nodes.
 #
 # node-a's outgoing traffic is capped with tc so a large file takes a while
@@ -10,7 +10,7 @@
 #   1. with SIGTERM, then started again
 #   2. with SIGKILL, then started again
 # Each time the file must arrive whole on node-b (same sha256), with no
-# partial folder left behind, and the server must report both in sync.
+# partial folder left behind, and the desktop must report both in sync.
 set -uo pipefail
 
 E2E="$(cd "$(dirname "$0")/.." && pwd)"

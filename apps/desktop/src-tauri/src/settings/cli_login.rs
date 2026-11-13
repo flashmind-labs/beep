@@ -242,7 +242,7 @@ async fn gh_login(account: bool) -> Result<Login> {
         return Ok(Login::SignedOut);
     };
     let account = if account {
-        // Offline the sign-in still counts; the server finds the login.
+        // Offline the sign-in still counts, without its login.
         match stdout(&gh, &["api", "user", "--jq", ".login"]).await {
             Ok(out) => out.as_deref().and_then(parse_login),
             Err(e) => {

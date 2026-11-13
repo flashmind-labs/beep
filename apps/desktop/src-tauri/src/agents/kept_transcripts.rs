@@ -108,16 +108,6 @@ impl KeptTranscripts {
             }
         });
     }
-
-    /// Drops every kept session, when this computer starts over; returns once they are gone.
-    pub fn clear(&self) {
-        let (reply, done) = mpsc::channel();
-        self.send(move |store| {
-            store.clear();
-            let _ = reply.send(());
-        });
-        let _ = done.recv();
-    }
 }
 
 /// The files, touched only by the kept transcripts' thread.
@@ -199,14 +189,6 @@ impl Store {
         }
 
         self.forgotten.push_back(file);
-    }
-
-    fn clear(&self) {
-        match fs::remove_dir_all(&self.dir) {
-            Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => log::warn!("removing {}: {e}", self.dir.display()),
-        }
     }
 }
 

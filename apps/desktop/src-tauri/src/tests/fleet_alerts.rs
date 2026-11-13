@@ -28,16 +28,6 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
 cat > /dev/null
 "#;
 
-fn key(question: Option<u32>, machine_name: &str) -> AgentNoticeKey {
-    AgentNoticeKey {
-        machine_id: "ab12".into(),
-        agent: "claude".into(),
-        session: "a3f9c1".into(),
-        question,
-        machine_name: machine_name.into(),
-    }
-}
-
 #[test]
 fn a_stream_that_is_accepted_and_closed_keeps_backing_off() {
     let secs = Duration::from_secs;
@@ -45,24 +35,6 @@ fn a_stream_that_is_accepted_and_closed_keeps_backing_off() {
     assert!(!held(false, HELD - secs(1)));
     assert!(held(true, secs(0)));
     assert!(held(false, HELD));
-}
-
-#[test]
-fn a_notice_seen_on_both_paths_notifies_once() {
-    let mut heard = Heard::default();
-    let start = Instant::now();
-    let after = |secs| start + Duration::from_secs(secs);
-    // The server's and the mesh's names for the machine differ.
-    assert!(heard.first(&key(Some(3), "Studio"), Via::Server, start));
-    assert!(!heard.first(&key(Some(3), "studio.box"), Via::Machine, after(1)));
-    // Matched once; the next turn's finish is news again, and a second
-    // one the same way is too: two turns ended.
-    assert!(heard.first(&key(None, "Studio"), Via::Machine, after(2)));
-    assert!(heard.first(&key(None, "Studio"), Via::Machine, after(3)));
-    assert!(!heard.first(&key(None, "Studio"), Via::Server, after(4)));
-    // Heard one way only, it stays news; a late twin is a new notice.
-    assert!(heard.first(&key(Some(4), "Studio"), Via::Server, after(5)));
-    assert!(heard.first(&key(Some(4), "Studio"), Via::Machine, after(5) + TWICE));
 }
 
 async fn bind() -> Endpoint {

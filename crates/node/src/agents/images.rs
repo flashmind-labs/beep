@@ -1,6 +1,5 @@
 //! The pictures in sessions' transcripts (`Images`), kept by `image_key` so
-//! the server can ask for one by its `[image: image-<key>]` line, and queued
-//! for the server's `FollowImages` stream.
+//! the apps can ask for one by its `[image: image-<key>]` line.
 
 use super::image_index::FileIndexes;
 use crate::lock;
@@ -8,14 +7,16 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::image_key;
 use serde_json::Value;
 use std::{
+    cmp::Reverse,
     collections::VecDeque,
-    io,
+    fs, io,
     ops::ControlFlow,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use tokio::sync::Notify;
 
+/// The most subagent transcripts searched for a session's picture.
+const MAX_SUBAGENT_FILES: usize = 64;
 /// The most pictures and bytes kept for one session...
 const SESSION_IMAGES: usize = 16;
 const SESSION_BYTES: usize = 32 * 1024 * 1024;
@@ -24,9 +25,6 @@ const MAX_IMAGES: usize = 64;
 const MAX_BYTES: usize = 128 * 1024 * 1024;
 /// The longest session file line read when looking for a picture.
 pub(super) const MAX_LINE: usize = 64 * 1024 * 1024;
-/// The most pictures and bytes waiting for the server; the oldest go.
-const MAX_UNSENT: usize = 32;
-const MAX_UNSENT_BYTES: usize = 64 * 1024 * 1024;
 
 /// An image's bytes and type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,24 +52,7 @@ pub(crate) fn image_line(data: &[u8]) -> String {
 #[derive(Debug, Default)]
 pub(crate) struct Images {
     kept: Mutex<Kept>,
-    unsent: Mutex<Outbox>,
-    /// Woken when a picture joins `unsent`.
-    arrived: Notify,
     files: FileIndexes,
-}
-
-/// A picture of `session` for the server to keep.
-#[derive(Debug, Clone)]
-pub(crate) struct Unsent {
-    pub(crate) session: String,
-    pub(crate) picture: Arc<Picture>,
-}
-
-/// The pictures waiting for the server, oldest first, and their bytes.
-#[derive(Debug, Default)]
-struct Outbox {
-    waiting: VecDeque<Unsent>,
-    bytes: usize,
 }
 
 #[derive(Debug, Default)]
@@ -91,69 +72,19 @@ impl Images {
     /// Keeps `picture` for `session`, dropping the oldest past the limits.
     /// One larger than a session's room is not kept.
     pub(crate) fn keep(&self, session: &str, picture: Picture) {
-        self.hold(session, picture);
-    }
-
-    /// Keeps `picture` as `keep` does and, when `session` did not have it
-    /// yet, has it wait for the server.
-    pub(crate) fn keep_and_send(&self, session: &str, picture: Picture) {
-        let Some(picture) = self.hold(session, picture) else {
-            return;
-        };
-        let mut outbox = lock(&self.unsent);
-        outbox.bytes += picture.data.len();
-        outbox.waiting.push_back(Unsent {
-            session: session.to_owned(),
-            picture,
-        });
-
-        while outbox.waiting.len() > MAX_UNSENT || outbox.bytes > MAX_UNSENT_BYTES {
-            let Some(dropped) = outbox.waiting.pop_front() else {
-                break;
-            };
-            outbox.bytes -= dropped.picture.data.len();
-        }
-
-        drop(outbox);
-        self.arrived.notify_one();
-    }
-
-    /// The oldest picture waiting for the server, once there is one.
-    pub(crate) async fn next_unsent(&self) -> Unsent {
-        loop {
-            let arrived = self.arrived.notified();
-            let next = {
-                let mut outbox = lock(&self.unsent);
-                let next = outbox.waiting.pop_front();
-                if let Some(next) = &next {
-                    outbox.bytes -= next.picture.data.len();
-                }
-                next
-            };
-
-            if let Some(next) = next {
-                return next;
-            }
-
-            arrived.await;
-        }
-    }
-
-    /// Keeps `picture`; gives it when `session` did not have it before.
-    fn hold(&self, session: &str, picture: Picture) -> Option<Arc<Picture>> {
         if picture.data.len() > SESSION_BYTES {
-            return None;
+            return;
         }
 
         let key = image_key(&picture.data);
         let picture = Arc::new(picture);
         let mut kept = lock(&self.kept);
-        let had = kept.take(session, &key).is_some();
+        kept.take(session, &key);
         kept.bytes += picture.data.len();
         kept.held.push_back(Held {
             session: session.to_owned(),
             key,
-            picture: picture.clone(),
+            picture,
         });
 
         loop {
@@ -169,13 +100,24 @@ impl Images {
         while kept.held.len() > MAX_IMAGES || kept.bytes > MAX_BYTES {
             kept.drop_oldest(None);
         }
-        (!had).then_some(picture)
     }
 
     /// The picture `key` in the session file at `path`. Blocks: a session
     /// file can be hundreds of MiB.
     pub(crate) fn find_in_file(&self, path: &Path, key: &str) -> io::Result<Option<Picture>> {
-        self.files.find(path, key)
+        if let Some(found) = self.files.find(path, key)? {
+            return Ok(Some(found));
+        }
+
+        // A Claude subagent's pictures reach its parent's live log but are
+        // written only to `<session>/subagents/agent-<id>.jsonl`.
+        for file in subagent_files(path) {
+            if let Some(found) = self.files.find(&file, key)? {
+                return Ok(Some(found));
+            }
+        }
+
+        Ok(None)
     }
 
     /// The picture `key` of `session`, when kept; it is then the newest.
@@ -187,6 +129,26 @@ impl Images {
         kept.held.push_back(held);
         Some(picture)
     }
+}
+
+/// The transcripts of the subagents of the Claude session at `path`, newest
+/// first, at most `MAX_SUBAGENT_FILES`.
+fn subagent_files(path: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(path.with_extension("").join("subagents")) else {
+        return Vec::new();
+    };
+    let mut files: Vec<_> = entries
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "jsonl"))
+        .map(|entry| {
+            let modified = entry.metadata().and_then(|meta| meta.modified()).ok();
+            (Reverse(modified), entry.path())
+        })
+        .collect();
+
+    files.sort();
+    files.truncate(MAX_SUBAGENT_FILES);
+    files.into_iter().map(|(_, path)| path).collect()
 }
 
 impl Kept {

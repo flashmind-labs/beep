@@ -93,12 +93,12 @@ pub async fn check_from(machines: &[Reach], url: &ForgejoUrl) -> CredentialCheck
         .collect();
     let message = if tried.is_empty() {
         format!(
-            "{host} is not reachable from the server, and none of your online machines has \
+            "{host} is not reachable from Beep, and none of your online machines has \
              teacli set up for it."
         )
     } else {
         format!(
-            "{host} is not reachable from the server or your machines (tried {}).",
+            "{host} is not reachable from Beep or your machines (tried {}).",
             tried.join(", ")
         )
     };

@@ -2,14 +2,14 @@
 # File sync between two nodes, over iroh-blobs.
 #
 # Topology:
-#   server  beep-server and Postgres; beep-probe plays the phone
+#   desk    e2e_desktop, a headless desktop that owns the mesh
 #   node-a  beep-node, workspace ~/ws, project folder ~/ws/e2e
 #   node-b  the same, on another VM
 #
-# The phone links both nodes with setup tokens and turns on the project's
-# sync on each, as the app does (SetProjectSync). Then, checking after each
+# The desktop joins both nodes to its mesh with tickets and writes the
+# project's sync spec for both, as the app does. Then, checking after each
 # step that node-b holds exactly node-a's files (sha256 of every file) and
-# that the server reports both machines in sync:
+# that the desktop reports both machines in sync:
 #   1. new files on node-a: small ones, a nested tree, a large random file,
 #      timed to the first file and to all of them on node-b; then a
 #      200 MB file timed for MB/s
@@ -36,7 +36,7 @@ turn_on_sync
 
 # Whether node-a's own list holds files: its scan saw them.
 listed(){
-  probe sync-status "$PROJECT" | awk -v id="${MACHINE[node-a]}" '$1 == id && /files=[1-9]/ { ok = 1 } END { exit !ok }'
+  sync_status | awk '$2 == "node-a" && /files=[1-9]/ { ok = 1 } END { exit !ok }'
 }
 
 step "1. new files on node-a reach node-b"
@@ -118,7 +118,7 @@ else
   on node-b "ls -la $P" | sed 's/^/   b| /'
 fi
 
-wait_for 60 "both in sync" in_sync && pass "the server sees both in sync" \
-  || { fail "the server does not see both in sync"; probe sync-status "$PROJECT" | sed 's/^/   /'; }
+wait_for 60 "both in sync" in_sync && pass "the desktop sees both in sync" \
+  || { fail "the desktop does not see both in sync"; sync_status | sed 's/^/   /'; }
 
 summary

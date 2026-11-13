@@ -293,8 +293,8 @@ pub(crate) fn forgejo_servers(mesh: &Mesh) -> Vec<String> {
         .collect()
 }
 
-/// The credentials the node uses. An API key an older desktop put in the mesh is left out: API
-/// keys are kept on the server only.
+/// The credentials the node uses. An API key an older desktop put in the mesh is left out: Beep
+/// keeps no API keys.
 fn credentials(mesh: &Mesh) -> MachineCredentials {
     let mut out = MachineCredentials::default();
 

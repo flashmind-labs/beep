@@ -2,7 +2,7 @@
 //! (`Credential::Env` and `Credential::Forgejo`), with everything else the desktop shows derived
 //! from the key and the value. An id is `<kind>.<saved_ms>.<name>`: `gh.<ms>.<login>` for a
 //! GitHub account, whose `~<owner>` siblings carry the same token for each owner it serves,
-//! `forgejo.<ms>.<host>` and `agent.<ms>.<agent>`. API keys are kept on the server only; the
+//! `forgejo.<ms>.<host>` and `agent.<ms>.<agent>`. Beep keeps no API keys; the
 //! `api.<ms>.<provider>` keys an older desktop wrote are deleted by [`drop_api_keys`].
 //!
 //! A secret never reaches a log: [`SecretText`] and [`SecretString`] print nothing.
@@ -10,8 +10,8 @@
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    migrate::{UNMOVED_CREDENTIAL, Unmoved, unmoved_credential},
     peer::probe,
+    records::{UNMOVED_CREDENTIAL, Unmoved, unmoved_credential},
     records::{WRITES, now_ms, time},
 };
 use beep_mesh::{DeviceStatus, Key, Mesh};
@@ -330,7 +330,7 @@ impl Desk {
     }
 
     /// Checks `secret` with its host and saves it. A GitHub token is saved as the account it signs
-    /// in as. An API key is refused: those are kept on the server only.
+    /// in as. An API key is refused: Beep keeps none.
     pub async fn save_credential(
         &self,
         kind: &CredentialKind,
@@ -339,9 +339,7 @@ impl Desk {
         let slot = Slot::try_from(kind).map_err(|e| FleetError::refused(e.to_string()))?;
 
         if !slot.always_to_machines() {
-            return Err(FleetError::refused(
-                "API keys are kept on the server, not on your machines.",
-            ));
+            return Err(FleetError::refused("Beep keeps no API keys."));
         }
 
         let secret = trimmed(secret)?;
@@ -778,7 +776,7 @@ impl Desk {
 }
 
 /// Deletes the API keys an older desktop gave to the machines, and the records of ones an account
-/// move left to enter again: API keys are kept on the server only. Gives how many went; with none
+/// move left to enter again: Beep keeps no API keys. Gives how many went; with none
 /// left it writes nothing.
 pub async fn drop_api_keys(mesh: &Mesh) -> Result<usize> {
     let _write = WRITES.lock().await;

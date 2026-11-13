@@ -1,24 +1,8 @@
-// The bell's logic, with no page behind it: what the assistant told the user
-// on its own (alerts, from a server), what the mesh told this Mac (notes,
-// kept here), which are read, and what the bell shows. With no server the
-// alerts are `null` and the notes alone fill the pane.
+// The bell's logic, with no page behind it: what the mesh told this Mac
+// (notes, kept here), which are read, and what the bell shows.
 import type { PaneTarget } from "../bar/pane.ts";
 import type { ProjectsArg } from "./state.ts";
 import { bytes, formatAgo } from "../ui/format.ts";
-
-/// What the assistant told the user, as `alerts_list` gives it.
-export interface Alert {
-  session_id: string;
-  title: string;
-  source: string;
-  text: string;
-  read: boolean;
-  /// Milliseconds since the Unix epoch.
-  at: number;
-}
-
-/// `null` when there are no alerts to have.
-export type Alerts = Alert[] | null;
 
 export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "skill_conflict" | "run" | "removed";
 
@@ -57,54 +41,32 @@ export interface Held {
   bytes: number;
 }
 
-/// One row of the pane.
-export interface Item {
-  id: string;
-  /// An alert from the server, read and dismissed there.
-  server: boolean;
-  kind: NoteKind | "alert";
-  title: string;
-  text: string;
-  source: string;
-  at: number;
-  read: boolean;
-  done: boolean;
-  target: NoteTarget;
-  here?: string[];
-  held?: Held[];
-}
-
-export const fromAlert = (a: Alert): Item => ({ id: a.session_id, server: true, kind: "alert", title: a.title, text: a.text, source: a.source, at: a.at, read: a.read, done: false, target: null });
-export const fromNote = (n: Note): Item => ({ ...n, server: false, target: n.target ?? null });
-
-/// The server's alerts, none with no server, and the mesh's notes, newest first.
-export function merge(alerts: Item[] | null, notes: Item[]): Item[] {
-  return [...(alerts ?? []), ...notes].sort((a, b) => b.at - a.at);
-}
+/// A note as a row: one from before may lack a target.
+export const fromNote = (n: Note): Note => ({ ...n, target: n.target ?? null });
 
 /// The most the badge counts to.
 const BADGE_MAX = 9;
 
 /// How many rows are not read yet.
-export function unreadCount(items: Item[]): number {
+export function unreadCount(items: Note[]): number {
   return items.filter(i => !i.read).length;
 }
 
 /// The badge's text, empty when everything is read.
-export function badge(items: Item[]): string {
+export function badge(items: Note[]): string {
   const n = unreadCount(items);
   if (!n) return "";
   return n > BADGE_MAX ? `${BADGE_MAX}+` : String(n);
 }
 
 /// The bell's spoken name.
-export function bellLabel(items: Item[]): string {
+export function bellLabel(items: Note[]): string {
   const n = unreadCount(items);
   return n ? `Notifications, ${n} unread` : "Notifications";
 }
 
 /// The ids of the rows not read yet.
-export function unreadIds(items: Item[]): string[] {
+export function unreadIds(items: Note[]): string[] {
   return items.filter(i => !i.read).map(i => i.id);
 }
 
@@ -119,25 +81,19 @@ export function without<T extends { id: string }>(list: T[], ids: string[]): T[]
 }
 
 /// The row `id` names, if the list still has it.
-export function find(items: Item[], id: string | null): Item | null {
+export function find(items: Note[], id: string | null): Note | null {
   return (id && items.find(i => i.id === id)) || null;
-}
-
-/// `ids` split by where they are read and dismissed.
-export function bySide(items: Item[], ids: string[]): { server: string[]; mesh: string[] } {
-  const server = new Set(items.filter(i => i.server).map(i => i.id));
-  return { server: ids.filter(id => server.has(id)), mesh: ids.filter(id => !server.has(id)) };
 }
 
 /// What a row says once it is over: an ask answered, conflicts settled, a
 /// machine back.
-export function doneLabel(i: Item): string {
+export function doneLabel(i: Note): string {
   if (!i.done) return "";
   return i.kind === "asks" ? "Answered" : i.kind === "conflict" || i.kind === "skill_conflict" ? "Settled" : i.kind === "offline" ? "Back online" : "";
 }
 
 /// Whether the row still asks, with Allow and Deny.
-export const asks = (i: Item) => i.kind === "asks" && !i.done;
+export const asks = (i: Note) => i.kind === "asks" && !i.done;
 
 /// One copy of a skill: its machine and folder, and whether it is on this Mac.
 export interface Copy {
@@ -152,7 +108,7 @@ export interface Copy {
 
 /// A skill conflict's copies: as the node told them, or one per line of its
 /// text, `machine folder`, in a note from before.
-export function copies(i: Item): Copy[] {
+export function copies(i: Note): Copy[] {
   if (i.held?.length) {
     const last = Math.max(...i.held.map(c => c.changed));
     return i.held.map(c => ({ machine: c.label, folder: c.folder, here: !!i.here?.includes(`${c.label} ${c.folder}`), held: c, newest: last > 0 && c.changed === last }));
@@ -172,14 +128,13 @@ export function copyLine(c: Copy, now = Date.now()): string {
 }
 
 /// The skill's name in a conflict's title, `Skill x differs on a and b`.
-export function skillName(i: Item): string {
+export function skillName(i: Note): string {
   return /^Skill (.+) differs on /.exec(i.title)?.[1] ?? "";
 }
 
-/// What a click on a row does: an alert or a skill conflict opens in the pane,
-/// the rest open their session, the Sync page or Machines.
-export function opens(i: Item): "alert" | "skill" | "session" | "project" | "sync" | "machines" | null {
-  if (i.server) return "alert";
+/// What a click on a row does: a skill conflict opens in the pane, the rest
+/// open their session, the Sync page or Machines.
+export function opens(i: Note): "skill" | "session" | "project" | "sync" | "machines" | null {
   if (i.kind === "skill_conflict") return "skill";
   if (i.target && typeof i.target === "object" && "projects" in i.target) return "project";
   if (i.target) return "session";
@@ -189,6 +144,6 @@ export function opens(i: Item): "alert" | "skill" | "session" | "project" | "syn
 }
 
 /// The sub line of a row: where it came from and when.
-export function subLine(i: Item, ago: string): string {
+export function subLine(i: Note, ago: string): string {
   return `${i.source} · ${ago}`;
 }

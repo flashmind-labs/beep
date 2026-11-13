@@ -88,7 +88,7 @@ const searchField = createRef<HTMLInputElement>(), rowBox = createRef<HTMLDivEle
 let root: HTMLDivElement | null = null, opts: AddProjectOptions = {}, close: (() => void) | null = null;
 /// null while the machines look, then the rows they found.
 let found: FoundRow[] | null = null;
-/// null until the server lists the repositories to clone.
+/// null until Beep lists the repositories to clone.
 let hosts: HostRepos[] | null = null;
 let error: string | null = null;
 /// The machines still looking again, and those that could not say, by id.

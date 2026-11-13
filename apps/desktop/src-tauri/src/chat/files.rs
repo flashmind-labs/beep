@@ -1,86 +1,39 @@
-//! Files and pictures sent in a chat: downloaded once into the cache, then
-//! opened, saved to Downloads or drawn as a data URL.
+//! Files and pictures the windows hand to the user: saved to Downloads,
+//! shown in Finder or copied to the clipboard.
 
 use super::clipboard::ImageClipboard;
-use crate::{
-    bar::app::open,
-    beep::{Beep, Service},
-    error::{DesktopError, Result},
-};
+use crate::error::{DesktopError, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use beep_proto::ApiError;
 use std::{
     fs,
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
-/// What the bar shows for a file or picture the server no longer has.
+/// What the windows show for a file or picture a machine no longer has.
 pub(crate) const GONE: &str = "No longer available";
 
-/// Whether `id` names a file and nothing else, so it is safe in a path.
-fn file_id(id: &str) -> bool {
-    !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-}
-
-/// Downloads file `id` to `path` unless an earlier download left it there.
-async fn cached(beep: &Beep, id: &str, path: &Path) -> Result<()> {
-    if path.exists() {
-        return Ok(());
-    }
-
-    match beep.download(id, path).await {
-        Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
-        other => other,
-    }
-}
-
-/// File `id` in the cache, downloaded the first time it is asked for.
-async fn cached_file(app: &AppHandle, beep: &Beep, id: &str, name: &str) -> Result<PathBuf> {
-    if !file_id(id) {
-        return Err(DesktopError::BadRequest("bad file".into()));
-    }
-
-    let dir = app.path().app_cache_dir()?.join("files").join(id);
-    fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
-    let path = dir.join(file_name(name));
-    cached(beep, id, &path).await?;
-    Ok(path)
-}
-
-/// Opens a file Beep sent, downloading it into the cache the first time.
+/// Shows a file a save put in Downloads in Finder, or on an iPhone opens
+/// the share sheet for it.
 #[tauri::command]
-pub async fn open_file(app: AppHandle, beep: Service<'_>, id: String, name: String) -> Result<()> {
-    open(cached_file(&app, &beep, &id, &name).await?)
-}
+pub fn reveal_file(app: AppHandle, window: tauri::WebviewWindow, path: PathBuf) -> Result<()> {
+    let saves = crate::platform::saves_dir(&app)?;
 
-/// Saves a file Beep sent to Downloads, under a name not taken there yet,
-/// and returns where it went.
-#[tauri::command]
-pub async fn save_file(
-    app: AppHandle,
-    beep: Service<'_>,
-    id: String,
-    name: String,
-) -> Result<PathBuf> {
-    let from = cached_file(&app, &beep, &id, &name).await?;
-    let to = free_name(&app.path().download_dir()?, &file_name(&name));
-    fs::copy(&from, &to).map_err(anyhow::Error::from)?;
-    Ok(to)
-}
-
-/// Shows a file `save_file` put in Downloads in Finder.
-#[tauri::command]
-pub fn reveal_file(app: AppHandle, path: PathBuf) -> Result<()> {
-    let downloads = app.path().download_dir()?;
-
-    if path.parent() != Some(downloads.as_path()) || !path.is_file() {
+    if path.parent() != Some(saves.as_path()) || !path.exists() {
         return Err(DesktopError::BadRequest("not a saved file".into()));
     }
 
-    crate::platform::reveal(&path)?;
+    #[cfg(target_os = "ios")]
+    window.with_webview(move |webview| {
+        crate::platform::ios_share::share(webview.view_controller(), &path)
+    })?;
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = window;
+        crate::platform::reveal(&path)?;
+    }
     Ok(())
 }
 
@@ -103,27 +56,6 @@ pub(crate) fn free_name(dir: &Path, name: &str) -> PathBuf {
         .unwrap_or_else(|| dir.join(format!("{stem} {}{ext}", Uuid::new_v4())))
 }
 
-/// A picture someone sent, as a data URL the bar can draw. Its bytes are
-/// kept in the cache, so each one downloads once.
-#[tauri::command]
-pub async fn picture(
-    app: AppHandle,
-    beep: Service<'_>,
-    id: String,
-    mime: String,
-) -> Result<String> {
-    if !file_id(&id) || !image_mime(&mime) {
-        return Err(DesktopError::BadRequest("bad picture".into()));
-    }
-
-    let dir = app.path().app_cache_dir()?.join("pictures");
-    fs::create_dir_all(&dir).map_err(anyhow::Error::from)?;
-    let path = dir.join(&id);
-    cached(&beep, &id, &path).await?;
-    let bytes = fs::read(&path).map_err(anyhow::Error::from)?;
-    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
-}
-
 /// Saves a picture the bar holds as a data URL to Downloads, as `name`
 /// with the extension its type gives, and returns where it went.
 #[tauri::command]
@@ -136,7 +68,10 @@ pub fn save_picture(app: AppHandle, name: String, url: String) -> Result<PathBuf
     let bytes = STANDARD
         .decode(data)
         .map_err(|_| DesktopError::BadRequest("bad picture".into()))?;
-    let to = free_name(&app.path().download_dir()?, &picture_name(&name, mime));
+    let to = free_name(
+        &crate::platform::saves_dir(&app)?,
+        &picture_name(&name, mime),
+    );
     fs::write(&to, bytes).map_err(anyhow::Error::from)?;
     Ok(to)
 }

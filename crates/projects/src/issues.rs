@@ -54,23 +54,13 @@ pub struct HostExit {
 #[error("the host command timed out after {} seconds", HOST_LIMIT.as_secs())]
 pub struct HostTimeout;
 
-/// What the issue modules read about one project, kept by the server in Postgres and by the
-/// desktop in its mesh state.
+/// What the issue modules read about one project, kept by the desktop in its mesh state.
 #[async_trait]
 pub trait ProjectStore: Send + Sync {
     fn name(&self) -> &RepoName;
 
-    /// Where issues are kept, as the home checkout's setup says.
-    fn issues_role(&self) -> Option<&IssueHost>;
-
-    /// The machine of the project's home checkout.
-    async fn home_machine(&self) -> Result<Option<EndpointId>>;
-
     /// The places the project was imported on, matched to it by name.
     async fn imports(&self) -> Result<Vec<ImportedPlace>>;
-
-    /// The numbers of the issues on `host` that tasks of the project track.
-    async fn tracked_issues(&self, host: &IssueHost) -> Result<Vec<u64>>;
 }
 
 /// The user's machines, for reading a host through one of them.
@@ -119,23 +109,12 @@ pub fn host_of_url(url: &str) -> Option<IssueHost> {
 /// A project's issues host and the machines that can reach it.
 pub struct HostAndMachines {
     pub host: IssueHost,
-    /// The home checkout's machine, else the machines it was imported on.
+    /// The machines it was imported on.
     pub machines: Vec<EndpointId>,
-    /// Whether the machines are the home checkout's.
-    pub home: bool,
 }
 
-/// From the home checkout's issues role and machine, else the imported web page's host and
-/// machines. `None` without a GitHub or Forgejo host.
+/// From the imported web page's host and machines. `None` without a GitHub or Forgejo host.
 pub async fn host_and_machines(store: &dyn ProjectStore) -> Result<Option<HostAndMachines>> {
-    if let Some(machine) = store.home_machine().await? {
-        return Ok(store.issues_role().cloned().map(|host| HostAndMachines {
-            host,
-            machines: vec![machine],
-            home: true,
-        }));
-    }
-
     let imports = store.imports().await?;
     Ok(imports
         .iter()
@@ -143,7 +122,6 @@ pub async fn host_and_machines(store: &dyn ProjectStore) -> Result<Option<HostAn
         .map(|host| HostAndMachines {
             host,
             machines: imports.iter().filter_map(|import| import.machine).collect(),
-            home: false,
         }))
 }
 
@@ -162,8 +140,7 @@ pub async fn issue_source(
         .and_then(|sources| sources.into_iter().next()))
 }
 
-/// Every online place to read the project's issues: the home machine, else import machines by
-/// id. The machine that last answered for the host comes first and machines that cannot reach it
+/// Every online place to read the project's issues: the machines it was imported on, by id. The machine that last answered for the host comes first and machines that cannot reach it
 /// now come last. `None` without a GitHub or Forgejo host; refused when none is online.
 pub async fn issue_sources(
     store: &dyn ProjectStore,
@@ -190,11 +167,9 @@ pub async fn issue_sources(
         })
         .collect();
     if sources.is_empty() {
-        return Err(SourceError::Refused(if found.home {
-            "The home checkout's machine is offline or offers no shell.".to_owned()
-        } else {
-            "No machine the project is on is online.".to_owned()
-        }));
+        return Err(SourceError::Refused(
+            "No machine the project is on is online.".to_owned(),
+        ));
     }
 
     if let Some(gates) = machines.gates() {
@@ -217,7 +192,7 @@ pub struct HostIssues {
     pub open: Vec<OpenIssue>,
 }
 
-/// Every open issue on the project's host, tracked or not; `None` without a host.
+/// Every open issue on the project's host; `None` without a host.
 pub async fn read_open(
     store: &dyn ProjectStore,
     machines: &dyn Machines,
@@ -239,38 +214,21 @@ pub async fn read_open(
     }))
 }
 
-/// The issues of `open` that no task tracks, newest first.
-pub fn untracked(open: Vec<OpenIssue>, tracked: &[u64]) -> Vec<OpenIssue> {
-    let mut left: Vec<OpenIssue> = open
-        .into_iter()
-        .filter(|issue| !tracked.contains(&issue.number))
-        .collect();
-    left.sort_by(|a, b| {
-        b.opened_at
-            .cmp(&a.opened_at)
-            .then_with(|| b.number.cmp(&a.number))
-    });
-    left
-}
-
-/// The issues of `read` that no task of the project tracks now, newest first.
-pub async fn untracked_now(
-    store: &dyn ProjectStore,
-    read: &HostIssues,
-) -> Result<Vec<OpenIssue>, SourceError> {
-    let tracked = store.tracked_issues(&read.host).await?;
-    Ok(untracked(read.open.clone(), &tracked))
-}
-
-/// Open issues on the project's host no task tracks, newest first; empty without a host.
+/// Open issues on the project's host, newest first; empty without a host.
 pub async fn list_open(
     store: &dyn ProjectStore,
     machines: &dyn Machines,
 ) -> Result<Vec<OpenIssue>, SourceError> {
-    match read_open(store, machines).await? {
-        Some(read) => untracked_now(store, &read).await,
-        None => Ok(Vec::new()),
-    }
+    let Some(read) = read_open(store, machines).await? else {
+        return Ok(Vec::new());
+    };
+    let mut open = read.open;
+    open.sort_by(|a, b| {
+        b.opened_at
+            .cmp(&a.opened_at)
+            .then_with(|| b.number.cmp(&a.number))
+    });
+    Ok(open)
 }
 
 /// An open pull request on a project's host, and whether it is the user's.

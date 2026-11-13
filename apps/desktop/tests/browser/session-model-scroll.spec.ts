@@ -96,3 +96,47 @@ test("a reported session model takes precedence over the configured default", as
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
   await expect(page.locator("#agmodelb")).toContainText("Session model");
 });
+
+test("conversation scrollbar preferences apply immediately and survive reload", async ({ page }) => {
+  await openDesktop(page, false, { agent_view: view(), settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false } });
+  const openSession = () => page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  const openAppearance = async () => {
+    await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Appearance", exact: true }).click();
+  };
+  await openSession();
+  const rail = page.locator(".agrail"), body = page.locator("#agbody");
+  await expect(rail.locator(".th")).toBeVisible();
+  await expect(rail.locator(".tk").first()).toBeVisible();
+  await body.evaluate(el => { el.scrollTop = 200; el.dispatchEvent(new Event("scroll")); });
+  const position = await body.evaluate(el => el.scrollTop);
+  await openAppearance();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const marks = settings.getByRole("switch", { name: "Prompt marks", exact: true });
+  const scrollbar = settings.getByRole("switch", { name: "Conversation scrollbar", exact: true });
+  await marks.click();
+  await expect(marks).toHaveAttribute("aria-checked", "false");
+  await expect(rail.locator(".tk")).toHaveCount(0);
+  await expect(rail.locator(".th")).toBeVisible();
+  await scrollbar.click();
+  await expect(rail).toHaveCount(0);
+  expect(await body.evaluate(el => el.scrollTop)).toBe(position);
+  await scrollbar.click();
+  await expect(rail.locator(".th")).toBeVisible();
+  await expect(rail.locator(".tk")).toHaveCount(0);
+  await scrollbar.click();
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => window.__navigation.ready())).toBe(true);
+  await openSession();
+  await expect(body).toContainText("Message 39");
+  await expect(rail).toHaveCount(0);
+  await body.evaluate(el => { el.scrollTop = 100; el.dispatchEvent(new Event("scroll")); });
+  expect(await body.evaluate(el => el.scrollTop)).toBe(100);
+  await openAppearance();
+  await expect(scrollbar).toHaveAttribute("aria-checked", "false");
+  await expect(marks).toHaveAttribute("aria-checked", "false");
+  await scrollbar.click();
+  await marks.click();
+  await expect(rail.locator(".th")).toBeVisible();
+  await expect(rail.locator(".tk").first()).toBeVisible();
+});

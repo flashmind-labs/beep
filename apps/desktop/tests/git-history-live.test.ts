@@ -18,7 +18,7 @@ test("visible Git history follows its root and stops reading when closed", async
     reads++;
     return page;
   }) as Parameters<typeof makeGitHistory>[0]["invoke"];
-  const history = makeGitHistory({ invoke, back() {}, sessions: () => [], openSession() {}, reviewBranch() {}, canReview: () => false });
+  const history = makeGitHistory({ invoke, back() {}, sessions: () => [], openSession() {} });
   t.after(() => history.stop());
   const panels = history.panels("example");
   document.body.append(panels.navigation, panels.detail);
@@ -60,7 +60,7 @@ test("refresh keeps the selected commit diff mounted and preserves its scroll", 
     }
     throw new Error(`Unexpected command: ${command}`);
   }) as Parameters<typeof makeGitHistory>[0]["invoke"];
-  const history = makeGitHistory({ invoke, back() {}, sessions: () => [], openSession() {}, reviewBranch() {}, canReview: () => false });
+  const history = makeGitHistory({ invoke, back() {}, sessions: () => [], openSession() {} });
   const panels = history.panels("example");
   document.body.append(panels.navigation, panels.detail);
   await settle();

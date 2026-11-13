@@ -16,9 +16,8 @@ const kind = opt("browser", "chromium");
 const executablePath = (kind === "webkit" ? process.env.WEBKIT_BIN : process.env.CHROMIUM_BIN) || undefined;
 const browser = await (kind === "webkit" ? webkit : chromium).launch({ executablePath });
 const out = opt("out", join(here, "../../../../target"));
-// The released desktop runs without the server, so every imported project shows the split.
+// Every imported project shows the split.
 const data = makeData();
-data.status = { link: "unlinked", signed_out: false };
 const json = JSON.stringify(data);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 

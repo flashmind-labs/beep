@@ -65,7 +65,7 @@ fn a_host_from_the_previous_version_still_works_with_this_node() {
     }
 }
 
-/// A stream from the server, relayed by the node to the host in `dir`.
+/// A stream from a peer, relayed by the node to the host in `dir`.
 fn stream(dir: &Path) -> (Conn, AbortOnDropHandle<Result<()>>) {
     let (server, node) = Stream::pair().expect("a socket pair");
     let dir = dir.to_path_buf();

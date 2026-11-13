@@ -14,7 +14,7 @@
 
   function place(body) {
     const total = body.scrollHeight, shown = body.clientHeight;
-    if (total <= shown + 1) return;
+    if (S.d.scrollbarOff || total <= shown + 1) return;
     const rail = document.createElement("div");
     rail.className = "agrail";
     body.parentElement.style.position = "relative";
@@ -22,7 +22,7 @@
 
     const draw = () => {
       const height = rail.clientHeight, scale = height / total, origin = body.getBoundingClientRect().top - body.scrollTop;
-      const ticks = [...body.querySelectorAll(PROMPT)].map(node => ({ node, top: Math.min(height - 2, (node.getBoundingClientRect().top - origin) * scale) }));
+      const ticks = (S.d.promptMarksOff ? [] : [...body.querySelectorAll(PROMPT)]).map(node => ({ node, top: Math.min(height - 2, (node.getBoundingClientRect().top - origin) * scale) }));
       rail.innerHTML = `<div class="th" style="top:${body.scrollTop * scale}px;height:${Math.max(24, shown * scale)}px"></div>`;
 
       for (const { node, top } of ticks) {

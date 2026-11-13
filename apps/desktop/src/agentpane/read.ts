@@ -7,7 +7,7 @@ import { fileSize } from "../chat/media.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
 import { draw, touchTab } from "./media-draw.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 
 /// The most the pane reads of one file, as the node allows.
 const MAX_FILE = 128 * 1024 * 1024;
@@ -18,24 +18,39 @@ function bytesOf(b64: string) {
   return out;
 }
 
-/// Reads all of `path` from `machine`, a part at a time; `progress` hears
-/// how far it got.
-export async function readFile(machine: string, path: string, progress: (done: number, size: number) => void) {
+/// How far fetching a file from another machine has come.
+type FileProgress = { machine_id: string; path: string; done: number; size: number };
+
+/// Reads all of `path` from `machine`, a part at a time, keeping it for the
+/// conversation `session`; `progress` hears how far it got. The first part
+/// fetches a file from another machine whole, telling its progress.
+export async function readFile(machine: string, path: string, session: string | null, progress: (done: number, size: number) => void) {
   const parts: Uint8Array[] = [];
   let done = 0, size = 0, mime = "";
+  const unlisten = await listen<FileProgress>("agent-file-progress", e => {
+    if (e.payload.machine_id === machine && e.payload.path === path) progress(e.payload.done, e.payload.size);
+  });
 
-  do {
-    const part = await invoke<FilePart>("agent_file", { machineId: machine, path, offset: done });
-    size = part.size;
-    mime = part.mime;
-    if (size > MAX_FILE) throw new Error(`It is ${fileSize(size)}; the pane opens files up to ${fileSize(MAX_FILE)}.`);
-    const bytes = bytesOf(part.data);
-    if (!bytes.length) break;
-    parts.push(bytes);
-    done += bytes.length;
-    progress(done, size);
-  } while (done < size);
+  try {
+    do {
+      const part = await invoke<FilePart>("agent_file", { machineId: machine, path, offset: done, session });
+      size = part.size;
+      mime = part.mime;
+      if (size > MAX_FILE) throw new Error(`It is ${fileSize(size)}; the pane opens files up to ${fileSize(MAX_FILE)}.`);
+      const bytes = bytesOf(part.data);
+      if (!bytes.length) break;
+      parts.push(bytes);
+      done += bytes.length;
+      progress(done, size);
+    } while (done < size);
+  } finally {
+    unlisten();
+  }
 
+  return joined(parts, done, mime);
+}
+
+function joined(parts: readonly Uint8Array[], done: number, mime: string) {
   const all = new Uint8Array(done);
   let at = 0;
   for (const p of parts) { all.set(p, at); at += p.length; }
@@ -141,7 +156,7 @@ export async function load(t: MediaTab) {
   if (!s || !t.path) return;
 
   try {
-    const { bytes, mime } = await readFile(s.machine_id, t.path, (done, size) => {
+    const { bytes, mime } = await readFile(s.machine_id, t.path, s.id, (done, size) => {
       t.done = done;
       t.size = size;
       touchTab(t);

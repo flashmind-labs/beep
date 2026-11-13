@@ -5,17 +5,14 @@
 //! to the node as if this were not here. The log says why a folder has no copy.
 
 use crate::{
-    beep::Beep,
     error::{DesktopError, Result},
     fleet::Fleet,
-    projects::unknown_op,
 };
 use beep_mesh::{Key, Mesh};
 #[cfg(desktop)]
 use beep_node::agents::{local_read, local_tree};
 use beep_proto::{
-    AgentFileChunk, ImportedProject, ListImportedProjects, ListProjectSync, ListWorkTree,
-    MachineSync, ProjectSync, SyncStatus, WorkTree,
+    AgentFileChunk, ImportedProject, ListWorkTree, MachineSync, ProjectSync, SyncStatus, WorkTree,
     node::mesh_state::{StateValue, SyncSpec},
 };
 use iroh::EndpointId;
@@ -281,27 +278,12 @@ fn recorded(mesh: &Mesh) -> (Vec<ImportedProject>, Vec<ProjectSync>) {
     (imported, synced)
 }
 
-/// Looks for this Mac's copy of `dir` among the projects the mesh records,
-/// then, with a server linked and no mesh project holding it, among the
-/// server's. The outer error is a failed request, which says nothing about
-/// the copy.
-async fn look(
-    beep: &Beep,
-    fleet: &Fleet,
-    machine_id: &str,
-    dir: &str,
-) -> Result<Result<LocalCopy, Miss>> {
-    let (mut imported, mut synced) = fleet.mesh().map(|mesh| recorded(&mesh)).unwrap_or_default();
+/// Looks for this Mac's copy of `dir` among the projects the mesh records.
+/// The outer error is a failed task, which says nothing about the copy.
+async fn look(fleet: &Fleet, machine_id: &str, dir: &str) -> Result<Result<LocalCopy, Miss>> {
+    let (imported, synced) = fleet.mesh().map(|mesh| recorded(&mesh)).unwrap_or_default();
     let here = |folder: &Path| folder.is_absolute() && folder.is_dir();
     let (machine, folder) = (machine_id.to_owned(), dir.to_owned());
-
-    if holder(&machine, &folder, &imported, &synced).is_none() && beep.has_server() {
-        imported = beep.call(ListImportedProjects {}).await?;
-        synced = match beep.call(ListProjectSync {}).await {
-            Err(e) if unknown_op(&e) => Vec::new(),
-            other => other?,
-        };
-    }
 
     spawn_blocking(move || find_copy(&machine, &folder, &imported, &synced, here))
         .await
@@ -309,7 +291,7 @@ async fn look(
 }
 
 /// The copy here of `dir` on `machine_id`, when this Mac has the project.
-async fn copy_of(beep: &Beep, fleet: &Fleet, machine_id: &str, dir: &str) -> Option<LocalCopy> {
+async fn copy_of(fleet: &Fleet, machine_id: &str, dir: &str) -> Option<LocalCopy> {
     // The Mac's own folder is the copy: no trip through its node.
     if fleet.id().to_string() == machine_id {
         return Some(LocalCopy {
@@ -323,7 +305,7 @@ async fn copy_of(beep: &Beep, fleet: &Fleet, machine_id: &str, dir: &str) -> Opt
         folder: dir.to_owned(),
     };
 
-    if let Some(copy) = beep.copies().kept(&asked) {
+    if let Some(copy) = fleet.copies().kept(&asked) {
         let copy = copy?;
 
         if tokio::fs::try_exists(copy.local.join(".git"))
@@ -336,13 +318,13 @@ async fn copy_of(beep: &Beep, fleet: &Fleet, machine_id: &str, dir: &str) -> Opt
         return Some(copy);
     }
 
-    match look(beep, fleet, machine_id, dir).await {
+    match look(fleet, machine_id, dir).await {
         Ok(Ok(copy)) => {
-            beep.copies().keep(asked, Some(copy.clone()));
+            fleet.copies().keep(asked, Some(copy.clone()));
             Some(copy)
         }
         Ok(Err(miss)) => {
-            if beep.copies().keep(asked, None) {
+            if fleet.copies().keep(asked, None) {
                 log::info!("{dir} on {machine_id} reads from the node: {miss}");
             }
 
@@ -368,13 +350,8 @@ fn place_or_top(local: PathBuf, rel: &str) -> PathBuf {
 }
 
 /// The folder on this Mac for `dir` on `machine_id`, when this Mac has it.
-pub(crate) async fn folder_here(
-    beep: &Beep,
-    fleet: &Fleet,
-    machine_id: &str,
-    dir: &str,
-) -> Option<PathBuf> {
-    let copy = copy_of(beep, fleet, machine_id, dir).await?;
+pub(crate) async fn folder_here(fleet: &Fleet, machine_id: &str, dir: &str) -> Option<PathBuf> {
+    let copy = copy_of(fleet, machine_id, dir).await?;
     let rel = under(dir, &copy.remote)?.to_owned();
     spawn_blocking(move || place_or_top(copy.local, &rel))
         .await
@@ -385,12 +362,11 @@ pub(crate) async fn folder_here(
 /// this Mac has no copy of the project, or the copy lacks `dir` (unlike
 /// `folder_here`, which falls back to the copy's top).
 pub(crate) async fn exact_folder_here(
-    beep: &Beep,
     fleet: &Fleet,
     machine_id: &str,
     dir: &str,
 ) -> Option<PathBuf> {
-    let copy = copy_of(beep, fleet, machine_id, dir).await?;
+    let copy = copy_of(fleet, machine_id, dir).await?;
     let rel = under(dir, &copy.remote)?.to_owned();
     spawn_blocking(move || {
         let place = copy.local.join(rel);
@@ -409,14 +385,13 @@ fn parent(path: &str) -> &str {
 /// Part of the file `full` on `machine_id` from the copy here; `None` when
 /// the node has to give it.
 pub(crate) async fn read(
-    beep: &Beep,
     fleet: &Fleet,
     machine_id: &str,
     full: &str,
     offset: u64,
     len: u32,
 ) -> Option<AgentFileChunk> {
-    let copy = copy_of(beep, fleet, machine_id, parent(full)).await?;
+    let copy = copy_of(fleet, machine_id, parent(full)).await?;
     let rel = under(full, &copy.remote)?.to_owned();
     let found = spawn_blocking(move || local_read(&copy.local, &rel, offset, len)).await;
 
@@ -435,9 +410,9 @@ pub(crate) async fn read(
 
 /// The tree `ask` names from the copy here; `None` when the node has to
 /// give it.
-pub(crate) async fn tree(beep: &Beep, fleet: &Fleet, ask: &ListWorkTree) -> Option<WorkTree> {
+pub(crate) async fn tree(fleet: &Fleet, ask: &ListWorkTree) -> Option<WorkTree> {
     let root = &ask.root;
-    let copy = copy_of(beep, fleet, &ask.machine_id, root).await?;
+    let copy = copy_of(fleet, &ask.machine_id, root).await?;
     let local = copy.local.join(under(root, &copy.remote)?);
     let (path, ignored, depth) = (ask.path.clone(), ask.ignored, ask.depth);
     let found = spawn_blocking(move || {

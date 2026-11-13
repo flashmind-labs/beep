@@ -11,7 +11,6 @@ fn bundled_pages_can_load_reload_and_use_fragments() {
         "/",
         "/index.html",
         "/center.html?project=example#chat",
-        "/orb.html",
         "/diagrams/index.html",
     ] {
         assert!(allowed(&Url::parse(&format!("{origin}{path}")).unwrap()));

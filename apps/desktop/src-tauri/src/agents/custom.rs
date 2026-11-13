@@ -3,11 +3,10 @@
 //! user's own there.
 
 use crate::{
-    beep::Service,
     error::Result,
     fleet::{Machines, agents as direct},
 };
-use beep_proto::{CustomAgent, ListCustomAgents};
+use beep_proto::CustomAgent;
 use serde::Serialize;
 
 /// One custom agent, for the page.
@@ -48,14 +47,10 @@ impl From<CustomAgent> for CustomAgentRow {
 
 #[tauri::command]
 pub async fn custom_agents(
-    beep: Service<'_>,
     fleet: Machines<'_>,
     machine_id: String,
     folder: String,
 ) -> Result<Vec<CustomAgentRow>> {
-    let agents = match fleet.member(&machine_id) {
-        Some(machine) => direct::custom_agents(&fleet, machine, &folder).await?,
-        None => beep.call(ListCustomAgents { machine_id, folder }).await?,
-    };
+    let agents = direct::custom_agents(&fleet, fleet.machine(&machine_id)?, &folder).await?;
     Ok(agents.into_iter().map(CustomAgentRow::from).collect())
 }

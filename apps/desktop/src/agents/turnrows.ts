@@ -1,5 +1,5 @@
-// Markdown answers in a Beep chat and a coding agent's session: copy
-// controls for their code blocks and quotes.
+// Markdown answers in a coding agent's session: copy controls for their
+// code blocks and quotes.
 import { quotedMarkdown } from "./copy-markdown.ts";
 import { copy, writeClipboard } from "../ui/parts.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";

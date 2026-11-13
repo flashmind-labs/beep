@@ -1,6 +1,6 @@
 import { onPhone } from "../ui/platform.ts";
-// project/: the Projects page and one project's page (tasks, threads, runs,
-// file sync, custom agents, the agent bar). Entry: this file's view.
+// project/: the Projects page and one project's page (pull requests, issues,
+// runs, file sync, custom agents, the agent bar). Entry: this file's view.
 // The Projects page: drawing it, and the project rows Home lists.
 import { filterProjects, whereRows, forgeLinks, projectLine, REMOVE_PROJECT, type Project } from "./projects-state.ts";
 import { overviewGroups, overviewSub } from "./overview-state.ts";
@@ -10,7 +10,7 @@ import { editorsFor } from "./editors.ts";
 import { ProjectEditors } from "./header-view.tsx";
 import { createElement, type ReactNode } from "react";
 import { NEW_WINDOW } from "./projectwindow.ts";
-import { agentFor, pageAgent } from "./agent.ts";
+import { localProjectId } from "./localid.ts";
 import { type CenterView, state, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { boxOf, drawPage, windowProject } from "../center/views.ts";
@@ -50,7 +50,7 @@ export function drawProjects() {
   } else {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
-    liveMode.follow(one ? agentFor(state.agents, one.name)?.project_id ?? null : null);
+    liveMode.follow(one ? localProjectId(one.name) : null);
     parts.push(...(one ? projectDetail(one) : overviewSection(shownRows.length ? shownRows : rows)));
 
     const found = foundSection(!one);
@@ -117,8 +117,8 @@ export const projectsView: CenterView<"projects"> = {
   title() {
     if (!state.picked) {
       const rows = projectRows();
-      const sub = rows?.length ? overviewSub(overviewGroups(rows, state.overview, state.top, state.groups)) : "Repositories on your machines";
-      // Group controls follow mesh support, independently of task summaries.
+      const sub = rows?.length ? overviewSub(overviewGroups(rows, state.top, state.groups)) : "Repositories on your machines";
+      // Group controls follow mesh support.
       const tools = [state.groups ? createElement("button", { key: "group", type: "button", className: "dbtn small pj-tool", "aria-label": "New group", onClick: () => editGroup() }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }), " New group") : null,
         createElement("button", { key: "add", type: "button", className: "dbtn small pj-tool", "aria-label": "Add a project", onClick: addProject }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.plus } }), " Add a project")];
       return { title: "Projects", sub, reactTools: tools };
@@ -128,9 +128,7 @@ export const projectsView: CenterView<"projects"> = {
     const tools: ReactNode[] = [];
 
     if (p) {
-      const agent = pageAgent(state.agents, p.name, state.subscribed);
-
-      for (const f of forgeLinks(p.url, agent ? runs.hosts(agent.project_id) : null)) {
+      for (const f of forgeLinks(p.url, runs.hosts(localProjectId(p.name)))) {
         tools.push(createElement("button", { key: `forge:${f.url}`, type: "button", className: "dbtn small", title: f.url, onClick: () => openUrl(f.url) }, f.label));
       }
 

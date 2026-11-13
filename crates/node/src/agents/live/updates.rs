@@ -248,7 +248,7 @@ impl Live {
     fn agent_image(&mut self, picture: Picture) {
         let line = picture.line();
         self.keep(picture);
-        // Whole, and not in the last message the server is told.
+        // Whole, and not in the last message the caller is told.
         if self.in_message
             && let Some(last) = self.transcript.back_mut()
             && last.kind == EntryKind::Agent

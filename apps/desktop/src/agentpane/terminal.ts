@@ -56,10 +56,9 @@ type TermHooks = Pick<PaneTerm, "onEnd" | "onLink" | "onEscape">;
 
 /// Starts a shell at `place` and attaches to it.
 export async function openTerm(place: TermPlace, hooks: TermHooks): Promise<PaneTerm> {
-  const row = await invoke<TerminalRow | null>("terminal_open", {
+  const row = await invoke<TerminalRow>("terminal_open", {
     terminal: { project: place.project, machineId: place.machine_id, name: place.name, command: "", cwd: place.cwd, ...START_SIZE },
   });
-  if (!row) throw new Error("The server is too old for terminals here.");
   return followTerm(row, hooks, true);
 }
 
@@ -233,7 +232,7 @@ export async function killTerm(t: PaneTerm) {
   dropTerm(t);
 }
 
-/// Forgets an ended terminal on the server, as Home does.
+/// Forgets an ended terminal on its machine, as Home does.
 export function forgetTerm(t: PaneTerm) {
   dropTerm(t);
   invoke("terminal_close", { id: t.row.id }).catch(e => console.warn("closing an ended terminal:", e));

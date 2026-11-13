@@ -2,8 +2,7 @@ use super::*;
 use std::sync::Mutex;
 use tokio::io::{AsyncBufReadExt, BufReader, duplex};
 
-/// A server that asks first for `remote_run` and answers everything else,
-/// and a user who answers with `answer`.
+/// A backend that answers every call, and a user who answers with `answer`.
 struct Fake {
     calls: Mutex<Vec<Request>>,
     asked: Mutex<Vec<String>>,
@@ -27,14 +26,6 @@ impl Backend for Fake {
     async fn call(&self, request: &Request) -> Result<Reply> {
         self.calls.lock().unwrap().push(request.clone());
         Ok(match (request.tool, request.approved) {
-            (Tool::RunOn, Approved::No) => Reply::Ask {
-                app: "Your machines".into(),
-                action: "run on".into(),
-                fields: vec![Field {
-                    label: "Command".into(),
-                    value: "cargo test".into(),
-                }],
-            },
             (Tool::RunOn, _) => Reply::Done {
                 text: "Exit code 0".into(),
                 failed: false,
@@ -108,7 +99,7 @@ fn text(answer: &Value) -> &str {
 
 #[tokio::test]
 async fn it_lists_the_tools_and_answers_a_call() {
-    let fake = Fake::new(ALLOW);
+    let fake = Fake::new("allow");
     let out = exchange(
         &fake,
         &[
@@ -187,7 +178,7 @@ async fn it_lists_the_tools_and_answers_a_call() {
 
 #[tokio::test]
 async fn transcript_calls_use_the_sessions_backend_without_acting_approval() {
-    let fake = Fake::new(DENY);
+    let fake = Fake::new("deny");
     let args = json!({"machine":"build-box", "session":"session-a", "before":20});
     let out = exchange(
         &fake,
@@ -205,41 +196,8 @@ async fn transcript_calls_use_the_sessions_backend_without_acting_approval() {
 }
 
 #[tokio::test]
-async fn an_acting_call_asks_the_user_first() {
-    let run = request(
-        1,
-        "tools/call",
-        json!({ "name": "remote_run", "arguments": { "machine": "build-box", "command": "cargo test" } }),
-    );
-    let allowing = Fake::new(ALLOW);
-    let out = exchange(&allowing, std::slice::from_ref(&run)).await;
-    assert_eq!(text(&out[0]), "Exit code 0");
-    assert_eq!(
-        *allowing.asked.lock().unwrap(),
-        ["Allow run on? (Your machines)"]
-    );
-    let approvals: Vec<Approved> = allowing
-        .calls
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|call| call.approved)
-        .collect();
-    assert_eq!(approvals, [Approved::No, Approved::Once]);
-
-    let denying = Fake::new(DENY);
-    let out = exchange(&denying, &[run]).await;
-    assert_eq!(out[0]["result"]["isError"], true);
-    assert!(
-        text(&out[0]).contains("did not allow remote_run"),
-        "{out:?}"
-    );
-    assert_eq!(denying.calls.lock().unwrap().len(), 1, "it never ran");
-}
-
-#[tokio::test]
 async fn machine_log_and_run_on_are_no_tools() {
-    let fake = Fake::new(ALLOW);
+    let fake = Fake::new("allow");
 
     for name in ["machine_log", "run_on"] {
         let call = json!({ "name": name, "arguments": { "machine": "build-box" } });
@@ -296,7 +254,7 @@ async fn only_a_reviewer_is_offered_submit_review() {
         "tools/call",
         json!({ "name": "submit_review", "arguments": { "verdict": "approve", "summary": "Fine.", "findings": [] } }),
     );
-    let worker = Fake::new(ALLOW);
+    let worker = Fake::new("allow");
     let out = exchange(
         &worker,
         &[request(1, "tools/list", json!({})), submit.clone()],
@@ -313,7 +271,7 @@ async fn only_a_reviewer_is_offered_submit_review() {
 
     let reviewer = Fake {
         reviewer: true,
-        ..Fake::new(ALLOW)
+        ..Fake::new("allow")
     };
     let out = exchange(&reviewer, &[request(1, "tools/list", json!({})), submit]).await;
     let offered = names(&out);

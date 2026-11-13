@@ -198,7 +198,7 @@ function about(a: Artifact, size: number | null) {
 function readError(e: unknown) {
   const text = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
   if (/no longer|not found|gone|is not there/i.test(text)) return `This file is not on ${paneSession()?.machine_name ?? "the machine"} any more, or it is offline.`;
-  if (/unknown op|not serve|closes the stream/i.test(text)) return "Update Beep's server and beep-node on that machine to show this.";
+  if (/unknown op|not serve|closes the stream/i.test(text)) return "Update beep-node on that machine to show this.";
   return text;
 }
 

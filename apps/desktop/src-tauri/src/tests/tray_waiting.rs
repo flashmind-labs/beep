@@ -1,55 +1,25 @@
 use super::*;
-use beep_proto::{AgentQuestion, Approval, PendingApproval};
-use uuid::Uuid;
+use beep_proto::AgentQuestion;
 
-fn chat(app: &str, action: &str, query: &str) -> NeedsYou {
-    NeedsYou::Chat {
-        session_id: Uuid::nil(),
-        session_title: "Lunch".into(),
-        pending: PendingApproval {
-            run_id: String::new(),
-            query_id: query.into(),
-            approval: Approval {
-                app: app.into(),
-                action: action.into(),
-                fields: Vec::new(),
-            },
-        },
-    }
-}
-
-#[test]
-fn chat_approvals_read_as_the_card_asks() {
-    let listed = entries(vec![chat("Fastmail", "send email", "q1")]);
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].label, "Allow Fastmail: send email?");
-    assert_eq!(listed[0].id, "wait:chat:q1");
-    assert_eq!(
-        listed[0].target,
-        CenterTarget::Chat {
-            session: Some(Uuid::nil())
-        }
-    );
-    assert_eq!(chat_label("", ""), "Allow this?");
-    assert_eq!(chat_label("Gmail", ""), "Allow Gmail?");
-}
-
-#[test]
-fn agent_questions_open_their_session() {
-    let need = NeedsYou::Agent {
+fn asking(question: u32) -> NeedsYou {
+    NeedsYou::Agent {
         machine_id: "m1".into(),
         machine_name: "build-box".into(),
         agent: "claude".into(),
         session: "s1".into(),
         title: Some("Fix tests".into()),
         question: AgentQuestion {
-            id: 3,
+            id: question,
             text: "Run cargo test".into(),
             detail: None,
             options: Vec::new(),
         },
-    };
-    let listed = entries(vec![need]);
+    }
+}
+
+#[test]
+fn agent_questions_open_their_session() {
+    let listed = entries(vec![asking(3)]);
     assert_eq!(listed[0].id, "wait:agent:m1:s1:3");
     assert_eq!(listed[0].label, "Run cargo test");
     assert_eq!(
@@ -86,10 +56,10 @@ fn badge_shows_only_while_something_waits() {
 #[test]
 fn the_list_says_when_it_changed() {
     let list = WaitingList::default();
-    let one = entries(vec![chat("Gmail", "send", "q1")]);
+    let one = entries(vec![asking(1)]);
     assert!(list.set(one.clone()));
     assert!(!list.set(one));
-    assert!(list.target("wait:chat:q1").is_some());
-    assert!(list.target("wait:chat:gone").is_none());
+    assert!(list.target("wait:agent:m1:s1:1").is_some());
+    assert!(list.target("wait:agent:m1:s1:2").is_none());
     assert!(list.set(Vec::new()));
 }
