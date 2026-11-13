@@ -12,6 +12,7 @@ mod navigation;
 mod notices;
 mod palette;
 mod platform;
+mod plugins;
 mod projects;
 mod report;
 mod settings;
@@ -328,6 +329,7 @@ pub fn run() {
             platform::metrics::desktop_timings,
             platform::metrics::desktop_trace_enabled,
             platform::metrics::desktop_ui_metrics,
+            plugins::command::plugins_placements,
             projects::branches::add_branch_worktree,
             projects::branches::find_import_fork,
             projects::branches::preview_import,
@@ -560,6 +562,13 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     }
     bar::zoom::apply_saved(&handle, &prefs);
     app.manage(prefs);
+    #[cfg(desktop)]
+    match plugins::start(&handle, &dir) {
+        Ok(host) => {
+            app.manage(host);
+        }
+        Err(e) => log::warn!("plugins unavailable: {e}"),
+    }
     // This Mac's node, and the mesh it is in, which opens in the background.
     #[cfg(desktop)]
     let machine = machines::this_mac::Machine::new(&dir.join("node"));

@@ -72,6 +72,7 @@ tokio = { version = "1", features = ["test-util"] }
 # Desktop only: no login item or self-updater on a phone, and no embedded node.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 beep-node = { path = "../../../crates/node", default-features = false, features = ["host"] }
+beep-plugins = { path = "../../../crates/plugins" }
 arboard = "3.7"
 sysinfo = { version = "0.40", default-features = false, features = ["system"] }
 # The app data folder before Tauri starts, as Tauri finds it.
