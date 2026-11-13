@@ -41,3 +41,11 @@ input.search::placeholder{color:var(--dim)}
 .rename-project p { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 18px; }
 .rename-project footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 .rename-project .btn { padding: 8px 14px; font-size: 13px; }
+
+.dropdown{position:relative;flex:none;font-size:12px}
+.dropdown summary{display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:6px;list-style:none;color:var(--muted)}
+.dropdown summary::-webkit-details-marker{display:none}
+.dropdown[open] summary{background:var(--surface);color:var(--fg)}
+.dropdown-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:50;min-width:180px;padding:5px;border:1px solid var(--border);border-radius:8px;background:var(--bg);box-shadow:0 8px 24px #0005}
+.dropdown-menu button{display:block;width:100%;padding:8px 10px;border:0;background:none;color:var(--fg);font:inherit;text-align:left}
+.home-sort{display:flex;justify-content:flex-end}

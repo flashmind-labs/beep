@@ -101,6 +101,7 @@ const BOARD_MOCK = (() => {
     if (first.firstChild.textContent === "Overview") first.firstChild.textContent = "Board";
     if (first.getAttribute("aria-selected") !== "true") return t.innerHTML;
     const cards = homeCards(view);
+    tabs.insertAdjacentHTML("afterend", `<div class="home-sort">${sortDropdown("home")}</div>`);
     if (!cards) return t.innerHTML;
 
     const needs = section(view, "Needs you"), running = section(view, "Running");
