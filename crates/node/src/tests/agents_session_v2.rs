@@ -8,7 +8,7 @@ fn kind(log: &Path) -> AgentKind {
             concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/fake_acp_v2.py").into(),
             log.display().to_string(),
         ],
-        env: Default::default(),
+        env: [("BEEP_ACP_VERSION".into(), "2".into())].into(),
         compact: Some(AutoCompact {
             enabled: false,
             percent: None,
@@ -178,10 +178,10 @@ async fn v2_failures_and_unknown_stop_reasons_still_finish() {
 }
 
 #[tokio::test]
-async fn v2_default_negotiates_down_to_a_v1_agent() {
+async fn v2_opt_in_negotiates_down_to_a_v1_agent() {
     let temp = tempfile::tempdir().unwrap();
     let log = temp.path().join("requests.jsonl");
-    let kind = script(
+    let mut kind = script(
         "test-agent",
         r#"
 handshake "$1"
@@ -191,6 +191,7 @@ cat > /dev/null
 "#,
         &log,
     );
+    kind.env.insert("BEEP_ACP_VERSION".into(), "2".into());
     let session = Session::start(start_on(&kind, temp.path(), None)).unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);

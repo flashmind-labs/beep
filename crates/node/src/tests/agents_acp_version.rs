@@ -2,9 +2,9 @@ use super::*;
 use agent_client_protocol::JsonRpcMessage;
 
 #[test]
-fn v2_is_default_with_an_explicit_v1_override_and_invalid_versions_are_refused() {
-    assert_eq!(Protocol::default(), Protocol::V2);
-    assert_eq!(Protocol::from_env(&BTreeMap::new()).unwrap(), Protocol::V2);
+fn v1_is_default_with_an_explicit_v2_opt_in_and_invalid_versions_are_refused() {
+    assert_eq!(Protocol::default(), Protocol::V1);
+    assert_eq!(Protocol::from_env(&BTreeMap::new()).unwrap(), Protocol::V1);
     assert_eq!(
         Protocol::from_env(&BTreeMap::from([("BEEP_ACP_VERSION".into(), "1".into())])).unwrap(),
         Protocol::V1
@@ -96,4 +96,32 @@ fn v2_config_options_supply_models_effort_and_modes() {
         )
         .unwrap();
     assert_eq!(request.params()["type"], "id");
+}
+
+#[test]
+fn v2_session_requests_tag_v1_stdio_mcp_servers() {
+    let server = v1::McpServer::Stdio(
+        v1::McpServerStdio::new("beep", "/srv/bin/beep-node")
+            .args(vec!["mcp".to_owned()])
+            .env(vec![v1::EnvVariable::new("BEEP_MCP_TOKEN", "t")]),
+    );
+    let new = session::new_session(
+        std::path::Path::new("/srv/project"),
+        vec![server.clone()],
+        Some("brief"),
+    )
+    .unwrap();
+    let load = session::resume_session(
+        super::ResumeMethod::Load,
+        v1::SessionId::new("s"),
+        std::path::Path::new("/srv/project"),
+        vec![server],
+        Some("brief"),
+    )
+    .unwrap();
+
+    for request in [new, load] {
+        let request = Protocol::V2.request(request).unwrap();
+        assert_eq!(request.params()["mcpServers"][0]["type"], "stdio");
+    }
 }

@@ -7,12 +7,12 @@ use agent_client_protocol::{
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// Prefer v2 and accept v1 when the agent selects it. A harness can force
-/// legacy initialization through its launch environment.
+/// V1 by default. A harness opts into v2, with negotiated v1 fallback,
+/// through its launch environment.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(in crate::agents) enum Protocol {
-    V1,
     #[default]
+    V1,
     V2,
 }
 
@@ -27,8 +27,8 @@ pub(in crate::agents) struct Capabilities {
 impl Protocol {
     pub fn from_env(env: &BTreeMap<String, String>) -> anyhow::Result<Self> {
         match env.get("BEEP_ACP_VERSION").map(String::as_str) {
-            Some("1") => Ok(Self::V1),
-            None | Some("2") => Ok(Self::V2),
+            None | Some("1") => Ok(Self::V1),
+            Some("2") => Ok(Self::V2),
             Some(_) => anyhow::bail!("BEEP_ACP_VERSION must be 1 or 2"),
         }
     }
@@ -59,6 +59,7 @@ impl Protocol {
                 "initialize"
             }
             "session/load" => {
+                tag_stdio_servers(&mut params);
                 params["replayFrom"] = json!({"type": "start"});
                 v2::ResumeSessionRequest::parse_message("session/resume", &params)?;
                 "session/resume"
@@ -74,6 +75,7 @@ impl Protocol {
                 request.method()
             }
             "session/new" => {
+                tag_stdio_servers(&mut params);
                 v2::NewSessionRequest::parse_message(request.method(), &params)?;
                 request.method()
             }
@@ -172,6 +174,16 @@ impl Protocol {
             }
         }
         offered
+    }
+}
+
+/// V1 stdio MCP servers carry no `type`; v2 requires `"type": "stdio"`.
+fn tag_stdio_servers(params: &mut Value) {
+    let servers = params.get_mut("mcpServers").and_then(Value::as_array_mut);
+    for server in servers.into_iter().flatten() {
+        if let Some(server) = server.as_object_mut() {
+            server.entry("type").or_insert_with(|| json!("stdio"));
+        }
     }
 }
 

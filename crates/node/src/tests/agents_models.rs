@@ -142,7 +142,7 @@ async fn v2_only_agents_offer_models_before_starting_a_session() {
             concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/fake_acp_v2.py").into(),
             temp.path().join("requests.jsonl").display().to_string(),
         ],
-        env: Default::default(),
+        env: [("BEEP_ACP_VERSION".into(), "2".into())].into(),
         compact: None,
         compact_models: Vec::new(),
         default_model: None,
