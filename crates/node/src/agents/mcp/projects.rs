@@ -1,8 +1,8 @@
 //! Project discovery and checkout selection from replicated mesh records.
 
 use super::{
-    machines::machines,
-    reply::{fail, ok},
+    machines::{find, machines},
+    reply::{fail, json_of, parse},
 };
 use crate::agents::moving::project_folder;
 use beep_mesh::{Key, Mesh};
@@ -88,19 +88,16 @@ pub(super) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<Str
 }
 
 pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
-    let args: Args = match serde_json::from_str(args) {
+    let args: Args = match parse(args) {
         Ok(args) => args,
-        Err(e) => return fail(format!("The arguments do not fit: {e}")),
+        Err(e) => return fail(e),
     };
     let Some(mesh) = mesh else {
         return fail("This machine is in no mesh, so it has no registered projects.");
     };
     let machines = machines(mesh);
     let machine = match args.machine {
-        Some(name) => match machines
-            .iter()
-            .find(|machine| machine.name == super::machines::command_name(&name))
-        {
+        Some(name) => match find(mesh, &name) {
             Some(machine) => Some(machine.id),
             None => {
                 return fail(format!(
@@ -153,10 +150,7 @@ pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
         }
     }
 
-    match serde_json::to_string(&projects) {
-        Ok(text) => ok(text),
-        Err(e) => fail(format!("Could not write the answer: {e}")),
-    }
+    json_of(&projects)
 }
 
 #[cfg(test)]

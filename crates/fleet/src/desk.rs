@@ -69,10 +69,6 @@ impl Desk {
         self
     }
 
-    pub fn mesh(&self) -> &Mesh {
-        &self.mesh
-    }
-
     /// Every code host of the mesh, with a shell on each that is online.
     pub(crate) async fn machines(&self) -> Vec<Machine> {
         self.seen()
@@ -84,7 +80,7 @@ impl Desk {
 
     /// Every code host of the mesh with what it said about itself.
     pub(crate) async fn seen(&self) -> Vec<Seen> {
-        join_all(self.mesh.code_hosts().into_iter().map(|d| self.look(d))).await
+        self.look_all(self.mesh.code_hosts()).await
     }
 
     /// Only the machines among `ids`: a read of one project has no use for the others, and one
@@ -94,8 +90,9 @@ impl Desk {
             .mesh
             .code_hosts()
             .into_iter()
-            .filter(|status| ids.contains(&status.device.id));
-        join_all(wanted.map(|status| self.look(status)))
+            .filter(|status| ids.contains(&status.device.id))
+            .collect();
+        self.look_all(wanted)
             .await
             .into_iter()
             .map(|seen| seen.machine)
@@ -130,10 +127,7 @@ impl Desk {
                     let client = self.peers.client(id).await?;
                     Ok::<_, FleetError>(search(&client).await?)
                 };
-                let said = timeout(LOOK, ask)
-                    .await
-                    .unwrap_or_else(|_| Err(FleetError::Refused("no answer in time".to_owned())));
-                (at, said)
+                (at, within_look(ask).await)
             })
             .collect();
 
@@ -143,6 +137,10 @@ impl Desk {
                 Err(e) => log::info!("{} did not say its projects folder: {e}", machines[at].name),
             }
         }
+    }
+
+    async fn look_all(&self, statuses: Vec<DeviceStatus>) -> Vec<Seen> {
+        join_all(statuses.into_iter().map(|status| self.look(status))).await
     }
 
     async fn look(&self, status: DeviceStatus) -> Seen {
@@ -166,9 +164,7 @@ impl Desk {
             let client = self.peers.client(id).await?;
             probe(&client).await.map(|said| (client, said))
         };
-        let said = timeout(LOOK, ask)
-            .await
-            .unwrap_or_else(|_| Err(FleetError::Refused("no answer in time".to_owned())));
+        let said = within_look(ask).await;
         let mut env = None;
 
         match said {
@@ -234,8 +230,8 @@ impl DesktopHosts {
         })
     }
 
-    pub(crate) fn reqwest(&self) -> Result<Client> {
-        Ok(self.client.clone())
+    pub(crate) fn client(&self) -> &Client {
+        &self.client
     }
 
     pub(crate) fn semaphore(&self) -> &Arc<Semaphore> {
@@ -270,10 +266,17 @@ impl DesktopHosts {
 
 impl Hosts for DesktopHosts {
     fn client(&self) -> anyhow::Result<Client> {
-        Ok(self.client.clone())
+        Ok(DesktopHosts::client(self).clone())
     }
 
     fn calls(&self) -> &Arc<Semaphore> {
         &self.calls
     }
+}
+
+/// `ask`, or a refusal when it takes longer than [`LOOK`].
+async fn within_look<T>(ask: impl Future<Output = Result<T>>) -> Result<T> {
+    timeout(LOOK, ask)
+        .await
+        .unwrap_or_else(|_| Err(FleetError::Refused("no answer in time".to_owned())))
 }

@@ -34,18 +34,7 @@ fn repo_names_parse() {
 }
 
 #[test]
-fn paths_join_and_contain() {
-    let project = MachinePath::from_str("/srv/project").expect("a valid path");
-    let inside = MachinePath::from_str("/srv/project/.worktrees/x").expect("a valid path");
-    let beside = MachinePath::from_str("/srv/project-old").expect("a valid path");
-    assert!(project.contains(&inside));
-    assert!(project.contains(&project));
-    assert!(!project.contains(&beside));
-    assert!(!inside.contains(&project));
-    assert_eq!(project.join(".worktrees/x"), inside);
-    // A join cannot climb out of the path.
-    assert_eq!(project.join("../x").as_ref(), "/srv/project/x");
-
+fn machine_paths_are_absolute_and_clean() {
     for bad in ["/srv/../etc", "srv/project", "/srv/project/", "", "/srv//x"] {
         assert!(
             MachinePath::from_str(bad).is_err(),

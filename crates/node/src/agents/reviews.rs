@@ -102,14 +102,7 @@ impl Agents {
         self: &Arc<Self>,
         order: ReviewOrder,
     ) -> Result<ReviewRun, String> {
-        if self.kinds().iter().all(|kind| kind.name != order.agent) {
-            let have: Vec<String> = self.kinds().iter().map(|kind| kind.name.clone()).collect();
-            return Err(format!(
-                "This machine has no {} agent. It has: {}.",
-                order.agent,
-                have.join(", ")
-            ));
-        }
+        self.kind_or_refusal(&order.agent)?;
 
         let (cwd, base, harness) = (order.cwd.clone(), order.base.clone(), order.agent.clone());
         let house = tokio::task::spawn_blocking(move || {

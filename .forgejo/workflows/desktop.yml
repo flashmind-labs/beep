@@ -1,5 +1,5 @@
 # Builds and releases desktop installers for a `desktop-v<version>` tag
-# (made by `just desktop-release <version>`).
+# (made by `just patch`, `just minor` or `just release`).
 # It must be signed and notarized, its version must match
 # the tag, and the DMG is attached to a Forgejo release for the tag and
 # uploaded to R2 with the archive installed apps update themselves from.
@@ -26,7 +26,6 @@ jobs:
     runs-on: macos
     env:
       BEEP_SERVER_URL: ${{ vars.BEEP_SERVER_URL }}
-      RELEASE: ${{ startsWith(github.ref, 'refs/tags/desktop-v') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -49,7 +48,7 @@ jobs:
           done
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/desktop/src-tauri/Cargo.toml | head -1)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
-          if [[ "$RELEASE" == true && "desktop-v$version" != "$GITHUB_REF_NAME" ]]; then
+          if [[ "desktop-v$version" != "$GITHUB_REF_NAME" ]]; then
             echo "The tag $GITHUB_REF_NAME does not match the app's version $version." >&2
             exit 1
           fi
@@ -87,20 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          security list-keychains -d user | sed 's/^ *"//; s/"$//' > "$RUNNER_TEMP/beep-keychains.txt"
-          keychain="$RUNNER_TEMP/beep-signing.keychain-db"
-          password=$(openssl rand -hex 32)
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 7200 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
-          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" \
-            -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$password" "$keychain" >/dev/null
-          keychains=("$keychain")
-          while IFS= read -r previous; do keychains+=("$previous"); done < "$RUNNER_TEMP/beep-keychains.txt"
-          security list-keychains -d user -s "${keychains[@]}"
+          bash scripts/keychain.sh import beep signing.p12 MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD
           printf '%s' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/notary-key.p8"
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/notary-key.p8" >> "$GITHUB_ENV"
 
@@ -118,18 +104,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          # A release also makes the signed archive the app updates itself from.
-          extra=()
-          if [[ "$RELEASE" == true ]]; then
-            extra=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
-          fi
           # Tauri runs `xattr -crs` before signing, and the pip xattr in
           # /opt/homebrew/bin has no -r.
-          # bash 3.2 treats an empty "${extra[@]}" as unset under set -u.
+          # The signed archive is what the app updates itself from.
           # Only this signed build has the native updater: a local build signed
           # ad hoc cannot load Sparkle.framework under the hardened runtime.
           PATH="/usr/bin:$PATH" cargo tauri build --bundles app --features sparkle \
-            --config tauri.sparkle.conf.json ${extra[@]+"${extra[@]}"}
+            --config tauri.sparkle.conf.json \
+            --config '{"bundle":{"createUpdaterArtifacts":true}}'
           app="$CARGO_TARGET_DIR/release/bundle/macos/Beep.app"
           codesign --verify --deep --strict "$app"
           xcrun stapler validate "$app"
@@ -154,14 +136,7 @@ jobs:
       - name: Remove signing material
         if: always()
         run: |
-          # Drop only this job's keychain. Restoring the list saved at the
-          # start would also drop one another job on this Mac added since.
-          keychains=()
-          while IFS= read -r current; do
-            [[ "$current" == */beep-signing.keychain-db ]] || keychains+=("$current")
-          done < <(security list-keychains -d user | sed 's/^ *"//; s/"$//')
-          security list-keychains -d user -s "${keychains[@]}"
-          security delete-keychain "$RUNNER_TEMP/beep-signing.keychain-db" || true
+          bash scripts/keychain.sh remove beep
           rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/beep-keychains.txt" "$RUNNER_TEMP/beep-sparkle.key"
 
       - uses: actions/upload-artifact@v3
@@ -173,25 +148,14 @@ jobs:
             target/macos-release/appcast.xml
 
       - name: Publish the release
-        if: env.RELEASE == 'true'
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
         run: |
           set -euo pipefail
           dmg="target/macos-release/Beep-$VERSION-$(uname -m).dmg"
-          release=$(jq -n --arg tag "$GITHUB_REF_NAME" --arg name "Beep desktop $VERSION" \
-            --rawfile notes "$RUNNER_TEMP/release-notes.md" \
-            '{tag_name: $tag, name: $name, body: $notes}' \
-            | curl -sSf -X POST -H "Authorization: token $TOKEN" \
-                -H "Content-Type: application/json" --data @- "$API/releases" \
-            | jq -r .id)
-          for file in "$dmg" "$dmg.sha256" target/macos-release/appcast.xml; do
-            name=${file##*/}
-            curl -sSf -X POST -H "Authorization: token $TOKEN" \
-              -F "attachment=@$file" "$API/releases/$release/assets?name=$name" > /dev/null
-          done
-          echo "Published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+          bash scripts/forgejo-release.sh create "Beep desktop $VERSION" "$RUNNER_TEMP/release-notes.md" \
+            "$dmg" "$dmg.sha256" target/macos-release/appcast.xml
 
       # Also into the R2 bucket under beep/macos/, served at
       # https://releases.flashmind.com/beep/macos/. Beep-latest.dmg is the
@@ -199,14 +163,13 @@ jobs:
       # about the update archive. Skipped until the CF_* secrets are set.
       - name: Stage the R2 upload
         id: r2
-        if: env.RELEASE == 'true'
         env:
           CF_ENDPOINT: ${{ secrets.CF_ENDPOINT }}
         run: |
           set -euo pipefail
           if [[ -z "$CF_ENDPOINT" ]]; then echo "No R2 secrets, skipping"; exit 0; fi
-          account=${CF_ENDPOINT#https://}
-          echo "account=${account%%.*}" >> "$GITHUB_OUTPUT"
+          account=$(bash scripts/r2.sh account)
+          echo "account=$account" >> "$GITHUB_OUTPUT"
           dmg="target/macos-release/Beep-$VERSION-$(uname -m).dmg"
           bundle="$CARGO_TARGET_DIR/release/bundle/macos"
           archive="Beep-$VERSION-aarch64.app.tar.gz"
@@ -369,13 +332,8 @@ jobs:
           API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
         run: |
           set -euo pipefail
-          release=$(curl -sSf -H "Authorization: token $TOKEN" \
-            "$API/releases/tags/$GITHUB_REF_NAME" | jq -er .id)
-          for file in "$RUNNER_TEMP/desktop-release-${{ github.run_id }}-${{ matrix.platform }}/files/"*; do
-            name=${file##*/}
-            curl -sSf -X POST -H "Authorization: token $TOKEN" \
-              -F "attachment=@$file" "$API/releases/$release/assets?name=$name" > /dev/null
-          done
+          bash scripts/forgejo-release.sh attach \
+            "$RUNNER_TEMP/desktop-release-${{ github.run_id }}-${{ matrix.platform }}/files/"*
 
       - name: Check the R2 configuration
         id: r2
@@ -384,8 +342,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$CF_ENDPOINT" ]]; then echo "No R2 secrets, skipping"; exit 0; fi
-          account=${CF_ENDPOINT#https://}
-          echo "account=${account%%.*}" >> "$GITHUB_OUTPUT"
+          account=$(bash scripts/r2.sh account)
+          echo "account=$account" >> "$GITHUB_OUTPUT"
 
       - name: Upload installers to R2
         if: steps.r2.outputs.account != ''
@@ -409,11 +367,7 @@ jobs:
         run: |
           set -euo pipefail
           file="$RUNNER_TEMP/desktop-release-${{ github.run_id }}-${{ matrix.platform }}/manifest/latest.json"
-          curl -sSf --retry 3 --aws-sigv4 "aws:amz:auto:s3" \
-            --user "$CF_ACCESS_KEY_ID:$CF_SECRET_ACCESS_KEY" \
-            -H "x-amz-content-sha256: $(sha256sum "$file" | cut -d ' ' -f 1)" \
-            -H "Cache-Control: no-cache" -H "Content-Type: application/json" \
-            -T "$file" "https://$ACCOUNT.r2.cloudflarestorage.com/$CF_BUCKET/beep/$PLATFORM/latest.json" > /dev/null
+          bash scripts/r2.sh put "$file" "beep/$PLATFORM/latest.json" application/json
 
       - name: Remove earlier versions from R2
         if: steps.r2.outputs.account != ''

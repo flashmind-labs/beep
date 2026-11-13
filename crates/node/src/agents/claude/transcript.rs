@@ -3,7 +3,10 @@
 //! `digest_tail`, `head`).
 
 use super::subagents;
-use crate::agents::tool_details;
+use crate::agents::{
+    live::{ARTIFACT_TOOL, SKILL_TOOL},
+    tool_details,
+};
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
     files::fsat::{self, FileId},
@@ -38,11 +41,9 @@ pub(super) const MAX_SHORT: usize = 300;
 /// The longest tool line.
 const MAX_TOOL: usize = 160;
 
-/// What a stretch of transcript says.
-#[derive(Debug, Default)]
-pub(super) struct Digest {
-    /// Native transcript files contain sidechain messages as their own conversation.
-    native: bool,
+/// What a transcript says about a session as a whole.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(super) struct Said {
     pub(super) cwd: Option<String>,
     pub(super) title: Option<String>,
     /// A title the user set, which wins over the generated one.
@@ -52,9 +53,33 @@ pub(super) struct Digest {
     /// itself is before the window.
     recorded_prompt: Option<String>,
     pub(super) last_message: Option<String>,
-    /// Unix seconds of the first and last timestamped lines.
-    pub(super) first_at: Option<u64>,
+    /// Unix seconds of the last timestamped line.
     pub(super) last_at: Option<u64>,
+}
+
+impl Said {
+    /// The title to show: the user's, else the generated one.
+    pub(super) fn title(&self) -> Option<String> {
+        self.custom_title
+            .clone()
+            .or_else(|| self.title.as_deref().and_then(tags::title))
+    }
+
+    pub(super) fn prompt(&self) -> Option<&str> {
+        self.last_prompt
+            .as_deref()
+            .or(self.recorded_prompt.as_deref())
+    }
+}
+
+/// What a stretch of transcript says.
+#[derive(Debug, Default)]
+pub(super) struct Digest {
+    /// Native transcript files contain sidechain messages as their own conversation.
+    native: bool,
+    pub(super) said: Said,
+    /// Unix seconds of the first timestamped line.
+    pub(super) first_at: Option<u64>,
     /// Unix milliseconds of the line before the one being read, from when
     /// a thought that follows it started.
     before_ms: Option<u64>,
@@ -93,22 +118,13 @@ pub(super) struct Spawn {
 /// The tools that start a subagent.
 const SPAWN_TOOLS: [&str; 2] = ["Agent", "Task"];
 
-/// Claude Code's tool that loads a skill.
-const SKILL_TOOL: &str = "Skill";
-
-/// Claude Code's tool that publishes a page or document as an artifact.
-const ARTIFACT_TOOL: &str = "Artifact";
-
 /// Where a published artifact's link starts.
 const ARTIFACT_LINK: &str = "https://claude.ai/";
 
 impl Digest {
     fn for_file(path: &Path, text: &str, pictures: bool) -> Self {
         let mut digest = Self {
-            native: path
-                .parent()
-                .and_then(Path::file_name)
-                .is_some_and(|name| name == "subagents"),
+            native: subagents::is_native(path),
             pictures: pictures.then(Vec::new),
             ..Self::default()
         };
@@ -139,18 +155,6 @@ impl Digest {
         }
     }
 
-    /// The title to show: the user's, else the generated one.
-    #[cfg(test)]
-    pub(super) fn title(&self) -> Option<&str> {
-        self.custom_title.as_deref().or(self.title.as_deref())
-    }
-
-    pub(super) fn prompt(&self) -> Option<&str> {
-        self.last_prompt
-            .as_deref()
-            .or(self.recorded_prompt.as_deref())
-    }
-
     pub(super) fn line(&mut self, line: &str) {
         let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
             return;
@@ -165,13 +169,13 @@ impl Digest {
         if let Some(at_ms) = at_ms {
             let at = at_ms / 1000;
             self.first_at.get_or_insert(at);
-            self.last_at = Some(at);
+            self.said.last_at = Some(at);
         }
 
         self.before_ms = self.line_ms.take().or(self.before_ms);
         self.line_ms = at_ms;
         if let Some(cwd) = value["cwd"].as_str() {
-            self.cwd = Some(cwd.to_owned());
+            self.said.cwd = Some(cwd.to_owned());
         }
         match value["type"].as_str().unwrap_or("") {
             "user" => self.user(&value),
@@ -183,10 +187,10 @@ impl Digest {
                 }
                 _ => {}
             },
-            "ai-title" => self.title = text_field(&value, "aiTitle"),
-            "custom-title" => self.custom_title = text_field(&value, "customTitle"),
-            "summary" => self.title = self.title.take().or(text_field(&value, "summary")),
-            "last-prompt" => self.recorded_prompt = text_field(&value, "lastPrompt"),
+            "ai-title" => self.said.title = text_field(&value, "aiTitle"),
+            "custom-title" => self.said.custom_title = text_field(&value, "customTitle"),
+            "summary" => self.said.title = self.said.title.take().or(text_field(&value, "summary")),
+            "last-prompt" => self.said.recorded_prompt = text_field(&value, "lastPrompt"),
             _ => {}
         }
     }
@@ -207,7 +211,7 @@ impl Digest {
 
         let content = &value["message"]["content"];
         let mut lines = String::new();
-        let text = match content {
+        let mut text = match content {
             Value::String(text) => Some(tags::untagged(text)),
             Value::Array(blocks) => {
                 for block in blocks.iter().filter(|block| block["type"] == "tool_result") {
@@ -228,10 +232,7 @@ impl Digest {
 
                     self.forked_skill(id, &value["toolUseResult"]);
 
-                    if let Some(entry) = self
-                        .tools
-                        .get(id)
-                        .and_then(|&index| self.entries.get_mut(index))
+                    if let Some(entry) = self.tool_entry(id)
                         && let Some(tool) = &mut entry.tool
                     {
                         (tool.result, tool.result_truncated) =
@@ -260,12 +261,13 @@ impl Digest {
             _ => None,
         };
         // Claude Code writes a cut-off turn as a user line, but nobody said it.
-        if text.as_deref().is_some_and(|text| {
-            text.trim()
-                .starts_with("[Request interrupted by user")
-        }) {
+        if let Some(rest) = text.as_deref().and_then(tags::after_interruption) {
+            let rest = rest.to_owned();
             self.push(EntryKind::Other, "Interrupted");
-            return;
+            if rest.trim().is_empty() {
+                return;
+            }
+            text = Some(rest);
         }
         // Beep's context and what other sessions sent stay apart from the
         // user's words, which Claude Code's own tags may wrap.
@@ -289,7 +291,7 @@ impl Digest {
             })
         });
         if let Some(said) = said {
-            self.last_prompt = Some(cut(said.trim(), MAX_SHORT));
+            self.said.last_prompt = Some(cut(said.trim(), MAX_SHORT));
         } else if lines.is_empty() {
             return;
         }
@@ -319,7 +321,7 @@ impl Digest {
                         continue;
                     }
 
-                    self.last_message = Some(cut(text, MAX_SHORT));
+                    self.said.last_message = Some(cut(text, MAX_SHORT));
 
                     match self.entries.last_mut() {
                         Some(last) if last.kind == EntryKind::Agent => {
@@ -427,29 +429,25 @@ impl Digest {
         }
     }
 
+    /// The entry of the tool call `id`, when it is among the entries.
+    fn tool_entry(&mut self, id: &str) -> Option<&mut Entry> {
+        self.tools.get(id).and_then(|&at| self.entries.get_mut(at))
+    }
+
     fn native_tool_result(&mut self, id: &str, block: &Value) {
         let failed = block["is_error"].as_bool() == Some(true);
         if failed && let Some(spawn) = self.spawns.get_mut(id) {
             spawn.failed = true;
         }
 
-        let Some(entry) = self.tools.get(id).and_then(|&at| self.entries.get_mut(at)) else {
+        let Some(entry) = self.tool_entry(id) else {
             return;
         };
         let title = entry
             .text
             .strip_suffix(" [in_progress]")
             .unwrap_or(&entry.text);
-        let content = &block["content"];
-        let output = content.as_str().map(str::to_owned).unwrap_or_else(|| {
-            content
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|part| part["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-        });
+        let output = text_of(&block["content"]).unwrap_or_default();
         entry.text = cut(
             &format!(
                 "{title} [{}]\n{output}",
@@ -469,7 +467,7 @@ impl Digest {
         let Some(skill) = result["commandName"].as_str().filter(|name| !name.is_empty()) else {
             return;
         };
-        let Some(entry) = self.tools.get(id).and_then(|&at| self.entries.get_mut(at)) else {
+        let Some(entry) = self.tool_entry(id) else {
             return;
         };
 
@@ -485,11 +483,7 @@ impl Digest {
         if let Some(spawn) = self.spawns.get_mut(id) {
             spawn.failed = true;
         }
-        if let Some(entry) = self
-            .tools
-            .get(id)
-            .and_then(|&index| self.entries.get_mut(index))
-        {
+        if let Some(entry) = self.tool_entry(id) {
             entry.text.push_str(" (failed)");
         }
     }
@@ -498,24 +492,14 @@ impl Digest {
     /// as a live session writes a finished call: `Artifact: <path>
     /// [completed]`, then the link.
     fn artifact_published(&mut self, id: &str, content: &Value) {
-        let text = match content {
-            Value::String(text) => text.clone(),
-            Value::Array(blocks) => blocks
-                .iter()
-                .filter_map(|block| block["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("\n"),
-            _ => return,
+        let Some(text) = text_of(content) else {
+            return;
         };
         let Some(link) = artifact_link(&text) else {
             return;
         };
 
-        if let Some(entry) = self
-            .tools
-            .get(id)
-            .and_then(|&index| self.entries.get_mut(index))
-        {
+        if let Some(entry) = self.tool_entry(id) {
             entry.text = format!("{} [completed]\n{link}", entry.text);
         }
     }
@@ -737,7 +721,7 @@ fn digest_tail_with(
     loop {
         let tail = read_tail(path, window)?;
         let digest = read(&tail.text);
-        let enough = digest.entries.len() > entries && digest.prompt().is_some();
+        let enough = digest.entries.len() > entries && digest.said.prompt().is_some();
 
         if tail.whole || enough || window >= MAX_WINDOW {
             return Ok((digest, tail.end));
@@ -751,13 +735,7 @@ fn digest_tail_with(
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Gist {
     native: bool,
-    pub(super) cwd: Option<String>,
-    title: Option<String>,
-    custom_title: Option<String>,
-    last_prompt: Option<String>,
-    recorded_prompt: Option<String>,
-    pub(super) last_message: Option<String>,
-    pub(super) last_at: Option<u64>,
+    pub(super) said: Said,
     /// Where the tail was read whole, and where the lines read end.
     read_at: u64,
     end: u64,
@@ -790,13 +768,7 @@ impl Gist {
         let tail = read_from(&mut file, self.end, len)?;
         let mut digest = Digest {
             native: self.native,
-            cwd: self.cwd.clone(),
-            title: self.title.clone(),
-            custom_title: self.custom_title.clone(),
-            last_prompt: self.last_prompt.clone(),
-            recorded_prompt: self.recorded_prompt.clone(),
-            last_message: self.last_message.clone(),
-            last_at: self.last_at,
+            said: self.said.clone(),
             ..Digest::default()
         };
         digest.lines(&tail.text);
@@ -807,28 +779,27 @@ impl Gist {
     fn of(digest: Digest, read_at: u64, end: u64, check: Vec<u8>) -> Self {
         Self {
             native: digest.native,
-            cwd: digest.cwd,
-            title: digest.title,
-            custom_title: digest.custom_title,
-            last_prompt: digest.last_prompt,
-            recorded_prompt: digest.recorded_prompt,
-            last_message: digest.last_message,
-            last_at: digest.last_at,
+            said: digest.said,
             read_at,
             end,
             check,
         }
     }
+}
 
-    /// The title to show: the user's, else the generated one.
-    pub(super) fn title(&self) -> Option<&str> {
-        self.custom_title.as_deref().or(self.title.as_deref())
-    }
-
-    pub(super) fn prompt(&self) -> Option<&str> {
-        self.last_prompt
-            .as_deref()
-            .or(self.recorded_prompt.as_deref())
+/// A tool result's content as text: a string as it is, a list of blocks as
+/// their texts on lines. `None` for any other content.
+fn text_of(content: &Value) -> Option<String> {
+    match content {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(blocks) => Some(
+            blocks
+                .iter()
+                .filter_map(|block| block["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        _ => None,
     }
 }
 
@@ -1162,13 +1133,26 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn imported_automatic_titles_are_cleaned_but_custom_titles_stay() {
+        let tagged = tags::from_session("parent", "Parent task", "Fix the upload queue.");
+        let mut digest = Digest::read(&serde_json::json!({"type": "ai-title", "aiTitle": tagged}).to_string());
+        let gist = Gist::of(digest, 0, 0, Vec::new());
+        assert_eq!(gist.said.title().as_deref(), Some("Fix the upload queue."));
+
+        let custom = "Custom title ".repeat(10).trim().to_owned();
+        digest = Digest::read(&serde_json::json!({"type": "custom-title", "customTitle": custom}).to_string());
+        let gist = Gist::of(digest, 0, 0, Vec::new());
+        assert_eq!(gist.said.title().as_deref(), Some(custom.as_str()));
+    }
+
+    #[test]
     fn a_transcript_reads_as_prompts_text_and_tool_lines() {
         let digest = Digest::read(FIXTURE);
-        assert_eq!(digest.cwd.as_deref(), Some("/srv/project"));
-        assert_eq!(digest.title(), Some("Fix the flaky test"));
-        assert_eq!(digest.prompt(), Some("now run the whole suite"));
+        assert_eq!(digest.said.cwd.as_deref(), Some("/srv/project"));
+        assert_eq!(digest.said.title().as_deref(), Some("Fix the flaky test"));
+        assert_eq!(digest.said.prompt(), Some("now run the whole suite"));
         assert_eq!(
-            digest.last_message.as_deref(),
+            digest.said.last_message.as_deref(),
             Some("All 42 tests pass now.")
         );
         assert_eq!(digest.turns_ended, 2);
@@ -1345,7 +1329,7 @@ pub(super) mod tests {
                 .map(|entry| (entry.kind, entry.text.as_str()))
                 .collect();
             assert_eq!(shown, [(EntryKind::Other, "Interrupted")]);
-            assert_eq!(digest.prompt(), None);
+            assert_eq!(digest.said.prompt(), None);
         }
     }
 

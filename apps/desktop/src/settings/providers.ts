@@ -6,7 +6,7 @@ import { ProviderHeader, ProvidersView, type SharedProviderSettings } from "./pr
 // runtime settings.
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { Changes } from "../ui/pagecache.ts";
-import { checkedLabel, compactOf, compactProblem, draftOf, hasCompact, listRows, savedToLabel, settingsInput, toggledInput, updatable } from "./providers-state.ts";
+import { checkedLabel, compactDraftOf, compactOf, compactProblem, draftOf, hasCompact, listRows, savedToLabel, settingsInput, toggledInput, updatable } from "./providers-state.ts";
 import type { AutoCompactDraft, Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings } from "./providers-state.ts";
 import type { CenterView } from "../center/state.ts";
 import { modelContextPanel } from "./model-context.ts";
@@ -179,12 +179,6 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     }
   }
 
-  /// Saves the shared auto-compact setting.
-  async function saveCompact(agent: string, compact: Compact) {
-    await invoke("harness_compact_save", { agent, compact });
-    st.compacts.delete(agent);
-  }
-
   async function save(hv: HarnessView, input: ReturnType<typeof settingsInput>) {
     const machine = st.machine;
     if (!machine || st.saving) return;
@@ -280,7 +274,8 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     compactErrors.delete(agent);
     draw();
     try {
-      await saveCompact(agent, compactOf(submitted));
+      await invoke("harness_compact_save", { agent, compact: compactOf(submitted) });
+      st.compacts.delete(agent);
       if (compactDrafts.get(agent) === submitted) compactDrafts.delete(agent);
       await loadCompact(agent);
     } catch (error) {
@@ -306,7 +301,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
 
   function sharedSettings(agent: string): SharedProviderSettings {
     const saved = st.compacts.get(agent) ?? null;
-    const draft = compactDrafts.get(agent) ?? { compactOn: saved?.enabled ?? true, compactPercent: saved?.tokens != null ? String(saved.tokens) : saved?.percent != null ? String(saved.percent) : "" };
+    const draft = compactDrafts.get(agent) ?? compactDraftOf(saved);
     return { agent, machineName: st.machine ? machineName() : null, compact: hasCompact(agent) ? {
       loaded: st.compacts.has(agent), draft, busy: savingCompacts.has(agent), edited: compactDrafts.has(agent),
       error: compactProblem(draft) || (compactErrors.get(agent) ?? ""),

@@ -30,7 +30,8 @@ use std::{
 };
 
 impl Live {
-    pub(crate) fn new(info: SessionInfo, images: Arc<Images>, usage: Arc<UsageHub>) -> Self {
+    pub(crate) fn new(mut info: SessionInfo, images: Arc<Images>, usage: Arc<UsageHub>) -> Self {
+        info.title = info.title.as_deref().and_then(crate::agents::tags::title);
         let folder = PathBuf::from(&info.cwd);
         Self {
             folder: Some(folder.clone()),
@@ -220,7 +221,13 @@ impl Live {
     }
 
     pub(super) fn push_entry(&mut self, kind: EntryKind, text: String) -> u64 {
-        self.push_whole(Entry::new(kind, text))
+        let mut entry = Entry::new(kind, text);
+
+        if self.info.state.status != Status::Starting {
+            entry.sent_at = Some(unix_now());
+        }
+
+        self.push_whole(entry)
     }
 
     fn push_whole(&mut self, entry: Entry) -> u64 {
@@ -254,16 +261,22 @@ impl Live {
         self.transcript.get_mut(index)
     }
 
+    /// Copies known dates onto replayed entries in transcript order.
+    pub(crate) fn restore_times(&mut self, earlier: &[Entry]) {
+        let mut saved = earlier.iter().rev();
+
+        for entry in self.transcript.iter_mut().rev() {
+            if let Some(index) = saved.clone().position(|old| old.kind == entry.kind && old.text == entry.text) {
+                entry.sent_at = saved.nth(index).and_then(|old| old.sent_at);
+            }
+        }
+    }
+
     /// A prompt went to the agent.
     pub(crate) fn prompted(&mut self, text: &str) {
         // Until the agent names the session, its first prompt does.
-        if self.info.title.is_none()
-            && let Some(line) = crate::agents::tags::said(text)
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-        {
-            self.info.title = Some(cut(line, MAX_LINE));
+        if self.info.title.is_none() {
+            self.info.title = crate::agents::tags::title(text);
         }
 
         self.end_thought(Instant::now());
@@ -271,6 +284,9 @@ impl Live {
         self.info.last_activity = unix_now();
         self.in_message = false;
         self.turn_start = self.push_entry(EntryKind::User, cut(text, MAX_ENTRY));
+        if let Some(entry) = self.entry_mut(self.turn_start) {
+            entry.sent_at = Some(unix_now());
+        }
         self.turn_links.clear();
         self.turn_images.clear();
         self.turn_began = Some(SystemTime::now());
@@ -299,7 +315,7 @@ impl Live {
     }
 
     /// The question the agent asked in `session/request_permission`.
-    pub(crate) fn question(&self, id: u32, request: &RequestPermissionRequest) -> Question {
+    pub(crate) fn question(&self, request: &RequestPermissionRequest) -> Question {
         let call = &request.tool_call;
         let known = self.tools.get(&call.tool_call_id);
         let title = call
@@ -340,7 +356,7 @@ impl Live {
             .and_then(detail)
             .filter(|detail| *detail != text);
         Question {
-            id,
+            id: 0,
             text,
             detail,
             options,

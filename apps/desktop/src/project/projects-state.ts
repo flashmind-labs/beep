@@ -138,9 +138,13 @@ export function mergeProjects(
 
   for (const r of (running || [])) {
     let row: Project | undefined;
+    let deepest = -1;
 
+    // The deepest folder holds it, as running-state's projectOf says.
     for (const p of rows.values()) {
-      if (p.machines.some(m => m.id === r.machine_id && within(r.cwd, m.folder))) { row = p; break; }
+      for (const m of p.machines) {
+        if (m.id === r.machine_id && within(r.cwd, m.folder) && m.folder.length > deepest) { row = p; deepest = m.folder.length; }
+      }
     }
 
     if (!row) continue;

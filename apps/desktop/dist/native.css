@@ -18,9 +18,11 @@ html[data-material="vibrant"] body:not(.mobile) .cc-si:hover { background: color
 a[href] { cursor: pointer }
 
 /* ----- Conversation ----- */
-/* Your message is a block on the right; the agent's words run the full column. */
-body:not(.mobile) .dcoderen.user { justify-self: end; align-self: flex-end; width: fit-content; max-width: 78%; margin-left: auto; padding: 7px 11px; background: color-mix(in srgb, var(--fg) 9%, transparent) }
-body:not(.mobile) .dcoderen.user > b { display: none }
+/* Your message is a rounded block across the column, without the "You" over it. */
+body:not(.mobile) .dcoderen.user { padding: 9px 12px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 7%, transparent) }
+/* The "You" goes; the time it was sent stays, at the block's end. */
+body:not(.mobile) .dcoderen.user > b { display: flex; justify-content: flex-end; font-size: 0; line-height: 0 }
+body:not(.mobile) .dcoderen.user > b time { line-height: 12px }
 /* Words the agent said on the way read quieter than its answer. */
 body:not(.mobile) .dcoderen.agent:has(+ .dcoderturn) { color: var(--muted) }
 
@@ -102,7 +104,11 @@ body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srg
    lays its tools over the row's end; the session's own head is the row, and drags the window. ----- */
 body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
 body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > * { pointer-events: auto }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell) { display: none }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell, #pw-back) { display: none }
+/* A project window's Back stays, at the row's start: the bar ends at the window's edge, so its
+   start is the bar's own width short of the window's (cqw is of .cc-main). */
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > #pw-back:not([hidden]) { position: absolute; top: 6px; left: calc(var(--top-w, 0px) - 100cqw + 6px) }
+body:not(.mobile) .cc-main:has(#pw-back:not([hidden])) .dhead.ag-head { padding-left: 64px }
 body:not(.mobile) .nt-bell { border: 0 }
 body:not(.mobile) .dhead.ag-head { height: 40px; padding: 0 112px 0 14px; gap: 8px; border-bottom: 0 }
 body:not(.mobile) .ag-head .dcoderav { width: 18px; height: 18px; border: 0; background: none }
@@ -230,8 +236,6 @@ body:not(.mobile) :is(.cc-si[aria-current="true"], .cc-org[aria-current="true"],
 /* Cards have a lit top edge. */
 body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])):not(:has(.tl-view)), body:not(.mobile) .agshell > :is(.agmain, .agpane), body:not(.mobile) .tl-view > .tl > * { background: var(--lit), var(--ink) }
 
-/* Your message carries the accent on its edge. */
-body:not(.mobile) .dcoderen.user { border-right: 2px solid var(--accent); background: color-mix(in srgb, var(--fg) 6%, transparent) }
 
 /* Glass: only layers that float. */
 body:not(.mobile) :is(.cc-pal, .agctx, .agc-pick, .agc-menu, .us-pop, .nt-pop) { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
@@ -267,7 +271,8 @@ body:not(.mobile) .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(-
 body:not(.mobile) .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; text-shadow: 0 1px 12px var(--ink) }
 /* Frosted glass: a light tint, a strong blur, a bright rim. */
 body:not(.mobile) .cc-pjc.centered .box { border-color: color-mix(in srgb, var(--fg) 22%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 22%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--fg) 5%, transparent), 0 20px 50px -16px color-mix(in srgb, var(--shade) 80%, transparent) }
-body:not(.mobile) .cc-pjc.centered .box::before { background: color-mix(in srgb, var(--fg) 7%, color-mix(in srgb, var(--ink) 45%, transparent)); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8) }
+/* The tint alone keeps the words readable: WebKit does not always blur what lies behind this layer. */
+body:not(.mobile) .cc-pjc.centered .box::before { background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--ink) 86%, transparent)); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8) }
 /* The start screen fills its card on any window: the old 960px box cut the picture on a large one.
    The doubled id outranks the pane's own rule in center.css. */
 body:not(.mobile) #pane-box#pane-box > .dbar:has(.cc-pjc.centered) { width: 100%; max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none }

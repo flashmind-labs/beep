@@ -3,7 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage } from "../src/agents/agents.ts";
 import { toggleThoughts } from "../src/agents/logkeys.ts";
-import * as agentlog from "../src/agents/agentlog.ts";
 import { drawAgentBody, turnsOf } from "../src/agents/logview.ts";
 import { showSessionBody } from "./session-frame-env.ts";
 
@@ -18,7 +17,7 @@ test("grouped live thoughts stay folded beside progress and preserve the reader'
       { kind: "thought", text: "Waiting for verification", ms: null }],
     earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
   };
-  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, child: null });
   showSessionBody();
   const rows = () => bar.querySelectorAll("[data-thought]");
   drawAgentBody();
@@ -74,7 +73,7 @@ test("progress groups collect alternating thoughts and tools and split at visibl
       { kind: "tool", text: "cargo build [in_progress]" }],
     earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
   };
-  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, child: null });
   AG.steps.clear();
   showSessionBody();
   drawAgentBody();
@@ -119,7 +118,7 @@ test("the latest call stays visible until completion, while manual expansion sur
       { kind: "tool", text: "cargo test [in_progress]" }],
     earlier: 40, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
   };
-  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, child: null });
   AG.steps.clear();
   showSessionBody();
   const rows = () => bar.querySelectorAll<HTMLElement>(".tool.row");
@@ -183,7 +182,7 @@ test("streaming waits while a reply control is focused, then updates the same re
     entries: [{ kind: "user", text: "Question" }, { kind: "agent", text: "First", html: "<p>First</p><pre><code>one</code></pre>" }],
     earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0,
   };
-  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, log: agentlog, child: null });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, child: null });
   showSessionBody();
   drawAgentBody();
   const reply = bar.querySelector<HTMLElement>('.dcoderen.agent[data-row="1"]');

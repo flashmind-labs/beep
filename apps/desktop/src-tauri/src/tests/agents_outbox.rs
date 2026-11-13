@@ -289,6 +289,7 @@ fn entry(kind: AgentEntryKind, text: &str) -> AgentEntry {
         kind,
         text: text.into(),
         tool: None,
+        sent_at: None,
     }
 }
 

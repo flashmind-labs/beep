@@ -6,7 +6,7 @@ import { StashPanel } from "./stash-view.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { hasStashMessage, type StashEntry, type StashMessage } from "./stash-state.ts";
 
-export interface StashBinding {
+interface StashBinding {
   project(): string | null;
   hasAttachments(): boolean;
   capture(): Promise<StashMessage>;

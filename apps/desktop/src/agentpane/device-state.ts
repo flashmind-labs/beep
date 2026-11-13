@@ -5,7 +5,7 @@
 import { parseTool } from "../agents/agentlog.ts";
 
 export type DevicePlatform = "Android" | "Ios";
-export type DevicePower = "Off" | "Booting" | "On";
+type DevicePower = "Off" | "Booting" | "On";
 
 /// An emulator or simulator, as `device_list` gives it.
 export interface Device {
@@ -37,7 +37,7 @@ export interface DevicePick {
 }
 
 export type TouchPhase = "Down" | "Move" | "Up";
-export type DeviceKey = "Return" | "Delete" | "Tab" | "Escape" | "Left" | "Right" | "Up" | "Down";
+type DeviceKey = "Return" | "Delete" | "Tab" | "Escape" | "Left" | "Right" | "Up" | "Down";
 export type DeviceButton = "Home" | "Back" | "AppSwitch" | "Power" | "VolumeUp" | "VolumeDown" | "Rotate";
 
 /// Input as the node's `Input` reads in JSON.
@@ -55,7 +55,7 @@ export type ScreenState =
   | { kind: "ended"; reason: string };
 
 /// A message on `device_attach`'s channel.
-export type ScreenMessage =
+type ScreenMessage =
   | { kind: "attached" }
   | { kind: "frame"; width: number; height: number; jpeg: Uint8Array<ArrayBuffer> }
   | { kind: "ended"; reason: string };
@@ -130,7 +130,7 @@ export type DeviceVerb = typeof DEVICE_VERBS[number];
 /// A `device` call on one device: the machine by its name in the agent's
 /// list, the device by the name or id the agent gave, and what the title
 /// adds (the point, the text or the key).
-export interface DeviceCall {
+interface DeviceCall {
   verb: DeviceVerb;
   machine: string;
   device: string;

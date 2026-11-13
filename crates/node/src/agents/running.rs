@@ -1,8 +1,8 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, NodeMode, Prompt, Session, Start,
-    checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
+    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start,
+    checkout, harnesses, live::Live, models, plans,
 };
 use crate::{
     agents::mcp::{self, Launch},
@@ -29,7 +29,6 @@ use std::{
 use tokio::{
     sync::{oneshot, watch},
     task::spawn_blocking,
-    time::timeout,
 };
 
 impl Agents {
@@ -247,15 +246,7 @@ impl Agents {
     /// waits for the user's agent settings, which say how each CLI signs in,
     /// for `SETTINGS_WAIT` at most.
     pub(crate) async fn read_plans_at_start(self: &Arc<Self>) {
-        let mut settled = self.settled.subscribe();
-
-        if timeout(
-            SETTINGS_WAIT,
-            watched::wait_for(&mut settled, |settled| *settled),
-        )
-        .await
-        .is_err()
-        {
+        if !self.settings_came().await {
             log::debug!("reading the plans without the agent settings");
         }
 
@@ -354,6 +345,23 @@ impl Agents {
         self.kinds().iter().find(|kind| kind.name == name).cloned()
     }
 
+    /// The agent called `name`, or why this node cannot start it.
+    pub(super) fn kind_or_refusal(&self, name: &str) -> Result<AgentKind, String> {
+        let kinds = self.kinds();
+
+        kinds
+            .iter()
+            .find(|kind| kind.name == name)
+            .cloned()
+            .ok_or_else(|| {
+                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
+                format!(
+                    "This machine has no {name} agent. It has: {}.",
+                    have.join(", ")
+                )
+            })
+    }
+
     /// The agents this node can start now.
     pub(super) fn kinds(&self) -> Arc<Vec<AgentKind>> {
         watched::read_sent(&self.kinds, Clone::clone)
@@ -442,11 +450,6 @@ impl Agents {
         mut begin: Begin,
     ) -> Result<Arc<Session>> {
         self.prepare(kind).await?;
-
-        if checkout.is_some() {
-            // Refused starts must not leave a branch or worktree behind.
-            self.settings.configured(kind)?;
-        }
 
         let prompt = begin.prompt.as_deref().unwrap_or_default();
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
@@ -548,6 +551,7 @@ impl Agents {
             resume: begin.resume,
             earlier: begin.earlier,
             timestamps: begin.timestamps,
+            title: begin.title,
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
@@ -560,9 +564,7 @@ impl Agents {
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
-            node: NodeMode {
-                stopping: self.stopping.clone(),
-            },
+            stopping: self.stopping.clone(),
         })?;
         session.reviewer = begin.review;
         let session = Arc::new(session);
@@ -643,6 +645,7 @@ pub(super) struct Begin {
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<agent::Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
+    pub(super) title: Option<String>,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
     /// The session mode it was in before the node restarted.

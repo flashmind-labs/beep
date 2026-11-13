@@ -9,8 +9,7 @@ use crate::{
 };
 use beep_fleet::Session;
 use beep_proto::{
-    ApiError, ApiKey, Credential, CredentialCheck, GITHUB_ENV_VAR, GitHubAccount, SecretText,
-    Service,
+    ApiError, ApiKey, Credential, CredentialCheck, GitHubAccount, SecretText, Service,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -41,20 +40,6 @@ impl From<Credential> for CredentialView {
             env_var: credential.env_var,
             created_at: epoch_ms(credential.created_at),
             unreadable: credential.unreadable,
-        }
-    }
-}
-
-impl From<GitHubAccount> for CredentialView {
-    fn from(account: GitHubAccount) -> Self {
-        Self {
-            id: account.id,
-            service: Service::GitHub,
-            last4: account.last4,
-            account: Some(account.login),
-            env_var: GITHUB_ENV_VAR.to_owned(),
-            created_at: epoch_ms(account.created_at),
-            unreadable: account.unreadable,
         }
     }
 }

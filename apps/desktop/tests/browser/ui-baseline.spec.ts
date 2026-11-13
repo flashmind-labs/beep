@@ -171,9 +171,9 @@ test("search palette", async ({ page }) => {
 });
 
 test("start screen", async ({ page }, info) => {
-  // The headline is drawn by lot; the screenshot needs the same one each run.
-  await page.addInitScript(() => { Math.random = () => 0; });
   await openDesktop(page, false, { center_home: home });
+  // The headline is drawn by lot when the screen opens; the screenshot needs the same one each run.
+  await page.evaluate(() => { Math.random = () => 0; });
   await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
   await expect(page.locator(".cc-pjc.centered .agc-intro h3")).toBeVisible();
   await baseline(page, "start");

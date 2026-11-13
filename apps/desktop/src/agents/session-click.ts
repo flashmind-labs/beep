@@ -5,7 +5,7 @@ import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode } from "./turnrows.ts";
-import { AG } from "./agents.ts";
+import { AG, openOf, where } from "./agents.ts";
 import { fullPic } from "./images.ts";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, loadSessions, sessions } from "./sessions.ts";
@@ -15,17 +15,18 @@ import { cycleMode } from "./modepill.ts";
 import { answerAgentQuestion } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
+import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent } from "./session.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 
 /// Opens the conversation of the subagent whose call is entry `at`; false when it has none to open.
 function openNative(at: number) {
-  const entry = AG.page && AG.log ? AG.page.entries[at - AG.page.earlier] : null;
-  if (!AG.page || !AG.log || !entry) return false;
+  const entry = AG.page ? AG.page.entries[at - AG.page.earlier] : null;
+  if (!AG.page || !entry) return false;
 
-  const { title, status, output } = AG.log.parseTool(AG.log.imageLines(entry.text).text);
-  const child = AG.log.subagent(output);
+  const { title, status, output } = parseTool(imageLines(entry.text).text);
+  const child = subagent(output);
   const row = child?.session && nativeSession(AG.page.session, child.session, title.split("\n")[0], status);
   if (!row) return false;
 
@@ -130,6 +131,9 @@ export function agentClick(e: MouseEvent) {
   // A file a step names opens in the media pane.
   const step = inLog<HTMLElement>("[data-media]");
   if (step) { openPath(step.dataset.media!); return; }
+  const attachment = inLog<HTMLElement>("[data-attachment-path]");
+  if (attachment?.dataset.attachmentPath) { openPath(attachment.dataset.attachmentPath); return; }
+
   // A markdown link to a file opens it in the pane; bar/events.ts sends web links out.
   const fileLink = inLog<HTMLAnchorElement>("a[href]");
   const linkedFile = fileLink && linkedPath(fileLink.getAttribute("href")!);
@@ -222,7 +226,7 @@ async function stopKid(x: HTMLElement) {
   if (!row) return;
 
   try {
-    await invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: "cancel" });
+    await invoke("agent_steer", { ...where(openOf(row)), steer: "cancel" });
   } catch (e) {
     AG.note = readError(e);
     drawAgentBody();

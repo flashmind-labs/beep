@@ -14,9 +14,8 @@ import { saveDraft } from "./draftstore.ts";
 import { feedbackButton } from "./feedback.ts";
 import { perfOpen } from "../ui/perf.ts";
 
-/// The one part a diff draws into the window or the session that owns it.
-export type DiffSlot = "viewer";
-export interface DiffOwner { set(slot: DiffSlot, content: ReactNode): void; dispose(): void }
+/// The window or session that owns a diff and draws its one viewer.
+export interface DiffOwner { set(content: ReactNode): void; dispose(): void }
 
 /// Where a diff comes from and what its files can open in.
 export interface DiffSource {
@@ -68,7 +67,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     say: text => say(v, text),
   });
 
-  src.owner.set("viewer", createPortal(createElement(DiffViewer, { v }), v.root));
+  src.owner.set(createPortal(createElement(DiffViewer, { v }), v.root));
   const opened = perfOpen("diff");
   void load(v).then(() => { if (v.state.view) opened(); });
 
@@ -162,15 +161,14 @@ export async function loadFull(v: Viewer, f: DiffFile) {
     if (seq !== v.seq) return;
     const view = v.state.view;
     if (view) v.set({ view: withLoaded(view, got.files) });
+    v.set({ folded: new Map(v.state.folded).set(f.path, false) });
+    reconcile(v, new Set([f.path]));
   } catch (e) {
     if (seq !== v.seq) return;
     v.set({ error: `Could not read ${f.path}: ${reasonOf(e)}` });
   } finally {
     setPending(v, f.path, false);
   }
-
-  v.set({ folded: new Map(v.state.folded).set(f.path, false) });
-  reconcile(v, new Set([f.path]));
 }
 
 /// Shows more context around hunks of file `f`, or takes it away again.
@@ -214,7 +212,13 @@ export async function sendReview(v: Viewer) {
   if (sending || !draft.length) return;
   const sent = draft.slice();
   v.set({ sending: true, error: "" });
-  const why = await v.src.review.send(reviewText(v.src.review.heading(), view?.files ?? [], sent));
+  let why: string;
+
+  try {
+    why = await v.src.review.send(reviewText(v.src.review.heading(), view?.files ?? [], sent));
+  } catch (error) {
+    why = reasonOf(error);
+  }
 
   if (why) v.set({ sending: false, error: why });
   else {

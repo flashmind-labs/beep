@@ -41,10 +41,6 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
     },
   });
 
-  const take = (next: SignInView) => {
-    view = next;
-    draw();
-  };
   function step(s: Step): Promise<void> {
     pending = pending.then(() => active ? read(s) : undefined);
     return pending;
@@ -59,7 +55,8 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
       }
 
       error = "";
-      take(next);
+      view = next;
+      draw();
     } catch (e) {
       error = reason(e);
     }

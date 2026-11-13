@@ -148,9 +148,9 @@ fn mac_volumes(mount: &str) -> Vec<PathBuf> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-struct Memory {
+pub(super) struct Memory {
     used_mb: u64,
-    total_mb: u64,
+    pub(super) total_mb: u64,
 }
 
 #[cfg(unix)]
@@ -173,7 +173,7 @@ async fn memory() -> Result<Memory> {
 }
 
 #[cfg(windows)]
-async fn memory() -> Result<Memory> {
+pub(super) async fn memory() -> Result<Memory> {
     use std::mem::size_of;
     use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
     let mut status = MEMORYSTATUSEX {

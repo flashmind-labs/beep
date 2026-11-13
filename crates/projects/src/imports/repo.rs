@@ -1,12 +1,9 @@
 //! Which repository the user means: `org/repo`, a GitHub URL, or a URL on a saved Forgejo server.
 
 use super::ImportError;
-use crate::model::{ForgejoUrl, RepoName, is_github, remote_parts};
+use crate::git_items::github::HOST as GITHUB;
+use crate::model::{ForgejoUrl, MAX_REPO_PART, RepoName, is_github, remote_parts};
 use url::Url;
-
-const GITHUB: &str = "github.com";
-/// The longest org or repo name GitHub and Forgejo take.
-const MAX_PART: usize = 100;
 
 /// Where a repository lives.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,7 +217,7 @@ fn org_and_name(path: &str) -> Result<(&str, &str), ImportError> {
 /// Letters, digits, `-`, `_` and `.`, not starting with a dot or dash: valid on hosts and as folders.
 pub fn valid_part(part: &str) -> bool {
     !part.is_empty()
-        && part.len() <= MAX_PART
+        && part.len() <= MAX_REPO_PART
         && !part.starts_with(['.', '-'])
         && part
             .chars()

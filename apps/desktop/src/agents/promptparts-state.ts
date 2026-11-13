@@ -59,3 +59,45 @@ export function sessionMessageTitle(name: string): string {
 
   return "";
 }
+
+/// Fold standalone file-reference paragraphs without changing the stored prompt.
+export function compactPromptAttachments(html: string): string {
+  if (!html.includes("@")) return html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+
+  for (const paragraph of template.content.querySelectorAll("p")) {
+    if (paragraph.closest("pre, code, details, blockquote") || paragraph.querySelector("code, img")) continue;
+    const text = paragraph.textContent?.trim() ?? "";
+    const references = [...text.matchAll(/@(?:"([^"\n]+)"|([^\s"]+))/g)];
+    if (!references.length || text.replace(/@(?:"[^"\n]+"|[^\s"]+)/g, "").trim()) continue;
+    const paths = references.map(match => match[1] ?? match[2]);
+    if (paths.some(path => !/[\\/.]/.test(path))) continue;
+
+    const items = document.createElement("div");
+    items.className = "attachment-items";
+
+    for (const path of paths) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.dataset.attachmentPath = path;
+      chip.className = "attachment-file";
+      chip.title = path;
+      chip.textContent = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+      items.append(chip);
+    }
+
+    if (paths.length > 5) {
+      const batch = document.createElement("details");
+      batch.className = "attachment-batch";
+      const summary = document.createElement("summary");
+      summary.textContent = `${paths.length} attachments`;
+      batch.append(summary, items);
+      paragraph.replaceWith(batch);
+    } else {
+      paragraph.replaceWith(items);
+    }
+  }
+
+  return template.innerHTML;
+}

@@ -19,7 +19,7 @@ fn hour(billing: Billing) -> HourSpend {
 fn a_plan_that_could_not_be_told_reports_tokens_not_dollars() {
     let unknown = hour(Billing::Unknown);
     let paid = hour(Billing::Metered);
-    let rows = Rows(vec![
+    let rows = vec![
         Row {
             project: Some("widget".to_owned()),
             agent: &AgentSlug::CLAUDE,
@@ -30,7 +30,7 @@ fn a_plan_that_could_not_be_told_reports_tokens_not_dollars() {
             agent: &AgentSlug::CLAUDE,
             hour: &paid,
         },
-    ]);
+    ];
 
     let bill = bill(&rows);
 

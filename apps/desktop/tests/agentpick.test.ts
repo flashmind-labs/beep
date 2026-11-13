@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { checkoutLabel, formProjects, harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, projectAt, startPlace } from "../src/agents/agentpick.ts";
+import { formProjects, harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, projectAt, startPlace } from "../src/agents/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
@@ -38,7 +38,6 @@ test("a checkout's worktrees come from where sessions ran, newest first", () => 
 
 test("New branch and New worktree send a plan; the checkout and a worktree send a folder", () => {
   const cwd = "/srv/project/widget";
-  assert.equal(checkoutLabel("branch"), "New branch");
   assert.equal(makesBranch("branch"), true);
   assert.equal(makesBranch("new"), true);
   assert.equal(makesBranch({ worktree: `${cwd}/.worktrees/fix-it` }), false);

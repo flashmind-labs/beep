@@ -265,7 +265,6 @@ impl Changes {
 struct Watched {
     root: PathBuf,
     dirs: HashSet<PathBuf>,
-    mode: Mode,
 }
 
 struct Inner {
@@ -423,7 +422,6 @@ impl Watcher {
             Watched {
                 root: root.to_owned(),
                 dirs: HashSet::new(),
-                mode: Mode::Watching,
             },
         );
     }
@@ -499,7 +497,6 @@ impl Watcher {
             log::warn!("{} is not watched: {hint}", watched.root.display());
         }
 
-        watched.mode = mode.clone();
         inner.projects.insert(key, watched);
         mode
     }

@@ -1016,13 +1016,6 @@ impl Syncs {
         Serving(self.inner.serving.clone())
     }
 
-    /// The other nodes `project` syncs with here.
-    pub fn peers(&self, project: &str) -> Vec<EndpointId> {
-        self.project(project)
-            .map(|shared| shared.peer_ids())
-            .unwrap_or_default()
-    }
-
     /// Whether Beep syncs `project` here with `peer`, once a change to the
     /// list that is going on is done.
     pub(crate) async fn syncs_with(&self, project: &str, peer: &EndpointId) -> bool {
@@ -1131,7 +1124,17 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let Some(request) = rx.recv::<Request>().await? else {
         return Ok(());
     };
-    let reply = match request {
+    let reply = answer(&syncs, request)
+        .await
+        .unwrap_or_else(|e| Reply::Error {
+            message: format!("{e:#}"),
+        });
+
+    tx.send(&reply).await
+}
+
+async fn answer(syncs: &Syncs, request: Request) -> Result<Reply> {
+    Ok(match request {
         Request::Configure { projects } if syncs.follows_mesh() => Reply::Configured {
             refused: syncs.configure_beside_mesh(projects).await,
             addr: syncs.addr(),
@@ -1143,61 +1146,38 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         Request::Status {} => Reply::Status {
             projects: syncs.status(),
         },
-        Request::Skipped { project, limit } => match syncs.skipped(&project, limit).await {
-            Ok(skipped) => Reply::Skipped { skipped },
-            Err(e) => Reply::Error {
-                message: format!("{e:#}"),
-            },
+        Request::Skipped { project, limit } => Reply::Skipped {
+            skipped: syncs.skipped(&project, limit).await?,
         },
         Request::Resolve {
             project,
             path,
             keep,
-        } => match syncs.resolve(&project, &path, keep).await {
-            Ok(()) => Reply::Resolved {},
-            Err(e) => Reply::Error {
-                message: format!("{e:#}"),
-            },
+        } => {
+            syncs.resolve(&project, &path, keep).await?;
+            Reply::Resolved {}
+        }
+        Request::Rescan { project } => Reply::Rescanned {
+            status: syncs.rescan(&project).await?,
         },
-        Request::Rescan { project } => match syncs.rescan(&project).await {
-            Ok(status) => Reply::Rescanned { status },
-            Err(e) => Reply::Error {
-                message: format!("{e:#}"),
-            },
-        },
-        Request::HandoffSnapshot { project } => match syncs.handoff_snapshot(&project).await {
-            Ok(snapshot) => Reply::HandoffSnapshot { snapshot },
-            Err(e) => Reply::Error {
-                message: format!("{e:#}"),
-            },
+        Request::HandoffSnapshot { project } => Reply::HandoffSnapshot {
+            snapshot: syncs.handoff_snapshot(&project).await?,
         },
         Request::HandoffApply { project, snapshot } => {
-            match syncs.handoff_apply(&project, snapshot).await {
-                Ok(()) => Reply::HandoffApplied {},
-                Err(e) => Reply::Error {
-                    message: format!("{e:#}"),
-                },
-            }
+            syncs.handoff_apply(&project, snapshot).await?;
+            Reply::HandoffApplied {}
         }
-        Request::StartOver { project } => match syncs.start_over(&project).await {
-            Ok(()) => Reply::StartedOver {},
-            Err(e) => Reply::Error {
-                message: format!("{e:#}"),
-            },
+        Request::StartOver { project } => {
+            syncs.start_over(&project).await?;
+            Reply::StartedOver {}
+        }
+        Request::SyncthingFiles { folder, enabled } => Reply::SyncthingFiles {
+            files: syncs.syncthing_files(&folder, enabled).await?,
         },
-        Request::SyncthingFiles { folder, enabled } => {
-            match syncs.syncthing_files(&folder, enabled).await {
-                Ok(files) => Reply::SyncthingFiles { files },
-                Err(e) => Reply::Error {
-                    message: format!("{e:#}"),
-                },
-            }
-        }
         other => Reply::Error {
             message: format!("this node cannot do {other:?} yet"),
         },
-    };
-    tx.send(&reply).await
+    })
 }
 
 #[cfg(test)]

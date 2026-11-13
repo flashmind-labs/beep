@@ -11,6 +11,7 @@ use crate::{
     git_items::{
         Caller, HostError,
         forks::Api,
+        github::HOST as GITHUB,
         new_repo::{self, CreateError, Forge, NewRepo},
     },
     model::{ForgejoUrl, RepoName},
@@ -24,7 +25,6 @@ use secrecy::ExposeSecret;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
-const GITHUB: &str = "github.com";
 const GITHUB_API: &str = "https://api.github.com";
 
 /// What reaching a git host needs from where the code runs: a client and the limit on calls in

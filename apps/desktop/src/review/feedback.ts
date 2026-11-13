@@ -11,8 +11,8 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // the diff does not lose it. Reviews the session asked for itself (its
 // `review` tool) become comments too, once.
 import {
-  type CanStart, type ReviewRun, type ReviewTarget,
-  doneNote, findingsOf, mergeComments, reviewBase, reviewTarget, runState, toComments, whyNot,
+  type CanStart, type ReviewRun,
+  doneNote, findingsOf, hostsAfterRead, mergeComments, reviewBase, runState, toComments, whyNot,
 } from "./feedback-state.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
@@ -63,6 +63,8 @@ const attached = new Map<string, Attached>();
 let lastPick: Pick<Picked, "agent" | "model" | "effort"> | null = null;
 /// The machines that run coding agents, as last read.
 let hosts: AgentHost[] | null = null;
+/// Whether the last read failed, so an empty list does not mean offline.
+let hostsFailed = false;
 let hostsAsked = 0;
 /// How long the machines read lasts.
 const HOSTS_MS = 30_000;
@@ -71,8 +73,8 @@ function readHosts(done: () => void) {
   if (hosts && Date.now() - hostsAsked < HOSTS_MS) return;
   hostsAsked = Date.now();
   invoke<AgentHost[]>("agent_hosts")
-    .then(list => { hosts = list; void picker().then(p => p.preloadModels(list)); done(); })
-    .catch(e => { console.warn("agent hosts:", e); hosts ??= []; done(); });
+    .then(list => { ({ hosts, failed: hostsFailed } = hostsAfterRead(hosts, list)); void picker().then(p => p.preloadModels(list)); done(); })
+    .catch(e => { console.warn("agent hosts:", e); ({ hosts, failed: hostsFailed } = hostsAfterRead(hosts, null)); done(); });
 }
 
 // ----- Reviews already taken -----
@@ -178,7 +180,7 @@ function openReviewer(run: Run, machineName: string) {
 
 // ----- The button -----
 
-export interface FeedbackOpts {
+interface FeedbackOpts {
   /// The diff's id: its drafts and its review are kept under it.
   key: string;
   /// The machine the diff's checkout is on; null for a diff with none.
@@ -202,7 +204,7 @@ export interface FeedbackOpts {
 }
 
 /// What the header draws of a review: the button, the picker under it and why the last one failed.
-export interface FeedbackSnapshot { state: FeedbackState; picker: ReactElement | null; note: string }
+interface FeedbackSnapshot { state: FeedbackState; picker: ReactElement | null; note: string }
 
 export interface Feedback {
   snapshot: () => FeedbackSnapshot;
@@ -239,7 +241,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   const host = () => (o.machine ? hosts?.find(h => h.machine_id === o.machine!.id) ?? null : null);
   const why = () => {
     const v = o.view();
-    const c: CanStart = { machine: o.machine, root: v ? v.root : null, hosts, changes: !!v?.files.length };
+    const c: CanStart = { machine: o.machine, root: v ? v.root : null, hosts, hostsFailed, changes: !!v?.files.length };
     return whyNot(c);
   };
 
@@ -325,14 +327,13 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     const machine = o.machine;
     if (!v || !machine || starting || runs.has(o.key)) return;
     lastPick = { agent: picked.agent, model: picked.model, effort: picked.effort };
-    const target: ReviewTarget = reviewTarget(v, o.uncommitted());
     const uncommitted = o.uncommitted();
     starting = true;
     drawButton();
 
     try {
       const started = await invoke<ReviewRun>("agent_review_start", {
-        machineId: machine.id, agent: picked.agent, cwd: v.root, base: reviewBase(target),
+        machineId: machine.id, agent: picked.agent, cwd: v.root, base: reviewBase(v, uncommitted),
         parent: o.session ?? null, model: picked.model.trim() || null, effort: picked.effort,
       });
       const load = o.load;

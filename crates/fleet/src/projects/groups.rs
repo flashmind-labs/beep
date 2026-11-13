@@ -13,11 +13,6 @@ use beep_proto::{
 use uuid::Uuid;
 
 impl Desk {
-    /// Whether the mesh has the group `id`.
-    pub fn has_group(&self, id: Uuid) -> bool {
-        self.mesh.get(&Key::Group(id.to_string())).is_some()
-    }
-
     /// The projects pinned to the top of the sidebar, oldest pin first.
     pub fn on_top(&self) -> Vec<String> {
         let mut pins: Vec<(u64, String)> = scan::<PinRecord>(&self.mesh, "pin/")

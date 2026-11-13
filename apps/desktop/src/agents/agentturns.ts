@@ -1,7 +1,7 @@
 // A coding agent's log in turns: each message from the user and what the agent
 // did after it, up to the next message.
 
-import { imageLines, parseTool, subagent } from "./agentlog.ts";
+import { exitCode, imageLines, parseTool, subagent } from "./agentlog.ts";
 import { BEEP_MARK } from "../ui/icons.tsx";
 import { deviceCall, type DeviceVerb } from "../agentpane/device-state.ts";
 import { plural } from "../ui/format.ts";
@@ -91,7 +91,7 @@ export const KIND_ICONS: Record<ToolKind, string> = {
 /// words it in (`Beep: Run on build-box: cargo test`): what it did, done
 /// and while it runs, the machine, the command, prompt, project, job or
 /// question, and how many files it sends. Fields it has none of are "".
-export interface BeepCall {
+interface BeepCall {
   done: string;
   doing: string;
   machine: string;
@@ -212,8 +212,8 @@ const RANGE = /\s*(?:\((\d+)\s*-\s*(\d+)\)|:(\d+)(?:-(\d+))?)$/;
 export function rowParts(text: string, running = false, whole = false): RowParts {
   const { title, status, output } = parseTool(imageLines(text).text);
   const kind = toolKind(text), failed = status === "failed";
-  const exit = failed ? /(?:exit(?:ed with)?(?: code)?|status) (\d+)/i.exec(output)?.[1] : undefined;
-  let detail = failed ? (exit ? `exit ${exit}` : "failed") : "";
+  const exit = failed ? exitCode(output, true) : null;
+  let detail = failed ? (exit !== null ? `exit ${exit}` : "failed") : "";
   const mcp = MCP.exec(title.trim());
   if (mcp) return { kind, verb: mcp[1], target: (mcp[2] + mcp[3]).trim(), detail: detail || "MCP", bad: failed };
   const label = stepLabel(text, running, whole).replace(/ …$/, "");
@@ -414,20 +414,6 @@ export function keptSteps(entries: LogEntry[], t: Turn, offset = 0, pinned?: Rea
     if (en.kind !== "tool") return imageLines(en.text).names.length > 0;
     return subagent(parseTool(imageLines(en.text).text).output) != null;
   });
-}
-
-/// Calls still running in this turn stay visible outside their tool fold.
-export function runningSteps(entries: LogEntry[], t: Turn, offset = 0) {
-  return t.steps.filter(at => entries[at - offset].kind === "tool"
-    && parseTool(imageLines(entries[at - offset].text).text).status === "in_progress");
-}
-
-/// `kept` with the turn's thoughts added when no tool is left to fold:
-/// thoughts fold with tools, and with none there is no line to open.
-export function keptThoughts(entries: LogEntry[], t: Turn, kept: Set<number>, offset = 0) {
-  const folds = t.steps.some(at => !kept.has(at) && entries[at - offset].kind === "tool");
-  if (!folds) for (const at of t.steps) if (entries[at - offset].kind === "thought") kept.add(at);
-  return kept;
 }
 
 /// Whether a turn with no message of its own is only notes, which show as

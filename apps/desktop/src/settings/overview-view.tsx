@@ -1,5 +1,6 @@
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { CODING_AGENTS, subKey, type SettingsSub } from "./settings-nav.ts";
+import { onRowKey, SkeletonRows } from "../ui/kit.tsx";
 import { harnessName } from "./providers-state.ts";
 import type { Machine } from "../machines/machines.ts";
 import { Button } from "../ui/kit.tsx";
@@ -7,10 +8,10 @@ import { Button } from "../ui/kit.tsx";
 export function CodingAgentOverview({ open }: { open(sub: SettingsSub): void }) {
   return <><div className="dset-h">Coding agents</div><div className="dset-box">{CODING_AGENTS.map(agent => {
     const sub: SettingsSub = { kind: "agent", id: agent };
-    return <div className="dset-row" key={agent} data-sub={subKey(sub)} role="button" tabIndex={0} onClick={() => open(sub)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(sub); } }}><HarnessIcon agent={agent} /><span className="tt"><b>{harnessName(agent)}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span><Icon name="chev" /></div>;
+    return <div className="dset-row" key={agent} data-sub={subKey(sub)} role="button" tabIndex={0} onClick={() => open(sub)} onKeyDown={onRowKey(() => open(sub))}><HarnessIcon agent={agent} /><span className="tt"><b>{harnessName(agent)}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span><Icon name="chev" /></div>;
   })}</div></>;
 }
-function Placeholder() { return <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /></div>; }
+function Placeholder() { return <SkeletonRows widths={[78]} />; }
 export function MachinesOverview({ machines, open }: { machines: Machine[] | null | undefined; open(): void }) {
   if (machines === undefined) return <Placeholder />;
   if (!machines) return null;

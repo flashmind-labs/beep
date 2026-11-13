@@ -10,7 +10,7 @@ mod git;
 pub use git::{GitOutput, GitRead};
 
 mod topic;
-pub use topic::{MAX_TOPIC_BYTES, Topic, TopicError};
+pub use topic::{Topic, TopicError};
 
 pub const MAX_QUERIES: usize = 128;
 

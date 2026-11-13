@@ -106,15 +106,27 @@ impl Spend {
         self.read(now, true)
     }
 
+    /// The ledger, read from `path` the first time.
+    fn loaded<'a>(&self, guard: &'a mut Option<Ledger>) -> &'a mut Ledger {
+        guard.get_or_insert_with(|| match &self.path {
+            Some(path) => Ledger::load(path),
+            None => Ledger::default(),
+        })
+    }
+
+    fn save(&self, ledger: &mut Ledger) -> std::io::Result<()> {
+        match &self.path {
+            Some(path) => ledger.save(path),
+            None => Ok(()),
+        }
+    }
+
     fn read(&self, now: u64, all: bool) -> Vec<SessionSpend> {
         // On an hour: the caller replaces each reported hour whole, so a
         // window starting within one would shrink it to what came after.
         let since = now.saturating_sub(WINDOW_SECS) / 3600 * 3600;
         let mut guard = lock(&self.ledger);
-        let ledger = guard.get_or_insert_with(|| match &self.path {
-            Some(path) => Ledger::load(path),
-            None => Ledger::default(),
-        });
+        let ledger = self.loaded(&mut guard);
         scan::pass(ledger, &self.roots, since);
         forget_gone(ledger, since);
 
@@ -158,29 +170,20 @@ impl Spend {
             // flsh keeps totals, not a log: what they say now is held back.
             let counted = databases::flsh_counted(path)?;
             let mut guard = lock(&self.ledger);
-            let ledger = guard.get_or_insert_with(|| match &self.path {
-                Some(path) => Ledger::load(path),
-                None => Ledger::default(),
-            });
+            let ledger = self.loaded(&mut guard);
             let entry = ledger.databases.entry(path.to_owned()).or_default();
             entry.agent = Some(agent);
             entry.stamp = stamp;
             entry.counted = counted;
             ledger.changed = true;
-            return match &self.path {
-                Some(saved) => ledger.save(saved),
-                None => Ok(()),
-            };
+            return self.save(ledger);
         }
         // What the header says (the folder, the provider, the model) is
         // read from the log, so later requests are billed and filed as the
         // log's own would be.
         let header = scan::header_of(agent, path, &self.roots.accounts)?;
         let mut guard = lock(&self.ledger);
-        let ledger = guard.get_or_insert_with(|| match &self.path {
-            Some(path) => Ledger::load(path),
-            None => Ledger::default(),
-        });
+        let ledger = self.loaded(&mut guard);
         // A session that came back here keeps what it spent here before: its
         // log is read on from its new end, not started over.
         let log = ledger.logs.entry(path.to_owned()).or_default();
@@ -195,10 +198,7 @@ impl Spend {
         log.recent = header.recent;
         ledger.changed = true;
 
-        match &self.path {
-            Some(saved) => ledger.save(saved),
-            None => Ok(()),
-        }
+        self.save(ledger)
     }
 
     /// Notes that the caller has `spend` as it stands; it is sent again

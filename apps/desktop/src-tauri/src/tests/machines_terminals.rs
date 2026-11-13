@@ -52,8 +52,8 @@ fn an_older_attach_ending_leaves_a_newer_one() {
     let old = attached.follow(viewer, "center", first);
     let (second, _) = mpsc::channel(1);
     attached.follow(viewer, "center", second);
-    attached.unfollow(viewer, old);
-    assert!(attached.input(viewer).is_ok());
+    attached.unfollow(&viewer, old);
+    assert!(attached.get(&viewer, "terminal").is_ok());
 }
 
 // Two views of one terminal used to share one slot, so each attach
@@ -78,9 +78,9 @@ fn two_views_of_a_terminal_keep_their_own_streams() {
         !pane_rx.is_closed(),
         "the page attaching kept the pane's stream"
     );
-    attached.detach(page);
+    attached.detach(&page);
     assert!(
-        attached.input(pane).is_ok(),
+        attached.get(&pane, "terminal").is_ok(),
         "the page detaching kept the pane"
     );
     assert!(!pane_rx.is_closed());
@@ -106,7 +106,7 @@ fn closing_a_window_ends_only_its_views() {
     attached.clear("center");
     assert!(here_rx.is_closed(), "its stream finishes");
     assert!(!there_rx.is_closed());
-    assert!(attached.input(there).is_ok());
+    assert!(attached.get(&there, "terminal").is_ok());
 }
 
 #[test]

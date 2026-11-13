@@ -21,6 +21,8 @@ Object.assign(globalThis, {
   navigationTest: { state, view },
   window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, Node: dom.window.Node,
   requestAnimationFrame: () => 0,
+  // jsdom lays nothing out, so nothing is ever resized.
+  ResizeObserver: class { observe() {} disconnect() {} },
 });
 const page = (exports: string) => `const v = globalThis.navigationTest.view; ${exports}`;
 const stubs = new Map(Object.entries({

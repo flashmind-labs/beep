@@ -1,5 +1,4 @@
 use crate::bundle::{MachineEntry, Manifest};
-use crate::collect::Answer;
 use crate::redact::{RedactError, redact};
 use std::env;
 use std::fmt::Write;
@@ -11,8 +10,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::timeout;
 
-pub const REPO: &str = "flashmind-labs/beep";
-pub const LABEL: &str = "report";
+const REPO: &str = "flashmind-labs/beep";
+const LABEL: &str = "report";
 
 const SHORT_ID: usize = 8;
 const SIGNED_IN_LIMIT: Duration = Duration::from_secs(10);
@@ -113,7 +112,7 @@ fn machine_line(m: &MachineEntry) -> String {
         plain(&m.os),
         plain(&m.os_version),
         or_unknown(&plain(&m.version)),
-        answer_word(&m.answer)
+        m.answer.word()
     )
 }
 
@@ -130,17 +129,6 @@ fn or_unknown(version: &str) -> &str {
         "unknown"
     } else {
         version
-    }
-}
-
-/// Never the reason text of Offline and Failed: it can hold names or paths.
-fn answer_word(answer: &Answer) -> &'static str {
-    match answer {
-        Answer::Answered => "answered",
-        Answer::OlderNode => "older node",
-        Answer::Silent => "did not answer",
-        Answer::Offline { .. } => "offline",
-        Answer::Failed { .. } => "failed",
     }
 }
 

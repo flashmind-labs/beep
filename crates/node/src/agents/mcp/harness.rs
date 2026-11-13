@@ -1,7 +1,7 @@
 //! Model discovery for coding agents, on this node or a peer.
 
-use super::machines::{command_name, machines, over_the_mesh};
-use super::reply::fail as failed;
+use super::machines::{find, over_the_mesh};
+use super::reply::{fail as failed, ok, parse};
 use crate::{
     agents::{Agents, known},
     link::Offers,
@@ -23,8 +23,7 @@ impl TryFrom<&Request> for Args {
     type Error = String;
 
     fn try_from(request: &Request) -> Result<Self, Self::Error> {
-        let mut args: Self = serde_json::from_str(&request.args)
-            .map_err(|e| format!("The arguments do not fit: {e}"))?;
+        let mut args: Self = parse(&request.args)?;
         args.harness = args.harness.trim().to_owned();
 
         if args.harness.is_empty() {
@@ -75,10 +74,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     let Some(mesh) = offers.mesh.get() else {
         return failed("This machine is not in a mesh yet. Leave out `machine` to query here.");
     };
-    let Some(target) = machines(&mesh)
-        .into_iter()
-        .find(|m| m.name == command_name(&name))
-    else {
+    let Some(target) = find(&mesh, &name) else {
         return failed(format!(
             "No machine called {name}. Use machines list for the names."
         ));
@@ -112,10 +108,7 @@ pub(crate) async fn answer(agents: &Agents, request: &Request) -> Reply {
     };
 
     match serde_json::to_string(&HarnessInfo::new(args.harness, models)) {
-        Ok(text) => Reply::Done {
-            text,
-            failed: false,
-        },
+        Ok(text) => ok(text),
         Err(e) => failed(format!("Could not write the harness info: {e}")),
     }
 }

@@ -960,6 +960,6 @@ export function linkLabel(link: Link, watching: boolean, machine: string, tries 
     case "attached": return watching ? "Watching: typing is off" : `Attached: what you type goes to ${machine}`;
     case "detached": return "Detached: it keeps running";
     case "ended": return "Ended";
-    case "view_only": return "View only: the last 100 lines, read every 2 seconds";
+    case "view_only": return "View only: the last 100 lines";
   }
 }

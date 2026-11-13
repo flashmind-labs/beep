@@ -15,7 +15,6 @@ use beep_projects::{
         board::{Answer, Login, OpenedItems, ask, combine},
         host::{Found, HostError},
     },
-    imports::hosts::Hosts,
     issues::host_of_url,
 };
 use beep_proto::{GitHost, GitHostKind, LabeledProjectLists, Service};
@@ -301,8 +300,7 @@ impl Desk {
             show(progress, &mut shown, sources.items()).await;
         }
 
-        let client = self.hosts.client()?;
-        let client = &client;
+        let client = self.hosts.client();
         let logins = &logins;
         let turns = Semaphore::new(AT_ONCE);
         let turns = &turns;
@@ -370,9 +368,7 @@ impl Desk {
         });
         Ok(update)
     }
-}
 
-impl Desk {
     /// The answer for a Forgejo `login` whose host this Mac's own CLI cannot reach now, without
     /// asking: its address is the same here, and the host is tried again when the pause ends.
     fn unreached(&self, login: &Login<'_>) -> Option<Answer> {

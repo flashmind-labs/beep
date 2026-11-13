@@ -25,9 +25,9 @@ use tokio::{
     time::{Instant, sleep, sleep_until},
 };
 
-/// How long the folder must be quiet after a change before it is scanned.
 /// What [`Task::fail`] calls a Git check that did not pass.
 pub(super) const WAITING_FOR_GIT: &str = "waiting for Git";
+/// How long the folder must be quiet after a change before it is scanned.
 pub(super) const SETTLE: Duration = Duration::from_secs(10);
 pub(super) const MAX_SETTLE: Duration = Duration::from_secs(30);
 /// How long the folder must be quiet before files a scan found missing are

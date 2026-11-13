@@ -19,28 +19,10 @@ use iroh_blobs::{
     format::collection::Collection,
 };
 use std::{
-    fs::{self, Metadata, OpenOptions},
+    fs::{self, OpenOptions},
     path::{Path, PathBuf},
 };
 use tokio::task::spawn_blocking;
-
-/// Which file on which disk, to see that a path still names the file the
-/// walk found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Identity {
-    pub(crate) device: u64,
-    pub(crate) inode: u64,
-}
-
-impl From<&Metadata> for Identity {
-    fn from(metadata: &Metadata) -> Self {
-        let id = fsat::id_of_metadata(metadata);
-        Self {
-            device: id.device,
-            inode: id.inode,
-        }
-    }
-}
 
 /// One file a folder holds.
 #[derive(Debug)]
@@ -50,7 +32,7 @@ struct Entry {
     path: PathBuf,
     size: u64,
     executable: bool,
-    identity: Identity,
+    identity: fsat::FileId,
 }
 
 /// The files under `root`, sorted, the folders that hold nothing, and how
@@ -95,7 +77,7 @@ fn walk(root: &Path) -> Result<Walked> {
                     path: item.path(),
                     size: metadata.len(),
                     executable: fsat::is_executable(&metadata),
-                    identity: Identity::from(&metadata),
+                    identity: fsat::id_of_metadata(&metadata),
                 });
                 ensure!(
                     walked.entries.len() as u64 <= MAX_FILES,
@@ -132,11 +114,11 @@ pub(super) struct Offered {
 
 /// Fails unless `path` opens, without following a link, as the file
 /// `identity` names.
-pub(crate) fn check_same(path: &Path, identity: Identity) -> Result<()> {
+pub(crate) fn check_same(path: &Path, identity: fsat::FileId) -> Result<()> {
     let file = fsat::open_no_follow(OpenOptions::new().read(true), path)
         .with_context(|| format!("opening {}", path.display()))?;
-    let opened = Identity::from(&file.metadata()?);
-    let named = Identity::from(&fs::symlink_metadata(path)?);
+    let opened = fsat::id_of_metadata(&file.metadata()?);
+    let named = fsat::id_of_metadata(&fs::symlink_metadata(path)?);
 
     if opened != identity || named != identity {
         bail!("{} changed while it was being sent", path.display());
@@ -145,7 +127,7 @@ pub(crate) fn check_same(path: &Path, identity: Identity) -> Result<()> {
     Ok(())
 }
 
-async fn checked(path: &Path, identity: Identity) -> Result<()> {
+async fn checked(path: &Path, identity: fsat::FileId) -> Result<()> {
     let path = path.to_owned();
     spawn_blocking(move || check_same(&path, identity)).await?
 }
@@ -213,7 +195,7 @@ pub(super) async fn offer(
             path: path.to_owned(),
             size: metadata.len(),
             executable: fsat::is_executable(&metadata),
-            identity: Identity::from(&metadata),
+            identity: fsat::id_of_metadata(&metadata),
         };
         let mut ticker = Ticker::new(Stage::Hashing, entry.size);
         let tag = add_file(store, &entry, 0, &mut ticker, tx).await?;

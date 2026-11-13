@@ -5,7 +5,7 @@ import { gitSyncWarning } from "./gitsync-state.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
-import { bytes, reason } from "../ui/format.ts";
+import { bytes, plural, reason } from "../ui/format.ts";
 import { diffView, type DiffViewHandle } from "../review/diff.ts";
 import { compareFiles } from "./compare.ts";
 import { loadClocks } from "../machines/clock.ts";
@@ -188,16 +188,20 @@ export function makeFileSync(deps: FileSyncDeps) {
     s.busy = what;
     s.error = "";
     redraw();
+    let failure = "";
 
     try {
       await run();
     } catch (e) {
-      s.error = reason(e);
+      failure = reason(e);
     } finally {
       s.busy = null;
     }
 
     await load(name);
+
+    // The reload clears the error, so the refusal is set after it.
+    if (failure) s.error = failure;
     redraw();
   }
 
@@ -343,10 +347,10 @@ export function syncSummary(d: Pick<SyncDetail, "pinned" | "paused" | "machines"
 }
 
 /// "1 change waiting", "3 changes waiting".
-function changes(n: number) { return `${n} ${n === 1 ? "change" : "changes"} waiting`; }
+function changes(n: number) { return `${plural(n, "change", "changes")} waiting`; }
 
 /// "1 conflict", "3 conflicts".
-export function conflictCount(n: number) { return `${n} ${n === 1 ? "conflict" : "conflicts"}`; }
+export function conflictCount(n: number) { return plural(n, "conflict", "conflicts"); }
 
 /// The muted line under a machine: files and bytes, or how far it is with
 /// the rate and time left, or what waits.

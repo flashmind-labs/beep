@@ -9,7 +9,7 @@ import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, NewAgentNotes, ProjectChoice } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, AGENT_ORDER, agentKind, byPreference, hostChanges, loadAgentHosts, renderAgents, type Started } from "./agents.ts";
+import { AG, AGENT_ORDER, agentKind, byPreference, hostChanges, loadAgentHosts, renderAgents, sentImage, type Started } from "./agents.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks } from "./session.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.ts";
@@ -130,10 +130,12 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: Agen
   loadProjects();
 }
 
-/// The same project task hint, or a general one before a project is picked.
-function taskHint(missing: boolean) {
-  if (missing) return "Say what the agent should do.";
-  return "Describe the task.";
+const PROMPT_MISSING = "Say what the agent should do.";
+
+/// Draws the form's page: the key hints under it give way to an open menu.
+function showForm(page: BarPageSlot, c: StartComposer) {
+  const f = AG.form;
+  flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, menuOpen: !!f.open, openList: renderAgents } }));
 }
 
 function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
@@ -168,7 +170,7 @@ function drawFrame() {
   attachments = startAttachments(c, text => { AG.error = text; c.update({ error: text }); }, () => drawParts());
   c.setText(f.prompt);
   const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); c.dispose(); stopOutside(); });
-  flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, menuOpen: !!f.open, openList: renderAgents } }));
+  showForm(page, c);
   composeField(c.input, { images: files => attachments.add(files), removeLast: () => attachments.removeLast() });
   attachments.bindStash(() => AG.form.project ?? null);
   stopOutside();
@@ -194,8 +196,7 @@ function drawParts() {
   if (S.view !== "agentnew" || !c?.box.isConnected) return;
   const f = AG.form, hosts = AG.hosts ?? [];
   const page = shellPage;
-  // The key hints under the form give way to an open menu.
-  if (page) flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, menuOpen: !!f.open, openList: renderAgents } }));
+  if (page) showForm(page, c);
 
   // With no machine picked, or one that no longer runs agents: the project's
   // first machine with a checkout and an agent, else the first with an agent.
@@ -212,7 +213,7 @@ function drawParts() {
   const missing = AG.error === "prompt";
   const host = formHost();
   c.update({
-    invalid: missing, placeholder: taskHint(missing), error: missing ? "Say what the agent should do." : AG.error,
+    invalid: missing, placeholder: missing ? PROMPT_MISSING : "Describe the task.", error: missing ? PROMPT_MISSING : AG.error,
     sendDisabled: AG.busy || attachments.reading || !hosts.length || !f.machine || !f.project,
     sendTitle: !f.project ? "Pick a project first" : !f.machine ? "Pick a machine first" : "Start (⌘↩)",
     busy: AG.busy, open: f.open ?? null,
@@ -629,7 +630,7 @@ export async function startAgent() {
       : { cwd: f.cwd.trim(), checkout: null };
     const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim(), progress => composer?.update({ progress }));
     if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
-    const images = attachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
+    const images = attachments.images.map(sentImage);
     const started = await invoke<Started>("agent_start", {
       machineId: f.machine,
       agent: f.agent,

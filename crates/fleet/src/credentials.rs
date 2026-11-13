@@ -34,11 +34,11 @@ use secrecy::{ExposeSecret, SecretString};
 use std::{collections::BTreeMap, str::FromStr, time::Duration};
 use tokio::time::timeout;
 
-/// The longest secret taken.
 /// Machines asked about their agents at once.
 const ACCOUNTS_AT_ONCE: usize = 4;
 /// How long one machine has to answer, so an unreachable one does not hold the card.
 const ACCOUNTS_PER_MACHINE: Duration = Duration::from_secs(8);
+/// The longest secret taken.
 const MAX_SECRET: usize = 4096;
 const PREFIX: &str = "credential/";
 
@@ -117,13 +117,7 @@ fn trimmed(secret: &SecretText) -> Result<SecretString> {
 impl Desk {
     /// Every saved credential, the GitHub accounts first.
     fn saved(&self) -> Vec<Saved> {
-        let mut found: Vec<(String, Value)> = crate::records::scan::<Value>(&self.mesh, PREFIX)
-            .into_iter()
-            .filter_map(|(key, value)| match key {
-                Key::Credential(id) => Some((id, value)),
-                _ => None,
-            })
-            .collect();
+        let mut found = self.credential_keys(PREFIX);
         found.sort_by(|a, b| a.0.cmp(&b.0));
         let mut out: Vec<Saved> = Vec::new();
         let mut orgs: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -139,57 +133,43 @@ impl Desk {
             let Some((kind, saved_ms, name)) = parse_id(id) else {
                 continue;
             };
-            let saved = match (kind, value) {
-                (GITHUB, Value::Env(secret)) => Saved {
-                    id: id.clone(),
-                    saved_ms,
-                    service: Service::GitHub,
-                    secret: text(&secret.value),
-                    github: Some(GitHubLogin {
+            let (service, secret, github) = match (kind, value) {
+                (GITHUB, Value::Env(secret)) => (
+                    Service::GitHub,
+                    text(&secret.value),
+                    Some(GitHubLogin {
                         login: name.to_owned(),
                         orgs: Vec::new(),
                         default: secret.name == GITHUB_ENV_VAR,
                     }),
-                },
+                ),
                 (FORGEJO, Value::Forgejo(login)) => {
                     let Ok(url) = login.url.parse::<ForgejoUrl>() else {
                         continue;
                     };
-                    Saved {
-                        id: id.clone(),
-                        saved_ms,
-                        service: Service::Forgejo { url },
-                        secret: text(&login.token),
-                        github: None,
-                    }
+                    (Service::Forgejo { url }, text(&login.token), None)
                 }
                 (API_KEY, Value::Env(secret)) => {
                     let Ok(provider) = ApiKey::from_str(name) else {
                         continue;
                     };
-                    Saved {
-                        id: id.clone(),
-                        saved_ms,
-                        service: Service::ApiKey { provider },
-                        secret: text(&secret.value),
-                        github: None,
-                    }
+                    (Service::ApiKey { provider }, text(&secret.value), None)
                 }
                 (AGENT, Value::Env(secret)) => {
                     let Ok(agent) = AgentAccount::from_str(name) else {
                         continue;
                     };
-                    Saved {
-                        id: id.clone(),
-                        saved_ms,
-                        service: Service::Agent { agent },
-                        secret: text(&secret.value),
-                        github: None,
-                    }
+                    (Service::Agent { agent }, text(&secret.value), None)
                 }
                 _ => continue,
             };
-            out.push(saved);
+            out.push(Saved {
+                id: id.clone(),
+                saved_ms,
+                service,
+                secret,
+                github,
+            });
         }
         // The owner keys name the orgs: an owner other than the login.
         for saved in &mut out {
@@ -334,7 +314,7 @@ impl Desk {
         let secret = trimmed(secret)?;
 
         if *service == Service::GitHub {
-            self.save_github(&secret, true).await?;
+            self.save_github(&secret).await?;
             return self
                 .credentials()
                 .into_iter()
@@ -382,14 +362,9 @@ impl Desk {
         })
     }
 
-    /// Checks a GitHub token, reads its orgs and saves it as its account. The first account is
-    /// the default, and so is one saved with `replace_default`.
-    pub async fn save_github(
-        &self,
-        secret: &SecretString,
-        replace_default: bool,
-    ) -> Result<GitHubAccount> {
-        let checker = self.checker()?;
+    /// Checks a GitHub token, reads its orgs and saves it as the default account.
+    async fn save_github(&self, secret: &SecretString) -> Result<()> {
+        let checker = self.checker();
         let login = match self.check(&Service::GitHub, secret).await? {
             Some(login) => login,
             None => {
@@ -400,15 +375,11 @@ impl Desk {
         };
         let orgs = checker.github_orgs(secret).await;
         let _write = WRITES.lock().await;
-        let mut accounts = self.saved();
-        accounts.retain(|saved| saved.github.is_some());
-        let first = accounts.is_empty();
         let id = make_id(GITHUB, now_ms(), &login);
-        let default = first || replace_default;
         // The same login saved again replaces its account.
-        let mut kept: Vec<(String, u64, SecretString, GitHubLogin)> = Vec::new();
+        let mut kept: Vec<(String, SecretString, GitHubLogin)> = Vec::new();
 
-        for saved in accounts {
+        for saved in self.saved() {
             let Some(mut account) = saved.github else {
                 continue;
             };
@@ -417,19 +388,18 @@ impl Desk {
                 continue;
             }
 
-            account.default &= !default;
-            kept.push((saved.id, saved.saved_ms, saved.secret, account));
+            account.default = false;
+            kept.push((saved.id, saved.secret, account));
         }
 
         let saved_login = login.clone();
         kept.push((
             id.clone(),
-            now_ms(),
             secret.clone(),
             GitHubLogin {
                 login,
                 orgs,
-                default,
+                default: true,
             },
         ));
         self.write_github(kept).await?;
@@ -437,8 +407,10 @@ impl Desk {
             .await?;
         self.github_accounts()
             .into_iter()
-            .find(|account| account.id == id)
-            .ok_or(FleetError::NotFound)
+            .find(|a| a.id == id)
+            .ok_or(FleetError::NotFound)?;
+
+        Ok(())
     }
 
     /// Makes the account `id` the one machines get as `GH_TOKEN`.
@@ -453,7 +425,7 @@ impl Desk {
             };
             account.default = saved.id == id;
             found |= account.default;
-            accounts.push((saved.id, saved.saved_ms, saved.secret, account));
+            accounts.push((saved.id, saved.secret, account));
         }
 
         if !found {
@@ -466,13 +438,10 @@ impl Desk {
     /// Writes the keys of every GitHub account: its own, with `GH_TOKEN` for the default and an
     /// owner variable for each other, and one owner key per owner it is the one to serve. Keys of
     /// accounts no longer listed go.
-    async fn write_github(
-        &self,
-        accounts: Vec<(String, u64, SecretString, GitHubLogin)>,
-    ) -> Result<()> {
+    async fn write_github(&self, accounts: Vec<(String, SecretString, GitHubLogin)>) -> Result<()> {
         let opened: Vec<Opened> = accounts
             .iter()
-            .map(|(_, _, secret, login)| Opened {
+            .map(|(_, secret, login)| Opened {
                 service: Service::GitHub,
                 secret: secret.clone(),
                 github: Some(login.clone()),
@@ -480,7 +449,7 @@ impl Desk {
             .collect();
         let mut wanted: BTreeMap<String, Value> = BTreeMap::new();
 
-        for (id, _, secret, login) in &accounts {
+        for (id, secret, login) in &accounts {
             let name = match login.default {
                 true => Some(GITHUB_ENV_VAR.to_owned()),
                 false => github_owner_var(&login.login),
@@ -492,7 +461,7 @@ impl Desk {
 
         let mut owners: Vec<&str> = Vec::new();
 
-        for (_, _, _, login) in &accounts {
+        for (_, _, login) in &accounts {
             for owner in std::iter::once(&login.login).chain(&login.orgs) {
                 if !owners.iter().any(|seen| seen.eq_ignore_ascii_case(owner)) {
                     owners.push(owner);
@@ -507,7 +476,7 @@ impl Desk {
             let Some(at) = opened.iter().position(|o| std::ptr::eq(o, picked)) else {
                 continue;
             };
-            let (id, _, secret, login) = &accounts[at];
+            let (id, secret, login) = &accounts[at];
             // The account's own login is its main key; an org it serves is an owner key.
             if login.login.eq_ignore_ascii_case(owner) {
                 continue;
@@ -537,7 +506,12 @@ impl Desk {
 
     /// Every key of `kind`, with its value.
     fn keys_of(&self, kind: &str) -> Vec<(String, Value)> {
-        crate::records::scan::<Value>(&self.mesh, &format!("{PREFIX}{kind}."))
+        self.credential_keys(&format!("{PREFIX}{kind}."))
+    }
+
+    /// The credential keys under `prefix`, by id.
+    fn credential_keys(&self, prefix: &str) -> Vec<(String, Value)> {
+        crate::records::scan::<Value>(&self.mesh, prefix)
             .into_iter()
             .filter_map(|(key, value)| match key {
                 Key::Credential(id) => Some((id, value)),
@@ -580,20 +554,20 @@ impl Desk {
             return self.drop_keys(id).await;
         }
 
-        let mut left: Vec<(String, u64, SecretString, GitHubLogin)> = saved
+        let mut left: Vec<(String, SecretString, GitHubLogin)> = saved
             .into_iter()
             .filter(|saved| saved.id != id)
-            .filter_map(|saved| Some((saved.id, saved.saved_ms, saved.secret, saved.github?)))
+            .filter_map(|saved| Some((saved.id, saved.secret, saved.github?)))
             .collect();
-        if !left.is_empty() && !left.iter().any(|(_, _, _, login)| login.default) {
-            left[0].3.default = true;
+        if !left.is_empty() && !left.iter().any(|(_, _, login)| login.default) {
+            left[0].2.default = true;
         }
         self.write_github(left).await
     }
 
     /// Asks the host whether `secret` works and who it signs in as.
     async fn check(&self, service: &Service, secret: &SecretString) -> Result<Option<String>> {
-        let checker = self.checker()?;
+        let checker = self.checker();
         let checked = match service {
             Service::GitHub => checker.github(secret).await,
             Service::Forgejo { url } => checker.forgejo(url, secret).await,
@@ -610,17 +584,12 @@ impl Desk {
         }
     }
 
-    fn checker(&self) -> Result<Checker> {
-        let checker = Checker::new(self.hosts_client()?);
-        Ok(match &self.github_api {
+    fn checker(&self) -> Checker {
+        let checker = Checker::new(self.hosts.client().clone());
+        match &self.github_api {
             Some(base) => checker.github_at(base),
             None => checker,
-        })
-    }
-
-    fn hosts_client(&self) -> Result<reqwest::Client> {
-        use beep_projects::imports::hosts::Hosts;
-        Ok(self.hosts.client()?)
+        }
     }
 
     /// Checks a saved Forgejo token: from this Mac, else with teacli from the machines that have
@@ -633,7 +602,7 @@ impl Desk {
         let Service::Forgejo { url } = &found.service else {
             return Err(FleetError::NotFound);
         };
-        let checker = self.checker()?;
+        let checker = self.checker();
         Ok(match checker.forgejo(url, &found.secret).await {
             Checked::Valid {
                 login: Some(account),

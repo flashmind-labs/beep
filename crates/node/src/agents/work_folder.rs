@@ -10,7 +10,7 @@ use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, GitChange, MAX_TREE_DEPTH, MAX_TREE_ENTRIES,
-    MAX_WORK_ENTRIES, MAX_WORK_UPLOAD, WorkEntry, WorkFolder, WorkTree, media_mime,
+    MAX_WORK_ENTRIES, WorkEntry, WorkFolder, WorkTree, media_mime,
 };
 use ignore::WalkBuilder;
 use std::{
@@ -463,14 +463,6 @@ pub(super) fn write(
     size: u64,
     data: &[u8],
 ) -> Result<String> {
-    if size > MAX_WORK_UPLOAD {
-        bail!(
-            "the file is {} MB, over the {} MB a drop uploads",
-            size.div_ceil(1024 * 1024),
-            MAX_WORK_UPLOAD / (1024 * 1024)
-        );
-    }
-
     if data.len() > AGENT_FILE_CHUNK {
         bail!("a part is over {} bytes", AGENT_FILE_CHUNK);
     }

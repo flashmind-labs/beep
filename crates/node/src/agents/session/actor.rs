@@ -211,6 +211,7 @@ pub(super) struct Actor {
     pub(super) steers: VecDeque<Prompt>,
     /// The prompts sent so far, which numbers each turn.
     pub(super) sent: u64,
+    pub(super) context_turn: bool,
     /// The turn running, by its number, while its prompt is unanswered.
     pub(super) turn: Option<u64>,
     /// The end of the last turn, held while its subagents run.
@@ -313,7 +314,7 @@ impl Actor {
                 Status::Working | Status::Asking
             );
             let continuation =
-                interrupted.then(|| Prompt::from(super::super::restart::CONTINUE.to_owned()));
+                interrupted.then(|| Prompt::from(crate::agents::tags::context(super::super::restart::CONTINUE)));
             continuation
                 .into_iter()
                 .chain(self.steers.drain(..))
@@ -559,6 +560,11 @@ impl Actor {
     fn event(&mut self, cx: &ConnectionTo<Agent>, event: Event) -> Result<()> {
         match event {
             Event::Update(update) => {
+                // Automatic recovery context must not replace the user's title.
+                if self.context_turn && matches!(update, SessionUpdate::SessionInfoUpdate(_)) {
+                    return Ok(());
+                }
+
                 // The adapter echoes an injected message before continuing.
                 // Show it there so its answer follows it in the transcript.
                 if let SessionUpdate::UserMessageChunk(chunk) = &update
@@ -608,12 +614,13 @@ impl Actor {
                 self.subagents_moved();
             }
             Event::Permission(request, responder) => {
-                let Some(responder) = self.plan_ready(&request, *responder) else {
+                let question = watched::read_sent(&self.live, |live| live.question(&request));
+                let Some(responder) = self.plan_ready(&request, &question, *responder) else {
                     return Ok(());
                 };
 
-                if let Some(responder) = self.allow(&request, responder)? {
-                    self.ask(&request, responder);
+                if let Some(responder) = self.allow(&question, responder)? {
+                    self.ask(question, responder);
                 }
             }
         }
@@ -759,12 +766,7 @@ impl Actor {
                 let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
                 self.live.send_modify(|live| live.spent(tokens));
                 let (stop, error) = match result {
-                    Ok(done) => (
-                        acp::wire_name(&done.stop_reason)
-                            .parse()
-                            .unwrap_or(StopReason::Other),
-                        None,
-                    ),
+                    Ok(done) => (stop_reason(&done), None),
                     Err(e) => (StopReason::Failed, Some(e.to_string())),
                 };
                 self.turn_done(cx, stop, error);
@@ -852,9 +854,8 @@ impl Actor {
         let Some(method) = method else {
             return Some(End::Failed("the agent cannot resume a session".into()));
         };
-        let earlier = std::mem::take(&mut self.earlier);
-
-        if method == acp::ResumeMethod::Resume && !earlier.is_empty() {
+        if method == acp::ResumeMethod::Resume && !self.earlier.is_empty() {
+            let earlier = std::mem::take(&mut self.earlier);
             self.live.send_modify(|live| live.restore(earlier));
         }
 
@@ -884,6 +885,8 @@ impl Actor {
         session: SessionId,
         offered: Offered,
     ) -> Option<End> {
+        let earlier = std::mem::take(&mut self.earlier);
+        self.live.send_modify(|live| live.restore_times(&earlier));
         self.acp_session = Some(session.clone());
         self.model_is(offered.current.as_deref());
         self.thinking = offered.thinking;
@@ -1056,6 +1059,13 @@ fn cycle(mut modes: Vec<ModeOption>, bypass: Option<&str>) -> Vec<ModeOption> {
 /// What people call the agent `name`, such as Claude Code for `claude`.
 pub(super) fn agent_title(name: &str) -> &str {
     known(name).map_or(name, |known| known.title)
+}
+
+/// How a turn ended, with a stop reason this node does not know as `Other`.
+pub(super) fn stop_reason(done: &PromptResponse) -> StopReason {
+    acp::wire_name(&done.stop_reason)
+        .parse()
+        .unwrap_or(StopReason::Other)
 }
 
 /// `first`, then `then`.

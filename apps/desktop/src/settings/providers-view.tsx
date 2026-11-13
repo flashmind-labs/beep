@@ -3,11 +3,11 @@ import { ModelContextView } from "./model-context-view.tsx";
 import type { ModelContextPanel } from "./model-context.ts";
 import { FlshView } from "./flsh-view.tsx";
 import type { FlshPanel } from "./flsh.ts";
-import { splitFailure } from "../ui/failbanner-view.tsx";
+import { FailBanner } from "../ui/failbanner-view.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
-import { Button, Checkbox, CopyButton, EmptyPanel, Switch } from "../ui/kit.tsx";
+import { Button, Checkbox, CopyButton, EmptyPanel, onRowKey, Switch } from "../ui/kit.tsx";
 
 export interface SharedProviderSettings {
   agent: string; machineName: string | null;
@@ -45,8 +45,7 @@ function Body(p: ProviderProps) {
   if (!p.machine) return <EmptyPanel title="No machine online" text="Coding agents show here for machines that are online." />;
   if (p.view === undefined) return <EmptyPanel title={`Asking ${p.machineName}…`} />;
   const hv = p.view?.harnesses.find(h => h.agent === p.picked);
-  const failure = splitFailure(p.error);
-  const error = p.error && <div className="fb-err" role="alert"><div className="fb-line"><span>{failure.line}</span><button type="button" className="fb-x" aria-label="Dismiss" title="Dismiss" onClick={p.dismissError}>×</button></div>{failure.details && <details className="fb-more"><summary>Details</summary><pre>{failure.details}</pre></details>}</div>;
+  const error = p.error && <FailBanner message={p.error} dismiss={p.dismissError} />;
   if (p.view === null) return error || <div className="cc-err">Could not read the coding agents.</div>;
   if (p.inSettings) return <>{error}{hv ? <><Summary hv={hv} p={p} /><Runtime hv={hv} p={p} /></> : <EmptyPanel title={`${p.machineName} does not report ${harnessName(p.picked ?? "")}`} />}</>;
   return <>{error}<div className="hv"><AgentList view={p.view} p={p} />{hv ? <div>{p.shared && <SharedSettings value={p.shared} p={p} />}<Runtime key={`${p.machine}:${hv.agent}`} hv={hv} p={p} /></div> : <div className="hv-d" />}</div></>;
@@ -76,7 +75,7 @@ function Name({ name, version, latest, status, bad }: { name: string; version: s
   return <span className="hv-name"><span className="hv-nm"><b>{name}</b>{version && <span className="ver">{version}</span>}{latest && <span className="hv-up" title={`v${latest} is out`}>update</span>}</span><small className={bad ? "bad" : ""} title={status}>{status}</small></span>;
 }
 function AgentList({ view, p }: { view: HarnessesView; p: ProviderProps }) {
-  return <div className="hv-list">{listRows(view).map(r => { const hv = view.harnesses.find(h => h.agent === r.agent); if (!hv) return null; return <div key={r.agent} className={`hv-it${r.on || !r.switchable ? "" : " off"}`} role="button" tabIndex={0} aria-current={r.agent === p.picked} onClick={() => p.pick(r.agent)} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); p.pick(r.agent); } }}><HarnessIcon agent={r.agent} /><Name name={r.name} version={r.version ? `v${r.version}` : ""} latest={r.update ? hv.latest : null} status={r.status} bad={r.bad} />{r.switchable ? <HarnessSwitch hv={hv} p={p} on={r.on} /> : <span />}</div>; })}</div>;
+  return <div className="hv-list">{listRows(view).map(r => { const hv = view.harnesses.find(h => h.agent === r.agent); if (!hv) return null; return <div key={r.agent} className={`hv-it${r.on || !r.switchable ? "" : " off"}`} role="button" tabIndex={0} aria-current={r.agent === p.picked} onClick={() => p.pick(r.agent)} onKeyDown={onRowKey(() => p.pick(r.agent))}><HarnessIcon agent={r.agent} /><Name name={r.name} version={r.version ? `v${r.version}` : ""} latest={r.update ? hv.latest : null} status={r.status} bad={r.bad} />{r.switchable ? <HarnessSwitch hv={hv} p={p} on={r.on} /> : <span />}</div>; })}</div>;
 }
 function Summary({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
   const s = p.adapter ? { text: adapterLine(p.adapter), bad: p.adapter.failed !== null } : summaryLine(hv);

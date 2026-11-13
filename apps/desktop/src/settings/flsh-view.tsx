@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshProblem, toggleQuantization, type FlshDraft, type Sort } from "./flsh-state.ts";
 import type { FlshPanel } from "./flsh.ts";
+import { cap } from "../ui/format.ts";
 import { Button, Switch } from "../ui/kit.tsx";
 
 const DEFAULT_TRIGGER = "Model's default trigger";
@@ -14,7 +15,7 @@ export function FlshView({ panel }: { panel: FlshPanel }) {
   const set = (change: Partial<FlshDraft>) => panel.change(change);
   const problem = flshProblem(draft);
   const changed = flshChanged(state.saved, draft);
-  const sorts: [string, Sort | null][] = [["Default", null], ...SORTS.map((s): [string, Sort | null] => [s[0].toUpperCase() + s.slice(1), s])];
+  const sorts: [string, Sort | null][] = [["Default", null], ...SORTS.map((s): [string, Sort | null] => [cap(s), s])];
   return <>
     <h4>OpenRouter routing</h4><div className="hv-note">Applies to every machine.</div>
     <Field label="Zero data retention" help="Only endpoints that keep no prompts."><Chips label="Zero data retention" values={[["Account setting", null], ["Require", true], ["Off", false]]} selected={v => draft.zdr === v} onPick={v => set({ zdr: v })} /></Field>

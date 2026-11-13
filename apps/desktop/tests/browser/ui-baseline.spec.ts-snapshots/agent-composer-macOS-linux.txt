@@ -206,14 +206,14 @@ body.cbody
                       div#agtasks
                       div [data-agent-queue-slot="true"] style(display)
                     div [data-agent-work-line="true"] style(display)
-                  div [data-agent-attachment-slot="true"] style(display)
                   div#agfield.dinput.small style(--field-h)
                     span.agfield-grip [aria-label="Resize the message field" aria-orientation="horizontal" role="separator" title="Drag to resize, double-click to reset"]
                     button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
                       svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     input [hidden multiple type="file"] value=""
+                    div [data-agent-attachment-slot="true"] style(display)
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="Also add a test for the query string" (focused)
+                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="Also add a test for the query string" (focused)
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"] "Model unknown"

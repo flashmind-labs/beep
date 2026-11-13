@@ -1,7 +1,6 @@
 // The bar's page, and the pane the command center window shows it in.
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { invoke } from "../ui/tauri.ts";
-import type { PanePage } from "./pane.ts";
 import type { ViewName, ViewArg, Location } from "../center/state.ts";
 
 export const bar = document.getElementById("bar")!;
@@ -17,9 +16,7 @@ export interface BarState {
 }
 
 /// What the pane shows, for the window's sidebar.
-export interface PaneNow {
-  view: View;
-}
+export type PaneNow = BarState;
 
 export function current(): PaneNow {
   return { view: S.view };
@@ -49,24 +46,15 @@ export const S: BarState = new Proxy<BarState>({ view: "waiting" }, {
 });
 
 export const $ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel);
-/// An element `$` is sure to find, as the view on screen draws it.
-export const $$ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel)!;
 
 /// What the command center window does for the pane. The bar has none.
 export interface WindowHooks {
   /// Opens the window's Settings sheet.
   openSettings(): void;
-  /// Settings' Instructions row: the sheet closes and the view shows.
-  openInstructions(): void;
-  /// Settings' Coding agents row: the sheet closes and the page shows.
-  openProviders(): void;
   /// Settings' Report a problem row: the sheet closes and the report sheet opens.
   openReport(): void;
   /// Settings' Keyboard shortcuts row: the sheet closes and the shortcuts sheet opens.
   openShortcuts(): void;
-  /// A page Settings leads to, such as Machines: the sheet closes and the pane
-  /// shows it; null only closes.
-  settingsAway(view: PanePage | null): void;
   /// Draws window view `name` (such as "providers") inside `root`, a page of
   /// the Settings sheet, opened with `arg`.
   embedView?(name: ViewName, root: HTMLElement, arg: ViewArg): () => void;

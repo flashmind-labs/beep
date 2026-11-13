@@ -104,6 +104,20 @@ struct Projection {
 }
 
 impl Projection {
+    fn new(topic: Topic, query: Option<u64>, source: Source) -> Self {
+        Self {
+            topic,
+            query,
+            source,
+            previous: None,
+            bytes: 0,
+            dirty: true,
+            running: false,
+            not_before: Instant::now(),
+            idle: 0,
+        }
+    }
+
     /// The least time to the next read. A file read, a desktop's or the
     /// listing behind a folder's `files` topic, backs off while it comes back
     /// unchanged: an agent writing in a checkout would otherwise run git
@@ -130,7 +144,7 @@ pub(super) struct Snapshots {
     stream: uuid::Uuid,
     generation: u64,
     revision: u64,
-    entries: BTreeMap<(Topic, Option<u64>), Projection>,
+    entries: BTreeMap<Key, Projection>,
     reads: JoinSet<Completed>,
     next_key: Option<Key>,
 }
@@ -357,17 +371,7 @@ impl Snapshots {
                     old.running = false;
                     old
                 }
-                None => Projection {
-                    topic,
-                    query,
-                    source,
-                    previous: None,
-                    bytes: 0,
-                    dirty: true,
-                    running: false,
-                    not_before: Instant::now(),
-                    idle: 0,
-                },
+                None => Projection::new(topic, query, source),
             };
             next.insert(key, entry);
         }
@@ -380,17 +384,7 @@ impl Snapshots {
             {
                 next.insert(
                     key.clone(),
-                    Projection {
-                        topic: previous.topic.clone(),
-                        query: None,
-                        source: Source::Missing,
-                        previous: None,
-                        bytes: 0,
-                        dirty: true,
-                        running: false,
-                        not_before: Instant::now(),
-                        idle: 0,
-                    },
+                    Projection::new(previous.topic.clone(), None, Source::Missing),
                 );
             }
         }
@@ -606,36 +600,20 @@ async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Res
             }
         }
         Read::SignIn { tool } => {
-            let link = beep_proto::node::local_link();
-            let _task = AbortOnDropHandle::new(tokio::spawn(crate::machine::sign_in::serve(
-                link.node.0,
-                link.node.1,
-            )));
-            let (mut tx, mut rx) = link.caller;
-            tx.send(&beep_proto::node::sign_in::Request::State { tool })
-                .await?;
+            let state = super::ask(&beep_proto::node::sign_in::Request::State { tool }, crate::machine::sign_in::serve)
+            .await?;
             Ok(Value::SignIn(
-                rx.recv()
-                    .await?
-                    .context("sign-in state closed without a reply")?,
+                state.context("sign-in state closed without a reply")?,
             ))
         }
         Read::Process(request) => Ok(Value::Process(
             crate::run::tasks::answer(crate::run::tasks::Table::Shared, request).await,
         )),
         Read::TerminalList => {
-            let link = beep_proto::node::local_link();
-            let _task = AbortOnDropHandle::new(tokio::spawn(crate::run::terminal::serve(
-                link.node.0,
-                link.node.1,
-            )));
-            let (mut tx, mut rx) = link.caller;
-            tx.send(&beep_proto::node::terminal::Request::List {})
-                .await?;
+            let list = super::ask(&beep_proto::node::terminal::Request::List {}, crate::run::terminal::serve)
+            .await?;
             Ok(Value::Terminals(
-                rx.recv()
-                    .await?
-                    .context("terminal list closed without state")?,
+                list.context("terminal list closed without state")?,
             ))
         }
         Read::SyncList => Ok(Value::Sync(Box::new(

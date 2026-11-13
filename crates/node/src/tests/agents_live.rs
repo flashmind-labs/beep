@@ -162,6 +162,29 @@ fn a_loaded_session_replays_its_prompts_and_answers() {
 }
 
 #[test]
+fn interruption_replay_stays_apart_from_the_next_user_prompt() {
+    let chunk = |kind: &str, text: &str| update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}));
+    for notice in ["[Request interrupted by user]", "[Request interrupted by user for tool use]"] {
+        for joined in [false, true] {
+            let mut live = live_titled("A conversation");
+            live.info.state.status = Status::Starting;
+            if joined {
+                live.apply(&chunk("user_message_chunk", &format!("{notice}Use the other machine")));
+            } else {
+                live.apply(&chunk("user_message_chunk", notice));
+                live.apply(&chunk("user_message_chunk", "Use the other machine"));
+            }
+            let (entries, _) = live.transcript(10);
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0].kind, EntryKind::Other);
+            assert_eq!(entries[0].text, "Interrupted");
+            assert_eq!(entries[1].kind, EntryKind::User);
+            assert_eq!(entries[1].text, "Use the other machine");
+        }
+    }
+}
+
+#[test]
 fn a_replayed_image_becomes_an_image_line() {
     let mut live = live();
     let data = STANDARD.encode(b"\x89PNG");
@@ -1308,4 +1331,75 @@ fn a_live_claude_spawn_shows_its_requested_model() {
             .text
             .contains("[agent] general-purpose\n[model] sonnet")
     }));
+}
+
+#[test]
+fn automatic_titles_are_cleaned_on_updates_and_restore() {
+    let tagged = crate::agents::tags::from_session("parent", "Parent task", "Fix the upload queue.\nDetails");
+    let mut session = live_titled(&tagged);
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": tagged})));
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": "<from-session id=\"parent\""})));
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": "task ".repeat(40)})));
+    assert!(session.info.title.as_ref().unwrap().chars().count() <= 80);
+}
+
+#[test]
+fn streamed_prompt_titles_wait_for_complete_headers() {
+    let mut session = live();
+
+    for chunk in ["<from-", "session id=\"parent\" name=\"Parent", " task\">\n", "Fix the upload queue.", "\n</from-session>"] {
+        session.apply(&update(json!({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": chunk}})));
+        if chunk.contains("queue") || chunk.contains("</from-session>") {
+            assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+        } else {
+            assert_eq!(session.info.title, None);
+        }
+    }
+}
+
+#[test]
+fn recorded_times_survive_streaming_and_replay() {
+    let mut live = live();
+    live.prompted("fix it");
+    live.apply_at(&said("Fixed"), Instant::now());
+    let before = live.transcript(10).0;
+    assert!(before.iter().all(|entry| entry.sent_at.is_some()));
+    live.apply_at(&said("."), Instant::now());
+    assert_eq!(live.transcript(10).0[1].sent_at, before[1].sent_at);
+
+    let saved = live.transcript(10).0;
+    let mut replay = live_titled("fix it");
+    replay.info.state.status = Status::Starting;
+    replay.apply_at(&update(json!({"sessionUpdate":"user_message_chunk", "content":{"type":"text","text":"fix it"}})), Instant::now());
+    replay.apply_at(&said("Fixed."), Instant::now());
+    assert!(replay.transcript(10).0.iter().all(|entry| entry.sent_at.is_none()));
+    replay.restore_times(&saved);
+    assert_eq!(replay.transcript(10).0, saved);
+}
+
+#[test]
+fn recovery_context_does_not_name_a_conversation() {
+    let mut live = live();
+    live.prompted(&crate::agents::tags::context(crate::agents::restart::CONTINUE));
+    assert!(live.info.title.is_none());
+    assert!(crate::agents::tags::own_words(&live.transcript(10).0[0].text).is_empty());
+}
+
+#[test]
+fn replay_dates_match_the_saved_tail_when_prompts_repeat() {
+    let mut replay = live();
+    replay.info.state.status = Status::Starting;
+    replay.push(EntryKind::User, "yes");
+    replay.push(EntryKind::Agent, "Done.");
+    replay.push(EntryKind::User, "yes");
+    replay.push(EntryKind::Agent, "Done.");
+    let mut saved = beep_proto::node::agent::Entry::new(EntryKind::User, "yes".into());
+    saved.sent_at = Some(123);
+    replay.restore_times(&[saved]);
+    let entries = replay.transcript(10).0;
+    assert_eq!(entries[0].sent_at, None);
+    assert_eq!(entries[2].sent_at, Some(123));
 }

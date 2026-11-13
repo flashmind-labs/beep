@@ -43,7 +43,9 @@ const MAX_COMPACTIONS: usize = 100;
 /// The longest summary or question detail.
 const MAX_LINE: usize = beep_proto::node::agent::MAX_QUESTION_LINE;
 /// Claude Code's tool that publishes a page or document as an artifact.
-const ARTIFACT_TOOL: &str = "Artifact";
+pub(in crate::agents) const ARTIFACT_TOOL: &str = "Artifact";
+/// Claude Code's tool that loads a skill.
+pub(in crate::agents) const SKILL_TOOL: &str = "Skill";
 
 /// The `_meta` key claude-agent-acp forwards Claude Code's rate limit
 /// events under, in a `usage_update`.
@@ -126,8 +128,6 @@ pub(crate) struct Live {
     /// The thought arriving now, for the line the summary shows while the
     /// agent thinks.
     thought: String,
-    /// The last update was part of `thought`.
-    in_thought: bool,
     /// The thought arriving now, as its transcript entry once it has text,
     /// and when it started; `None` for one replayed by a loaded session,
     /// whose time is not known.

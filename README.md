@@ -68,11 +68,13 @@ aarch64-linux-android`.
 
 ### Releases
 
-`just android-release <version>` and `just ios-release <version>` set the
-phone version in `apps/desktop/src-tauri/tauri.android.conf.json` or
-`tauri.ios.conf.json`, commit and tag `android-v*` or `ios-v*`. The tag makes
-CI build the Tauri app and upload it to Play's beta track or to TestFlight.
-`just release` tags the desktop, node, Android and iOS together.
+`just patch <apps>` and `just minor <apps>` bump the listed apps (`desktop`,
+`beep-node`, `android`, `ios` or `all`) to the next 0.x patch or minor version,
+freeze their changelogs, commit together and push main with the release tags.
+`just release [apps]` does a patch bump of the listed apps, or of every app
+without arguments. Add `--dry-run` to check versions without releasing. Tags
+make CI build and publish each app; Android goes to Play's beta track and iOS
+to TestFlight. `just server-release <version>` tags the server.
 
 ## Tests
 

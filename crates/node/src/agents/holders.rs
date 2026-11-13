@@ -52,15 +52,6 @@ pub(super) enum Holding {
 }
 
 impl Holding {
-    /// Whether a process holds the file, when known.
-    pub(super) fn held(self) -> Option<bool> {
-        match self {
-            Self::Open(_) => Some(true),
-            Self::Closed => Some(false),
-            Self::Unknown => None,
-        }
-    }
-
     pub(super) fn pid(self) -> Option<u32> {
         match self {
             Self::Open(pid) => Some(pid),
@@ -448,11 +439,11 @@ pub(super) fn settle(presence: Presence, pid: Option<u32>, held: Holding) -> Pre
         return presence;
     }
 
-    match held.held() {
+    match held {
         // Quiet for a while, it may still be loaded in an app server.
-        Some(true) if presence.is_live() => presence,
-        Some(true) => Presence::Running,
-        Some(false) if presence.is_live() => Presence::Stopped,
+        Holding::Open(_) if presence.is_live() => presence,
+        Holding::Open(_) => Presence::Running,
+        Holding::Closed if presence.is_live() => Presence::Stopped,
         _ => presence,
     }
 }

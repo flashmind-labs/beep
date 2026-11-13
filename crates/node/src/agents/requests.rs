@@ -4,7 +4,6 @@ use super::{
     Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
     custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder, worktrees,
 };
-use crate::agents::claude::Excerpt;
 use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};
@@ -14,7 +13,7 @@ use beep_proto::node::{
     usage::SessionSpend,
 };
 use beep_proto::watched;
-use beep_proto::{MAX_AGENT_FILE, media_mime};
+use beep_proto::media_mime;
 use iroh::EndpointId;
 use std::{fmt::Display, io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
@@ -68,7 +67,15 @@ impl Agents {
             // A session started outside Beep: Claude Code's, else another
             // agent's from its own store.
             None => match self.external.transcript(session, last, before).await {
-                Ok(None) => self.stores_transcript(session, last, before).await,
+                // Codex's or pi's files, or why another agent's cannot be read.
+                Ok(None) => {
+                    let stores = self.stores.clone();
+                    let id = session.to_owned();
+                    spawn_blocking(move || stores.transcript(&id, last, before))
+                        .await
+                        .map_err(anyhow::Error::from)
+                        .and_then(std::convert::identity)
+                }
                 other => other,
             }
             .map(|read| {
@@ -93,21 +100,6 @@ impl Agents {
                 message: format!("could not read session {session}: {e:#}"),
             },
         }
-    }
-}
-
-impl Agents {
-    /// The transcript of a session in Codex's or pi's files, or why another
-    /// agent's cannot be read.
-    async fn stores_transcript(
-        &self,
-        session: &str,
-        last: usize,
-        before: Option<u64>,
-    ) -> Result<Option<Excerpt>> {
-        let stores = self.stores.clone();
-        let id = session.to_owned();
-        spawn_blocking(move || stores.transcript(&id, last, before)).await?
     }
 }
 
@@ -208,33 +200,21 @@ pub async fn serve_sessions(
             agent,
             limit,
             session,
-        } if agent == "claude" => {
-            match agents.external.list(limit, session, agents.owned()).await {
-                Ok(sessions) => SessionsReply::External { sessions },
-                Err(e) => failed(e),
-            }
-        }
-        SessionsRequest::External {
-            agent,
-            limit,
-            session,
-        } => match agents.stores_external(&agent, limit, session).await {
-            Ok(sessions) => SessionsReply::External { sessions },
-            Err(e) => failed(e),
-        },
+        } => agents
+            .external_of(&agent, limit, session)
+            .await
+            .map_or_else(failed, |sessions| SessionsReply::External { sessions }),
         SessionsRequest::ExternalNamed { sessions } => SessionsReply::External {
             sessions: agents.external_named(sessions).await,
         },
-        SessionsRequest::Folders { limit } => match agents.found_folders(limit).await {
-            Ok(folders) => SessionsReply::Folders { folders },
-            Err(e) => failed(e),
-        },
-        SessionsRequest::InFolders { folders, limit } => {
-            match agents.sessions_in(folders, limit).await {
-                Ok(sessions) => SessionsReply::External { sessions },
-                Err(e) => failed(e),
-            }
-        }
+        SessionsRequest::Folders { limit } => agents
+            .found_folders(limit)
+            .await
+            .map_or_else(failed, |folders| SessionsReply::Folders { folders }),
+        SessionsRequest::InFolders { folders, limit } => agents
+            .sessions_in(folders, limit)
+            .await
+            .map_or_else(failed, |sessions| SessionsReply::External { sessions }),
         SessionsRequest::Live { session } => live_reply(&agents, &session, None).await,
         SessionsRequest::Steer { session, steer } => {
             live_reply(&agents, &session, Some(steer)).await
@@ -409,45 +389,39 @@ pub async fn serve_sessions(
                 .unwrap_or_default(),
         },
         SessionsRequest::Processes { session } => match agents.get(&session) {
-            Some(found) if found.info().state.status != agent::Status::Ended => {
-                match found.processes.list().await {
-                    Ok(processes) => SessionsReply::Processes { processes },
-                    Err(e) => failed(e),
-                }
-            }
+            Some(found) if found.info().state.status != agent::Status::Ended => found
+                .processes
+                .list()
+                .await
+                .map_or_else(failed, |processes| SessionsReply::Processes { processes }),
             _ => SessionsReply::Processes {
                 processes: Vec::new(),
             },
         },
         SessionsRequest::StopProcess { session, pid } => match agents.get(&session) {
-            Some(found) if found.info().state.status != agent::Status::Ended => {
-                match found.processes.stop(pid).await {
-                    Ok(()) => SessionsReply::ProcessStopped {},
-                    Err(e) => failed(e),
-                }
-            }
+            Some(found) if found.info().state.status != agent::Status::Ended => found
+                .processes
+                .stop(pid)
+                .await
+                .map_or_else(failed, |()| SessionsReply::ProcessStopped {}),
             _ => failed("the session has ended"),
         },
-        SessionsRequest::CloseExternal { agent, session } => {
-            match agents.close_external(&agent, &session).await {
-                Ok(()) => SessionsReply::ProcessStopped {},
-                Err(e) => failed(e),
-            }
-        }
+        SessionsRequest::CloseExternal { agent, session } => agents
+            .close_external(&agent, &session)
+            .await
+            .map_or_else(failed, |()| SessionsReply::ProcessStopped {}),
         SessionsRequest::RelocateSession {
             agent,
             session,
             folder,
-        } => match agents.relocate_session(&agent, &session, &folder).await {
-            Ok(()) => SessionsReply::Deleted {},
-            Err(e) => failed(e),
-        },
-        SessionsRequest::DeleteSession { agent, session } => {
-            match agents.delete_session(&agent, &session).await {
-                Ok(()) => SessionsReply::Deleted {},
-                Err(e) => failed(e),
-            }
-        }
+        } => agents
+            .relocate_session(&agent, &session, &folder)
+            .await
+            .map_or_else(failed, |()| SessionsReply::Deleted {}),
+        SessionsRequest::DeleteSession { agent, session } => agents
+            .delete_session(&agent, &session)
+            .await
+            .map_or_else(failed, |()| SessionsReply::Deleted {}),
         SessionsRequest::Models { agent } => match agents.models(&agent).await {
             Some(models) => SessionsReply::Models { models },
             None => SessionsReply::Error {
@@ -457,12 +431,11 @@ pub async fn serve_sessions(
         SessionsRequest::MoveProgress { session } => SessionsReply::Moving {
             progress: agents.moves.progress(&session),
         },
-        SessionsRequest::MoveCheck { project, branch: _ } => {
-            match agents.moves.prepare_worktree(&project).await {
-                Ok(()) => SessionsReply::MoveChecked { ignored: false },
-                Err(e) => failed(e),
-            }
-        }
+        SessionsRequest::MoveCheck { project, branch: _ } => agents
+            .moves
+            .prepare_worktree(&project)
+            .await
+            .map_or_else(failed, |()| SessionsReply::MoveChecked { ignored: false }),
         // Asked by apps from before background copies were removed: this
         // node keeps no copies.
         SessionsRequest::Copies {} => SessionsReply::Copies { copies: Vec::new() },
@@ -484,12 +457,9 @@ pub async fn serve_sessions(
         SessionsRequest::Present { mut paths } => {
             paths.truncate(agent::MAX_PRESENT_PATHS);
 
-            match spawn_blocking(move || media_file::present(&paths, dirs::home_dir().as_deref()))
+            spawn_blocking(move || media_file::present(&paths, dirs::home_dir().as_deref()))
                 .await
-            {
-                Ok(present) => SessionsReply::Present { present },
-                Err(e) => failed(e),
-            }
+                .map_or_else(failed, |present| SessionsReply::Present { present })
         }
         SessionsRequest::StartReview { order } => match agents.start_review(order).await {
             Ok(run) => SessionsReply::Review { run },
@@ -544,12 +514,13 @@ pub async fn serve_sessions(
 }
 
 async fn live_reply(agents: &Agents, session: &str, steer: Option<agent::Steer>) -> SessionsReply {
-    match agents.external.live(session, steer, agents.owned()).await {
-        Ok(status) => SessionsReply::Live {
+    agents
+        .external
+        .live(session, steer, agents.owned())
+        .await
+        .map_or_else(failed, |status| SessionsReply::Live {
             status: Box::new(status),
-        },
-        Err(e) => failed(e),
-    }
+        })
 }
 
 /// The reply saying `e`, with its causes.
@@ -585,13 +556,6 @@ async fn share_reply(
         Err(e) if e.kind() == ErrorKind::NotFound => return SessionsReply::NoFile {},
         Err(e) => return failed(format!("could not read {path}: {e}")),
         Ok(meta) if !meta.is_file() => return failed(format!("{path} is not a file")),
-        Ok(meta) if meta.len() > MAX_AGENT_FILE => {
-            return failed(format!(
-                "{path} is {} MB, over the {} MB that can be shown",
-                meta.len() / (1024 * 1024),
-                MAX_AGENT_FILE / (1024 * 1024)
-            ));
-        }
         Ok(_) => {}
     }
 

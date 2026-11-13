@@ -8,7 +8,6 @@ import { onClosing, sessionVisible, shownStatus } from "../agents/closing.ts";
 import { invoke, indexedChannel, listen } from "../ui/tauri.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
-import { projectRef } from "./localid.ts";
 import type { BarTarget, ReviewSession } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.ts";
@@ -61,7 +60,7 @@ listen<LiveRow>("project-live", e => liveMode.heard(e.payload));
 
 /// The project's open pull requests and issues, for the project page's list.
 export const thr = makeThreads({
-  invoke, ago: ms => formatAgo(ms, "short"),
+  invoke,
   redraw: () => redrawProjects(),
   openUrl,
   kept: keptSection("threads"),
@@ -118,18 +117,12 @@ export function redrawProjectsPage() {
 /// What the Pull requests and Issues sections do on project `p`'s page:
 /// Work on it and Continue fill the bar.
 export function repoActs(p: Project): RepoActs {
-  const { project_id: id } = projectRef(p.name);
   return {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     continuePr: (pr: PullRequestRow) => continuePr(p.name, pr),
     reviewPr: (pr: PullRequestRow) => reviewPr(p.name, pr),
     reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
     openReview: (session: ReviewSession) => go("pane", { agent: session }),
-    checks: runs.checks(id),
-    showRun: (run: number, host?: string | null) => {
-      runs.show(id, run, host);
-      document.getElementById("sec-actions")?.scrollIntoView({ block: "nearest" });
-    },
   };
 }
 

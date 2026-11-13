@@ -58,7 +58,8 @@ impl Agents {
 
         for session in sessions {
             let key = (session.agent.clone(), session.id.clone());
-            let revision = match (session.pid, recent_deadline(session)) {
+            let deadline = recent_deadline(session);
+            let revision = match (session.pid, deadline) {
                 (Some(pid), _) => Observation::Process(pid),
                 (_, Some(_)) => Observation::Recent(session.last_activity),
                 _ => {
@@ -95,7 +96,6 @@ impl Agents {
                 },
                 Observation::Recent(_) => None,
             };
-            let deadline = recent_deadline(session);
             let hub = self.events.clone();
             let id = session.id.clone();
             let task = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {

@@ -109,40 +109,6 @@ export function ahead<R extends ListedRun>(runs: readonly R[], skip: (r: R) => b
   return out.filter(r => !skip(r));
 }
 
-/// Whether the list should be asked again on a poll: a run goes and the
-/// rate limit does not hold.
-export function listDue(runs: readonly Pick<ListedRun, "state">[], limitedUntil: number | null, now: number) {
-  return runs.some(r => going(r.state)) && !limited(limitedUntil, now);
-}
-
-/// The rows drawn last, by key, with the markup each was drawn from. A row
-/// drawn again from the same markup stays the element on screen, so it
-/// does not flash, a spinner keeps turning and nothing below it moves.
-export class KeptRows<T> {
-  private rows = new Map<string, { sig: string; el: T }>();
-  private used = new Set<string>();
-
-  /// The element drawn before for `key` when `sig` is the same, else `fresh`,
-  /// which is kept for the next draw.
-  take(key: string, sig: string, fresh: T): T {
-    this.used.add(key);
-    const was = this.rows.get(key);
-    if (was && was.sig === sig) return was.el;
-    this.rows.set(key, { sig, el: fresh });
-    return fresh;
-  }
-
-  /// Forgets the rows `prefix` names that were not taken since the last sweep.
-  sweep(prefix = "") {
-    for (const key of [...this.rows.keys()]) if (key.startsWith(prefix) && !this.used.has(key)) this.rows.delete(key);
-    for (const key of [...this.used]) if (key.startsWith(prefix)) this.used.delete(key);
-  }
-
-  get size() {
-    return this.rows.size;
-  }
-}
-
 /// A queue of reads with at most `limit` running; a key already queued or
 /// running is not added again.
 export class Bounded {

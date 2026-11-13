@@ -15,7 +15,7 @@ use std::{
 /// Replies kept for `If-None-Match`, server-wide.
 const MAX_TAGGED: usize = 1024;
 /// Below this many calls left, polling waits for the limit to reset.
-pub const LOW_REMAINING: u64 = 200;
+const LOW_REMAINING: u64 = 200;
 /// How long to wait after a rate-limited reply that says no reset time.
 const LIMITED_WAIT: Duration = Duration::from_secs(60);
 

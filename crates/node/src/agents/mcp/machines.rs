@@ -4,6 +4,7 @@
 //! check first.
 
 use super::catalog::REMOTE_RUN;
+use super::reply::done;
 use crate::{
     files::transfer::{Incoming, Transfers},
     link::{
@@ -13,7 +14,7 @@ use crate::{
     machine::env,
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::{Key, Mesh, machine::Device};
+use beep_mesh::{DeviceStatus, Key, Mesh, machine::Device};
 use beep_proto::node::{
     EnvReport, LinkRx, LinkTx, Open, Opened, link,
     mesh_state::{StateValue, SyncSpec},
@@ -56,26 +57,37 @@ pub(super) fn command_name(name: &str) -> String {
 }
 
 /// One device of the mesh.
+#[derive(Clone)]
 pub(super) struct Machine {
     pub(super) id: EndpointId,
     pub(super) name: String,
 }
 
-pub(super) fn machines(mesh: &Mesh) -> Vec<Machine> {
-    mesh.code_hosts()
-        .into_iter()
-        .map(|status| Machine {
+impl From<DeviceStatus> for Machine {
+    fn from(status: DeviceStatus) -> Self {
+        Self {
             id: status.device.id,
             name: command_name(&status.device.name),
-        })
-        .collect()
+        }
+    }
 }
 
-fn done(text: impl Into<String>, failed: bool) -> Reply {
-    Reply::Done {
-        text: text.into(),
-        failed,
-    }
+pub(super) fn machines(mesh: &Mesh) -> Vec<Machine> {
+    mesh.code_hosts().into_iter().map(Machine::from).collect()
+}
+
+/// The machine of `mesh` that `name` names, as agents say it.
+pub(super) fn find(mesh: &Mesh, name: &str) -> Option<Machine> {
+    let wanted = command_name(name);
+    machines(mesh).into_iter().find(|m| m.name == wanted)
+}
+
+/// The machine `name` names, or whose endpoint id it is.
+pub(super) fn find_or_id(mesh: &Mesh, name: &str) -> Option<Machine> {
+    let wanted = command_name(name);
+    machines(mesh)
+        .into_iter()
+        .find(|m| m.id.to_string() == name || m.name == wanted)
 }
 
 /// The refusal for a `remote_run` that names, by name or id, the machine the
@@ -119,13 +131,15 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Rep
             let Some(name) = machine(&args) else {
                 return done("Give `machine`.", true);
             };
-            let Some(target) = machines(mesh)
-                .into_iter()
-                .find(|m| m.name == command_name(&name))
-            else {
+            let Some(target) = find(mesh, &name) else {
                 return missing(mesh, &name);
             };
-            to_target(offers, mesh, &target, request, &args).await
+
+            if request.tool == Tool::SendFiles {
+                send_files(offers, mesh, &target, request, &args).await
+            } else {
+                to_machine(offers, mesh, &target, request).await
+            }
         }
         Tool::SyncProject => sync_project(offers, mesh, request, &args).await,
         Tool::JobStatus | Tool::Cancel => {
@@ -147,21 +161,6 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Rep
         }
         other => done(format!("{other:?} is not a tool between machines."), true),
     }
-}
-
-/// Sends `request` to `target`, which the mesh holds.
-async fn to_target(
-    offers: &Offers,
-    mesh: &Mesh,
-    target: &Machine,
-    request: &Request,
-    args: &Value,
-) -> Reply {
-    if request.tool == Tool::SendFiles {
-        return send_files(offers, mesh, target, request, args).await;
-    }
-
-    to_machine(offers, mesh, target, request).await
 }
 
 /// The most paths one `send_files` call takes.
@@ -357,8 +356,6 @@ fn missing(mesh: &Mesh, name: &str) -> Reply {
     )
 }
 
-/// The mesh's devices, each with what its own status report says of it
-/// when it answers in time.
 /// Whether `mesh` has no machine but this one to run on; phones host nothing.
 pub(super) fn alone(mesh: &Mesh) -> bool {
     let me = mesh.me();
@@ -373,7 +370,8 @@ async fn list(mesh: &Mesh) -> Reply {
     done(device_lines(mesh).await.join("\n"), false)
 }
 
-/// Each device of the mesh as the list shows it.
+/// Each device of the mesh as the list shows it, with what its own status
+/// report says of it when it answers in time.
 async fn device_lines(mesh: &Mesh) -> Vec<String> {
     let me = mesh.me();
     futures::future::join_all(mesh.inventory().into_iter().map(|device| async move {

@@ -342,33 +342,6 @@ pub fn pr_checks(runs: &[WorkflowRun], prs: &[PrHeadRef<'_>]) -> Vec<PrChecks> {
         .collect()
 }
 
-/// An open PR's head on another host: the branch, and the commit its own checks ran on.
-pub struct MirrorHead<'a> {
-    pub number: u64,
-    pub branch: &'a str,
-    /// Empty when unknown: then any run on the branch counts.
-    pub sha: &'a str,
-}
-
-/// PR checks on a mirror host, matched by head branch and, where known, the same commit.
-pub fn mirror_checks(runs: &[ListedRun], heads: &[MirrorHead<'_>]) -> Vec<PrChecks> {
-    heads
-        .iter()
-        .filter(|head| !head.branch.is_empty())
-        .filter_map(|head| {
-            decide(
-                head.number,
-                runs.iter()
-                    .filter(|listed| listed.run.branch == head.branch)
-                    .filter(|listed| {
-                        head.sha.is_empty() || listed.sha.is_empty() || listed.sha == head.sha
-                    })
-                    .map(|listed| &listed.run),
-            )
-        })
-        .collect()
-}
-
 /// PR `number`'s checks from its runs, newest first: any failure decides, else running, else passed.
 fn decide<'a>(number: u64, runs: impl Iterator<Item = &'a WorkflowRun>) -> Option<PrChecks> {
     let mut workflows = HashSet::new();

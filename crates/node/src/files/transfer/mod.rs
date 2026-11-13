@@ -21,7 +21,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler, Router, RouterBuilder},
 };
 use iroh_blobs::{
-    BlobsProtocol, Hash, HashAndFormat,
+    BlobsProtocol, Hash,
     store::{
         GcConfig, ProtectCb, ProtectOutcome,
         fs::{FsStore, options::Options},
@@ -336,13 +336,8 @@ impl Transfers {
     /// Opens the store in `dir`, removes partial transfers a stopped node
     /// left, starts the synced projects kept in `dir/sync`, and serves the
     /// blobs and sync protocols on `endpoint`, which must not serve other
-    /// protocols through a router of its own. Folders the machine's
-    /// Syncthing keeps in step are not synced.
-    pub async fn start(endpoint: &Endpoint, dir: &Path, folders: Folders) -> Result<Self> {
-        Self::start_with(endpoint, dir, folders, Syncthing::local()).await
-    }
-
-    /// `start`, asking `syncthing` which folders it keeps in step.
+    /// protocols through a router of its own. Folders `syncthing` keeps in
+    /// step are not synced.
     pub async fn start_with(
         endpoint: &Endpoint,
         dir: &Path,
@@ -472,10 +467,7 @@ impl Transfers {
     /// renews the lease.
     pub(crate) async fn share(&self, path: &Path, peer: EndpointId) -> Result<Shared> {
         let inner = &self.inner;
-        let _permit =
-            inner.running.clone().try_acquire_owned().map_err(|_| {
-                anyhow!("busy: {MAX_RUNNING} transfers are running on this machine")
-            })?;
+        let _permit = inner.permit()?;
         let offered =
             offer::offer(&inner.store, path, inner.endpoint.addr(), &mut Out::Silent).await?;
         let Reply::Offered { content, size, .. } = offered.reply else {
@@ -530,10 +522,7 @@ impl Transfers {
     /// writing under the first free name.
     pub(crate) async fn receive(&self, incoming: Incoming) -> Result<Received> {
         let inner = &self.inner;
-        let _permit =
-            inner.running.clone().try_acquire_owned().map_err(|_| {
-                anyhow!("busy: {MAX_RUNNING} transfers are running on this machine")
-            })?;
+        let _permit = inner.permit()?;
         place::plain_name(&incoming.name)?;
         let (folders, dest) = (inner.folders.clone(), incoming.dest.clone());
         let folder = spawn_blocking(move || {
@@ -545,27 +534,15 @@ impl Transfers {
         })
         .await??;
         let folder = Arc::new(folder);
-        let hash = Hash::from_bytes(incoming.content.hash);
-        let job = fetch::Job {
-            from: incoming.from,
-            content: match incoming.content.kind {
-                ContentKind::File => HashAndFormat::raw(hash),
-                ContentKind::Folder => HashAndFormat::hash_seq(hash),
-            },
-            kind: incoming.content.kind,
-            name: incoming.name,
+        let job = fetch::Job::new(
+            incoming.from,
+            &incoming.content,
+            incoming.name,
             folder,
-            executable: incoming.executable,
-        };
+            incoming.executable,
+        );
         let cancel = CancellationToken::new();
-        let cx = fetch::Fetcher {
-            endpoint: &inner.endpoint,
-            store: &inner.store,
-            store_dir: &inner.store_dir,
-            journal: &inner.journal,
-            room: &inner.room,
-            cancel: &cancel,
-        };
+        let cx = inner.fetcher(&cancel);
         let fetched = fetch::fetch(cx, job, &mut Out::Silent).await;
         inner.collect.notify_one();
         let fetched = fetched?;
@@ -639,14 +616,35 @@ impl Protocol for Transfers {
     }
 }
 
+impl Inner {
+    /// A place among the `MAX_RUNNING` transfers, or a busy error.
+    fn permit(&self) -> Result<OwnedSemaphorePermit> {
+        self.running
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| anyhow!("busy: {MAX_RUNNING} transfers are running on this machine"))
+    }
+
+    fn fetcher<'a>(&'a self, cancel: &'a CancellationToken) -> fetch::Fetcher<'a> {
+        fetch::Fetcher {
+            endpoint: &self.endpoint,
+            store: &self.store,
+            store_dir: &self.store_dir,
+            journal: &self.journal,
+            room: &self.room,
+            cancel,
+        }
+    }
+}
+
 /// Serves one `transfer/1` stream: one offer or one fetch.
 async fn serve(inner: Arc<Inner>, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let Some(request) = rx.recv::<Request>().await? else {
         return Ok(());
     };
-    let Ok(permit) = inner.running.clone().try_acquire_owned() else {
-        let message = format!("busy: {MAX_RUNNING} transfers are running on this machine");
-        return tx.send(&Reply::Error { message }).await;
+    let permit = match inner.permit() {
+        Ok(permit) => permit,
+        Err(e) => return tx.send(&failed(&e)).await,
     };
     let served = serve_request(&inner, permit, request, tx, rx).await;
     // Its tags are gone: let the collector drop its blobs now.
@@ -676,18 +674,7 @@ async fn serve_request(
                 Ok(folder) => folder,
                 Err(e) => return tx.send(&failed(&e)).await,
             };
-            let hash = Hash::from_bytes(content.hash);
-            let job = fetch::Job {
-                from,
-                content: match content.kind {
-                    ContentKind::File => HashAndFormat::raw(hash),
-                    ContentKind::Folder => HashAndFormat::hash_seq(hash),
-                },
-                kind: content.kind,
-                name,
-                folder,
-                executable,
-            };
+            let job = fetch::Job::new(from, &content, name, folder, executable);
             serve_fetch(inner, permit, job, tx, rx).await
         }
         Request::Cancel {} => Ok(()),
@@ -760,14 +747,7 @@ async fn serve_fetch(
     mut rx: LinkRx,
 ) -> Result<()> {
     let cancel = CancellationToken::new();
-    let cx = fetch::Fetcher {
-        endpoint: &inner.endpoint,
-        store: &inner.store,
-        store_dir: &inner.store_dir,
-        journal: &inner.journal,
-        room: &inner.room,
-        cancel: &cancel,
-    };
+    let cx = inner.fetcher(&cancel);
     let result = {
         let mut out = Out::Stream(&mut tx);
         let work = fetch::fetch(cx, job, &mut out);

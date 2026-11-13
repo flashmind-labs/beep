@@ -6,7 +6,7 @@ const at = (over: Partial<EscAt>): EscAt => ({ page: "projects", picked: "acme/w
 
 test("Esc climbs from an open tile to the project, the Projects page, then Home", () => {
   assert.deepEqual(escUp(at({ tile: true })), { to: "tile" });
-  assert.deepEqual(escUp(at({})), { to: "projects", project: null });
+  assert.deepEqual(escUp(at({})), { to: "projects" });
   assert.deepEqual(escUp(at({ picked: null })), { to: "home" });
   assert.equal(escUp(at({ page: "home", picked: null })), null);
 });

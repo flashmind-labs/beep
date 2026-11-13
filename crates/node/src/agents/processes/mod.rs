@@ -29,6 +29,30 @@ use macos as os;
 #[cfg(windows)]
 use windows as os;
 
+/// Sends SIGTERM, or SIGKILL when `kill`, to `p` unless it is gone or its pid
+/// now belongs to another process.
+#[cfg(unix)]
+fn signal(p: &Process, kill: bool) -> std::io::Result<()> {
+    if !os::alive(p) {
+        return Ok(());
+    }
+
+    let pid = libc::pid_t::try_from(p.pid).map_err(std::io::Error::other)?;
+    // SAFETY: the positive pid and signal are plain integers. Its birth was
+    // checked above, so a stale observation is not sent to a reused pid.
+    if unsafe { libc::kill(pid, if kill { libc::SIGKILL } else { libc::SIGTERM }) } != 0 {
+        let e = std::io::Error::last_os_error();
+
+        if e.raw_os_error() != Some(libc::ESRCH) {
+            return Err(e);
+        }
+    }
+
+    Ok(())
+}
+#[cfg(windows)]
+use windows::signal;
+
 /// How often a session reads the process table while it works or a client
 /// follows `processes`: a wrapper that daemonizes and exits between reads
 /// would lose its child, and closing the session would leave it running.
@@ -335,7 +359,7 @@ async fn send(processes: Arc<[Process]>, kill: bool) -> anyhow::Result<()> {
         let mut error = None;
 
         for p in processes.iter() {
-            if let Err(e) = os::signal(p, kill) {
+            if let Err(e) = signal(p, kill) {
                 error.get_or_insert(e);
             }
         }
@@ -383,7 +407,7 @@ impl Drop for Cleanup {
     fn drop(&mut self) {
         for p in crate::lock(&self.0.known).processes.values() {
             if p.pid != self.0.root && p.group != self.0.root {
-                let _ = os::signal(p, true);
+                let _ = signal(p, true);
             }
         }
     }

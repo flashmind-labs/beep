@@ -2,6 +2,10 @@
 //! shared state.
 
 use super::{OpenTerminal, lock, pty::pty_size, screen::Screen, unknown};
+use crate::run::{
+    process::STOP_GRACE,
+    tasks::first_id,
+};
 use anyhow::Result;
 use beep_proto::node::{
     EnvSecret,
@@ -15,15 +19,13 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use tokio::{
     sync::{Notify, mpsc, watch},
     time::timeout,
 };
 
-/// How long a hung-up terminal has to exit before it is killed.
-const STOP_GRACE: Duration = Duration::from_secs(2);
 /// How long a stop waits for the kill to land.
 const STOP_WAIT: Duration = Duration::from_secs(5);
 
@@ -47,11 +49,7 @@ impl Default for Inner {
         Self {
             // From the clock, so a restarted node does not hand out the
             // number of a terminal that died with the old one.
-            last: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |since| {
-                    u32::try_from(since.as_secs() % 1_000_000 * 100).unwrap_or(0)
-                }),
+            last: first_id(),
             terms: Vec::new(),
         }
     }

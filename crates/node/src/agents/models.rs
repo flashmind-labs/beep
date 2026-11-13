@@ -112,17 +112,18 @@ pub(super) async fn find(kind: AgentKind) -> ModelList {
     let Some(home) = dirs::home_dir() else {
         return listed(Offered::default(), flag);
     };
-    let mut list = match tokio::time::timeout(PROBE_TIMEOUT, probe(&kind, &home)).await {
-        Ok(Ok(offered)) => listed(offered, flag),
+    let offered = match tokio::time::timeout(PROBE_TIMEOUT, probe(&kind, &home)).await {
+        Ok(Ok(offered)) => offered,
         Ok(Err(e)) => {
             log::info!("{} did not list its models: {e:#}", kind.name);
-            listed(Offered::default(), flag)
+            Offered::default()
         }
         Err(_) => {
             log::info!("{} did not list its models in time", kind.name);
-            listed(Offered::default(), flag)
+            Offered::default()
         }
     };
+    let mut list = listed(offered, flag);
     context::enrich(&kind, &mut list).await;
     list
 }

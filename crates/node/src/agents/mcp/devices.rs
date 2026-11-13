@@ -23,9 +23,8 @@ use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    collections::HashMap,
     fmt::Write,
-    sync::{Mutex, PoisonError},
+    sync::Mutex,
     time::Duration,
 };
 use tokio::{
@@ -34,6 +33,8 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+/// Why a call to an attached device fails once its view is gone.
+const VIEW_STOPPED: &str = "the device's view stopped";
 /// How long a machine has to list its devices.
 const LIST_LIMIT: Duration = Duration::from_secs(15);
 /// How long a machine has to start or stop a device.
@@ -188,7 +189,7 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
         }
         Action::Shutdown(at) => {
             let (machine, device) = find(offers, mesh, &at).await?;
-            screens.close(machine.id, &at.device);
+            screens.close(machine.id, &device.id.0, &at.device);
             let shutdown = Request::Shutdown {
                 id: device.id.clone(),
             };
@@ -332,10 +333,7 @@ async fn list(offers: &Offers, mesh: &Mesh) -> String {
         .code_hosts()
         .into_iter()
         .filter(|status| status.online || status.device.id == me)
-        .map(|status| Machine {
-            id: status.device.id,
-            name: command_name(&status.device.name),
-        })
+        .map(Machine::from)
         .collect();
     let listed = futures::future::join_all(online.iter().map(|machine| async move {
         (machine, devices_on(offers, mesh, machine).await)
@@ -393,16 +391,12 @@ async fn find(offers: &Offers, mesh: &Mesh, at: &Target) -> Result<(Machine, Dev
 }
 
 fn machine(mesh: &Mesh, name: &str) -> Result<Machine> {
-    let all = machines::machines(mesh);
-    let wanted = command_name(name);
-    let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
-    let Some(found) = all.iter().find(|m| m.name == wanted || m.id.to_string() == name) else {
+    let Some(found) = machines::find_or_id(mesh, name) else {
+        let all = machines::machines(mesh);
+        let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
         bail!("No machine called {name}. Machines: {}.", names.join(", "));
     };
-    Ok(Machine {
-        id: found.id,
-        name: found.name.clone(),
-    })
+    Ok(found)
 }
 
 /// The device `named` by id, else by name; a name several devices share
@@ -509,11 +503,20 @@ async fn open(offers: &Offers, mesh: &Mesh, machine: &Machine) -> Result<Link> {
 
 // ----- Attached devices -----
 
-/// The devices the agents look at and drive, each by its machine and the
-/// name or id it was called by, attached until they idle.
+/// The devices the agents look at and drive, attached until they idle,
+/// the least recently used first.
 #[derive(Default)]
 pub(crate) struct Screens {
-    open: Mutex<HashMap<(EndpointId, String), Viewer>>,
+    open: Mutex<Vec<Attached>>,
+}
+
+/// An attached device: its machine, the id of the device and the name or id
+/// it was called by.
+struct Attached {
+    machine: EndpointId,
+    id: String,
+    called: String,
+    viewer: Viewer,
 }
 
 /// One attached device: where its calls go, and the task that holds its
@@ -535,13 +538,18 @@ impl Screens {
     /// The attached device `at` names, attached now when it is not.
     async fn viewer(&self, offers: &Offers, mesh: &Mesh, at: &Target) -> Result<Viewer> {
         let machine = machine(mesh, &at.machine)?;
-        let key = (machine.id, at.device.trim().to_owned());
+        let called = at.device.trim();
 
-        if let Some(viewer) = self.lock().get(&key).filter(|v| !v.asks.is_closed()) {
-            return Ok(viewer.clone());
+        if let Some(viewer) = self.touch(machine.id, called) {
+            return Ok(viewer);
         }
 
         let (machine, device) = find(offers, mesh, at).await?;
+
+        // Attached by id earlier and called by name now: reuse that viewer.
+        if let Some(viewer) = self.touch(machine.id, &device.id.0) {
+            return Ok(viewer);
+        }
 
         if device.state == DeviceState::Off {
             bail!("{} on {} is off: boot it.", device.name, machine.name);
@@ -550,31 +558,54 @@ impl Screens {
         let mut link = open(offers, mesh, &machine).await?;
         link.tx
             .send(&Request::Attach {
-                id: device.id,
+                id: device.id.clone(),
                 max_side: SHOT_SIDE,
             })
             .await?;
         let viewer = Viewer::start(link, IDLE);
-        let mut open = self.lock();
-        open.retain(|_, v| !v.asks.is_closed());
-
-        if open.len() >= MAX_ATTACHED
-            && let Some(oldest) = open.keys().next().cloned()
-        {
-            open.remove(&oldest);
-        }
-
-        open.insert(key, viewer.clone());
+        self.attach(Attached {
+            machine: machine.id,
+            id: device.id.0,
+            called: called.to_owned(),
+            viewer: viewer.clone(),
+        });
         Ok(viewer)
     }
 
-    /// Detaches from the device `named` on `machine`.
-    fn close(&self, machine: EndpointId, named: &str) {
-        self.lock().remove(&(machine, named.trim().to_owned()));
+    /// The live viewer of the device called `called`, now the most recently
+    /// used.
+    fn touch(&self, machine: EndpointId, called: &str) -> Option<Viewer> {
+        let mut open = crate::lock(&self.open);
+        open.retain(|a| !a.viewer.asks.is_closed());
+        let at = open
+            .iter()
+            .position(|a| a.machine == machine && (a.called == called || a.id == called))?;
+        let attached = open.remove(at);
+        let viewer = attached.viewer.clone();
+        open.push(attached);
+        Some(viewer)
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<(EndpointId, String), Viewer>> {
-        self.open.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Keeps `attached` as the most recently used, detaching the least
+    /// recently used ones beyond `MAX_ATTACHED`.
+    fn attach(&self, attached: Attached) {
+        let mut open = crate::lock(&self.open);
+        open.retain(|a| {
+            !a.viewer.asks.is_closed() && (a.machine != attached.machine || a.id != attached.id)
+        });
+        open.push(attached);
+
+        while open.len() > MAX_ATTACHED {
+            open.remove(0);
+        }
+    }
+
+    /// Detaches from the device with `id` on `machine`, and from any device
+    /// called `called`.
+    fn close(&self, machine: EndpointId, id: &str, called: &str) {
+        let called = called.trim();
+        crate::lock(&self.open)
+            .retain(|a| a.machine != machine || (a.id != id && a.called != called));
     }
 }
 
@@ -595,12 +626,12 @@ impl Viewer {
         self.asks
             .send(Ask::Shot(reply))
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))?;
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))?;
 
         match timeout(SHOT_LIMIT, answer).await {
             Ok(Ok(Ok(frame))) => Ok(frame),
             Ok(Ok(Err(reason))) => bail!(reason),
-            Ok(Err(_)) => bail!("the device's view stopped"),
+            Ok(Err(_)) => bail!(VIEW_STOPPED),
             Err(_) => bail!("the device showed no screen in time"),
         }
     }
@@ -610,10 +641,10 @@ impl Viewer {
         self.asks
             .send(Ask::Input(inputs, sent))
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))?;
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))?;
         answer
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))
     }
 }
 
@@ -660,7 +691,7 @@ async fn view(mut link: Link, mut asks: mpsc::Receiver<Ask>, idle: Duration) {
                 }
                 Ok(Some(Reply::Ended { reason } | Reply::Failed { reason })) => break reason,
                 Ok(Some(_)) => {}
-                Ok(None) => break "the device's view stopped".to_owned(),
+                Ok(None) => break VIEW_STOPPED.to_owned(),
                 Err(e) => break format!("{e:#}"),
             },
         }

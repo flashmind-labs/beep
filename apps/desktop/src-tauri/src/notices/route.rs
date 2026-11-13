@@ -48,7 +48,7 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
                     && !note.read
                     && let Some(target) = note.target.clone()
                 {
-                    let read = (note.id.clone(), note.digest());
+                    let read = note.mark();
                     show_unread(&app, read, settle, move |app| {
                         let body = format!("{}: {}", note.source, note.text);
                         notify::opening(app, &note.title, &body, target);
@@ -70,6 +70,15 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
 /// what waits again, the bell keeps it, and the notice shows unless agent
 /// notices are off, the session is on screen or any app read it.
 fn agent_notice(app: &AppHandle, key: &AgentNoticeKey, notice: Notice, settle: Instant) {
+    if key.question.is_none()
+        && app
+            .state::<Arc<Fleet>>()
+            .parent_of(&key.machine_id, &key.session)
+            .is_some()
+    {
+        return;
+    }
+
     app.state::<WaitingList>().poke();
     let focused = focused_center_label(app);
     let mut on_screen: Vec<&str> = focused.iter().map(String::as_str).collect();

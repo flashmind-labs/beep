@@ -1,5 +1,5 @@
-//! The app's log, under `~/Library/Logs/Beep`, the place macOS keeps logs
-//! and Console shows them, so a user can send it. Beep's own lines from
+//! The app's log, under `~/Library/Logs/Beep` on macOS (where Console shows
+//! it), the XDG state folder on Linux, so a user can send it. Beep's own lines from
 //! debug up but the per-snapshot event lines, the embedded node's from info
 //! but its per-read subscription lines, iroh and the networking crates
 //! under it only when something goes wrong. `RUST_LOG` overrides it.
@@ -25,11 +25,20 @@ pub(crate) fn dir() -> Option<PathBuf> {
     {
         Some(PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Beep/Logs"))
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        linux_dir(dirs::state_dir(), dirs::data_dir())
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let home = std::env::var_os("HOME")?;
         Some(PathBuf::from(home).join("Library/Logs/Beep"))
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_dir(state: Option<PathBuf>, data: Option<PathBuf>) -> Option<PathBuf> {
+    Some(state.or(data)?.join("beep/logs"))
 }
 
 /// Starts logging to the file, written on a thread of its own. The guard

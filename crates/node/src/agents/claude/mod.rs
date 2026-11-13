@@ -165,12 +165,7 @@ impl External {
             limit => limit.min(MAX_LISTED),
         };
         spawn_blocking(move || {
-            let snapshot = discover::Snapshot {
-                processes,
-                pid_files: store.pid_files(),
-                owned,
-                now: None,
-            };
+            let snapshot = discover::Snapshot::of(&store, processes, owned);
             discover::list(&store, &snapshot, limit, only.as_deref())
         })
         .await?
@@ -204,12 +199,7 @@ impl External {
 
         let processes = procs::claude_processes().await;
         let mut sessions = spawn_blocking(move || {
-            let snapshot = discover::Snapshot {
-                processes,
-                pid_files: store.pid_files(),
-                owned,
-                now: None,
-            };
+            let snapshot = discover::Snapshot::of(&store, processes, owned);
             discover::list_ids(&store, &snapshot, &ids)
         })
         .await?
@@ -217,7 +207,7 @@ impl External {
 
         for session in &mut sessions {
             if session.title.is_none() && !session.last_prompt.is_empty() {
-                session.title = Some(session.last_prompt.clone());
+                session.title = crate::agents::tags::title(&session.last_prompt);
             }
         }
 

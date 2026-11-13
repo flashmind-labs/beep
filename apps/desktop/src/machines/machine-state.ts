@@ -1,7 +1,7 @@
 import { onPhone } from "../ui/platform.ts";
 // What a machine's rows say: its card, abilities, disk, memory and synced
 // projects, apart from the DOM so it can be tested.
-import { bytes, plural } from "../ui/format.ts";
+import { bytes, cap, plural } from "../ui/format.ts";
 import { conflictCount, machineMeta, rowDetail, stateChip, syncPct, type SyncDetail, type SyncRow } from "../project/filesync.ts";
 
 /// A tool found on a machine's `PATH` (MachineTool).
@@ -116,14 +116,16 @@ export const machineConnecting = (id: string) => connecting.has(id);
 export const machinesReachNow = () => reach;
 export function onConnecting(watch: () => void) { connectingWatchers.add(watch); }
 
-/// Where this Mac's own link stands, as `mac_control` gives it.
+/// Settings, This Mac (`mac_control`): whether Beep may use it, where its
+/// link stands and the permissions desktop control needs.
 export interface MacControl {
   id: string;
   name: string;
   enabled: boolean;
   status: "off" | "connecting" | "connected" | "failed" | "unlinked";
+  /// Why the last try failed, while `status` is "failed".
   error: string | null;
-  permissions: unknown;
+  permissions: { screen_recording: boolean; accessibility: boolean };
 }
 
 const CAPS: Record<string, string> = { gpu: "GPU", cuda: "CUDA", blender: "Blender", unreal: "Unreal", xcode: "Xcode", android: "Android", docker: "Docker" };
@@ -173,7 +175,7 @@ export function machineProjects(id: string, rows: readonly SyncRow[], detailOf: 
       project: r.project,
       off: m.paused || m.status === "offline",
       pct: m.paused ? null : syncPct(m),
-      chip: { text: chip.text[0].toUpperCase() + chip.text.slice(1), wait: chip.wait },
+      chip: { text: cap(chip.text), wait: chip.wait },
       meta: [...machineMeta(m), ...(n ? [conflictCount(n)] : [])],
       title: m.error || m.folder || r.project,
     };

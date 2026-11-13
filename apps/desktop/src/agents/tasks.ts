@@ -11,8 +11,6 @@ import { backgroundTasks, paneTasks, sessionKey } from "../agentpane/running.ts"
 import { showRunning } from "../agentpane/media.ts";
 import { draw } from "../agentpane/media-draw.ts";
 
-/// The server did not know the request, so it is not asked again.
-let oldServer = false;
 /// The tasks asked to stop, until they end.
 const stopping = new Set<string>();
 /// What the Running tab was last given.
@@ -21,7 +19,7 @@ let shown = "";
 /// The open session's tasks; the last ones when a read fails.
 export async function readTasks(o: OpenAgent) {
   const s = AG.page?.session;
-  if (oldServer || !s || s.external || s.status === "ended") return [];
+  if (!s || s.external || s.status === "ended") return [];
 
   try {
     return await invoke<AgentTask[]>("agent_tasks", where(o), AGENT_READ_WAIT_MS);

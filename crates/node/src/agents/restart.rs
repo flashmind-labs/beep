@@ -69,6 +69,8 @@ pub(crate) struct OpenSession {
     /// The model it ran on. A resumed agent starts on its own default otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     model: Option<ModelId>,
+    #[serde(default)]
+    title: Option<String>,
 }
 
 impl OpenSession {
@@ -147,9 +149,8 @@ impl Agents {
             if keep == Keep::Open && live.status() == Status::Ended && !stopped {
                 return None;
             }
-            // Kept once the node stopped, so the note is not rewritten with it
-            // on every change while the session runs.
-            let transcript = if keep == Keep::Open && stopped && !live.replays {
+            // Keep dates even for adapters that replay their history.
+            let transcript = if keep == Keep::Open {
                 live.transcript_before(KEPT_ENTRIES, None).0
             } else {
                 Vec::new()
@@ -164,7 +165,7 @@ impl Agents {
                     Keep::Open => {
                         let mut held = live.held.clone();
                         if matches!(live.status(), Status::Working | Status::Asking) {
-                            held.insert(0, Prompt::from(CONTINUE.to_owned()));
+                            held.insert(0, Prompt::from(crate::agents::tags::context(CONTINUE)));
                         }
                         held
                     }
@@ -175,8 +176,19 @@ impl Agents {
                 kids: Vec::new(),
                 transcript,
                 model: live.info.model.clone(),
+                title: live.info.title.clone(),
             })
         })
+    }
+
+    /// Waits for the user's agent settings for `SETTINGS_WAIT` at most;
+    /// whether they came.
+    pub(super) async fn settings_came(&self) -> bool {
+        let mut settled = self.settled.subscribe();
+
+        timeout(SETTINGS_WAIT, watched::wait_for(&mut settled, |settled| *settled))
+            .await
+            .is_ok()
     }
 
     /// Resumes `sessions`, once the user's settings for the agents came or
@@ -187,20 +199,13 @@ impl Agents {
             return;
         }
 
-        let mut settled = self.settled.subscribe();
-
-        if timeout(
-            SETTINGS_WAIT,
-            watched::wait_for(&mut settled, |settled| *settled),
-        )
-        .await
-        .is_err()
-        {
+        if !self.settings_came().await {
             log::info!("resuming sessions without the agent settings: the mesh gave none");
         }
 
         let mut sessions = sessions;
-        Self::parents_first(&mut sessions);
+        // A parent starts before its children.
+        sessions.sort_by_key(|open| open.depth());
 
         for open in sessions {
             let id = open.session.clone();
@@ -254,6 +259,7 @@ impl Agents {
                 timestamps: Some((open.started_at, open.last_activity)),
                 earlier: open.transcript,
                 model: open.model,
+                title: open.title,
                 mode: open.mode,
                 parent: open.parent,
                 follows,
@@ -267,7 +273,11 @@ impl Agents {
             self.adopt_remote(&session, kid);
         }
 
-        for prompt in open.held {
+        for mut prompt in open.held {
+            if prompt.text == CONTINUE {
+                prompt.text = crate::agents::tags::context(CONTINUE);
+            }
+
             session
                 .order(Command::Prompt(prompt))
                 .await

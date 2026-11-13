@@ -207,16 +207,14 @@ impl AsRef<[u8; 32]> for Oid {
 impl FromStr for Oid {
     type Err = anyhow::Error;
 
-    fn from_str(hex: &str) -> Result<Self> {
-        if !(hex.len() == 40 || hex.len() == 64) || !is_hex(hex) {
+    fn from_str(text: &str) -> Result<Self> {
+        if !(text.len() == 40 || text.len() == 64) || !is_hex(text) {
             bail!("invalid object id");
         }
 
         let mut bytes = [0; 32];
 
-        for (at, byte) in bytes.iter_mut().take(hex.len() / 2).enumerate() {
-            *byte = u8::from_str_radix(&hex[at * 2..at * 2 + 2], 16)?;
-        }
+        hex::decode_to_slice(text, &mut bytes[..text.len() / 2])?;
 
         Ok(Self(bytes))
     }
@@ -230,11 +228,7 @@ impl fmt::Display for Oid {
             32
         };
 
-        for byte in &self.0[..used] {
-            write!(f, "{byte:02x}")?;
-        }
-
-        Ok(())
+        f.write_str(&hex::encode(&self.0[..used]))
     }
 }
 

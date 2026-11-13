@@ -8,12 +8,12 @@ import { GeneralView } from "./general-view.tsx";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
-import type { PanePage } from "../bar/pane.ts";
 import { agentAccountsContent, credentialsContent, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.ts";
 import { bar, S, toWindow, windowHooks } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { hintModel } from "../bar/hints.ts";
 import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.ts";
+import type { MacControl } from "../machines/machine-state.ts";
 import { harnessName } from "./providers-state.ts";
 import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -31,18 +31,6 @@ export interface MacSettings {
   save_folder: string | null;
   /// That folder was picked in Settings rather than Downloads.
   save_folder_picked: boolean;
-}
-
-/// Settings, This Mac (`mac_control`): whether Beep may use it, where its
-/// link stands and the permissions desktop control needs.
-export interface MacControl {
-  id: string;
-  name: string;
-  enabled: boolean;
-  status: "off" | "connecting" | "connected" | "failed" | "unlinked";
-  /// Why the last try failed, while `status` is "failed".
-  error: string | null;
-  permissions: { screen_recording: boolean; accessibility: boolean };
 }
 
 /// Settings: drawn at once from what this Mac knows (its own settings and the
@@ -304,15 +292,8 @@ function store() {
   }
 }
 
-/// Leaves Settings for another page: in the window the sheet closes and
-/// the pane shows it.
-function setAway(view: PanePage, inBar: () => unknown) {
-  if (SET.root && windowHooks) return windowHooks.settingsAway(view);
-  inBar();
-}
-
 const generalPending = new Set<string>();
-let macControlBusy = false;
+const macPending = new Set<string>();
 
 /// What a Settings section shows, drawn fresh from the module state on each render.
 type LocalView = "general" | "appearance" | "mac" | "machines" | "instr" | "creds" | "skills" | "skills-bar" | "agent-overview" | "agent-bar";
@@ -321,51 +302,39 @@ function localView(kind: LocalView): ReactNode {
   switch (kind) {
     case "general": return local ? createElement(GeneralView, {
       settings: local.set, phone: onPhone(), busy: generalPending,
-      autostart: (enabled: boolean) => void changeGeneral("autostart", "set_autostart", { enabled }),
-      notices: (enabled: boolean) => void changeGeneral("notices", "set_agent_notices", { enabled }),
-      chooseSaves: () => void changeGeneral("saves", "choose_save_folder", {}),
-      useDownloads: () => void changeGeneral("saves", "use_downloads", {}),
+      autostart: (enabled: boolean) => void change(generalPending, "autostart", "set_autostart", { enabled }),
+      notices: (enabled: boolean) => void change(generalPending, "notices", "set_agent_notices", { enabled }),
+      chooseSaves: () => void change(generalPending, "saves", "choose_save_folder", {}),
+      useDownloads: () => void change(generalPending, "saves", "use_downloads", {}),
       shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
       report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
     }) : null;
     case "appearance": return createElement(AppearanceView);
     case "mac": return local?.mac ? createElement(ComputerView, {
-      mac: local.mac, busy: macControlBusy,
-      setEnabled: (enabled: boolean) => void setMacEnabled(enabled),
+      mac: local.mac, busy: macPending.size > 0,
+      setEnabled: (enabled: boolean) => void change(macPending, "mac", "set_mac_control", { enabled }),
       allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
     }) : null;
-    case "machines": return createElement(MachinesOverview, { machines: SET.machines, open: () => setAway("machines", renderMachines) });
-    case "instr": return createElement(InstructionsOverview, { open: () => windowHooks ? windowHooks.openInstructions() : toWindow("instructions") });
+    case "machines": return createElement(MachinesOverview, { machines: SET.machines, open: () => { void renderMachines(); } });
+    case "instr": return createElement(InstructionsOverview, { open: () => toWindow("instructions") });
     case "creds": return credentialsContent();
     case "skills": return createElement(SkillsView);
     case "skills-bar": return createElement(SkillsOverview, { open: () => windowHooks ? windowHooks.openSettings() : toWindow("settings") });
-    case "agent-bar": return createElement(AgentsOverview, { open: () => windowHooks ? windowHooks.openProviders() : toWindow("providers") });
+    case "agent-bar": return createElement(AgentsOverview, { open: () => toWindow("providers") });
     case "agent-overview": return createElement(CodingAgentOverview, { open: (sub: SettingsSub) => goTo(openSub(sub)) });
   }
 }
 
-async function changeGeneral(key: string, command: string, args: Record<string, unknown>) {
-  if (generalPending.size) return;
-  generalPending.add(key);
+/// Runs a settings command unless one of the same group is running.
+async function change(pending: Set<string>, key: string, command: string, args: Record<string, unknown>) {
+  if (pending.size) return;
+  pending.add(key);
   redrawSettings();
   try {
     try { await invoke(command, args); } catch (error) { console.warn(error); }
     if (setShown()) await renderSettings();
   } finally {
-    generalPending.delete(key);
-    redrawSettings();
-  }
-}
-
-async function setMacEnabled(enabled: boolean) {
-  if (macControlBusy) return;
-  macControlBusy = true;
-  redrawSettings();
-  try {
-    try { await invoke("set_mac_control", { enabled }); } catch (error) { console.warn(error); }
-    if (setShown()) await renderSettings();
-  } finally {
-    macControlBusy = false;
+    pending.delete(key);
     redrawSettings();
   }
 }

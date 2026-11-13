@@ -4,6 +4,7 @@
 use super::clipboard::ImageClipboard;
 use crate::error::{DesktopError, Result};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use beep_proto::ApiError;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -14,6 +15,14 @@ use uuid::Uuid;
 
 /// What the windows show for a file or picture a machine no longer has.
 pub(crate) const GONE: &str = "No longer available";
+
+/// `result`, with the machine's not-found as `GONE`.
+pub(crate) fn gone<T>(result: Result<T>) -> Result<T> {
+    match result {
+        Err(DesktopError::Api(ApiError::NotFound {})) => Err(DesktopError::BadRequest(GONE.into())),
+        other => other,
+    }
+}
 
 /// Shows a file a save put in Downloads in Finder, or on an iPhone opens
 /// the share sheet for it.

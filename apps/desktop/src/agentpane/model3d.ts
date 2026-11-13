@@ -6,7 +6,7 @@ import {
   LoopOnce, LoopRepeat, Mesh, MeshStandardMaterial, type Object3D, PerspectiveCamera, Scene, SRGBColorSpace, Texture,
   Vector3, WebGLRenderer,
 } from "three";
-import { clipName } from "./media-state.ts";
+import { bytesOf, clipName } from "./media-state.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -103,7 +103,6 @@ async function parse(bytes: ArrayBuffer, ext: string, sibling: Sibling): Promise
   return { root: gltf.scene, format: ext === "gltf" ? "glTF" : "GLB", clips: gltf.animations };
 }
 
-const b64 = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const pad4 = (n: number) => (n + 3) & ~3;
 
 /// A `.gltf` and the files it names as one GLB, so nothing is fetched by
@@ -115,7 +114,7 @@ async function packGltf(bytes: ArrayBuffer, sibling: Sibling): Promise<ArrayBuff
   const parts: Uint8Array[] = [];
   const base: number[] = [];
   let length = 0;
-  const read = (uri: string) => uri.startsWith("data:") ? b64(uri.slice(uri.indexOf(",") + 1)) : sibling(uri);
+  const read = (uri: string) => uri.startsWith("data:") ? bytesOf(uri.slice(uri.indexOf(",") + 1)) : sibling(uri);
   const add = (data: Uint8Array) => {
     base.push(length);
     parts.push(data);

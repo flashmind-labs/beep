@@ -1,7 +1,6 @@
 use super::Process;
 use std::{
     collections::HashMap,
-    io,
     mem::{MaybeUninit, size_of},
     time::Duration,
 };
@@ -82,25 +81,6 @@ pub(super) async fn snapshot() -> anyhow::Result<HashMap<u32, Process>> {
 
 pub(super) fn alive(p: &Process) -> bool {
     info(p.pid).is_some_and(|info| birth(&info) == p.birth)
-}
-
-pub(super) fn signal(p: &Process, kill: bool) -> io::Result<()> {
-    if !alive(p) {
-        return Ok(());
-    }
-
-    let pid = libc::pid_t::try_from(p.pid).map_err(io::Error::other)?;
-    // SAFETY: kill takes plain integers and a positive pid; its creation time
-    // was checked above before sending to this observed process.
-    if unsafe { libc::kill(pid, if kill { libc::SIGKILL } else { libc::SIGTERM }) } != 0 {
-        let e = io::Error::last_os_error();
-
-        if e.raw_os_error() != Some(libc::ESRCH) {
-            return Err(e);
-        }
-    }
-
-    Ok(())
 }
 
 pub(super) async fn ports(processes: &[Process]) -> HashMap<u32, Vec<u16>> {

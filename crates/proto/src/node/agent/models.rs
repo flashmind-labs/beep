@@ -1,6 +1,5 @@
 //! Which model a session runs on and how hard it thinks.
 
-use crate::AgentEffort;
 use serde::{Deserialize, Serialize};
 
 /// The models an agent can run on a node, as `SessionsRequest::Models`
@@ -33,34 +32,6 @@ pub enum Effort {
     High,
     Xhigh,
     Max,
-}
-
-impl From<AgentEffort> for Effort {
-    fn from(effort: AgentEffort) -> Self {
-        match effort {
-            AgentEffort::Off {} => Self::Off,
-            AgentEffort::Minimal {} => Self::Minimal,
-            AgentEffort::Low {} => Self::Low,
-            AgentEffort::Medium {} => Self::Medium,
-            AgentEffort::High {} => Self::High,
-            AgentEffort::Xhigh {} => Self::Xhigh,
-            AgentEffort::Max {} => Self::Max,
-        }
-    }
-}
-
-impl From<Effort> for AgentEffort {
-    fn from(effort: Effort) -> Self {
-        match effort {
-            Effort::Off => Self::Off {},
-            Effort::Minimal => Self::Minimal {},
-            Effort::Low => Self::Low {},
-            Effort::Medium => Self::Medium {},
-            Effort::High => Self::High {},
-            Effort::Xhigh => Self::Xhigh {},
-            Effort::Max => Self::Max {},
-        }
-    }
 }
 
 /// The thinking levels the agent `agent` takes at start; none for an agent

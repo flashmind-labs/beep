@@ -1,4 +1,5 @@
-import { createRef, isValidElement, useLayoutEffect, useRef, type ReactElement } from "react";
+import { useDialogRef } from "../ui/parts.ts";
+import { createRef, isValidElement, useLayoutEffect, useRef, useState, useEffect, lazy, Suspense, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { AgentQueue } from "./queue-view.tsx";
@@ -12,7 +13,7 @@ import { Button } from "../ui/kit.tsx";
 // the head's state. Session code sets it here; the session frame draws it.
 
 /// A control the session sets in its head or composer.
-export type FieldSlot = "state" | "mode" | "model" | "plan" | "tasks" | "pick";
+type FieldSlot = "state" | "mode" | "model" | "plan" | "tasks" | "pick";
 
 /// Queued steers fold into one line above the field on a phone; the line opens their
 /// list over the log.
@@ -39,9 +40,10 @@ interface FieldUi {
   stop: Stop;
   /// A path from the Files tab is dragged over the conversation.
   dropping: boolean;
+  uploading: boolean;
 }
 
-const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { queued: 0, open: false }, stop: { shown: false, stopping: false }, dropping: false };
+const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { queued: 0, open: false }, stop: { shown: false, stopping: false }, dropping: false, uploading: false };
 const fieldUi = createStore<FieldUi>(() => EMPTY);
 /// Callers read the composer right after they change it, as when focusing
 /// what they drew, so the views update at once.
@@ -97,6 +99,9 @@ export function showFieldDrop(dropping: boolean) {
 }
 
 /// Whether the field shows a path drop.
+export const showUploadPending = (uploading: boolean) => set({ uploading });
+export const useUploadPending = () => useStore(fieldUi, state => state.uploading);
+
 export const useFieldDrop = () => useStore(fieldUi, state => state.dropping);
 
 function workOf(work: Work, counts: Pick<Work, "queued">) {
@@ -155,4 +160,33 @@ function MenuRows({ rows, index, pick }: Menu) {
 export function StopButton({ stop }: { stop(): void }) {
   const { shown, stopping } = useStore(fieldUi, state => state.stop);
   return <Button id="agstop" aria-label="Stop the turn" title="Stop main turn (subagents keep running)" style={shown ? undefined : { display: "none" }} disabled={stopping} onClick={stop}><AgentStopFace stopping={stopping} /></Button>;
+}
+
+const AttachmentSheet = lazy(async () => {
+  const { ModalOverlay, Modal, Dialog } = await import("react-aria-components");
+
+  return { default: function AttachmentDialog({ onClose, children }: { onClose(): void; children: ReactNode }) {
+    return <ModalOverlay className="am-scrim" isOpen isDismissable onOpenChange={next => { if (!next) onClose(); }}>
+      <Modal><Dialog className="attachment-window" aria-label="Attachments">{children}</Dialog></Modal>
+    </ModalOverlay>;
+  } };
+});
+
+/// The input bar keeps one attachment control; its window shows every file.
+export function AttachmentBatch({ count, children }: { count: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const dialog = useDialogRef<HTMLDivElement>();
+  const trigger = useRef<HTMLButtonElement>(null), close = useRef<HTMLButtonElement>(null);
+  const dismiss = () => { setOpen(false); requestAnimationFrame(() => trigger.current?.focus()); };
+  useEffect(() => { if (!count) setOpen(false); }, [count]);
+
+  if (!count) return null;
+
+  return <><Button ref={trigger} className="attachment-count" onMouseDown={event => event.preventDefault()} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>{count} {count === 1 ? "file" : "files"}</Button>
+    {open && <Suspense fallback={null}><AttachmentSheet onClose={dismiss}>
+      <header><b>{count} {count === 1 ? "attachment" : "attachments"}</b><Button ref={close} look="quiet" aria-label="Close attachments" onClick={dismiss}>Close</Button></header>
+      <div ref={dialog} className="ag-att attachment-gallery" onClick={event => {
+        if (!event.currentTarget.closest(".attachment-window")?.contains(document.activeElement)) close.current?.focus();
+      }}>{children}</div>
+    </AttachmentSheet></Suspense>}</>;
 }

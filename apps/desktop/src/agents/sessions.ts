@@ -2,6 +2,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { Changes } from "../ui/pagecache.ts";
 import type { AgentRow, AgentSession } from "./agents.ts";
+import { sessionKey } from "./conversation-state.ts";
 import { parentRow } from "./nesting-state.ts";
 import { refreshMoves, withoutCopies } from "./move-store.ts";
 
@@ -11,7 +12,7 @@ const nativeSessions = new Map<string, AgentSession>();
 const nativeParents = new Map<string, AgentRow>();
 
 export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
-  const key = `${row.machine_id}\n${row.id}`;
+  const key = sessionKey(row);
   if (parent) nativeParents.set(key, parent);
   nativeSessions.set(key, row);
 
@@ -25,9 +26,7 @@ export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
   if (at < 0) sessions.push(row); else sessions[at] = row;
 }
 
-export const parentSession = (row: AgentRow) => parentRow(sessions, row) ?? nativeParents.get(`${row.machine_id}\n${row.id}`);
-/// The reviewers running as a child, kept apart: they list only under their parent.
-export let reviewers: AgentSession[] = [];
+export const parentSession = (row: AgentRow) => parentRow(sessions, row) ?? nativeParents.get(sessionKey(row));
 
 let loading: Promise<AgentSession[]> | null = null;
 /// Called after each read of the sessions, with the new list in `sessions`.
@@ -59,7 +58,6 @@ export function loadSessions() {
     // A session that moved is on two machines for a while: it shows once.
     .then(([list]) => {
       sessions = withoutCopies([...list.filter(s => !s.reviewer), ...nativeSessions.values()]);
-      reviewers = list.filter(s => s.reviewer);
       for (const f of sessionsRead) f();
       return sessions;
     })

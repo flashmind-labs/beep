@@ -4,7 +4,7 @@ use super::work_folder::{self, WorkRoot};
 use crate::{files::paths, lock};
 use anyhow::{Context, Result, bail};
 use beep_proto::watched;
-use beep_proto::{AGENT_FILE_CHUNK, MAX_WORK_UPLOAD};
+use beep_proto::AGENT_FILE_CHUNK;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
@@ -17,9 +17,7 @@ use tokio_util::task::AbortOnDropHandle;
 use uuid::Uuid;
 
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
-const MAX_BYTES: u64 = 5 * 1024 * 1024 * 1024;
-const MAX_UPLOADS: usize = 1024;
-// Reservations, chunks and cleanup must see one another's disk changes.
+// Chunks and cleanup must see one another's disk changes.
 static WRITING: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize, Deserialize)]
@@ -75,7 +73,7 @@ pub(super) fn write(
 
     let folder = folder().context("this host has no cache folder for attachments")?;
     let owner = owner(agent, session);
-    write_in(&folder, MAX_BYTES, &owner, path, offset, size, data)
+    write_in(&folder, &owner, path, offset, size, data)
 }
 
 fn owner(agent: &str, session: &str) -> String {
@@ -105,18 +103,16 @@ fn remove_in(cache: &Path, owner: &str) -> Result<()> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn write_in(
     cache: &Path,
-    limit: u64,
     owner: &str,
     path: &str,
     offset: u64,
     size: u64,
     data: &[u8],
 ) -> Result<String> {
-    if size > MAX_WORK_UPLOAD || data.len() > AGENT_FILE_CHUNK {
-        bail!("the attachment or its part is too large");
+    if data.len() > AGENT_FILE_CHUNK {
+        bail!("the attachment part is too large");
     }
 
     let end = offset
@@ -124,8 +120,7 @@ fn write_in(
         .filter(|end| *end <= size)
         .context("a part runs past the attachment's size")?;
     let now = SystemTime::now();
-    // Each upload reserves its entire size, including parts not received yet.
-    let (used, count) = sweep(cache, now)?;
+
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -137,12 +132,6 @@ fn write_in(
     let cache = paths::canonicalize(cache)?;
     let (bucket, upload) = if offset == 0 {
         file_name(path)?;
-
-        if count >= MAX_UPLOADS || used.checked_add(size).is_none_or(|sum| sum > limit) {
-            bail!(
-                "the temporary attachment cache is full; remove old attachments or upload into a project folder"
-            );
-        }
 
         let relative = Path::new(owner).join(Uuid::new_v4().to_string());
         WorkRoot::at(&cache)?.make_folder(&relative.join("files"))?;
@@ -220,16 +209,14 @@ fn record(bucket: &Path) -> Result<Upload> {
     Ok(upload)
 }
 
-/// Counts reservations and removes expired uploads. Directory symlinks are
+/// Removes expired partial uploads. Directory symlinks are
 /// never walked, and only folders with generated IDs belong to this cache.
-fn sweep(cache: &Path, now: SystemTime) -> Result<(u64, usize)> {
+fn sweep(cache: &Path, now: SystemTime) -> Result<()> {
     let groups = match fs::read_dir(cache) {
         Ok(groups) => groups,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok((0, 0)),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e.into()),
     };
-    let mut used = 0u64;
-    let mut count = 0usize;
 
     for group in groups {
         let group = group?;
@@ -257,11 +244,6 @@ fn sweep(cache: &Path, now: SystemTime) -> Result<(u64, usize)> {
                 .is_some_and(|upload| path.join("files").join(&upload.name).is_file());
             if !complete && now.duration_since(touched).unwrap_or_default() >= DAY {
                 fs::remove_dir_all(&path)?;
-            } else {
-                used = used
-                    .checked_add(upload.map_or(MAX_WORK_UPLOAD, |upload| upload.size))
-                    .context("the attachment cache size overflowed")?;
-                count += 1;
             }
         }
         // Empty session groups should not accumulate after expiry.
@@ -272,7 +254,7 @@ fn sweep(cache: &Path, now: SystemTime) -> Result<(u64, usize)> {
         }
     }
 
-    Ok((used, count))
+    Ok(())
 }
 
 #[cfg(test)]

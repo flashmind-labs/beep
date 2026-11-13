@@ -27,7 +27,7 @@ use tokio::{
     io::BufReader,
     process::ChildStdout,
     sync::{oneshot, watch},
-    time::timeout,
+    time::{Instant, sleep_until, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -90,6 +90,17 @@ pub(crate) async fn answer(table: Table, request: Request) -> Reply {
     table.tasks().answer(request).await
 }
 
+/// Starts a background task with a deadline owned by its process watcher.
+/// No process/1 request fields change: MCP timeouts are local task policy.
+pub(crate) fn start_for(
+    table: Table,
+    command: String,
+    cwd: Option<String>,
+    limit: Duration,
+) -> Reply {
+    table.tasks().start_limited(command, cwd, Some(limit))
+}
+
 /// Runs `command` as a task and waits for it, up to `limit`; one still
 /// running then is stopped. The reply is the task's status.
 pub(crate) async fn run_for(
@@ -141,7 +152,7 @@ impl Default for Inner {
 /// Where a run of the node starts numbering tasks: from the clock, so a
 /// restarted node does not hand out an id the model still holds for a task
 /// that died with the old one.
-fn first_id() -> u32 {
+pub(super) fn first_id() -> u32 {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
@@ -186,6 +197,15 @@ impl Tasks {
     }
 
     fn start(&self, command: String, cwd: Option<String>) -> Reply {
+        self.start_limited(command, cwd, None)
+    }
+
+    fn start_limited(
+        &self,
+        command: String,
+        cwd: Option<String>,
+        limit: Option<Duration>,
+    ) -> Reply {
         let mut inner = lock(&self.inner);
 
         if inner.jobs.len() >= MAX_TASKS {
@@ -227,7 +247,14 @@ impl Tasks {
         let (stop_tx, stop_rx) = oneshot::channel();
         let (done_tx, done_rx) = watch::channel(false);
         let group = leader.group();
-        let task = tokio::spawn(follow(leader, stdout, shared.clone(), stop_rx, done_tx));
+        let task = tokio::spawn(follow(
+            leader,
+            stdout,
+            shared.clone(),
+            stop_rx,
+            done_tx,
+            limit.map(|limit| Instant::now() + limit),
+        ));
         inner.jobs.push(Job {
             id,
             command,
@@ -351,7 +378,15 @@ async fn follow(
     shared: Arc<Mutex<Shared>>,
     mut stop: oneshot::Receiver<()>,
     done: watch::Sender<bool>,
+    deadline: Option<Instant>,
 ) {
+    let deadline = async {
+        match deadline {
+            Some(deadline) => sleep_until(deadline).await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::pin!(deadline);
     let mut stdout = BufReader::new(stdout);
     let mut line = Vec::new();
     // Past the first piece of a long line: the rest is dropped, as `keep`
@@ -363,6 +398,10 @@ async fn follow(
     loop {
         line.clear();
         tokio::select! {
+            () = &mut deadline => {
+                stopped = true;
+                break;
+            }
             _ = &mut stop => {
                 stopped = true;
                 break;
@@ -388,6 +427,10 @@ async fn follow(
         TaskState::Stopped
     } else {
         tokio::select! {
+            () = &mut deadline => {
+                leader.stop(STOP_GRACE).await;
+                TaskState::Stopped
+            }
             _ = &mut stop => {
                 leader.stop(STOP_GRACE).await;
                 TaskState::Stopped

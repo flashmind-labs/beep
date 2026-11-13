@@ -4,6 +4,7 @@ use crate::{
     machine::provision::Provision,
 };
 use beep_proto::node::agent::{Question, State};
+use serde_json::Value;
 use beep_proto::watched;
 use std::{collections::BTreeMap, time::Duration};
 
@@ -106,20 +107,6 @@ fn a_childs_id_names_its_machine() {
     assert_eq!((id.session, id.machine), ("a3f9c1", Some("build-box")));
     let id = ChildId::from("a3f9c1");
     assert_eq!((id.session, id.machine), ("a3f9c1", None));
-}
-
-#[test]
-fn the_agent_tools_are_the_ones_this_module_answers() {
-    for tool in [
-        Tool::StartAgent,
-        Tool::AgentStatus,
-        Tool::SendToAgent,
-        Tool::StopAgent,
-        Tool::ListAgents,
-    ] {
-        assert!(handles(tool));
-    }
-    assert!(!handles(Tool::RunOn));
 }
 
 #[test]

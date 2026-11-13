@@ -451,6 +451,33 @@ async fn a_declining_answer_waits_only_where_there_is_room() {
     session.close().await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn a_declining_answer_counts_steers_against_the_queue_limit() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session = Session::start(start_on(&script("pi", ASKING_ADAPTER, &log), dir, None)).unwrap();
+    settle(&session).await;
+    let question = session.info().question.expect("a question").id;
+
+    for n in 0..MAX_QUEUED - 1 {
+        let prompt = Command::Prompt(format!("later {n}").into());
+        session.order(prompt).await.unwrap();
+    }
+
+    let steer = Command::Steer("correction".to_owned().into());
+    session.order(steer).await.unwrap();
+
+    let answer = Command::Answer {
+        question,
+        reply: "neither, look in docs".into(),
+    };
+    assert!(session.order(answer).await.is_err());
+    assert!(session.info().question.is_some(), "still open");
+    session.close().await;
+}
+
 /// An adapter that puts a choice to the user, then ends its turn without
 /// waiting for it, logs the answer the node gives and exits.
 const ABANDONING_ADAPTER: &str = r#"
@@ -791,6 +818,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         resume: None,
         earlier: Vec::new(),
         timestamps: None,
+        title: None,
         model: model.map(ModelId::new),
         effort: None,
         mode: None,
@@ -803,7 +831,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         images: Arc::default(),
         usage: Arc::default(),
         alerts: Arc::default(),
-        node: NodeMode::default(),
+        stopping: Arc::default(),
     }
 }
 
@@ -2524,4 +2552,39 @@ async fn stop_all_without_subagents_stops_the_turn_and_background_commands() {
     assert!(methods.contains(&"_session/async_task/stop".to_owned()));
     assert_eq!(session.info().state.status, Status::Idle);
     session.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_image_sent_during_resume_waits_for_image_capabilities() {
+    for images in [true, false] {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let fifo = dir.join("initialized");
+        assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+        let adapter = IMAGES_ADAPTER.replacen(
+            "read -r line; log \"$1\"",
+            "read -r line; log \"$1\"; read -r ready < \"$3\"",
+            1,
+        ).replace("reply '{\"sessionId\":\"s\"}'", "reply '{}'");
+        let adapter = adapter.replace(r#"agentCapabilities\":{"#, r#"agentCapabilities\":{\"loadSession\":true,"#);
+        let mut kind = script("codex", &adapter, &dir.join("sent.jsonl"));
+        kind.args.extend([images.to_string(), fifo.display().to_string()]);
+        let session = Session::start(Start {
+            prompt: None,
+            resume: Some("s".into()),
+            ..start_on(&kind, dir, None)
+        }).unwrap();
+        session.order(Command::Steer(shot())).await.expect("accepted while initializing");
+        assert_eq!(session.info().state.status, Status::Starting);
+        tokio::task::spawn_blocking(move || std::fs::write(fifo, "go\n")).await.unwrap().unwrap();
+        until(&session, |live| live.info.turns == 1 || live.status() == Status::Ended).await;
+        let sent: Vec<Value> = std::fs::read_to_string(dir.join("sent.jsonl")).unwrap()
+            .lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        let prompt = sent.iter().find(|line| line["method"] == "session/prompt").expect("prompt delivered");
+        let blocks = prompt["params"]["prompt"].as_array().unwrap();
+        assert_eq!(blocks.iter().any(|block| block["type"] == "image"), images);
+        assert_eq!(session.info().turns, 1);
+        session.close().await;
+    }
 }

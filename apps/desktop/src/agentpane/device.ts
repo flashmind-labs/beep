@@ -8,6 +8,7 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { paneSession, showDevice } from "./media.ts";
 import { draw } from "./media-draw.ts";
+import { sessionKey } from "./running.ts";
 import { paneRoot } from "./worktree.ts";
 import {
   type DeviceFollow, type DeviceHost, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
@@ -21,7 +22,7 @@ const IDLE_POLL_MS = 10_000;
 /// How long a platform check that could not reach its machine waits to go again.
 const PLATFORMS_RETRY_MS = 60_000;
 
-export interface DeviceModel {
+interface DeviceModel {
   machines: readonly DeviceMachine[];
   /// The list was read at least once.
   listed: boolean;
@@ -45,7 +46,7 @@ let hosts: DeviceHost[] = [];
 /// Whether the pane has a Device tab: a machine that is on serves
 /// `device/1`, and the session's checkout builds for a mobile platform or
 /// its agent used a device.
-export const hasDeviceTab = () => hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey()) || showsDeviceTab(sessionPlatforms(), hosts));
+export const hasDeviceTab = () => hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey(paneSession())) || showsDeviceTab(sessionPlatforms(), hosts));
 
 async function readDeviceHosts() {
   const had = hasDeviceTab();
@@ -118,15 +119,10 @@ let followed: { session: string; follow: DeviceFollow | null } | null = null;
 /// The device the agent last pointed at, until the list has it.
 let wanted: DeviceTarget | null = null;
 
-function sessionKey() {
-  const session = paneSession();
-  return session ? `${session.machine_id}\n${session.id}` : null;
-}
-
 /// The conversation as drawn, from place `earlier`: a device call of the
 /// agent that finished since the view opened turns the tab to its device.
 export function followDeviceCalls(entries: readonly { kind: string; text: string }[], earlier: number) {
-  const session = sessionKey();
+  const session = sessionKey(paneSession());
   if (!session) return;
   const { follow, target } = followedDevice(entries, earlier, followed?.session === session ? followed.follow : null);
   followed = { session, follow };
@@ -238,7 +234,7 @@ export async function power(on: boolean) {
 // ----- The live screen -----
 
 /// Draws a frame; it owns the bitmap from then on.
-export type Painter = (frame: ImageBitmap) => void;
+type Painter = (frame: ImageBitmap) => void;
 
 let painter: Painter | null = null;
 /// The size of the box the screen draws in, for the frame size asked.

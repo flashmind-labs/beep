@@ -3,6 +3,7 @@
 
 use crate::{
     Shell,
+    git_items::github::HOST as GITHUB,
     issues::{read_first, run_rendered},
     model::ForgejoUrl,
     quote,
@@ -15,7 +16,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{cmp::Reverse, sync::Arc, time::SystemTime};
 
-const GITHUB: &str = "github.com";
 /// The user's GitHub repositories and their organizations', one `name<TAB>updated` line each,
 /// archived ones left out. Single quotes only: on Windows it runs in Git's sh all the same.
 const GH_REPOS: &str = "gh api --paginate \

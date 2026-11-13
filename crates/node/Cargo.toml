@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.6.21"
+version = "0.6.24"
 edition = "2024"
 license = "MPL-2.0"
 rust-version = "1.99"
@@ -37,6 +37,7 @@ host = [
     "dep:iroh-blobs",
     "dep:iroh-tickets",
     "dep:iroh-metrics",
+    "dep:jsonschema",
     "dep:metrics",
     "dep:metrics-exporter-prometheus",
     "dep:log",
@@ -80,9 +81,7 @@ host = [
 # `beep-node update` comes with it, with what it downloads and unpacks with.
 cli = [
     "host",
-    "dep:chrono",
     "dep:clap",
-    "beep-proto/logging",
     "dep:flate2",
     "dep:tar",
     "dep:thiserror",
@@ -123,6 +122,7 @@ iroh = { version = "1.4.1", optional = true }
 iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"], optional = true }
 iroh-tickets = { version = "1", optional = true }
 iroh-metrics = { version = "1", optional = true }
+jsonschema = { version = "0.61.2", default-features = false, optional = true }
 metrics = { version = "0.24", optional = true }
 metrics-exporter-prometheus = { version = "0.18", default-features = false, optional = true }
 log = { version = "0.4", optional = true }
@@ -168,7 +168,7 @@ which = { version = "8", optional = true }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 # The media and decision tools the MCP server offers from the saved API keys.
-flashmind-tools = { version = "0.3.4", default-features = false, features = ["http"], optional = true }
+flashmind-tools = { version = "0.3.6", default-features = false, features = ["http"], optional = true }
 flashmind-types = { version = "0.3.2", optional = true }
 
 [target.'cfg(unix)'.dependencies]

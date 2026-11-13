@@ -63,11 +63,11 @@ const EVENTS: usize = 64;
 const MAX_ASKED: usize = 2000;
 /// The longest plan shown for approval.
 const MAX_PLAN: usize = 32 * 1024;
+/// Why a session ended with the node.
+pub(super) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
 /// How long an agent has to end its turn after Stop before the node stops
 /// the agent itself. Agents answer `session/cancel` within a second or two;
 /// one that has not after this is not going to.
-/// Why a session ended with the node.
-pub(super) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
 const STOP_WITHIN: Duration = Duration::from_secs(10);
 /// The most tool calls followed at once, to know when none runs.
 const MAX_RUNNING_TOOLS: usize = 256;
@@ -194,6 +194,7 @@ pub(super) struct Start<'a> {
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
+    pub(super) title: Option<String>,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -222,8 +223,9 @@ pub(super) struct Start<'a> {
     pub(super) usage: Arc<UsageHub>,
     /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
-    /// What the node as a whole asks of its sessions.
-    pub(super) node: NodeMode,
+    /// Set once the node is stopping: an agent that ends then ended with
+    /// the node, whatever its exit says.
+    pub(super) stopping: Arc<AtomicBool>,
 }
 
 /// Closes a child session once its parent ends for good.
@@ -237,23 +239,6 @@ async fn follow_parent(mut parent: watch::Receiver<Live>, orders: mpsc::Sender<O
                 done,
             })
             .await;
-    }
-}
-
-/// What the node as a whole asks of its sessions.
-#[derive(Clone)]
-pub(super) struct NodeMode {
-    /// Set once the node is stopping: an agent that ends then ended with
-    /// the node, whatever its exit says.
-    pub(super) stopping: Arc<AtomicBool>,
-}
-
-impl Default for NodeMode {
-    /// A node that is not stopping.
-    fn default() -> Self {
-        Self {
-            stopping: Arc::default(),
-        }
     }
 }
 
@@ -272,6 +257,7 @@ impl Session {
             resume,
             earlier,
             timestamps,
+            title,
             model,
             effort,
             mode,
@@ -284,7 +270,7 @@ impl Session {
             images,
             usage,
             alerts,
-            node,
+            stopping,
         } = start;
         // Only a new session takes the default model and a thinking level. A
         // resumed one takes the model it ran on, when the caller kept it.
@@ -343,6 +329,7 @@ impl Session {
             .with_context(|| format!("starting {}", kind.program))?;
         let processes = Processes::new(child.id().context("the agent has no pid")?);
         let info = SessionInfo {
+            title,
             id: resume.clone().unwrap_or_default(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
@@ -366,7 +353,7 @@ impl Session {
         let actor = Actor {
             live: live_tx,
             alerts,
-            node_stopping: node.stopping,
+            node_stopping: stopping,
             moving: false,
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
@@ -378,6 +365,7 @@ impl Session {
             queued: prompt.into_iter().collect(),
             steers: VecDeque::new(),
             sent: 0,
+            context_turn: false,
             turn: None,
             held_end: None,
             stopping: None,

@@ -1,6 +1,5 @@
 //! The branch or worktree a session starts on, and how they are named.
 
-use crate::AgentCheckoutPlan;
 use serde::{Deserialize, Serialize};
 
 /// A new branch a session starts on, made from `base` (a branch, tag or
@@ -63,30 +62,6 @@ pub fn valid_branch(branch: &str) -> bool {
             .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
 }
 
-impl From<AgentCheckoutPlan> for CheckoutPlan {
-    fn from(plan: AgentCheckoutPlan) -> Self {
-        match plan {
-            AgentCheckoutPlan::NewBranch { base } => Self::NewBranch { base },
-            AgentCheckoutPlan::NewWorktree { base } => Self::NewWorktree { base },
-            AgentCheckoutPlan::NamedWorktree { base, branch } => {
-                Self::NamedWorktree { base, branch }
-            }
-            AgentCheckoutPlan::BranchWorktree { branch } => Self::BranchWorktree { branch },
-        }
-    }
-}
-
-impl From<CheckoutPlan> for AgentCheckoutPlan {
-    fn from(plan: CheckoutPlan) -> Self {
-        match plan {
-            CheckoutPlan::NewBranch { base } => Self::NewBranch { base },
-            CheckoutPlan::NewWorktree { base } => Self::NewWorktree { base },
-            CheckoutPlan::NamedWorktree { base, branch } => Self::NamedWorktree { base, branch },
-            CheckoutPlan::BranchWorktree { branch } => Self::BranchWorktree { branch },
-        }
-    }
-}
-
 /// The longest base ref a checkout plan may name.
 pub const MAX_REF: usize = 200;
 
@@ -105,7 +80,7 @@ pub fn valid_ref(base: &str) -> bool {
 }
 
 /// The longest slug `slug` makes.
-pub const MAX_SLUG: usize = 40;
+pub(crate) const MAX_SLUG: usize = 40;
 
 /// A short name for `text`, for a branch or folder: its ASCII letters and
 /// digits in lowercase, each run of anything else as one `-`, at most

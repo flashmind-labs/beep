@@ -270,7 +270,6 @@ body.cbody
                     span.sp
         form.cc-pjc
           div.box
-            div.ag-att [hidden]
             div.cx-layer [aria-hidden="true" hidden]
             textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Add example/widget to a machine to start an agent" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
             div.row
@@ -286,6 +285,7 @@ body.cbody
               button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
               input [hidden multiple type="file"] value=""
+              div.ag-att [hidden]
               button.dbtn.pri [disabled type="submit"] "Start"
                 kbd "⏎"
             div.pick

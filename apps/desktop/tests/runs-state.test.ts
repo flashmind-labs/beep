@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  Bounded, DetailCache, KeptRows, POLL_MS, ahead, detailDue, detailKey, listDue, type ListedRun,
+  Bounded, DetailCache, POLL_MS, ahead, detailDue, detailKey, type ListedRun,
 } from "../src/project/runs-state.ts";
 
 const NOW = 1_800_000_000_000;
@@ -45,29 +45,6 @@ test("the newest runs and the newest failed one are read ahead, unless kept", ()
   assert.deepEqual(ahead(runs, () => false).map(r => r.id), [9, 8, 7, 5]);
   assert.deepEqual(ahead(runs, r => r.id === 8 || r.id === 5).map(r => r.id), [9, 7]);
   assert.deepEqual(ahead([run(2, "failed"), run(1, "passed")], () => false).map(r => r.id), [2, 1]);
-});
-
-test("the list polls only while a run goes and the rate limit allows", () => {
-  assert.ok(listDue([run(1, "passed"), run(2, "queued")], null, NOW));
-  assert.ok(!listDue([run(1, "passed")], null, NOW));
-  assert.ok(!listDue([run(2, "running")], NOW + 1, NOW));
-  assert.ok(listDue([run(2, "running")], NOW - 1, NOW));
-});
-
-test("a row drawn from the same markup stays the element on screen", () => {
-  const rows = new KeptRows<object>();
-  const first = {};
-  assert.equal(rows.take("p\n#1", "<a>", first), first);
-  assert.equal(rows.take("p\n#1", "<a>", {}), first, "unchanged: kept");
-  const changed = {};
-  assert.equal(rows.take("p\n#1", "<b>", changed), changed, "changed: replaced");
-  rows.take("p\n#2", "<c>", {});
-  rows.take("q\n#1", "<d>", {});
-  rows.sweep("p\n");
-  // Only #1 of p is drawn in the next draw: #2 goes, q is not touched.
-  rows.take("p\n#1", "<b>", {});
-  rows.sweep("p\n");
-  assert.equal(rows.size, 2);
 });
 
 test("reads ahead run a few at a time and once per key", async () => {

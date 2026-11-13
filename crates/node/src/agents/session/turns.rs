@@ -2,7 +2,7 @@
 
 use super::{
     MAX_RUNNING_TOOLS,
-    actor::{Actor, PendingSteer, Reply, Stopping},
+    actor::{Actor, PendingSteer, Reply, Stopping, stop_reason},
 };
 use crate::agents::{
     acp::{self, Prompt},
@@ -444,9 +444,7 @@ impl Actor {
         self.live.send_modify(|live| live.spent(tokens));
         let entry = match result {
             Ok(done) => {
-                let stop = acp::wire_name(&done.stop_reason)
-                    .parse()
-                    .unwrap_or(StopReason::Other);
+                let stop = stop_reason(&done);
                 if stop == StopReason::EndTurn {
                     self.restate();
                 }
@@ -503,7 +501,7 @@ impl Actor {
             return;
         }
         // A steer goes ahead of the prompts queued for after the turn.
-        let Some(prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
+        let Some(mut prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
             return;
         };
 
@@ -520,6 +518,11 @@ impl Actor {
             }
         }
 
+        if self.takes_images == Some(false) {
+            prompt.images.clear();
+        }
+
+        self.context_turn = crate::agents::tags::said(&prompt.text).is_empty();
         let brief = self.brief.take();
         self.send(
             cx,

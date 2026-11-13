@@ -25,8 +25,7 @@ pub fn set_zoom_level(app: AppHandle, prefs: State<'_, Prefs>, percent: u16) -> 
     zoom.percent()
 }
 
-/// Zooms a webview that just loaded a page to the saved level. Pages that
-/// load before the app is set up are zoomed by `apply_saved`.
+/// Zooms a webview that just loaded a page to the saved level.
 pub(crate) fn on_load<R: Runtime>(webview: &Webview<R>) {
     // A phone has no zoom setting, and WKWebView's zoom shrinks the page there.
     if cfg!(mobile) {
@@ -40,11 +39,6 @@ pub(crate) fn on_load<R: Runtime>(webview: &Webview<R>) {
     if let Err(e) = webview.set_zoom(prefs.zoom().factor()) {
         log::warn!("zooming {}: {e}", webview.label());
     }
-}
-
-/// Zooms every open window to the saved level, once the app is set up.
-pub(crate) fn apply_saved(app: &AppHandle, prefs: &Prefs) {
-    apply_all(app, prefs.zoom());
 }
 
 /// A window that fails keeps its zoom; the others still change.

@@ -40,7 +40,7 @@ export function editorsFor(folder: string | null | undefined, redraw: () => void
   return folder ? installed ?? [] : [];
 }
 
-export function openEditor(ed: EditorRow, folder: string, _button: HTMLElement) {
+export function openEditor(ed: EditorRow, folder: string) {
   return launch(ed, folder);
 }
 

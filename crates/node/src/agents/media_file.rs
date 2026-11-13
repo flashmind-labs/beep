@@ -3,7 +3,7 @@
 //! them (`SessionsRequest::File`).
 
 use anyhow::{Context, Result, bail};
-use beep_proto::{AGENT_FILE_CHUNK, MAX_AGENT_FILE, media_mime};
+use beep_proto::{AGENT_FILE_CHUNK, media_mime};
 use std::{
     fs,
     io::{ErrorKind, Read, Seek, SeekFrom},
@@ -41,14 +41,6 @@ pub(super) fn read_chunk(path: &str, offset: u64, home: Option<&Path>) -> Result
     }
 
     let size = meta.len();
-
-    if size > MAX_AGENT_FILE {
-        bail!(
-            "{path} is {} MB, over the {} MB that can be shown",
-            size / (1024 * 1024),
-            MAX_AGENT_FILE / (1024 * 1024)
-        );
-    }
 
     let mut data = Vec::new();
 

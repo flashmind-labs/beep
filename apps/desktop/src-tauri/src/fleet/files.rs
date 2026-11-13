@@ -28,8 +28,8 @@ use beep_projects::{
     is_windows,
 };
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MAX_WORK_UPLOAD, MachineFolder,
-    MachineSession, MachineUpdate, ProjectBranch, ReadWorkFile, WorkDiff, WorkTree, WriteWorkFile,
+    AGENT_FILE_CHUNK, AgentFileChunk, ApiError, ListWorkTree, MachineFolder, MachineSession,
+    MachineUpdate, ProjectBranch, ReadWorkFile, WorkDiff, WorkTree, WriteWorkFile,
     node::{
         agent::DiffAsk,
         events::{GitOutput, GitRead, Read, Value},
@@ -229,14 +229,6 @@ pub(crate) async fn write(
     machine: EndpointId,
     write: WriteWorkFile,
 ) -> Result<String> {
-    if write.size > MAX_WORK_UPLOAD {
-        return Err(ApiError::bad_request(format!(
-            "Files up to {} MB can be dropped on a session.",
-            MAX_WORK_UPLOAD / (1024 * 1024)
-        ))
-        .into());
-    }
-
     if write.data.len() > AGENT_FILE_CHUNK {
         return Err(ApiError::bad_request("A part of the file is too large.").into());
     }
@@ -395,22 +387,6 @@ pub(crate) async fn branches(
     read_branches(&shell, &place.folder, default_branch)
         .await
         .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(place.machine))))
-}
-
-/// Gives `branch` a worktree in the checkout at `place`.
-pub(crate) async fn add_worktree(
-    fleet: &Fleet,
-    place: &Place,
-    branch: &str,
-    default_branch: &str,
-) -> Result<ProjectBranch> {
-    let branch = beep_projects::model::branch_name(branch)
-        .ok_or_else(|| ApiError::bad_request("That is not a branch name."))?;
-    let name = fleet.name_of(place.machine);
-    let shell = PeerShell::on(fleet, place.machine).await?;
-    branches::add_worktree(&shell, &name, &place.folder, branch, default_branch)
-        .await
-        .map_err(|why| DesktopError::BadRequest(format!("{name}: {why}")))
 }
 
 /// The last `lines` lines of a machine's log.

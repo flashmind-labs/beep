@@ -3,6 +3,7 @@ use crate::Peers;
 use async_trait::async_trait;
 use beep_mesh::{Mesh, PeerClient, transport_config};
 use beep_proto::node::mesh_state::StateValue;
+use beep_proto::{ModelId, node::harness::AutoCompact};
 use iroh::{Endpoint, endpoint::presets};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -132,4 +133,34 @@ async fn reading_ignored_sync_does_not_wait_for_a_write() {
         )
         .now_or_never();
     assert!(write.is_none());
+}
+
+#[tokio::test]
+async fn two_harness_saves_at_once_keep_both_fields() {
+    let dir = TempDir::new().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let desk = Desk::open(Arc::new(TestPeers(mesh))).await.unwrap();
+
+    let model = ModelId::from("some-model");
+    let compact = AutoCompact {
+        enabled: true,
+        percent: Some(50),
+        tokens: None,
+    };
+    let (a, b) = tokio::join!(
+        desk.save_harness_default_model("codex", Some(model.clone())),
+        desk.save_harness_compact("codex", Some(compact)),
+    );
+    a.unwrap();
+    b.unwrap();
+
+    assert_eq!(desk.harness_default_model("codex").unwrap(), Some(model));
+    assert_eq!(desk.harness_compact("codex").unwrap(), Some(compact));
 }

@@ -106,3 +106,98 @@ async fn a_desktop_runs_a_nodes_command_unless_it_lends_itself_to_no_one() {
     );
     assert!(!text.contains("ran-here") && !text.contains("offline"));
 }
+
+#[tokio::test]
+async fn background_run_stops_at_its_timeout() {
+    use beep_proto::node::process::TaskState;
+
+    let table = Table::Peer(iroh::SecretKey::generate().public());
+    let mut changes = crate::events::system().subscribe();
+    let command = if cfg!(windows) {
+        "Write-Output ready; Start-Sleep -Seconds 300"
+    } else {
+        "sleep 300 & echo $!; wait"
+    };
+    let request = Request {
+        args: serde_json::json!({"command": command, "background": true, "timeout_secs": 1})
+            .to_string(),
+        ..run_on()
+    };
+    let Reply::Done { text, failed } = answer(request, caller(table, true)).await else {
+        panic!("no start reply");
+    };
+    assert!(!failed, "{text}");
+    let id = text
+        .split("Job id: ")
+        .nth(1)
+        .unwrap()
+        .split('.')
+        .next()
+        .unwrap()
+        .parse()
+        .map(TaskId)
+        .unwrap();
+    let ended = timeout(Duration::from_secs(15), async {
+        loop {
+            let status = tasks::answer(table, TaskRequest::Status { id }).await;
+            if let TaskReply::Status { task, lines, .. } = status
+                && !task.state.is_running()
+            {
+                return (task.state, lines);
+            }
+
+            // Subscribe before starting, so no state change can be missed.
+            let _ = changes.recv().await;
+        }
+    })
+    .await;
+
+    if ended.is_err() {
+        tasks::answer(table, TaskRequest::Stop { id }).await;
+    }
+
+    let (state, lines) = ended.expect("the background job honors its one-second timeout");
+    assert_eq!(state, TaskState::Stopped);
+    assert!(!lines.is_empty(), "the command actually started");
+
+    #[cfg(target_os = "linux")]
+    {
+        let pid: u32 = lines[0].parse().unwrap();
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let stat = tokio::fs::read_to_string(format!("/proc/{pid}/stat"))
+                    .await
+                    .unwrap_or_default();
+                if !stat
+                    .rsplit_once(") ")
+                    .is_some_and(|(_, rest)| !rest.starts_with('Z'))
+                {
+                    break;
+                }
+
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the timeout also stops the child process");
+    }
+}
+
+#[tokio::test]
+async fn peer_requests_keep_accepting_extra_fields() {
+    // Legacy peers include routing fields. They are already validated at
+    // their own MCP boundary and must not be rejected by this receiver.
+    let table = Table::Peer(iroh::SecretKey::generate().public());
+    let request = Request {
+        args: serde_json::json!({"command":"echo compatible", "machine":"build-box", "future_field":true}).to_string(),
+        ..run_on()
+    };
+    let Reply::Done { text, failed } = answer(request, caller(table, true)).await else {
+        panic!("no reply");
+    };
+    assert!(!failed && text.contains("compatible"), "{text}");
+    assert!(parse::<JobArgs>(serde_json::json!({"id":"1", "future_field":true})).is_ok());
+    assert!(
+        parse::<SyncArgs>(serde_json::json!({"project":"example", "future_field":true})).is_ok()
+    );
+}

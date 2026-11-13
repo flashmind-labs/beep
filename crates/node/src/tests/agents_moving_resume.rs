@@ -1,4 +1,4 @@
-use super::*;
+use super::{*, super::folder::Workspace};
 
 #[test]
 fn a_session_started_in_the_main_checkout_resumes_in_its_moved_worktree() {

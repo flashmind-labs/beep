@@ -1,7 +1,7 @@
 // What a coding agent session's right-click menu offers, apart from the DOM.
 
 /// A turn is under way in these states.
-const TURN = new Set(["asking", "working", "running", "starting"]);
+export const AGENT_ACTIVE = new Set<string | undefined>(["asking", "working", "running", "starting"]);
 
 /// The harnesses whose sessions are files a node can delete. The others keep
 /// theirs in a database.
@@ -26,7 +26,7 @@ export function sessionOffers(s: { status: string; external: boolean; agent: str
   const ended = s.status === "ended";
   const del = ended && reachable && DELETABLE.has(s.agent);
   if (s.external) return { stop: false, close: false, resume: TAKEOVER.has(s.agent), delete: del };
-  return { stop: TURN.has(s.status), close: !ended, resume: ended, delete: del };
+  return { stop: AGENT_ACTIVE.has(s.status), close: !ended, resume: ended, delete: del };
 }
 
 /// What a session runs besides its main turn, as far as this window knows.

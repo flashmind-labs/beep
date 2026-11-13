@@ -49,7 +49,7 @@ pub(crate) fn find(cwd: &Path, since: SystemTime, written: &[PathBuf]) -> Vec<St
     let mut folders = vec![(PathBuf::new(), 0usize)];
     let mut seen = 0usize;
 
-    while let Some((folder, depth)) = folders.pop() {
+    'walk: while let Some((folder, depth)) = folders.pop() {
         let Ok(entries) = fs::read_dir(cwd.join(&folder)) else {
             continue;
         };
@@ -58,7 +58,7 @@ pub(crate) fn find(cwd: &Path, since: SystemTime, written: &[PathBuf]) -> Vec<St
             seen += 1;
 
             if seen > MAX_SEEN {
-                break;
+                break 'walk;
             }
 
             let Ok(kind) = entry.file_type() else {

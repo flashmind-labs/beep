@@ -213,6 +213,16 @@ mod env {
         let app: AppInfo = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(app.name, AppName::Unknown);
     }
+
+    #[test]
+    fn a_short_positional_report_fills_the_rest_with_defaults() {
+        let short = ("linux", "Ubuntu 24.04", "x86_64", "box", 8u32);
+        let bytes = rmp_serde::to_vec(&short).expect("encodes");
+        let read: EnvReport = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!((read.os.as_str(), read.cpus), ("linux", 8));
+        assert!(read.apps.is_empty() && read.gpus.is_empty() && read.adapters.is_empty());
+        assert!(read.syncthing.is_empty() && read.version.is_empty());
+    }
 }
 
 mod stream {
@@ -1038,7 +1048,6 @@ mod usage {
 
 mod agent {
     mod checkout {
-        use beep_proto::AgentCheckoutPlan;
         use beep_proto::node::agent::*;
 
         #[test]
@@ -1051,10 +1060,6 @@ mod agent {
             ];
 
             for plan in plans {
-                assert_eq!(
-                    CheckoutPlan::from(AgentCheckoutPlan::from(plan.clone())),
-                    plan
-                );
                 let body = rmp_serde::to_vec_named(&plan).unwrap();
                 assert_eq!(rmp_serde::from_slice::<CheckoutPlan>(&body).unwrap(), plan);
             }
@@ -1185,7 +1190,6 @@ mod agent {
     }
 
     mod models {
-        use beep_proto::AgentEffort;
         use beep_proto::node::agent::*;
         use serde::Serialize;
 
@@ -1208,10 +1212,6 @@ mod agent {
             );
             let body = rmp_serde::to_vec_named(&Xhigh).unwrap();
             assert_eq!(rmp_serde::from_slice::<String>(&body).unwrap(), "xhigh");
-
-            for effort in efforts("pi") {
-                assert_eq!(Effort::from(AgentEffort::from(*effort)), *effort);
-            }
         }
 
         #[test]
@@ -2037,6 +2037,7 @@ mod agent {
             }
             let thought = Entry {
                 tool: None,
+                sent_at: None,
                 kind: EntryKind::Thought,
                 text: "hmm".into(),
                 ms: Some(1200),
@@ -2135,4 +2136,35 @@ mod device {
         let read: Reply = beep_proto::lenient::from_slice(&bytes).expect("decodes");
         assert_eq!(read, reply);
     }
+}
+
+#[test]
+fn dated_entries_read_older_positional_entries() {
+    use beep_proto::node::agent::{Entry, EntryKind};
+    use serde::Serialize;
+    #[derive(Serialize)]
+    struct OldEntry {
+        kind: EntryKind,
+        text: String,
+        ms: Option<u64>,
+        tool: Option<beep_proto::AgentToolCall>,
+    }
+    let bytes = rmp_serde::to_vec(&OldEntry {
+        kind: EntryKind::User,
+        text: "hello".into(),
+        ms: None,
+        tool: None,
+    })
+    .unwrap();
+    let entry: Entry = beep_proto::lenient::from_slice(&bytes).unwrap();
+    assert_eq!(entry.sent_at, None);
+    let dated = Entry {
+        sent_at: Some(123),
+        ..entry
+    };
+    let bytes = rmp_serde::to_vec(&dated).unwrap();
+    assert_eq!(
+        beep_proto::lenient::from_slice::<Entry>(&bytes).unwrap(),
+        dated
+    );
 }

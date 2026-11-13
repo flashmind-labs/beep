@@ -139,17 +139,34 @@ async fn a_slow_follower_holds_nobody_up() {
     assert_eq!(take(&slow).await, "10");
 }
 
-#[test]
-fn only_the_most_recent_followers_are_remembered() {
+#[tokio::test]
+async fn only_the_most_recent_followers_are_remembered() {
     let hub = AlertHub::<Alert>::default();
     let ids: Vec<EndpointId> = (0..=MAX_FOLLOWERS).map(|_| follower()).collect();
     hub.record(alert("a"));
 
     for id in &ids {
         let follow = hub.follow(*id);
+        follow.next().await;
         follow.sent();
     }
 
     assert_eq!(lock(&hub.held).cursors.len(), MAX_FOLLOWERS);
     assert!(!lock(&hub.held).cursors.contains_key(&ids[0]));
+}
+
+#[tokio::test]
+async fn sent_marks_the_alert_next_gave_even_when_older_ones_were_dropped() {
+    let hub = AlertHub::<Alert>::default();
+    let follow = hub.follow(follower());
+    hub.record(alert("first"));
+    assert_eq!(follow.next().await.session, "first");
+
+    for n in 0..MAX_KEPT {
+        hub.record(alert(&format!("later {n}")));
+    }
+
+    follow.sent();
+    // "first" went out; the oldest kept alert was not sent and still comes.
+    assert_eq!(follow.next().await.session, "later 0");
 }

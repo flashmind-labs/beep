@@ -260,6 +260,17 @@ in_sync(){
   [[ "$(grep -c ' in_sync files=.* pending=0 ' <<< "$out")" == "${#NODES[@]}" ]]
 }
 
+# check_in_sync <seconds> [prefix] : wait for the desktop to see both in sync;
+# PASS or FAIL with the status, the messages starting with <prefix>.
+check_in_sync(){
+  if wait_for "$1" "both in sync" in_sync; then
+    pass "${2-}the desktop sees both in sync"
+  else
+    fail "${2-}the desktop does not see both in sync"
+    sync_status | sed 's/^/   /'
+  fi
+}
+
 # synced <seconds> <what> : wait until node-b matches node-a file for file
 # and the desktop sees both in sync; PASS or FAIL with the difference.
 synced(){

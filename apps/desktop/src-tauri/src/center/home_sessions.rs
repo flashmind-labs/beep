@@ -185,27 +185,22 @@ impl AgentSessions {
         let cache = cache.clone();
         tauri::async_runtime::spawn(async move {
             let _asking = asking;
-            let listed: Result<Vec<MachineSession>> =
-                Ok(machine_sessions(&app, &fleet, &app.state::<MachineLists>()).await);
-            let answered = listed.is_ok();
+            let sessions = machine_sessions(&app, &fleet, &app.state::<MachineLists>()).await;
+            cache_view(&cache, View::AgentSessions, &sessions);
+            *me.last() = Some(Listed {
+                age: Age::Listed(Instant::now()),
+                sessions: sessions.clone(),
+            });
 
-            if let Ok(sessions) = &listed {
-                cache_view(&cache, View::AgentSessions, sessions);
-                *me.last() = Some(Listed {
-                    age: Age::Listed(Instant::now()),
-                    sessions: sessions.clone(),
-                });
-            }
             // Home stopped waiting and drew the older list: draw again.
-            if tx.send(listed).is_err()
-                && answered
+            if tx.send(sessions).is_err()
                 && let Err(e) = app.emit(HOME_CHANGED, ())
             {
                 log::warn!("telling the windows Home changed: {e}");
             }
         });
         let Some(last) = last else {
-            return rx.await.map_err(|_| stopped())?;
+            return rx.await.map_err(|_| stopped());
         };
 
         // The list from the last run draws at once; the answer draws Home again.
@@ -214,7 +209,7 @@ impl AgentSessions {
         }
 
         match timeout(WAIT, rx).await {
-            Ok(Ok(listed)) => listed,
+            Ok(Ok(listed)) => Ok(listed),
             Ok(Err(_)) => {
                 log::warn!("{}", stopped());
                 Ok(last.sessions)

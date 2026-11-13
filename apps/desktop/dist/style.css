@@ -2,7 +2,7 @@
 @import url("skins.css");
 * { box-sizing: border-box }
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden }
-body { font-family: var(--body); color: var(--fg); -webkit-font-smoothing: antialiased; user-select: none; cursor: default }
+body { font-family: var(--body); color: var(--fg); -webkit-font-smoothing: antialiased; -webkit-user-select: none; user-select: none; cursor: default }
 button { font: inherit; color: inherit; cursor: default }
 
 /* The window's vibrancy blurs what is behind it; this tints it to the palette. */
@@ -19,7 +19,7 @@ button { font: inherit; color: inherit; cursor: default }
 .dinput .txt, .agtr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 
 .dbody { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 2px 26px 16px 16px; display: flex; flex-direction: column; gap: 10px;
-  font-size: 14px; line-height: 21px; scrollbar-width: none; user-select: text; cursor: auto }
+  font-size: 14px; line-height: 21px; scrollbar-width: none; -webkit-user-select: text; user-select: text; cursor: auto }
 .dbody::-webkit-scrollbar { display: none }
 .dbody:empty { display: none }
 .dbody ul, .dbody ol { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 2px }
@@ -123,7 +123,7 @@ pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms !
 .dbtn.quiet.warn { color: var(--err) }
 .dtag { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--elev); color: var(--muted) }
 .dwin p { margin: 0; color: var(--muted); font-size: 13px; line-height: 19px; max-width: 40ch }
-.code { font-family: var(--mono); font-size: 15px; letter-spacing: .12em; color: var(--fg); user-select: text }
+.code { font-family: var(--mono); font-size: 15px; letter-spacing: .12em; color: var(--fg) }
 .wait { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg); padding: 6px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border) }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important } }
@@ -302,7 +302,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dstate.ask { border-color: color-mix(in srgb, var(--hot) 50%, transparent); color: var(--hot) }
 .dapp.dcoderav { width: 28px; height: 28px; border-radius: var(--radius-sm); font-size: 10.5px; background: var(--elev) }
 .dapp.dcoderav.claude { color: #F2A27A } .dapp.dcoderav.codex { color: var(--fg) }
-.dcard.dcoder { flex: none; user-select: text }
+.dcard.dcoder { flex: none }
 .dcoder .row { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px }
 .dcoder .sec { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim); padding: 8px 12px 2px }
 .dcoder .plan { display: grid; gap: 2px; padding: 0 12px }
@@ -453,7 +453,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .tm-term .tm-keys-input { position: absolute; top: 0; left: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; overflow: hidden; pointer-events: none; caret-color: transparent }
 /* Paths mentioned in the next message, uploads on their way, and where a drop goes. */
 .agment { display: inline-flex; align-items: center; gap: 6px; max-width: 280px; padding: 3px 4px 3px 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--link) 12%, transparent); border: 1px solid color-mix(in srgb, var(--link) 30%, transparent); font: 11.5px var(--mono); color: var(--fg) }
-.agment .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left }
+.agment .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left }
 .agment small { color: var(--muted) } .agment .dspin { width: 9px; height: 9px }
 .agment button { border: 0; background: transparent; color: var(--muted); padding: 2px; display: grid; cursor: default } .agment button:hover { color: var(--fg) }
 .agupask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted) }
@@ -484,7 +484,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dsubprompt .prompt-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .dsubprompt .prompt-toggle svg { width: 12px; height: 12px }
 .dsubprompt .prompt-toggle[aria-expanded="true"] svg { transform: rotate(90deg) }
-.dsubprompt pre { margin: 4px 8px 8px 32px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/20px var(--mono); color: var(--muted); user-select: text }
+.dsubprompt pre { margin: 4px 8px 8px 32px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/20px var(--mono); color: var(--muted); -webkit-user-select: text; user-select: text }
 .dcrumb { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 16px; color: var(--muted); margin-bottom: 16px; white-space: nowrap }
 .dcrumb button:not(.dbtn) { all: unset; cursor: default; overflow: hidden; text-overflow: ellipsis } .dcrumb button:not(.dbtn):hover { color: var(--fg) }
 .dcrumb button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
@@ -498,9 +498,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.tool.row .rm.bad { color: var(--hot) }
 .dcoderen.tool .pl { color: var(--accent) } .dcoderen.tool .mi { color: var(--hot) }
 .dbody .dcoderen.tool.row.open .tt { white-space: nowrap }
-.dbody .dcoderen.tool.row .out.box { max-height: 260px; overflow: auto; white-space: pre; overflow-wrap: normal; margin-top: 5px; border: 1px solid var(--border); cursor: text; user-select: text }
-.dbody .dcoderen.tool .cmd { cursor: text; user-select: text }
-.ddiff { grid-column: 2 / -1; margin-top: 5px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: auto; max-height: 320px; font: 11.5px/18px var(--mono); cursor: text; user-select: text }
+.dbody .dcoderen.tool.row .out.box { max-height: 260px; overflow: auto; white-space: pre; overflow-wrap: normal; margin-top: 5px; border: 1px solid var(--border); cursor: text; -webkit-user-select: text; user-select: text }
+.dbody .dcoderen.tool .cmd { cursor: text; -webkit-user-select: text; user-select: text }
+.ddiff { grid-column: 2 / -1; margin-top: 5px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: auto; max-height: 320px; font: 11.5px/18px var(--mono); cursor: text; -webkit-user-select: text; user-select: text }
 .ddiff + .ddiff { margin-top: 6px }
 .ddiff .dh { padding: 3px 10px; border-bottom: 1px solid var(--border); background: var(--surface); color: var(--dim) }
 .ddiff > div:not(.dh) { padding: 0 10px; white-space: pre; color: var(--muted); min-width: max-content }
@@ -610,9 +610,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .ag-plan .h small { color: var(--muted); font-size: 12px }
 .ag-plan .md { max-height: 40vh; overflow-y: auto }
 .ag-plan .acts { display: flex; gap: 8px }
-.dcoderen.agent > .pics { flex-wrap: nowrap; overflow-x: auto; gap: 8px; margin-top: 8px }
-.dcoderen.agent > .pics .pic { height: 160px; max-height: 160px; width: auto; max-width: none; border-radius: var(--radius-sm); flex: none }
-.dcoderen.agent > .pics img.pic:not([src]) { width: 240px }
+:is(.dcoderen.agent, .dcoderen.agent > .reply-body) > .pics { flex-wrap: nowrap; overflow-x: auto; gap: 8px; margin-top: 8px }
+:is(.dcoderen.agent, .dcoderen.agent > .reply-body) > .pics .pic { height: 160px; max-height: 160px; width: auto; max-width: none; border-radius: var(--radius-sm); flex: none }
+:is(.dcoderen.agent, .dcoderen.agent > .reply-body) > .pics img.pic:not([src]) { width: 240px }
 .dcoderen.agent a.imgl { font-family: var(--mono); font-size: 12.5px; color: var(--accent); text-decoration: underline; cursor: default }
 .dcoderen code.fref { cursor: default; text-decoration: underline dotted; text-underline-offset: 2px }
 .dcoderen code.fref:hover, .dcoderen code.fref:focus-visible { color: var(--accent) }
@@ -672,7 +672,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 /* What the agent said, from Markdown: headings stay near the text's size. */
 .dcoderen.agent.md { white-space: normal }
 .dcoderen.agent.md :is(h1, h2) { font-size: 14.5px; margin: 10px 0 4px } .dcoderen.agent.md :is(h3, h4, h5, h6) { font-size: 14px; margin: 8px 0 2px }
-.dcoderen.agent.md > :first-child { margin-top: 0 } .dcoderen.agent.md > :last-child { margin-bottom: 0 }
+.dcoderen.agent.md > .reply-body > :first-child { margin-top: 0 } .dcoderen.agent.md > .reply-body > :last-child { margin-bottom: 0 }
 .dcoderen.agent.md pre { font-size: 12px; line-height: 18px }
 .dcoderen.agent.md img { max-width: 100%; height: auto }
 /* A tool call: its mark, its title in mono, then its output folded to a few lines. */
@@ -753,7 +753,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .cc-pjc .box { position: relative; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--elev) 92%, transparent); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 .cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 21px; max-height: 200px; line-height: 21px; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
-.cc-pjc input, .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; min-width: 0; user-select: text }
+.cc-pjc input, .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; min-width: 0; -webkit-user-select: text; user-select: text }
 .cc-pjc input::placeholder, .cc-pjc textarea::placeholder { color: var(--dim) }
 .cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
 .cc-pjc .choices { display: contents }
@@ -962,7 +962,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dsecret { flex: 1; font-family: var(--mono); font-size: 12.5px }
 .dcred-form { padding: 10px 0; border-bottom: 1px solid var(--border); display: grid; gap: 8px; font-size: 13px }
 .dflow { padding: 8px 10px; margin: 4px 0; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); font-size: 12.5px; display: grid; gap: 6px }
-.dflowcode { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: .1em; user-select: all; cursor: text }
+.dflowcode { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: .1em; cursor: text }
 /* A state chip: neutral, or coloured by what it says. Built by stateChip. */
 .chip { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 10.5px; font-weight: 600; line-height: 17px; white-space: nowrap }
 .chip.running, .chip.run, .chip.done { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent) }
@@ -1034,7 +1034,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agrunninglist { flex: 1; min-height: 0; overflow: auto; padding: 4px }
 .agrunningrow { cursor: default }
 .agrunningrow .t { cursor: default }
-.agrunningrow.whole .t b { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
+.agrunningrow.whole .t b { white-space: pre-wrap; overflow-wrap: anywhere }
 .agrunningrow .r { display: flex; gap: 6px; align-items: center }
 .agrunningrow .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
 /* The Device tab (#648): picker head, the screen fitted with its aspect, the button row. */
@@ -1045,7 +1045,6 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agdevmiss { flex: none; padding: 5px 8px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px }
 .agdevmiss[hidden] { display: none }
 .agdevstage { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--deep) }
-.agdevstage:focus-within { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent) }
 .agdevscreen { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: default }
 .agdevscreen[hidden] { display: none }
 .agdevtype { position: absolute; left: 0; top: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; pointer-events: none }
@@ -1130,7 +1129,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .prompt-stash-panel button:focus-visible { outline: 2px solid var(--accent) }
 .prompt-stash-panel button:disabled { opacity: .4; cursor: default }
 .prompt-stash-note { padding: 8px 16px; color: var(--dim); font-size: 12px; line-height: 16px }
-.dcoderen.tool .call-details { grid-column: 2 / -1; min-width: 0; cursor: text; user-select: text }
+.dcoderen.tool .call-details { grid-column: 2 / -1; min-width: 0; cursor: text; -webkit-user-select: text; user-select: text }
 .call-details dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 8px 0; font-size: 12px; line-height: 16px }
 .call-details dt, .call-details h4 { color: var(--dim); font-size: 12px; line-height: 16px; font-weight: 400 }
 .call-details dd { margin: 0; overflow-wrap: anywhere }
@@ -1201,3 +1200,36 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .dropdown-check { display: grid; place-items: center; width: 14px; flex: none; visibility: hidden; color: var(--accent) }
 .dropdown-option[data-selected] .dropdown-check { visibility: visible }
 .dropdown-option[data-selected] { font-weight: 500 }
+
+/* Attachment batches keep the composer and transcript readable. */
+.attachment-batch { width: 100%; min-width: 0; font-size: 12px; color: var(--muted) }
+.attachment-batch summary { cursor: default; padding: 6px 0 }
+.attachment-batch summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.attachment-items { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; max-height: 144px; overflow-y: auto; padding: 4px 0; scrollbar-width: thin }
+.attachment-file { cursor: default; text-align: left; font-family: inherit; display: block; max-width: min(200px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--elev); font-size: 12px; color: var(--muted) }
+.attachment-items > :is(.att, .agment) { box-sizing: border-box; max-width: min(240px, 100%); flex-shrink: 0 }
+.ag-att > .attachment-items { width: 100% }
+
+/* Attached files live in a window opened from the input bar. */
+#agfield #agatt { padding: 0; flex: none }
+.attachment-count { white-space: nowrap; flex: none; font-size: 12px }
+.attachment-window { position: relative; width: min(800px, calc(100vw - 32px)); max-height: 85dvh; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--fg); outline: none }
+.attachment-window header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 12px }
+.attachment-window .attachment-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; overflow: auto; min-height: 0; padding: 0; align-items: stretch; scrollbar-width: thin }
+.attachment-gallery > :is(.att, .agment) { box-sizing: border-box; max-width: 100%; min-width: 0; padding: 8px; padding-right: 30px; align-items: start }
+.attachment-gallery .att .preview { display: flex; flex-direction: column; align-items: stretch; width: 100%; gap: 8px }
+.attachment-gallery .att img { width: 100%; height: 112px; object-fit: contain; border-radius: 4px; background: var(--elev) }
+.attachment-gallery .att .nm { width: 100% }
+.agc .row > .ag-att { padding: 0 }
+
+/* Select conversation text and editable fields, keeping controls inert. */
+.dcoderlog, input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text }
+:is(button, [role="button"], summary, select), :is(button, [role="button"], summary, select) * { -webkit-user-select: none !important; user-select: none !important }
+
+.entry-time { color: var(--dim); font-size: 10px; font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; margin-inline-start: 6px; }
+.dcoderen.agent > .entry-time { display: block; margin: 0 0 4px; }
+.dcoderen.tool.row { grid-template-columns: 16px auto minmax(0, 1fr) auto 16px auto; }
+.dcoderen.tool.beep { grid-template-columns: 16px minmax(0, 1fr) auto auto; }
+.dcoderen.tool.beep > .entry-time { grid-column: 4; grid-row: 1; }
+
+.dcoderen.agent > .reply-body { display: contents; }

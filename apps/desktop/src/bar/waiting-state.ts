@@ -25,8 +25,8 @@ export function waitingKind(s: AgentSession, unread: ReadonlySet<string>): Waiti
 }
 
 /// Sessions asking first, then those with an unread finished turn, then
-/// running ones, then other idle ones; newest first in each. A subagent
-/// shows only while it asks.
+/// running ones, then other idle ones; newest first in each. Children
+/// open from the parent agent panel.
 /// `query` matches the title or what `project` names.
 export function waitingSessions(list: readonly AgentSession[], unread: ReadonlySet<string>, query: string, project: (s: AgentSession) => string, max = WAITING_MAX): WaitingSession[] {
   const q = query.trim().toLowerCase();
@@ -34,7 +34,7 @@ export function waitingSessions(list: readonly AgentSession[], unread: ReadonlyS
 
   for (const session of list) {
     const kind = waitingKind(session, unread);
-    if (!kind || (session.parent && kind !== "asking")) continue;
+    if (!kind || session.parent) continue;
     if (q && !`${session.title ?? ""} ${project(session)}`.toLowerCase().includes(q)) continue;
     rows.push({ session, kind });
   }

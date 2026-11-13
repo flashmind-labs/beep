@@ -184,7 +184,6 @@ body.cbody
                       span.agc-word style(--word) "today?"
                   p "A fresh idea. A tricky bug. A place to start."
                 div#agbox.box
-                  div.ag-att [hidden]
                   div.cx-layer [aria-hidden="true" hidden]
                   textarea#agprompt.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Describe the task." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
                   div.row
@@ -193,6 +192,7 @@ body.cbody
                     button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
                       svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     input [hidden multiple type="file"] value=""
+                    div.ag-att [hidden]
                     button#aggo.agc-send [aria-label="Start" disabled title="Pick a project first" type="submit"]
                       svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="16"]
                   div#agpick.pick

@@ -63,6 +63,15 @@ pub(crate) enum Frame {
 /// What the peer is known to hold, per origin.
 type Known = Arc<Mutex<Heads>>;
 
+fn mark_known(known: &Known, entries: &[Entry]) {
+    let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
+
+    for e in entries {
+        let head = known.entry(e.origin).or_insert(0);
+        *head = (*head).max(e.seq);
+    }
+}
+
 /// Runs a connection until it ends, then unregisters it. The connection is
 /// not closed here: the streams on it end first (see `run`).
 pub(crate) async fn serve(inner: Arc<Inner>, conn: Connection, dialer: EndpointId) {
@@ -181,7 +190,7 @@ fn register(
     inner: &Inner,
     conn: &Connection,
     peer: EndpointId,
-    who: Dialed,
+    dialer: EndpointId,
     session: u64,
 ) -> Option<Arc<Notify>> {
     let mut conns = inner.conns();
@@ -189,7 +198,7 @@ fn register(
     if let Some(old) = conns.get(&peer)
         && old.conn.close_reason().is_none()
     {
-        if old.session == session && old.dialer < who.0 {
+        if old.session == session && old.dialer < dialer {
             return None;
         }
 
@@ -206,7 +215,7 @@ fn register(
         peer,
         Live {
             conn: conn.clone(),
-            dialer: who.0,
+            dialer,
             session,
             retire: retire.clone(),
         },
@@ -215,10 +224,6 @@ fn register(
     inner.bump();
     Some(retire)
 }
-
-/// Who opened a connection.
-#[derive(Clone, Copy)]
-struct Dialed(EndpointId);
 
 async fn run(
     inner: &Arc<Inner>,
@@ -241,7 +246,7 @@ async fn run(
     };
     // Only now can a caller reach the connection through `peer()`, so no
     // stream of theirs can be taken for the sync stream.
-    let retire = register(inner, conn, peer, Dialed(dialer), session);
+    let retire = register(inner, conn, peer, dialer, session);
     let (over, over_rx) = watch::channel(false);
     let mut app = JoinSet::new();
     app.spawn(streams(inner.clone(), conn.clone(), peer, over_rx));
@@ -372,14 +377,7 @@ async fn read(
                 }
             }
             Frame::Entries(entries) => {
-                {
-                    let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
-
-                    for e in &entries {
-                        let head = known.entry(e.origin).or_insert(0);
-                        *head = (*head).max(e.seq);
-                    }
-                }
+                mark_known(&known, &entries);
                 let applied = inner.store.run(move |core| core.apply(entries)).await?;
 
                 if !applied.refused.is_empty() {
@@ -450,14 +448,7 @@ async fn flush(
     }
 
     let page = take(page);
-    {
-        let mut known = known.lock().unwrap_or_else(PoisonError::into_inner);
-
-        for e in &page {
-            let head = known.entry(e.origin).or_insert(0);
-            *head = (*head).max(e.seq);
-        }
-    }
+    mark_known(known, &page);
     wire::send(send, &Frame::Entries(page)).await
 }
 

@@ -28,6 +28,14 @@ const QUEUE: usize = 256;
 /// Where a mesh's files wait while another takes their place.
 const ASIDE: &str = "mesh2.old";
 
+fn read_list<T: serde::de::DeserializeOwned>(dir: &Path, name: &str) -> Result<Vec<T>, MeshError> {
+    match fs::read(dir.join(MESH_DIR).join(name)) {
+        Ok(bytes) => Ok(lenient::from_slice(&bytes)?),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn remove_if_present(dir: &Path) -> Result<(), MeshError> {
     match fs::remove_dir_all(dir) {
         Err(e) if e.kind() != ErrorKind::NotFound => Err(e.into()),
@@ -52,6 +60,13 @@ struct Redemption {
     expires_ms: u64,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TicketPurpose {
+    Member,
+    Temporary,
+    Observer,
+}
+
 pub(crate) struct Core {
     key: SecretKey,
     dir: PathBuf,
@@ -67,16 +82,8 @@ impl Core {
     /// Opens the files of a mesh `devices` describes and saves the list.
     pub(crate) fn start(dir: &Path, key: SecretKey, devices: Devices) -> Result<Core, MeshError> {
         let state = State::open(dir, &key, devices.mesh())?;
-        let tickets = match fs::read(dir.join(MESH_DIR).join("tickets.bin")) {
-            Ok(bytes) => lenient::from_slice(&bytes)?,
-            Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e.into()),
-        };
-        let redemptions = match fs::read(dir.join(MESH_DIR).join("redemptions.bin")) {
-            Ok(bytes) => lenient::from_slice(&bytes)?,
-            Err(e) if e.kind() == ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e.into()),
-        };
+        let tickets = read_list(dir, "tickets.bin")?;
+        let redemptions = read_list(dir, "redemptions.bin")?;
         let view = Arc::new(View {
             devices: devices.clone(),
             values: BTreeMap::new(),
@@ -244,6 +251,14 @@ impl Core {
         self.write("tickets.bin", &rmp_serde::to_vec(&self.tickets)?, true)
     }
 
+    fn save_redemptions(&self) -> Result<(), MeshError> {
+        self.write(
+            "redemptions.bin",
+            &rmp_serde::to_vec(&self.redemptions)?,
+            true,
+        )
+    }
+
     /// Rebuilds the snapshot and wakes everyone watching.
     fn publish(&self) {
         let values = self
@@ -281,7 +296,7 @@ impl Core {
         addr: EndpointAddr,
         kind: DeviceKind,
         ttl: Duration,
-        temporary: bool,
+        purpose: TicketPurpose,
     ) -> Result<JoinTicket, MeshError> {
         self.save_ticket(JoinTicket {
             mesh: self.devices.mesh(),
@@ -289,24 +304,8 @@ impl Core {
             kind,
             secret: JoinSecret::generate(),
             expires_ms: now_ms().saturating_add(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX)),
-            temporary,
-            observer: false,
-        })
-    }
-
-    pub(crate) fn invite_observer(
-        &mut self,
-        addr: EndpointAddr,
-        ttl: Duration,
-    ) -> Result<JoinTicket, MeshError> {
-        self.save_ticket(JoinTicket {
-            mesh: self.devices.mesh(),
-            addr,
-            kind: DeviceKind::Desktop,
-            secret: JoinSecret::generate(),
-            expires_ms: now_ms().saturating_add(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX)),
-            temporary: false,
-            observer: true,
+            temporary: purpose == TicketPurpose::Temporary,
+            observer: purpose == TicketPurpose::Observer,
         })
     }
 
@@ -361,24 +360,34 @@ impl Core {
             joiner,
             expires_ms: ticket.expires_ms,
         });
-        self.write(
-            "redemptions.bin",
-            &rmp_serde::to_vec(&self.redemptions)?,
-            true,
-        )?;
+        let saved = self.save_redemptions();
 
-        if ticket.observer {
+        // The device is already added and saved, so publish even when a save fails.
+        let flags = self.set_join_flags(joiner, ticket.observer, ticket.temporary);
+        self.publish();
+        saved?;
+        flags?;
+
+        Ok(self.devices.ops().to_vec())
+    }
+
+    fn set_join_flags(
+        &mut self,
+        joiner: EndpointId,
+        observer: bool,
+        temporary: bool,
+    ) -> Result<(), MeshError> {
+        if observer {
             self.state
                 .set(Key::Observer(joiner.to_string()), Some(Vec::new()))?;
         }
 
-        if ticket.temporary {
+        if temporary {
             self.state
                 .set(Key::Temporary(joiner.to_string()), Some(Vec::new()))?;
         }
 
-        self.publish();
-        Ok(self.devices.ops().to_vec())
+        Ok(())
     }
 
     pub(crate) fn joined_with(&self, secret: &JoinSecret) -> Option<EndpointId> {
@@ -425,16 +434,26 @@ impl Core {
         Ok(())
     }
 
-    pub(crate) fn set(&mut self, key: Key, value: Option<Vec<u8>>) -> Result<Entry, MeshError> {
+    pub(crate) fn set(&mut self, key: Key, value: Option<Vec<u8>>) -> Result<(), MeshError> {
         self.desktop()?;
 
         if value.as_ref().is_some_and(|v| v.len() > MAX_VALUE) {
             return Err(MeshError::TooLarge);
         }
 
-        let entry = self.state.set(key, value)?;
+        self.state.set(key, value)?;
         self.publish();
-        Ok(entry)
+        Ok(())
+    }
+
+    /// Writes only a key this side never held, checked next to the write.
+    pub(crate) fn set_if_new(&mut self, key: Key, value: Vec<u8>) -> Result<bool, MeshError> {
+        if self.state.holds(&key) {
+            return Ok(false);
+        }
+
+        self.set(key, Some(value))?;
+        Ok(true)
     }
 
     pub(crate) fn merge(&mut self, ops: &[DeviceOp]) -> Result<Merged, MeshError> {

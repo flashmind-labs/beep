@@ -12,7 +12,6 @@ use super::{
     Ci,
     book::{self, Books},
     check::{CHECK, Checks},
-    elect::elect,
     forge::{Cli, Forge, Host, Target},
     projects::{self, Project},
 };
@@ -93,7 +92,12 @@ pub(crate) async fn watch(mesh: Mesh, me: EndpointId, dir: PathBuf, ci: Arc<Ci>)
 
 /// The machine that watches `project`, as this node sees it: `reach` is how
 /// this machine reaches the host, `peers` what the online machines that
-/// answered said.
+/// answered said. Every node works it out from the same facts, so all pick
+/// the same one: the candidate (an online machine of the project, with its
+/// checkout, that answered how it reaches the host) with the best
+/// `HostReach::rank`, then the smallest id. Machines that keep failing
+/// still watch when no other is left, so a host that is down for everyone
+/// is tried again.
 pub(super) fn watcher_of(
     project: &Project,
     me: EndpointId,
@@ -109,7 +113,9 @@ pub(super) fn watcher_of(
         let said = peers.get(machine)?;
         Some((*machine, said.hosts.get(host).copied().unwrap_or_default()))
     });
-    elect(candidates)
+    candidates
+        .min_by_key(|(id, reach)| (reach.rank(), *id))
+        .map(|(id, _)| id)
 }
 
 /// A run of a project, as waits are kept.
@@ -497,6 +503,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
 
             if !stays {
                 task.abort();
+                self.tasks.remove(&task.id());
             }
 
             stays
@@ -671,3 +678,7 @@ fn remote_refs_changed(folder: &Path) -> Option<SystemTime> {
 
     newest
 }
+
+#[cfg(test)]
+#[path = "../../tests/machine_ci_watcher.rs"]
+mod tests;

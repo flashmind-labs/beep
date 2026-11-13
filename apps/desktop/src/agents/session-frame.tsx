@@ -12,7 +12,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-view.tsx";
 import { MoveBox, MoveHere } from "./move-view.tsx";
-import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, WorkLine } from "./composer-ui.tsx";
+import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, useUploadPending, WorkLine } from "./composer-ui.tsx";
 import { cancelContinue, continuing } from "./continue-here.ts";
 import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.ts";
 import { conversationAppearance } from "../ui/conversation-appearance.ts";
@@ -187,10 +187,10 @@ function FieldGrip() {
 }
 
 export function SessionField({ mode, name, banner, moveKey, continueHere, attach, send, stop, openParent }: SessionFieldProps) {
-  const input = agentMessage, dropping = useFieldDrop();
+  const input = agentMessage, dropping = useFieldDrop(), uploading = useUploadPending();
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><Button id="agnativeparent" onClick={openParent}>Open parent</Button></div>;
   if (mode === "readonly") return continueHere ? <div className="dmuted dbanner dtakeover"><span>{banner}</span><ContinueHere {...continueHere} /></div> : <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FieldGrip /><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
+  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FieldGrip /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><textarea ref={input} id="agmsg" rows={1} readOnly={uploading} aria-busy={uploading} style={uploading ? { opacity: 0.5, cursor: "wait" } : undefined} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" disabled={uploading} onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals

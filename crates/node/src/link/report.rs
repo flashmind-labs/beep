@@ -86,9 +86,7 @@ fn recent_metrics(path: &Path, since: i64, max_bytes: usize) -> String {
         .filter(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| {
-                    name.starts_with("metrics.") && name.ends_with(".log") && name != "metrics.log"
-                })
+                .is_some_and(super::metrics::is_rotated)
         })
         .collect();
     paths.sort();
