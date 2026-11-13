@@ -74,6 +74,8 @@ pub(crate) struct Subagent {
     /// Its type or custom agent's name, such as `Explore` (Claude Code's
     /// `subagent_type`).
     pub(crate) name: Option<String>,
+    /// The model requested for this subagent.
+    pub(crate) model: Option<String>,
     /// The Codex threads it runs in.
     pub(crate) threads: Vec<String>,
     /// Codex said it ended.
@@ -96,6 +98,7 @@ impl Subagent {
                 .and_then(|prompt| prompt.lines().next());
             return Some(Self {
                 threads: threads(input),
+                model: text(input, "model"),
                 codex: true,
                 title: Some(asked.map_or_else(
                     || "Subagent".to_owned(),
@@ -118,6 +121,7 @@ impl Subagent {
         let name = text(input, "subagent_type")?;
         Some(Self {
             name: Some(name),
+            model: text(input, "model"),
             ..Self::default()
         })
     }
@@ -189,6 +193,8 @@ pub(crate) struct Run {
     pub(crate) working: bool,
     /// Its role or name.
     pub(crate) name: Option<String>,
+    /// The model recorded in its own transcript.
+    pub(crate) model: Option<String>,
     /// Its task's name.
     pub(crate) task: Option<String>,
 }
@@ -220,6 +226,9 @@ impl Run {
         }
         if let Some(session) = &self.session {
             text.push_str(&format!("\n[session] {session}"));
+        }
+        if let Some(model) = &self.model {
+            text.push_str(&format!("\n[model] {model}"));
         }
         if let Some(result) = &self.result {
             text.push('\n');

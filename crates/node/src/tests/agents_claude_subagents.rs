@@ -13,11 +13,11 @@ fn session(root: &Path) -> PathBuf {
         json!({"type": "user", "message": {"role": "user", "content": "check the release"}}),
         json!({"type": "assistant", "message": {"content": [
             {"type": "tool_use", "id": "call_explore", "name": "Agent", "input": {
-                "description": "Find the config loader", "subagent_type": "Explore",
+                "description": "Find the config loader", "subagent_type": "Explore", "model": "sonnet",
                 "prompt": "Where is the config read?"}},
             {"type": "tool_use", "id": "call_release", "name": "Task", "input": {
                 "description": "Check the release notes",
-                "subagent_type": "release-checker", "prompt": "Compare the notes"}}
+                "subagent_type": "release-checker", "model": "haiku", "prompt": "Compare the notes"}}
         ]}}),
         json!({"type": "user", "toolUseResult": {"agentId": "a2", "status": "completed"},
             "message": {"role": "user", "content": [
@@ -37,20 +37,20 @@ fn session(root: &Path) -> PathBuf {
     let explore = [
         json!({"type": "user", "isSidechain": true, "origin": {"kind": "agent"}, "message": {"role": "user",
             "content": "Where is the config read?"}}),
-        json!({"type": "assistant", "isSidechain": true, "message": {"content": [
+        json!({"type": "assistant", "isSidechain": true, "message": {"model": "claude-example", "content": [
             {"type": "tool_use", "id": "t1", "name": "Grep", "input": {"pattern": "load_config"}}
         ]}}),
         json!({"type": "user", "isSidechain": true, "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": "t1", "content": "src/config.rs"}
         ]}}),
-        json!({"type": "assistant", "isSidechain": true, "message": {"content": [
+        json!({"type": "assistant", "isSidechain": true, "message": {"model": "claude-example", "content": [
             {"type": "tool_use", "id": "t2", "name": "Read",
                 "input": {"file_path": "/srv/project/src/config.rs"}}
         ]}}),
         json!({"type": "user", "isSidechain": true, "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": "t2", "is_error": true, "content": "no"}
         ]}}),
-        json!({"type": "assistant", "isSidechain": true, "message": {"content": [
+        json!({"type": "assistant", "isSidechain": true, "message": {"model": "claude-example", "content": [
             {"type": "text", "text": "It is read in src/config.rs."}
         ]}}),
     ];
@@ -88,6 +88,7 @@ fn each_subagent_goes_on_the_call_that_started_it() {
          [step failed] Read: /srv/project/src/config.rs\n\
          [agent] Explore\n\
          [session] subagent:claude:11111111-1111-4111-8111-111111111111:a1\n\
+         [model] claude-example\n\
          It is read in src/config.rs."
     );
     assert_eq!(
@@ -95,6 +96,7 @@ fn each_subagent_goes_on_the_call_that_started_it() {
         "Check the release notes [in_progress]\n[steps] 0\n\
          [agent] release-checker\n\
          [session] subagent:claude:11111111-1111-4111-8111-111111111111:a2\n\
+         [model] haiku\n\
          The notes match the diff."
     );
 }

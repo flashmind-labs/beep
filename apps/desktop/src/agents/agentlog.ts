@@ -102,9 +102,9 @@ interface SubStep {
 /// `[agent] <name>` when it knows its type or custom agent's name, then
 /// `[session] <id>` for a native conversation, or, for
 /// an agent another agent started, `[child] <id>@<machine> <state> <key>`
-/// (the session to open), before what the subagent answered. Null for any
-/// other call.
-export function subagent(output: string): { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild; session?: string } | null {
+/// (the session to open), then `[model] <model>` when known, before the
+/// answer. Null for any other call.
+export function subagent(output: string): { count: number; steps: SubStep[]; result: string; model: string | null; agent?: string; child?: SubChild; session?: string } | null {
   const lines = output.split("\n");
   const head = /^\[steps\] (\d+)$/.exec(lines[0] ?? "");
   if (!head) return null;
@@ -126,8 +126,10 @@ export function subagent(output: string): { count: number; steps: SubStep[]; res
   // What the child's own session spent: shown on the card, never added to the parent's.
   const spend = kid ? /^\[spend\] (\d+) (\S+)$/.exec(lines[i] ?? "") : null;
   if (spend) i++;
+  const model = /^\[model\] (.+)$/.exec(lines[i] ?? "");
+  if (model) i++;
   const result = lines.slice(i).join("\n").trim();
-  const out: { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild; session?: string } = { count: Number(head[1]), steps, result };
+  const out: { count: number; steps: SubStep[]; result: string; model: string | null; agent?: string; child?: SubChild; session?: string } = { count: Number(head[1]), steps, result, model: model?.[1].trim() || null };
   if (session) out.session = session[1];
   if (named) out.agent = named[1].trim();
   if (kid) out.child = { id: kid[1], state: kid[2], key: kid[3] ?? "" };
