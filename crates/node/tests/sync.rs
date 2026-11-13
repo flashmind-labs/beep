@@ -1015,12 +1015,15 @@ fn is_clean(node: &Node) -> bool {
 
 fn assert_sound(node: &Node) {
     let dir = node.folder();
-    let fsck = try_git(&dir, &["fsck", "--full", "--strict"]);
+    // Refs are read by `for-each-ref` below: fsck's own ref check takes the
+    // `.lock` file of a ref the node is updating for a ref with bad content.
+    let fsck = try_git(&dir, &["fsck", "--full", "--strict", "--no-references"]);
     assert!(
         fsck.status.success(),
         "{}",
         String::from_utf8_lossy(&fsck.stderr)
     );
+    git(&dir, &["for-each-ref"]);
     git(&dir, &["log", "--all", "--oneline"]);
     let names = files(&dir.join(".git"));
     assert!(
@@ -1723,7 +1726,8 @@ async fn gc_and_new_objects_stay_local_after_the_first_copy() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_node_on_the_old_protocol_is_turned_away() {
     let (a, b) = synced_repo().await;
-    let refs = git(&a.folder(), &["show-ref"]);
+    // Branches only: sync may still record the peer's tip under refs/remotes.
+    let refs = git(&a.folder(), &["show-ref", "--heads"]);
     for alpn in [
         &b"beep-sync/6"[..],
         &b"beep-sync/1"[..],
@@ -1736,7 +1740,7 @@ async fn a_node_on_the_old_protocol_is_turned_away() {
         assert!(old.is_err(), "an old node is not served");
     }
     assert_sound(&a);
-    assert_eq!(git(&a.folder(), &["show-ref"]), refs);
+    assert_eq!(git(&a.folder(), &["show-ref", "--heads"]), refs);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2381,6 +2385,13 @@ async fn ignored_folder_sync_cannot_overwrite_a_force_added_model_or_its_index()
     write(&a.path(model), "original");
     eventually("first ignored model", || {
         read(&b.path(model)).as_deref() == Some(b"original")
+    })
+    .await;
+    // Sync holds Git's index lock while it writes a batch; staging waits for
+    // it to finish, as a user would.
+    eventually("the ignored folder to finish writing", || {
+        let status = ignored_status(&b);
+        status.state == State::Idle && status.pending == 0
     })
     .await;
     git(&b.folder(), &["add", "-f", model]);
