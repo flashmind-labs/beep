@@ -30,7 +30,6 @@ body:not(.mobile) #agfield.dinput.small:focus-within { border-color: color-mix(i
 body:not(.mobile) #agfield.dinput.small > textarea { align-self: stretch; min-height: max(26px, var(--field-h, 0px)); padding: 0 4px; line-height: 26px }
 body:not(.mobile) #agfield button[aria-label="Attach files"] { width: 26px; height: 26px; min-height: 0; margin: 0; color: var(--muted) }
 body:not(.mobile) #agfield :is(#agstop, #agnativeparent) { min-height: 26px; padding: 0 10px; font-size: 12px }
-body:not(.mobile) #agsend { display: inline-flex; flex: none; width: 26px; height: 26px; min-height: 0; padding: 0; justify-content: center; border-color: transparent; background: var(--accent); color: var(--on-accent) }
 body:not(.mobile) #agmodel .agc-pill { font-size: 12px; padding: 3px 6px; gap: 6px }
 body:not(.mobile) #agmodel .cc-ag { width: 16px; height: 16px; border: 0; background: none }
 .agfield-grip { display: none }
