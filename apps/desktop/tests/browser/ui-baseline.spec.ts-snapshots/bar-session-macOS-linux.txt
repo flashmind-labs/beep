@@ -61,7 +61,7 @@ body
                       b "Run cargo test?"
                       code "cargo test"
                       div.dups
-                        button.dbtn.pri [data-agallow="true" data-agopt="0" data-agquestion="[\"build-box\",\"claude\",\"asks\",1,\"Run cargo test?\",\"cargo test\",[[\"allow\",\"Allow\",true]]]"] "Allow"
+                        button.dbtn.pri [data-agallow="true" data-agopt="0" data-agquestion="[\"build-box\",\"claude\",\"asks\",1,\"Run cargo test?\",\"cargo test\",[[\"allow\",\"Allow\",true]]]" type="button"] "Allow"
                           kbd "⌘"
                             svg [fill="none" height="11" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="11"]
                 button#agjump.dagjump [hidden] "Jump to latest"
@@ -87,9 +87,9 @@ body
                   span.cc-ag.claude.mark
                     svg [aria-hidden="true" viewBox="0 0 24 24"]
                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-              button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)"] "Stop"
+              button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)" type="button"] "Stop"
                 span.dstopico
-              button#agsend.dbtn [aria-label="Send"]
+              button#agsend.dbtn [aria-label="Send" type="button"]
                 svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
               div [data-agent-menu-slot="true"] style(display)
             div#agpickm

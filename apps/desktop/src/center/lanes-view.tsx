@@ -3,7 +3,7 @@
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Icon } from "../ui/icons.tsx";
-import { LineRow, onRowKey } from "../ui/kit.tsx";
+import { Button, LineRow, onRowKey } from "../ui/kit.tsx";
 import { openMenu, type MenuAction } from "../ui/menu.ts";
 import { heroCard, motionAllowed, movePlaying, setHeroCard, withMove } from "../ui/motion.ts";
 import { LANES, byLane, byProject, travelled, withoutProject, type Lane } from "./lanes-state.ts";
@@ -34,10 +34,10 @@ export type CardAction =
 
 function ActionButton({ action, title }: { action: CardAction; title: string }) {
   if (action.kind === "menu") {
-    return <button type="button" className="dbtn small bd-pick" aria-haspopup="menu" onClick={event => { event.stopPropagation(); openMenu(event.nativeEvent, title, action.items); }}>{action.label}<Icon name="caretDown"/></button>;
+    return <Button small className="bd-pick" aria-haspopup="menu" onClick={event => { event.stopPropagation(); openMenu(event.nativeEvent, title, action.items); }}>{action.label}<Icon name="caretDown"/></Button>;
   }
 
-  return <button type="button" className={`dbtn small${action.primary ? " pri" : ""}`} onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</button>;
+  return <Button look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
 }
 
 /// Home's rows, a project each: its dot's color, and what its name opens; null when it has neither.

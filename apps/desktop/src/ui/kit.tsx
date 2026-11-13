@@ -1,7 +1,7 @@
 // Shared command-center building blocks. Each one draws the exact markup the
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type SyntheticEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import { copy } from "./parts.ts";
 
 /// A section: its head (title, count, then `action`) over a panel of `children`.
@@ -40,6 +40,22 @@ export function Chip({ kind, text, spin = false, title }: { kind: string; text: 
 /// A chip that toggles a choice on and off.
 export function ChipToggle({ label, selected, onToggle }: { label: string; selected: boolean; onToggle(): void }) {
   return <button type="button" className="dbtn dchip" aria-pressed={selected} onClick={onToggle}>{label}</button>;
+}
+
+/// How much a button stands out. A dialog or form has one `primary`, its main action;
+/// `secondary` is bordered, `quiet` is text until hovered.
+export type ButtonLook = "primary" | "secondary" | "quiet";
+const LOOK_CLASS: Record<ButtonLook, string> = { primary: " pri", secondary: "", quiet: " quiet" };
+
+type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
+  look?: ButtonLook; danger?: boolean; small?: boolean; type?: "button" | "submit"; ref?: Ref<HTMLButtonElement>;
+};
+
+/// The app's button (`dbtn`). `danger` colors it for an action that removes or stops
+/// something; `className` adds a view's own layout class.
+export function Button({ look = "secondary", danger = false, small = false, type = "button", className, ...rest }: ButtonProps) {
+  const name = `dbtn${LOOK_CLASS[look]}${danger ? " warn" : ""}${small ? " small" : ""}${className ? ` ${className}` : ""}`;
+  return <button type={type} className={name} {...rest} />;
 }
 
 /// Keeps a click or key on a control from reaching the row around it.
@@ -90,7 +106,7 @@ export function onRowKey(run: () => void) {
 }
 
 /// A button that copies `text` and reads "Copied" for a moment, then `label` again.
-export function CopyButton({ text, label = "Copy", className = "dbtn", id }: { text: string; label?: ReactNode; className?: string; id?: string }) {
+export function CopyButton({ text, label = "Copy", look = "secondary", small = false, id }: { text: string; label?: ReactNode; look?: ButtonLook; small?: boolean; id?: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -98,5 +114,5 @@ export function CopyButton({ text, label = "Copy", className = "dbtn", id }: { t
     return () => clearTimeout(timer);
   }, [copied]);
 
-  return <button type="button" className={className} id={id} onClick={() => { void copy(text).then(() => setCopied(true), error => console.warn("copying:", error)); }}>{copied ? "Copied" : label}</button>;
+  return <Button look={look} small={small} id={id} onClick={() => { void copy(text).then(() => setCopied(true), error => console.warn("copying:", error)); }}>{copied ? "Copied" : label}</Button>;
 }

@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import { JoinTicketFields } from "../src/machines/jointicket-view.tsx";
 
 test("desktop linking validates input, prevents duplicate joins and retries failures", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
@@ -12,6 +11,7 @@ test("desktop linking validates input, prevents duplicate joins and retries fail
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
   const { render, fireEvent, waitFor, cleanup, act } = await import("@testing-library/react");
+  const { JoinTicketFields } = await import("../src/machines/jointicket-view.tsx");
   let calls = 0, value = "", done = 0, reject: (reason: Error) => void = () => {};
   const join = (ticket: string) => {
     calls++; value = ticket;

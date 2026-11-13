@@ -22,7 +22,7 @@ import { go } from "./views.ts";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { isMobile } from "../ui/platform.ts";
-import { Section } from "../ui/kit.tsx";
+import { Button, Section } from "../ui/kit.tsx";
 
 /// What a running row says at its end: a move or a close, that it asks, or since when.
 function runningStatus(row: RunningAgent, home: HomeView) {
@@ -132,7 +132,7 @@ export function HomeOverview({ home }: { home: HomeView }) {
   return <>
     {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{needs.map(card => <CardRow key={card.key} card={card}/>)}</Section>
       : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows}/></div>}
-    {list && !!running.length && <Section id="sec-running" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "agents")}>Running</button>} count={running.length}>{running.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
+    {list && !!running.length && <Section id="sec-running" title={<Button className="lk" onClick={() => go("pane", "agents")}>Running</Button>} count={running.length}>{running.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
     {empty && <Empty home={home} />}
   </>;
 }
@@ -141,5 +141,5 @@ export function HomeOverview({ home }: { home: HomeView }) {
 function Empty({ home }: { home: HomeView }) {
   const reach = machinesReach(home.machines ?? []);
   if (reach !== "reached") return <div className="cc-panel cc-empty"><span>{reach === "connecting" ? "Connecting to your machines…" : "No machine is online."}</span></div>;
-  return <div className="cc-panel cc-empty"><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><button type="button" className="dbtn small" onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</button></div>;
+  return <div className="cc-panel cc-empty"><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button small onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</Button></div>;
 }

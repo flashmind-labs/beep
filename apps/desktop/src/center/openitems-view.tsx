@@ -11,18 +11,18 @@ import { importTitle, openUrl, quickImport, replyItem, rowImports, type OpenRepo
 import { projectRows } from "./sidebar.ts";
 import { state } from "./state.ts";
 import { go } from "./views.ts";
-import { Checkbox, Chip } from "../ui/kit.tsx";
+import { Button, Checkbox, Chip } from "../ui/kit.tsx";
 
 function Import({ repo }: { repo: OpenRepo }) {
   const current = rowImports.get(repo.key);
   if (current === "busy") return <span className="age"><span className="dspin" /> Importing…</span>;
-  return <>{current && <><span className="chip bad" title={current.error}>Import failed</span>{" "}</>}<button type="button" className="dbtn small" title={importTitle()} onClick={event => { event.stopPropagation(); void quickImport(repo); }}>Import</button></>;
+  return <>{current && <><span className="chip bad" title={current.error}>Import failed</span>{" "}</>}<Button small title={importTitle()} onClick={event => { event.stopPropagation(); void quickImport(repo); }}>Import</Button></>;
 }
 function Item({ item, repo, filter, list }: { item: GitItemRow; repo: OpenRepo | null; filter: LabelFilter; list: string }) {
   const selected = item.kind === "issue" ? issueSelection(list, item.url) : null;
   const project = repo?.project ?? null;
   const act = (event: React.MouseEvent, action: () => void) => { event.stopPropagation(); action(); };
-  return <div className="cc-row cc-line cc-gr it" onClick={() => openUrl(item.url)}>{selected !== null && <label className="pick"><Checkbox label="Pick this issue" checked={selected} contained change={value => setIssueSelection(list, item.url, value, draw)} /></label>}<span className="ic"><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span><button type="button" className="t" title={item.url}><span className="num">#{item.number}</span><b>{item.title}</b><span className="pj-proj">{item.repo}</span>{item.labels?.map(label => <i key={label} className={`pj-tag lab${label === filter.on ? " on" : ""}`} onClick={event => act(event, () => filter.pick(label))}>{label}</i>)}</button><span className="r">{itemChips(item).map((chip, index) => <Chip kind={chip.cls} text={chip.text} key={`${chip.text}:${index}`} />)}<span className="age">{formatAgo(item.updated_at, "short")}</span>{item.kind === "pull_request" && <button type="button" className="dbtn small" onClick={event => act(event, () => { go("pane", { agentnew: reviewStart(item, project, state.home?.machines?.filter(m => m.can_host !== false)) }); })}>Review</button>}<button type="button" className="dbtn small" onClick={event => act(event, () => replyItem(item))}>Reply</button>{repo && !repo.project && <Import repo={repo} />}</span></div>;
+  return <div className="cc-row cc-line cc-gr it" onClick={() => openUrl(item.url)}>{selected !== null && <label className="pick"><Checkbox label="Pick this issue" checked={selected} contained change={value => setIssueSelection(list, item.url, value, draw)} /></label>}<span className="ic"><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span><button type="button" className="t" title={item.url}><span className="num">#{item.number}</span><b>{item.title}</b><span className="pj-proj">{item.repo}</span>{item.labels?.map(label => <i key={label} className={`pj-tag lab${label === filter.on ? " on" : ""}`} onClick={event => act(event, () => filter.pick(label))}>{label}</i>)}</button><span className="r">{itemChips(item).map((chip, index) => <Chip kind={chip.cls} text={chip.text} key={`${chip.text}:${index}`} />)}<span className="age">{formatAgo(item.updated_at, "short")}</span>{item.kind === "pull_request" && <Button small onClick={event => act(event, () => { go("pane", { agentnew: reviewStart(item, project, state.home?.machines?.filter(m => m.can_host !== false)) }); })}>Review</Button>}<Button small onClick={event => act(event, () => replyItem(item))}>Reply</Button>{repo && !repo.project && <Import repo={repo} />}</span></div>;
 }
 function LazyItems({ items, repos, filter, list }: { items: GitItemRow[]; repos: Map<string, OpenRepo>; filter: LabelFilter; list: string }) {
   const [count, setCount] = useState(12), [height, setHeight] = useState(0), end = useRef<HTMLDivElement>(null), first = useRef<HTMLDivElement>(null);

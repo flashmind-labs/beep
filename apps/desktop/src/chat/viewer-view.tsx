@@ -7,6 +7,7 @@ import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import { viewerAct, viewerKeys, type ViewerPic } from "./media.ts";
 import { useDialogRef } from "../ui/parts.ts";
 import { pinchStep, zoomAt, type ImageView, type Touches } from "../agentpane/media-state.ts";
+import { Button } from "../ui/kit.tsx";
 
 function ViewerImage({ picture }: { picture: ViewerPic }) {
   const [gone, setGone] = useState(false);
@@ -78,12 +79,12 @@ export function Viewer({ pictures, at }: { pictures: ViewerPic[]; at: number }) 
       event.preventDefault(); buttons[(index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
     } else viewerKeys(event.nativeEvent, commandKey(event.nativeEvent));
   }}>
-    <div className="vt"><span className="tt"><b>{name}</b><small>{about}</small></span>{keeps ? <><button className="dbtn" data-v="copy" onClick={() => viewerAct("copy")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy<kbd>⌘C</kbd></button><button className="dbtn pri" data-v="save" onClick={() => viewerAct("save")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.save }} />Save<kbd>⌘S</kbd></button></> : !picture.url.startsWith("data:") && <button className="dbtn" data-v="open" onClick={() => viewerAct("open")}>Open in browser</button>}<button ref={close} className="dbtn" data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
+    <div className="vt"><span className="tt"><b>{name}</b><small>{about}</small></span>{keeps ? <><Button data-v="copy" onClick={() => viewerAct("copy")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: COPY_ICON }} />Copy<kbd>⌘C</kbd></Button><Button look="primary" data-v="save" onClick={() => viewerAct("save")}><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.save }} />Save<kbd>⌘S</kbd></Button></> : !picture.url.startsWith("data:") && <Button data-v="open" onClick={() => viewerAct("open")}>Open in browser</Button>}<Button ref={close}  data-v="close" aria-label="Close" onClick={() => viewerAct("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
     <div className="vi">{many && <button className="nav prev" data-v="prev" aria-label="Previous" disabled={at === 0} onClick={() => viewerAct("prev")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}<ViewerImage key={at} picture={picture} />{many && <button className="nav" data-v="next" aria-label="Next" disabled={at === pictures.length - 1} onClick={() => viewerAct("next")} dangerouslySetInnerHTML={{ __html: ICON.chev }} />}</div>
     <div className="cap">{picture.caption}</div><HintView value={hintModel(keys)} />
   </div>;
 }
 
 export function ViewerNotice({ text, path, bad }: { text: string; path: string | null; bad: boolean }) {
-  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <button className="dbtn" onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>{revealLabel()}</button>}</div>;
+  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <Button onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>{revealLabel()}</Button>}</div>;
 }

@@ -11,6 +11,7 @@ import type { ToolDetails } from "./tool-details.ts";
 import { Since, StepMarkView, type StepMark } from "./turn-heading-view.tsx";
 import { waitedFor, type WaitLine } from "./waiting-state.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
+import { Button } from "../ui/kit.tsx";
 
 /// What an opened tool call shows under its row.
 export type ToolBody =
@@ -52,7 +53,7 @@ export type ActivityRow =
 export function ActivityView({ row }: { row: ActivityRow }) {
   switch (row.kind) {
     case "note": return <Note row={row} />;
-    case "crumb": return <div className="dcrumb"><button id="agup">{row.parent}</button><span>/</span><b>{row.title}</b><span className="sp" /><button className="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>;
+    case "crumb": return <div className="dcrumb"><button id="agup">{row.parent}</button><span>/</span><b>{row.title}</b><span className="sp" /><Button id="agup2">Open parent<kbd>esc</kbd></Button></div>;
     case "older": return <div className="dmuted">{row.text}</div>;
     case "pictures": return row.folded
       ? <div className="dcoderen dfoldpics" data-row={row.at ?? undefined}><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>

@@ -8,6 +8,7 @@ import {
   BUTTON_NAMES, type Device, type DeviceButton, type DeviceMachine, type Rect, type ScreenState, type Size, type TouchPhase,
   buttonsFor, fitRect, keyInput, maxSide, pickedDevice, pickValue, powerChip, readPickValue, touchPoint,
 } from "./device-state.ts";
+import { Button } from "../ui/kit.tsx";
 
 const BUTTON_ICONS: Record<DeviceButton, IconName> = {
   Home: "devHome", Back: "devBack", AppSwitch: "devRecent", Rotate: "devRotate", Power: "devPower", VolumeDown: "devVolumeDown", VolumeUp: "devVolumeUp",
@@ -33,8 +34,8 @@ export const DevicePane = memo(function DevicePane({ hidden }: { hidden: boolean
     <div className="derr" role="status" hidden={!model.error}>{model.error}</div>
     <Screen device={device} />
     <div className="agpacts agdevkeys">
-      {device && buttonsFor(device.platform).map(button => <button key={button} type="button" className="dbtn ibtn" title={BUTTON_NAMES[button]} aria-label={BUTTON_NAMES[button]} disabled={!live}
-        onClick={() => sendInput({ Button: { button } })}><Icon name={BUTTON_ICONS[button]} /></button>)}
+      {device && buttonsFor(device.platform).map(button => <Button key={button} className="ibtn" title={BUTTON_NAMES[button]} aria-label={BUTTON_NAMES[button]} disabled={!live}
+        onClick={() => sendInput({ Button: { button } })}><Icon name={BUTTON_ICONS[button]} /></Button>)}
       <span className="sp" />
       {device && machine && <span className="meta">{[device.os, machine.machine_name].filter(Boolean).join(" · ")}</span>}
     </div>
@@ -59,8 +60,8 @@ function DeviceHead({ machines, device, busy }: { machines: readonly DeviceMachi
     {device && chip && <span className={`chip ${chip.cls}`}>{device.state === "Booting" && <span className="dspin" />}{chip.text}</span>}
     <span className="sp" />
     {device && (device.state === "Off"
-      ? <button type="button" className="dbtn" disabled={busy} onClick={() => void power(true)}>{busy ? "Booting…" : "Boot"}</button>
-      : <button type="button" className="dbtn" disabled={busy} onClick={() => void power(false)}>{busy ? "Shutting down…" : "Shut down"}</button>)}
+      ? <Button disabled={busy} onClick={() => void power(true)}>{busy ? "Booting…" : "Boot"}</Button>
+      : <Button disabled={busy} onClick={() => void power(false)}>{busy ? "Shutting down…" : "Shut down"}</Button>)}
   </div>;
 }
 
@@ -191,7 +192,7 @@ function Screen({ device }: { device: Device | null }) {
 function note(screen: ScreenState, device: Device | null) {
   // A device shut down ends its view too; being off says why.
   if (device?.state === "Off") return `${device.name} is off.`;
-  if (screen.kind === "ended") return <>{screen.reason}<button type="button" className="dbtn" onClick={showAgain}>Show again</button></>;
+  if (screen.kind === "ended") return <>{screen.reason}<Button onClick={showAgain}>Show again</Button></>;
   if (!device) return null;
   if (device.state === "Booting") return <><span className="dspin" />Booting {device.name}…</>;
   return <><span className="dspin" />Connecting…</>;

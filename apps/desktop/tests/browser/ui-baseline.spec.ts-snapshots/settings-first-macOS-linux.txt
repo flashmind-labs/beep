@@ -208,14 +208,14 @@ body.cbody
                   b "Save files to"
                   small "No folder"
                 span
-                  button#chooseSaves.dbtn "Choose…"
+                  button#chooseSaves.dbtn [type="button"] "Choose…"
               div.dtoggle
                 span
                   b "Keyboard shortcuts"
                   small "Every shortcut, by where it works"
-                button#openShortcuts.dbtn "Show…"
+                button#openShortcuts.dbtn [type="button"] "Show…"
               div.dtoggle
                 span
                   b "Report a problem"
                   small "Collect logs from your machines and send them to us"
-                button#openReport.dbtn "Report…"
+                button#openReport.dbtn [type="button"] "Report…"

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { Button } from "../ui/kit.tsx";
 
 export interface PairingCommands {
   checkPermission(): Promise<{ camera: string }>;
@@ -86,11 +87,11 @@ export function PairingScreen({ commands, done }: { commands: PairingCommands; d
     <div className="pair-body">
       <h1>Pair this phone</h1>
       <p className="pair-sub">On a desktop, open Add machine and pick phone.</p>
-      <button type="button" className="dbtn pri" disabled={phase !== "idle"} onClick={() => void scan()}>Scan QR code</button>
+      <Button look="primary" disabled={phase !== "idle"} onClick={() => void scan()}>Scan QR code</Button>
       <textarea className="pair-code" placeholder="Or paste the pairing code" autoCapitalize="off" autoComplete="off" spellCheck={false} disabled={phase !== "idle"} value={code} onChange={e => setCode(e.currentTarget.value)} />
-      <button type="button" className="dbtn" disabled={phase !== "idle" || !code.trim()} onClick={() => void submit()}>{phase === "pairing" ? "Pairing" : "Pair"}</button>
+      <Button disabled={phase !== "idle" || !code.trim()} onClick={() => void submit()}>{phase === "pairing" ? "Pairing" : "Pair"}</Button>
       <p className="pair-error" role="alert" hidden={error === null}>{error}</p>
     </div>
-    {phase === "scanning" && <div className="pair-scan"><p>Point the camera at the code</p><button type="button" className="dbtn" onClick={() => { void commands.cancelScan().catch(() => {}); }}>Cancel</button></div>}
+    {phase === "scanning" && <div className="pair-scan"><p>Point the camera at the code</p><Button onClick={() => { void commands.cancelScan().catch(() => {}); }}>Cancel</Button></div>}
   </main>;
 }

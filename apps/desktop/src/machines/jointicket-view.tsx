@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Button } from "../ui/kit.tsx";
 
 export type JoinTicket = (ticket: string) => Promise<unknown>;
 
@@ -28,7 +29,7 @@ export function JoinTicketFields({ done, join, back, backLabel }: { done: () => 
   return <>
     <input ref={input} className="am-code" placeholder="Paste a ticket" spellCheck={false} autoComplete="off" aria-label="Desktop ticket" value={ticket} onChange={e => setTicket(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") void submit(); }} />
     {status.kind === "joining" ? <div className="am-wait"><span className="dspin" />Linking</div> : <div className={status.kind === "error" ? "am-msg bad" : "am-msg"}>{status.kind === "error" ? status.message : ""}</div>}
-    <div className="am-line"><button type="button" className="dbtn pri" disabled={!ticket.trim() || status.kind === "joining"} onClick={() => void submit()}>Link</button><button type="button" className="dbtn quiet" onClick={back}>{backLabel}</button></div>
+    <div className="am-line"><Button look="primary" disabled={!ticket.trim() || status.kind === "joining"} onClick={() => void submit()}>Link</Button><Button look="quiet" onClick={back}>{backLabel}</Button></div>
   </>;
 }
 

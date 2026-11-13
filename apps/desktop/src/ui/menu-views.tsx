@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { reason } from "./format.ts";
 import type { ConfirmOptions, RenameOptions } from "./menu.ts";
-import { Checkbox } from "./kit.tsx";
+import { Button, Checkbox } from "./kit.tsx";
 
 /// The box of a right-click menu at `at`, kept inside the window. A click
 /// outside it, leaving the window or a scroll closes it; Esc also gives focus back.
@@ -67,9 +67,9 @@ export function ConfirmView({ options, close, pending }: { options: ConfirmOptio
       pending(false); setBusy(false); setError(reason(failure));
     }
   };
-  if (result !== null) return <><Heading title={options.title} /><div className="am-msg">{result}</div><div className="gp-foot"><button type="button" className="dbtn" onClick={close}>Close</button></div></>;
+  if (result !== null) return <><Heading title={options.title} /><div className="am-msg">{result}</div><div className="gp-foot"><Button onClick={close}>Close</Button></div></>;
   const note = ticked && options.tick ? options.tick.note : options.note;
-  return <><Heading title={options.title} /><div className="am-msg">{options.text}</div>{options.tick && <label className="am-sub am-tick"><Checkbox checked={ticked} change={checked => { currentTick.current = checked; setTicked(checked); }} />{options.tick.label}</label>}<div className="am-sub" hidden={!note}>{note}</div><div className="am-msg bad" hidden={error === null}>{error}</div><div className="gp-foot"><button type="button" className="dbtn quiet" onClick={close}>Cancel</button><button ref={action} type="button" className="dbtn warn" disabled={busy} onClick={() => { void run(); }}>{options.action}</button></div></>;
+  return <><Heading title={options.title} /><div className="am-msg">{options.text}</div>{options.tick && <label className="am-sub am-tick"><Checkbox checked={ticked} change={checked => { currentTick.current = checked; setTicked(checked); }} />{options.tick.label}</label>}<div className="am-sub" hidden={!note}>{note}</div><div className="am-msg bad" hidden={error === null}>{error}</div><div className="gp-foot"><Button look="quiet" onClick={close}>Cancel</Button><Button ref={action} danger disabled={busy} onClick={() => { void run(); }}>{options.action}</Button></div></>;
 }
 
 export function RenameView({ options, close, pending }: { options: RenameOptions; close(): void; pending(value: boolean): void }) {
@@ -88,7 +88,7 @@ export function RenameView({ options, close, pending }: { options: RenameOptions
       pending(false); setBusy(false); setError(reason(failure));
     }
   };
-  return <><Heading title={options.title} /><div className="am-line"><input ref={field} className="gp-field" value={text} spellCheck={false} onChange={event => setText(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void save(); } }} /></div><div className="am-msg bad" hidden={error === null}>{error}</div><div className="gp-foot"><button type="button" className="dbtn quiet" onClick={close}>Cancel</button><button type="button" className="dbtn pri" disabled={busy} onClick={() => { void save(); }}>Save</button></div></>;
+  return <><Heading title={options.title} /><div className="am-line"><input ref={field} className="gp-field" value={text} spellCheck={false} onChange={event => setText(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void save(); } }} /></div><div className="am-msg bad" hidden={error === null}>{error}</div><div className="gp-foot"><Button look="quiet" onClick={close}>Cancel</Button><Button look="primary" disabled={busy} onClick={() => { void save(); }}>Save</Button></div></>;
 }
 
 function Heading({ title }: { title: string }) { return <div className="am-head"><b>{title}</b><kbd>esc</kbd></div>; }
