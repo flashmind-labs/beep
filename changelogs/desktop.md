@@ -7,6 +7,33 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.30] - 2026-11-13
+
+### Fixed
+
+- Desktop: Claude Code and Codex chats start again. The ACP v2 support added
+  in the previous release made them fail with "data did not match any
+  variant of untagged enum McpServer", so it was rolled back to ACP v1.
+
+### Performance
+
+- Desktop: reduced background work for macOS notifications and agent session updates.
+
+## [0.8.29] - 2026-11-13
+
+### Added
+
+- Desktop: prefer ACP v2 for agents, fall back to v1 when an agent selects it, and allow `BEEP_ACP_VERSION=1` in the harness environment to select v1.
+- Desktop: open uploaded attachments from messages, and play video from the original local copy on the uploading device while that copy is available.
+
+### Fixed
+
+- Desktop: avoid duplicate ACP v2 subagent steps, keep idle sessions inactive after failed compaction, and retain model, effort and mode controls after incomplete configuration replies.
+- Desktop: switching conversations no longer stops uploads or sends files to the wrong chat.
+- Desktop: a submitted message sends to the conversation it was written in, even after its attachments finish uploading.
+- Desktop: conversations already at the bottom stay there when sending images.
+- Desktop: interruption notices appear as status instead of becoming part of the next user prompt.
+
 ## [0.8.28] - 2026-11-13
 
 ### Added

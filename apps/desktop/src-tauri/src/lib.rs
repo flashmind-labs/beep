@@ -504,6 +504,8 @@ fn setup(
     #[cfg(desktop)] recorder: std::thread::JoinHandle<anyhow::Result<PrometheusHandle>>,
 ) -> anyhow::Result<()> {
     platform::startup::stage("setup");
+    #[cfg(target_os = "macos")]
+    notices::notify::init(app.handle());
     #[cfg(all(unix, desktop))]
     beep_node::machine::raise_open_files();
     #[cfg(target_os = "macos")]

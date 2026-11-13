@@ -1,18 +1,23 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
-use super::{Agents, MAX_TRANSCRIPT, claude::Followed, found::Agent, transcript_stage};
+use super::{
+    Agents, MAX_TRANSCRIPT,
+    claude::Followed,
+    found::{Agent, Seen},
+    transcript_stage,
+};
 use crate::link::HEARTBEAT;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        Entry, FOLLOW_READERS_FULL, FollowSession, SessionCursor, SessionSnapshot, SessionSource,
-        SessionUpdate,
+        Entry, ExternalSession, FOLLOW_READERS_FULL, FollowSession, SessionCursor, SessionSnapshot,
+        SessionSource, SessionUpdate,
     },
 };
 use beep_proto::watched;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, BTreeSet, HashMap},
     future::pending,
     ops::Range,
     path::PathBuf,
@@ -59,36 +64,91 @@ struct Summary {
     pid: Option<u32>,
 }
 
+const STORED_AGENTS: [Agent; 4] = [Agent::Codex, Agent::Pi, Agent::Flsh, Agent::OpenCode];
+
+/// Directory listings belong to the notification lease. Other harnesses' writes
+/// do not invalidate them; descriptions still apply current presence and folders.
+#[derive(Default)]
+struct SummaryCache {
+    stores: BTreeMap<Agent, Vec<Seen>>,
+    claude: Option<Vec<ExternalSession>>,
+}
+
+impl SummaryCache {
+    async fn read(&mut self, agents: &Agents, changed: &BTreeSet<Agent>) -> Result<Vec<Summary>> {
+        let stores = agents.stores.clone();
+        let mut listings = std::mem::take(&mut self.stores);
+        let changed = changed.clone();
+        let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);
+        let described = spawn_blocking(move || {
+            for agent in STORED_AGENTS {
+                if changed.contains(&agent) || !listings.contains_key(&agent) {
+                    listings.insert(agent, stores.sessions(Some(agent)));
+                }
+            }
+
+            // Preserve the stores' order when activity times tie.
+            let mut seen: Vec<_> = STORED_AGENTS
+                .into_iter()
+                .flat_map(|agent| listings[&agent].iter().cloned())
+                .collect();
+            seen.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
+            seen.truncate(512);
+            let now = std::time::SystemTime::now();
+            let sessions = seen
+                .into_iter()
+                .map(|session| stores.describe(session, now))
+                .collect::<Vec<_>>();
+            (listings, sessions)
+        });
+        let claude = async {
+            if refresh_claude {
+                agents
+                    .external
+                    .list(512, None, agents.owned())
+                    .await
+                    .map(Some)
+            } else {
+                Ok(None)
+            }
+        };
+        let (claude, others) = tokio::join!(claude, described);
+        let (listings, others) = others.context("reading agent summary")?;
+        self.stores = listings;
+
+        match claude {
+            Ok(Some(claude)) => self.claude = Some(claude),
+            Ok(None) => {}
+            Err(error) => {
+                self.claude = None;
+                return Err(error);
+            }
+        }
+
+        let mut sessions = self.claude.clone().unwrap_or_default();
+        agents.observe_external(&sessions);
+        sessions.extend(others);
+        agents.presence.merge(&mut sessions);
+        agents.settle_closed(&mut sessions);
+        let mut summary: Vec<_> = sessions
+            .into_iter()
+            .map(|session| Summary {
+                id: session.id,
+                agent: session.agent,
+                title: session.title,
+                cwd: session.cwd,
+                presence: session.presence,
+                pid: session.pid,
+            })
+            .collect();
+        summary.sort_by(|a, b| (&a.agent, &a.id).cmp(&(&b.agent, &b.id)));
+        Ok(summary)
+    }
+}
+
+#[cfg(test)]
 async fn source_summary(agents: &Agents) -> Result<Vec<Summary>> {
-    let stores = agents.stores.clone();
-    let described = spawn_blocking(move || {
-        let mut seen = stores.sessions(None);
-        seen.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
-        seen.truncate(512);
-        let now = std::time::SystemTime::now();
-        seen.into_iter()
-            .map(|session| stores.describe(session, now))
-            .collect::<Vec<_>>()
-    });
-    let (claude, others) = tokio::join!(agents.external.list(512, None, agents.owned()), described);
-    let mut sessions = claude?;
-    agents.observe_external(&sessions);
-    sessions.extend(others.context("reading agent summary")?);
-    agents.presence.merge(&mut sessions);
-    agents.settle_closed(&mut sessions);
-    let mut summary: Vec<_> = sessions
-        .into_iter()
-        .map(|session| Summary {
-            id: session.id,
-            agent: session.agent,
-            title: session.title,
-            cwd: session.cwd,
-            presence: session.presence,
-            pid: session.pid,
-        })
-        .collect();
-    summary.sort_by(|a, b| (&a.agent, &a.id).cmp(&(&b.agent, &b.id)));
-    Ok(summary)
+    SummaryCache::default().read(agents, &BTreeSet::new()).await
 }
 
 pub async fn serve_follow(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
