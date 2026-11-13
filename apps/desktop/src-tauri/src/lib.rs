@@ -281,6 +281,7 @@ pub fn run() {
             notices::history::notes_read,
             center::home::center_answer_agent,
             center::home::center_home,
+            center::home_frame::keep_home_frame,
             center::targets::center_open,
             center::targets::center_pending,
             center::usage::usage_get,
