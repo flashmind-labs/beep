@@ -61,3 +61,13 @@ body:not(.mobile) .cc-pjc .pill small { font-size: 12px; color: var(--dim) }
 body:not(.mobile) .cc-pjc .pill .cc-ag, body:not(.mobile) .cc-pjc.centered .pill .cc-ag { width: 16px; height: 16px; border: 0; background: none }
 body:not(.mobile) .cc-pjc .row > .dbtn.quiet { width: 26px; height: 26px; min-height: 0; padding: 0; justify-content: center; color: var(--muted) }
 body:not(.mobile) .cc-pjc :is(.agc-send, .row > button[type="submit"]) { display: none }
+
+/* ----- Sidebar: quiet section names, and the open row filled in the text's own colour ----- */
+body:not(.mobile) .cc-grp h3 { font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--dim) }
+body:not(.mobile) :is(.cc-si[aria-current="true"], .cc-org[aria-current="true"], .cc-chat:has(.open[aria-current="true"])) { background: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .cc-si .n { color: var(--dim) }
+
+/* ----- Session rows: the title, when it last moved on the right, then one quiet line ----- */
+body:not(.mobile) button.pv-row { padding: 7px 10px; border-radius: var(--radius-sm) }
+body:not(.mobile) button.pv-row + button.pv-row { border-top: 0 }
+body:not(.mobile) button.pv-row .m { gap: 3px 8px; color: var(--dim) }

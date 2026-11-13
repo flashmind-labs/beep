@@ -25,7 +25,7 @@ const sessionKey = (row: SessionRow) => `${row.machine_id}:${row.agent}:${row.id
 
 function SessionRowView({ row: s, open, menu, index }: { row: SessionRow; open: SessionProps["open"]; menu: SessionProps["menu"]; index?: number }) {
   const worktree = placeSub(placeOf(s), s.machine_name);
-  return <button data-index={index} className="pv-row" data-key={`${s.machine_id}:${s.id}`} onClick={() => open(s)} onContextMenu={e => menu(e.nativeEvent, s)}><span className="t">{s.title || "Untitled session"}</span><span className="m"><HarnessIcon agent={s.agent} title={agentLabel(s.agent)} />{[s.status, ...(worktree ? [worktree] : [s.machine_name, base(s.cwd)]), s.last_activity ? formatAgo(s.last_activity, "short") : ""].filter(Boolean).map((text, i) => <span key={i}>{text}</span>)}</span></button>;
+  return <button data-index={index} className="pv-row" data-key={`${s.machine_id}:${s.id}`} onClick={() => open(s)} onContextMenu={e => menu(e.nativeEvent, s)}><span className="t">{s.title || "Untitled session"}</span><span className="m"><HarnessIcon agent={s.agent} title={agentLabel(s.agent)} /><span data-st={s.status}>{s.status}</span>{(worktree ? [worktree] : [s.machine_name, base(s.cwd)]).filter(Boolean).map((text, i) => <span key={i}>{text}</span>)}</span>{s.last_activity ? <span className="ago">{formatAgo(s.last_activity, "short")}</span> : null}</button>;
 }
 
 function SessionList({ rows, all, open, menu }: SessionProps & { all: boolean }) {
