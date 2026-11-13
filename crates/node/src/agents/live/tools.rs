@@ -190,7 +190,6 @@ impl Live {
     }
 
     pub(super) fn tool_call(&mut self, call: &AcpToolCall) {
-        self.in_message = false;
         // Codex saying a subagent it started began or ended goes on the
         // call that started it.
         if let Some(activity) = call
@@ -264,6 +263,9 @@ impl Live {
                     tool.entry = previous.entry;
                     tool.steps.clone_from(&previous.steps);
                 } else {
+                    // Only a call with an entry of its own ends the message
+                    // being written; a subagent's call arrives in the middle.
+                    self.in_message = false;
                     tool.entry = self.push_entry(EntryKind::Tool, tool.entry_with(&[], None));
                 }
                 if let Some(entry) = self.entry_mut(tool.entry) {

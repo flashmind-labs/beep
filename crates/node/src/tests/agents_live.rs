@@ -605,6 +605,28 @@ fn a_subagents_calls_go_on_the_call_that_started_it() {
     );
 }
 
+/// A background subagent keeps calling tools while the agent writes; its
+/// calls add no entry, so the message stays one entry.
+#[test]
+fn a_subagents_call_does_not_split_the_message_being_written() {
+    let mut live = live();
+    live.prompted("look around");
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "task", "title": "Explore the code",
+        "status": "in_progress", "_meta": {"claudeCode": {"toolName": "Agent"}}
+    })));
+    live.apply(&said("**Renderers,\n"));
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "r1", "title": "Read src/main.rs",
+        "status": "in_progress",
+        "_meta": {"claudeCode": {"toolName": "Read", "parentToolUseId": "task"}}
+    })));
+    live.apply(&said("not arbitrary elements**"));
+    let (entries, _) = live.transcript(10);
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[2].text, "**Renderers,\nnot arbitrary elements**");
+}
+
 /// Claude Code stamps no parent on the calls after an inline skill, only on
 /// those of a skill that forks (`context: fork`), which runs as a subagent
 /// and is titled as one.
