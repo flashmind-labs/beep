@@ -20,6 +20,7 @@ use crate::{
     },
     machine::provision::Provision,
     machine::service::logs::Logs,
+    run::device,
     run::shell,
     run::tasks,
     run::terminal,
@@ -414,6 +415,7 @@ impl Offers {
             shell::PROTOCOL.to_owned(),
             tasks::PROTOCOL.to_owned(),
             terminal::PROTOCOL.to_owned(),
+            device::PROTOCOL.to_owned(),
             sign_in::PROTOCOL.to_owned(),
         ]
         .into_iter()
@@ -475,6 +477,7 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
     let shared = [
         shell::PROTOCOL,
         terminal::PROTOCOL,
+        device::PROTOCOL,
         tasks::PROTOCOL,
         desktop::PROTOCOL,
         sign_in::PROTOCOL,
@@ -582,6 +585,10 @@ pub(super) async fn serve_open(
         SessionProtocol::Terminal => {
             tx.send(&Opened::Ready {}).await?;
             terminal::serve(tx, rx).await
+        }
+        SessionProtocol::Device => {
+            tx.send(&Opened::Ready {}).await?;
+            device::serve(tx, rx).await
         }
         SessionProtocol::SignIn => {
             tx.send(&Opened::Ready {}).await?;

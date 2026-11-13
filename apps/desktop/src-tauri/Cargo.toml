@@ -1,7 +1,8 @@
 [package]
 name = "beep-desktop"
-version = "0.8.19"
+version = "0.8.20"
 edition = "2024"
+license = "MPL-2.0"
 rust-version = "1.99"
 description = "Beep desktop: projects, coding agents and a quick-access tray bar"
 publish = false

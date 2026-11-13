@@ -7,6 +7,15 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.20] - 2026-11-13
+
+### Fixed
+
+- Desktop: problem reports from builds without a configured server go to the
+  report receiver instead of the product website.
+- Desktop: the Review button on a Home board card opens its menu instead of
+  opening the pull request.
+
 ## [0.8.19] - 2026-11-12
 
 ### Added

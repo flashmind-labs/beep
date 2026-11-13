@@ -1,7 +1,8 @@
 [package]
 name = "beep-node"
-version = "0.6.15"
+version = "0.6.16"
 edition = "2024"
+license = "MPL-2.0"
 rust-version = "1.99"
 publish = false
 
@@ -27,6 +28,8 @@ host = [
     "dep:futures",
     "dep:hex",
     "dep:humantime",
+    "dep:hyper-util",
+    "dep:image",
     "dep:ignore",
     "dep:iroh",
     "dep:iroh-blobs",
@@ -37,11 +40,14 @@ host = [
     "dep:log",
     "dep:notify",
     "dep:portable-pty",
+    "dep:prost",
+    "dep:protox",
     "dep:rand",
     "dep:regex",
     "dep:reqwest",
     "dep:rmp",
     "dep:rmp-serde",
+    "dep:rust-ini",
     "dep:roxmltree",
     "dep:rusqlite",
     "dep:secrecy",
@@ -55,6 +61,10 @@ host = [
     "dep:tempfile",
     "dep:toml",
     "dep:toml_edit",
+    "dep:tonic",
+    "dep:tonic-prost",
+    "dep:tonic-prost-build",
+    "dep:tower",
     "dep:uuid",
     "dep:which",
     "dep:libc",
@@ -104,6 +114,8 @@ futures = { version = "0.3", optional = true }
 hex = { version = "0.4", optional = true }
 humantime = { version = "2", optional = true }
 ignore = { version = "0.4", optional = true }
+# Device frames: the emulator's pixels encoded, the simulator's measured.
+image = { version = "0.25", default-features = false, features = ["jpeg"], optional = true }
 # Port mapping and metrics: a node is reached from outside.
 iroh = { version = "1.4.1", optional = true }
 iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"], optional = true }
@@ -115,6 +127,8 @@ log = { version = "0.4", optional = true }
 notify = { version = "8", optional = true }
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
 portable-pty = { version = "0.9", optional = true }
+# The Android emulator's and idb's gRPC services, client side only.
+prost = { version = "0.14", optional = true }
 rand = { version = "0.10", optional = true }
 regex = { version = "1", optional = true }
 # `beep-node update` downloads releases, and the CI watch asks GitHub, with
@@ -122,6 +136,8 @@ regex = { version = "1", optional = true }
 reqwest = { version = "0.13.5", default-features = false, optional = true }
 rmp = { version = "0.8", optional = true }
 rmp-serde = { version = "1", optional = true }
+# The Android emulator's discovery files.
+rust-ini = { version = "0.21", optional = true }
 roxmltree = { version = "0.21", optional = true }
 # flsh keeps its sessions in SQLite.
 rusqlite = { version = "0.42", features = ["bundled"], optional = true }
@@ -142,6 +158,8 @@ tempfile = { version = "3", optional = true }
 toml = { version = "1", optional = true }
 # Writes Beep's keys into flsh's config.toml, keeping the rest as it was.
 toml_edit = { version = "0.25", optional = true }
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"], optional = true }
+tonic-prost = { version = "0.14", optional = true }
 tracing = { version = "0.1", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 which = { version = "8", optional = true }
@@ -150,6 +168,11 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2-zli
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
 rustix = { version = "1", features = ["fs", "process"], optional = true }
+
+# idb_companion listens on a Unix socket.
+[target.'cfg(target_os = "macos")'.dependencies]
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+tower = { version = "0.5", features = ["util"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", optional = true, features = [
@@ -162,6 +185,11 @@ windows-sys = { version = "0.61", optional = true, features = [
     "Win32_System_Threading",
     "Win32_System_WindowsProgramming",
 ] }
+
+# Compiles the vendored gRPC protos in Rust, with no `protoc` to install.
+[build-dependencies]
+protox = { version = "0.10", optional = true }
+tonic-prost-build = { version = "0.14", optional = true }
 
 [dev-dependencies]
 # Checks that no process-wide crypto provider gets installed.

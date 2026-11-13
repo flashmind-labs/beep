@@ -36,7 +36,9 @@ const SETTINGS_ACCOUNTS = (() => {
       const on = S.d[key] === "list" ? "list" : "board";
       return `<div class="dtoggle"><span><b>${name}</b><small>${note}</small></span><div class="hv-seg" role="radiogroup" aria-label="${name} layout">${[["board", "Board"], ["list", "List"]].map(([id, label]) => `<button role="radio" aria-checked="${id === on}" aria-pressed="${id === on}" data-dact="dset:${key}:${id === "list" ? "list" : ""}" data-dgo="${S.screen}">${label}</button>`).join("")}</div></div>`;
     };
-    return group("Dark", SK) + group("Light", SKL) + layoutPick("frontHome", "Home", "Lanes of cards, or sections of rows") + layoutPick("frontProject", "Projects", "A project's front page");
+    return group("Dark", SK) + group("Light", SKL) + layoutPick("frontHome", "Home", "Lanes of cards, or sections of rows") + layoutPick("frontProject", "Projects", "A project's front page")
+      + dt("Conversation scrollbar", "Show the scrollbar beside agent conversations", swi(!S.d.scrollbarOff, "Conversation scrollbar", `data-dact="dset:scrollbarOff:${S.d.scrollbarOff ? "" : "1"}" data-dgo="${S.screen}"`))
+      + dt("Prompt marks", "Mark your messages in the conversation scrollbar", swi(!S.d.promptMarksOff, "Prompt marks", `data-dact="dset:promptMarksOff:${S.d.promptMarksOff ? "" : "1"}" data-dgo="${S.screen}"`));
   };
 
   // A letter tile, for a host without a logo.

@@ -1,6 +1,7 @@
 {
   "name": "beep-mockups",
   "private": true,
+  "license": "MPL-2.0",
   "type": "module",
   "scripts": { "check": "node tests/browser.mjs" },
   "devDependencies": { "playwright": "1.65.0" }
