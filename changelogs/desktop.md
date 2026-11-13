@@ -7,6 +7,18 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.30] - 2026-11-13
+
+### Fixed
+
+- Desktop: Claude Code and Codex chats start again. The ACP v2 support added
+  in the previous release made them fail with "data did not match any
+  variant of untagged enum McpServer", so it was rolled back to ACP v1.
+
+### Performance
+
+- Desktop: reduced background work for macOS notifications and agent session updates.
+
 ## [0.8.29] - 2026-11-13
 
 ### Added

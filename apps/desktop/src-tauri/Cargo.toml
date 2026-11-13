@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.8.29"
+version = "0.8.30"
 edition = "2024"
 license = "MPL-2.0"
 rust-version = "1.99"
