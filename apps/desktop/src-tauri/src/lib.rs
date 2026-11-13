@@ -21,6 +21,8 @@ use agents::artifacts;
 use beep::state::{Prefs, StateFile};
 use beep_proto::port::bind_endpoint;
 use fleet::Fleet;
+#[cfg(desktop)]
+use metrics_exporter_prometheus::PrometheusHandle;
 use std::{sync::Arc, time::Duration};
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
@@ -36,6 +38,9 @@ const QUIT_LIMIT: Duration = Duration::from_millis(300);
 /// Passed to Beep when it starts as a login item, so it stays in the tray.
 #[cfg(desktop)]
 const LOGIN_ARG: &str = "--login";
+/// How long after it starts Beep makes the bar: after Home has drawn.
+#[cfg(desktop)]
+const BAR_AFTER: Duration = Duration::from_secs(1);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -47,6 +52,10 @@ pub fn run() {
 
     let _log = platform::logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
+    platform::startup::stage("main");
+    // Made beside the app's start, off the main thread: see `diagnostics::install`.
+    #[cfg(desktop)]
+    let recorder = std::thread::spawn(beep_node::link::diagnostics::install);
     let context = tauri::generate_context!();
     // SAFETY: nothing else runs yet; Tauri starts its threads below.
     #[cfg(all(unix, desktop))]
@@ -106,7 +115,13 @@ pub fn run() {
                 }
             }
         })
-        .setup(|app| Ok(setup(app)?))
+        .setup(move |app| {
+            #[cfg(desktop)]
+            let started = setup(app, recorder);
+            #[cfg(mobile)]
+            let started = setup(app);
+            Ok(started?)
+        })
         .on_page_load(|webview, _| bar::zoom::on_load(webview))
         .on_window_event(|window, event| match event {
             // Only the bar is a popover; the other windows stay put.
@@ -266,6 +281,7 @@ pub fn run() {
             notices::history::notes_read,
             center::home::center_answer_agent,
             center::home::center_home,
+            center::home_frame::keep_home_frame,
             center::targets::center_open,
             center::targets::center_pending,
             center::usage::usage_get,
@@ -325,6 +341,7 @@ pub fn run() {
             platform::editors::editors,
             platform::editors::open_in_editor,
             platform::logfile::log_webview,
+            platform::startup::startup_stages,
             platform::metrics::desktop_timings,
             platform::metrics::desktop_trace_enabled,
             platform::metrics::desktop_ui_metrics,
@@ -493,7 +510,11 @@ fn quit(app: &AppHandle) {
     beep_node::kill_tasks();
 }
 
-fn setup(app: &mut App) -> anyhow::Result<()> {
+fn setup(
+    app: &mut App,
+    #[cfg(desktop)] recorder: std::thread::JoinHandle<anyhow::Result<PrometheusHandle>>,
+) -> anyhow::Result<()> {
+    platform::startup::stage("setup");
     #[cfg(all(unix, desktop))]
     beep_node::machine::raise_open_files();
     #[cfg(target_os = "macos")]
@@ -516,6 +537,18 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         }
     }
     let handle = app.handle().clone();
+    #[cfg(desktop)]
+    let as_login_item = std::env::args().any(|arg| arg == LOGIN_ARG);
+    #[cfg(mobile)]
+    let as_login_item = false;
+
+    // Opened by the user, not as a login item: show the window. It is made first, so its
+    // page's process starts while the rest is set up; the page asks for nothing before then.
+    if !as_login_item && let Err(e) = center::open(&handle) {
+        log::warn!("opening the window at launch: {e}");
+    }
+    platform::startup::stage("window built");
+
     let dir = beep::identity::data_dir(&handle)?;
     let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;
     let prefs = Prefs::load(StateFile::new(dir.join("state.json")));
@@ -539,18 +572,33 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
         beep_mesh::transport_config(),
     ))?;
     #[cfg(desktop)]
-    match tauri::async_runtime::block_on(async {
-        beep_node::link::diagnostics::start(&endpoint, &dir.join("node/metrics.log"))
-    }) {
-        Ok(task) => {
-            app.manage(task);
+    tauri::async_runtime::spawn_blocking({
+        let (app, endpoint, file) = (
+            handle.clone(),
+            endpoint.clone(),
+            dir.join("node/metrics.log"),
+        );
 
-            if let Some(sampling) = platform::energy::start(handle.clone()) {
-                app.manage(sampling);
+        move || {
+            let started = recorder
+                .join()
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("installing the recorder panicked")))
+                .and_then(|recorder| {
+                    beep_node::link::diagnostics::start(recorder, &endpoint, &file)
+                });
+
+            match started {
+                Ok(task) => {
+                    app.manage(task);
+
+                    if let Some(sampling) = platform::energy::start(app.clone()) {
+                        app.manage(sampling);
+                    }
+                }
+                Err(e) => log::warn!("metrics unavailable: {e:#}"),
             }
         }
-        Err(e) => log::warn!("metrics unavailable: {e:#}"),
-    }
+    });
     #[cfg(mobile)]
     match platform::metrics::PhoneMetrics::start(&dir.join("metrics")) {
         Ok(metrics) => {
@@ -651,34 +699,36 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     center::app_menu::install(app)?;
     tray::install(app)?;
 
+    // The bar is a desktop popover; a phone has the one window. It is made once Home has
+    // drawn, so its hidden page does not load ahead of Home, and zooms as it loads.
     #[cfg(desktop)]
-    let as_login_item = std::env::args().any(|arg| arg == LOGIN_ARG);
-    #[cfg(mobile)]
-    let as_login_item = false;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(BAR_AFTER).await;
 
-    if !as_login_item {
-        // Opened by the user, not as a login item: show the window.
-        if let Err(e) = center::open(&handle) {
-            log::warn!("opening the window at launch: {e}");
+        // Off the main thread, as Windows needs of a window made while the app runs.
+        match tauri::async_runtime::spawn_blocking(move || build_bar(&handle)).await {
+            Ok(Ok(())) => platform::startup::stage("bar built"),
+            Ok(Err(e)) => log::warn!("making the bar: {e:#}"),
+            Err(e) => log::warn!("making the bar stopped: {e}"),
         }
-    }
-
-    // The bar is a desktop popover; a phone has the one window. It is made after the main
-    // window, so its hidden page does not load ahead of Home, and zooms as it loads.
-    #[cfg(desktop)]
-    {
-        let bar = app
-            .config()
-            .app
-            .windows
-            .iter()
-            .find(|window| window.label == bar::LABEL)
-            .ok_or_else(|| anyhow::anyhow!("bar window config missing"))?;
-        navigation::guard(tauri::WebviewWindowBuilder::from_config(app, bar)?).build()?;
-    }
+    });
 
     #[cfg(desktop)]
-    refresh_login_item(&handle);
+    refresh_login_item(app.handle());
+    platform::startup::stage("setup done");
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn build_bar(app: &AppHandle) -> anyhow::Result<()> {
+    let bar = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == bar::LABEL)
+        .ok_or_else(|| anyhow::anyhow!("bar window config missing"))?;
+    navigation::guard(tauri::WebviewWindowBuilder::from_config(app, bar)?).build()?;
     Ok(())
 }
 

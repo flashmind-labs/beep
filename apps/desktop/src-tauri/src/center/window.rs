@@ -113,6 +113,13 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     {
         builder = builder.initialization_script("window.__BEEP_PHONE__ = true;");
     }
+    // The last Home is on the page before its scripts run.
+    #[cfg(desktop)]
+    if label == LABEL
+        && let Some(frame) = super::home_frame::load(app)
+    {
+        builder = builder.initialization_script(super::home_frame::script(&frame));
+    }
     #[cfg(target_os = "macos")]
     {
         builder = builder
