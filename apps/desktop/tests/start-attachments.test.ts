@@ -21,7 +21,7 @@ test("both start layouts accept file drops and protect pending files while start
       Object.defineProperty(drop, "dataTransfer", { value: { files: [new File(["video"], "screen recording.mov", { type: "video/quicktime" })] } });
       c.form.dispatchEvent(drop); assert.equal(drop.defaultPrevented, true);
       await attachments.add([]);
-      assert.equal(attachments.count, 1); assert.equal(c.att.hidden, false); assert.match(c.att.innerHTML, /screen recording.mov/);
+      assert.equal(attachments.count, 1); assert.equal(c.att.hidden, false); assert.match(c.att.innerHTML, /1 file/);
       const firstChip = c.att.firstElementChild;
       assert.equal(errors.filter(Boolean).length, 0);
       Object.defineProperty(input, "files", { value: [new File(["clip"], "clip.mp4")], configurable: true });
@@ -36,7 +36,7 @@ test("both start layouts accept file drops and protect pending files while start
       assert.equal(c.att.firstElementChild, firstChip, "presentation updates keep attachment controls");
       assert.equal(c.form.querySelector('[aria-label="Attach files"]'), button);
       assert.equal(attachments.count, 2); assert.equal(c.att.hidden, false);
-      const remove = c.att.querySelector<HTMLButtonElement>('[data-startfile="0"]'); assert.ok(remove); remove.click();
+      attachments.removeLast();
       assert.equal(attachments.count, 1); attachments.clear(); assert.equal(c.att.hidden, true);
       c.dispose(); c.form.remove();
     }

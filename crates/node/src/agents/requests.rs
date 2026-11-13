@@ -13,7 +13,7 @@ use beep_proto::node::{
     usage::SessionSpend,
 };
 use beep_proto::watched;
-use beep_proto::{MAX_AGENT_FILE, media_mime};
+use beep_proto::media_mime;
 use iroh::EndpointId;
 use std::{fmt::Display, io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
@@ -556,13 +556,6 @@ async fn share_reply(
         Err(e) if e.kind() == ErrorKind::NotFound => return SessionsReply::NoFile {},
         Err(e) => return failed(format!("could not read {path}: {e}")),
         Ok(meta) if !meta.is_file() => return failed(format!("{path} is not a file")),
-        Ok(meta) if meta.len() > MAX_AGENT_FILE => {
-            return failed(format!(
-                "{path} is {} MB, over the {} MB that can be shown",
-                meta.len() / (1024 * 1024),
-                MAX_AGENT_FILE / (1024 * 1024)
-            ));
-        }
         Ok(_) => {}
     }
 

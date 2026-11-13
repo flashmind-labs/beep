@@ -48,8 +48,11 @@ test("the Device tab shows a device live, takes touches, keys and buttons, and s
   const box = await screen.boundingBox();
   if (!box) throw new Error("the screen has no box");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.getByRole("textbox", { name: "Type into the device" })).toBeFocused();
+  await expect(page.locator(".agdevstage")).toHaveCSS("box-shadow", "none");
   const inputs = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_input").map(call => call.args.input));
-  await expect.poll(inputs).toEqual([{ Touch: { phase: "Down", x: 0.5, y: 0.5 } }, { Touch: { phase: "Up", x: 0.5, y: 0.5 } }]);
+  // Browser pointer coordinates can round to the nearest CSS pixel.
+  await expect.poll(inputs).toEqual([{ Touch: { phase: "Down", x: expect.closeTo(0.5, 2), y: expect.closeTo(0.5, 2) } }, { Touch: { phase: "Up", x: expect.closeTo(0.5, 2), y: expect.closeTo(0.5, 2) } }]);
 
   await page.keyboard.type("hi");
   await page.keyboard.press("Enter");

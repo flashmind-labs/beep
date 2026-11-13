@@ -1,3 +1,4 @@
+import { compactPromptAttachments } from "./promptparts-state.ts";
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
 import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, mediaPaths, parseTool, subagent, tailLines } from "./agentlog.ts";
@@ -431,9 +432,9 @@ function userRows(en: AgentEntry, at: number): (PromptRow | ContextRow)[] {
   // The user's words come as Markdown HTML, its pasted blocks folded;
   // the ones the reader opened stay open.
   // A message just sent has no HTML until the next read: its text shows meanwhile.
-  const html = en.html ?? (words ? `<p>${esc(words).replace(/\n/g, "<br>")}</p>` : "");
+  const html = en.html ?? (words ? words.split(/\n\s*\n/).map(part => `<p>${esc(part).replace(/\n/g, "<br>")}</p>`).join("") : "");
   const said = html.replace(/data-paste="(\d+)"/g, (m, i) => AG.opened.has(`${at}:${i}`) ? `${m} open` : m);
-  const prompt: PromptRow = { kind: "prompt", row: String(at), html: said, pictures: names.map(entryPic).join("") };
+  const prompt: PromptRow = { kind: "prompt", row: String(at), html: compactPromptAttachments(said), pictures: names.map(entryPic).join("") };
   return [...others, prompt];
 }
 

@@ -7,6 +7,15 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.26] - 2026-11-13
+
+### Fixed
+
+- Desktop: Agent chat sends automatically after attachments and image previews finish uploading; failed uploads keep the draft for retry.
+- Desktop: View and remove attachments in a compact composer window with image previews; long sent file lists fold.
+- Desktop: automatic session titles are shorter and no longer show internal tags.
+- Desktop: attachments and media can be uploaded, opened and downloaded without the previous per-file size limits.
+
 ## [0.8.25] - 2026-11-13
 
 ### Added

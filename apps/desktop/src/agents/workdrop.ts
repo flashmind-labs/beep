@@ -4,7 +4,7 @@
 
 import { agentAttach } from "./images.ts";
 import { agentMessage } from "./session-frame.tsx";
-import { MAX_UPLOAD, joinPath, uploadParts, uploadRefusal } from "../agentpane/files-state.ts";
+import { joinPath, uploadParts } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
@@ -113,8 +113,6 @@ async function uploadFiles(files: File[], folder: string | null, root: string, p
 
   for (const f of files) {
     if (paneSession() !== session) return uploaded;
-    const why = uploadRefusal(f);
-    if (why) { batch.failed = true; MN.error(why); continue; }
 
     try {
       MN.reading++;
@@ -162,7 +160,6 @@ export async function prepareStashFiles(files: StashFile[]) {
 async function uploadOne(file: File, folder: string | null, root: string) {
   const s = paneSession();
   if (!s) return "";
-  if (file.size > MAX_UPLOAD) throw new Error(uploadRefusal(file));
   const up: Upload = { name: file.name || "file", size: file.size, done: 0 };
   MN.uploads.push(up);
   MN.redraw();

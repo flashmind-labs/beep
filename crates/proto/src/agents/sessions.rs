@@ -51,9 +51,6 @@ wire_structs! {
 /// The most of a file one `GetAgentFile` gives, well under a frame.
 pub const AGENT_FILE_CHUNK: usize = 4 * 1024 * 1024;
 
-/// The largest file `GetAgentFile` reads.
-pub const MAX_AGENT_FILE: u64 = 128 * 1024 * 1024;
-
 wire_structs! {
     /// A machine that can run coding agents.
     pub struct AgentHost {
@@ -481,7 +478,7 @@ pub struct GetAgentImage {
 /// Up to [`AGENT_FILE_CHUNK`] bytes from `offset` of a media file a coding
 /// agent made, such as a video, 3D model, PDF or picture. `path` is
 /// absolute or starts `~/`; only files [`media_mime`](crate::media_mime)
-/// knows, of at most [`MAX_AGENT_FILE`] bytes.
+/// knows, streamed from disk.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetAgentFile {
     pub machine_id: String,

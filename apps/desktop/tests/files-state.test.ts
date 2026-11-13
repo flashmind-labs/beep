@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  MAX_UPLOAD, type Listing, type TreeEntry, atEdge, codeFile, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, unreadFolders, uploadParts,
-  uploadRefusal, withMentions,
+  type Listing, type TreeEntry, atEdge, codeFile, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, unreadFolders, uploadParts,
+  withMentions,
 } from "../src/agentpane/files-state.ts";
 import { linkedPath } from "../src/agentpane/media-state.ts";
 
@@ -84,8 +84,6 @@ test("mentions go after the text, quoted with a space", () => {
 test("uploads go in parts, an empty file as one", () => {
   assert.deepEqual(uploadParts(5, 2), [{ offset: 0, len: 2 }, { offset: 2, len: 2 }, { offset: 4, len: 1 }]);
   assert.deepEqual(uploadParts(0, 2), [{ offset: 0, len: 0 }]);
-  assert.equal(uploadRefusal({ name: "a.bin", size: MAX_UPLOAD }), "");
-  assert.match(uploadRefusal({ name: "a.bin", size: MAX_UPLOAD + 1 }), /over 64 MB/);
 });
 
 test("highlighting marks keywords, strings and comments, escaped", () => {

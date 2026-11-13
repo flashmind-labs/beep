@@ -151,7 +151,7 @@ body.mobile .us-pill { min-height: 0; height: 32px; border-radius: 999px }
 body.mobile .dinput.small { flex-wrap: wrap; gap: 6px; margin: 4px 10px 8px; padding: 4px 4px 4px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface) }
 body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 38px; max-height: 120px; padding: 9px 0; border: 0; background: none }
 /* Its attach, mode and model controls show while typing, leaving the log the room. */
-body.mobile #agfield:not(:focus-within) > :not(textarea, #agstop, #agsend, #agnativeparent) { display: none }
+body.mobile #agfield:not(:focus-within) > :not(textarea, #agstop, #agsend, #agnativeparent, [data-agent-attachment-slot]) { display: none }
 body.mobile #agfield:not(:focus-within) textarea { flex: 1 1 0 }
 /* Stop and Send are icons the height of the field; Return makes a new line. No gap, or the
    hidden label pushes the icon off center. */
