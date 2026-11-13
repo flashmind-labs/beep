@@ -304,6 +304,7 @@ pub fn run() {
             machines::devices::device_hosts,
             machines::devices::device_input,
             machines::devices::device_list,
+            machines::devices::device_platforms,
             machines::devices::device_shutdown,
             machines::terminals::terminal_attach,
             machines::terminals::terminal_close,

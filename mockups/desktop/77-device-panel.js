@@ -6,7 +6,16 @@
 // a click taps, a drag swipes or scrolls, and with the screen focused the
 // keyboard types into the device. The button row presses its hardware buttons.
 // The stream stops while the tab or the window is hidden.
+// Only a session whose checkout is a mobile app has the tab (#667): its
+// node looks for Android and iOS project files. The picker starts on a
+// device of the project's platform, on the session's machine first, else
+// on any machine (an iOS project on a Linux box starts on a Mac's
+// simulator). A platform no machine has a device for gets one line.
 (() => {
+  const MISSING = {
+    Android: 'No machine has an Android emulator. Android Studio can make one.',
+    Ios: 'No machine has an iOS simulator. A Mac with Xcode and idb_companion can run one.',
+  };
   const DEVICES = [
     ['build-box', [['Pixel 9 Pro', 'Android 16'], ['Pixel Tablet', 'Android 16']]],
     ['mac-box', [['iPhone 17', 'iOS 26.5'], ['Pixel 8', 'Android 15']]],
@@ -17,6 +26,8 @@
     devboot: { state: 'booting', chip: 'wait', label: 'booting', act: 'Shut down' },
     devended: { state: 'ended', chip: 'bad', label: 'on', act: 'Shut down' },
     devnone: { state: 'none' },
+    devios: { state: 'on', chip: 'run', label: 'on', act: 'Shut down', pick: 'iPhone 17', meta: 'iOS 26.5 · mac-box' },
+    devmiss: { state: 'on', chip: 'run', label: 'on', act: 'Shut down', miss: MISSING.Ios },
   };
   const ICON = {
     home: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/></svg>',
@@ -30,7 +41,7 @@
   };
   const BUTTONS = [['home', 'Home'], ['back', 'Back'], ['recent', 'Recent apps'], null, ['rotate', 'Rotate'], null, ['power', 'Power'], ['voldown', 'Volume down'], ['volup', 'Volume up']];
 
-  const picker = () => `<select class="ag-devpick" aria-label="Device">${DEVICES.map(([machine, list]) => `<optgroup label="${machine}">${list.map(([name], i) => `<option${machine === 'build-box' && i === 0 ? ' selected' : ''}>${name}</option>`).join('')}</optgroup>`).join('')}</select>`;
+  const picker = pick => `<select class="ag-devpick" aria-label="Device">${DEVICES.map(([machine, list]) => `<optgroup label="${machine}">${list.map(([name]) => `<option${name === pick ? ' selected' : ''}>${name}</option>`).join('')}</optgroup>`).join('')}</select>`;
   // A stand-in for the frame the node sends: the real view draws JPEGs on a canvas.
   const screen = () => `<div class="ag-devscreen" tabindex="0" title="Click to tap, drag to swipe; type while it is focused"><div class="sb"><span>9:41</span><span>5G</span></div><div class="clock">9:41<small>Thursday, 12 November</small></div><div class="apps">${'<i></i>'.repeat(8)}</div><div class="tray">${'<i></i>'.repeat(4)}</div></div>`;
   const stage = c => {
@@ -40,11 +51,12 @@
     return '<div class="ag-devnote">Pixel 9 Pro is off.</div>';
   };
   const body = c => {
-    if (c.state === 'none') return '<div class="ag-pbody"><div class="ag-devnote">No emulator or simulator on build-box or mac-box.</div></div>';
-    const head = `<div class="ag-devhead">${picker()}<span class="chip ${c.chip}">${c.state === 'booting' ? '<span class="dspin"></span>' : ''}${c.label}</span><span class="sp"></span><button class="dbtn" data-dact="dset:ags:${c.act === 'Boot' ? 'devboot' : 'devoff'}">${c.act}</button></div>`;
+    if (c.state === 'none') return `<div class="ag-pbody"><div class="ag-devnote">${MISSING.Android}</div></div>`;
+    const head = `<div class="ag-devhead">${picker(c.pick ?? 'Pixel 9 Pro')}<span class="chip ${c.chip}">${c.state === 'booting' ? '<span class="dspin"></span>' : ''}${c.label}</span><span class="sp"></span><button class="dbtn" data-dact="dset:ags:${c.act === 'Boot' ? 'devboot' : 'devoff'}">${c.act}</button></div>`;
     const live = c.state === 'on';
     const row = BUTTONS.map(b => b ? `<button class="dbtn ibtn" title="${b[1]}" aria-label="${b[1]}"${live ? ` data-toast="Pressed ${b[1]}"` : ' disabled'}>${ICON[b[0]]}</button>` : '<span class="gap"></span>').join('');
-    return `${head}<div class="ag-pbody stage ag-devstage">${stage(c)}</div><div class="ag-pacts ag-devkeys">${row}<span class="sp"></span><span class="meta">Android 16 · build-box</span></div>`;
+    const miss = c.miss ? `<div class="ag-devmiss" role="status">${c.miss}</div>` : '';
+    return `${head}${miss}<div class="ag-pbody stage ag-devstage">${stage(c)}</div><div class="ag-pacts ag-devkeys">${row}<span class="sp"></span><span class="meta">${c.meta ?? 'Android 16 · build-box'}</span></div>`;
   };
 
   const session = D.dAgentSession;
@@ -64,6 +76,9 @@
     pane.insertAdjacentHTML('beforeend', body(c));
     return template.innerHTML;
   };
-  VARIANTS.dAgentSession.push(...[['Device, on', 'devon'], ['Device, off', 'devoff'], ['Device, booting', 'devboot'], ['Device, view ended', 'devended'], ['Device, none on the machines', 'devnone']]
+  // Not a mobile project: the session has no Device tab, as 'running' shows.
+  VARIANTS.dAgentSession.push(...[['Device, on', 'devon'], ['Device, off', 'devoff'], ['Device, booting', 'devboot'], ['Device, view ended', 'devended'],
+    ['Device, Android project, no emulator', 'devnone'], ['Device, iOS project on a Linux session', 'devios'], ['Device, Flutter project, no iOS simulator', 'devmiss'],
+    ['Device, not a mobile project (no tab)', 'running']]
     .map(([label, value]) => [label, () => { S.d.ags = value; render(); }, () => S.d.ags === value]));
 })();

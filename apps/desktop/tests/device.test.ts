@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, keyInput, maxSide, pickValue, queueInput,
-  readMachines, readPickValue, readScreenMessage, touchPoint,
+  type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, keyInput, maxSide, missingLine, pickValue, queueInput,
+  readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint,
 } from "../src/agentpane/device-state.ts";
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null });
@@ -13,11 +13,49 @@ const machines: DeviceMachine[] = [
 ];
 
 test("the pick starts on the session's machine, a running device first", () => {
-  assert.deepEqual(defaultPick(machines, "c", null), { machine: "c", device: "phone" });
-  assert.deepEqual(defaultPick(machines, "a", null), { machine: "b", device: "tablet" });
-  assert.deepEqual(defaultPick(machines, null, { machine: "b", device: "pixel" }), { machine: "b", device: "pixel" });
-  assert.deepEqual(defaultPick(machines, "c", { machine: "b", device: "gone" }), { machine: "c", device: "phone" });
-  assert.equal(defaultPick([machines[0]], "a", null), null);
+  const android = ["Android" as const];
+  assert.deepEqual(defaultPick(machines, "c", null, android), { machine: "c", device: "phone" });
+  assert.deepEqual(defaultPick(machines, "a", null, android), { machine: "b", device: "tablet" });
+  assert.deepEqual(defaultPick(machines, null, { machine: "b", device: "pixel" }, android), { machine: "b", device: "pixel" });
+  assert.deepEqual(defaultPick(machines, "c", { machine: "b", device: "gone" }, android), { machine: "c", device: "phone" });
+  assert.equal(defaultPick([machines[0]], "a", null, android), null);
+});
+
+const simulator = (id: string, state: "Off" | "On" = "Off") => ({ id, name: id, platform: "Ios" as const, state, os: null });
+const mixed: DeviceMachine[] = [
+  { machine_id: "linux", machine_name: "build-box", devices: [device("pixel", "On")], error: null },
+  { machine_id: "mac", machine_name: "mac-box", devices: [device("pixel-mac"), simulator("iphone"), simulator("ipad", "On")], error: null },
+];
+
+test("the pick is a device of the project's platform, wherever it is", () => {
+  // An iOS project on a Linux box starts on the Mac's running simulator.
+  assert.deepEqual(defaultPick(mixed, "linux", null, ["Ios"]), { machine: "mac", device: "ipad" });
+  // An Android project stays on its own machine.
+  assert.deepEqual(defaultPick(mixed, "mac", null, ["Android"]), { machine: "mac", device: "pixel-mac" });
+  // Both platforms: the session's machine first.
+  assert.deepEqual(defaultPick(mixed, "linux", null, ["Android", "Ios"]), { machine: "linux", device: "pixel" });
+  // No device of the platform: nothing picked.
+  assert.equal(defaultPick([mixed[0]], "linux", null, ["Ios"]), null);
+  assert.equal(defaultPick(mixed, "linux", null, []), null);
+});
+
+test("only a mobile project with a device host has the tab", () => {
+  const hosts = [{ machine_id: "mac", machine_name: "mac-box" }];
+  assert.equal(showsDeviceTab(["Ios"], hosts), true);
+  assert.equal(showsDeviceTab([], hosts), false);
+  assert.equal(showsDeviceTab(["Android"], []), false);
+});
+
+test("a platform no machine has a device for gets one line", () => {
+  assert.equal(missingLine(mixed, ["Android", "Ios"]), null);
+  assert.equal(missingLine([mixed[0]], ["Android", "Ios"]), "No machine has an iOS simulator. A Mac with Xcode and idb_companion can run one.");
+  assert.equal(missingLine([], ["Android"]), "No machine has an Android emulator. Android Studio can make one.");
+  assert.equal(missingLine([], []), null);
+});
+
+test("platforms read from the node's answer, unknown ones left out", () => {
+  assert.deepEqual(readPlatforms(["Android", "Ios", "Web"]), ["Android", "Ios"]);
+  assert.deepEqual(readPlatforms(null), []);
 });
 
 test("a pick goes through the picker's value and back", () => {

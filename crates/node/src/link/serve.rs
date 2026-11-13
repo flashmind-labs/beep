@@ -588,7 +588,7 @@ pub(super) async fn serve_open(
         }
         SessionProtocol::Device => {
             tx.send(&Opened::Ready {}).await?;
-            device::serve(tx, rx).await
+            device::serve(tx, rx, offers.agents.clone()).await
         }
         SessionProtocol::SignIn => {
             tx.send(&Opened::Ready {}).await?;

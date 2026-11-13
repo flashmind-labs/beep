@@ -75,16 +75,39 @@ export function pickedDevice(machines: readonly DeviceMachine[], pick: DevicePic
   return machines.find(m => m.machine_id === pick.machine)?.devices.find(d => d.id === pick.device) ?? null;
 }
 
-/// The device to show: `last` while it is still listed, else one on the
-/// session's machine, else one on the first machine with any; a running one
-/// first. Null when no machine has a device.
-export function defaultPick(machines: readonly DeviceMachine[], session: string | null, last: DevicePick | null): DevicePick | null {
+/// The device to show: `last` while it is still listed, else one of the
+/// project's `platforms` on the session's machine, else on any machine; a
+/// running one first. Null when no machine has one.
+export function defaultPick(machines: readonly DeviceMachine[], session: string | null, last: DevicePick | null, platforms: readonly DevicePlatform[]): DevicePick | null {
   if (last && pickedDevice(machines, last)) return last;
-  const own = machines.find(m => m.machine_id === session && m.devices.length > 0);
-  const machine = own ?? machines.find(m => m.devices.length > 0);
-  if (!machine) return null;
-  const device = machine.devices.find(d => d.state === "On") ?? machine.devices[0];
-  return { machine: machine.machine_id, device: device.id };
+  const fits = (m: DeviceMachine) => m.devices.filter(d => platforms.includes(d.platform));
+  const own = machines.find(m => m.machine_id === session && fits(m).length > 0) ?? null;
+  const pool = own ? [own] : machines;
+  const found = pool.flatMap(m => fits(m).map(device => ({ machine: m.machine_id, device })));
+  const pick = found.find(f => f.device.state === "On") ?? found[0];
+  return pick ? { machine: pick.machine, device: pick.device.id } : null;
+}
+
+/// Whether a session has the Device tab: its checkout builds for a mobile
+/// platform and a machine serves `device/1`.
+export const showsDeviceTab = (platforms: readonly DevicePlatform[], hosts: readonly DeviceHost[]) => platforms.length > 0 && hosts.length > 0;
+
+const MISSING: Record<DevicePlatform, string> = {
+  Android: "No machine has an Android emulator. Android Studio can make one.",
+  Ios: "No machine has an iOS simulator. A Mac with Xcode and idb_companion can run one.",
+};
+
+/// The line for the project's platforms no machine has a device for, or
+/// null when each has one.
+export function missingLine(machines: readonly DeviceMachine[], platforms: readonly DevicePlatform[]): string | null {
+  const missing = platforms.filter(p => !machines.some(m => m.devices.some(d => d.platform === p)));
+  return missing.length > 0 ? missing.map(p => MISSING[p]).join(" ") : null;
+}
+
+/// `device_platforms`' answer, checked.
+export function readPlatforms(value: unknown): DevicePlatform[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((p): p is DevicePlatform => p === "Android" || p === "Ios");
 }
 
 /// The picker's value for a pick, and back.

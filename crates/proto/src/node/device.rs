@@ -3,7 +3,8 @@
 //! and `Shutdown` get one `Reply` each. `Attach` turns the stream into a live
 //! view: the node sends a `Frame` whenever the screen changes, newest only,
 //! and the desktop sends `Input` until it closes the stream or the node sends
-//! `Ended`.
+//! `Ended`. `Platforms` gets one `Reply::Platforms`: the mobile platforms a
+//! checkout builds for.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -48,6 +49,11 @@ pub enum Request {
     /// Input to the attached device.
     Input {
         input: Input,
+    },
+    /// The platforms the app in folder `root` builds for, found by its
+    /// files.
+    Platforms {
+        root: String,
     },
 }
 
@@ -124,6 +130,10 @@ pub enum Reply {
     },
     Failed {
         reason: String,
+    },
+    /// Android first; empty when the folder is no mobile app.
+    Platforms {
+        platforms: Vec<Platform>,
     },
 }
 
