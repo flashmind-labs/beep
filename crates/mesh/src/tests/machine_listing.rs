@@ -48,3 +48,73 @@ fn an_idle_session_with_running_subagents_lists_as_working() {
     info.state.subagents = 0;
     assert_eq!(beep_session(&host, info).status, AgentStatus::Idle {});
 }
+
+#[tokio::test]
+async fn project_history_hides_children_but_keeps_the_parent() {
+    use crate::MeshError;
+    use crate::machine::sessions::Reading;
+    use beep_proto::node::agent::{SessionsReply, SessionsRequest};
+
+    struct Node;
+
+    impl Sessions for Node {
+        async fn sessions(
+            &self,
+            request: SessionsRequest,
+            _: Reading,
+            _: Duration,
+        ) -> Result<SessionsReply, MeshError> {
+            match request {
+                SessionsRequest::ListAll {} => {
+                    let parent = SessionInfo {
+                        id: "parent".into(),
+                        agent: "codex".into(),
+                        ..SessionInfo::default()
+                    };
+                    let mut child = parent.clone();
+                    child.id = "child".into();
+                    child.parent = Some(ParentLink {
+                        machine: None,
+                        session: "missing-parent".into(),
+                        key: String::new(),
+                        root_machine: None,
+                        root: "missing-parent".into(),
+                        depth: 1,
+                        others: 0,
+                        agent: "codex".into(),
+                        mode: None,
+                    });
+                    Ok(SessionsReply::Sessions {
+                        sessions: vec![parent, child],
+                    })
+                }
+                SessionsRequest::InFolders { .. } => Ok(SessionsReply::External {
+                    sessions: ["parent", "child", "outside"]
+                        .into_iter()
+                        .map(|id| ExternalSession {
+                            id: id.into(),
+                            agent: "codex".into(),
+                            cwd: "/srv/project".into(),
+                            taken_over: (id != "outside").then(|| id.to_owned()),
+                            ..ExternalSession::default()
+                        })
+                        .collect(),
+                }),
+                other => panic!("unexpected request: {other:?}"),
+            }
+        }
+    }
+
+    let host = Host {
+        id: "machine-a".into(),
+        name: "build-box".into(),
+    };
+    let sessions = project_sessions(&Node, &host, vec!["/srv/project".into()]).await;
+    assert_eq!(
+        sessions
+            .iter()
+            .map(|session| session.id.as_str())
+            .collect::<Vec<_>>(),
+        ["parent", "outside"]
+    );
+}

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { childRow, nest, parentRow, splitEnded } from "../src/agents/nesting-state.ts";
+import { waitingSessions, sessionKey } from "../src/bar/waiting-state.ts";
 import { subagent } from "../src/agents/agentlog.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 
@@ -69,4 +70,14 @@ test("ended trees fold apart, and a tree with a live session stays live whole", 
   const split = splitEnded(nest(rows), r => r.status === "ended");
   assert.deepEqual(split.live.map(n => n.row.id), ["live", "parent", "kid"]);
   assert.deepEqual(split.ended.map(n => n.row.id), ["done"]);
+});
+
+test("Waiting hides child conversations in every state, including unread and asking", () => {
+  const parent = row("parent", { status: "idle" });
+  const children = ["working", "idle", "asking", "ended"].map(status => row(status, {
+    status, parent: under("remote", "missing"),
+  }));
+  const unread = new Set(children.map(sessionKey));
+  assert.deepEqual(waitingSessions([parent, ...children], unread, "", () => "project").map(item => item.session.id), ["parent"]);
+  assert.deepEqual(waitingSessions(children, unread, "asking", () => "project"), []);
 });

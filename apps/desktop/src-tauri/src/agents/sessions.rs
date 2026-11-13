@@ -265,11 +265,14 @@ pub async fn agent_sessions(
     held: State<'_, MachineLists>,
 ) -> Result<Vec<SessionRow>> {
     let sessions = machine_sessions(&app, &fleet, &held).await;
-    let reviewers = fleet.reviewers().into_iter().map(|session| (session, true));
+    let children = fleet
+        .children()
+        .into_iter()
+        .map(|linked| (linked.session, linked.reviewer));
     Ok(sessions
         .into_iter()
         .map(|session| (session, false))
-        .chain(reviewers)
+        .chain(children)
         .map(|(session, reviewer)| {
             let parent = fleet.parent_of(&session.machine_id, &session.id);
             SessionRow {
