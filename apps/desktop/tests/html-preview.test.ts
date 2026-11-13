@@ -17,7 +17,7 @@ Object.assign(globalThis, { previewState: state, previewInvoke: async (cmd: stri
 const stubs = new Map(Object.entries({
   "agentpane/media-draw.ts": "export const touchTab = t => globalThis.previewDraw(t); export const noteTab = () => {};",
   "agentpane/media.ts": "export const P = globalThis.previewState; export const closeTab = () => {}; export const saveWorkFile = () => {};",
-  "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const drawTermStatus = () => {};",
+  "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const fileError = e => e.message; export const drawTermStatus = () => {};",
   "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
   "ui/tauri.ts": "export const invoke = globalThis.previewInvoke;",
   "chat/media.ts": "export const fileSize = () => ''; export const openViewer = () => {};",
