@@ -13,9 +13,11 @@ build-server:
     cargo build --package beep-server
 
 # Run the macOS desktop app from source
+# The window only loads tauri://localhost, so dev serves the built bundle
+# instead of a dev server; press Cmd+R after a frontend change.
 desktop-dev:
-    cd apps/desktop && npm ci --silent
-    cd apps/desktop/src-tauri && cargo tauri dev
+    cd apps/desktop && npm ci --silent && npm run build
+    cd apps/desktop/src-tauri && cargo tauri dev --no-dev-server
 
 # Build the desktop DMG.
 desktop-build:
