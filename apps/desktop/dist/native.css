@@ -234,7 +234,10 @@ body:not(.mobile) .dcoderen.user { border-right: 2px solid var(--accent); backgr
 
 /* Glass: only layers that float. */
 body:not(.mobile) :is(.cc-pal, .agctx, .agc-pick, .agc-menu, .us-pop, .nt-pop) { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
-body:not(.mobile) #agfield#agfield.dinput.small, body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+/* The two composers hold the model picker, which is placed against the window. A blur on the
+   composer itself would become what the picker is placed against, so the glass is a layer behind it. */
+body:not(.mobile) #agfield#agfield.dinput.small, body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit) }
+body:not(.mobile) #agfield#agfield.dinput.small::before, body:not(.mobile) .cc-pjc .box::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
 /* While you type, the field glows. */
 body:not(.mobile) #agfield#agfield.dinput.small:focus-within, body:not(.mobile) .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 40px -6px color-mix(in srgb, var(--accent) 50%, transparent) }
 /* The main action glows too. */
