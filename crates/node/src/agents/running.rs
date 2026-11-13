@@ -398,14 +398,17 @@ impl Agents {
             .lock()
             .values()
             .filter_map(|s| {
-                let live = s.live.borrow();
-                live.agent_session.as_ref()?;
+                // Released before `info` reads the state again: a second read
+                // while this one is held waits behind any write queued in
+                // between, which waits on this one, and the node stops.
+                let listed = {
+                    let live = s.live.borrow();
+                    live.agent_session.is_some()
+                        && id.is_none_or(|id| live.info.id == id)
+                        && (!s.reviewer || reviewers && live.info.parent.is_some())
+                };
 
-                if id.is_some_and(|id| live.info.id != id) {
-                    return None;
-                }
-
-                if s.reviewer && !(reviewers && live.info.parent.is_some()) {
+                if !listed {
                     return None;
                 }
 
