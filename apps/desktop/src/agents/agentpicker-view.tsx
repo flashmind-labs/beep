@@ -64,6 +64,10 @@ function usePlacement(content: string, anchor: () => HTMLElement | null, bounds:
   return { node, style };
 }
 
+function Check() {
+  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10"/></svg>;
+}
+
 export function AgentPillContent({ agent, detail }: { agent: string; detail: string }) {
   return <><HarnessIcon agent={agent}/>{detail}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></>;
 }
@@ -107,13 +111,10 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
         {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
       </div>
     </div>
-    <div className="agc-think">{levels.length ? <>
-      <h5><span>Reasoning</span><b>{levels.find(level => level.value === picked.effort)?.label ?? "Default"}</b></h5>
-      <div className="agc-track" role="radiogroup" aria-label={`Reasoning for ${name}`}>
-        <button type="button" role="radio" aria-checked={!picked.effort} title="Default" data-age="" className={picked.effort ? "" : "on"} onClick={() => onEffort(null)}><span>Default</span></button>
-        {levels.map(level => <button key={level.value} type="button" role="radio" aria-checked={picked.effort === level.value} title={level.label} data-age={level.value}
-          className={picked.effort === level.value ? "on" : ""} onClick={() => onEffort(level.value)}><span>{level.label}</span></button>)}
-      </div>
+    <div className="agc-think"><h5><span>Thinking</span><span>{name}</span></h5>{levels.length ? <>
+      <button type="button" data-age="" className={picked.effort ? "" : "on"} onClick={() => onEffort(null)}>Default{!picked.effort && <Check/>}</button>
+      {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={picked.effort === level.value ? "on" : ""}
+        onClick={() => onEffort(level.value)}>{level.label}{picked.effort === level.value && <Check/>}</button>)}
     </> : <p className="none">{effortNote(name)}</p>}</div>
   </div>;
 }
@@ -121,7 +122,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
 /// A model row's height and the picker's tallest before it is placed, as the
 /// stylesheet sets them.
 const MODEL_ROW = 34;
-const PICK_HEIGHT = 420;
+const PICK_HEIGHT = 340;
 
 /// The model column's rows, drawing only those near the view: a harness can
 /// offer hundreds of models. The highlighted row scrolls into view as the
