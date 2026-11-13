@@ -7,6 +7,29 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.21] - 2026-11-13
+
+### Added
+
+- Desktop: Settings, Credentials has API keys for OpenRouter, Meshy, ElevenLabs
+  and other providers. Every desktop shares them, and each machine gives them
+  to flsh as env vars for its image, video, 3D and speech tools.
+- Desktop: Appearance settings can hide prompt marks in conversation scrollbars or hide the scrollbar entirely.
+- Desktop: a Device tab in the agent pane shows an Android emulator or iOS
+  simulator from any machine, live; tap, drag, type and press its buttons
+  there, and boot or shut it down from the tab.
+- Desktop: in a diff, arrows beside a change's header show ten more of the
+  unchanged lines before it, from either side.
+
+### Changed
+
+- Desktop: a diff no longer has a row counting the unchanged lines between
+  two changes.
+
+### Fixed
+
+- Desktop: session message headers show the source project and session title instead of raw session tags or IDs.
+
 ## [0.8.20] - 2026-11-13
 
 ### Fixed

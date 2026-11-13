@@ -2,6 +2,16 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.17] - 2026-11-13
+
+### Added
+
+- Node: API keys saved in Settings reach flsh and other processes as env
+  vars, such as `MESHY_API_KEY` and `ELEVENLABS_API_KEY`.
+- Node: serves its Android emulators and iOS simulators to desktops, live,
+  with touch, typing, buttons and rotation. iOS simulators need
+  idb-companion (`brew install meta/fb/idb-companion`).
+
 ## [0.6.16] - 2026-11-13
 
 ### Fixed

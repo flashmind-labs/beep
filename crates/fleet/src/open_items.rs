@@ -3,7 +3,6 @@
 
 use crate::desk::Desk;
 use beep_projects::{
-    credentials::Slot,
     git_items::{
         access::{Repo, token_answers},
         board::{Login, OpenedItems},
@@ -14,7 +13,7 @@ use beep_projects::{
 };
 use beep_proto::{
     GitHost, GitHostKind, GitItem, GitItemKind, GitItems, GitReview, LabeledGitItems,
-    LabeledProjectLists, ProjectPullRequest,
+    LabeledProjectLists, ProjectPullRequest, Service,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -210,7 +209,7 @@ fn keep_view(project: &str, view: &MachineView) {
 pub(crate) fn accounts_of(logins: &[Login<'_>]) -> HashMap<String, Vec<String>> {
     let github = logins
         .iter()
-        .filter(|login| matches!(login.slot, Slot::GitHub))
+        .filter(|login| matches!(login.service, Service::GitHub))
         .filter_map(|login| login.account.map(ToOwned::to_owned))
         .collect();
     HashMap::from([(github::HOST.to_owned(), github)])

@@ -31,6 +31,21 @@ const SETTINGS_CREDENTIALS = (() => {
       chips: (extra.unreadable ? chip("Re-enter this token", "", "err") : "") + shown + (more.length ? chip(`+${more.length}`, more.join(", ")) : "") + cliChip("gh", MS) });
   };
   const choice = (login, active) => `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px"><span style="color:var(--d-muted)">gh on this computer as @${login}</span>${active ? `<span style="font-size:10.5px;color:var(--d-dim)">active</span>` : ""}<span style="margin-left:auto"><button class="dbtn pri" ${sm} data-toast="Checked with GitHub and saved as @${login}">Use</button></span></div>`;
+  // API keys: every machine gets each one as an env var, for flsh's image, video, 3D and speech tools.
+  const KEY = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></svg>`;
+  const PROVIDERS = [["OpenRouter", "OPENROUTER_API_KEY"], ["ElevenLabs", "ELEVENLABS_API_KEY"], ["OpenAI", "OPENAI_API_KEY"], ["Mistral", "MISTRAL_API_KEY"], ["Anthropic", "ANTHROPIC_API_KEY"], ["Gemini", "GEMINI_API_KEY"], ["DeepSeek", "DEEPSEEK_API_KEY"], ["Moonshot", "MOONSHOT_API_KEY"], ["Z.ai", "ZAI_API_KEY"], ["Venice", "VENICE_API_KEY"], ["Meshy", "MESHY_API_KEY"], ["Firecrawl", "FIRECRAWL_API_KEY"]];
+  const SAVED_KEYS = [["OpenRouter", "a1b2"], ["Meshy", "9f0c"], ["ElevenLabs", "77de"]];
+  const apiRow = (name, last4) => gitRow({ icon: KEY, name, account: `…${last4}`, acts: ico(ED, `Replace the key for ${name}`, dsetGo("keys-api-replace")) + ico(RM, `Remove ${name}`, `data-toast="${name} key removed"`), chips: chip(PROVIDERS.find(p => p[0] === name)[1], "The env var your machines get") });
+  const apiForm = replace => `<div class="dcred-form" style="padding:10px 0;border-bottom:1px solid var(--d-border);display:grid;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px;font-size:13px"><b style="font-weight:600">${replace ? "OpenRouter" : "New API key"}</b>${replace ? `<span style="color:var(--d-muted);font-size:12px">Replace the key</span>` : ""}</div>
+    <div class="dfield" style="gap:8px"><div style="display:flex;gap:8px">${replace ? "" : `<select aria-label="Provider" style="font-size:12.5px">${PROVIDERS.filter(p => !SAVED_KEYS.some(s => s[0] === p[0])).map(p => `<option>${p[0]}</option>`).join("")}</select>`}<input type="password" style="flex:1;font-family:var(--mono);font-size:12.5px" placeholder="Paste the key" autocomplete="off" spellcheck="false" aria-label="Key">
+      <button class="dbtn pri" data-toast="Saved for every machine">Save</button><button class="dbtn quiet" ${dsetGo("keys")}>Cancel</button></div></div>
+    <div class="derr"></div></div>`;
+  const apiKeys = (v, head, add) => {
+    if (v === "keys-api-none") return `${head("API keys", 18)}${note("Your machines get each key as an env var, for flsh's image, video, 3D and speech tools.")}<div style="display:flex;margin-top:8px">${add("keys-api-add", "+ Add an API key")}</div>`;
+    const rows = SAVED_KEYS.map(([name, last4]) => v === "keys-api-replace" && name === "OpenRouter" ? apiForm(true) : apiRow(name, last4)).join("");
+    return `${head("API keys", 18)}${rows}${v === "keys-api-add" ? apiForm(false) : `<div style="display:flex;margin-top:8px">${add("keys-api-add", "+ Add an API key")}</div>`}`;
+  };
   const credsBody = v => {
     if (v === "keys-load") return skel(2);
     if (v === "keys-fail") return `<div class="dmuted">Could not load your credentials.</div>`;
@@ -76,7 +91,7 @@ const SETTINGS_CREDENTIALS = (() => {
     const addingFj = v === "keys-gh";
     const fjNew = addingFj ? credForm({ title: "New Forgejo/Gitea server", url: "one token per server, teacli on every machine", urlField: true, html: `Make one on your server at ${cd("/user/settings/applications")}, with repository and issue access. Or run ${cd("teacli login https://<server> --token <token>")} on this computer and use that sign-in.` }) : "";
     const adds = (canAdd ? add("keys-gh-add", "+ Add another GitHub account") : "") + (addingFj ? "" : add("keys-gh", "+ Add a Forgejo/Gitea server"));
-    return `<div style="display:grid">${head("Git hosts", 4)}${github}${hosts}${adding}${fjNew}${adds ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${adds}</div>` : ""}</div>`;
+    return `<div style="display:grid">${head("Git hosts", 4)}${github}${hosts}${adding}${fjNew}${adds ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${adds}</div>` : ""}${apiKeys(v, head, add)}</div>`;
   };
 
   // Instructions: instructions.ts.

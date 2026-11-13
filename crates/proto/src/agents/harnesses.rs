@@ -226,8 +226,11 @@ wire_enum! {
     strum::IntoStaticStr,
     strum::AsRefStr,
     strum::EnumString,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[strum(serialize_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum AgentAccount {
     Claude,
     Codex,
@@ -336,26 +339,6 @@ wire_structs! {
         pub note: String,
         pub saved_at: SystemTime,
     }
-
-    /// A credential as the apps list it, without its secret.
-    pub struct Credential {
-        pub id: String,
-        pub kind: CredentialKind,
-        /// The secret's last four characters.
-        pub last4: String,
-        /// Who the token signs in as, such as a GitHub login. `None` for API
-        /// keys, and for a Forgejo server the server could not reach to check.
-        pub account: Option<String>,
-        /// The env var the machines get it as, such as `GH_TOKEN`. Empty for
-        /// Forgejo, whose tokens go into teacli's config instead.
-        pub env_var: String,
-        /// Whether the caller's machines get it.
-        pub to_machines: bool,
-        pub created_at: SystemTime,
-        /// Beep can no longer open it; the user has to enter it again.
-        /// Machines do not get it.
-        pub unreadable: bool,
-    }
 }
 
 wire_enum! {
@@ -367,95 +350,6 @@ wire_enum! {
         0 Valid { account: String, machine: Option<String> }
         1 Refused { machine: Option<String>, message: String }
         2 Unreachable { message: String }
-    }
-}
-
-wire_enum! {
-    /// What a credential is for. `url` is a Forgejo or Gitea server's base
-    /// URL, such as `https://git.example.com`; `provider` an `ApiProvider`
-    /// slug, such as `openrouter`.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum CredentialKind {
-        0 GitHub {}
-        1 Forgejo { url: String }
-        2 ApiKey { provider: String }
-    }
-}
-
-/// The providers an API key can be saved for. On the wire a provider is its
-/// slug, so a newer app can add one without changing a reply's shape.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    strum::IntoStaticStr,
-    strum::AsRefStr,
-    strum::EnumString,
-    strum::EnumIter,
-)]
-#[strum(serialize_all = "lowercase")]
-pub enum ApiProvider {
-    OpenRouter,
-    ElevenLabs,
-    OpenAi,
-    /// Dictation.
-    Mistral,
-    Anthropic,
-    Gemini,
-    DeepSeek,
-    Moonshot,
-    Zai,
-    /// Images and videos.
-    Venice,
-    /// 3D models.
-    Meshy,
-    /// Web search and reading pages, for the assistant.
-    Firecrawl,
-}
-
-impl ApiProvider {
-    /// Every provider, in the order Settings lists them.
-    pub fn all() -> impl Iterator<Item = Self> {
-        <Self as strum::IntoEnumIterator>::iter()
-    }
-
-    /// What the user knows it as.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::OpenRouter => "OpenRouter",
-            Self::ElevenLabs => "ElevenLabs",
-            Self::OpenAi => "OpenAI",
-            Self::Mistral => "Mistral",
-            Self::Anthropic => "Anthropic",
-            Self::Gemini => "Gemini",
-            Self::DeepSeek => "DeepSeek",
-            Self::Moonshot => "Moonshot",
-            Self::Zai => "Z.ai",
-            Self::Venice => "Venice",
-            Self::Meshy => "Meshy",
-            Self::Firecrawl => "Firecrawl",
-        }
-    }
-
-    /// The env var tools read the key from.
-    pub fn env_var(self) -> &'static str {
-        match self {
-            Self::OpenRouter => "OPENROUTER_API_KEY",
-            Self::ElevenLabs => "ELEVENLABS_API_KEY",
-            Self::OpenAi => "OPENAI_API_KEY",
-            Self::Mistral => "MISTRAL_API_KEY",
-            Self::Anthropic => "ANTHROPIC_API_KEY",
-            Self::Gemini => "GEMINI_API_KEY",
-            Self::DeepSeek => "DEEPSEEK_API_KEY",
-            Self::Moonshot => "MOONSHOT_API_KEY",
-            Self::Zai => "ZAI_API_KEY",
-            Self::Venice => "VENICE_API_KEY",
-            Self::Meshy => "MESHY_API_KEY",
-            Self::Firecrawl => "FIRECRAWL_API_KEY",
-        }
     }
 }
 

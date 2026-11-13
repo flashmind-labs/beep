@@ -1,4 +1,5 @@
-// Settings, Credentials: git hosts (GitHub, one row per Forgejo server).
+// Settings, Credentials: git hosts (GitHub, one row per Forgejo server) and
+// API keys, one per provider, that every machine gets as an env var.
 
 /// A saved credential (CredentialView), with what its kind adds.
 export type Credential = {
@@ -10,9 +11,17 @@ export type Credential = {
   created_at: number;
   /// Beep can no longer open it: the row asks for it again.
   unreadable?: boolean;
-} & ({ kind: "github" } | { kind: "forgejo"; url: string });
+} & ({ kind: "github" } | { kind: "forgejo"; url: string } | { kind: "api_key"; provider: string });
 
 type Forgejo = Extract<Credential, { kind: "forgejo" }>;
+export type ApiKey = Extract<Credential, { kind: "api_key" }>;
+
+/// A provider an API key can be saved for (ApiProviderView).
+export interface ApiProvider {
+  provider: string;
+  name: string;
+  env_var: string;
+}
 
 /// One GitHub account (GitHubAccountView).
 export interface GitHubAccount {
@@ -53,16 +62,20 @@ export type CredCheck =
 /// The row whose token is being typed, as a `data-cred-edit` value names it.
 type CredEdit =
   | { kind: "github"; id?: string }
-  | { kind: "forgejo"; id?: string; url?: string };
+  | { kind: "forgejo"; id?: string; url?: string }
+  /// `provider` is null while a new key's provider is still to pick.
+  | { kind: "api_key"; id?: string; provider: string | null };
 
 /// What `save_credential` takes (NewCredential).
 type NewCredential =
   | { kind: "github"; secret: string }
-  | { kind: "forgejo"; url: string; secret: string };
+  | { kind: "forgejo"; url: string; secret: string }
+  | { kind: "api_key"; provider: string; secret: string };
 
 /// The section's state.
 export interface CredState {
   list?: Credential[] | null;
+  providers?: ApiProvider[];
   github?: GitHubAccount[];
   edit?: CredEdit | null;
   busy?: boolean;
@@ -83,14 +96,21 @@ export function hostOf(url: string | null | undefined) {
 
 type Draft = { error: string; credential?: undefined } | { credential: NewCredential; error?: undefined };
 
-/// What Save sends for the row being edited, or an error to show.
-export function draft(edit: CredEdit | null | undefined, url: string | undefined, secret: string | undefined): Draft {
+/// What Save sends for the row being edited, or an error to show. `field` is
+/// a new Forgejo server's URL or a new API key's provider.
+export function draft(edit: CredEdit | null | undefined, field: string | undefined, secret: string | undefined): Draft {
   secret = String(secret || "").trim();
   if (!edit) return { error: "Nothing to save." };
-  if (!secret) return { error: "Paste the token first." };
+  if (!secret) return { error: edit.kind === "api_key" ? "Paste the key first." : "Paste the token first." };
+
+  if (edit.kind === "api_key") {
+    const provider = edit.provider ?? String(field || "");
+    if (!provider) return { error: "Pick a provider." };
+    return { credential: { kind: "api_key", provider, secret } };
+  }
 
   if (edit.kind === "forgejo") {
-    const u = String(url || edit.url || "").trim();
+    const u = String(field || edit.url || "").trim();
     if (!/^https?:\/\/[^\s/]+/i.test(u)) return { error: "The server URL starts with https://, such as https://git.example.com." };
     return { credential: { kind: "forgejo", url: u, secret } };
   }
@@ -163,6 +183,13 @@ export function editFor(key: string, list: Credential[] | null | undefined): Cre
   if (key === "github") return { kind: "github" };
   if (key.startsWith("github:")) return { kind: "github", id: key.slice("github:".length) };
   if (key === "forgejo") return { kind: "forgejo" };
+  if (key === "api_key") return { kind: "api_key", provider: null };
+
+  if (key.startsWith("api_key:")) {
+    const id = key.slice("api_key:".length);
+    const c = (list ?? []).find(x => x.id === id);
+    return c?.kind === "api_key" ? { kind: "api_key", id, provider: c.provider } : null;
+  }
 
   if (key.startsWith("forgejo:")) {
     const id = key.slice("forgejo:".length);
@@ -171,4 +198,16 @@ export function editFor(key: string, list: Credential[] | null | undefined): Cre
   }
 
   return null;
+}
+
+/// The saved API keys, in the providers' order.
+export function apiKeys(state: CredState): ApiKey[] {
+  const order = (state.providers ?? []).map(p => p.provider);
+  return (state.list ?? []).filter((c): c is ApiKey => c.kind === "api_key").sort((a, b) => order.indexOf(a.provider) - order.indexOf(b.provider));
+}
+
+/// The providers with no key saved yet.
+export function unsavedProviders(state: CredState): ApiProvider[] {
+  const saved = apiKeys(state);
+  return (state.providers ?? []).filter(p => !saved.some(k => k.provider === p.provider));
 }

@@ -1,10 +1,7 @@
 //! The git credentials a user saved, opened: which token reads which host.
 
-use crate::model::{ForgejoUrl, ForgejoUrlError};
-use beep_proto::{AgentAccount, ApiProvider, CredentialKind, GITHUB_ENV_VAR};
+use beep_proto::Service;
 use secrecy::SecretString;
-use std::str::FromStr;
-use thiserror::Error;
 
 /// The last four characters of `secret`, never more than a quarter of one shorter than 16.
 pub fn last4(secret: &str) -> String {
@@ -17,68 +14,11 @@ pub fn last4(secret: &str) -> String {
     chars[chars.len() - shown..].iter().collect()
 }
 
-/// Which credential a value is; a user has at most one of each.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Slot {
-    GitHub,
-    Forgejo(ForgejoUrl),
-    ApiKey(ApiProvider),
-    /// A coding agent's own token; set in Agent accounts, never listed with the others.
-    AgentToken(AgentAccount),
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum SlotError {
-    #[error("Beep does not know the provider {0:?}.")]
-    UnknownProvider(String),
-    #[error("{0}")]
-    BadUrl(&'static str),
-}
-
-impl From<ForgejoUrlError> for SlotError {
-    fn from(error: ForgejoUrlError) -> Self {
-        Self::BadUrl(error.0)
-    }
-}
-
-impl TryFrom<&CredentialKind> for Slot {
-    type Error = SlotError;
-
-    /// The slot a request names, with a Forgejo URL made canonical.
-    fn try_from(kind: &CredentialKind) -> Result<Self, Self::Error> {
-        Ok(match kind {
-            CredentialKind::GitHub {} => Self::GitHub,
-            CredentialKind::Forgejo { url } => Self::Forgejo(url.parse()?),
-            CredentialKind::ApiKey { provider } => Self::ApiKey(
-                ApiProvider::from_str(provider)
-                    .map_err(|_| SlotError::UnknownProvider(provider.clone()))?,
-            ),
-        })
-    }
-}
-
-impl Slot {
-    /// The env var the machines get it as; `None` for Forgejo (teacli's config).
-    pub fn env_var(&self) -> Option<&'static str> {
-        match self {
-            Self::GitHub => Some(GITHUB_ENV_VAR),
-            Self::Forgejo(_) => None,
-            Self::ApiKey(provider) => Some(provider.env_var()),
-            Self::AgentToken(agent) => Some(agent.env_var()),
-        }
-    }
-
-    /// Git hosts always go to the machines, for gh and teacli.
-    pub fn always_to_machines(&self) -> bool {
-        matches!(self, Self::GitHub | Self::Forgejo(_))
-    }
-}
-
 /// One credential opened for the machines.
 pub struct Opened {
-    pub slot: Slot,
+    pub service: Service,
     pub secret: SecretString,
-    /// Which account a GitHub token is; `None` for every other slot.
+    /// Which account a GitHub token is; `None` for every other service.
     pub github: Option<GitHubLogin>,
 }
 

@@ -24,7 +24,6 @@ pub mod temporary;
 mod usage;
 
 pub use beep_mesh::machine::sessions::{MoveState, WorktreeMove};
-pub use credentials::drop_api_keys;
 pub use desk::Desk;
 pub use error::{FleetError, Result};
 pub use git_board::{GitKept, GitUpdate};

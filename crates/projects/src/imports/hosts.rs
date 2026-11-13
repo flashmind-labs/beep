@@ -7,7 +7,7 @@ use super::{
     repo::{Host, RepoRef},
 };
 use crate::{
-    credentials::{Opened, Slot},
+    credentials::Opened,
     git_items::{
         Caller, HostError,
         forks::Api,
@@ -16,6 +16,7 @@ use crate::{
     model::ForgejoUrl,
 };
 use anyhow::Result;
+use beep_proto::Service;
 use beep_proto::{GitHostKind, NewRepository, ProjectForge};
 use futures::future::join_all;
 use reqwest::Client;
@@ -38,8 +39,8 @@ pub trait Hosts: Send + Sync {
 pub fn forgejo_of(credentials: &[Opened]) -> Vec<ForgejoUrl> {
     credentials
         .iter()
-        .filter_map(|opened| match &opened.slot {
-            Slot::Forgejo(url) => Some(url.clone()),
+        .filter_map(|opened| match &opened.service {
+            Service::Forgejo { url } => Some(url.clone()),
             _ => None,
         })
         .collect()
@@ -49,9 +50,9 @@ pub fn forgejo_of(credentials: &[Opened]) -> Vec<ForgejoUrl> {
 pub fn credential_of<'a>(repo: &RepoRef, credentials: &'a [Opened]) -> Option<&'a Opened> {
     match &repo.host {
         Host::GitHub => crate::credentials::github_for(credentials, repo.org()),
-        Host::Forgejo(url) => credentials
-            .iter()
-            .find(|opened| matches!(&opened.slot, Slot::Forgejo(saved) if saved == url)),
+        Host::Forgejo(url) => credentials.iter().find(
+            |opened| matches!(&opened.service, Service::Forgejo { url: saved } if saved == url),
+        ),
     }
     .filter(|opened| !opened.secret.expose_secret().is_empty())
 }
@@ -68,14 +69,14 @@ pub struct Target<'a> {
 
 /// The API `opened` is a token for; `None` for another kind of token.
 pub fn target_of(opened: &Opened) -> Option<Target<'_>> {
-    Some(match &opened.slot {
-        Slot::GitHub => Target {
+    Some(match &opened.service {
+        Service::GitHub => Target {
             opened,
             api: Api::GitHub,
             base: GITHUB_API.to_owned(),
             login: opened.github.as_ref().map(|github| github.login.as_str()),
         },
-        Slot::Forgejo(url) => Target {
+        Service::Forgejo { url } => Target {
             opened,
             api: Api::Forgejo,
             base: format!("{}/api/v1", url.as_ref()),
@@ -136,7 +137,7 @@ pub async fn project_forges(
         Some(forge_row(hosts, &client, GITHUB.to_owned(), kind, &github).await)
     };
     let forgejo = credentials.iter().filter(usable).filter_map(|opened| {
-        let Slot::Forgejo(url) = &opened.slot else {
+        let Service::Forgejo { url } = &opened.service else {
             return None;
         };
         let client = &client;

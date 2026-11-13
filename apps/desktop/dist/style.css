@@ -941,6 +941,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoder .q code { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere }
 /* Settings: sign-ins and keys. */
 .dcreds { display: grid }
+.dcred-head { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 4px 0 2px }
+.dcred-head ~ .dcred-head { margin-top: 18px }
 .dcreds b, .dbox b { font-weight: 600 }
 .dcreds code, .dbox code { font-size: 11px }
 .dbox { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-top: 12px }

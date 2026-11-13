@@ -13,7 +13,7 @@ use crate::{
 };
 use beep_mesh::{Key, Mesh};
 use beep_proto::{
-    ApiProvider, FlshSettings,
+    FlshSettings,
     node::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
@@ -293,15 +293,12 @@ pub(crate) fn forgejo_servers(mesh: &Mesh) -> Vec<String> {
         .collect()
 }
 
-/// The credentials the node uses. An API key an older desktop put in the mesh is left out: Beep
-/// keeps no API keys.
+/// The credentials the node uses.
 fn credentials(mesh: &Mesh) -> MachineCredentials {
     let mut out = MachineCredentials::default();
 
     for (_, credential) in read::<Credential>(mesh, "credential/") {
         match credential {
-            Credential::Env(secret)
-                if ApiProvider::all().any(|provider| provider.env_var() == secret.name) => {}
             Credential::Env(secret) => out.env.push(secret),
             Credential::Forgejo(login) => out.forgejo.push(login),
         }

@@ -3,7 +3,8 @@
 //! a fork.
 
 use super::{Caller, board::Login, github, host::HostError};
-use crate::{credentials::Slot, imports::hosts::Hosts};
+use crate::imports::hosts::Hosts;
+use beep_proto::Service;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -102,11 +103,11 @@ fn remember(repo: Repo, writable: bool) {
 
 /// The API address of `repo` on the host `login` is for.
 fn repo_url(login: &Login<'_>, repo: &Repo) -> Option<String> {
-    match login.slot {
-        Slot::GitHub if repo.host == github::HOST => {
+    match login.service {
+        Service::GitHub if repo.host == github::HOST => {
             Some(format!("https://api.github.com/repos/{}", repo.name))
         }
-        Slot::Forgejo(url) if url.host() == repo.host => Some(format!(
+        Service::Forgejo { url } if url.host() == repo.host => Some(format!(
             "{}/api/v1/repos/{}",
             url.as_ref().trim_end_matches('/'),
             repo.name

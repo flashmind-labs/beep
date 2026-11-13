@@ -1,6 +1,6 @@
 import { Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { forgejoTokenPage, ghChoices, githubAccounts, hostOf, teaHas, teaOffers, GITHUB_TOKEN_PAGE, type CredCheck, type Credential, type CredState, type GitHubAccount } from "./credentials.ts";
+import { apiKeys, forgejoTokenPage, ghChoices, unsavedProviders, githubAccounts, hostOf, teaHas, teaOffers, GITHUB_TOKEN_PAGE, type ApiKey, type CredCheck, type Credential, type CredState, type GitHubAccount } from "./credentials.ts";
 import { Icon, type IconName } from "../ui/icons.tsx";
 
 type Machines = { name: string; env?: { tools?: { name: string }[] } | null }[] | null;
@@ -24,12 +24,12 @@ function CliChip({ cli, machines }: { cli: string; machines: Machines }) {
 }
 function Link({ href, actions, children }: { href: string; actions: CredentialActions; children: ReactNode }) { return <a href={href} className="dlink" onClick={e => { e.preventDefault(); e.stopPropagation(); actions.open(href); }}>{children}</a>; }
 function Form({ state, actions, title, subtitle, children }: { state: CredState; actions: CredentialActions; title: string; subtitle?: string; children: ReactNode }) {
-  const secret = useRef<HTMLInputElement>(null), url = useRef<HTMLInputElement>(null), edit = state.edit;
-  useLayoutEffect(() => { (url.current ?? secret.current)?.focus(); }, []);
-  const save = () => actions.save(url.current?.value ?? "", secret.current?.value ?? "", () => { if (secret.current) secret.current.value = ""; });
+  const secret = useRef<HTMLInputElement>(null), url = useRef<HTMLInputElement>(null), pick = useRef<HTMLSelectElement>(null), edit = state.edit, key = edit?.kind === "api_key";
+  useLayoutEffect(() => { (url.current ?? pick.current ?? secret.current)?.focus(); }, []);
+  const save = () => actions.save(url.current?.value ?? pick.current?.value ?? "", secret.current?.value ?? "", () => { if (secret.current) secret.current.value = ""; });
   return <div className="dcred-form"><div className="dline"><b>{title}</b>{subtitle && <span className="dfine">{subtitle}</span>}</div><div className={`dfield${state.error ? " err" : ""}`}>
     {edit?.kind === "forgejo" && !edit.id && <input ref={url} id="credUrl" className="url" type="url" placeholder="https://git.example.com" autoComplete="off" spellCheck={false} defaultValue={edit.url ?? ""} aria-label="Server URL" />}
-    <div className="dline"><input ref={secret} id="credSecret" type="password" className="dsecret" placeholder="Paste the token" autoComplete="off" spellCheck={false} aria-label="Token" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /><button className="dbtn pri" id="credSave" disabled={!!state.busy} onClick={save}>{state.busy ? "Checking…" : "Check and save"}</button><button className="dbtn quiet" id="credCancel" onClick={actions.cancel}>Cancel</button></div></div><span className="dsub">{children}</span><div className="derr" id="credErr">{state.error || ""}</div></div>;
+    <div className="dline">{key && edit.provider === null && <select ref={pick} id="credProvider" aria-label="Provider">{unsavedProviders(state).map(p => <option key={p.provider} value={p.provider}>{p.name}</option>)}</select>}<input ref={secret} id="credSecret" type="password" className="dsecret" placeholder={key ? "Paste the key" : "Paste the token"} autoComplete="off" spellCheck={false} aria-label={key ? "Key" : "Token"} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /><button className="dbtn pri" id="credSave" disabled={!!state.busy} onClick={save}>{key ? state.busy ? "Saving…" : "Save" : state.busy ? "Checking…" : "Check and save"}</button><button className="dbtn quiet" id="credCancel" onClick={actions.cancel}>Cancel</button></div></div><span className="dsub">{children}</span><div className="derr" id="credErr">{state.error || ""}</div></div>;
 }
 function Waiting({ state, actions }: { state: CredState; actions: CredentialActions }) { const flow = state.ghFlow; if (!flow) return null; return <div className="dflow">{flow.code && <span>Enter code <code className="dflowcode">{flow.code}</code> on <Link href={flow.url} actions={actions}>GitHub</Link>{flow.copied && <span className="dmut"> (copied)</span>}</span>}<span className="dmuted"><Spinner />{flow.code ? "Waiting for GitHub" : "Starting gh…"}</span></div>; }
 function Use({ label, busy, action }: { label: string; busy: boolean; action: () => void }) { return <button className="dbtn pri small" disabled={busy} onClick={action}>{busy ? "Checking…" : label}</button>; }
@@ -73,16 +73,30 @@ function Forgejo({ credential, state, machines, actions }: { credential: Extract
   const login = credential.account || (check?.state === "valid" ? check.account : ""), error = state.cliError?.key === key ? state.cliError.message : check?.state === "refused" ? check.message : "";
   return <GitRow icon="forgejo" name={name} account={usable && login ? `@${login}` : ""} usable={usable} acts={<>{!usable && teaHas(state.cli, credential.url) && <Use label="Use teacli sign-in" busy={state.cliBusy === key} action={() => actions.useCli(key)} />}<EditRemove actions={actions} name={name} keyName={`forgejo:${credential.id}`} id={credential.id} /></>} chips={<>{!usable && <Chip kind="err">Re-enter this token</Chip>}{usable && <CheckChip check={check} name={name} known={!!credential.account} />}<CliChip cli="teacli" machines={machines} /></>}>{error && <span className="derr">{error}</span>}</GitRow>;
 }
+function ApiKeyRow({ credential, state, actions }: { credential: ApiKey; state: CredState; actions: CredentialActions }) {
+  const provider = state.providers?.find(p => p.provider === credential.provider), name = provider?.name ?? credential.provider;
+  if (state.edit?.kind === "api_key" && state.edit.id === credential.id) return <Form state={state} actions={actions} title={name} subtitle="Replace the key">{null}</Form>;
+  return <GitRow icon="key" name={name} account={`…${credential.last4}`} usable={!credential.unreadable} acts={<><Button icon="edit" label={`Replace the key for ${name}`} onClick={() => actions.edit(`api_key:${credential.id}`)} /><Button icon="remove" label={`Remove ${name}`} onClick={() => actions.remove(credential.id)} /></>} chips={<>{credential.unreadable && <Chip kind="err">Re-enter this key</Chip>}<Chip title="The env var your machines get">{credential.env_var}</Chip></>} />;
+}
+function ApiKeys({ state, actions }: { state: CredState; actions: CredentialActions }) {
+  const keys = apiKeys(state), adding = state.edit?.kind === "api_key" && !state.edit.id;
+  return <><div className="dcred-head">API keys</div>
+    {!keys.length && !adding && <span className="dsub">Your machines get each key as an env var, for flsh's image, video, 3D and speech tools.</span>}
+    {keys.map(credential => <ApiKeyRow key={credential.id} credential={credential} state={state} actions={actions} />)}
+    {adding ? <Form state={state} actions={actions} title="New API key">{null}</Form> : unsavedProviders(state).length > 0 && <div className="dline tight wrap dmt6"><button className="dbtn small" onClick={() => actions.edit("api_key")}>+ Add an API key</button></div>}
+  </>;
+}
 export function CredentialsView({ state, machines, actions }: { state: CredState; machines: Machines; actions: CredentialActions }) {
   if (state.list === undefined) return <div className="dskel-rows"><div className="dskel" style={{ width: "78%" }} /><div className="dskel" style={{ width: "56%" }} /></div>;
   if (state.list === null) return <div className="dmuted">Could not load your credentials.</div>;
   const addingForgejo = state.edit?.kind === "forgejo" && !state.edit.id, accounts = githubAccounts(state);
   const canAddGithub = accounts.length > 0 && !(state.edit?.kind === "github" && (!state.edit.id || state.edit.id === "new")) && !state.ghAdd && !state.ghFlow;
-  return <div className="dcreds"><div style={{ fontSize: "11px", fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--dim)", margin: "4px 0 2px" }}>Git hosts</div><Github state={state} machines={machines} actions={actions} part="rows" />
+  return <div className="dcreds"><div className="dcred-head">Git hosts</div><Github state={state} machines={machines} actions={actions} part="rows" />
     {state.list.filter((credential): credential is Extract<Credential, { kind: "forgejo" }> => credential.kind === "forgejo").map(credential => <Forgejo key={credential.id} credential={credential} state={state} machines={machines} actions={actions} />)}
     {teaOffers(state.cli, state.list).map(server => { const key = `forgejo:${server.url}`; return <GitRow key={key} icon="forgejo" name={hostOf(server.url)} account="teacli on this computer" usable={false} acts={<Use label="Use teacli sign-in" busy={state.cliBusy === key} action={() => actions.useCli(key)} />}><span className="dsub">Signed in with teacli here, not in Beep yet</span>{state.cliError?.key === key && <span className="derr">{state.cliError.message}</span>}</GitRow>; })}
     <Github state={state} machines={machines} actions={actions} part="adding" />
     {addingForgejo && <Form state={state} actions={actions} title="New Forgejo/Gitea server" subtitle="one token per server, teacli on every machine">Make one on your server at <code>/user/settings/applications</code>, with repository and issue access. Or run <code>{"teacli login https://<server> --token <token>"}</code> on this computer and use that sign-in.</Form>}
     {(canAddGithub || !addingForgejo) && <div className="dline tight wrap dmt6">{canAddGithub && <button className="dbtn small" onClick={() => actions.addAccount(true)}>+ Add another GitHub account</button>}{!addingForgejo && <button className="dbtn small" onClick={() => actions.edit("forgejo")}>+ Add a Forgejo/Gitea server</button>}</div>}
+    <ApiKeys state={state} actions={actions} />
   </div>;
 }

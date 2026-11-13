@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  draft, editFor, ghChoices, githubAccounts, sameServer, teaHas, teaOffers, type CliLogins, type Credential,
+  apiKeys, draft, editFor, ghChoices, unsavedProviders, githubAccounts, sameServer, teaHas, teaOffers, type CliLogins, type Credential,
 } from "../src/settings/credentials.ts";
 
 const list: Credential[] = [
   { id: "g", kind: "github", last4: "4f2a", account: "you", env_var: "GH_TOKEN", created_at: 0 },
   { id: "f1", kind: "forgejo", url: "https://git.example.com", last4: "9c1d", account: "you", env_var: "", created_at: 0 },
   { id: "f2", kind: "forgejo", url: "https://code.example.org", last4: "02be", account: null, env_var: "", created_at: 0 },
+  { id: "key.1.meshy", kind: "api_key", provider: "meshy", last4: "9f0c", account: null, env_var: "MESHY_API_KEY", created_at: 0 },
 ];
 test("drafts carry what the server takes", () => {
   assert.deepEqual(draft({ kind: "github" }, undefined, " ghp_x ").credential,
@@ -17,6 +18,21 @@ test("drafts carry what the server takes", () => {
     { kind: "forgejo", url: "https://git.example.com", secret: "t" });
   assert.equal(editFor("api:openrouter", list), null);
   assert.ok(draft({ kind: "github" }, undefined, "  ").error);
+});
+
+test("an API key is drafted for its provider", () => {
+  assert.deepEqual(draft(editFor("api_key", list), "openrouter", " sk-or-x ").credential,
+    { kind: "api_key", provider: "openrouter", secret: "sk-or-x" });
+  assert.deepEqual(draft(editFor("api_key:key.1.meshy", list), undefined, "msy").credential,
+    { kind: "api_key", provider: "meshy", secret: "msy" });
+  assert.ok(draft(editFor("api_key", list), "", "k").error);
+});
+
+test("only providers with no key are offered", () => {
+  const providers = ["openrouter", "meshy", "elevenlabs"].map(p => ({ provider: p, name: p, env_var: "" }));
+  const state = { list, providers };
+  assert.deepEqual(apiKeys(state).map(k => k.provider), ["meshy"]);
+  assert.deepEqual(unsavedProviders(state).map(p => p.provider), ["openrouter", "elevenlabs"]);
 });
 
 test("teacli servers not in Beep can be used", () => {

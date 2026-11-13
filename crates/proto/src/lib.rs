@@ -7,6 +7,7 @@
 mod macros;
 
 mod agents;
+mod credentials;
 mod error;
 #[cfg(feature = "https")]
 pub mod https;
@@ -23,8 +24,9 @@ pub mod report;
 pub mod secret;
 
 pub use agents::*;
+pub use credentials::*;
 pub use error::*;
-pub use flashmind_types::ReasoningLevel;
+pub use flashmind_types::{ApiKey, ReasoningLevel};
 pub use machines::*;
 pub use media::*;
 pub use projects::*;

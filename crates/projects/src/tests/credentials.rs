@@ -3,7 +3,7 @@ use secrecy::ExposeSecret;
 
 fn account(login: &str, orgs: &[&str], default: bool, token: &str) -> Opened {
     Opened {
-        slot: Slot::GitHub,
+        service: Service::GitHub,
         secret: SecretString::from(token),
         github: Some(GitHubLogin {
             login: login.into(),
