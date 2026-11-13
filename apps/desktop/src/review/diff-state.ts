@@ -68,12 +68,9 @@ export function isFolded(f: DiffFile, kept: ReadonlyMap<string, boolean>) {
 
 export const STATUS_LETTER: Record<DiffStatus, string> = { added: "A", modified: "M", deleted: "D", renamed: "R", binary: "B" };
 
-/// The unchanged lines left out before a hunk; `after` is the last old line
-/// shown before them.
-export interface DiffGap { lines: number; after: number }
-
-/// A hunk's header, with the gap that separates it from the hunk above.
-export interface HunkRow { kind: "hunk"; text: string; gap: DiffGap | null }
+/// A hunk's header: `index` counts the file's hunks, `gap` the unchanged
+/// lines left out before it, and `expanded` says some of them were shown.
+export interface HunkRow { kind: "hunk"; text: string; index: number; gap: number; expanded: boolean }
 
 /// One row of a file's body.
 export type DiffRow =
@@ -86,18 +83,20 @@ export function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_st
 }
 
 /// `f`'s rows: each hunk's header, with the unchanged lines left out before
-/// it, then its lines numbered on both sides.
-export function diffRows(f: Pick<DiffFile, "hunks">): DiffRow[] {
+/// it, then its lines numbered on both sides. `extents` is the context the
+/// file was expanded with, a hunk each, or `null`.
+export function diffRows(f: Pick<DiffFile, "hunks">, extents: readonly Extent[] | null = null): DiffRow[] {
   const out: DiffRow[] = [];
   let lastOld: number | null = null;
 
-  for (const h of f.hunks) {
+  f.hunks.forEach((h, index) => {
     // A side with no lines names the line before it, so the first one
     // after is the start, not the one past it.
     let old = h.old_lines ? h.old_start : h.old_start + 1;
     let now = h.new_lines ? h.new_start : h.new_start + 1;
-    const gap = lastOld != null && old - lastOld > 1 ? { lines: old - lastOld - 1, after: lastOld } : null;
-    out.push({ kind: "hunk", text: hunkHeader(h), gap });
+    const gap = lastOld === null ? 0 : Math.max(0, old - lastOld - 1);
+    const expanded = index > 0 && !!extents && (extents[index - 1].below > 0 || extents[index].above > 0);
+    out.push({ kind: "hunk", text: hunkHeader(h), index, gap, expanded });
 
     for (const l of h.lines) {
       const row: DiffRow = { kind: "line", k: l.k, old: l.k === "+" ? null : old, new: l.k === "-" ? null : now, text: l.t, eol: !!l.e };
@@ -107,7 +106,7 @@ export function diffRows(f: Pick<DiffFile, "hunks">): DiffRow[] {
     }
 
     lastOld = old - 1;
-  }
+  });
 
   return out;
 }
@@ -437,36 +436,60 @@ export function parseDraft(raw: string | null): ReviewComment[] {
 /// How many more lines of context a hunk shows on each side.
 export interface Extent { above: number; below: number }
 
-/// Which hunk of `original` an expansion widens: going `below` from the old
-/// line `after` it is the last hunk starting by there, going `above` the
-/// next one.
-export function hunkToExpand(original: Pick<DiffFile, "hunks">, direction: keyof Extent, after: number) {
-  const before = original.hunks.filter(hunk => hunk.old_start <= after).length;
-  return Math.max(0, Math.min(original.hunks.length - 1, direction === "below" ? before - 1 : before));
+/// A change to the context of one side of a hunk: ten more lines, or back
+/// to none.
+export interface ContextEdit { hunk: number; side: keyof Extent; show: boolean }
+
+/// `extents` after `edits`.
+export function editExtents(extents: readonly Extent[], edits: readonly ContextEdit[]): Extent[] {
+  const next = extents.map(extent => ({ ...extent }));
+  for (const { hunk, side, show } of edits) if (next[hunk]) next[hunk][side] = show ? next[hunk][side] + 10 : 0;
+  return next;
 }
 
 /// Select surrounding lines from a wider patch without changing line
-/// numbers: each hunk of `original` with its own extent.
+/// numbers: each hunk of `original` with its own extent. The result has a
+/// hunk for each of `original`, also where two of them come to touch.
 export function contextFile(original: DiffFile, full: DiffFile, extents: readonly Extent[]): DiffFile {
   const hunks: DiffHunk[] = [];
+
   for (const h of full.hunks) {
     let old = h.old_start, now = h.new_start;
-    let kept: DiffHunk | null = null;
+    let kept: DiffHunk | null = null, owner: number | null = null;
+
     for (const line of h.lines) {
-      const visible = original.hunks.some((base, index) => line.k === "-"
-        ? old >= base.old_start - extents[index].above && old < base.old_start + base.old_lines + extents[index].below
-        : now >= base.new_start - extents[index].above && now < base.new_start + base.new_lines + extents[index].below);
-      if (visible) {
-        if (!kept) { kept = { old_start: old, new_start: now, old_lines: 0, new_lines: 0, section: h.section, lines: [] }; hunks.push(kept); }
+      const at = line.k === "-" ? hunkAt(original.hunks, extents, "old", old) : hunkAt(original.hunks, extents, "new", now);
+
+      if (at === null) kept = null;
+      else {
+        if (!kept || at !== owner) { kept = { old_start: old, new_start: now, old_lines: 0, new_lines: 0, section: h.section, lines: [] }; hunks.push(kept); }
         kept.lines.push(line);
         if (line.k !== "+") kept.old_lines++;
         if (line.k !== "-") kept.new_lines++;
-      } else kept = null;
+      }
+
+      owner = at;
       if (line.k !== "+") old++;
       if (line.k !== "-") now++;
     }
   }
+
   return { ...full, hunks };
+}
+
+/// Which hunk shows line `at` of `side` with its extent, `null` for none.
+/// Where two extents overlap the lines go to the later hunk, up to the
+/// earlier one's own lines.
+function hunkAt(hunks: readonly DiffHunk[], extents: readonly Extent[], side: "old" | "new", at: number): number | null {
+  const range = (h: DiffHunk) => side === "old" ? [h.old_start, h.old_start + h.old_lines] : [h.new_start, h.new_start + h.new_lines];
+
+  for (let i = hunks.length - 1; i >= 0; i--) {
+    const [start, end] = range(hunks[i]);
+    const floor = i ? range(hunks[i - 1])[1] : -Infinity;
+    if (at >= Math.max(start - extents[i].above, floor)) return at < end + extents[i].below ? i : null;
+  }
+
+  return null;
 }
 
 /// Heights the file list lays out by before a file is drawn and measured:

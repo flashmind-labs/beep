@@ -72,8 +72,7 @@ test("diff context can be expanded and reviewed", async ({ page }) => {
   await expect(page.getByPlaceholder("Comment on this line")).toBeVisible();
   await page.screenshot({ path: "test-results/expanded-diff-context.png" });
   await page.keyboard.press("Escape");
-  await page.locator(".dv-fh").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Collapse context" }).click();
+  await page.getByRole("button", { name: "Hide the shown lines" }).click();
   await expect(row).toHaveCount(0);
   await expect(page.locator(".dv-l").filter({ hasText: "const value17 = 17;" })).toBeVisible();
 });

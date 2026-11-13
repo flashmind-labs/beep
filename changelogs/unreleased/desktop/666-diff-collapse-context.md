@@ -1,4 +1,4 @@
 ### Added
 
-- Desktop: a diff file's right-click menu has Collapse context, which hides
-  the unchanged lines its arrows showed.
+- Desktop: in a diff, where arrows showed more unchanged lines a button beside
+  them hides those lines again.
