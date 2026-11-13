@@ -95,3 +95,11 @@ test("inline code naming a file becomes a file reference", () => {
     '<p>See <code class="fref" data-file="src/a.rs:12" role="link" tabindex="0">src/a.rs:12</code>, <code>self.mcp</code>.</p><pre><code>src/b.rs</code></pre>',
   );
 });
+
+test("Claude API errors use the warning color without changing other paragraphs", () => {
+  const error = 'API Error: 529 Overloaded. Check <a href="https://status.claude.com">status</a>.';
+  assert.equal(markWarnings(`<p>${error}</p>`), `<p class="agwarn">${error}</p>`);
+  assert.equal(markWarnings("<p>API Error: 401 Unauthorized</p>"), '<p class="agwarn">API Error: 401 Unauthorized</p>');
+  const ordinary = "<p>Investigating API Error: 529</p><pre><code>API Error: example</code></pre><p>Done.</p>";
+  assert.equal(markWarnings(ordinary), ordinary);
+});
