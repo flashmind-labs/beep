@@ -105,7 +105,7 @@ expected 200, got 401</pre></details></span></div>`;
       ? `<div class="dcoderen agent md">The release build passes on build-box, and the iOS UI tests are running on mac-mini (job-7f2c). win-box is offline, so the Windows run waits.</div>`
       : arts
       ? `<div class="dcoderen agent md">The usage report is in <a class="imgl" data-dact="dset:ags:artifacts">reports/usage.html</a>, published as an artifact. The notes are in <a class="imgl" data-dact="dset:ags:artifacts">reports/NOTES.md</a>.</div>`
-      : `<div class="dcoderen agent md">${v === "warning" ? '<p class="agwarn">Warning: Falling back to the HTTPS transport. The stream disconnected before completion.</p>' : ""}Done. The login test passes, and 2 files changed. I did not touch the other tests.</div>`;
+      : `<div class="dcoderen agent md">${v === "warning" ? '<p class="agwarn">Warning: Falling back to the HTTPS transport. The stream disconnected before completion.</p><p class="agwarn">API Error: 529 Overloaded. Please try again in a moment.</p>' : ""}Done. The login test passes, and 2 files changed. I did not touch the other tests.</div>`;
     // A plain start opens on the prompt: Beep made no branch, so there is no "Started on a new branch" line.
     // The heading is the fold: how long it worked and what it did, on one
     // line that opens the steps. Opened, it counts the calls instead.
