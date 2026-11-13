@@ -37,7 +37,7 @@ html, body.cbody { background: var(--ink) }
 .cc-panel { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); min-width: 0 }
 .cc-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start }
 /* Overview boxes and Projects' owners: as many columns as fit, one when narrow. */
-.cc-sec h4 .lk { all: unset; cursor: pointer }
+.cc-sec h4 .lk { all: unset; cursor: default }
 .cc-sec h4 .lk:hover { color: var(--fg) }
 .cc-sec h4 .lk:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px }
 .cc-git { display: grid; gap: 14px }
@@ -50,7 +50,7 @@ html, body.cbody { background: var(--ink) }
 .cc-mstrip > .m .bad { color: var(--err) }
 .cc-mstrip > .dbtn { margin: 4px 6px 4px auto }
 .cc-tabs { position: sticky; top: -14px; z-index: 2; display: flex; gap: 2px; margin: 0 -16px; padding: 0 12px; background: var(--ink); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none }
-.cc-tabs button { flex: none; display: flex; align-items: center; gap: 6px; padding: 9px 9px 7px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer }
+.cc-tabs button { flex: none; display: flex; align-items: center; gap: 6px; padding: 9px 9px 7px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: default }
 .cc-tabs button:hover { color: var(--fg) }
 .cc-tabs button[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent) }
 .cc-tabs .n { font-size: 11px; font-weight: 400; color: var(--muted) }
@@ -193,9 +193,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-top kbd { font: inherit; font-size: 11px; opacity: .7; margin-left: auto; flex: none }
 .cc-set .dset-crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap }
 .cc-set .dset-crumbs > svg { flex: none; color: var(--dim) }
-.cc-set .dset-crumb { all: unset; cursor: pointer; font-size: 15px; color: var(--muted) }
+.cc-set .dset-crumb { all: unset; cursor: default; font-size: 15px; color: var(--muted) }
 .cc-set .dset-crumb:hover, .cc-set .dset-crumb:focus-visible { color: var(--fg) }
-.cc-set .dset-back { all: unset; cursor: pointer; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--muted) }
+.cc-set .dset-back { all: unset; cursor: default; flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--muted) }
 .cc-set .dset-back:hover, .cc-set .dset-back:focus-visible { color: var(--fg) }
 .cc-set .dset-crumbs b { overflow: hidden; text-overflow: ellipsis }
 .cc-set .dset-page { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 24px; scrollbar-width: thin; display: flex; flex-direction: column }
@@ -207,7 +207,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-host > .dlist { padding: 0; overflow: visible }
 .cc-set .dset-h { margin: 16px 0 6px }
 .cc-set .dset-box { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin: 0 0 14px }
-.cc-set .dset-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; outline: none }
+.cc-set .dset-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: default; outline: none }
 .cc-set .dset-row:last-child { border-bottom: 0 }
 .cc-set .dset-row:hover { background: color-mix(in srgb, var(--fg) 2.5%, transparent) }
 .cc-set .dset-row:focus-visible { box-shadow: inset 0 0 0 2px var(--accent) }
@@ -218,7 +218,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set .dset-box .dmach { padding: 10px 14px }
 .cc-set .dlog { margin: 0 0 6px; max-height: 320px; overflow: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
 .cc-set .dlog-acts { display: flex; gap: 6px; margin-bottom: 14px }
-.cc-set .dmach[data-machine] { cursor: pointer; outline: none }
+.cc-set .dmach[data-machine] { cursor: default; outline: none }
 .cc-set .dmach[data-machine]:hover { background: color-mix(in srgb, var(--fg) 2.5%, transparent) }
 .cc-set .dmach[data-machine]:focus-visible { box-shadow: inset 0 0 0 2px var(--accent) }
 .cc-set .dmach[data-machine] .nm > svg { margin-left: auto; color: var(--muted) }
@@ -243,9 +243,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* Home, as the mock's Balanced Home: a title and a count over each section. */
 .cc-sec h4 .n { margin-left: 6px; color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none }
 /* A row is a title and one muted line; the whole row opens it. */
-.cc-line { cursor: pointer }
+.cc-line { cursor: default }
 .cc-line:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
-.cc-line .t { all: unset; display: grid; min-width: 0; line-height: 18px; cursor: pointer }
+.cc-line .t { all: unset; display: grid; min-width: 0; line-height: 18px; cursor: default }
 .cc-line .t:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
 .cc-line .r { grid-auto-flow: column; align-items: center }
 .cc-running { display: inline-flex; align-items: center; gap: 8px }
@@ -290,13 +290,13 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-si .mac-state { max-width: 45%; overflow: hidden; text-overflow: ellipsis }
 .cc-si .mac-add { margin-left: auto; min-height: 18px; padding: 0 6px; font-size: 11px }
 /* A sidebar group title that opens its view. */
-.cc-grp h3 button.cc-gt { padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; display: inline; cursor: pointer }
+.cc-grp h3 button.cc-gt { padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; display: inline; cursor: default }
 .cc-grp h3 button.cc-gt:hover { color: var(--fg) }
 .pl { border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); overflow: hidden }
 
 /* One project: where it lives, its agents and its sessions. */
 .pv-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px }
-button.pv-row { all: unset; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px; width: 100%; box-sizing: border-box; cursor: pointer }
+button.pv-row { all: unset; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center; padding: 8px 12px; width: 100%; box-sizing: border-box; cursor: default }
 button.pv-row:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 button.pv-row:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: -2px }
 button.pv-row .m { align-items: center }
@@ -320,7 +320,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 @container (max-width: 640px) { .pj-cols, .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) } }
 /* Custom agents: under Agents in the same column, a row per agent with its harness, colour and scope. */
 .ca-col > div + div { margin-top: 14px }
-.ca-row { cursor: pointer }
+.ca-row { cursor: default }
 .ca-row:hover, .ca-row:focus-visible { background: var(--elev); outline: none }
 .ca-row.bad { cursor: default; background: none }
 .ca-row .t { display: flex; align-items: center; gap: 6px }
@@ -346,7 +346,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .cc-sec h4 .sw-spin, .cc-sec h4 .sw-age { margin-left: 8px; letter-spacing: 0; text-transform: none; font-weight: 400 }
 .pj-task.found { background: color-mix(in srgb, var(--link) 8%, transparent) }
 .pb-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden }
-.pb-seg button { font: inherit; font-size: 12px; padding: 4px 10px; background: none; border: 0; color: var(--muted); cursor: pointer }
+.pb-seg button { font: inherit; font-size: 12px; padding: 4px 10px; background: none; border: 0; color: var(--muted); cursor: default }
 .pb-seg button[aria-pressed="true"] { background: var(--elev); color: inherit }
 /* The project page: everything going on in a list at the left, the picked
    row's detail at the right, each scrolling on its own. */
@@ -362,7 +362,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-list h4 { margin: 0; padding: 12px 14px 4px; display: flex; gap: 8px }
 .pj-list h4 .n { font-weight: 400 }
 .pj-list .note { padding: 4px 14px 6px; font-size: 12px; color: var(--muted) }
-.pj-li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 6px 12px 6px 14px; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer }
+.pj-li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 6px 12px 6px 14px; border: 0; background: none; color: var(--fg); font: inherit; text-align: left; cursor: default }
 .pj-li:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .pj-li[aria-current="true"] { background: var(--elev); box-shadow: inset 2px 0 var(--accent) }
 .pj-li .lead { display: grid; place-items: center }
@@ -389,7 +389,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-start .acts { display: flex; gap: 6px }
 .pj-start .skip, .pj-proj { color: var(--muted) }
 .pj-proj { font-size: 11px; margin-left: 6px }
-.pj-tag.lab { cursor: pointer }
+.pj-tag.lab { cursor: default }
 .pj-tag.lab:hover { color: var(--fg) }
 .pj-tag.lab.on { color: var(--fg); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent) }
 .cc-open > .pj-labels { padding: 8px 12px 4px }
@@ -445,7 +445,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-find input { display: block; box-sizing: border-box; width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 3%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0 }
 .pj-find input::placeholder { color: var(--muted) }
 .pj-find input:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-.pj-find input::-webkit-search-cancel-button { cursor: pointer }
+.pj-find input::-webkit-search-cancel-button { cursor: default }
 .pj-org { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 14px }
 .pj-org h3 { margin: 0; display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 13px; font-weight: 600; color: var(--fg) }
 .pj-org h3 small { font-size: 11px; font-weight: 400; color: var(--muted) }
@@ -579,7 +579,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .hv-view { display: grid; gap: 12px; align-content: start }
 .hv { display: grid; grid-template-columns: 300px minmax(0, 1fr); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; min-height: 0 }
 .hv-list { border-right: 1px solid var(--border); display: grid; align-content: start; background: color-mix(in srgb, var(--fg) 1.5%, transparent) }
-.hv-it { cursor: pointer; display: grid; grid-template-columns: 28px minmax(0, 1fr) 36px; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); outline: none }
+.hv-it { cursor: default; display: grid; grid-template-columns: 28px minmax(0, 1fr) 36px; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); outline: none }
 .hv-it:focus-visible { box-shadow: inset 0 0 0 2px var(--accent) }
 .hv-it[aria-current="true"] { background: color-mix(in srgb, var(--ok) 7%, transparent) }
 .hv-it .dswitch, .hv-sum .dswitch { justify-self: end }
@@ -621,7 +621,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 /* The machine picker: a segmented control whose names never wrap, or a select when they do not fit. */
 .hv-pick { display: inline-flex; min-width: 0 }
 .hv-seg { display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 2%, transparent) }
-.hv-seg button { all: unset; cursor: pointer; height: 24px; line-height: 24px; padding: 0 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; min-width: 0 }
+.hv-seg button { all: unset; cursor: default; height: 24px; line-height: 24px; padding: 0 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; min-width: 0 }
 .hv-seg button:hover:not(:disabled) { color: var(--fg) }
 .hv-seg button[aria-pressed="true"], .hv-seg button[data-selected] { background: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--fg) }
 .hv-seg button:disabled { opacity: .45; cursor: default }
@@ -658,7 +658,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .tl-list { display: grid; align-content: start; gap: 12px; min-height: 0; overflow-y: auto; padding: 14px 12px; border-right: 1px solid var(--border) }
 .tl-m h5 .dbtn { margin-left: auto }
 .tl-m h5 { margin: 0 0 4px; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted) }
-.tl-it { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 2px 8px; align-items: center; width: 100%; text-align: left; padding: 7px 9px; border-radius: var(--radius-sm); border: 1px solid transparent; background: none; color: var(--fg); font: inherit; cursor: pointer }
+.tl-it { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 2px 8px; align-items: center; width: 100%; text-align: left; padding: 7px 9px; border-radius: var(--radius-sm); border: 1px solid transparent; background: none; color: var(--fg); font: inherit; cursor: default }
 .tl-it:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 .tl-it[aria-current="true"] { background: var(--elev); border-color: var(--border) }
 .tl-it b { font-family: var(--mono, ui-monospace, monospace); font-weight: 500; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -675,7 +675,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 @media (max-width: 760px) { .tl { grid-template-columns: minmax(140px, 30%) minmax(0, 1fr) } }
 .us { position: relative; flex: none; margin-left: 10px }
 .us[hidden] { display: none }
-.us-pill { display: inline-flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer }
+.us-pill { display: inline-flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default }
 .us-pill:hover, .us-pill[aria-expanded="true"] { background: var(--elev) }
 .us-pill b { color: var(--fg); font-weight: 500 }
 .us-plan { display: inline-flex; align-items: center; gap: 5px }
@@ -691,19 +691,19 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .us-lim { display: grid; grid-template-columns: 76px minmax(30px, 1fr) auto; gap: 8px; align-items: center; padding: 3px 0 }
 .us-lim .bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden }
 .us-lim small, .us-row small { color: var(--muted) }
-.us-more { all: unset; display: block; padding: 4px 0; font-size: 12px; color: var(--muted); cursor: pointer } .us-more:hover { color: var(--fg) } .us-more:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; border-radius: 4px }
+.us-more { all: unset; display: block; padding: 4px 0; font-size: 12px; color: var(--muted); cursor: default } .us-more:hover { color: var(--fg) } .us-more:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; border-radius: 4px }
 .us-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-variant-numeric: tabular-nums }
 .us-row > :first-child { flex: 1 1 0; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .us-row > .us-r { flex: 0 1 auto; max-width: 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right }
 .us-note { font-size: 11px; color: var(--muted); line-height: 15px }
 .us-seg { display: flex; gap: 2px; padding: 2px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm) }
-.us-seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 0; border-radius: var(--radius-sm); cursor: pointer }
+.us-seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; padding: 3px 0; border-radius: var(--radius-sm); cursor: default }
 .us-seg button.on { background: var(--border); color: var(--fg) }
 .us-pop h5.us-sub { margin-top: 8px }
 /* The bell and its notifications pane, beside the usage pill. */
 .nt { position: relative; flex: none; margin-left: 10px }
 .nt[hidden] { display: none }
-.nt-bell { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer }
+.nt-bell { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: default }
 .nt-bell:hover, .nt-bell[aria-expanded="true"] { background: var(--elev); color: var(--fg) }
 .nt-n { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--hot); color: var(--on-accent); font-size: 10.5px; font-weight: 600; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums }
 .nt-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 420px; max-width: calc(100vw - 16px); max-height: min(70vh, 560px); box-sizing: border-box; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); color: var(--fg); font-size: 13px; cursor: default }
@@ -711,7 +711,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .nt-h b { font-size: 14px; font-weight: 600; color: var(--fg) }
 .nt-h .dbtn:last-child { margin-left: auto }
 .nt-list { overflow-y: auto; overscroll-behavior: contain; min-height: 0 }
-.nt-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--border); cursor: pointer }
+.nt-row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 14px; border-top: 1px solid var(--border); cursor: default }
 .nt-list > .nt-row:first-child { border-top: 0 }
 .nt-row:hover { background: var(--elev) }
 .nt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
@@ -747,7 +747,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-runbox { container-type: inline-size }
 .pj-runrow { border-bottom: 1px solid var(--border) }
 .pj-runrow:last-child { border-bottom: 0 }
-.pj-runrow .rr-head { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto 14px; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; border-radius: var(--radius-sm) }
+.pj-runrow .rr-head { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto 14px; align-items: center; gap: 12px; padding: 12px 14px; cursor: default; border-radius: var(--radius-sm) }
 .pj-runrow .rr-head:hover, .pj-runrow.open .rr-head { background: color-mix(in srgb, var(--fg) 3%, transparent) }
 .pj-runrow .rr-head:focus-visible { outline: 1px solid var(--accent, var(--ok)); outline-offset: -1px }
 .rr-st { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: color-mix(in srgb, var(--fg) 5%, transparent) }
@@ -804,9 +804,9 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .fb-err { min-width: 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--err) 45%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--err) 8%, transparent); font-size: 12.5px }
 .fb-line { display: flex; gap: 10px; align-items: flex-start; color: var(--err); line-height: 18px }
 .fb-line span { flex: 1; min-width: 0; overflow-wrap: anywhere }
-.fb-x { all: unset; flex: none; cursor: pointer; padding: 0 4px; color: var(--muted); font-size: 15px; line-height: 18px }
+.fb-x { all: unset; flex: none; cursor: default; padding: 0 4px; color: var(--muted); font-size: 15px; line-height: 18px }
 .fb-x:hover { color: var(--fg, inherit) }
-.fb-more summary { margin-top: 6px; cursor: pointer; color: var(--muted); font-size: 12px }
+.fb-more summary { margin-top: 6px; cursor: default; color: var(--muted); font-size: 12px }
 .fb-more pre { margin: 6px 0 0; max-height: 220px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--ink); border: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere }
 .pj-task.ca-row > .t, .pj-task.ca-row > .m { grid-column: 1 }
 .pj-task.ca-row > .acts { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding-left: 12px }
@@ -824,7 +824,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .gh-nav { display: flex; flex-direction: column; padding: 0; overflow: hidden; min-width: 0; min-height: 0 }
 .gh-nav-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 8px; font-size: 14px; line-height: 20px }
 .gh-nav-head b { font-weight: 600 }
-.gh-back, .gh-collapse { border: 0; padding: 0; color: var(--muted); background: transparent; font-size: 12px; line-height: 16px; cursor: pointer }
+.gh-back, .gh-collapse { border: 0; padding: 0; color: var(--muted); background: transparent; font-size: 12px; line-height: 16px; cursor: default }
 .gh-back:hover, .gh-collapse:hover { color: var(--fg) }
 .gh-collapse { margin-left: auto }
 .gh-search { display: block; padding: 4px 12px 12px }
@@ -832,7 +832,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .gh-search input::placeholder { color: var(--muted) }
 .gh-tree { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; padding: 0 8px 16px }
 .gh-node { min-width: 0; font-size: 12px; line-height: 16px }
-.gh-node > summary { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; padding: 4px; border-radius: 4px; list-style: none; cursor: pointer; color: var(--fg) }
+.gh-node > summary { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; padding: 4px; border-radius: 4px; list-style: none; cursor: default; color: var(--fg) }
 .gh-node > summary::-webkit-details-marker { display: none }
 .gh-node > summary:hover, .gh-file:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .gh-node > summary svg { flex: none; width: 12px; height: 12px; fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round }
@@ -846,12 +846,12 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .gh-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .gh-dot { width: 6px; height: 6px; flex: none; border: 1px solid var(--muted); border-radius: 50% }
 .gh-dot.merge { background: var(--muted) }
-.gh-file { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; border: 0; padding: 8px 4px 8px 16px; border-radius: 4px; text-align: left; background: transparent; color: var(--fg); font: inherit; font-size: 12px; line-height: 16px; cursor: pointer }
+.gh-file { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; border: 0; padding: 8px 4px 8px 16px; border-radius: 4px; text-align: left; background: transparent; color: var(--fg); font: inherit; font-size: 12px; line-height: 16px; cursor: default }
 .gh-file > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .gh-status { font-family: var(--mono); color: #c6a866; font-size: 12px }
 .gh-location { padding: 8px; color: var(--muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere }
 .gh-location code { font-size: 12px }
-.gh-more { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; padding: 8px; margin-top: 8px; border: 0; background: transparent; color: var(--fg); text-align: left; font-size: 12px; cursor: pointer }
+.gh-more { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; padding: 8px; margin-top: 8px; border: 0; background: transparent; color: var(--fg); text-align: left; font-size: 12px; cursor: default }
 .gh-more span { color: var(--muted) }
 .gh-more:hover { text-decoration: underline }
 .gh-empty { padding: 8px; margin: 0; color: var(--muted); font-size: 12px; line-height: 20px }
@@ -863,18 +863,18 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .gh-title-row h3 { flex: 1; min-width: 0; margin: 0; font-size: 18px; line-height: 28px; font-weight: 600; text-wrap: pretty }
 .gh-detail-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere }
 .gh-tabs { display: flex; align-items: center; gap: 4px; padding: 0 16px 8px }
-.gh-tabs button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; line-height: 16px; padding: 8px; border-radius: 4px; cursor: pointer }
+.gh-tabs button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; line-height: 16px; padding: 8px; border-radius: 4px; cursor: default }
 .gh-tabs button[aria-current="true"] { color: var(--fg); background: color-mix(in srgb, var(--fg) 7%, transparent) }
 .gh-detail-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column }
 .gh-diff-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 24px; color: var(--muted); font-size: 12px; line-height: 16px }
-.gh-diff-toolbar button { margin-left: auto; padding: 0; border: 0; color: var(--muted); background: transparent; font-size: 12px; cursor: pointer }
+.gh-diff-toolbar button { margin-left: auto; padding: 0; border: 0; color: var(--muted); background: transparent; font-size: 12px; cursor: default }
 .gh-diff-toolbar button:hover { color: var(--fg) }
 .gh-facts { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 16px; padding: 24px; font-size: 12px; line-height: 20px }
 .gh-facts > span:nth-child(odd) { color: var(--muted) }
 .gh-facts code { overflow-wrap: anywhere }
-.gh-parent { padding: 0; border: 0; background: transparent; color: var(--fg); cursor: pointer; text-decoration: underline }
+.gh-parent { padding: 0; border: 0; background: transparent; color: var(--fg); cursor: default; text-decoration: underline }
 .gh-session-view { padding: 16px 24px; font-size: 14px; line-height: 24px; overflow: auto }
-.gh-session-link { display: grid; gap: 4px; border: 1px solid var(--border); border-radius: 4px; padding: 12px; width: 100%; background: transparent; color: var(--fg); font: inherit; font-size: 14px; text-align: left; cursor: pointer }
+.gh-session-link { display: grid; gap: 4px; border: 1px solid var(--border); border-radius: 4px; padding: 12px; width: 100%; background: transparent; color: var(--fg); font: inherit; font-size: 14px; text-align: left; cursor: default }
 .gh-session-link b { font-weight: 500 }
 .gh-session-link span { color: var(--muted); font-size: 12px }
 .gh-nav button:focus-visible, .gh-detail button:focus-visible, .gh-node summary:focus-visible, .gh-search input:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px }
@@ -927,7 +927,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 
 /* The collapsed rail keeps the toggle below the native window controls. */
 .cc-side > .cc-brand { justify-content: space-between; margin-bottom: 12px }
-.cc-side-toggle { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer }
+.cc-side-toggle { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: default }
 .cc-side-toggle svg { width: 16px; height: 16px }
 .cc-side-toggle:hover { background: var(--elev); color: var(--fg) }
 .cc-side-toggle:active { transform: scale(.98) }
@@ -944,9 +944,9 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .bd-lane { display: grid; gap: 8px; min-width: 0 }
 .bd-lane > h4 { margin: 0; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--dim) }
 .bd-lane > h4 span { font-weight: 500; color: var(--muted) }
-.bd-lane > h4 button { all: unset; cursor: pointer }
+.bd-lane > h4 button { all: unset; cursor: default }
 .bd-lane > h4 button:hover, .bd-lane > h4 button:focus-visible { color: var(--fg) }
-.bd-card { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); cursor: pointer; min-width: 0 }
+.bd-card { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); cursor: default; min-width: 0 }
 .bd-card:hover, .bd-card:focus-visible { border-color: var(--muted); outline: 0 }
 .bd-card > b { font-weight: 500; font-size: 13px; line-height: 18px; overflow-wrap: anywhere }
 .bd-card .sub { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); min-width: 0 }
@@ -965,7 +965,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .bd-rows > .hd { padding: 0 0 8px }
 .bd-rows > .pj { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 0 8px; border-top: 1px solid var(--border); font-weight: 600; font-size: 13px; line-height: 18px }
 .bd-rows > .pj > :last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.bd-rows > .pj button { all: unset; cursor: pointer }
+.bd-rows > .pj button { all: unset; cursor: default }
 .bd-rows > .pj button:hover, .bd-rows > .pj button:focus-visible { text-decoration: underline }
 /* A cell shows about two cards and scrolls to the rest. */
 .bd-rows > .bd-lane:not(.hd) { max-height: 236px; overflow-y: auto; scrollbar-width: thin; padding-bottom: 12px }

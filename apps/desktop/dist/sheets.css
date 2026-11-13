@@ -55,7 +55,7 @@
 .ap-q[hidden], .ap-bar[hidden], .ap-look[hidden] { display: none }
 .ap-look { margin-bottom: 8px }
 .ap-bar { display: flex; flex: none; align-items: center; gap: 10px; min-height: 30px; margin: 10px 0; font-size: 12.5px; color: var(--muted) }
-.ap-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer }
+.ap-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: default }
 .ap-bar .dbtn { margin-left: auto; flex: none; white-space: nowrap }
 .ap-bar .dbtn kbd { margin-left: 6px; padding: 0 4px; font-size: 10.5px; line-height: 15px; border: 0; background: none; opacity: .7 }
 .ap-st { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center }
@@ -73,14 +73,14 @@
 .ip-dir:disabled { opacity: 1 }
 .ip-folder { position: relative; flex: 1; min-width: 0; display: flex }
 .ip-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 3; max-height: 264px; overflow: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--deep); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 45%, transparent) }
-.ip-menu div { padding: 4px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer }
+.ip-menu div { padding: 4px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default }
 .ip-menu div:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .ip-menu div.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .ip-browse { border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); overflow: hidden }
 .ip-browse .at { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12.5px }
 .ip-browse .at span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .ip-browse .dirs { max-height: 168px; overflow: auto; padding: 4px 0; display: flex; flex-direction: column }
-.ip-browse .dirs button { all: unset; box-sizing: border-box; width: 100%; padding: 5px 12px; font-size: 13px; cursor: pointer }
+.ip-browse .dirs button { all: unset; box-sizing: border-box; width: 100%; padding: 5px 12px; font-size: 13px; cursor: default }
 .ip-browse .dirs button:hover, .ip-browse .dirs button:focus-visible { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .ip-browse .dirs .none { padding: 5px 12px; font-size: 12.5px; color: var(--muted) }
 .ip-browse .foot { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted) }
@@ -136,7 +136,7 @@
 .rp-box { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--deep); margin-bottom: 14px; overflow: hidden }
 .rp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 0; background: none; color: var(--fg); font: inherit; font-size: 13px; text-align: left }
 .rp-row + .rp-row { border-top: 1px solid var(--border) }
-button.rp-row { cursor: pointer }
+button.rp-row { cursor: default }
 button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .rp-row .m { color: var(--muted); font-size: 12px; white-space: nowrap }
 .rp-row .m.bad { color: var(--err) }
@@ -165,7 +165,7 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .am-phone-qr { width: 220px; height: 220px; padding: 16px; margin: 12px auto; box-sizing: content-box; background: #F4F8F5 }
 .am-phone-qr svg { display: block; width: 100%; height: 100% }
 .am-phone-manual { margin: 10px 0; font-size: 12px }
-.am-phone-manual summary { cursor: pointer; margin-bottom: 8px }
+.am-phone-manual summary { cursor: default; margin-bottom: 8px }
 
 /* Active conversations, held open by Option. */
 .am-scrim.conversation-scrim { align-content: center; padding: 24px; }
@@ -173,7 +173,7 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .conversation-switcher header { display: flex; justify-content: space-between; gap: 16px; padding: 4px 8px 12px; font-size: 12px; }
 .conversation-switcher small, .conversation-switcher footer { color: var(--muted); font-size: 12px; line-height: 16px; }
 .conversation-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; min-height: 0; overflow-y: auto; outline: none; }
-.conversation-choice { flex: none; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 2px solid transparent; border-radius: 8px; color: var(--fg); background: transparent; text-align: left; cursor: pointer; }
+.conversation-choice { flex: none; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 2px solid transparent; border-radius: 8px; color: var(--fg); background: transparent; text-align: left; cursor: default; }
 .conversation-choice[aria-selected="true"] { border-color: var(--accent); background: var(--deep); }
 .conversation-choice:hover { background: var(--deep); }
 .conversation-choice:active { transform: scale(.98); }
@@ -205,9 +205,9 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .ap-sheet .ap-row .m { gap: 4px 12px }
 .ap-sheet .ap-ag { padding: 0; border: 0; border-radius: 0; color: var(--muted) }
 .ap-sheet .ap-row:focus-visible { outline-offset: -1px; border-radius: 0 }
-.ap-sheet .ap-remote summary { padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--muted) }
+.ap-sheet .ap-remote summary { padding: 8px 12px; cursor: default; font-size: 12px; color: var(--muted) }
 .ap-sync { margin-top: 12px; font-size: 12px; color: var(--muted) }
-.ap-sync summary { cursor: pointer; padding: 4px 0 }
+.ap-sync summary { cursor: default; padding: 4px 0 }
 .ap-sync .am-line { margin: 8px 0; color: var(--fg) }
 .ap-sync .am-sub { font-size: 12px; line-height: 16px }
 /* A project's Skills sheet. */
@@ -230,7 +230,7 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .pr-form .pr-name { font-family: var(--body); font-size: 14px }
 .pr-repositories { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border) }
 .pr-repository + .pr-repository { margin-top: 16px }
-.pr-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 18px; cursor: pointer }
+.pr-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 18px; cursor: default }
 .pr-option .dcheck { margin: 2px 0 0 }
 .pr-option span { min-width: 0 }
 .pr-option small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere }

@@ -1,0 +1,51 @@
+/* The desktop window's native feel (#690): the sidebar on the window's material with the
+   page as a card set into it, controls that answer on mousedown, and the arrow cursor.
+   Loaded before mobile.css, and scoped away from the phone layout. */
+
+/* ----- Window ----- */
+body:not(.mobile) .cwin { background: var(--deep) }
+body:not(.mobile) .cc-side { background: transparent; border-right: 0 }
+body:not(.mobile) .cc-main { margin: 6px 6px 6px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+/* On macOS the window is the system's sidebar material (src-tauri center/window.rs); the page stays opaque. */
+html[data-material="vibrant"], html[data-material="vibrant"] body.cbody, html[data-material="vibrant"] body:not(.mobile) .cwin { background: transparent }
+html[data-material="vibrant"] body:not(.mobile) .cc-si:hover { background: color-mix(in srgb, var(--fg) 8%, transparent) }
+
+/* ----- Pressed: a control answers on mousedown, at once; the release eases out ----- */
+:is(button, [role="button"], [role="tab"], [role="menuitem"], [role="option"], summary, .cc-si, .dbtn) { transition: box-shadow .12s ease-out }
+:is(button, [role="button"], [role="tab"], [role="menuitem"], [role="option"], summary, .cc-si, .dbtn):active:not(:disabled) { box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--fg) 10%, transparent); transition: none }
+
+/* ----- The arrow everywhere, as in a Mac app; only a link keeps the hand ----- */
+a[href] { cursor: pointer }
+
+/* ----- Conversation ----- */
+/* Your message is a block on the right; the agent's words run the full column. */
+body:not(.mobile) .dcoderen.user { justify-self: end; align-self: flex-end; width: fit-content; max-width: 78%; margin-left: auto; padding: 7px 11px; background: color-mix(in srgb, var(--fg) 9%, transparent) }
+body:not(.mobile) .dcoderen.user > b { display: none }
+/* Words the agent said on the way read quieter than its answer. */
+body:not(.mobile) .dcoderen.agent:has(+ .dcoderturn) { color: var(--muted) }
+
+/* ----- Message field: one line in a box set into the column, dragged taller from its top edge ----- */
+body:not(.mobile) #agfield.dinput.small { position: relative; align-items: flex-end; margin: 0 14px 6px; padding: 5px 6px; gap: 4px; border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, var(--ink)); font-size: 13.5px }
+body:not(.mobile) #agfield.dinput.small:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+body:not(.mobile) #agfield.dinput.small > textarea { align-self: stretch; min-height: max(26px, var(--field-h, 0px)); padding: 0 4px; line-height: 26px }
+body:not(.mobile) #agfield button[aria-label="Attach files"] { width: 26px; height: 26px; min-height: 0; margin: 0; color: var(--muted) }
+body:not(.mobile) #agfield :is(#agstop, #agnativeparent) { min-height: 26px; padding: 0 10px; font-size: 12px }
+body:not(.mobile) #agsend { display: inline-flex; flex: none; width: 26px; height: 26px; min-height: 0; padding: 0; justify-content: center; border-color: transparent; background: var(--accent); color: var(--on-accent) }
+body:not(.mobile) #agmodel .agc-pill { font-size: 12px; padding: 3px 6px; gap: 6px }
+body:not(.mobile) #agmodel .cc-ag { width: 16px; height: 16px; border: 0; background: none }
+.agfield-grip { display: none }
+body:not(.mobile) .agfield-grip { display: block; position: absolute; inset: -4px 0 auto; height: 8px; cursor: row-resize; z-index: 1 }
+body:not(.mobile) .agfield-grip::after { content: ""; position: absolute; left: 50%; top: 3px; width: 28px; height: 2px; margin-left: -14px; border-radius: 1px; background: var(--muted); opacity: 0; transition: opacity .12s }
+body:not(.mobile) .agfield-grip:hover::after, body:not(.mobile) .agfield-grip:active::after { opacity: 1 }
+
+/* ----- Changes: flat files between hairlines, square tags, quiet hunks ----- */
+body:not(.mobile) .dv-files { padding: 0; gap: 0 }
+body:not(.mobile) .dv-file { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none }
+body:not(.mobile) .dv-file:first-child { margin-top: 0 }
+body:not(.mobile) .dv-fh, body:not(.mobile) .dv-file.closed .dv-fh { border-radius: 0 }
+body:not(.mobile) .dv-chip { padding: 0 5px; border: 0; border-radius: 3px; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; background: color-mix(in srgb, currentColor 14%, transparent) }
+body:not(.mobile) .dv-l.hunk { background: none; border-block: 1px solid color-mix(in srgb, var(--border) 60%, transparent) }
+body:not(.mobile) .dv-l.hunk .dv-c { color: var(--dim) }
+body:not(.mobile) .dv-g { border-right: 0 }
+body:not(.mobile) .dv-l.add { box-shadow: inset 2px 0 0 var(--dv-add-fg) }
+body:not(.mobile) .dv-l.del { box-shadow: inset 2px 0 0 var(--dv-del-fg) }

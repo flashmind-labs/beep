@@ -12,6 +12,8 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, Window, WindowEvent,
 };
+#[cfg(target_os = "macos")]
+use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tokio::sync::watch;
 
 pub const LABEL: &str = "center";
@@ -123,9 +125,19 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     }
     #[cfg(target_os = "macos")]
     {
+        // The window is the system's sidebar material; the page tells its styles so
+        // before they load, and draws the sidebar straight on it (dist/native.css).
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true);
+            .hidden_title(true)
+            .transparent(true)
+            .effects(
+                EffectsBuilder::new()
+                    .effect(Effect::Sidebar)
+                    .state(EffectState::FollowsWindowActiveState)
+                    .build(),
+            )
+            .initialization_script("document.documentElement.dataset.material = 'vibrant';");
     }
     #[cfg(desktop)]
     {

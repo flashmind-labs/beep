@@ -156,11 +156,41 @@ function ContinueHere({ target, start }: ContinueHereProps) {
   return <>{shown?.kind === "failed" && <span className="derr">{shown.message}</span>}<Button id="agcontinue" onClick={start}>Continue here</Button></>;
 }
 
+const FIELD_HEIGHT = "beep.fieldHeight";
+const keptFieldHeight = (): number => { try { return Math.max(0, Number(localStorage.getItem(FIELD_HEIGHT)) || 0); } catch { return 0; } };
+
+/// The top edge of the message field: dragging it makes the field taller, up to
+/// half the conversation, and a double-click returns it to one line. The height
+/// is kept for this window.
+function FieldGrip() {
+  const grip = useRef<HTMLSpanElement>(null), [height, setHeight] = useState(keptFieldHeight);
+
+  useLayoutEffect(() => { grip.current?.parentElement?.style.setProperty("--field-h", `${height}px`); }, [height]);
+
+  const keep = (next: number) => {
+    setHeight(next);
+    try { localStorage.setItem(FIELD_HEIGHT, String(next)); } catch { /* kept for this launch only */ }
+  };
+  const drag = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const field = event.currentTarget.parentElement, area = field?.querySelector("textarea");
+    if (!field || !area) return;
+
+    event.preventDefault();
+    const from = event.clientY, start = area.offsetHeight, limit = Math.round((field.parentElement?.clientHeight ?? window.innerHeight) / 2);
+    const move = (e: PointerEvent) => keep(Math.max(0, Math.min(limit, start + from - e.clientY)));
+    const done = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", done); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", done);
+  };
+
+  return <span ref={grip} className="agfield-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the message field" title="Drag to resize, double-click to reset" onPointerDown={drag} onDoubleClick={() => keep(0)} />;
+}
+
 export function SessionField({ mode, name, banner, moveKey, continueHere, attach, send, stop, openParent }: SessionFieldProps) {
   const input = agentMessage, dropping = useFieldDrop();
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><Button id="agnativeparent" onClick={openParent}>Open parent</Button></div>;
   if (mode === "readonly") return continueHere ? <div className="dmuted dbanner dtakeover"><span>{banner}</span><ContinueHere {...continueHere} /></div> : <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
+  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FieldGrip /><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals

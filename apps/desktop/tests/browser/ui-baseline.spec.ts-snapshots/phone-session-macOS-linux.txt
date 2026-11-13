@@ -230,7 +230,8 @@ body.cbody.mb-full.mobile
                         span "2 queued"
                         svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                   div [data-agent-attachment-slot="true"] style(display)
-                  div#agfield.dinput.small style(position)
+                  div#agfield.dinput.small style(--field-h,position)
+                    span.agfield-grip [aria-label="Resize the message field" aria-orientation="horizontal" role="separator" title="Drag to resize, double-click to reset"]
                     button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
                       svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     input [hidden multiple type="file"] value=""
