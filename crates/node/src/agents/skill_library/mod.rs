@@ -13,7 +13,7 @@ mod store;
 
 pub(crate) use follow::{follow, serve};
 
-use beep_proto::node::skill_library::Problem;
+use beep_proto::{node::skill_library::Problem, watched};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -55,8 +55,8 @@ impl Libraries {
     /// installer read its record, the record in the node's folder `node_dir` is read here.
     /// Blocks.
     pub(crate) fn global_names(&self, node_dir: &Path) -> BTreeSet<String> {
-        if let Some(names) = self.shared.global.borrow().as_ref() {
-            return names.clone();
+        if let Some(names) = watched::read_sent(&self.shared.global, Clone::clone) {
+            return names;
         }
 
         match install::Record::load(node_dir) {

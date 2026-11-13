@@ -12,6 +12,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{Key, Mesh};
+use beep_proto::watched;
 use beep_proto::node::{
     LinkRx, LinkTx,
     mesh_state::{ProjectSkills, SkillLibrary, StateValue},
@@ -271,7 +272,7 @@ impl Pass<'_> {
 
     /// Logs each problem that is new, and keeps them for `Request::Problems`.
     fn tell(&self, libraries: &Libraries, problems: &[Problem]) {
-        let before = libraries.shared.problems.borrow().clone();
+        let before = watched::read_sent(&libraries.shared.problems, Clone::clone);
 
         for problem in problems.iter().filter(|problem| !before.contains(problem)) {
             match &problem.skill {
@@ -325,7 +326,7 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Res
             Reply::Found { libraries: found }
         }
         Request::Problems {} => Reply::Problems {
-            problems: libraries.shared.problems.borrow().clone(),
+            problems: watched::read_sent(&libraries.shared.problems, Clone::clone),
         },
     };
     tx.send(&reply).await?;
