@@ -10,7 +10,7 @@ test("a frame is an inert copy without the pane, media and typed drafts", () => 
   win.className = "cwin";
   win.style.setProperty("--side-w", "240px");
   win.innerHTML = `<aside id="side">Projects</aside><div id="pane-box"><div id="bar">chat</div></div>
-    <iframe src="about:blank"></iframe><textarea id="draft"></textarea><input id="ask" value="old">`;
+    <iframe src="about:blank"></iframe><textarea id="draft">old draft</textarea><input id="ask" value="old">`;
   const draft = win.querySelector<HTMLTextAreaElement>("textarea");
   const ask = win.querySelector<HTMLInputElement>("input");
   assert.ok(draft && ask);
@@ -33,7 +33,7 @@ test("a frame is an inert copy without the pane, media and typed drafts", () => 
   assert.equal(copy.querySelector("iframe"), null);
   assert.equal(copy.querySelector("textarea")?.textContent, "");
   assert.equal(copy.querySelector("input")?.getAttribute("value"), null);
-  assert.ok(!html.includes("typed"));
+  assert.ok(!html.includes("old draft") && !html.includes("typed"));
 
   assert.equal(win.className, "cwin");
   assert.ok(!win.hasAttribute("inert"));

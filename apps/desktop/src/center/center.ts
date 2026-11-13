@@ -251,4 +251,7 @@ void pairing().then(async () => {
   if (!onPhone()) void firstRun();
   start(open);
   startupDrawn();
+}).catch(e => {
+  dropKeptFrame();
+  throw e;
 });

@@ -4,9 +4,10 @@
 use crate::error::{DesktopError, Result};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+#[cfg(any(desktop, test))]
+use std::io::ErrorKind;
 use std::{
     fs,
-    io::ErrorKind,
     path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager, Runtime};
@@ -14,14 +15,14 @@ use tauri::{AppHandle, Manager, Runtime};
 const FILE: &str = "home-frame.json";
 /// The most HTML a frame may hold, in bytes.
 const MAX_HTML: usize = 1024 * 1024;
-/// The page side: sets the skin, then appends the frame once `#bar`, the
+/// The page side: appends the frame and sets the skin once `#bar`, the
 /// last element before the module script, is parsed. `FRAME` stands for the
 /// frame as JSON.
 #[cfg(desktop)]
 const SCRIPT: &str = r#"(() => {
 const frame = FRAME;
-if (frame.skin !== null) document.documentElement.dataset.skin = frame.skin;
 const append = () => {
+  if (frame.skin !== null) document.documentElement.dataset.skin = frame.skin;
   document.body.insertAdjacentHTML("beforeend", frame.html);
   window.__BEEP_KEPT_FRAME_AT__ = Date.now();
 };
@@ -57,6 +58,7 @@ fn path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf> {
     Ok(app.path().app_data_dir()?.join(FILE))
 }
 
+#[cfg(any(desktop, test))]
 /// The frame saved at `path` by app version `app`. A missing, unreadable or
 /// other version's file gives `None`.
 fn load_from(path: &Path, app: &str) -> Option<HomeFrame> {

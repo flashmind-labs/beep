@@ -28,7 +28,10 @@ pub fn startup_stages(window: tauri::Window, stages: BTreeMap<String, f64>) {
     stages.sort_by(|a, b| a.1.total_cmp(&b.1));
 
     for (stage, at) in stages {
-        let at = SystemTime::UNIX_EPOCH + Duration::from_secs_f64(at / 1000.0);
+        let Ok(since_epoch) = Duration::try_from_secs_f64(at / 1000.0) else {
+            continue;
+        };
+        let at = SystemTime::UNIX_EPOCH + since_epoch;
 
         if since_start(at) > LAUNCH {
             return;
