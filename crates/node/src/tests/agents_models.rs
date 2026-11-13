@@ -130,3 +130,25 @@ async fn an_acp_agent_lists_the_models_its_session_offers() {
     let names: Vec<&str> = listing.models.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(names, ["Sonnet", "Opus"]);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn v2_only_agents_offer_models_before_starting_a_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let kind = AgentKind {
+        name: "test-agent".into(),
+        program: "python3".into(),
+        args: vec![
+            concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/fake_acp_v2.py").into(),
+            temp.path().join("requests.jsonl").display().to_string(),
+        ],
+        env: [("BEEP_ACP_VERSION".into(), "2".into())].into(),
+        compact: None,
+        compact_models: Vec::new(),
+        default_model: None,
+    };
+    let offered = probe(&kind, temp.path()).await.unwrap();
+    assert_eq!(offered.current.as_deref(), Some("test"));
+    assert_eq!(offered.models.len(), 2);
+    assert_eq!(offered.models[1].id, "other");
+}
