@@ -320,6 +320,14 @@ test("agent question", async ({ page }) => {
   await baseline(page, "agent-question");
 });
 
+test("agent with commands running and messages queued", async ({ page }) => {
+  const steers = ["Also log each retry", "Then run clippy"];
+  const tasks = ["cargo test -p sync", "npm run dev"].map((name, i) => ({ id: `task-${i}`, name, description: name, state: "running", can_stop: true, output_file: null, summary: null, entry: null }));
+  await openAgent(page, { agent_view: { ...agentView, queued: steers.length, queued_messages: steers }, agent_tasks: tasks, agent_steer: [] });
+  await expect(page.locator(".ag-tasks")).toHaveText("2 commands running");
+  await baseline(page, "agent-work");
+});
+
 test("agent running", async ({ page }) => {
   await openAgent(page);
   const process = (pid: number, command: string) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false });
