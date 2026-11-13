@@ -578,6 +578,13 @@ impl Actor {
 
     /// Has `kind` wait for the server, about this session as it stands.
     pub(super) fn alert(&self, kind: AlertKind) {
+        // Child results reach the parent through family updates.
+        if matches!(kind, AlertKind::TurnEnded { .. })
+            && watched::read_sent(&self.live, |live| live.info.parent.is_some())
+        {
+            return;
+        }
+
         let named = watched::read_sent(&self.live, |live| {
             live.agent_session.is_some().then(|| {
                 (

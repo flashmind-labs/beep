@@ -230,7 +230,7 @@ mod listing {
                 _: Duration,
             ) -> Result<SessionsReply, MeshError> {
                 Ok(match request {
-                    SessionsRequest::List {} => {
+                    SessionsRequest::ListAll {} => {
                         let mut info = SessionInfo {
                             id: "owned".into(),
                             agent: "codex".into(),

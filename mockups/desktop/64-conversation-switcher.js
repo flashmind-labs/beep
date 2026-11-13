@@ -1,5 +1,5 @@
 // Option+Tab chooses an active conversation. Nothing opens until Option is released.
-// A session's subagents sit indented under it, in the order they started.
+// Child conversations open from the parent session's Subagents panel.
 (() => {
   const conversations = [
     { title: 'Fix the failing login test', project: 'widget', agent: 'Claude Code', mark: 'CC', status: 'Working', mode: 'working', prompt: 'Fix the failing login test', reply: 'Checking the login assertion and running the test suite.', steers: ['Use the existing fixture'] },
@@ -9,9 +9,8 @@
     { title: 'Find the login fixtures', project: 'widget', agent: 'Claude Code', mark: 'CC', status: 'Done', mode: 'idle', parent: 0, prompt: 'Find the login fixtures', reply: 'The fixtures are in tests/fixtures/login.json.' },
     { title: 'Run the login tests', project: 'widget', agent: 'Claude Code', mark: 'CC', status: 'Working', mode: 'working', parent: 0, prompt: 'Run the login tests', reply: 'Running the login tests.' },
   ];
-  // Top-level ids by use, each followed by its subagents.
-  const subs = id => conversations.flatMap((c, i) => c.parent === id ? [i] : []);
-  const rows = () => order.flatMap(id => [id, ...subs(id)]);
+  // Top-level conversations by use.
+  const rows = () => order;
   const top = id => conversations[id].parent ?? id;
   let current = 0, selected = 1, open = true, order = [0, 1, 2, 3];
   let previousFocus = null;

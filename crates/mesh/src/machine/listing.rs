@@ -17,7 +17,7 @@ use beep_proto::{
 use futures::future::join_all;
 use std::{
     cmp::Reverse,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::time::timeout;
@@ -31,15 +31,6 @@ const EXTERNAL_LIMIT: u32 = 20;
 pub const MAX_PROJECT_SESSIONS: usize = 50;
 /// A node slower than this to list a project's sessions is logged.
 const SLOW_NODE: Duration = Duration::from_secs(1);
-
-/// The sessions Beep runs on one node: none when its list fails.
-async fn beep_sessions<S: Sessions + ?Sized>(node: &S, host: &Host) -> Vec<MachineSession> {
-    linked_sessions(node, host, false)
-        .await
-        .into_iter()
-        .map(|linked| linked.session)
-        .collect()
-}
 
 /// A session Beep runs, and the session that started it when an agent did.
 #[derive(Debug, Clone)]
@@ -149,11 +140,19 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
     let started = Instant::now();
     let (listed, owned) = tokio::join!(
         timeout(NODE_LIMIT, sessions::in_folders(node, folders, limit)),
-        beep_sessions(node, host),
+        linked_sessions(node, host, true),
     );
+    let children: HashSet<_> = owned
+        .iter()
+        .filter(|linked| linked.parent.is_some() || linked.reviewer)
+        .map(|linked| (linked.session.agent.clone(), linked.session.id.clone()))
+        .collect();
     let mut owned: HashMap<_, _> = owned
         .into_iter()
-        .map(|session| ((session.agent.clone(), session.id.clone()), session))
+        .map(|linked| {
+            let session = linked.session;
+            ((session.agent.clone(), session.id.clone()), session)
+        })
         .collect();
     if started.elapsed() >= SLOW_NODE {
         tracing::info!(
@@ -166,6 +165,12 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
     match listed {
         Ok(Ok(found)) => found
             .into_iter()
+            .filter(|session| {
+                !children.contains(&(
+                    session.agent.clone(),
+                    session.taken_over.as_ref().unwrap_or(&session.id).clone(),
+                ))
+            })
             .map(|session| {
                 let past = past_session(host, session);
                 // A transcript names the session that took it over, but cannot say
