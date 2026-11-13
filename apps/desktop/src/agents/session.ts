@@ -464,8 +464,11 @@ function agentDelay() {
 /// The session opened again was followed off screen: its model, drawn with
 /// the frame, counts as its first read.
 function shownFromModel(o: OpenAgent) {
-  AG.sig = `pushed ${++AG.polls}`;
+  const read = ++AG.polls;
+  AG.sig = `pushed ${read}`;
   AG.changed = Date.now();
+  // Steers the node delivered while the session was away go.
+  if (AG.page) syncSteers(AG.queue, AG.page, read);
   // Live: the connecting line under the kept log goes.
   drawRest(true);
   finishFirstRead(o, "ok");
