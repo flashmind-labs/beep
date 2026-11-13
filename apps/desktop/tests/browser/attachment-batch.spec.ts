@@ -41,6 +41,7 @@ for (const width of [1280, 390]) test(`large sent and pending batches stay compa
   const viewer = page.locator("#viewer");
   await expect(viewer).toBeVisible();
   await expect(viewer.locator(".vi img")).toBeVisible();
+  expect((await viewer.boundingBox())!.height).toBe(page.viewportSize()!.height);
   await viewer.getByRole("button", { name: "Close", exact: true }).click();
   await expect(viewer).toHaveCount(0);
   await expect(attachments).toBeVisible();

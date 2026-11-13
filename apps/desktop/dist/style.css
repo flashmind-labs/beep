@@ -1214,6 +1214,8 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 #agfield #agatt { padding: 0; flex: none }
 .attachment-count { white-space: nowrap; flex: none; font-size: 12px }
 .attachment-window { position: relative; width: min(800px, calc(100vw - 32px)); max-height: 85dvh; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--fg); outline: none }
+/* A picture opened from the window covers the app, not the window, which is as short as its list. */
+.attachment-window > .dviewer { position: fixed }
 .attachment-window header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 12px }
 .attachment-window .attachment-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; overflow: auto; min-height: 0; padding: 0; align-items: stretch; scrollbar-width: thin }
 .attachment-gallery > :is(.att, .agment) { box-sizing: border-box; max-width: 100%; min-width: 0; padding: 8px; padding-right: 30px; align-items: start }
