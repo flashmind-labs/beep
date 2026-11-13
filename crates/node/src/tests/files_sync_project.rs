@@ -327,7 +327,7 @@ async fn a_fetch_that_gets_no_data_gives_up() {
     // The guard only keeps a regression from hanging the test run.
     let fetched = timeout(
         Duration::from_secs(20),
-        fetch_within(&project.task.parts.store, connection, content, stall, &stop),
+        fetch_within(&project.task.parts.store, connection, content, stall, &stop, |_| {}),
     )
     .await
     .expect("the fetch gives up on its own");
