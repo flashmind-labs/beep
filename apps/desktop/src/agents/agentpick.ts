@@ -100,8 +100,10 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
     return { rows: q ? [first, { value: q, label: q, note: "use this name" }] : [first], note: q ? "" : "Type a model name to use it." };
   }
 
-  // The provider leads the note: the same name can show under several.
-  const note = (m: ModelInfo) => [m.provider ?? "", m.name && m.name !== m.id ? m.id : ""].filter(Boolean).join(" · ");
+  // The provider is the note: the same name can show under several. The id
+  // joins it only to tell apart two models that share a name and provider.
+  const twins = (m: ModelInfo) => list.models.some(o => o !== m && o.name === m.name && o.provider === m.provider);
+  const note = (m: ModelInfo) => [m.provider ?? "", m.name && m.name !== m.id && twins(m) ? m.id : ""].filter(Boolean).join(" · ");
   const rows = [first, ...list.models.filter(m => !isDefault(m)).map(m => ({ value: m.id, label: m.name || m.id, note: note(m) }))].filter(fits);
   return { rows, note: rows.length ? "" : "No model matches." };
 }
