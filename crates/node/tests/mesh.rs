@@ -4401,6 +4401,7 @@ mod topic_streams {
                         url: format!("https://example.invalid/{name}"),
                         syncthing_files: None,
                         git_auto_recovery: false,
+                        ..ProjectRecord::default()
                     }
                     .to_bytes()
                     .expect("the project record encodes"),

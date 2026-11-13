@@ -32,7 +32,7 @@ test("overview cards update independently when another project's display changes
 });
 
 test("overview card display models reflect activity, agents, pin and sync", () => {
-  const project = { name: "example/project", url: null, machines: [], agents: 0, last: Date.now() - 120_000, imported: true, i: 0, repo: "project", pinned: false };
+  const project = { name: "example/project", url: null, display_name: null, machines: [], agents: 0, last: Date.now() - 120_000, imported: true, i: 0, repo: "project", pinned: false };
   const before = overviewCardModel(project, "Beep sync");
   assert.equal(before.latest, "Last activity 2 min ago");
   assert.equal(before.agents, "idle");

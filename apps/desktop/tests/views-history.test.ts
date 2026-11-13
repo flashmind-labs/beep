@@ -29,6 +29,7 @@ const stubs = new Map(Object.entries({
   "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
   "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {};",
   "center/sidebar.ts": "export const drawSide = () => {}; export const openProjects = () => {}; export const projectRows = () => [];",
+  "project/projects-state.ts": "export const projectName = project => project.display_name ?? project.name;",
   "project/agent.ts": "export const shortName = name => name;",
   "settings/sheet.ts": page("export const openSettings = () => {}; export const instructionsView = v('instructions'); export const providersView = v('providers');"),
   "center/pane.ts": page("export const paneView = v('pane');"),

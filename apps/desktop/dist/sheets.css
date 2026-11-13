@@ -210,3 +210,26 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .ap-sync summary { cursor: pointer; padding: 4px 0 }
 .ap-sync .am-line { margin: 8px 0; color: var(--fg) }
 .ap-sync .am-sub { font-size: 12px; line-height: 16px }
+
+/* Project rename: show repository settings only when requested. */
+.project-rename-sheet { width: min(440px, calc(100vw - 32px)); max-width: none; min-width: 0; padding: 22px; overflow-wrap: anywhere }
+.pr-form .am-head { margin-bottom: 20px }
+.pr-form .am-head b { font-size: 16px }
+.pr-label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 12px; font-weight: 500 }
+.pr-form .gp-field { display: block; width: 100%; padding: 10px 12px }
+.pr-form .pr-name { font-family: var(--body); font-size: 14px }
+.pr-repositories { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border) }
+.pr-repository + .pr-repository { margin-top: 16px }
+.pr-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 18px; cursor: pointer }
+.pr-option input { flex: none; margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--accent) }
+.pr-option span { min-width: 0 }
+.pr-option small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere }
+.pr-repository-fields { margin-top: 16px }
+.pr-repository-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 18px }
+.pr-form .gp-foot { margin-top: 24px }
+.pr-form .gp-foot button { min-height: 32px; padding: 6px 14px }
+
+.pr-loading { margin: 14px 0 0; color: var(--muted); font-size: 12px }
+.pr-host-error { margin-top: 10px; color: var(--err); font-size: 12px; line-height: 18px }
+.pr-option .pr-host-saved { margin-left: auto; color: var(--ok); font-size: 12px }
+.project-rename-sheet { max-height: calc(100dvh - 120px); overflow-y: auto }

@@ -11,6 +11,7 @@ import type { HostRow } from "./runs.ts";
 export interface ProjectRow {
   /// `org/repo`.
   name: string;
+  display_name: string | null;
   url: string;
   machine_id: string;
   machine_name: string;
@@ -30,6 +31,7 @@ export interface ProjectPlace {
 /// A project as the window lists it: imported, or a folder agents run in.
 export interface Project {
   name: string;
+  display_name: string | null;
   url: string | null;
   machines: ProjectPlace[];
   /// The coding agents running in it now.
@@ -123,13 +125,13 @@ function within(cwd: string, folder: string) {
 /// The imported projects, one row each, with the agents running in their
 /// folders counted.
 export function mergeProjects(
-  imported: readonly Pick<ProjectRow, "name" | "url" | "machine_id" | "machine_name" | "folder">[] | null | undefined,
+  imported: readonly (Pick<ProjectRow, "name" | "url" | "machine_id" | "machine_name" | "folder"> & Partial<Pick<ProjectRow, "display_name">>)[] | null | undefined,
   running: readonly RunningAgent[] | null | undefined,
 ): Project[] {
   const rows = new Map<string, Project>();
 
   for (const p of imported || []) {
-    const row = rows.get(p.name) || { name: p.name, url: p.url, machines: [], agents: 0, last: null, imported: true };
+    const row = rows.get(p.name) || { name: p.name, display_name: p.display_name ?? null, url: p.url, machines: [], agents: 0, last: null, imported: true };
     row.machines.push({ id: p.machine_id, name: p.machine_name, folder: p.folder });
     rows.set(p.name, row);
   }
@@ -445,14 +447,15 @@ export function sideProjects<T extends Groupable>(rows: readonly T[] | null | un
 
     if (group) {
       if (!inGroup.has(group.id)) inGroup.set(group.id, []);
-      return inGroup.get(group.id)!.push({ ...p, i, repo: p.name });
+      return inGroup.get(group.id)!.push({ ...p, i, repo: projectName(p) });
     }
 
-    const cut = p.name.indexOf("/");
+    const label = projectName(p);
+    const cut = label.indexOf("/");
     if (cut <= 0) return loose.push({ ...p, i });
-    const org = p.name.slice(0, cut);
+    const org = label.slice(0, cut);
     if (!orgs.has(org)) orgs.set(org, []);
-    orgs.get(org)!.push({ ...p, i, repo: p.name.slice(cut + 1) });
+    orgs.get(org)!.push({ ...p, i, repo: label.slice(cut + 1) });
   });
   const under = <H extends OrgHeading | GroupHeading>(head: H, list: SideProject<T>[]): (H | SideProject<T>)[] =>
     folded.has(foldKey(head)) ? [{ ...head, folded: list.map(p => p.name) }] : [head, ...list];
@@ -545,4 +548,9 @@ export function plainPath(path: string): string {
   if (path.startsWith("\\\\?\\UNC\\")) return "\\\\" + path.slice(8);
   if (/^\\\\\?\\[A-Za-z]:/.test(path)) return path.slice(4);
   return path;
+}
+
+/// A project's visible name, including rows from older cached responses.
+export function projectName(project: { name: string; display_name?: string | null }): string {
+  return project.display_name ?? project.name;
 }

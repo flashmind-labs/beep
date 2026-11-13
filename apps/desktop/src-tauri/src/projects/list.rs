@@ -8,6 +8,7 @@ use crate::{
     error::Result,
     fleet::projects::{FleetState, desk},
 };
+use beep_fleet::{RenameRepositoryTarget, RepositoryRename, RepositoryRenameResult};
 use beep_proto::ImportedProject;
 use serde::Serialize;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use tauri::{AppHandle, Manager, State};
 pub struct ProjectRow {
     /// `org/repo`.
     name: String,
+    display_name: Option<String>,
     url: String,
     machine_id: String,
     machine_name: String,
@@ -31,6 +33,7 @@ impl From<ImportedProject> for ProjectRow {
     fn from(p: ImportedProject) -> Self {
         Self {
             name: p.project,
+            display_name: p.display_name,
             url: p.url,
             machine_id: p.machine_id,
             machine_name: p.machine_name,
@@ -75,4 +78,29 @@ pub async fn remove_project(app: AppHandle, fleet: FleetState<'_>, project: Stri
     fleet.forget();
     index.forget_project(&app, &project).await?;
     Ok(())
+}
+
+/// Changes the visible name while preserving the project's mesh identity.
+#[tauri::command]
+pub async fn rename_project(
+    fleet: FleetState<'_>,
+    project: String,
+    name: String,
+    repositories: Vec<RepositoryRename>,
+) -> Result<Vec<RepositoryRenameResult>> {
+    let results = desk(&fleet)
+        .await?
+        .rename_project(&project, &name, &repositories)
+        .await?;
+    fleet.forget();
+    Ok(results)
+}
+
+/// Lists repository copies that can be selected independently for renaming.
+#[tauri::command]
+pub async fn project_rename_repositories(
+    fleet: FleetState<'_>,
+    project: String,
+) -> Result<Vec<RenameRepositoryTarget>> {
+    Ok(desk(&fleet).await?.rename_repositories(&project).await?)
 }

@@ -12,6 +12,7 @@ fn imported(project: &str, machine: &str) -> ImportedProject {
         folder: "/srv/project".to_owned(),
         cloned: false,
         imported_at: SystemTime::UNIX_EPOCH,
+        display_name: None,
     }
 }
 

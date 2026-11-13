@@ -1,3 +1,4 @@
+import { projectName } from "../project/projects-state.ts";
 import { createElement, Fragment, memo } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
@@ -270,9 +271,12 @@ export function drawTop() {
   const view = currentPage ? viewOf(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
   const project = windowProject;
+  const row = projectRows()?.find(row => row.name === project);
+  const label = row ? projectName(row) : project;
+  if (project) document.title = label ?? project;
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? S.view : null]);
   placeWindowParts({
-    "project-back": project ? createElement("button", { type: "button", className: "dbtn small pw-back", id: "pw-back", title: `Back to ${project} (esc)`, hidden: currentPage?.view === "projects", onClick: () => void openProjects(project) }, shortName(project)) : null,
+    "project-back": project ? createElement("button", { type: "button", className: "dbtn small pw-back", id: "pw-back", title: `Back to ${label} (esc)`, hidden: currentPage?.view === "projects", onClick: () => void openProjects(project) }, shortName(label ?? project)) : null,
     title: head.title || "Beep",
     date: head.sub || "",
     scope: head.reactScope ? createElement(Fragment, { key: page }, head.reactScope) : null,

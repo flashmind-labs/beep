@@ -1,3 +1,4 @@
+import { projectName } from "./projects-state.ts";
 // The Projects overview: every project as a card, grouped as the sidebar
 // groups them, as pure functions so they can be tested without Tauri.
 import { plural } from "../ui/format.ts";
@@ -45,11 +46,12 @@ export function overviewGroups<T extends Groupable>(rows: readonly T[] | null | 
   (rows || []).forEach((p, i) => {
     const card = { ...p, i, pinned: pins.has(p.name) };
     const group = groupOf(p, groups);
-    if (group) return byGroup.get(group.id)!.push({ ...card, repo: p.name });
-    const cut = p.name.indexOf("/");
-    const org = cut > 0 ? p.name.slice(0, cut) : null;
+    if (group) return byGroup.get(group.id)!.push({ ...card, repo: projectName(p) });
+    const label = projectName(p);
+    const cut = label.indexOf("/");
+    const org = cut > 0 ? label.slice(0, cut) : null;
     if (!byOrg.has(org)) byOrg.set(org, []);
-    byOrg.get(org)!.push({ ...card, repo: cut > 0 ? p.name.slice(cut + 1) : p.name });
+    byOrg.get(org)!.push({ ...card, repo: cut > 0 ? label.slice(cut + 1) : label });
   });
   const at = (card: OverviewCardRow<T>) => activity.get(card.name) ?? 0;
   const order = (cards: OverviewCardRow<T>[]) => cards.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (at(b) - at(a)) || (a.i - b.i));
@@ -70,11 +72,11 @@ export function projectActivity(project: Pick<Project, "last">, sessions: readon
 /// `groups` with only the cards whose name, folder on any machine or remote
 /// holds `query`, ignoring case; groups left without a card go. An empty
 /// query keeps everything.
-export function searchOverview<T extends { name: string; url?: string | null; machines?: readonly { folder: string }[] | null }>(groups: readonly OverviewGroup<T>[], query: string): OverviewGroup<T>[] {
+export function searchOverview<T extends { name: string; display_name?: string | null; url?: string | null; machines?: readonly { folder: string }[] | null }>(groups: readonly OverviewGroup<T>[], query: string): OverviewGroup<T>[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...groups];
 
-  const hit = (card: T) => card.name.toLowerCase().includes(q) || !!card.url?.toLowerCase().includes(q) || !!card.machines?.some(m => m.folder.toLowerCase().includes(q));
+  const hit = (card: T) => (projectName(card).toLowerCase().includes(q) || card.name.toLowerCase().includes(q)) || !!card.url?.toLowerCase().includes(q) || !!card.machines?.some(m => m.folder.toLowerCase().includes(q));
   return groups.map(g => ({ ...g, cards: g.cards.filter(hit) })).filter(g => g.cards.length);
 }
 

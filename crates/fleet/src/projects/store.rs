@@ -69,8 +69,26 @@ impl MeshStore {
 
     /// The name the project is stored under, which is the one it was first imported as, in any
     /// case it is asked for; the name given when it is new.
-    fn name_of(&self, project: &str) -> String {
-        find_project(&self.mesh, project).map_or_else(|| project.to_owned(), |stored| stored.name)
+    fn name_of_repo(&self, project: &str, url: &str) -> String {
+        projects(&self.mesh)
+            .into_iter()
+            .find(|stored| {
+                std::iter::once(&stored.record.url)
+                    .chain(
+                        stored
+                            .record
+                            .remote_renames
+                            .iter()
+                            .flat_map(|rename| [&rename.from, &rename.to]),
+                    )
+                    .any(|known| {
+                        beep_projects::imports::repo::remote_key(known).is_some_and(|known| {
+                            Some(known) == beep_projects::imports::repo::remote_key(url)
+                        })
+                    })
+            })
+            .or_else(|| find_project(&self.mesh, project))
+            .map_or_else(|| project.to_owned(), |stored| stored.name)
     }
 
     /// A record that is not written leaves the import standing; the next session writes it.
@@ -103,7 +121,7 @@ impl ImportStore for MeshStore {
     async fn save_import(&self, import: NewImport<'_>) -> anyhow::Result<ImportRow> {
         let machine = import.endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        let name = self.name_of(import.project);
+        let name = self.name_of_repo(import.project, import.url);
         self.ensure(&name, import.url).await?;
         let key = place_key(&name, machine);
         let place = Place {
@@ -120,7 +138,7 @@ impl ImportStore for MeshStore {
     async fn link_import(&self, import: NewImport<'_>) -> anyhow::Result<bool> {
         let machine = import.endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        let name = self.name_of(import.project);
+        let name = self.name_of_repo(import.project, import.url);
         let key = place_key(&name, machine);
 
         if self.mesh.get(&key).is_some() {
@@ -146,7 +164,11 @@ impl ImportStore for MeshStore {
     ) -> anyhow::Result<()> {
         let machine = endpoint.parse::<EndpointId>()?;
         let _write = WRITES.lock().await;
-        let key = place_key(&self.name_of(project), machine);
+        let key = place_key(
+            &find_project(&self.mesh, project)
+                .map_or_else(|| project.to_owned(), |stored| stored.name),
+            machine,
+        );
         let Some(mut place) = read::<Place>(&self.mesh, &key) else {
             return Ok(());
         };

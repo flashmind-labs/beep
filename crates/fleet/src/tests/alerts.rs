@@ -452,6 +452,7 @@ async fn a_notice_names_the_project_its_session_is_in() {
         url: "https://example.com/org/web".into(),
         syncthing_files: None,
         git_auto_recovery: false,
+        ..ProjectRecord::default()
     };
     let place = |folder: &str| Place {
         folder: folder.into(),

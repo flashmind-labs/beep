@@ -150,6 +150,9 @@ wire_structs! {
         /// This import cloned it, rather than finding it already there.
         pub cloned: bool,
         pub imported_at: SystemTime,
+        /// A user-selected name, independent of the project's identity.
+        #[serde(default)]
+        pub display_name: Option<String>,
     }
 
     /// A git checkout the user's coding agents worked in.
