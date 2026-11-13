@@ -210,3 +210,6 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .ap-sync summary { cursor: pointer; padding: 4px 0 }
 .ap-sync .am-line { margin: 8px 0; color: var(--fg) }
 .ap-sync .am-sub { font-size: 12px; line-height: 16px }
+
+/* Project names and repository URLs also fit a phone. */
+.project-rename-sheet { width: min(560px, calc(100vw - 40px)); max-width: none; min-width: 0; overflow-wrap: anywhere }

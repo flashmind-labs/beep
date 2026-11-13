@@ -227,6 +227,57 @@ pub fn valid_part(part: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
+/// Updates only URLs naming the renamed repository, preserving transport and credentials.
+pub fn renamed_remote(
+    remote: &str,
+    rename: &beep_proto::node::mesh_state::RemoteRename,
+) -> Option<String> {
+    let from = Url::parse(&rename.from).ok()?;
+    let to = Url::parse(&rename.to).ok()?;
+    let (owner_path, old_name) = from.path().trim_end_matches('/').rsplit_once('/')?;
+    let (new_owner_path, new_name) = to.path().trim_end_matches('/').rsplit_once('/')?;
+
+    if from.origin() != to.origin() || owner_path != new_owner_path {
+        return None;
+    }
+
+    let (host, path) = remote_parts(remote)?;
+    if !from.host_str()?.eq_ignore_ascii_case(&host) {
+        return None;
+    }
+    let path = path.trim_end_matches('/');
+    let bare = path.strip_suffix(".git").unwrap_or(path);
+    let ssh = !remote.contains("://") || remote.starts_with("ssh://");
+    let full = format!("{owner_path}/{old_name}");
+    let owner = owner_path.rsplit('/').next()?;
+    let short = format!("{owner}/{old_name}");
+    if !bare
+        .trim_start_matches('/')
+        .eq_ignore_ascii_case(full.trim_start_matches('/'))
+        && !(ssh && bare.trim_start_matches('/').eq_ignore_ascii_case(&short))
+    {
+        return None;
+    }
+
+    if remote.contains("://") {
+        let mut url = Url::parse(remote).ok()?;
+        if !ssh
+            && (url.scheme() != from.scheme()
+                || url.port_or_known_default() != from.port_or_known_default())
+        {
+            return None;
+        }
+        let (prefix, _) = url.path().trim_end_matches('/').rsplit_once('/')?;
+        let suffix = if path.ends_with(".git") { ".git" } else { "" };
+        url.set_path(&format!("{prefix}/{new_name}{suffix}"));
+        Some(url.to_string())
+    } else {
+        let (prefix, _) = remote.rsplit_once('/')?;
+        let suffix = if path.ends_with(".git") { ".git" } else { "" };
+        Some(format!("{prefix}/{new_name}{suffix}"))
+    }
+}
+
 #[cfg(test)]
 #[path = "../tests/imports_repo.rs"]
 mod tests;

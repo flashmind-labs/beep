@@ -364,6 +364,7 @@ pub fn run() {
             projects::live::follow_project_run,
             projects::live::unfollow_project,
             projects::page::center_open_project,
+            projects::list::rename_project,
             projects::page::project_add_to_machine,
             projects::page::project_change_folder,
             projects::page::project_remove_from_machine,

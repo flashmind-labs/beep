@@ -37,6 +37,7 @@ fn import(id: &str, project: &str, folder: &str) -> ImportedProject {
         folder: folder.into(),
         cloned: false,
         imported_at: UNIX_EPOCH,
+        display_name: None,
     }
 }
 

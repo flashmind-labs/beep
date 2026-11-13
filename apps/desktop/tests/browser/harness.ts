@@ -50,7 +50,7 @@ const session = (id: string, title: string): BrowserSession => ({
   status: "working", doing: null, started_at: 1, last_activity: 1, external: false, question: null,
 });
 const sessions: Fixture["sessions"] = [session("notice-one", "First notification"), session("notice-two", "Second notification")];
-const project: ProjectRow = { name: projectName, url: "https://example.test/example/widget", machine_id: machine, machine_name: machine, folder, cloned: true, imported_at: 1 };
+const project: ProjectRow = { display_name: null, name: projectName, url: "https://example.test/example/widget", machine_id: machine, machine_name: machine, folder, cloned: true, imported_at: 1 };
 const fixture: Fixture = {
   project, sessions, streaming: false,
   home: { machines: [], projects: [project], running: sessions, needs_you: [] },

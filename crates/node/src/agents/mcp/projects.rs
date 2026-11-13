@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 #[derive(Serialize)]
 struct Project {
     name: String,
+    display_name: Option<String>,
     url: Option<String>,
     checkouts: Vec<Checkout>,
 }
@@ -64,7 +65,11 @@ fn names(mesh: &Mesh) -> BTreeMap<String, Option<String>> {
 fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
     names(mesh)
         .into_keys()
-        .find(|known| known.eq_ignore_ascii_case(name.trim()))
+        .find(|known| known.eq_ignore_ascii_case(name.trim()) ||
+            mesh.get(&Key::Project(known.clone()))
+                .and_then(|bytes| ProjectRecord::from_bytes(&bytes).ok())
+                .and_then(|record| record.display_name)
+                .is_some_and(|label| label.eq_ignore_ascii_case(name.trim())))
         .ok_or_else(|| format!("No project called {name}. Use list_projects to find its name."))
 }
 
@@ -132,8 +137,12 @@ pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
         }
 
         if machine.is_none() || !checkouts.is_empty() {
+            let display_name = mesh.get(&Key::Project(name.clone()))
+                .and_then(|bytes| ProjectRecord::from_bytes(&bytes).ok())
+                .and_then(|record| record.display_name);
             projects.push(Project {
                 name,
+                display_name,
                 url,
                 checkouts,
             });

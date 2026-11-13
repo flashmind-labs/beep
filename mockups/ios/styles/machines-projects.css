@@ -26,3 +26,9 @@ input.search::placeholder{color:var(--dim)}
 .pj-toolbar{display:flex;align-items:center;gap:8px;justify-content:space-between}
 .pj-toolbar input.search{flex:1;min-width:0}
 .pj-toolbar select{max-width:145px;font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px}
+
+.rename-project { padding: 20px; display: grid; gap: 16px; }
+.rename-project label { font-size: 13px; }
+.rename-project input:not([type="checkbox"]) { display: block; width: 100%; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--fg); font: inherit; }
+.rename-project p { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.rename-project .btn { padding: 10px 16px; }

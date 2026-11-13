@@ -18,6 +18,7 @@ use tauri::{AppHandle, Manager, State};
 pub struct ProjectRow {
     /// `org/repo`.
     name: String,
+    display_name: Option<String>,
     url: String,
     machine_id: String,
     machine_name: String,
@@ -31,6 +32,7 @@ impl From<ImportedProject> for ProjectRow {
     fn from(p: ImportedProject) -> Self {
         Self {
             name: p.project,
+            display_name: p.display_name,
             url: p.url,
             machine_id: p.machine_id,
             machine_name: p.machine_name,
@@ -74,5 +76,21 @@ pub async fn remove_project(app: AppHandle, fleet: FleetState<'_>, project: Stri
     // Nothing read of it is kept.
     fleet.forget();
     index.forget_project(&app, &project).await?;
+    Ok(())
+}
+
+/// Changes the visible name while preserving the project's mesh identity.
+#[tauri::command]
+pub async fn rename_project(
+    fleet: FleetState<'_>,
+    project: String,
+    name: String,
+    repository: Option<String>,
+) -> Result<()> {
+    desk(&fleet)
+        .await?
+        .rename_project(&project, &name, repository.as_deref())
+        .await?;
+    fleet.forget();
     Ok(())
 }

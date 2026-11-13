@@ -3270,3 +3270,133 @@ async fn failed_actions_refresh_keeps_previously_loaded_runs() {
     assert_eq!(recovered.runs.len(), first.runs.len());
     assert!(recovered.hosts[0].error.is_none());
 }
+
+#[tokio::test]
+async fn project_rename_preserves_identity_checkouts_pins_and_sync() {
+    use beep_proto::node::mesh_state::{Place, ProjectRecord};
+    let dev = create("Desktop").await;
+    let desk = desk(&dev, &[]).await;
+    let key = Key::Project("acme/widget".into());
+    let record = ProjectRecord {
+        url: "https://github.com/acme/widget".into(),
+        git_auto_recovery: true,
+        ..ProjectRecord::default()
+    };
+    dev.mesh
+        .set(key.clone(), Some(record.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    let place_key = Key::Project(format!("acme/widget/{}", dev.id));
+    let place = Place {
+        folder: "/srv/project".into(),
+        imported_ms: 42,
+        fork: None,
+    };
+    dev.mesh
+        .set(place_key.clone(), Some(place.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    let sync_key = Key::Sync("acme/widget".into());
+    let sync = SyncSpec {
+        folders: [(dev.id, place.folder.clone())].into(),
+        paused: true,
+        ..SyncSpec::default()
+    };
+    dev.mesh
+        .set(sync_key.clone(), Some(sync.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    desk.pin("acme/widget", true).await.unwrap();
+    let pinned = dev.mesh.get(&Key::Pin("acme/widget".into()));
+    desk.rename_project("acme/widget", " New project ", None)
+        .await
+        .unwrap();
+    let renamed = ProjectRecord::from_bytes(&dev.mesh.get(&key).unwrap()).unwrap();
+    assert_eq!(renamed.display_name.as_deref(), Some("New project"));
+    assert_eq!(renamed.url, record.url);
+    assert!(renamed.git_auto_recovery);
+    assert_eq!(dev.mesh.get(&place_key).unwrap(), place.to_bytes().unwrap());
+    assert_eq!(dev.mesh.get(&sync_key).unwrap(), sync.to_bytes().unwrap());
+    assert_eq!(dev.mesh.get(&Key::Pin("acme/widget".into())), pinned);
+    let imported = desk.imported().await;
+    assert_eq!(imported[0].project, "acme/widget");
+    assert_eq!(imported[0].display_name.as_deref(), Some("New project"));
+    for bad in ["", "  ", "name\nother"] {
+        assert!(desk.rename_project("acme/widget", bad, None).await.is_err());
+    }
+    let other = ProjectRecord {
+        display_name: Some("Taken".into()),
+        ..record
+    };
+    dev.mesh
+        .set(
+            Key::Project("acme/other".into()),
+            Some(other.to_bytes().unwrap()),
+        )
+        .await
+        .unwrap();
+    assert!(
+        desk.rename_project("acme/widget", "taken", None)
+            .await
+            .is_err()
+    );
+    assert!(
+        desk.rename_project("acme/widget", "New project", Some("../bad"))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        ProjectRecord::from_bytes(&dev.mesh.get(&key).unwrap()).unwrap(),
+        renamed
+    );
+}
+
+#[tokio::test]
+async fn hosted_project_rename_records_remote_updates_and_reimport_keeps_identity() {
+    use beep_proto::node::mesh_state::ProjectRecord;
+    let f = fleet().await;
+    let node = Arc::new(FakeNode::default());
+    let api = github().await;
+    let desk = desk(&f.studio, &[(&f.build, &node)]).await.github_api(&api);
+    let machine = f.build.id.to_string();
+    let job = |repo| ImportJob {
+        repo,
+        machine_id: Some(machine.as_str()),
+        folder: None,
+        parent: None,
+        worktrees: &[],
+    };
+    desk.import(job("acme/widget")).await.unwrap();
+    let key = Key::Project("acme/widget".into());
+    let original = f.studio.mesh.get(&key).unwrap();
+    assert!(
+        desk.rename_project("acme/widget", "New name", Some("new"))
+            .await
+            .is_err()
+    );
+    assert_eq!(f.studio.mesh.get(&key).unwrap(), original);
+    desk.save_credential(&Service::GitHub, &SecretText::new(SECRET))
+        .await
+        .unwrap();
+    desk.rename_project("acme/widget", "New name", Some("new"))
+        .await
+        .unwrap();
+    let record = ProjectRecord::from_bytes(&f.studio.mesh.get(&key).unwrap()).unwrap();
+    assert_eq!(record.url, "https://github.com/acme/new");
+    assert_eq!(record.display_name.as_deref(), Some("New name"));
+    assert_eq!(record.remote_renames.len(), 1);
+    assert_eq!(
+        record.remote_renames[0].from,
+        "https://github.com/acme/widget"
+    );
+    assert_eq!(record.remote_renames[0].to, record.url);
+    let reimported = desk.import(job("acme/new")).await.unwrap();
+    assert_eq!(reimported.project, "acme/widget");
+    assert_eq!(desk.imported().await.len(), 1);
+    assert!(
+        f.studio
+            .mesh
+            .get(&Key::Project("acme/new".into()))
+            .is_none()
+    );
+}

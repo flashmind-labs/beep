@@ -3,6 +3,7 @@
 mod checkouts;
 mod groups;
 mod imports;
+mod rename;
 mod store;
 
 pub use imports::ImportJob;

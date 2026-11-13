@@ -133,6 +133,26 @@ impl Caller<'_> {
         Ok(Page { items, next })
     }
 
+    /// `PATCH url` with a JSON body, preserving the host's status for the caller.
+    pub async fn patch<T: Serialize>(&self, url: &str, body: &T) -> Result<Response, HostError> {
+        let _permit = self
+            .calls
+            .acquire()
+            .await
+            .map_err(|_| HostError::Internal(self.host.to_owned()))?;
+        self.client
+            .patch(url)
+            .header(header::ACCEPT, "application/json")
+            .header(
+                header::AUTHORIZATION,
+                format!("token {}", self.token.expose_secret()),
+            )
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| send_error(self.host, &e))
+    }
+
     /// `POST url` with the token and a JSON body; the reply whatever its status.
     pub async fn post<T: Serialize>(&self, url: &str, body: &T) -> Result<Response, HostError> {
         let _permit = self
