@@ -123,3 +123,7 @@ button:disabled { cursor: default; }
 .ph.land .dhead { flex-wrap: nowrap; padding-top: 4px; padding-bottom: 4px; }
 .ph.land .dhead .hl { flex: 1 1 auto; }
 .ph.land .dhead .chips { flex-wrap: nowrap; overflow: hidden; }
+
+body { -webkit-user-select: none; user-select: none }
+.log, input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text }
+:is(button, [role="button"], summary, select), :is(button, [role="button"], summary, select) * { -webkit-user-select: none !important; user-select: none !important }

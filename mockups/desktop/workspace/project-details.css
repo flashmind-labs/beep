@@ -56,7 +56,7 @@
 .mac .gp-path { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12.5px; font-family: var(--mono); border-top: 1px solid var(--d-border) }
 .mac .gp-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .mac .gp-path .dbtn { padding: 1px 8px; font-size: 11.5px; min-height: 0; font-family: inherit }
-.mac .gp-field, .mac .ip-path { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: color-mix(in srgb, var(--d-ink) 80%, #000); color: var(--d-fg); font-family: var(--mono); font-size: 12.5px; outline: 0; caret-color: var(--d-emerald); user-select: text }
+.mac .gp-field, .mac .ip-path { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--d-border); background: color-mix(in srgb, var(--d-ink) 80%, #000); color: var(--d-fg); font-family: var(--mono); font-size: 12.5px; outline: 0; caret-color: var(--d-emerald); -webkit-user-select: text; user-select: text }
 .mac .gp-field:focus, .mac .ip-path:focus { border-color: var(--d-emerald) }
 .mac .gp-field::placeholder, .mac .ip-path::placeholder { color: var(--d-dim) }
 .mac .gp-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px }
