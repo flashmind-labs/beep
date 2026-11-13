@@ -119,3 +119,23 @@ body:not(.mobile) .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { max-widt
 body:not(.mobile) #agfield#agfield.dinput.small { width: calc(100% - 28px); max-width: 720px; margin-inline: auto }
 body:not(.mobile) .dcoderen:is(.agent, .other) { font-size: 13.5px; line-height: 21px; color: var(--fg) }
 body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
+
+/* ----- Backdrop: a halftone of the accent fades in from the window's top corner, behind everything ----- */
+body:not(.mobile) .cwin { isolation: isolate }
+body:not(.mobile) .cwin::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) 1px, transparent 1.6px), radial-gradient(circle, color-mix(in srgb, var(--accent) 75%, var(--fg)) .6px, transparent 1.1px);
+  background-size: 8px 8px, 8px 8px; background-position: 0 0, 4px 4px; opacity: .8;
+  -webkit-mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%); mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%) }
+
+/* ----- Session screen: the title row lies on the window, and the conversation and the side pane
+   are two cards set into it with the divider in the gap between them ----- */
+body:not(.mobile) .cc-main:has(.ag-head) { border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .dhead.ag-head { height: 34px; padding-left: 6px }
+body:not(.mobile) .cc-main:has(.ag-head) > .cc-top { height: 34px; padding-right: 4px }
+body:not(.mobile) .agshell > :is(.agmain, .agpane) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+body:not(.mobile) .agshell > .agdiv { width: 6px; margin: 0 }
+body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px; background: transparent }
+
+/* ----- The message field floats over the foot of the conversation, which fades out under it ----- */
+body:not(.mobile) .agbodyw { -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), transparent); mask-image: linear-gradient(#000 calc(100% - 28px), transparent) }
+body:not(.mobile) #agfield#agfield.dinput.small { background: var(--elev); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
