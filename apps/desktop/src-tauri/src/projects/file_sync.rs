@@ -12,7 +12,7 @@ use beep_projects::model::plain_path;
 use beep_proto::{
     ConflictKeep, MachineSync, MachineSyncDetail, ProjectSync, ProjectSyncDetail, SyncProgress,
     SyncStatus,
-    node::sync::{FOLDER_MISSING, PARENT_MISSING},
+    node::sync::{FOLDER_CHANGED, FOLDER_MISSING, PARENT_MISSING},
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -171,6 +171,9 @@ pub struct MachineDetailRow {
     waiting: Vec<String>,
     git_only: bool,
     can_resolve: bool,
+    /// The folder at its path is not the one synced before, as when it was
+    /// replaced, and its beep-node can start over with it.
+    can_start_over: bool,
 }
 
 /// How far a machine is through what it brings in line now.
@@ -201,6 +204,10 @@ impl From<SyncProgress> for ProgressRow {
 impl From<MachineSyncDetail> for MachineDetailRow {
     fn from(d: MachineSyncDetail) -> Self {
         let m = d.sync;
+        let can_start_over = d.can_resolve
+            && m.error
+                .as_deref()
+                .is_some_and(|error| error.contains(FOLDER_CHANGED));
         Self {
             machine_id: m.machine_id,
             machine_name: m.machine_name,
@@ -217,6 +224,7 @@ impl From<MachineSyncDetail> for MachineDetailRow {
             progress: d.progress.map(Into::into),
             waiting: d.waiting,
             can_resolve: d.can_resolve,
+            can_start_over,
         }
     }
 }
@@ -294,6 +302,20 @@ pub async fn project_sync_resolve(
     Ok(desk(&fleet)
         .await?
         .resolve_conflict(&project, &machine_id, &path, keep)
+        .await?)
+}
+
+/// Starts `project`'s sync over on `machine_id` in the folder now at its
+/// path, as for one that was replaced.
+#[tauri::command]
+pub async fn project_sync_start_over(
+    fleet: FleetState<'_>,
+    project: String,
+    machine_id: String,
+) -> Result<()> {
+    Ok(desk(&fleet)
+        .await?
+        .start_sync_over(&project, &machine_id)
         .await?)
 }
 

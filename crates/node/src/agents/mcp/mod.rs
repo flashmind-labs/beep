@@ -34,6 +34,7 @@ mod debug;
 mod devices;
 pub(crate) mod harness;
 mod machines;
+mod media;
 mod projects;
 mod reply;
 mod review;
@@ -252,6 +253,10 @@ impl Backend for Node {
 
     fn reviewer(&self, session: &str) -> bool {
         self.offers.agents.is_reviewer(session)
+    }
+
+    fn media(&self, session: &str) -> Option<media::Media> {
+        self.offers.agents.folder_of(session).map(media::Media::new)
     }
 }
 

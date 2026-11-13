@@ -138,7 +138,7 @@ const barAttachments = startAttachments(projectComp, error => projectComp.update
   projectComp.update({ sendDisabled: pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding });
 });
 
-composeField(projectComp.input, { images: files => barAttachments.add(files) });
+composeField(projectComp.input, { images: files => barAttachments.add(files), removeLast: () => barAttachments.removeLast() });
 barAttachments.bindStash(() => pc.project);
 
 function closeBarPicker() {

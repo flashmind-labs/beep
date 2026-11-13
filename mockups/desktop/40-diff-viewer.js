@@ -63,15 +63,10 @@
 .mac .dv-l.del { background: var(--dv-del-bg) } .mac .dv-l.del .dv-g { background: linear-gradient(var(--dv-del-gut), var(--dv-del-gut)), var(--dv-gut-bg); color: var(--dv-del-fg) } .mac .dv-l.del .dv-c::before { content: "-"; color: var(--dv-del-fg) }
 .mac .dv-l.hunk { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) } .mac .dv-l.hunk .dv-g { background: linear-gradient(var(--dv-hunk-bg), var(--dv-hunk-bg)), var(--dv-gut-bg) } .mac .dv-l.hunk .dv-c { font-size: 11.5px } .mac .dv-l.hunk .dv-c::before { content: none }
 .mac .dv-eol { margin-left: 8px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); font: 10.5px/15px var(--body) }
-.mac .dv-context { display: flex; align-items: center; width: 100%; height: 22px; padding: 0; border: 0; border-block: 1px solid var(--border); border-radius: 0; background: var(--dv-gut-bg); color: var(--muted); font: inherit; cursor: pointer }
-.mac .dv-context-g { position: sticky; left: 0; display: grid; place-items: center; flex: none; width: calc(var(--nw, 3) * 2ch + 28px); height: 100%; border-right: 1px solid var(--border); background: inherit }
-.mac .dv-context svg { width: 14px; height: 14px }
-.mac .dv-context.above svg { transform: rotate(-90deg) }
-.mac .dv-context.below svg { transform: rotate(90deg) }
-.mac .dv-context:hover { background: var(--dv-hunk-bg); color: var(--dv-hunk-fg) }
-.mac .dv-context:focus-visible { outline: 2px solid var(--dv-hunk-fg); outline-offset: -2px }
-.mac .dv-gap-btn { display: grid; place-items: center; width: calc(var(--nw, 3) * 1ch + 14px); height: 19px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer }
-.mac .dv-gap-btn.wide { width: calc(var(--nw, 3) * 2ch + 28px) }
+.mac .dv-context { display: flex; height: 22px; border-block: 1px solid var(--border); background: var(--dv-gut-bg); color: var(--muted) }
+.mac .dv-context-g { position: sticky; left: 0; display: flex; flex: none; width: calc(var(--nw, 3) * 2ch + 28px); border-right: 1px solid var(--border); background: inherit }
+.mac .dv-l.hunk .dv-g.ctl { width: calc(var(--nw, 3) * 2ch + 28px) }
+.mac .dv-gap-btn { flex: 1; min-width: 0; display: grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; cursor: pointer }
 .mac .dv-gap-btn svg { width: 14px; height: 14px }
 .mac .dv-gap-btn.above svg { transform: rotate(-90deg) }
 .mac .dv-gap-btn.below svg { transform: rotate(90deg) }
@@ -138,15 +133,18 @@
     flush();
     return `<div class="dv-lines split" style="--nw:2">${rows}</div>`;
   };
-  const gapButton = (direction, label) => `<button class="dv-gap-btn ${direction}" title="${label}" aria-label="${label}" data-toast="${label.replace("Show", "Shows")}">${TO}</button>`;
+  const COLLAPSE = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg>';
+  const gapButton = (direction, label) => `<button class="dv-gap-btn ${direction}" title="${label}" aria-label="${label}" data-toast="${label.replace("Show", "Shows").replace("Hide", "Hides")}">${direction === "collapse" ? COLLAPSE : TO}</button>`;
   const lineRows = f => {
     if (dvSplit) return splitRows(f);
     let o = 0, n = 0, rows = "", prevEnd = null;
     for (const l of f.lines) {
       if (l[0] === "@") {
         o = Math.max(l[1] - 1, 0); n = Math.max(l[2] - 1, 0);
-        const gutter = prevEnd != null && o - prevEnd > 0 ? gapButton("below", "Show the next 10 lines") + gapButton("above", "Show the previous 10 lines") : "<span>...</span><span>...</span>";
-        rows += `<div class="dv-l hunk"><span class="dv-g">${gutter}</span><span class="dv-c">@@ -${l[1]} +${l[2]} @@ ${esc(l[3])}</span></div>`;
+        // Drawn with some of the gap's lines shown, so it can also hide them.
+        const gap = prevEnd != null && o - prevEnd > 0;
+        const gutter = gap ? gapButton("below", "Show the next 10 lines") + gapButton("above", "Show the previous 10 lines") + gapButton("collapse", "Hide the shown lines") : "<span>...</span><span>...</span>";
+        rows += `<div class="dv-l hunk"><span class="dv-g${gap ? " ctl" : ""}">${gutter}</span><span class="dv-c">@@ -${l[1]} +${l[2]} @@ ${esc(l[3])}</span></div>`;
         continue;
       }
       const cls = l[0] === "+" ? " add" : l[0] === "-" ? " del" : "";
@@ -154,7 +152,7 @@
       rows += `<div class="dv-l${cls}"><span class="dv-g"><span>${on}</span><span>${nn}</span></span><span class="dv-c">${esc(l[1])}${l[2] ? '<span class="dv-eol" title="No newline at end of file">no newline at end</span>' : ""}</span></div>`;
       prevEnd = o;
     }
-    const expand = direction => `<button class="dv-context ${direction}" title="Show 10 lines ${direction}" aria-label="Show 10 lines ${direction}" data-toast="Shows 10 lines ${direction}"><span class="dv-context-g">${TO}</span></button>`;
+    const expand = direction => `<div class="dv-context"><span class="dv-context-g">${gapButton(direction, `Show 10 lines ${direction}`)}</span></div>`;
     return `<div class="dv-scroll"><div class="dv-lines" style="--nw:2">${expand("above")}${rows}${expand("below")}</div></div>`;
   };
   const fileBox = (f, closed, cur, pane) => {

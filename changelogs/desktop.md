@@ -7,6 +7,60 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.23] - 2026-11-13
+
+### Added
+
+- Desktop: Backspace at the start of a coding agent's message field removes the last
+  attached picture or file.
+
+### Changed
+
+- Desktop: a picture attached to a coding agent message uploads in full, like other files,
+  and the agent gets a small preview with the message. It is no longer shrunk.
+
+## [0.8.22] - 2026-11-13
+
+### Added
+
+- Desktop: in a diff, where arrows showed more unchanged lines a button beside
+  them hides those lines again.
+
+### Changed
+
+- Desktop: a file link that points at a missing file names the path and machine
+  it tried, instead of saying the file is gone or the machine is offline.
+- Desktop: the agent draft for reconciling Git sync is laid out as Markdown sections instead of raw JSON.
+
+### Fixed
+
+- Desktop: a project folder that was replaced on a machine, for example by
+  cloning it again, says so on the Sync page and offers Start over with this
+  folder, instead of staying stopped with no way out.
+
+## [0.8.21] - 2026-11-13
+
+### Added
+
+- Desktop: Settings, Credentials has API keys for OpenRouter, Meshy, ElevenLabs
+  and other providers. Every desktop shares them, and each machine gives them
+  to flsh as env vars for its image, video, 3D and speech tools.
+- Desktop: Appearance settings can hide prompt marks in conversation scrollbars or hide the scrollbar entirely.
+- Desktop: a Device tab in the agent pane shows an Android emulator or iOS
+  simulator from any machine, live; tap, drag, type and press its buttons
+  there, and boot or shut it down from the tab.
+- Desktop: in a diff, arrows beside a change's header show ten more of the
+  unchanged lines before it, from either side.
+
+### Changed
+
+- Desktop: a diff no longer has a row counting the unchanged lines between
+  two changes.
+
+### Fixed
+
+- Desktop: session message headers show the source project and session title instead of raw session tags or IDs.
+
 ## [0.8.20] - 2026-11-13
 
 ### Fixed

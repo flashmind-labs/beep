@@ -1,6 +1,6 @@
 // Paths mentioned in a coding agent session's next message, and files dropped
-// or pasted on the session: pictures attach as before, other files upload into
-// its host's temporary cache and are mentioned by absolute path.
+// or pasted on the session: they upload into its host's temporary cache and
+// are mentioned by absolute path.
 
 import { agentMessage } from "./session-frame.tsx";
 import { MAX_UPLOAD, joinPath, uploadParts, uploadRefusal } from "../agentpane/files-state.ts";
@@ -64,6 +64,7 @@ export function takeMentions() {
 }
 
 export function removeMention(index: number) {
+  if (index < 0) return;
   MN.paths.splice(index, 1);
   MN.redraw();
   agentMessage.current?.focus();
@@ -83,13 +84,14 @@ export function askUpload(files: File[], folder: string, root = paneSession()?.c
   MN.redraw();
 }
 
-/// Files dropped or pasted on the session, other than the pictures the
-/// agent takes: temporary attachments by default, permanent when `folder` is chosen.
+/// Files dropped or pasted on the session: temporary attachments by default,
+/// permanent when `folder` is chosen. Gives those that uploaded and where.
 export async function uploadDropped(files: File[], folder: string | null = null, root = paneSession()?.cwd ?? "") {
   const session = paneSession();
+  const uploaded: { file: File; path: string }[] = [];
 
   for (const f of files) {
-    if (paneSession() !== session) return;
+    if (paneSession() !== session) return uploaded;
     const why = uploadRefusal(f);
     if (why) { MN.error(why); continue; }
 
@@ -101,6 +103,7 @@ export async function uploadDropped(files: File[], folder: string | null = null,
       if (path && paneSession() === session) {
         MN.files.set(path, { name: f.name, mime: f.type || "application/octet-stream", size: f.size, data });
         if (!MN.paths.includes(path)) MN.paths.push(path);
+        uploaded.push({ file: f, path });
       }
     } catch (e) {
       MN.error(`${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`);
@@ -112,6 +115,7 @@ export async function uploadDropped(files: File[], folder: string | null = null,
   }
 
   if (folder !== null) reloadFolder(folder);
+  return uploaded;
 }
 
 /// Copies stashed files to this session before its stash entry is consumed.

@@ -106,7 +106,7 @@ const WRITES: Readonly<Record<string, readonly ViewCommand[]>> = {
   terminal_open: ["center_home", "list_machines"],
   terminal_close: ["center_home", "list_machines"],
   agent_file_save: ["project_sync"], agent_tree_edit: ["project_sync"], agent_tree_upload: ["project_sync"],
-  agent_files_sync: ["project_sync"], project_sync_pause: ["project_sync"], project_sync_resolve: ["project_sync"],
+  agent_files_sync: ["project_sync"], project_sync_pause: ["project_sync"], project_sync_resolve: ["project_sync"], project_sync_start_over: ["project_sync"],
   save_picture: [], save_machine_log: [],
   set_zoom_level: [], set_agent_notices: [], set_autostart: [], choose_save_folder: [], use_downloads: [],
   set_machine_search: [],

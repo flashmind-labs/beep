@@ -20,7 +20,8 @@ import { followsAfterScroll, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, resetMentions } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, where } from "./agents.ts";
-import { agentAttachError, agentAttach, drawAgentAttached } from "./images.ts";
+import { agentAttachError, drawAgentAttached } from "./images.ts";
+import { removeLastAttachment } from "./attachments-view.tsx";
 import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
@@ -170,7 +171,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const msg = agentMessage.current;
 
   if (msg) {
-    composeField(msg, { images: agentAttach, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
+    composeField(msg, { images: agentDrop, removeLast: removeLastAttachment, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
     bindMentionMenu(msg);
     bindSessionStash(msg);
   }
@@ -463,8 +464,11 @@ function agentDelay() {
 /// The session opened again was followed off screen: its model, drawn with
 /// the frame, counts as its first read.
 function shownFromModel(o: OpenAgent) {
-  AG.sig = `pushed ${++AG.polls}`;
+  const read = ++AG.polls;
+  AG.sig = `pushed ${read}`;
   AG.changed = Date.now();
+  // Steers the node delivered while the session was away go.
+  if (AG.page) syncSteers(AG.queue, AG.page, read);
   // Live: the connecting line under the kept log goes.
   drawRest(true);
   finishFirstRead(o, "ok");

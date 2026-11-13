@@ -9,6 +9,8 @@ struct Fake {
     answer: &'static str,
     /// The session is a reviewer.
     reviewer: bool,
+    /// The session's folder, when it gets the media tools.
+    media: Option<std::path::PathBuf>,
 }
 
 impl Fake {
@@ -18,6 +20,7 @@ impl Fake {
             asked: Mutex::default(),
             answer,
             reviewer: false,
+            media: None,
         }
     }
 }
@@ -68,6 +71,10 @@ impl Backend for Fake {
     fn reviewer(&self, session: &str) -> bool {
         assert_eq!(session, "a3f9c1");
         self.reviewer
+    }
+
+    fn media(&self, _session: &str) -> Option<Media> {
+        self.media.clone().map(Media::new)
     }
 }
 
@@ -311,4 +318,59 @@ async fn a_device_screenshot_comes_as_image_content() {
     assert_eq!(content[1]["mimeType"], "image/jpeg");
     assert_eq!(content[1]["data"], "AQID");
     assert!(fake.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
+    use crate::machine::provision::spawn_env::{self, TEST_LOCK};
+    use beep_proto::{SecretText, node::EnvSecret};
+
+    let _env = TEST_LOCK.lock().await;
+    let folder = tempfile::tempdir().unwrap();
+    let mut fake = Fake::new("allow");
+    fake.media = Some(folder.path().to_owned());
+    spawn_env::set_vars(vec![EnvSecret {
+        name: "OPENROUTER_API_KEY".into(),
+        value: SecretText::new("sk-or-test"),
+    }]);
+    let decision = json!({ "name": "decision", "arguments": {} });
+    let out = exchange(
+        &fake,
+        &[
+            request(1, "tools/list", json!({})),
+            request(2, "tools/call", decision),
+            request(3, "initialize", json!({})),
+        ],
+    )
+    .await;
+    spawn_env::set_vars(Vec::new());
+    let brief = out[2]["result"]["instructions"].as_str().unwrap();
+    assert!(brief.contains("also offers") && brief.contains("decision"), "{brief}");
+
+    let names: Vec<&str> = out[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    for tool in ["remote_run", "generate_image", "generate_video", "tts", "decision"] {
+        assert!(names.contains(&tool), "{tool} missing from {names:?}");
+    }
+    assert!(!names.contains(&"generate_3d"), "{names:?}");
+    assert_eq!(out[1]["result"]["isError"], true, "{out:?}");
+    assert!(fake.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn without_keys_there_are_no_media_tools() {
+    use crate::machine::provision::spawn_env::TEST_LOCK;
+
+    let _env = TEST_LOCK.lock().await;
+    let folder = tempfile::tempdir().unwrap();
+    let mut fake = Fake::new("allow");
+    fake.media = Some(folder.path().to_owned());
+    let out = exchange(&fake, &[request(1, "tools/list", json!({}))]).await;
+
+    let listed = out[0]["result"]["tools"].as_array().unwrap();
+    assert!(listed.iter().all(|tool| tool["name"] != "decision"), "{listed:?}");
 }

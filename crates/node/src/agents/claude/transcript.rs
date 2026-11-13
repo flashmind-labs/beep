@@ -1349,7 +1349,7 @@ pub(super) mod tests {
 
     #[test]
     fn a_bare_brief_block_is_not_the_users_text() {
-        let brief = crate::agents::mcp::BRIEF;
+        let brief = crate::agents::tags::tests::BARE_BRIEF;
         let text = user_entry(serde_json::json!([
             {"type": "text", "text": brief},
             {"type": "text", "text": "ok, let's keep going"}

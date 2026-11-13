@@ -169,7 +169,7 @@ function drawFrame() {
   c.setText(f.prompt);
   const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); c.dispose(); stopOutside(); });
   flushSync(() => page.show({ view: "agent-new", props: { pane: PANE, composer: c.form, project: f.project ?? null, menuOpen: !!f.open, openList: renderAgents } }));
-  composeField(c.input, { images: files => attachments.add(files) });
+  composeField(c.input, { images: files => attachments.add(files), removeLast: () => attachments.removeLast() });
   attachments.bindStash(() => AG.form.project ?? null);
   stopOutside();
   document.addEventListener("click", closeOutside);

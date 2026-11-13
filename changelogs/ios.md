@@ -2,6 +2,83 @@
 
 Earlier releases predate this changelog.
 
+## [0.2.2] - 2026-11-13
+
+### Added
+
+- iOS: Settings, Credentials has API keys for OpenRouter, Meshy, ElevenLabs
+  and other providers. Every desktop shares them, and each machine gives them
+  to flsh as env vars for its image, video, 3D and speech tools.
+- iOS: Home and each project open on a board of what needs you, what is
+  working, what is ready to review and what finished today.
+- iOS: pages slide in from the right, Back slides them in from the left, and tabs fade. Reduce motion turns it off.
+
+### Changed
+
+- iOS: terminals are drawn with Ghostty's engine on the GPU, so
+  full-screen programs such as btop, neovim and yazi look and respond as in
+  Ghostty, with Kitty images, Nerd Font icons, Powerline shapes and block
+  graphics that meet across cells.
+- iOS: Agents and Home say "Connecting to your machines…" until a machine
+  answers, and "No machine is online." when none does, instead of "No
+  sessions running."
+- iOS: Settings shows Agent accounts, where you set the Claude Code token
+  and the Codex API key your machines use.
+- iOS: in landscape the tabs move to a rail on the left and the top bar and
+  session head are shorter, so pages keep the height instead of looking like a
+  small desktop. A session's Files and Changes stay full-screen tabs beside
+  Log instead of a panel on the right.
+- iOS: a coding agent notification names its project first, such as
+  "org/web: Claude Code on build-box finished".
+- Phone: a picture attached to a coding agent message uploads in full, like other files,
+  and the agent gets a small preview with the message. It is no longer shrunk.
+- iOS: diagrams in chats use the chat's colors instead of a white card, show at full size, and say what kind of diagram they are. Copy image, PNG and SVG moved into an Export menu next to Source and Copy. Sequence diagrams show each participant once, at the top.
+- iOS: the project menu (⋯) groups its sync settings under "Sync on all machines" as checkmarks instead of "On/Off (all machines)" labels. Choose ignored folders shows only while ignored folders sync, the Syncthing switch reads "Use Beep sync instead of Syncthing" (or back), and Remove project comes last after a line. All projects left the menu; Back goes there.
+
+### Fixed
+
+- iOS: when the keyboard goes away while a field still has focus, the page
+  moves back into place and the tab bar returns, instead of staying pushed
+  down under an empty band.
+- iOS: a single tap on Send or Start with the keyboard up sends, instead of
+  only hiding the keyboard.
+- iOS: an offline machine shows when it was last connected, also after
+  the app restarts, instead of when it joined.
+- iOS: after coming back from the background or moving to another network,
+  the app dials every machine again instead of sometimes never
+  reconnecting. A machine that does not answer keeps its sessions on the
+  list, marked connecting, and is asked again.
+- Phone: pinching a picture zooms the picture, and the app itself no longer
+  zooms. Drag to pan a zoomed picture and double tap to fit it again.
+- iOS: each project remembers its selected coding agent, model and thinking level.
+- iOS: Save on a video, picture or file works. It goes to Beep's folder in
+  the Files app, and the share sheet opens so a video or picture can go to
+  Photos.
+- iOS: tapping a file in a session opens it on screen instead of only adding
+  its tab beside Log.
+- iOS: opening a session no longer focuses the message field, so the first tap
+  in the log is not lost to the keyboard layout.
+- iOS: time filters keep their labels on one line, and the Files pane drops
+  the desktop keyboard hint.
+- iOS: session message headers show the source project and session title instead of raw session tags or IDs.
+- iOS: a connection to a machine that stops answering is dropped and dialed again after about 15 seconds instead of 30.
+- iOS: machines reconnect within seconds after the phone wakes instead of waiting out connections that died while it slept.
+- iOS: Projects no longer scrolls sideways when an open issue or pull request has many labels; the labels wrap under the title.
+- iOS: the project page has no blank band above its task field.
+- iOS: with more than 500 sessions in the lists, the app no longer asks every machine where each session works over and over.
+- Phone: tapping + in a session's message field opens the file picker instead of
+  hiding the field's buttons.
+
+### Performance
+
+- iOS: opening a session from the board and going back start their move at
+  once instead of stalling first on a long session.
+- iOS: a picture, video, 3D model or PDF opened from a chat downloads
+  once and opens from the local copy after that while it is unchanged.
+  Closing the session deletes the files only it opened, and files not opened
+  for eight hours are removed.
+- iOS: reads asked for once no longer stay live on the machines, and live views no one reads again are dropped after half a minute.
+
 ## [0.2.1] - 2026-11-11
 
 ### Added

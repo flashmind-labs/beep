@@ -45,8 +45,8 @@ pub enum Request {
     /// Sends the agent a message. While a turn runs it waits for the turn
     /// to end.
     Prompt { text: String },
-    /// `Prompt` with images, sent to the agent after the text. Refused, not
-    /// sent without them, when the agent takes no images.
+    /// `Prompt` with images, sent to the agent after the text. An agent that
+    /// takes no images gets the text alone.
     PromptImages { text: String, images: Vec<Upload> },
     /// Answers the open question. `reply` is one of its options, by id,
     /// number or name; anything else declines and goes to the agent as the

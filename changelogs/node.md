@@ -2,6 +2,30 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.19] - 2026-11-13
+
+### Changed
+
+- Node: an agent that takes no images gets a message's text without them, rather
+  than the message being refused.
+
+## [0.6.18] - 2026-11-13
+
+### Fixed
+
+- beep-node: sync can start over in a project folder that was replaced, scanning
+  it from nothing so nothing is deleted on other machines.
+
+## [0.6.17] - 2026-11-13
+
+### Added
+
+- Node: API keys saved in Settings reach flsh and other processes as env
+  vars, such as `MESHY_API_KEY` and `ELEVENLABS_API_KEY`.
+- Node: serves its Android emulators and iOS simulators to desktops, live,
+  with touch, typing, buttons and rotation. iOS simulators need
+  idb-companion (`brew install meta/fb/idb-companion`).
+
 ## [0.6.16] - 2026-11-13
 
 ### Fixed

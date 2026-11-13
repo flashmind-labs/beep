@@ -28,6 +28,11 @@ pub const RESCAN: &str = "sync-rescan/1";
 /// The node makes it again and fills it from its peers.
 pub const FOLDER_MISSING: &str = "The project's folder is missing";
 
+/// What `ProjectStatus::error` says while the folder at the project's path is
+/// not the one synced before, as when it was replaced: nothing is synced
+/// until it is back or `Request::StartOver` adopts it.
+pub const FOLDER_CHANGED: &str = "the folder changed or is not mounted";
+
 /// How `ProjectStatus::error` starts when the folder above the project's is
 /// missing too, as with a disk that is not mounted: nothing is made until it
 /// is back.
@@ -73,6 +78,11 @@ pub enum Request {
         project: String,
         snapshot: HandoffSnapshot,
     },
+    /// Starts `project`'s sync over in the folder now at its path, as for a
+    /// folder that was replaced: what was seen before is forgotten, so the
+    /// folder is scanned from nothing, fetches what it misses and deletes
+    /// nothing on other machines. Answered with `StartedOver`.
+    StartOver { project: String },
 }
 
 /// Which side of a conflict `Request::Resolve` keeps.
@@ -133,6 +143,8 @@ pub enum Reply {
         snapshot: HandoffSnapshot,
     },
     HandoffApplied {},
+    /// `Request::StartOver` is done; the project syncs again.
+    StartedOver {},
 }
 
 /// Uncommitted edits against one exact commit. Edits arrive unstaged.

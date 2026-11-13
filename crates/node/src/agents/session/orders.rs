@@ -46,9 +46,10 @@ impl Actor {
                     return Ok(Err(MOVING_REFUSAL.to_owned()));
                 }
 
-                if let Err(refused) = self.can_take(&prompt) {
-                    return Ok(Err(refused));
-                }
+                let prompt = match self.fitted(prompt) {
+                    Ok(prompt) => prompt,
+                    Err(refused) => return Ok(Err(refused)),
+                };
 
                 if let Err(full) = queue_room(
                     self.queued
@@ -73,9 +74,10 @@ impl Actor {
                     return Ok(Err(MOVING_REFUSAL.to_owned()));
                 }
 
-                if let Err(refused) = self.can_take(&prompt) {
-                    return Ok(Err(refused));
-                }
+                let prompt = match self.fitted(prompt) {
+                    Ok(prompt) => prompt,
+                    Err(refused) => return Ok(Err(refused)),
+                };
 
                 if let Err(full) = queue_room(
                     self.queued
@@ -386,19 +388,20 @@ impl Actor {
         Ok(())
     }
 
-    /// Refuses a prompt with images the agent does not take, rather than
-    /// send it without them.
-    fn can_take(&self, prompt: &Prompt) -> Result<(), String> {
+    /// The prompt as the agent takes it: without its images for an agent that
+    /// takes none, as each is a preview of a file the text mentions. Refused
+    /// while the agent has yet to say.
+    fn fitted(&self, mut prompt: Prompt) -> Result<Prompt, String> {
         if prompt.images.is_empty() {
-            return Ok(());
+            return Ok(prompt);
         }
 
         match self.takes_images {
-            Some(true) => Ok(()),
-            Some(false) => Err(format!(
-                "{} here does not take images",
-                agent_title(&self.agent)
-            )),
+            Some(true) => Ok(prompt),
+            Some(false) => {
+                prompt.images.clear();
+                Ok(prompt)
+            }
             None => {
                 Err("the agent is still starting; send the images again once it is ready".into())
             }

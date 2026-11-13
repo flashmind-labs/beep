@@ -319,10 +319,7 @@ export const AG: AgentState = {
 };
 export const agentLog = () => import("./agentlog.ts").then(m => (AG.log = m));
 /// What a coding agent takes with a message, as the server checks it.
-export const AGENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 export const AGENT_MAX_IMAGES = 5;
-export const AGENT_MAX_IMAGE = 5 * 1024 * 1024;
-export const AGENT_MAX_IMAGES_TOTAL = 7 * 1024 * 1024;
 /// Thumbnails of images sent from here, by session and name, so the
 /// transcript's `[image: name]` lines show the picture.
 export const agentPics = new Map<string, string>();

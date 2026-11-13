@@ -231,7 +231,7 @@ wire_enum! {
     /// waiting messages, `Close` ends the session and stops the agent.
     /// `PromptImages` is `Prompt` with images after the text, as
     /// `check_agent_images` allows them; `text` may then be empty. An
-    /// agent that takes no images refuses it. `Configure` switches the running session
+    /// agent that takes no images gets the text alone. `Configure` switches the running session
     /// to `model` and thinking `effort` (either may be `None` to keep it),
     /// from its next turn; a node or agent that cannot switch refuses it.
     /// `Steer` is `PromptImages` for the running turn: the node delivers it

@@ -10,7 +10,7 @@
 //! `untagged` find it by the strings Beep wrote then.
 
 #[cfg(feature = "host")]
-use super::{brief::BRIEF, text::cut};
+use super::text::cut;
 
 const CONTEXT: &str = "beep-context";
 const FROM_SESSION: &str = "from-session";
@@ -27,6 +27,14 @@ const BARE_STARTS: [&str; 5] = [
     "Beep: if you will change files and this folder",
     "This session moved from another machine.",
     "This session continues from a copy of another machine's",
+];
+
+/// How every bare brief Beep wrote ended, latest first.
+#[cfg(feature = "host")]
+const BARE_ENDS: [&str; 3] = [
+    "change the user's global configuration unless asked.",
+    "ask_user asks the user a question and waits for the answer.",
+    BARE_WORKTREE,
 ];
 
 /// The worktree brief as bare prompts hold it.
@@ -200,12 +208,7 @@ pub(crate) fn untagged(text: &str) -> String {
         return text.to_owned();
     }
 
-    let old_brief = BRIEF.split(" For Rust, C, or C++ builds").next();
-
-    for end in [Some(BRIEF), old_brief, Some(BARE_WORKTREE)]
-        .into_iter()
-        .flatten()
-    {
+    for end in BARE_ENDS {
         if let Some(at) = trimmed.rfind(end) {
             let (brief, rest) = trimmed.split_at(at + end.len());
             return join(&[Part::Context(brief), Part::User(rest.trim_start())]);
@@ -271,4 +274,4 @@ fn escape(value: &str) -> String {
 
 #[cfg(test)]
 #[path = "../tests/agents_tags.rs"]
-mod tests;
+pub(crate) mod tests;

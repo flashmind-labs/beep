@@ -42,6 +42,8 @@ export interface MachineDetail {
   progress: SyncProgress | null;
   waiting: string[];
   can_resolve: boolean;
+  /// The folder at its path was replaced and its node can start over with it.
+  can_start_over: boolean;
   git_only?: boolean;
 }
 
@@ -205,6 +207,11 @@ export function makeFileSync(deps: FileSyncDeps) {
     });
   }
 
+  /// Syncs the folder now at `m`'s path from nothing; nothing is deleted elsewhere.
+  function startOver(name: string, m: MachineDetail) {
+    return act(name, `start-over:${m.machine_id}`, () => invoke("project_sync_start_over", { project: name, machineId: m.machine_id }));
+  }
+
   function resolve(name: string, c: Conflict, keepCopy: boolean) {
     return act(name, c.path, () => invoke("project_sync_resolve", { project: name, machineId: c.resolver, path: c.path, keepCopy }));
   }
@@ -248,7 +255,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     forTile,
     page: (name: string) => { const s = of(name); if (s.detail === undefined) void load(name); return { detail: s.detail, error: s.error, busy: s.busy }; },
     compared: (name: string, path: string) => compared.get(`${name}\n${path}`),
-    pause, resolve, compare, watch,
+    pause, startOver, resolve, compare, watch,
     fix: deps.fix ? (name: string, conflict: Conflict) => deps.fix?.(name, conflict) : null,
     fixGit: deps.fixGit ? (name: string, machine: MachineDetail) => { if (machine.error) deps.fixGit?.(name, machine.machine_id, machine.error); } : null,
     changeFolder: deps.changeFolder ? (name: string, machine: MachineDetail) => deps.changeFolder?.(name, machine) : null,
@@ -307,7 +314,8 @@ export function stateChip(m: Pick<MachineDetail, "status" | "paused" | "progress
 
 /// What a machine's row says under its name when it does not sync, with the
 /// node's reason in the title: null while it syncs or says nothing.
-export function stateNote(m: Pick<MachineDetail, "status" | "error">): string | null {
+export function stateNote(m: Pick<MachineDetail, "status" | "error" | "can_start_over">): string | null {
+  if (m.can_start_over) return "This folder was replaced, so sync stopped.";
   if (m.status === "missing") return "The folder is gone. Beep makes it again and fills it from the other machines.";
   if (m.status === "parent_missing") return "The folder above it is gone too, so nothing is made. Is its disk mounted?";
   if (m.status === "syncthing") return "Syncthing keeps this folder in step. Beep syncs it once Syncthing pauses or lets go of it.";
@@ -448,7 +456,7 @@ type RowLike = Pick<SyncRow, "machine_id" | "status" | "files" | "pending"> & Pa
 export function rowDetail(r: RowLike, name = "Machine"): MachineDetail {
   return {
     machine_id: r.machine_id, machine_name: name, folder: "", status: r.status,
-    files: r.files, bytes: 0, pending: r.pending, conflicts: [], error: r.error ?? null, hint: null, paused: false, progress: null, waiting: [], can_resolve: false,
+    files: r.files, bytes: 0, pending: r.pending, conflicts: [], error: r.error ?? null, hint: null, paused: false, progress: null, waiting: [], can_resolve: false, can_start_over: false,
   };
 }
 

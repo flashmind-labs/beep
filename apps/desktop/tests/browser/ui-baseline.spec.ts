@@ -222,7 +222,7 @@ test("project git history", async ({ page }) => {
 });
 
 test("sync page", async ({ page }) => {
-  const box = { machine_id: machineId, machine_name: machineId, folder, status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: ["notes (conflict 12345678).txt"], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, git_only: false };
+  const box = { machine_id: machineId, machine_name: machineId, folder, status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: ["notes (conflict 12345678).txt"], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, can_start_over: false, git_only: false };
   const detail = { project: projectName, pinned: false, paused: false, machines: [box] };
   await openDesktop(page, false, { center_home: home, project_sync: [{ project: projectName, machine_id: machineId, status: "in_sync", files: 18, pending: 0, error: null }], project_sync_detail: detail });
   await page.getByRole("button", { name: "Sync", exact: true }).click();

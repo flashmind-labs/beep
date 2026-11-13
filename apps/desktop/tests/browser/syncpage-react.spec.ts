@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
 test("sync refresh retains the page, focused action and scroll", async ({ page }) => {
-  const machine = { machine_id: "build-box", machine_name: "Build box", folder: "/srv/project", status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, git_only: false };
+  const machine = { machine_id: "build-box", machine_name: "Build box", folder: "/srv/project", status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: [], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, can_start_over: false, git_only: false };
   const detail = { project: projectName, pinned: false, paused: false, machines: [machine] };
   await openDesktop(page, false, { project_sync: [{ project: projectName, machine_id: "build-box", status: "in_sync", files: 18, pending: 0, error: null }], project_sync_detail: detail });
   await page.getByRole("button", { name: "Sync", exact: true }).click();
@@ -22,7 +22,7 @@ test("sync refresh retains the page, focused action and scroll", async ({ page }
 });
 
 test("sync conflict actions keep their identity across updates", async ({ page }) => {
-  const machine = { machine_id: "build-box", machine_name: "Build box", folder: "/srv/project", status: "in_sync", files: 18, bytes: 0, pending: 0, conflicts: ["notes (conflict 12345678).txt"], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, git_only: false };
+  const machine = { machine_id: "build-box", machine_name: "Build box", folder: "/srv/project", status: "in_sync", files: 18, bytes: 0, pending: 0, conflicts: ["notes (conflict 12345678).txt"], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, can_start_over: false, git_only: false };
   const detail = { project: projectName, pinned: false, paused: false, machines: [machine] };
   await openDesktop(page, false, { project_sync: [{ project: projectName, machine_id: "build-box", status: "in_sync", files: 18, pending: 0, error: null }], project_sync_detail: detail });
   await page.getByRole("button", { name: "Sync", exact: true }).click();
@@ -40,4 +40,15 @@ test("sync conflict actions keep their identity across updates", async ({ page }
   await keep.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_resolve").map(call => call.args.keepCopy))).toEqual([false]);
   await page.evaluate(() => window.__navigation.release("project_sync_resolve"));
+});
+
+test("a replaced folder says so and starts over on its machine", async ({ page }) => {
+  const error = "not syncing: the folder changed or is not mounted: /srv/project is another folder now";
+  const machine = { machine_id: "laptop", machine_name: "Laptop", folder: "/srv/project", status: "failed", files: 18, bytes: 0, pending: 0, conflicts: [], error, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, can_start_over: true, git_only: true };
+  const detail = { project: projectName, pinned: false, paused: false, machines: [machine] };
+  await openDesktop(page, false, { project_sync: [{ project: projectName, machine_id: "laptop", status: "failed", files: 18, pending: 0, error }], project_sync_detail: detail });
+  await page.getByRole("button", { name: "Sync", exact: true }).click();
+  await expect(page.getByText("This folder was replaced, so sync stopped.")).toBeVisible();
+  await page.getByRole("button", { name: "Start over with this folder" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_start_over").map(call => call.args))).toEqual([{ project: projectName, machineId: "laptop" }]);
 });
