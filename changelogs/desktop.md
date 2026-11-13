@@ -7,6 +7,41 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.31] - 2026-11-13
+
+### Changed
+
+- Desktop: the app has a new look. Labels, tabs, buttons and numbers use a
+  monospaced face on a dark background. Menus, dialogs, the palette, the
+  message field and Settings sit on frosted glass. The start screen keeps
+  its dot art. Settings opens as a glass sheet.
+- Desktop: pane tabs and the Device toolbar are smaller.
+- Desktop: running commands and queued messages sit in a compact tray
+  attached to the top of the message field.
+- Desktop: attached files show on their own line above the message, with a
+  file count.
+- Desktop: context use shows as a small meter beside the percentage.
+- Desktop: project cards show what runs, when it last ran and where, in two
+  lines.
+- Desktop: a project's Machines section shows one compact card per machine.
+  Folder and Remove appear on hover. The Terminals row shows only when a
+  terminal runs.
+- Desktop: a message's send time shows in its corner on hover instead of on
+  its own line. A sent picture no longer repeats its file name.
+- Desktop: the Sync page and its sidebar link are gone. Each project's
+  Machines section now shows its sync state and any conflicts. Conflict
+  cards on Home and on a project's board, and conflict notifications, open
+  that section, and a project with conflicts shows their count on its
+  sidebar row.
+
+### Fixed
+
+- Desktop: a message of several lines stays inside its field.
+- Desktop: a failed upload's message goes away after a few seconds and when
+  the next upload starts.
+- Desktop: when a resumed session refuses a model switch, the reason shows
+  instead of "[object Object]".
+
 ## [0.8.30] - 2026-11-13
 
 ### Fixed
