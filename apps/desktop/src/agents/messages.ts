@@ -7,7 +7,7 @@ import { composeMessage } from "../chat/compose.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN } from "./workdrop.ts";
-import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
+import { disposeComposerUi, showAgentQueue, showUploadPending } from "./composer-ui.tsx";
 import { type AgentQuestion, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.ts";
@@ -58,15 +58,27 @@ function takeMessage(input: HTMLTextAreaElement | null, uploading = false, reser
 const claimedUploads = new WeakSet<object>();
 
 function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Promise<Waiting | null> {
+  if (input?.readOnly) return null;
+  const typed = input?.value ?? "";
   const batches = [...MN.pending].filter(batch => !claimedUploads.has(batch));
   const reserved = new Set([...MN.pending].filter(batch => claimedUploads.has(batch)).flatMap(batch => batch.paths));
   for (const batch of batches) claimedUploads.add(batch);
   const draft = takeMessage(input, batches.length > 0, reserved), session = AG.open;
   if (!draft || !batches.length) return draft;
+  if (input) input.value = typed;
+  showUploadPending(true);
   return finishMessage(draft);
 
   async function finishMessage(draft: Waiting) {
-    await Promise.all(batches.map(batch => batch.ready));
+    try {
+      await Promise.all(batches.map(batch => batch.ready));
+    } finally {
+      if (AG.open === session) {
+        if (input) input.value = "";
+        showUploadPending(false);
+      }
+    }
+
     if (AG.open !== session) return null;
 
     const paths = new Set(batches.flatMap(batch => batch.paths));

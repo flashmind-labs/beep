@@ -12,7 +12,9 @@
   <link href="../../ios/styles/keyboards.css" rel="stylesheet"/>
   <link href="../../ios/styles/terminal.css" rel="stylesheet"/>
   <link href="../../ios/styles/machines-projects.css" rel="stylesheet"/>
- </head>
+ <style>.uploading .fld { opacity: .5; cursor: wait } .uploading .caret { display: none } .uploading .send { opacity: .4 }</style>
+<script>if (new URLSearchParams(location.search).has("upload")) document.addEventListener("DOMContentLoaded", () => { document.body.classList.add("uploading"); document.querySelector(".send").setAttribute("aria-disabled", "true"); });</script>
+</head>
  <body class="ios screen">
   <figure>
    <div class="ph">
