@@ -438,6 +438,9 @@ async fn a_media_group_runs_its_actions_and_lists_its_models() {
             call(2, json!({ "action": "models" })),
             call(3, json!({ "action": "models", "query": "lite" })),
             call(4, json!({ "action": "fly" })),
+            call(5, json!({ "action": "models", "prompt": "a chair" })),
+            call(6, json!({ "action": "models", "query": 5 })),
+            call(7, json!({ "action": "generate", "query": "lite" })),
         ],
     )
     .await;
@@ -457,5 +460,8 @@ async fn a_media_group_runs_its_actions_and_lists_its_models() {
     assert!(!text(&out[1]).contains("tripo:"), "{}", text(&out[1]));
     assert_eq!(text(&out[2]).lines().count(), 1, "{}", text(&out[2]));
     assert_eq!(out[3]["result"]["isError"], true);
+    assert_eq!(text(&out[4]), "`prompt` does not apply to models.");
+    assert_eq!(text(&out[5]), "`query` must be a string.");
+    assert_eq!(text(&out[6]), "`query` does not apply to generate.");
     assert!(fake.calls.lock().unwrap().is_empty());
 }

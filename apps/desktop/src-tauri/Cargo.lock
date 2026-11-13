@@ -1539,7 +1539,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.10",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -2071,9 +2071,9 @@ checksum = "5905ec755cc8386d7928353e4d356d2be3e89e81e5ca01fe630a1ca4d08dc175"
 
 [[package]]
 name = "flashmind-llm"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a648fa0810b56e5d3a8f5bd27f68b678754acd88395a72d0d8515e7c58c78573"
+checksum = "0be8ea740f2756606cb0aee4fb4767b42343c20a218d23fc42b3a7086b2b9f83"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2103,9 +2103,9 @@ dependencies = [
 
 [[package]]
 name = "flashmind-tools"
-version = "0.3.4"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eece3f491a6f96e717d8c6ed3ef48a200c0f715f9ac4e65d79e66447b69b506"
+checksum = "4cd80542d255d1dc05efd788c5270d8cd4bbb57416bf5543a826f7348eccfb87"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4860,7 +4860,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -5847,7 +5847,7 @@ version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6e4d69d0fa3e7f6f9cf6b53a0e83e4fc99ba3586f65ce166cff30bd13bb4ad2"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools",
  "log",
  "multimap",
