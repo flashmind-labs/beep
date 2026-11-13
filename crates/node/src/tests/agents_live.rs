@@ -1359,3 +1359,47 @@ fn streamed_prompt_titles_wait_for_complete_headers() {
         }
     }
 }
+
+#[test]
+fn recorded_times_survive_streaming_and_replay() {
+    let mut live = live();
+    live.prompted("fix it");
+    live.apply_at(&said("Fixed"), Instant::now());
+    let before = live.transcript(10).0;
+    assert!(before.iter().all(|entry| entry.sent_at.is_some()));
+    live.apply_at(&said("."), Instant::now());
+    assert_eq!(live.transcript(10).0[1].sent_at, before[1].sent_at);
+
+    let saved = live.transcript(10).0;
+    let mut replay = live_titled("fix it");
+    replay.info.state.status = Status::Starting;
+    replay.apply_at(&update(json!({"sessionUpdate":"user_message_chunk", "content":{"type":"text","text":"fix it"}})), Instant::now());
+    replay.apply_at(&said("Fixed."), Instant::now());
+    assert!(replay.transcript(10).0.iter().all(|entry| entry.sent_at.is_none()));
+    replay.restore_times(&saved);
+    assert_eq!(replay.transcript(10).0, saved);
+}
+
+#[test]
+fn recovery_context_does_not_name_a_conversation() {
+    let mut live = live();
+    live.prompted(&crate::agents::tags::context(crate::agents::restart::CONTINUE));
+    assert!(live.info.title.is_none());
+    assert!(crate::agents::tags::own_words(&live.transcript(10).0[0].text).is_empty());
+}
+
+#[test]
+fn replay_dates_match_the_saved_tail_when_prompts_repeat() {
+    let mut replay = live();
+    replay.info.state.status = Status::Starting;
+    replay.push(EntryKind::User, "yes");
+    replay.push(EntryKind::Agent, "Done.");
+    replay.push(EntryKind::User, "yes");
+    replay.push(EntryKind::Agent, "Done.");
+    let mut saved = beep_proto::node::agent::Entry::new(EntryKind::User, "yes".into());
+    saved.sent_at = Some(123);
+    replay.restore_times(&[saved]);
+    let entries = replay.transcript(10).0;
+    assert_eq!(entries[0].sent_at, None);
+    assert_eq!(entries[2].sent_at, Some(123));
+}

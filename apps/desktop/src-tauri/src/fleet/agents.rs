@@ -202,18 +202,18 @@ pub(crate) async fn sessions_of(fleet: &Fleet, machine: EndpointId) -> Option<Ve
 }
 
 /// Beep's sessions on one machine, noting which an agent started. Its
-/// reviewers are only noted: they list under their parent, not as running.
+/// children are only noted: they open from the parent agent panel.
 async fn listed(fleet: &Fleet, client: &PeerClient, host: &Host) -> Vec<MachineSession> {
     let linked = listing::linked_sessions(client, host, true).await;
     noted(fleet, host, linked)
 }
 
-/// `linked` without its reviewers, after noting its parents.
+/// Top-level sessions, after keeping children for the parent agent panel.
 fn noted(fleet: &Fleet, host: &Host, linked: Vec<Linked>) -> Vec<MachineSession> {
     fleet.parents.note(&host.id, &linked);
     linked
         .into_iter()
-        .filter(|linked| !linked.reviewer)
+        .filter(|linked| linked.parent.is_none() && !linked.reviewer)
         .map(|linked| linked.session)
         .collect()
 }

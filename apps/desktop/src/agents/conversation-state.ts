@@ -32,7 +32,7 @@ export class ConversationHistory {
       const i = this.visits.indexOf(key);
       return i < 0 ? Infinity : i;
     };
-    return [...unique.values()].filter(row => row.status !== "ended" && row.status !== "closing").sort((a, b) => rank(a) - rank(b) || (b.last_activity ?? b.started_at ?? 0) - (a.last_activity ?? a.started_at ?? 0));
+    return [...unique.values()].filter(row => !row.parent && !isNativeSession(row.id) && row.status !== "ended" && row.status !== "closing").sort((a, b) => rank(a) - rank(b) || (b.last_activity ?? b.started_at ?? 0) - (a.last_activity ?? a.started_at ?? 0));
   }
 }
 export const conversationHistory = new ConversationHistory();

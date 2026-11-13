@@ -107,3 +107,10 @@ onShownChange(shown => {
   // What was hidden catches up at once; a timer started now did so already.
   if (shown && !(started && ticking !== null)) nextSecond();
 }, true);
+
+/// A recorded send time, never an estimate for undated history.
+export function EntryTime({ at }: { at: number | null }) {
+  if (at === null || !Number.isFinite(at) || at <= 0) return null;
+  const date = new Date(at * 1000);
+  return <time className="entry-time" dateTime={date.toISOString()} title={date.toLocaleString()}>{date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}</time>;
+}

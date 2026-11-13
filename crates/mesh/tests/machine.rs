@@ -143,6 +143,7 @@ mod listing {
             agent::Entry::new(agent::EntryKind::User, "go".into()),
             agent::Entry {
                 tool: None,
+                sent_at: None,
                 kind: agent::EntryKind::Thought,
                 text: "hmm".into(),
                 ms: Some(4000),
@@ -230,7 +231,7 @@ mod listing {
                 _: Duration,
             ) -> Result<SessionsReply, MeshError> {
                 Ok(match request {
-                    SessionsRequest::List {} => {
+                    SessionsRequest::ListAll {} => {
                         let mut info = SessionInfo {
                             id: "owned".into(),
                             agent: "codex".into(),

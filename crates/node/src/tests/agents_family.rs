@@ -140,6 +140,22 @@ async fn a_child_is_a_session_linked_to_its_parent() {
 }
 
 #[tokio::test]
+async fn child_completions_reach_the_parent_without_user_alerts() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let alerts = rig.agents.alerts.drain();
+    assert_eq!(alerts.len(), 1, "the root turn notifies the user");
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    until(&child, |live| live.info.turns == 1).await;
+    assert!(rig.agents.alerts.drain().is_empty());
+    let who = rig.agents.who_of(&parent);
+    let children = rig.agents.children_of(&who);
+    assert_eq!(children.len(), 1);
+    assert!(Arc::ptr_eq(&children[0], &child));
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_chain_may_go_three_deep_and_no_deeper() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
