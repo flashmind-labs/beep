@@ -156,6 +156,20 @@ test("home overview", async ({ page }) => {
   await baseline(page, "home-overview");
 });
 
+test("search palette", async ({ page }) => {
+  const hit = (kind: string, id: string, title: string, detail: string) => ({ kind, id, title, detail, keys: [title.toLowerCase()] });
+  const index = {
+    actions: [hit("action", "new", "New example session", "")], settings: [hit("setting", "look", "Example look", "Settings")], code: [],
+    projects: [hit("project", "one", "Example one", "Project"), hit("project", "two", "Example two", "Project")],
+    sessions: [hit("session", "s1", "Fix the example redirect", "example/widget @ build-box")], machines: [hit("machine", "m1", "example-box", "online")],
+  };
+  await openDesktop(page, false, { center_home: home, center_palette_index: index, center_find_prompts: [] });
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await page.getByRole("dialog", { name: "Search" }).getByRole("combobox").fill("example");
+  await expect(page.locator(".cc-pal .it").first()).toBeVisible();
+  await baseline(page, "palette");
+});
+
 test("home machines", async ({ page }) => {
   await openDesktop(page, false, { center_home: home, terminals_all: [] });
   await page.getByRole("tab", { name: "Machines" }).click();

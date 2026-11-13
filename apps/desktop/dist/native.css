@@ -71,3 +71,16 @@ body:not(.mobile) .cc-si .n { color: var(--dim) }
 body:not(.mobile) button.pv-row { padding: 7px 10px; border-radius: var(--radius-sm) }
 body:not(.mobile) button.pv-row + button.pv-row { border-top: 0 }
 body:not(.mobile) button.pv-row .m { gap: 3px 8px; color: var(--dim) }
+
+/* ----- Search palette: one line a row with its detail at the end, the selection and the match in the text's own colour ----- */
+body:not(.mobile) .cc-pal .q { padding: 14px 16px }
+body:not(.mobile) .cc-pal .q input { font-size: 15px }
+body:not(.mobile) .cc-pal h5 { margin: 8px 10px 3px; font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--dim) }
+body:not(.mobile) .cc-pal .it { min-height: 32px; padding: 0 10px }
+body:not(.mobile) .cc-pal .it[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .cc-pal .it .t { display: flex; align-items: baseline; gap: 12px }
+body:not(.mobile) .cc-pal .it .t span { flex: 0 1 auto; min-width: 0 }
+body:not(.mobile) .cc-pal .it .t small { flex: 1 1 0; min-width: 0; text-align: right; color: var(--dim) }
+body:not(.mobile) .cc-pal mark { padding: 0; border-radius: 0; background: none; color: var(--fg); font-weight: 650 }
+body:not(.mobile) .cc-pal small mark { color: var(--muted); font-weight: 500 }
+body:not(.mobile) .cc-pal .it:not([aria-selected="true"]) .t > span { color: color-mix(in srgb, var(--fg) 82%, transparent) }
