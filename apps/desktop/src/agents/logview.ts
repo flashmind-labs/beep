@@ -262,7 +262,7 @@ const subTimes = new Map<string, { start: number; live: boolean; end?: number }>
 function subOf(at: number) {
   const p = AG.page!, en = p.entries[at - p.earlier];
   const { title, status, output } = AG.log!.parseTool(AG.log!.imageLines(en.text).text);
-  const sub = AG.log!.subagent(output) ?? { count: 0, steps: [], result: output };
+  const sub = AG.log!.subagent(output) ?? { count: 0, steps: [], result: output, model: null };
   // A linked subagent can keep working after its parent's turn ends.
   const working = sub.child ? sub.child.state === "working" : (status === "in_progress" || status === "pending") && (!!sub.session || AGENT_ACTIVE.has(p.session.status));
   // Timed from when this window saw it working, if it did.
@@ -286,7 +286,7 @@ function subData(at: number, inPane: boolean): SubagentRow {
     const x = subOf(at), kid = x.sub.child;
     const st = kid ? kidState(kid.state) : x.working ? "working" : x.failed ? "failed" : "done";
     const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
-    const meta = [st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
+    const meta = [x.sub.model, st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
     return { at, title: x.title, agent: x.agent, meta, mark: stepMark(x.working ? "in_progress" : x.status, x.working),
       target: kid ? { kind: "child", id: kid.id, key: kid.key } : x.sub.session ? { kind: "native" } : { kind: "summary" },
       dismiss: inPane && st !== "working" && st !== "needs you", stoppable: !!kid && (st === "working" || st === "needs you"),
