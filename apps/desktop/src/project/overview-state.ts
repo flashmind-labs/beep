@@ -3,6 +3,25 @@
 import { plural } from "../ui/format.ts";
 import { groupOf, type Groupable, type Placed, type Project, type ProjectGroup, type SessionRow } from "./projects-state.ts";
 
+export const PROJECT_SORTS = [
+  { id: "default", label: "Default" },
+  { id: "activity", label: "Recent activity" },
+  { id: "opened", label: "Last opened" },
+] as const;
+export type ProjectSort = typeof PROJECT_SORTS[number]["id"];
+
+export function parseProjectSort(value: string | null): ProjectSort {
+  return PROJECT_SORTS.find(sort => sort.id === value)?.id ?? "default";
+}
+
+export function projectSortTime(sort: ProjectSort, project: Pick<Project, "last">, sessions: readonly Pick<SessionRow, "last_activity">[] | null, visited: number | null): number {
+  switch (sort) {
+    case "default": return projectActivity(project, sessions, visited);
+    case "activity": return projectActivity(project, sessions, null);
+    case "opened": return visited ?? 0;
+  }
+}
+
 /// A card of the overview: the project row with `i` for its colour, its repo
 /// name (the whole name under a group), and whether it is pinned.
 export type OverviewCardRow<T> = Placed<T> & { repo: string; pinned: boolean };
