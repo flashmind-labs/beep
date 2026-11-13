@@ -170,6 +170,13 @@ test("search palette", async ({ page }) => {
   await baseline(page, "palette");
 });
 
+test("start screen", async ({ page }, info) => {
+  await openDesktop(page, false, { center_home: home });
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await expect(page.locator(".cc-pjc.centered .agc-intro h3")).toBeVisible();
+  await baseline(page, "start");
+});
+
 test("home machines", async ({ page }) => {
   await openDesktop(page, false, { center_home: home, terminals_all: [] });
   await page.getByRole("tab", { name: "Machines" }).click();

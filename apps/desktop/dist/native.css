@@ -256,3 +256,14 @@ body:not(.mobile) .cwin::before { content: ""; position: absolute; inset: 0; z-i
   background-size: 8px 8px, 8px 8px; background-position: 0 0, 4px 4px;
   -webkit-mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%); mask-image: radial-gradient(95% 80% at 0% 0%, #000, transparent 80%) }
 html[data-material="vibrant"] body:not(.mobile) .cwin::before { opacity: .3 }
+
+/* ----- The start screen: a dithered sunset behind the headline (src/ui/dither-art.tsx), with the
+   composer as frosted glass over its water ----- */
+.dither-art { display: none }
+body:not(.mobile) .cc-pjc.centered { position: relative; isolation: isolate }
+body:not(.mobile) .dither-art { display: block; position: absolute; z-index: -1; left: 50%; top: -96px; width: min(1180px, 160%); height: 600px; opacity: .85; transform: translateX(-50%); pointer-events: none }
+body:not(.mobile) .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
+body:not(.mobile) .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; text-shadow: 0 1px 12px var(--ink) }
+/* Frosted glass: a light tint, a strong blur, a bright rim. */
+body:not(.mobile) .cc-pjc.centered .box { border-color: color-mix(in srgb, var(--fg) 22%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 22%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--fg) 5%, transparent), 0 20px 50px -16px color-mix(in srgb, var(--shade) 80%, transparent) }
+body:not(.mobile) .cc-pjc.centered .box::before { background: color-mix(in srgb, var(--fg) 7%, color-mix(in srgb, var(--ink) 45%, transparent)); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8) }
