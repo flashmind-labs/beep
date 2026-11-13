@@ -3,15 +3,11 @@ import { togglePreview } from "./text-view.tsx";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { viewKey } from "./view-memory.ts";
-import { fileSize } from "../chat/media.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
 import { draw, touchTab } from "./media-draw.ts";
 import { bytesOf } from "./media-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-
-/// The most the pane reads of one file, as the node allows.
-const MAX_FILE = 128 * 1024 * 1024;
 
 /// How far fetching a file from another machine has come.
 type FileProgress = { machine_id: string; path: string; done: number; size: number };
@@ -31,7 +27,6 @@ export async function readFile(machine: string, path: string, session: string | 
       const part = await invoke<FilePart>("agent_file", { machineId: machine, path, offset: done, session });
       size = part.size;
       mime = part.mime;
-      if (size > MAX_FILE) throw new Error(`It is ${fileSize(size)}; the pane opens files up to ${fileSize(MAX_FILE)}.`);
       const bytes = bytesOf(part.data);
       if (!bytes.length) break;
       parts.push(bytes);

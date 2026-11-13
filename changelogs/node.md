@@ -2,6 +2,13 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.22] - 2026-11-13
+
+### Fixed
+
+- Node: automatic session titles are shorter and no longer show internal tags.
+- Node: attachments no longer have per-file or total size quotas.
+
 ## [0.6.21] - 2026-11-13
 
 ### Added

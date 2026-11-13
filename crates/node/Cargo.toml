@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.6.21"
+version = "0.6.22"
 edition = "2024"
 license = "MPL-2.0"
 rust-version = "1.99"
@@ -168,7 +168,7 @@ which = { version = "8", optional = true }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 # The media and decision tools the MCP server offers from the saved API keys.
-flashmind-tools = { version = "0.3.4", default-features = false, features = ["http"], optional = true }
+flashmind-tools = { version = "0.3.6", default-features = false, features = ["http"], optional = true }
 flashmind-types = { version = "0.3.2", optional = true }
 
 [target.'cfg(unix)'.dependencies]

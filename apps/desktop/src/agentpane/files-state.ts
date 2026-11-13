@@ -168,8 +168,6 @@ export function withMentions(text: string, paths: readonly string[]) {
   return [text.trim(), mentionText(paths)].filter(Boolean).join("\n\n");
 }
 
-/// The largest file a drop uploads, as the node takes it.
-export const MAX_UPLOAD = 64 * 1024 * 1024;
 /// The bytes one upload part carries.
 export const UPLOAD_PART = 2 * 1024 * 1024;
 
@@ -186,11 +184,6 @@ export function uploadParts(size: number, part = UPLOAD_PART) {
   } while (offset < size);
 
   return out;
-}
-
-/// Why a dropped file cannot be uploaded, or "" when it can.
-export function uploadRefusal(f: { name: string; size: number }) {
-  return f.size > MAX_UPLOAD ? `${f.name || "That file"} is over ${MAX_UPLOAD >> 20} MB, the most a drop uploads` : "";
 }
 
 /// A file's size in short words.

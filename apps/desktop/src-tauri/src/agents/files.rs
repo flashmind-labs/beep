@@ -12,8 +12,8 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_mesh::machine::sessions::Reading;
 use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, GitChange, ListWorkTree, MAX_AGENT_FILE, MAX_TREE_DEPTH,
-    ReadWorkFile, WriteWorkFile,
+    AGENT_FILE_CHUNK, AgentFileChunk, GitChange, ListWorkTree, MAX_TREE_DEPTH, ReadWorkFile,
+    WriteWorkFile,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
@@ -205,13 +205,6 @@ pub async fn agent_tree_save(
             },
         )
         .await?;
-
-        if part.size > MAX_AGENT_FILE {
-            return Err(DesktopError::BadRequest(format!(
-                "It is over {} MB, too large to save from here.",
-                MAX_AGENT_FILE / (1024 * 1024)
-            )));
-        }
 
         data.extend_from_slice(&part.data);
         let have = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
@@ -449,12 +442,6 @@ pub async fn agent_tree_save_many(
                     },
                 )
                 .await?;
-
-                if part.size > MAX_AGENT_FILE {
-                    return Err(DesktopError::BadRequest(
-                        "A selected file is too large to download".into(),
-                    ));
-                }
 
                 let count = u64::try_from(part.data.len()).map_err(anyhow::Error::from)?;
 

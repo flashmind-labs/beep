@@ -6,7 +6,7 @@
 .am-head kbd { font-size: 11px; opacity: .7 }
 .am-label { font-size: 13px; color: var(--muted); margin-bottom: 8px }
 .am-line { display: flex; gap: 8px; align-items: center; margin-bottom: 14px }
-.am-code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--deep); border: 1px solid var(--border); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text }
+.am-code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--deep); border: 1px solid var(--border); overflow-wrap: anywhere }
 .am-wait { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted) }
 .am-wait .left { font-variant-numeric: tabular-nums }
 .am-wait .end { margin-left: auto }
@@ -23,7 +23,7 @@
 .am-search-label { margin-bottom: 0; white-space: nowrap }
 .am-search { color: var(--fg); outline: none; padding: 6px 10px }
 /* Fields shared by the sheets. */
-.ip-field, .ip-path, .gp-field { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent); user-select: text }
+.ip-field, .ip-path, .gp-field { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent); -webkit-user-select: text; user-select: text }
 .ip-path, .gp-field { font-family: var(--mono); font-size: 12.5px }
 .ip-field:focus, .ip-dir:focus, .gp-field:focus { border-color: var(--accent) }
 .gp-field::placeholder { color: var(--dim) }
@@ -128,7 +128,7 @@
 .fr-note { font-size: 12px; color: var(--muted) }
 .fr-end { margin-left: auto }
 /* Report a problem. */
-.rp-ta { display: block; box-sizing: border-box; width: 100%; min-height: 84px; margin-bottom: 14px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; line-height: 18px; outline: 0; resize: vertical; caret-color: var(--accent); user-select: text }
+.rp-ta { display: block; box-sizing: border-box; width: 100%; min-height: 84px; margin-bottom: 14px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; line-height: 18px; outline: 0; resize: vertical; caret-color: var(--accent); -webkit-user-select: text; user-select: text }
 .rp-ta:focus { border-color: var(--accent) }
 .rp-ta::placeholder { color: var(--dim) }
 .rp-periods { margin-bottom: 16px }
@@ -143,15 +143,15 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .rp-row code, .rp-pane, .rp-ref, .rp-issue { font-family: var(--mono) }
 .rp-row code { font-size: 12.5px; overflow-wrap: anywhere }
 .rp-link { padding: 0 0 14px }
-.rp-pane { margin: 0 0 14px; max-height: 190px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--muted); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
+.rp-pane { margin: 0 0 14px; max-height: 190px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--muted); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere }
 .rp-pane .r { color: var(--fg); background: color-mix(in srgb, var(--fg) 12%, transparent); border-radius: 3px; padding: 0 3px }
 .rp-pane-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px }
 .rp-pane-head small { color: var(--muted); font-size: 12px }
 .rp-total { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 12.5px; color: var(--muted) }
-.rp-ref { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; margin-bottom: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); font-size: 15px; letter-spacing: .04em; user-select: text }
-.rp-issue { margin: 0 0 14px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
+.rp-ref { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; margin-bottom: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); font-size: 15px; letter-spacing: .04em }
+.rp-issue { margin: 0 0 14px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere }
 .rp-foot { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
-.rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--err); user-select: text }
+.rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--err) }
 .rp-hint { font-size: 12px; line-height: 17px; margin: -8px 0 14px; color: var(--muted) }
 /* Keyboard shortcuts: a filter, then sections of a description and its key caps. */
 .ks-sheet { max-height: calc(100vh - 120px); display: flex; flex-direction: column }

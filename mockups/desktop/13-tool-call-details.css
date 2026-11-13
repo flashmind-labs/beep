@@ -1,4 +1,4 @@
-.dcoderen.tool .call-details { grid-column: 2 / -1; min-width: 0; cursor: text; user-select: text }
+.dcoderen.tool .call-details { grid-column: 2 / -1; min-width: 0; cursor: text; -webkit-user-select: text; user-select: text }
 .call-details dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 8px 0; font-size: 12px; line-height: 16px }
 .call-details dt, .call-details h4 { color: var(--d-dim); font-size: 12px; line-height: 16px; font-weight: 400 }
 .call-details dd { margin: 0; overflow-wrap: anywhere }
