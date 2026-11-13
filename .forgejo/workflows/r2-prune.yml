@@ -32,8 +32,8 @@ jobs:
       - name: Prune
         run: |
           set -euo pipefail
-          account=${CF_ENDPOINT#https://}
-          export ACCOUNT=${account%%.*}
+          ACCOUNT=$(bash scripts/r2.sh account)
+          export ACCOUNT
           python3 scripts/r2-prune.py list
           for folder in macos linux windows; do python3 scripts/r2-prune.py "beep/$folder" "$DESKTOP"; done
           python3 scripts/r2-prune.py beep/node "$NODE"
