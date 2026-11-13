@@ -471,21 +471,27 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 /* A right-click menu, and the group sheet's folders. */
 .gp-path { display: flex; gap: 8px; align-items: center; padding: 6px 0; font-size: 12.5px; font-family: var(--mono); border-top: 1px solid var(--border) }
 .gp-path span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 10px }
+.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 8px }
 .pj-grid > * { min-width: 0 }
-.pj-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); text-align: left; font-size: 12.5px; color: var(--fg); cursor: default }
+.pj-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 9px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 3%, transparent); text-align: left; font-size: 12.5px; color: var(--fg); cursor: default }
 .pj-card:hover { border-color: color-mix(in srgb, var(--fg) 18%, transparent) }
 .pj-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .pj-card .h { display: flex; align-items: center; gap: 8px }
-.pj-card .h b { min-width: 0; flex: 0 1 auto; font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pj-card .h b { min-width: 0; flex: 0 1 auto; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .pj-card .h > :not(b) { flex: none }
-.pj-card .h small { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap }
+.pj-card .h .run { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--fg); white-space: nowrap }
+.pj-card .h .run i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent) }
+.pj-card:not([data-live]) .h b { color: color-mix(in srgb, var(--fg) 78%, transparent) }
+.pj-card .pa:not(.on) { opacity: 0 }
+.pj-card:hover .pa, .pj-card .pa:focus-visible { opacity: 1 }
+.pj-card .f { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 11px; color: var(--muted); white-space: nowrap }
+.pj-card .f .never { color: var(--dim) }
+.pj-card .f .at { min-width: 0; overflow: hidden; text-overflow: ellipsis }
+.pj-card .f .at::before { content: "on "; color: var(--dim) }
+.pj-card .f .sy { margin-left: auto; flex: none; color: var(--dim) }
 .pj-card .pa { display: grid; padding: 2px; border: 0; background: transparent; color: var(--dim) }
 .pj-card .pa:hover, .pj-card .pa.on { color: var(--hot) }
 .pj-card .pa svg { width: 13px; height: 13px }
-.pj-card .line { color: var(--muted); line-height: 17px; overflow-wrap: anywhere }
-.pj-card .line b { color: var(--fg); font-weight: 600 }
-.pj-card .line.sync { font-size: 11px; color: var(--dim) }
 .pj-add { grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 14px }
 
 /* Instructions: an editor over saved versions, the agent files on each

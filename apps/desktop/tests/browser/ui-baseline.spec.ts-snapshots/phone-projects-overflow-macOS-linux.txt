@@ -152,9 +152,9 @@ body.cbody.mobile
                     b [title="example/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"] "a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-                    small "idle"
-                  span.line "No recent activity"
-                  span.line.sync "on build-box-with-a-long-name-0, build-box-with-a-long-name-1, build-box-with-a-long-name-2, build-box-with-a-long-name-3"
+                  div.f
+                    span.ago.never "No activity"
+                    span.at [title="build-box-with-a-long-name-0, build-box-with-a-long-name-1, build-box-with-a-long-name-2, build-box-with-a-long-name-3"] "build-box-with-a-long-name-0 +3"
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3
                 button.pj-fold [aria-expanded="true" type="button"]
@@ -169,9 +169,9 @@ body.cbody.mobile
                     b [title="plain-folder-without-an-org-and-a-long-name-too"] "plain-folder-without-an-org-and-a-long-name-too"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-                    small "idle"
-                  span.line "No recent activity"
-                  span.line.sync "on build-box-with-a-long-name-1"
+                  div.f
+                    span.ago.never "No activity"
+                    span.at [title="build-box-with-a-long-name-1"] "build-box-with-a-long-name-1"
             div.cc-panel.cc-row.pj-add style(flex-basis,flex-grow,flex-shrink)
               span.t
                 b "Add a project"

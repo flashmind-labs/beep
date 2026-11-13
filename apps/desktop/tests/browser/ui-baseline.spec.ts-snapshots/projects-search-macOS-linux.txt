@@ -193,15 +193,17 @@ body.cbody
                   span.nm [title="example/"] "example/"
                   small "1 repo"
               div.pj-grid
-                div.pj-card [role="button" tabindex="0" title="example/gadget"]
+                div.pj-card [data-live role="button" tabindex="0" title="example/gadget"]
                   div.h
                     span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                     b [title="example/gadget"] "gadget"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-                    small "1 agent"
-                  span.line "Last activity 10 min ago"
-                  span.line.sync "on build-box"
+                    small.run "1 agent"
+                      i
+                  div.f
+                    span.ago "10 min ago"
+                    span.at [title="build-box"] "build-box"
             div.cc-panel.cc-row.pj-add style(flex-basis,flex-grow,flex-shrink)
               span.t
                 b "Add a project"
