@@ -107,6 +107,7 @@ impl Actor {
         update: v2::SessionUpdate,
     ) -> anyhow::Result<()> {
         match update {
+            v2::SessionUpdate::SessionInfoUpdate(_) if self.context_turn => {}
             v2::SessionUpdate::StateUpdate(state) => self.v2_state(cx, state),
             v2::SessionUpdate::ConfigOptionUpdate(options) => {
                 self.v2_options(cx, &json!({"configOptions": options.config_options}));

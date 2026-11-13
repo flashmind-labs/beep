@@ -6,13 +6,16 @@ import { S } from "../src/bar/core.ts";
 import { sendAgentMessage, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent } from "../src/agents/session.ts";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
-import { MN } from "../src/agents/workdrop.ts";
+import { MN, resetMentions, currentMentions, rememberMentionImages } from "../src/agents/workdrop.ts";
+import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
 function openSession(status: string): AgentPage {
+  disposeComposerUi();
+  resetMentions();
   const previous = bar.querySelector<HTMLElement>("#agbody");
   if (previous) disposeLogShell(previous);
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
@@ -107,18 +110,20 @@ function pendingUpload() {
   };
 }
 
-test("Send waits for uploads and previews, preserves later typing, and ignores repeated Send", async () => {
+test("Send keeps the prompt visible and locked until uploads and previews finish", async () => {
   openSession("idle");
   answers.agent_steer = ["uploaded-image"];
   const upload = pendingUpload(), input = field();
   input.value = "Describe this";
   const sending = sendAgentMessage();
   assert.deepEqual(steers(), []);
-  assert.equal(input.value, "");
+  assert.equal(input.value, "Describe this");
+  assert.equal(input.readOnly, true);
+  assert.equal(input.getAttribute("aria-busy"), "true");
+  assert.equal(bar.querySelector<HTMLButtonElement>("#agsend")?.disabled, true);
   upload.attach("/cache/shot.png");
   await sendAgentMessage();
   assert.deepEqual(steers(), []);
-  input.value = "Next message";
   upload.finish();
   await sending;
   assert.equal(steers().length, 1);
@@ -126,7 +131,9 @@ test("Send waits for uploads and previews, preserves later typing, and ignores r
   assert.match(sent.steer.text, /Describe this/);
   assert.match(sent.steer.text, /shot.png/);
   assert.equal(sent.steer.images.length, 1);
-  assert.equal(input.value, "Next message");
+  assert.equal(input.value, "");
+  assert.equal(input.readOnly, false);
+  assert.equal(bar.querySelector<HTMLButtonElement>("#agsend")?.disabled, false);
   assert.deepEqual(MN.paths, []);
   assert.deepEqual(AG.att, []);
   clearTimeout(AG.timer);
@@ -139,24 +146,38 @@ test("failed uploads restore the captured draft and do not send partial attachme
   const sending = sendAgentMessage();
   upload.attach("/cache/shot.png");
   upload.batch.failed = true;
-  field().value = "Next message";
+  assert.equal(field().readOnly, true);
   upload.finish();
   await sending;
   assert.deepEqual(steers(), []);
-  assert.equal(field().value, "Describe this\nNext message");
+  assert.equal(field().value, "Describe this");
+  assert.equal(field().readOnly, false);
   assert.deepEqual(MN.paths, ["/cache/shot.png"]);
   assert.equal(AG.att.length, 1);
 });
 
-test("switching sessions cancels an upload's pending send", async () => {
+test("switching sessions sends uploaded attachments to the original conversation", async () => {
   openSession("idle");
+  const original = currentMentions();
   const upload = pendingUpload();
   field().value = "Original session";
   const sending = sendAgentMessage();
+  upload.attach("/cache/shot.png");
+  rememberMentionImages();
   openSession("idle");
+  AG.open = { machine_id: "m1", agent: "claude", session: "s2" };
+  answers.agent_steer = ["uploaded-image"];
+  field().value = "Other conversation";
   upload.finish();
   await sending;
-  assert.deepEqual(steers(), []);
+  const sends = calls.filter(call => call.cmd === "agent_steer");
+  assert.equal(sends.length, 1);
+  assert.equal((sends[0].args as { session: string }).session, "s1");
+  assert.equal((sends[0].args as { steer: { steer: { images: unknown[] } } }).steer.steer.images.length, 1);
+  assert.equal(field().value, "Other conversation");
+  assert.deepEqual(MN.paths, []);
+  assert.deepEqual(AG.att, []);
+  assert.deepEqual(original.paths, []);
 });
 
 test("steers wait for attachment uploads too", async () => {

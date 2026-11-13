@@ -307,7 +307,7 @@ const TM_OUT = {
 const tmLabel = (link, machine, o) => link === "attaching" ? (o.tries ? `Reconnecting to ${machine}…` : "Attaching…")
   : link === "attached" ? (o.watching ? "Watching: typing is off" : `Attached: what you type goes to ${machine}`)
   : link === "detached" ? "Detached: it keeps running"
-  : link === "ended" ? "Ended" : "View only: the last 100 lines, read every 2 seconds";
+  : link === "ended" ? "Ended" : "View only: the last 100 lines";
 const tmOpen = (t, link, act, o = {}) => {
   const st = o.st || t.st, b = (l, cls, a) => `<button class="dbtn small${cls}" ${a}>${l}</button>`, acts = [];
   if (link === "attached" || link === "attaching") acts.push(

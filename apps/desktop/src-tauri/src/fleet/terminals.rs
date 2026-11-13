@@ -203,7 +203,10 @@ async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
         };
         // The node drops an exited interactive terminal, so its row goes too.
         if terminals::ended_for_good(&row.kept(), &state) {
-            forget(fleet, row.id).await?;
+            if let Err(e) = forget(fleet, row.id).await {
+                log::warn!("could not forget an exited terminal id={}: {e}", row.id);
+            }
+
             continue;
         }
 

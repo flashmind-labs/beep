@@ -5,16 +5,17 @@ import { conversationBlocked } from "./turnrows.ts";
 import { memo } from "react";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { sessionMessageTitle, type PromptPart } from "./promptparts-state.ts";
+import { EntryTime } from "./turn-heading-view.tsx";
 import { SubIcon } from "./activity-view.tsx";
 
 /// Replies already contain the sanitized Markdown produced by the node.
-export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string }
+export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; sentAt?: number | null }
 export interface BlockedRow { kind: "blocked"; id: string; message: string }
-export interface PromptRow { kind: "prompt"; row: string; html: string; pictures: string }
+export interface PromptRow { kind: "prompt"; row: string; html: string; pictures: string; sentAt?: number | null }
 export type ContextRow = { kind: "context"; id: string; type: "context"; text: string } | { kind: "context"; id: string; type: "session"; name: string; project: string | null; html: string } | { kind: "context"; id: string; type: "child"; part: Extract<PromptPart, { kind: "child" }>; body: string; agent: string | null; name: string; project: string | null };
 
 export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow }) {
-  return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row} dangerouslySetInnerHTML={{ __html: reply.html }}/>;
+  return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} /><div className="reply-body" dangerouslySetInnerHTML={{ __html: reply.html }} /></div>;
 });
 
 export function AgentError({ message }: { message: string }) {
@@ -22,7 +23,7 @@ export function AgentError({ message }: { message: string }) {
 }
 
 export const AgentPrompt = memo(function AgentPrompt({ prompt }: { prompt: PromptRow }) {
-  return <div className="dcoderen user md" data-at={prompt.row}><b>You</b>{prompt.html && <div className="said" dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
+  return <div className="dcoderen user md" data-at={prompt.row}><b>You <EntryTime at={prompt.sentAt ?? null} /></b>{prompt.html && <div className="said" dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
 });
 
 export const AgentContext = memo(function AgentContext({ row }: { row: ContextRow }) {

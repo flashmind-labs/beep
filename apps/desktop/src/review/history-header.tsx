@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { writeClipboard } from "../ui/parts.ts";
 import { Button } from "../ui/kit.tsx";
 
@@ -9,6 +9,11 @@ export function HistoryHeader({ breadcrumb, title, metadata, copyValue, copyLabe
   tab: HistoryTab; onTab: (tab: HistoryTab) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
   return <><header className="gh-detail-head"><div className="gh-breadcrumb">{breadcrumb}</div>
     <div className="gh-title-row"><h3>{title}</h3>
       <Button look="quiet" small onClick={() => { void writeClipboard(copyValue).then(() => setCopied(true)); }}>{copied ? "Copied" : copyLabel}</Button></div>

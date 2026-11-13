@@ -82,7 +82,7 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
     let what = match access {
         Access::Read => "read",
         Access::Write => "write",
-        Access::Work => "list custom agents in",
+        Access::Work => "list custom agents or worktrees in",
         Access::Diff => "read changes in",
     };
     anyhow::anyhow!(

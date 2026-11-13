@@ -131,6 +131,9 @@ export function agentClick(e: MouseEvent) {
   // A file a step names opens in the media pane.
   const step = inLog<HTMLElement>("[data-media]");
   if (step) { openPath(step.dataset.media!); return; }
+  const attachment = inLog<HTMLElement>("[data-attachment-path]");
+  if (attachment?.dataset.attachmentPath) { openPath(attachment.dataset.attachmentPath); return; }
+
   // A markdown link to a file opens it in the pane; bar/events.ts sends web links out.
   const fileLink = inLog<HTMLAnchorElement>("a[href]");
   const linkedFile = fileLink && linkedPath(fileLink.getAttribute("href")!);

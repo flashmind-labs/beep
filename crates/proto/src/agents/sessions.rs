@@ -192,6 +192,8 @@ wire_structs! {
         pub text: String,
         #[serde(default)]
         pub tool: Option<AgentToolCall>,
+        #[serde(default)]
+        pub sent_at: Option<u64>,
     }
 
     /// The actual tool call, kept separately from its display title. JSON

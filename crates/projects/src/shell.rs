@@ -47,7 +47,11 @@ pub struct Clip {
 
 impl Clip {
     pub fn push(&mut self, text: &str) {
-        let room = HEAD.saturating_sub(self.head.len());
+        let room = if self.tail.is_empty() {
+            HEAD.saturating_sub(self.head.len())
+        } else {
+            0
+        };
         let cut = text.floor_char_boundary(room);
 
         self.head.push_str(&text[..cut]);

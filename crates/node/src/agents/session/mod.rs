@@ -195,6 +195,7 @@ pub(super) struct Start<'a> {
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
+    pub(super) title: Option<String>,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -257,6 +258,7 @@ impl Session {
             resume,
             earlier,
             timestamps,
+            title,
             model,
             effort,
             mode,
@@ -330,6 +332,7 @@ impl Session {
             .with_context(|| format!("starting {}", kind.program))?;
         let processes = Processes::new(child.id().context("the agent has no pid")?);
         let info = SessionInfo {
+            title,
             id: resume.clone().unwrap_or_default(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
@@ -372,6 +375,7 @@ impl Session {
             queued: prompt.into_iter().collect(),
             steers: VecDeque::new(),
             sent: 0,
+            context_turn: false,
             turn: None,
             held_end: None,
             stopping: None,

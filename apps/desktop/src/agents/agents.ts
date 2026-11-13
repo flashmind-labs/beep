@@ -13,7 +13,7 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { type Nested, nest, splitEnded } from "./nesting-state.ts";
-import { parentSession, ensureSessions, loadSessions, reviewers, sessions, sessionsChanged } from "./sessions.ts";
+import { parentSession, ensureSessions, loadSessions, sessions, sessionsChanged } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.ts";
 import { preloadModels } from "./agentpicker.ts";
@@ -111,6 +111,7 @@ export interface AgentEntry {
   child_html?: string[];
   ms?: number | null;
   tool?: AgentToolCall | null;
+  sent_at?: number | null;
 }
 
 /// Structured details from the harness, separate from its display title.
@@ -473,7 +474,7 @@ let listPage: BarPageSlot | null = null;
 /// Reads the sessions into the list's store, and opens its page when another
 /// replaced it.
 export function drawAgents(loading: boolean) {
-  const visible = sessions.filter(sessionVisible), nested = nest([...visible, ...reviewers]);
+  const visible = sessions.filter(s => !s.parent && sessionVisible(s)), nested = nest(visible);
   const split = splitEnded(nested, row => !row.reviewer && shownStatus(row) === "ended");
   const listed = (n: Nested): ListedSession => ({ session: n.row, row: sessionRow(n) });
   const live = split.live.map(listed), ended = split.ended.map(listed);

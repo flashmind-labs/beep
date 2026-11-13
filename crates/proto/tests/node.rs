@@ -2037,6 +2037,7 @@ mod agent {
             }
             let thought = Entry {
                 tool: None,
+                sent_at: None,
                 kind: EntryKind::Thought,
                 text: "hmm".into(),
                 ms: Some(1200),
@@ -2135,4 +2136,35 @@ mod device {
         let read: Reply = beep_proto::lenient::from_slice(&bytes).expect("decodes");
         assert_eq!(read, reply);
     }
+}
+
+#[test]
+fn dated_entries_read_older_positional_entries() {
+    use beep_proto::node::agent::{Entry, EntryKind};
+    use serde::Serialize;
+    #[derive(Serialize)]
+    struct OldEntry {
+        kind: EntryKind,
+        text: String,
+        ms: Option<u64>,
+        tool: Option<beep_proto::AgentToolCall>,
+    }
+    let bytes = rmp_serde::to_vec(&OldEntry {
+        kind: EntryKind::User,
+        text: "hello".into(),
+        ms: None,
+        tool: None,
+    })
+    .unwrap();
+    let entry: Entry = beep_proto::lenient::from_slice(&bytes).unwrap();
+    assert_eq!(entry.sent_at, None);
+    let dated = Entry {
+        sent_at: Some(123),
+        ..entry
+    };
+    let bytes = rmp_serde::to_vec(&dated).unwrap();
+    assert_eq!(
+        beep_proto::lenient::from_slice::<Entry>(&bytes).unwrap(),
+        dated
+    );
 }

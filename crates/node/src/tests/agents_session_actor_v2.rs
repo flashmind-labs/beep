@@ -39,6 +39,7 @@ fn actor() -> Actor {
         queued: VecDeque::new(),
         steers: VecDeque::new(),
         sent: 0,
+        context_turn: false,
         turn: None,
         held_end: None,
         stopping: None,
@@ -164,6 +165,34 @@ async fn a_valid_v2_option_replaces_only_its_own_selector() {
             actor
                 .mode_request(SessionId::new("session-test"), "plan")
                 .is_ok()
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn recovery_context_cannot_rename_a_v2_conversation() {
+    with_actor(async |mut actor, cx| {
+        actor
+            .live
+            .send_modify(|live| live.info.title = Some("Original request".into()));
+        actor.context_turn = true;
+        let update = || {
+            serde_json::from_value(
+                json!({"sessionUpdate":"session_info_update", "title":"Recovery context"}),
+            )
+            .unwrap()
+        };
+        actor.v2_update(&cx, update()).unwrap();
+        assert_eq!(
+            watched::read_sent(&actor.live, |live| live.info.title.clone()).as_deref(),
+            Some("Original request")
+        );
+        actor.context_turn = false;
+        actor.v2_update(&cx, update()).unwrap();
+        assert_eq!(
+            watched::read_sent(&actor.live, |live| live.info.title.clone()).as_deref(),
+            Some("Recovery context")
         );
     })
     .await;

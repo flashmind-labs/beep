@@ -270,9 +270,9 @@ impl Fleet {
         self.parents.of(machine, session)
     }
 
-    /// The reviewers running as a child, as their machines listed them last.
-    pub(crate) fn reviewers(&self) -> Vec<beep_proto::MachineSession> {
-        self.parents.reviewers()
+    /// Child sessions, kept for the parent agent panel.
+    pub(crate) fn children(&self) -> Vec<beep_mesh::machine::listing::Linked> {
+        self.parents.children()
     }
 
     /// `serve`, then `start_services`. Takes the time it takes and is meant

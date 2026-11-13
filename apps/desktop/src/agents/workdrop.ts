@@ -2,10 +2,14 @@
 // or pasted on the session: they upload into its host's temporary cache and
 // are mentioned by absolute path.
 
-import { agentAttach } from "./images.ts";
+import { attachPreview } from "./images.ts";
+import { AG } from "./agents.ts";
+import type { Attached } from "./agentqueue.ts";
+import { conversationKey } from "./conversation-state.ts";
 import { agentMessage } from "./session-frame.tsx";
 import { joinPath, uploadParts } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.ts";
+import { rememberLocalUpload } from "../agentpane/read.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
@@ -33,27 +37,60 @@ interface UploadAsk {
   root: string;
 }
 
+export interface MentionState {
+  paths: string[];
+  uploads: Upload[];
+  pending: Set<UploadBatch>;
+  ask: UploadAsk | null;
+  files: Map<string, StashFile>;
+  reading: number;
+  images: Attached[];
+  sending: boolean;
+  error: string;
+}
+
+const freshMentions = (): MentionState => ({ paths: [], uploads: [], pending: new Set(), ask: null, files: new Map(), reading: 0, images: [], sending: false, error: "" });
+const conversations = new Map<string, MentionState>();
+let current = freshMentions();
+export const currentMentions = () => current;
+export const mentionImages = (state: MentionState) => state === current ? AG.att : state.images;
+export function setMentionImages(state: MentionState, images: Attached[]) {
+  state.images = images;
+  if (state === current) AG.att = images;
+}
+export function rememberMentionImages() { current.images = AG.att; }
+
+export function activateMentions(session: { machine_id: string; agent: string; id: string }) {
+  const key = conversationKey(session);
+  let state = conversations.get(key);
+  if (!state) { state = freshMentions(); conversations.set(key, state); }
+  if (state === current) { AG.attError = state.error; return; }
+  current = state;
+  AG.att = state.images;
+  AG.attError = state.error;
+}
+
 export const MN = {
-  /// Paths relative to the session's folder, as they go in the message.
-  paths: [] as string[],
-  uploads: [] as Upload[],
-  pending: new Set<UploadBatch>(),
-  ask: null as UploadAsk | null,
-  files: new Map<string, StashFile>(),
-  reading: 0,
-  /// Draws the chips again; the session view sets it.
+  get paths() { return current.paths; },
+  set paths(value: MentionState["paths"]) { current.paths = value; },
+  get uploads() { return current.uploads; },
+  set uploads(value: MentionState["uploads"]) { current.uploads = value; },
+  get pending() { return current.pending; },
+  set pending(value: MentionState["pending"]) { current.pending = value; },
+  get ask() { return current.ask; },
+  set ask(value: MentionState["ask"]) { current.ask = value; },
+  get files() { return current.files; },
+  set files(value: MentionState["files"]) { current.files = value; },
+  get reading() { return current.reading; },
+  set reading(value: MentionState["reading"]) { current.reading = value; },
   redraw: () => {},
-  /// Shows a short error by the chips; the session view sets it.
   error: (_text: string) => {},
 };
 
-/// Clears what waits for the next message, as when the session changes.
-export function resetMentions() {
-  MN.paths = [];
-  MN.uploads = [];
-  MN.pending = new Set();
-  MN.ask = null;
-  MN.files.clear();
+export function resetMentions() { current = freshMentions(); }
+
+function redrawUploads(state: MentionState) {
+  if (state === current) MN.redraw();
 }
 
 /// Mentions `path` (relative to the session's folder) in the next message.
@@ -97,46 +134,46 @@ export function askUpload(files: File[], folder: string, root = paneSession()?.c
 /// Files dropped or pasted on the session: temporary attachments by default,
 /// permanent when `folder` is chosen. Gives those that uploaded and where.
 export async function uploadDropped(files: File[], folder: string | null = null, root = paneSession()?.cwd ?? "", preview = false) {
-  const pending = MN.pending;
+  const state = current, session = paneSession();
+  const pending = state.pending;
   const batch: UploadBatch = { paths: [], failed: false, ready: Promise.resolve() };
   pending.add(batch);
-  const work = uploadFiles(files, folder, root, preview, batch);
+  const work = uploadFiles(files, folder, root, preview, batch, state, session);
   batch.ready = work.then(() => {});
 
   try { return await work; }
   finally { pending.delete(batch); }
 }
 
-async function uploadFiles(files: File[], folder: string | null, root: string, preview: boolean, batch: UploadBatch) {
-  const session = paneSession();
+async function uploadFiles(files: File[], folder: string | null, root: string, preview: boolean, batch: UploadBatch, state: MentionState, session: ReturnType<typeof paneSession>) {
   const uploaded: { file: File; path: string }[] = [];
 
   for (const f of files) {
-    if (paneSession() !== session) return uploaded;
-
     try {
-      MN.reading++;
-      const path = await uploadOne(f, folder, root);
+      state.reading++;
+      const path = await uploadOne(f, folder, root, session, state);
       const data = path ? await fileBase64(f) : "";
 
-      if (path && paneSession() === session) {
-        MN.files.set(path, { name: f.name, mime: f.type || "application/octet-stream", size: f.size, data });
-        if (!MN.paths.includes(path)) MN.paths.push(path);
+      if (path) {
+        if (session) rememberLocalUpload(session.machine_id, path, f);
+        state.files.set(path, { name: f.name, mime: f.type || "application/octet-stream", size: f.size, data });
+        if (!state.paths.includes(path)) state.paths.push(path);
         uploaded.push({ file: f, path });
         batch.paths.push(path);
-        if (preview && f.type.startsWith("image/")) await agentAttach(f, path);
+        if (preview && f.type.startsWith("image/")) await attachPreview(mentionImages(state), f, path);
       }
     } catch (e) {
       batch.failed = true;
-      MN.error(`${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`);
+      state.error = `${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`;
+      if (state === current) MN.error(state.error);
     } finally {
-      MN.reading--;
+      state.reading--;
     }
 
-    MN.redraw();
+    redrawUploads(state);
   }
 
-  if (folder !== null) reloadFolder(folder);
+  if (folder !== null && state === current) reloadFolder(folder);
   return uploaded;
 }
 
@@ -157,12 +194,11 @@ export async function prepareStashFiles(files: StashFile[]) {
 
 /// Uploads `file` into `folder` of the session's folder, a part at a time;
 /// the path it took there, or "" when the session went away.
-async function uploadOne(file: File, folder: string | null, root: string) {
-  const s = paneSession();
+async function uploadOne(file: File, folder: string | null, root: string, s = paneSession(), state = current) {
   if (!s) return "";
   const up: Upload = { name: file.name || "file", size: file.size, done: 0 };
-  MN.uploads.push(up);
-  MN.redraw();
+  state.uploads.push(up);
+  redrawUploads(state);
 
   try {
     let path = folder === null ? up.name : joinPath(folder, up.name);
@@ -178,13 +214,12 @@ async function uploadOne(file: File, folder: string | null, root: string) {
         machineId: s.machine_id, root, path, offset: part.offset, size: file.size, data,
         attachment: folder === null ? { agent: s.agent, session: s.id } : null,
       });
-      if (paneSession() !== s) return "";
       up.done = part.offset + part.len;
-      MN.redraw();
+      redrawUploads(state);
     }
 
     return folder === null ? path : mentioned(root, s.cwd, path);
   } finally {
-    MN.uploads = MN.uploads.filter(u => u !== up);
+    state.uploads = state.uploads.filter(u => u !== up);
   }
 }

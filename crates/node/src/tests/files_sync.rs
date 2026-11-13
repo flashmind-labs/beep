@@ -97,3 +97,46 @@ fn a_missing_folder_is_made_only_where_the_folder_above_it_is() {
     assert!(format!("{said:#}").starts_with(PARENT_MISSING), "{said:#}");
     assert!(!base.join("disk").exists());
 }
+
+#[tokio::test]
+async fn a_project_handed_to_syncthing_forgets_its_state() {
+    let shared = TempDir::new().expect("a temp folder");
+    let base = paths::canonicalize(shared.path()).expect("it is there");
+    let folder = base.join("proj");
+    std::fs::create_dir(&folder).expect("a project folder");
+    std::fs::write(folder.join("a.txt"), "one").expect("a file");
+    let state = TempDir::new().expect("a temp folder");
+    let transfers = crate::files::transfer::Transfers::start_with(
+        &bind().await,
+        state.path(),
+        Folders::new(std::slice::from_ref(&base)),
+        Syncthing::at(Vec::new(), Some(base.clone())),
+    )
+    .await
+    .expect("the transfers start");
+    let syncs = transfers.syncs();
+    let project = Project {
+        name: "proj".to_owned(),
+        folder: folder.display().to_string(),
+        peers: Vec::new(),
+        paused: false,
+    };
+    let refused = syncs.configure(vec![project]).await;
+    assert!(refused.is_empty(), "{refused:?}");
+
+    // Syncthing starts keeping the folder in step.
+    std::fs::write(base.join(".stfolder"), "").expect("a marker");
+    syncs
+        .syncthing_files(&folder.display().to_string(), Some(true))
+        .await
+        .ok();
+
+    assert!(syncs.held().contains("proj"));
+    let states = std::fs::read_dir(&syncs.inner.dir)
+        .expect("the state folder")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "state"))
+        .count();
+    assert_eq!(states, 0, "a held project keeps no state");
+    transfers.shutdown().await.expect("the node stops");
+}

@@ -90,6 +90,11 @@ try {
   await page.evaluate(() => { S.d.frontHome = ''; render(); });
   await page.evaluate(() => { S.screen = 'dHome'; render(); });
   const baseline = await page.evaluate(() => JSON.stringify(S.d));
+  await page.evaluate(() => { S.screen = 'dAgents'; S.d.agl = 'list'; render(); });
+  assert.equal(await page.locator('#desk .dchat').count(), 3, 'Only top-level sessions appear in the global list');
+  assert.equal(await page.locator('#desk .dchat.kid').count(), 0);
+  await page.evaluate(() => { S.screen = 'dAgentSession'; S.d.ags = 'agentkids'; render(); });
+  assert.equal(await page.locator('#desk .ag-pane .sr.kid').count(), 2, 'Child conversations stay accessible in the parent panel');
   for (const id of ids) {
     await page.evaluate(({ id, baseline }) => {
       S.d = JSON.parse(baseline);

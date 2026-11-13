@@ -506,7 +506,7 @@ impl Actor {
             return;
         }
         // A steer goes ahead of the prompts queued for after the turn.
-        let Some(prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
+        let Some(mut prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
             return;
         };
 
@@ -523,6 +523,11 @@ impl Actor {
             }
         }
 
+        if self.takes_images == Some(false) {
+            prompt.images.clear();
+        }
+
+        self.context_turn = crate::agents::tags::said(&prompt.text).is_empty();
         let brief = self.brief.take();
         self.sent += 1;
         self.turn = Some(self.sent);

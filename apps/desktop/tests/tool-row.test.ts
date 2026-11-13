@@ -104,3 +104,16 @@ test("started agent rows spin using the child session state", () => {
   assert.ok(bar.querySelector('.drun'));
   assert.ok(bar.querySelector('small')?.textContent.includes("working"));
 });
+
+
+test("tool times are recorded send times and absent for undated history", () => {
+  setup();
+  const en: AgentEntry = { kind: "tool", text: "Read src/main.rs [completed]", sent_at: 1794579242 };
+  bar.innerHTML = toolRow(en, 1);
+  const time = bar.querySelector("time");
+  assert.equal(time?.getAttribute("datetime"), new Date(1794579242000).toISOString());
+  assert.match(time?.textContent ?? "", /^\d{2}:\d{2}$/);
+  assert.ok(time?.getAttribute("title"));
+  bar.innerHTML = toolRow({ ...en, sent_at: null }, 1);
+  assert.equal(bar.querySelector("time"), null);
+});

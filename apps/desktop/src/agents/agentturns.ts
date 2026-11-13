@@ -1,7 +1,7 @@
 // A coding agent's log in turns: each message from the user and what the agent
 // did after it, up to the next message.
 
-import { imageLines, parseTool, subagent } from "./agentlog.ts";
+import { exitCode, imageLines, parseTool, subagent } from "./agentlog.ts";
 import { BEEP_MARK } from "../ui/icons.tsx";
 import { deviceCall, type DeviceVerb } from "../agentpane/device-state.ts";
 import { plural } from "../ui/format.ts";
@@ -212,8 +212,8 @@ const RANGE = /\s*(?:\((\d+)\s*-\s*(\d+)\)|:(\d+)(?:-(\d+))?)$/;
 export function rowParts(text: string, running = false, whole = false): RowParts {
   const { title, status, output } = parseTool(imageLines(text).text);
   const kind = toolKind(text), failed = status === "failed";
-  const exit = failed ? /(?:exit(?:ed with)?(?: code)?|status) (\d+)/i.exec(output)?.[1] : undefined;
-  let detail = failed ? (exit ? `exit ${exit}` : "failed") : "";
+  const exit = failed ? exitCode(output, true) : null;
+  let detail = failed ? (exit !== null ? `exit ${exit}` : "failed") : "";
   const mcp = MCP.exec(title.trim());
   if (mcp) return { kind, verb: mcp[1], target: (mcp[2] + mcp[3]).trim(), detail: detail || "MCP", bad: failed };
   const label = stepLabel(text, running, whole).replace(/ …$/, "");

@@ -99,8 +99,10 @@ impl UsageHub {
 
     /// Replaces a provider's last balance without changing session spend or plan windows.
     pub(crate) fn update_credits(&self, agent: &AgentSlug, credits: ProviderCredits, at: u64) {
-        self.plans.send_modify(|plans| {
+        let changed = self.plans.send_if_modified(|plans| {
             let plan = plan_of(plans, agent);
+            let before = plan.clone();
+
             if let Some(kept) = plan
                 .credits
                 .iter_mut()
@@ -110,8 +112,17 @@ impl UsageHub {
             } else {
                 plan.credits.push(credits);
             }
-            plan.at = at;
+
+            let changed = plan.credits != before.credits;
+            if changed {
+                plan.at = at;
+            }
+            changed
         });
+
+        if changed {
+            usage_changed();
+        }
     }
 
     /// Puts `windows`, seen `at` (Unix seconds), into `agent`'s report,

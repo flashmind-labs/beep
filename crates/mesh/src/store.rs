@@ -360,20 +360,34 @@ impl Core {
             joiner,
             expires_ms: ticket.expires_ms,
         });
-        self.save_redemptions()?;
+        let saved = self.save_redemptions();
 
-        if ticket.observer {
+        // The device is already added and saved, so publish even when a save fails.
+        let flags = self.set_join_flags(joiner, ticket.observer, ticket.temporary);
+        self.publish();
+        saved?;
+        flags?;
+
+        Ok(self.devices.ops().to_vec())
+    }
+
+    fn set_join_flags(
+        &mut self,
+        joiner: EndpointId,
+        observer: bool,
+        temporary: bool,
+    ) -> Result<(), MeshError> {
+        if observer {
             self.state
                 .set(Key::Observer(joiner.to_string()), Some(Vec::new()))?;
         }
 
-        if ticket.temporary {
+        if temporary {
             self.state
                 .set(Key::Temporary(joiner.to_string()), Some(Vec::new()))?;
         }
 
-        self.publish();
-        Ok(self.devices.ops().to_vec())
+        Ok(())
     }
 
     pub(crate) fn joined_with(&self, secret: &JoinSecret) -> Option<EndpointId> {
@@ -430,6 +444,16 @@ impl Core {
         self.state.set(key, value)?;
         self.publish();
         Ok(())
+    }
+
+    /// Writes only a key this side never held, checked next to the write.
+    pub(crate) fn set_if_new(&mut self, key: Key, value: Vec<u8>) -> Result<bool, MeshError> {
+        if self.state.holds(&key) {
+            return Ok(false);
+        }
+
+        self.set(key, Some(value))?;
+        Ok(true)
     }
 
     pub(crate) fn merge(&mut self, ops: &[DeviceOp]) -> Result<Merged, MeshError> {

@@ -27,8 +27,6 @@ export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
 }
 
 export const parentSession = (row: AgentRow) => parentRow(sessions, row) ?? nativeParents.get(sessionKey(row));
-/// The reviewers running as a child, kept apart: they list only under their parent.
-export let reviewers: AgentSession[] = [];
 
 let loading: Promise<AgentSession[]> | null = null;
 /// Called after each read of the sessions, with the new list in `sessions`.
@@ -60,7 +58,6 @@ export function loadSessions() {
     // A session that moved is on two machines for a while: it shows once.
     .then(([list]) => {
       sessions = withoutCopies([...list.filter(s => !s.reviewer), ...nativeSessions.values()]);
-      reviewers = list.filter(s => s.reviewer);
       for (const f of sessionsRead) f();
       return sessions;
     })

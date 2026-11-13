@@ -247,20 +247,30 @@ pub struct Failure<'a> {
     pub had_token: bool,
 }
 
+/// Git's own HTTP 404 line: `fatal: repository 'https://host/o/r/' not found`.
+fn quoted_repository_missing(text: &str) -> bool {
+    text.lines().any(|line| {
+        line.split_once("repository '")
+            .is_some_and(|(_, rest)| rest.contains("' not found"))
+    })
+}
+
 /// The plain sentence for a failed clone.
 pub fn explain(failure: Failure<'_>) -> ImportError {
     let text = failure.output.to_ascii_lowercase();
     let has = |needles: &[&str]| needles.iter().any(|needle| text.contains(needle));
     if has(&[
         "repository not found",
-        "not found",
+        "remote: not found",
         "could not read username",
         "authentication failed",
         "terminal prompts disabled",
-        "403",
-        "401",
+        "returned error: 401",
+        "returned error: 403",
+        "returned error: 404",
         "does not appear to be a git repository",
-    ]) {
+    ]) || quoted_repository_missing(&text)
+    {
         return if failure.had_token {
             ImportError::NoAccess {
                 repo: failure.project,
