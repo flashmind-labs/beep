@@ -441,8 +441,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 /* Its search, filtering as the user types. */
 .pj-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none }
 .pj-toolbar .pj-find { flex: 1; min-width: 0 }
-.pj-sort { flex: none; max-width: 150px }
-.pj-sort option { color: var(--fg); background: var(--bg) }
 .pj-find { display: block; width: 100%; max-width: 320px }
 .pj-find input { display: block; box-sizing: border-box; width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 3%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0 }
 .pj-find input::placeholder { color: var(--muted) }
@@ -989,3 +987,5 @@ html[data-move=next]::view-transition-old(page) { animation: .2s cubic-bezier(.2
 html[data-move=next]::view-transition-new(page) { animation: .2s cubic-bezier(.2, 0, 0, 1) both move-in-up }
 @keyframes move-in-up { from { transform: translateY(40px); opacity: 0 } }
 @keyframes move-out-up { to { transform: translateY(-40px); opacity: 0 } }
+
+.home-sort { display: flex; justify-content: flex-end; flex: none }

@@ -1,3 +1,4 @@
+import { lastProjectVisit, leaveProject, noteProjectVisit, readProjectSort, saveProjectSort } from "./project-preferences.ts";
 import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.ts";
 import { ProjectRunning } from "./running-view.tsx";
@@ -9,7 +10,7 @@ import { moveStore } from "../agents/move-store.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
 import { projectRunning, whereRows, whereCount, syncedBy, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
-import { parseProjectSort, projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
+import { projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
 import { makeCustomAgents } from "./customagents.ts";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
 import { pages, state, warm, pageFresh } from "../center/state.ts";
@@ -33,13 +34,14 @@ import { type RunningAgent } from "../agents/running-state.ts";
 let overviewHost: HTMLElement | null = null;
 
 export function disposeOverview() {
+  leaveProject();
   if (!overviewHost) return;
   removeWindowPart("project-overview");
   overviewHost = null;
 }
 
 export function overviewSection(rows: Project[]): PagePart[] {
-  visiting = null;
+  leaveProject();
   const groups = overviewGroups(rows, state.top, state.groups, overviewOrder(rows));
   overviewHost ??= retainedHost(null);
   showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming, sort: projectSort, changeSort,
@@ -48,31 +50,13 @@ export function overviewSection(rows: Project[]): PagePart[] {
   return [hostPart(overviewHost)];
 }
 
-const SORT_KEY = "beep.projects.sort";
-let projectSort: ProjectSort = "default";
-try { projectSort = parseProjectSort(localStorage.getItem(SORT_KEY)); } catch { /* use the default */ }
+let projectSort = readProjectSort("projects");
 
 function changeSort(sort: ProjectSort) {
   projectSort = sort;
   ranked = null;
-  try { localStorage.setItem(SORT_KEY, sort); } catch { /* kept for this launch only */ }
+  saveProjectSort("projects", sort);
   redrawProjects();
-}
-
-/// When the user last opened each project, kept between launches.
-const VISITS_KEY = "beep.projects.visited";
-let visits = new Map<string, number>();
-try {
-  const saved: unknown = JSON.parse(localStorage.getItem(VISITS_KEY) ?? "{}");
-  if (saved && typeof saved === "object") visits = new Map(Object.entries(saved).filter((e): e is [string, number] => typeof e[1] === "number"));
-} catch { /* none kept */ }
-let visiting: string | null = null;
-
-function noteVisit(name: string) {
-  if (visiting === name) return;
-  visiting = name;
-  visits.set(name, Date.now());
-  try { localStorage.setItem(VISITS_KEY, JSON.stringify(Object.fromEntries(visits))); } catch { /* kept for this launch only */ }
 }
 
 /// The overview's recency, taken once per look at it: when projects come or
@@ -87,7 +71,7 @@ function overviewOrder(rows: readonly Project[]) {
   const busy = !!box && (box.matches(":hover") || box.contains(document.activeElement));
   if (ranked && ranked.names === names && (busy || Date.now() - ranked.at < RANK_MS)) return ranked.activity;
 
-  const activity = new Map(rows.map(p => [p.name, projectSortTime(projectSort, p, state.sessions.get(p.name) ?? null, visits.get(p.name) ?? null)]));
+  const activity = new Map(rows.map(p => [p.name, projectSortTime(projectSort, p, state.sessions.get(p.name) ?? null, lastProjectVisit(p.name))]));
   ranked = { names, at: Date.now(), activity };
   return activity;
 }
@@ -96,7 +80,7 @@ function overviewOrder(rows: readonly Project[]) {
 /// per folder and "Copy here" where it is not, and the coding agents
 /// running in it now.
 export function projectDetail(p: Project): PagePart[] {
-  noteVisit(p.name);
+  noteProjectVisit(p.name);
   ranked = null;
   if (p.imported) warm(p.name);
   const machines = p.imported ? state.where.get(p.name) : null;
