@@ -1,6 +1,5 @@
 import { agentMessage } from "../agents/session-frame.tsx";
 import { showFieldDrop } from "../agents/composer-ui.tsx";
-import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
@@ -60,12 +59,7 @@ document.addEventListener("paste", e => {
 /// Files pasted or dropped on a coding agent session upload to its machine
 /// and are mentioned; a picture also attaches a small preview to the message.
 export async function agentDrop(files: Iterable<File>) {
-  const session = paneSession();
-
-  for (const { file, path } of await uploadDropped([...files])) {
-    if (paneSession() !== session) return;
-    if (file.type.startsWith("image/")) await agentAttach(file, path);
-  }
+  await uploadDropped([...files], null, paneSession()?.cwd ?? "", true);
 }
 
 // Dropping images and files on a session attaches them too; a path dragged

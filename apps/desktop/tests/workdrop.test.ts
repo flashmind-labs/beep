@@ -57,3 +57,30 @@ test("a temporary attachment keeps its absolute path while browsing another work
   await uploadDropped([new File(["notes"], "notes.txt")], null, "/srv/project/.worktrees/fix");
   assert.deepEqual(MN.paths, [path]);
 });
+
+test("a batch stays pending through every file until its attachments are ready", async () => {
+  setup("/cache/first.txt");
+  const gate = new Promise<string>(resolve => {
+    Object.defineProperty(answers, "agent_tree_upload", { configurable: true, get() {
+      return gate;
+    } });
+    queueMicrotask(() => resolve("/cache/first.txt"));
+  });
+  const errors: string[] = [];
+  MN.error = text => { errors.push(text); };
+  const work = uploadDropped([
+    new File(["first"], "first.txt"),
+    new File(["second"], "second.txt"),
+  ]);
+  const [batch] = MN.pending;
+  assert.ok(batch);
+  const path = await gate;
+  assert.equal(path, "/cache/first.txt");
+  assert.equal(MN.pending.size, 1);
+  await work;
+  await batch.ready;
+  assert.equal(MN.pending.size, 0);
+  assert.equal(batch.failed, false);
+  assert.equal(errors.length, 0);
+  Object.defineProperty(answers, "agent_tree_upload", { configurable: true, value: null, writable: true });
+});

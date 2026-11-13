@@ -6,13 +6,13 @@ import { sessionPicks } from "./session.ts";
 import { composeMessage } from "../chat/compose.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
-import { MN, takeMentions } from "./workdrop.ts";
+import { MN } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentQuestion, type OpenAgent, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.ts";
 import { redrawAgentHints } from "./session-head.ts";
-import { agentAttachError, drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
+import { drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
 import { drawAgentBody } from "./logview.ts";
 import { sameSession } from "./running-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -37,21 +37,60 @@ const outgoing = (text: string, images: Attached[]): Outgoing => images.length ?
 
 /// Takes what waits in the field for a message: the words, the paths it
 /// mentions and the images.
-function takeMessage(input: HTMLTextAreaElement | null): Waiting | null {
-  if (MN.uploads.length) {
-    agentAttachError(`Wait for ${MN.uploads[0].name} to upload`);
-    return null;
-  }
+function takeMessage(input: HTMLTextAreaElement | null, uploading = false, reserved = new Set<string>()): Waiting | null {
 
   // Copies: what is attached next must not join this message.
-  const typed = composeMessage(input?.value ?? ""), images = AG.att.slice();
-  if (!typed && !images.length && !MN.paths.length) return null;
-  const paths = MN.paths.slice();
+  const typed = composeMessage(input?.value ?? "");
+  const images = AG.att.filter(image => typeof image.original !== "string" || !reserved.has(image.original));
+  const paths = MN.paths.filter(path => !reserved.has(path));
+  if (!typed && !images.length && !paths.length && !uploading) return null;
   const files = paths.flatMap(path => { const file = MN.files.get(path); return file ? [{ path, file }] : []; });
-  const text = paths.length ? withMentions(typed, takeMentions()) : typed;
+  const text = paths.length ? withMentions(typed, paths) : typed;
+  MN.paths = MN.paths.filter(path => reserved.has(path));
+  for (const path of paths) MN.files.delete(path);
+  MN.redraw();
   if (input) input.value = "";
-  if (images.length) { AG.att = []; drawAgentAttached(); }
+  if (images.length) { AG.att = AG.att.filter(image => !images.includes(image)); drawAgentAttached(); }
   return { how: "steer", typed, text, paths, images, files, state: null, after: 0 };
+}
+
+// Each batch belongs to at most one send, even if Enter is pressed twice.
+const claimedUploads = new WeakSet<object>();
+
+function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Promise<Waiting | null> {
+  const batches = [...MN.pending].filter(batch => !claimedUploads.has(batch));
+  const reserved = new Set([...MN.pending].filter(batch => claimedUploads.has(batch)).flatMap(batch => batch.paths));
+  for (const batch of batches) claimedUploads.add(batch);
+  const draft = takeMessage(input, batches.length > 0, reserved), session = AG.open;
+  if (!draft || !batches.length) return draft;
+  return finishMessage(draft);
+
+  async function finishMessage(draft: Waiting) {
+    await Promise.all(batches.map(batch => batch.ready));
+    if (AG.open !== session) return null;
+
+    const paths = new Set(batches.flatMap(batch => batch.paths));
+    const images = AG.att.filter(image => typeof image.original === "string" && paths.has(image.original));
+    for (const path of paths) {
+      if (!draft.paths.includes(path)) draft.paths.push(path);
+      const file = MN.files.get(path);
+      if (file) (draft.files ??= []).push({ path, file });
+      MN.files.delete(path);
+    }
+
+    draft.images.push(...images);
+    draft.text = withMentions(draft.typed, draft.paths);
+    MN.paths = MN.paths.filter(path => !paths.has(path));
+    AG.att = AG.att.filter(image => !images.includes(image));
+    drawAgentAttached();
+
+    if (batches.some(batch => batch.failed)) {
+      backInField(draft);
+      return null;
+    }
+
+    return draft;
+  }
 }
 
 /// Puts `q` back in the field, before what is typed there.
@@ -91,7 +130,12 @@ export async function editQueued(i: number, edit: boolean) {
 
 /// Enter while the turn runs: steers it.
 export function steerMessage(input: HTMLTextAreaElement) {
-  const q = takeMessage(input);
+  const draft = prepareMessage(input);
+  if (draft instanceof Promise) return draft.then(queueSteer);
+  queueSteer(draft);
+}
+
+function queueSteer(q: Waiting | null) {
   if (!q) return;
   q.how = "steer";
   AG.queue.push(q);
@@ -246,8 +290,9 @@ async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null): Promise<
 }
 
 export async function sendAgentMessage() {
-  const input = agentMessage.current, draft = takeMessage(input);
-  if (!draft) return;
+  const input = agentMessage.current, session = AG.open, prepared = prepareMessage(input);
+  const draft = prepared instanceof Promise ? await prepared : prepared;
+  if (!draft || AG.open !== session) return;
   const page = AG.page!;
   return page.session.status === "ended"
     ? continueAgent(input!, draft.text, draft.images, draft)
@@ -257,10 +302,10 @@ export async function sendAgentMessage() {
 /// Sends a prepared message, preserving it in the field if refused.
 async function sendMessage(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
   const o = AG.open!, page = AG.page!;
-  input.value = "";
+  if (!draft) input.value = "";
 
   if (images.length) {
-    AG.att = [];
+    if (!draft) AG.att = [];
     drawAgentAttached();
     keepAgentPics(o, images);
   }
@@ -328,7 +373,7 @@ export async function sendReview(text: string) {
 /// goes on from it. Messages with images go together after resuming.
 async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
   const o = AG.open!;
-  input.value = "";
+  if (!draft) input.value = "";
   input.disabled = true;
   AG.note = "";
   if (!images.length) AG.page!.entries.push({ kind: "user", text });

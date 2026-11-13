@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { S } from "../src/bar/core.ts";
-import { sendAgentMessage } from "../src/agents/messages.ts";
+import { sendAgentMessage, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent } from "../src/agents/session.ts";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { MN } from "../src/agents/workdrop.ts";
@@ -88,4 +88,88 @@ test("resuming reconnects a stream that closed before its first snapshot", async
   field().value = "continue";
   await sendAgentMessage();
   assert.equal(calls.filter(c => c.cmd === "agent_follow").length, 2);
+});
+
+function pendingUpload() {
+  let finish = () => {};
+  const ready = new Promise<void>(resolve => { finish = resolve; });
+  const batch = { paths: [] as string[], failed: false, ready };
+  MN.pending.add(batch);
+  return {
+    batch,
+    finish() { MN.pending.delete(batch); finish(); },
+    attach(path: string) {
+      batch.paths.push(path);
+      MN.paths.push(path);
+      MN.files.set(path, { name: "shot.png", mime: png.mime, size: png.size, data: png.data });
+      AG.att.push({ ...png, original: path });
+    },
+  };
+}
+
+test("Send waits for uploads and previews, preserves later typing, and ignores repeated Send", async () => {
+  openSession("idle");
+  answers.agent_steer = ["uploaded-image"];
+  const upload = pendingUpload(), input = field();
+  input.value = "Describe this";
+  const sending = sendAgentMessage();
+  assert.deepEqual(steers(), []);
+  assert.equal(input.value, "");
+  upload.attach("/cache/shot.png");
+  await sendAgentMessage();
+  assert.deepEqual(steers(), []);
+  input.value = "Next message";
+  upload.finish();
+  await sending;
+  assert.equal(steers().length, 1);
+  const sent = steers()[0] as { steer: { text: string; images: unknown[] } };
+  assert.match(sent.steer.text, /Describe this/);
+  assert.match(sent.steer.text, /shot.png/);
+  assert.equal(sent.steer.images.length, 1);
+  assert.equal(input.value, "Next message");
+  assert.deepEqual(MN.paths, []);
+  assert.deepEqual(AG.att, []);
+  clearTimeout(AG.timer);
+});
+
+test("failed uploads restore the captured draft and do not send partial attachments", async () => {
+  openSession("idle");
+  const upload = pendingUpload();
+  field().value = "Describe this";
+  const sending = sendAgentMessage();
+  upload.attach("/cache/shot.png");
+  upload.batch.failed = true;
+  field().value = "Next message";
+  upload.finish();
+  await sending;
+  assert.deepEqual(steers(), []);
+  assert.equal(field().value, "Describe this\nNext message");
+  assert.deepEqual(MN.paths, ["/cache/shot.png"]);
+  assert.equal(AG.att.length, 1);
+});
+
+test("switching sessions cancels an upload's pending send", async () => {
+  openSession("idle");
+  const upload = pendingUpload();
+  field().value = "Original session";
+  const sending = sendAgentMessage();
+  openSession("idle");
+  upload.finish();
+  await sending;
+  assert.deepEqual(steers(), []);
+});
+
+test("steers wait for attachment uploads too", async () => {
+  openSession("working");
+  answers.agent_steer = ["uploaded-image"];
+  const upload = pendingUpload();
+  const sending = steerMessage(field());
+  assert.deepEqual(steers(), []);
+  upload.attach("/cache/shot.png");
+  upload.finish();
+  await sending;
+  assert.equal(steers().length, 1);
+  const sent = steers()[0] as { steer: { images: unknown[] } };
+  assert.equal(sent.steer.images.length, 1);
+  clearTimeout(AG.timer);
 });
