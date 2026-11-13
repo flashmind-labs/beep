@@ -133,7 +133,7 @@ pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Rep
                 .and_then(Value::as_str)
                 .and_then(|id| id.parse::<Job>().ok())
             else {
-                return done("Give the job id remote_run gave, such as task:7@box.", true);
+                return done("Give the job id run start gave, such as task:7@box.", true);
             };
             let Some(target) = machines(mesh).into_iter().find(|m| m.name == job.machine) else {
                 return missing(mesh, &job.machine);
@@ -358,6 +358,16 @@ fn missing(mesh: &Mesh, name: &str) -> Reply {
 
 /// The mesh's devices, each with what its own status report says of it
 /// when it answers in time.
+/// Whether `mesh` has no machine but this one to run on; phones host nothing.
+pub(super) fn alone(mesh: &Mesh) -> bool {
+    let me = mesh.me();
+
+    mesh.inventory().iter().all(|device| match device {
+        Device::Phone(_) => true,
+        Device::Desktop(status) | Device::Node(status) => status.device.id == me,
+    })
+}
+
 async fn list(mesh: &Mesh) -> Reply {
     done(device_lines(mesh).await.join("\n"), false)
 }

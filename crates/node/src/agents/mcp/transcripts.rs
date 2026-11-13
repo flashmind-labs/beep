@@ -75,7 +75,7 @@ async fn read(offers: &Offers, args: &Args) -> Result<SessionsReply> {
         let target = machines::machines(&mesh)
             .into_iter()
             .find(|m| m.id.to_string() == *name || m.name == machines::command_name(name))
-            .with_context(|| format!("Unknown machine {name}; use list_machines."))?;
+            .with_context(|| format!("Unknown machine {name}; use machines list."))?;
         if target.id != mesh.me() {
             let (mut tx, mut rx) =
                 machines::handshake(&mesh, target.id, TRANSCRIPT_PROTOCOL).await?;

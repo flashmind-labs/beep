@@ -56,3 +56,30 @@ fn device_calls_name_the_device_and_its_machine() {
     );
     assert_eq!(title(json!({})), "Beep: Use a device on a machine");
 }
+
+#[test]
+fn grouped_calls_take_the_words_of_their_action() {
+    let title = |name: &str, args: Value| {
+        Tool::of_name(&format!("mcp__beep__{name}"))
+            .unwrap()
+            .title(Some(&args))
+    };
+    assert_eq!(
+        title("run", json!({"action": "start", "machine": "build-box", "command": "cargo test"})),
+        "Beep: Run on build-box: cargo test"
+    );
+    assert_eq!(
+        title("agent", json!({"action": "start", "harness": "codex", "prompt": "Fix it"})),
+        "Beep: Start codex agent: Fix it"
+    );
+    assert_eq!(
+        title("files", json!({"action": "sync", "project": "beep"})),
+        "Beep: Sync beep"
+    );
+    assert_eq!(title("machines", json!({"action": "list"})), "Beep: List machines");
+    assert_eq!(
+        title("beep", json!({"action": "logs", "machine": "build-box"})),
+        "Beep: Read logs on build-box"
+    );
+    assert_eq!(title("agent", json!({"action": "dance"})), "Beep: Use agent");
+}

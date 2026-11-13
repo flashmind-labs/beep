@@ -55,6 +55,11 @@ pub(crate) trait Backend: Sync {
     /// Whether `session` is a temporary reviewer, which is offered
     /// `submit_review`.
     fn reviewer(&self, session: &str) -> bool;
+    /// Whether the mesh has no other machine to run on, so the tools that
+    /// reach one are left out.
+    fn alone(&self) -> bool {
+        false
+    }
     /// The media tools `session` gets from the saved API keys.
     fn media(&self, _session: &str) -> Option<Media> {
         None
@@ -150,7 +155,7 @@ async fn answer<B: Backend>(
         }
         "ping" => success(id, json!({})),
         "tools/list" => {
-            let mut tools = catalog::tools(backend.reviewer(session));
+            let mut tools = catalog::tools(backend.reviewer(session), backend.alone());
 
             if let (Some(listed), Some(media)) = (tools.as_array_mut(), media) {
                 listed.extend(media.listed());
@@ -234,6 +239,10 @@ impl From<Reply> for Called {
 }
 
 async fn call<B: Backend>(backend: &B, session: &str, name: &str, args: Value) -> Called {
+    let (name, args) = match catalog::ungroup(name, args) {
+        Ok(call) => call,
+        Err(text) => return Called::failed(text),
+    };
     let operation = match name {
         ASK_USER => ASK_USER,
         READ_TRANSCRIPT => READ_TRANSCRIPT,

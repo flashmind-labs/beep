@@ -255,6 +255,13 @@ impl Backend for Node {
         self.offers.agents.is_reviewer(session)
     }
 
+    fn alone(&self) -> bool {
+        self.offers
+            .mesh
+            .get()
+            .is_none_or(|mesh| machines::alone(&mesh))
+    }
+
     fn media(&self, session: &str) -> Option<media::Media> {
         self.offers.agents.folder_of(session).map(media::Media::new)
     }
