@@ -217,7 +217,7 @@ impl External {
 
         for session in &mut sessions {
             if session.title.is_none() && !session.last_prompt.is_empty() {
-                session.title = Some(session.last_prompt.clone());
+                session.title = crate::agents::tags::title(&session.last_prompt);
             }
         }
 

@@ -106,9 +106,11 @@ impl Live {
                     .collect();
             }
             SessionUpdate::SessionInfoUpdate(info) => {
-                if let MaybeUndefined::Value(new) = &info.title {
+                if let MaybeUndefined::Value(new) = &info.title
+                    && let Some(title) = crate::agents::tags::title(new)
+                {
                     self.naming = false;
-                    self.info.title = Some(cut(new, MAX_LINE));
+                    self.info.title = Some(title);
                 }
             }
             SessionUpdate::UsageUpdate(usage) => {
@@ -210,19 +212,16 @@ impl Live {
 
         if self.naming
             && let Some(prompt) = self.transcript.back()
-            && let Some(line) = crate::agents::tags::said(&prompt.text)
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
+            && let Some(title) = crate::agents::tags::title(&prompt.text)
         {
             // Claude replays compaction summaries as user messages on restore.
             // Also defer partial prefixes while the message is streaming.
             const CONTINUATION: &str =
                 "This session is being continued from a previous conversation";
-            self.info.title = if CONTINUATION.starts_with(line) || line.starts_with(CONTINUATION) {
+            self.info.title = if CONTINUATION.starts_with(&title) || title.starts_with(CONTINUATION) {
                 None
             } else {
-                Some(cut(line, MAX_LINE))
+                Some(title)
             };
         }
     }

@@ -84,3 +84,56 @@ fn a_bare_brief_becomes_context() {
     let old = brief.split(" For Rust, C, or C++ builds").next().unwrap();
     assert_eq!(said(&format!("{old}keep going")), "keep going");
 }
+
+#[test]
+fn automatic_titles_strip_wrappers_and_use_the_first_readable_line() {
+    assert_eq!(
+        title("  Fix the build  \nDetails"),
+        Some("Fix the build".into())
+    );
+    assert_eq!(title(&context("Private instructions")), None);
+    assert_eq!(
+        title(&from_session(
+            "s1",
+            "Parent",
+            "Check the upload queue.\nMore"
+        )),
+        Some("Check the upload queue.".into())
+    );
+    assert_eq!(
+        title(&format!("{}\nFix the build", context("Rules"))),
+        Some("Fix the build".into())
+    );
+    assert_eq!(
+        title("<from-session id=\"s1\" name=\"Upload &amp; send\""),
+        Some("Upload & send".into())
+    );
+
+    for partial in [
+        "<",
+        "<from-session",
+        "<from-session id=\"s1\" name=\"Unfinished",
+        "<beep-context>Rules",
+        "<environment_context>",
+    ] {
+        assert_eq!(title(partial), None, "{partial}");
+    }
+}
+
+#[test]
+fn automatic_titles_are_short_unicode_safe_and_stable() {
+    let text = format!("{} lastword", "word ".repeat(20));
+    let short = title(&text).unwrap();
+    assert_eq!(short, format!("{}...", "word ".repeat(15).trim_end()));
+    assert!(short.chars().count() <= 80);
+    assert_eq!(title(&short), Some(short));
+    assert_eq!(
+        title(&"界".repeat(90)),
+        Some(format!("{}...", "界".repeat(77)))
+    );
+    assert_eq!(title(&"a".repeat(80)), Some("a".repeat(80)));
+    assert_eq!(
+        title(&format!("{} next", "a".repeat(77))),
+        Some(format!("{}...", "a".repeat(77)))
+    );
+}

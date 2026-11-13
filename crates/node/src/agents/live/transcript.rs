@@ -30,7 +30,8 @@ use std::{
 };
 
 impl Live {
-    pub(crate) fn new(info: SessionInfo, images: Arc<Images>, usage: Arc<UsageHub>) -> Self {
+    pub(crate) fn new(mut info: SessionInfo, images: Arc<Images>, usage: Arc<UsageHub>) -> Self {
+        info.title = info.title.as_deref().and_then(crate::agents::tags::title);
         let folder = PathBuf::from(&info.cwd);
         Self {
             folder: Some(folder.clone()),
@@ -257,13 +258,8 @@ impl Live {
     /// A prompt went to the agent.
     pub(crate) fn prompted(&mut self, text: &str) {
         // Until the agent names the session, its first prompt does.
-        if self.info.title.is_none()
-            && let Some(line) = crate::agents::tags::said(text)
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-        {
-            self.info.title = Some(cut(line, MAX_LINE));
+        if self.info.title.is_none() {
+            self.info.title = crate::agents::tags::title(text);
         }
 
         self.end_thought(Instant::now());

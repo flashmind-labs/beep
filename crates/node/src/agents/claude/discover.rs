@@ -467,7 +467,7 @@ fn describe(
             .cwd
             .as_deref()
             .and_then(|cwd| of_folder(Path::new(cwd))),
-        title: gist.title().map(str::to_owned),
+        title: gist.title(),
         started_at,
         last_activity: unix(active),
         presence: found.presence,
