@@ -95,3 +95,27 @@ body:not(.mobile) .dcoder .q .dups .dbtn { justify-content: space-between; min-h
 body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 10%, transparent) }
 body:not(.mobile) .dcoder .q .dups .dbtn.warn { color: var(--err) }
 body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--muted) }
+
+/* ----- Session screen: one slim title row. The window's top bar gives up its title here and
+   lays its tools over the row's end; the session's own head is the row, and drags the window. ----- */
+body:not(.mobile) .cc-main:has(.ag-head) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
+body:not(.mobile) .cc-main:has(.ag-head) > .cc-top > * { pointer-events: auto }
+body:not(.mobile) .cc-main:has(.ag-head) > .cc-top > :not(#tools, #usage, #bell) { display: none }
+body:not(.mobile) .nt-bell { border: 0 }
+body:not(.mobile) .dhead.ag-head { height: 40px; padding: 0 112px 0 14px; gap: 8px; border-bottom: 0 }
+body:not(.mobile) .ag-head .dcoderav { width: 18px; height: 18px; border: 0; background: none }
+body:not(.mobile) .ag-head .tt { display: flex; align-items: baseline; gap: 10px }
+body:not(.mobile) .ag-head .tt b { flex: 0 1 auto; font-size: 13.5px }
+body:not(.mobile) .ag-head .tt small { flex: 0 1 auto; min-width: 0 }
+body:not(.mobile) .ag-head .dstate { padding: 0; border: 0; background: none; font-size: 12px; font-weight: 500 }
+body:not(.mobile) .ag-head .dstate::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px }
+
+/* ----- Session screen: no rules between the parts, a narrower column, one text size ----- */
+body:not(.mobile) .dcoderturn { padding-bottom: 0; border-bottom: 0 }
+body:not(.mobile) .agphead, body:not(.mobile) .agfbar { border-bottom: 0 }
+body:not(.mobile) .agpacts { border-top: 0 }
+body:not(.mobile) .dagmain { gap: 14px; padding-top: 10px }
+body:not(.mobile) .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { max-width: 720px }
+body:not(.mobile) #agfield#agfield.dinput.small { width: calc(100% - 28px); max-width: 720px; margin-inline: auto }
+body:not(.mobile) .dcoderen:is(.agent, .other) { font-size: 13.5px; line-height: 21px; color: var(--fg) }
+body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }

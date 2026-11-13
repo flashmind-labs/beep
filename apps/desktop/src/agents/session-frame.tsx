@@ -310,5 +310,5 @@ const AgentHints = memo(function AgentHints({ value }: { value: AgentHintsModel 
 });
 
 const FrameView = memo(function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
-  return <><div className="dhead ag-head" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
+  return <><div className="dhead ag-head" data-tauri-drag-region="" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
 });
