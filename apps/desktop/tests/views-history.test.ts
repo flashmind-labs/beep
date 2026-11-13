@@ -37,7 +37,6 @@ const stubs = new Map(Object.entries({
   "center/pane.ts": page("export const paneView = v('pane');"),
   "center/home.ts": page("export const homeView = v('home');"),
   "project/page.ts": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
-  "project/syncpage.ts": page("export const syncView = v('sync'); export const SyncRoute = () => null;"),
   "terminals/view.ts": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
   "bar/core.ts": "export const S = { view: null };",
   "center/mobile.ts": "export const syncMobile = () => {}; export const canGoBack = () => false;",

@@ -67,14 +67,14 @@ function needsCards(home: HomeView): BoardCard[] {
       action: item.review_requested ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
   }
 
-  // A project's conflicts share one card: the Sync page lists them.
+  // A project's conflicts share one card: its Machines section lists them.
   for (const project of syncProjects()) {
     const detail = fsync.detail(project), conflicts = conflictList(detail), first = conflicts[0];
     if (!first) continue;
-    const one = conflicts.length === 1;
+    const one = conflicts.length === 1, open = () => go("projects", { project, tile: "machines" });
     cards.push({ key: `${project}:conflicts`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
       title: one ? first.path : `${conflicts.length} files have two copies`, sub: one ? conflictSub(project, first, detail?.machines ?? []) : project, foot: null,
-      action: { kind: "run", label: "Resolve", primary: false, run: () => go("sync") }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open: () => go("sync"), menu: null });
+      action: { kind: "run", label: "Resolve", primary: false, run: open }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open, menu: null });
   }
 
   return cards;

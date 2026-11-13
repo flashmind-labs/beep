@@ -143,7 +143,6 @@ body.cbody
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
-      div.cc-box [hidden]
       div.cc-box
         div.cc-view.tl-view
           div.tl

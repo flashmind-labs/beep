@@ -12,7 +12,7 @@ import { reason } from "../ui/format.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
-import { type Held, type Note, find, fromNote, markRead, opens, skillName, unreadIds, without } from "./notices-state.ts";
+import { type Held, type Note, conflictProject, find, fromNote, markRead, opens, skillName, unreadIds, without } from "./notices-state.ts";
 import { go } from "./views.ts";
 
 /// Opens the pane. Set by `mountNotices`.
@@ -128,9 +128,12 @@ export function mountNotices() {
     toggle(false);
     if (to === "project") go("projects", (i.target as { projects: ProjectsArg }).projects);
     else if (to === "session") go("pane", i.target as PaneTarget);
-    else if (to === "sync") go("sync");
+    else if (to === "conflict") openConflict(conflictProject(i));
     else openSettings("machines");
   };
+
+  /// A sync conflict opens its project's Machines section, or the projects when the note names none.
+  const openConflict = (project: string | null) => go("projects", { project, tile: project ? "machines" : null });
 
   const answer = (i: Note, allow: boolean) => {
     answering.add(i.id);

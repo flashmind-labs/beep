@@ -335,7 +335,6 @@ body.cbody
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
-      div.cc-box [hidden]
     nav#mb-tabs.mb-tabs [aria-label="Sections"]
       button [type="button"] "Home"
         span.ic

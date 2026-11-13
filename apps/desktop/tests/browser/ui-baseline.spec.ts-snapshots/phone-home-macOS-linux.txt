@@ -161,7 +161,6 @@ body.cbody.mb-home.mobile
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
-      div.cc-box [hidden]
     nav#mb-tabs.mb-tabs [aria-label="Sections"]
       button [aria-current="true" type="button"] "Home"
         span.ic

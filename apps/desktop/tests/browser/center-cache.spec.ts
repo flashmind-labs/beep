@@ -18,8 +18,6 @@ async function round(page: Page) {
   const side = page.locator("#side");
   await side.getByRole("button", { name: "Terminals", exact: true }).click();
   await expect(page.locator(".tl-list").getByRole("button", { name: /shell-one/ })).toBeVisible();
-  await side.getByRole("button", { name: "Sync", exact: true }).click();
-  await expect(page.locator(".cc-view:visible").getByText("18 files")).toBeVisible();
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".cc-view:visible .pj-board .bd-lanes")).toBeVisible();
   await side.getByRole("button", { name: "Home", exact: true }).click();

@@ -99,7 +99,6 @@ export function mainTarget(page: Location): CenterTarget {
   switch (page.view) {
     case "home": case "instructions": case "providers": case "terminals": return page.view;
     case "projects": return { projects: { project: page.arg?.project ?? null, run: page.arg?.run ?? null } };
-    case "sync": return "home";
     case "pane": return paneTarget(page.arg);
   }
 }

@@ -31,7 +31,7 @@ test("Back goes up one step and is absent on a tab's first page", () => {
   assert.equal(backTo(at({ page: "terminals", terminal: true })), "terminals");
   assert.equal(backTo(at({ page: "pane", paneView: "agents" })), null);
   assert.equal(backTo(at({ page: "pane", paneView: "agent" })), "history");
-  assert.equal(backTo(at({ page: "sync" })), "history");
+  assert.equal(backTo(at({ page: "providers" })), "history");
 });
 
 test("a session and an open terminal hide the tab bar", () => {

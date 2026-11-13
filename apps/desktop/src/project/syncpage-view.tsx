@@ -54,10 +54,3 @@ export function SyncProject({ sync, project, model, machines = null, heading = p
     <div className="dmuted fs-note">{detail.machines.some(machine => machine.git_only) ? detail.ignored_folders?.length ? "Git syncs commits. Selected ignored folders use file sync. Other uncommitted edits stay local." : "Git checkouts sync commits. Uncommitted edits stay on their machine; use Bring work here under Machines for an explicit handoff." : "Builds, ignored files and links stay on each machine."}</div>
   </>;
 }
-
-/// The Sync page: every project some machine syncs, those with conflicts first.
-export function SyncPage({ sync, models }: { sync: Sync; models: readonly { project: string; model: ReturnType<Sync["page"]> }[] }) {
-  return <div className="cc-view">{models.length
-    ? models.map(({ project, model }) => <SyncProject key={project} sync={sync} project={project} model={model} />)
-    : <EmptyPanel title="No project syncs yet" />}</div>;
-}

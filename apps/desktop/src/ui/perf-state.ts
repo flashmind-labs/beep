@@ -1,7 +1,7 @@
 // UI timings kept in memory as fixed-bucket histograms until the next flush (#571).
 // Every sample carries only a fixed view name and kind: never content, ids, paths or names.
 
-export const PERF_VIEWS = ["home", "session", "new", "project", "diff", "picker", "settings", "bar", "terminals", "sync", "list", "other"] as const;
+export const PERF_VIEWS = ["home", "session", "new", "project", "diff", "picker", "settings", "bar", "terminals", "list", "other"] as const;
 export type PerfView = typeof PERF_VIEWS[number];
 export type PerfWindow = "main" | "bar" | "phone";
 /// What a sample measures: input to next paint, a long task, a long animation frame,
@@ -47,7 +47,6 @@ export function perfViewOf(page: string): PerfView {
     case "agentnew": return "new";
     case "projects": return "project";
     case "terminals": return "terminals";
-    case "sync": return "sync";
     case "settings": return "settings";
     case "agents": return "list";
     default: return "other";
