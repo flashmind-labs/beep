@@ -20,6 +20,7 @@ use beep_proto::node::{
     mesh_state::{StateValue, SyncSpec},
     tools::{Reply, Request, Tool},
 };
+use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -622,9 +623,10 @@ impl Reach<'_> {
             .children_of(self.who)
             .iter()
             .filter_map(|child| {
-                let live = child.live.borrow();
-                let id = live.agent_session.as_deref()?;
-                Some(ChildView::of(&live.info, id).named(&here))
+                watched::read(&child.live, |live| {
+                    let id = live.agent_session.as_deref()?;
+                    Some(ChildView::of(&live.info, id).named(&here))
+                })
             })
             .collect();
         // One whose start got no answer has no id to ask for yet.

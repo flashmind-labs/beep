@@ -14,6 +14,7 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     process::{MAX_LINES, MAX_TASKS, Reply, Request, Task, TaskId, TaskState},
 };
+use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
     collections::{HashMap, VecDeque},
@@ -108,7 +109,9 @@ pub(crate) async fn run_for(
         .find(|job| job.id == id)
         .map(|job| job.done.clone());
     if let Some(mut done) = done
-        && timeout(limit, done.wait_for(|done| *done)).await.is_err()
+        && timeout(limit, watched::wait_for(&mut done, |done| *done))
+            .await
+            .is_err()
     {
         return tasks.stop(id).await;
     }
@@ -187,7 +190,11 @@ impl Tasks {
 
         if inner.jobs.len() >= MAX_TASKS {
             // Room comes from the oldest finished task.
-            match inner.jobs.iter().position(|job| *job.done.borrow()) {
+            match inner
+                .jobs
+                .iter()
+                .position(|job| watched::read(&job.done, |done| *done))
+            {
                 Some(oldest) => {
                     inner.jobs.remove(oldest);
                 }
@@ -247,7 +254,11 @@ impl Tasks {
         for job in &lock(&self.inner).jobs {
             // A finished task's leader is reaped, so its group id may be
             // someone else's now.
-            if let Some(group) = job.group.as_ref().filter(|_| !*job.done.borrow()) {
+            if let Some(group) = job
+                .group
+                .as_ref()
+                .filter(|_| !watched::read(&job.done, |done| *done))
+            {
                 group.kill();
             }
         }
@@ -268,9 +279,12 @@ impl Tasks {
             job.done.clone()
         };
 
-        if timeout(STOP_GRACE + STOP_WAIT, done.wait_for(|done| *done))
-            .await
-            .is_err()
+        if timeout(
+            STOP_GRACE + STOP_WAIT,
+            watched::wait_for(&mut done, |done| *done),
+        )
+        .await
+        .is_err()
         {
             log::warn!("background task {id} did not stop in time");
         }

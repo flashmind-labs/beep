@@ -6,6 +6,7 @@ use crate::link::Frame;
 use crate::mesh::AddrNote;
 use crate::wire::{self, FrameReader};
 use crate::{Device, DeviceKind, DeviceOp, Entry, JOIN_ALPN, Key, Mesh, PEER_ALPN};
+use beep_proto::watched;
 use iroh::endpoint::{Connection, QuicTransportConfig, SendStream, VarInt, presets};
 use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, SecretKey};
@@ -160,7 +161,7 @@ async fn a_node_peer_cannot_forge_an_add_or_an_entry() {
     let mut updates = a.mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
             let seen = a
                 .mesh
                 .devices()
@@ -198,7 +199,7 @@ async fn a_removed_peer_that_stops_reading_is_closed() {
     let mut updates = a.mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if a.mesh.peer(b.public()).is_some() {
                 return;
@@ -246,7 +247,7 @@ async fn until_addr(mesh: &Mesh, id: iroh::EndpointId, want: &EndpointAddr) {
     let mut updates = mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if known_addr(mesh, id).as_ref() == Some(want) {
                 return;
@@ -342,7 +343,7 @@ async fn open_bi_goes_on_to_the_link_that_replaced_a_closed_one() {
     let live = |mesh: &Mesh| mesh.peer(peer);
     let stale = timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if let Some(conn) = live(&a.mesh) {
                 return conn;
@@ -357,7 +358,7 @@ async fn open_bi_goes_on_to_the_link_that_replaced_a_closed_one() {
     stale.close(3u32.into(), b"duplicate");
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if live(&a.mesh).is_some_and(|c| c.stable_id() != stale.stable_id()) {
                 return;
@@ -418,7 +419,7 @@ async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
     let mut updates = a.mesh.updates();
     let first = timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if let Some(conn) = a.mesh.peer(key.public()) {
                 return conn;
@@ -440,7 +441,7 @@ async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
     let _second = raw_in(&a, &key, mesh.session()).await;
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if a.mesh
                 .peer(key.public())

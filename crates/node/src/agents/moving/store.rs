@@ -6,6 +6,7 @@ use crate::agents::{
     found::{self, Agent},
 };
 use anyhow::{Context, Result};
+use beep_proto::watched;
 use std::{
     env, fs,
     io::Write,
@@ -191,11 +192,7 @@ impl Agents {
                     session.agent == agent && session.info().state.status == Status::Ended,
                     "close the session before moving it"
                 );
-                session
-                    .live
-                    .borrow()
-                    .agent_session
-                    .clone()
+                watched::read(&session.live, |live| live.agent_session.clone())
                     .context("session has no agent id")?
             }
             None => id.to_owned(),
@@ -204,7 +201,9 @@ impl Agents {
             self.lock()
                 .values()
                 .filter(|session| session.agent == agent
-                    && session.live.borrow().agent_session.as_deref() == Some(agent_id.as_str()))
+                    && watched::read(&session.live, |live| {
+                        live.agent_session.as_deref() == Some(agent_id.as_str())
+                    }))
                 .all(|session| session.info().state.status == Status::Ended),
             "close the session before moving it"
         );
@@ -304,8 +303,9 @@ impl Agents {
         for (key, session) in self.lock().iter() {
             if session.agent == agent
                 && (key == id
-                    || session.live.borrow().agent_session.as_deref()
-                        == Some(agent_id_for_record.as_str()))
+                    || watched::read(&session.live, |live| {
+                        live.agent_session.as_deref() == Some(agent_id_for_record.as_str())
+                    }))
             {
                 session.moved_to(&moved_cwd);
             }

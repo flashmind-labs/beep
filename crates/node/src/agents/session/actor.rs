@@ -18,18 +18,19 @@ use crate::run::process::{GroupLeader, STOP_GRACE};
 use agent_client_protocol::{
     Agent, Client, Handled, JsonRpcRequest, on_receive_dispatch, on_receive_notification,
     on_receive_request,
-    v1::{ConnectionTo, Dispatch, Responder},
     v1::schema::{
         ContentBlock, InitializeResponse, McpServer, PromptResponse, RequestPermissionRequest,
         RequestPermissionResponse, SessionConfigId, SessionId, SessionNotification, SessionUpdate,
         SetSessionModeRequest, ToolCallId,
     },
+    v1::{ConnectionTo, Dispatch, Responder},
 };
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
     AlertKind, Effort, Entry, EntryKind, ModeOption, Question, Status, StopReason, WorkPlace,
 };
+use beep_proto::watched;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use std::{
     collections::{HashSet, VecDeque},
@@ -308,7 +309,7 @@ impl Actor {
         // What still waits goes with the session when the node resumes it.
         let waiting: Vec<Prompt> = if matches!(end, Ok(End::NodeStopped)) {
             let interrupted = matches!(
-                self.live.borrow().status(),
+                watched::read_sent(&self.live, Live::status),
                 Status::Working | Status::Asking
             );
             let continuation =
@@ -348,7 +349,7 @@ impl Actor {
         drop(held);
 
         if closed && by_user {
-            let info = self.live.borrow().info.clone();
+            let info = watched::read_sent(&self.live, |live| live.info.clone());
             let removed =
                 spawn_blocking(move || crate::agents::uploads::remove(&info.agent, &info.id)).await;
             if let Err(e) = removed.unwrap_or_else(|e| Err(e.into())) {
@@ -514,7 +515,7 @@ impl Actor {
                     }
 
                     if let Command::StopAll { by_user } = command
-                        && self.live.borrow().info.state.subagents > 0
+                        && watched::read_sent(&self.live, |live| live.info.state.subagents) > 0
                     {
                         self.by_user = by_user;
                         let _ = done.send(Ok(()));
@@ -545,11 +546,14 @@ impl Actor {
         let mut trace = beep_proto::logging::RequestTrace::new(std::any::type_name::<Req>());
         trace.phase("waiting for agent");
         let answer = cx.send_request(request).block_task();
-        self.replies.push(async move {
-            let answer = answer.await;
-            trace.finish(answer.is_ok());
-            reply(answer)
-        }.boxed());
+        self.replies.push(
+            async move {
+                let answer = answer.await;
+                trace.finish(answer.is_ok());
+                reply(answer)
+            }
+            .boxed(),
+        );
     }
 
     fn event(&mut self, cx: &ConnectionTo<Agent>, event: Event) -> Result<()> {
@@ -941,12 +945,15 @@ impl Actor {
         }
 
         if self.compactor.set_model(model) {
-            let live = self.live.borrow();
+            let idle = watched::read_sent(&self.live, |live| {
+                (live.info.state.status == Status::Idle)
+                    .then(|| (live.info.context, live.commands.clone()))
+            });
 
-            if live.info.state.status == Status::Idle {
+            if let Some((usage, commands)) = idle {
                 self.compactor.turn_ended(TurnEnd {
-                    usage: live.info.context,
-                    commands: &live.commands,
+                    usage,
+                    commands: &commands,
                 });
             }
         }

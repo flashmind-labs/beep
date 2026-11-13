@@ -1,6 +1,7 @@
 use super::*;
 use crate::agents::AgentKind;
 use beep_proto::node::agent::{CodeFinding, CodeVerdict, FindingSeverity};
+use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, time::Duration};
 use tokio::time::{sleep, timeout};
 
@@ -87,7 +88,9 @@ impl Rig {
         let mut live = session.live.clone();
         timeout(
             Duration::from_secs(20),
-            live.wait_for(|live| live.agent_session.is_some() && live.info.turns == 1),
+            watched::wait_for(&mut live, |live| {
+                live.agent_session.is_some() && live.info.turns == 1
+            }),
         )
         .await
         .expect("the session got there in time")

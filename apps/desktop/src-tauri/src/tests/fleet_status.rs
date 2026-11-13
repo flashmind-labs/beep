@@ -1,6 +1,7 @@
 use super::{reap, retry_due};
 use crate::fleet::tests::{LIMIT, join, online, start, until};
 use beep_mesh::DeviceKind;
+use beep_proto::watched;
 use std::time::Instant;
 use tokio::task::JoinSet;
 use tokio::time::timeout;
@@ -27,15 +28,30 @@ fn telemetry_does_not_invalidate_machine_metadata() {
         changes: tokio::sync::watch::channel(Revision::default()).0,
     };
     shared.record(id, Report::Stats(StatsReport::default()));
-    assert_eq!(shared.changes.borrow().machines, 0);
-    assert_eq!(shared.changes.borrow().telemetry, 1);
+    assert_eq!(
+        watched::read_sent(&shared.changes, |changes| changes.machines),
+        0
+    );
+    assert_eq!(
+        watched::read_sent(&shared.changes, |changes| changes.telemetry),
+        1
+    );
     shared.record(id, Report::Env(EnvReport::default()));
-    assert_eq!(shared.changes.borrow().machines, 1);
+    assert_eq!(
+        watched::read_sent(&shared.changes, |changes| changes.machines),
+        1
+    );
     shared.record(id, Report::Env(EnvReport::default()));
-    assert_eq!(shared.changes.borrow().machines, 1);
+    assert_eq!(
+        watched::read_sent(&shared.changes, |changes| changes.machines),
+        1
+    );
     shared.record(id, Report::Offers(vec!["events/1".into()]));
     shared.record(id, Report::Offers(vec!["events/1".into()]));
-    assert_eq!(shared.changes.borrow().machines, 2);
+    assert_eq!(
+        watched::read_sent(&shared.changes, |changes| changes.machines),
+        2
+    );
 }
 
 #[test]
@@ -63,7 +79,7 @@ async fn settled(status: &Status, ok: impl Fn(&Status) -> bool) {
     let mut changes = status.changes();
     timeout(LIMIT, async {
         loop {
-            changes.borrow_and_update();
+            watched::read_and_update(&mut changes, |_| ());
 
             if ok(status) {
                 return;
@@ -253,7 +269,7 @@ async fn a_stalled_version_probe_does_not_delay_status_reports() {
         .unwrap();
     timeout(
         Duration::from_secs(1),
-        changes.wait_for(|revision| revision.telemetry > 0),
+        watched::wait_for(&mut changes, |revision| revision.telemetry > 0),
     )
     .await
     .unwrap()

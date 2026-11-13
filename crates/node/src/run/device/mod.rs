@@ -14,6 +14,7 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     device::{Device, DeviceId, DeviceState, Frame, Input, MAX_SIDE, Platform, Reply, Request},
 };
+use beep_proto::watched;
 use futures::FutureExt;
 use std::{
     sync::{
@@ -24,8 +25,8 @@ use std::{
 };
 use strum::FromRepr;
 use tokio::sync::watch;
-use tonic::{Status, Streaming};
 use tokio_util::task::AbortOnDropHandle;
+use tonic::{Status, Streaming};
 
 pub use beep_proto::node::device::PROTOCOL;
 
@@ -187,7 +188,7 @@ async fn attach(mut tx: LinkTx, mut rx: LinkRx, id: &DeviceId, max_side: u32) ->
                     return tx.send(&Reply::Ended { reason }).await;
                 }
 
-                let shown = screen.borrow_and_update().clone();
+                let shown = watched::read_and_update(&mut screen, Clone::clone);
 
                 match shown {
                     Screen::Starting => {}

@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::watched;
 
 fn started(reply: Reply) -> TaskId {
     match reply {
@@ -18,10 +19,13 @@ async fn wait_done(tasks: &Tasks, id: TaskId) -> Reply {
             .done
             .clone()
     };
-    timeout(Duration::from_secs(20), done.wait_for(|done| *done))
-        .await
-        .expect("the task ends")
-        .expect("the task reports its end");
+    timeout(
+        Duration::from_secs(20),
+        watched::wait_for(&mut done, |done| *done),
+    )
+    .await
+    .expect("the task ends")
+    .expect("the task reports its end");
     tasks.status(id)
 }
 

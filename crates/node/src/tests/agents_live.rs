@@ -9,6 +9,7 @@ use crate::agents::{
 use agent_client_protocol::v1::schema::SessionUpdate;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::node::agent::{EntryKind, Status};
+use beep_proto::watched;
 use beep_proto::{AgentContext, image_key};
 use serde_json::Value;
 use serde_json::json;
@@ -636,7 +637,9 @@ fn only_a_forked_skill_takes_the_calls_after_it() {
     })));
     let (entries, _) = background.transcript(10);
     assert!(
-        entries[1].text.starts_with("Skill: demo (subagent) [completed]"),
+        entries[1]
+            .text
+            .starts_with("Skill: demo (subagent) [completed]"),
         "{}",
         entries[1].text
     );
@@ -920,19 +923,28 @@ fn flsh_credit_snapshots_preserve_context_and_do_not_count_as_session_cost() {
     assert_eq!(live.unbilled, None);
     let plans = usage.plans();
     assert_eq!(
-        plans.borrow()["flsh"].credits[0].remaining.as_deref(),
+        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()).as_deref(),
         Some("7.25")
     );
     live.apply(&balance(Some("0")));
-    assert_eq!(plans.borrow()["flsh"].credits.len(), 1);
     assert_eq!(
-        plans.borrow()["flsh"].credits[0].remaining.as_deref(),
+        watched::read(&plans, |plans| plans["flsh"].credits.len()),
+        1
+    );
+    assert_eq!(
+        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()).as_deref(),
         Some("0")
     );
     live.apply(&balance(None));
-    assert_eq!(plans.borrow()["flsh"].credits[0].remaining, None);
+    assert_eq!(
+        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()),
+        None
+    );
     live.apply(&balance(Some("NaN")));
-    assert_eq!(plans.borrow()["flsh"].credits[0].remaining, None);
+    assert_eq!(
+        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()),
+        None
+    );
 }
 
 #[tokio::test]
@@ -1244,7 +1256,10 @@ fn a_claude_subagent_launched_in_the_background_counts_until_its_turn_ends() {
         })));
     };
     launched(&mut live, "agent1");
-    assert_eq!(live.info.state.subagents, 1, "its call returned, it runs on");
+    assert_eq!(
+        live.info.state.subagents, 1,
+        "its call returned, it runs on"
+    );
 
     // A stop spares it.
     live.close_interrupted_subagents();

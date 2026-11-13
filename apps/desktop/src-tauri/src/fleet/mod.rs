@@ -32,6 +32,7 @@ use beep_mesh::{
 };
 #[cfg(desktop)]
 use beep_node::{files::Folders, link::Offers, link::peers::Peers};
+use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 #[cfg(desktop)]
 use mesh::Serving;
@@ -104,10 +105,12 @@ enum Opened {
 
 /// The mesh's own updates, from the mesh open now.
 fn members(opened: &mut watch::Receiver<Opened>) -> Option<watch::Receiver<u64>> {
-    match &*opened.borrow_and_update() {
-        Opened::Open(mesh) => Some(mesh.updates()),
+    let mesh = watched::read_and_update(opened, |opened| match opened {
+        Opened::Open(mesh) => Some(mesh.clone()),
         _ => None,
-    }
+    });
+
+    mesh.map(|mesh| mesh.updates())
 }
 
 /// Follows the mesh opening or being replaced, its devices, state and who
@@ -150,7 +153,7 @@ impl Changes {
                         return false;
                     }
 
-                    let machines = self.status.borrow_and_update().machines;
+                    let machines = watched::read_and_update(&mut self.status, |status| status.machines);
 
                     if machines != self.machines {
                         self.machines = machines;
@@ -452,20 +455,19 @@ impl Fleet {
 
     /// The mesh, once it is open.
     pub fn mesh(&self) -> Option<Mesh> {
-        match &*self.mesh.borrow() {
+        watched::read_sent(&self.mesh, |opened| match opened {
             Opened::Open(mesh) => Some(mesh.clone()),
             _ => None,
-        }
+        })
     }
 
     /// The mesh, waiting for it to open. Fails when it could not.
     pub async fn ready(&self) -> Result<Mesh> {
         let mut opened = self.mesh.subscribe();
-        let opened = opened
-            .wait_for(|opened| !matches!(opened, Opened::Opening))
+        watched::wait_for(&mut opened, |opened| !matches!(opened, Opened::Opening))
             .await
-            .map_err(|_| DesktopError::NoMesh("the app is closing".into()))?
-            .clone();
+            .map_err(|_| DesktopError::NoMesh("the app is closing".into()))?;
+        let opened = watched::read(&opened, Clone::clone);
         match opened {
             Opened::Open(mesh) if self.session.is_none() && !mesh.is_member(self.me) => Err(
                 DesktopError::NoMesh("this phone was removed from the mesh".into()),
@@ -494,7 +496,7 @@ impl Fleet {
         let mut opened = self.mesh.subscribe();
         let members = members(&mut opened);
         let mut status = self.status.changes();
-        let machines = status.borrow_and_update().machines;
+        let machines = watched::read_and_update(&mut status, |status| status.machines);
         Changes {
             opened,
             members,
@@ -571,13 +573,16 @@ impl Fleet {
     /// not paired, and `pair` may replace its mesh.
     pub async fn paired(&self) -> bool {
         let mut opened = self.mesh.subscribe();
-        let Ok(opened) = opened
-            .wait_for(|opened| !matches!(opened, Opened::Opening))
+        if watched::wait_for(&mut opened, |opened| !matches!(opened, Opened::Opening))
             .await
-        else {
+            .is_err()
+        {
             return false;
-        };
-        matches!(&*opened, Opened::Open(mesh) if mesh.is_member(self.me))
+        }
+
+        let opened = watched::read(&opened, Clone::clone);
+
+        matches!(&opened, Opened::Open(mesh) if mesh.is_member(self.me))
     }
 
     /// Joins the mesh a desktop's phone ticket names, as an observer. A phone the mesh removed
@@ -594,10 +599,7 @@ impl Fleet {
             ));
         }
         // A removed phone's mesh still runs: stop it so its files can be replaced.
-        let old = match &*self.mesh.borrow() {
-            Opened::Open(mesh) => Some(mesh.clone()),
-            _ => None,
-        };
+        let old = self.mesh();
 
         if let Some(old) = old {
             self.stop().await;

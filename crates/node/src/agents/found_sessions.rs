@@ -17,6 +17,7 @@ use beep_proto::node::{
     },
     events::Topic,
 };
+use beep_proto::watched;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -398,8 +399,9 @@ impl Agents {
         self.lock()
             .values()
             .filter_map(|session| {
-                let live = session.live.borrow();
-                Some((live.agent_session.clone()?, live.info.id.clone()))
+                watched::read(&session.live, |live| {
+                    Some((live.agent_session.clone()?, live.info.id.clone()))
+                })
             })
             .collect()
     }
@@ -410,7 +412,9 @@ impl Agents {
     pub(super) async fn close_external(&self, agent: &str, id: &str) -> Result<()> {
         anyhow::ensure!(self.get(id).is_none(), "the session already runs in Beep");
         let found = if agent == Agent::Claude.as_ref() {
-            self.external.list(1, Some(id.to_owned()), self.owned()).await?
+            self.external
+                .list(1, Some(id.to_owned()), self.owned())
+                .await?
         } else {
             self.stores_external(agent, 1, Some(id.to_owned())).await?
         };
@@ -419,7 +423,10 @@ impl Agents {
             .find(|found| found.agent == agent && found.id == id)
             .with_context(|| format!("there is no {agent} session {id} on this machine"))?;
 
-        anyhow::ensure!(session.taken_over.is_none(), "the session already runs in Beep");
+        anyhow::ensure!(
+            session.taken_over.is_none(),
+            "the session already runs in Beep"
+        );
         anyhow::ensure!(
             session.presence != Presence::Working,
             "the session is running a turn"
@@ -498,7 +505,7 @@ impl Agents {
         });
         let ended = ours
             .as_ref()
-            .map(|session| session.live.borrow().agent_session.clone());
+            .map(|session| watched::read(&session.live, |live| live.agent_session.clone()));
         let id = match ended {
             Some(Some(agent_session)) => agent_session,
             Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
@@ -509,7 +516,7 @@ impl Agents {
 
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
             && session.agent == kind.name
-            && session.live.borrow().status() != Status::Ended
+            && watched::read(&session.live, |live| live.status() != Status::Ended)
         {
             if let Some(text) = prompt {
                 session
@@ -630,7 +637,10 @@ impl Agents {
             log::warn!("could not find the sessions' files: {e}");
             HashMap::new()
         });
-        let open = self.holders.held_open(files.keys().cloned().collect()).await;
+        let open = self
+            .holders
+            .held_open(files.keys().cloned().collect())
+            .await;
         files
             .into_iter()
             .map(|(file, id)| {
@@ -667,7 +677,8 @@ impl Agents {
     pub(super) async fn session_file(&self, session: &str) -> Result<Option<PathBuf>> {
         let (agent, id) = match self.get(session) {
             Some(running) => {
-                let Some(id) = running.live.borrow().agent_session.clone() else {
+                let Some(id) = watched::read(&running.live, |live| live.agent_session.clone())
+                else {
                     return Ok(None);
                 };
                 (running.agent.parse::<Agent>().ok(), id)

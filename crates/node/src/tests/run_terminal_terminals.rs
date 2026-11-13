@@ -1,5 +1,6 @@
 use super::*;
 use beep_proto::node::process::TaskState;
+use beep_proto::watched;
 
 #[cfg(unix)]
 fn started(reply: Reply) -> TaskId {
@@ -15,7 +16,7 @@ async fn wait_for_output(live: &Live, needle: &str) -> String {
     let mut changed = live.changed.subscribe();
     timeout(Duration::from_secs(20), async {
         loop {
-            changed.borrow_and_update();
+            watched::read_and_update(&mut changed, |_| ());
             let bytes: Vec<u8> = lock(&live.screen).lines.iter().flatten().copied().collect();
             let text = String::from_utf8_lossy(&bytes).into_owned();
 

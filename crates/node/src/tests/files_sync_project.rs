@@ -22,6 +22,7 @@ use crate::{
 };
 use anyhow::Result;
 use beep_proto::node::sync::{Keep, State as SyncState};
+use beep_proto::watched;
 use futures::StreamExt as _;
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
@@ -327,7 +328,14 @@ async fn a_fetch_that_gets_no_data_gives_up() {
     // The guard only keeps a regression from hanging the test run.
     let fetched = timeout(
         Duration::from_secs(20),
-        fetch_within(&project.task.parts.store, connection, content, stall, &stop, |_| {}),
+        fetch_within(
+            &project.task.parts.store,
+            connection,
+            content,
+            stall,
+            &stop,
+            |_| {},
+        ),
     )
     .await
     .expect("the fetch gives up on its own");
@@ -992,7 +1000,7 @@ async fn scanning_does_not_clear_a_git_alignment_failure() {
     project.task.error = Some(error.clone());
     project.task.publish_status(None);
     let mut status = project.task.shared.watch_status();
-    status.borrow_and_update();
+    watched::read_and_update(&mut status, |_| ());
 
     project.task.scan(Reason::Request).await;
 
@@ -1030,8 +1038,18 @@ async fn a_project_waiting_for_git_waits_for_a_change_not_a_timer() {
         shared.observe_branches(&peer, tips.clone());
     }
 
-    assert_eq!(*commits.borrow_and_update(), 2);
-    shared.observe_head(&peer, Checkout { commit: None, ..head }, None);
+    assert_eq!(
+        watched::read_and_update(&mut commits, |commits| *commits),
+        2
+    );
+    shared.observe_head(
+        &peer,
+        Checkout {
+            commit: None,
+            ..head
+        },
+        None,
+    );
     assert!(commits.has_changed().unwrap());
     project.stop().await;
 }

@@ -1,5 +1,6 @@
 use super::*;
 use beep_proto::node::{process, terminal};
+use beep_proto::watched;
 
 fn demanded_machine(snapshots: &Snapshots, topic: &str) -> (EndpointId, Uuid) {
     let id = iroh::SecretKey::generate().public();
@@ -49,16 +50,16 @@ fn reconnect_clears_values_and_rejects_late_snapshots_from_the_previous_stream()
     let query = snapshots.queries(id).pop().unwrap();
     let snapshot = terminal_snapshot(&query);
     assert_eq!(snapshots.install(id, generation, &snapshot), Some(true));
-    assert!(current.borrow().is_some());
+    assert!(watched::read(&current, Option::is_some));
     let replacement = Uuid::new_v4();
     snapshots.connected(id, Topic::new("terminals"), replacement);
-    assert!(current.borrow().is_none());
+    assert!(watched::read(&current, Option::is_none));
     assert_eq!(snapshots.install(id, generation, &snapshot), None);
-    assert!(current.borrow().is_none());
+    assert!(watched::read(&current, Option::is_none));
     snapshots.end(id, generation);
 
     assert_eq!(snapshots.install(id, replacement, &snapshot), Some(true));
-    assert!(current.borrow().is_some());
+    assert!(watched::read(&current, Option::is_some));
 }
 
 #[test]
@@ -129,16 +130,16 @@ fn a_failed_read_registers_a_new_projection_on_the_next_attempt() {
     let first = snapshots.register(id, Read::TerminalList).unwrap().unwrap();
     let query = snapshots.queries(id).pop().unwrap();
     snapshots.failed(id, generation, query.id, "temporary read failure".into());
-    assert!(matches!(first.borrow().as_ref(), Some(Err(_))));
+    assert!(watched::read(&first, |value| matches!(value, Some(Err(_)))));
     let retry = snapshots.register(id, Read::TerminalList).unwrap().unwrap();
     let replacement = snapshots.queries(id).pop().unwrap();
     assert_ne!(query.id, replacement.id);
-    assert!(retry.borrow().is_none());
+    assert!(watched::read(&retry, Option::is_none));
     assert_eq!(
         snapshots.install(id, generation, &terminal_snapshot(&replacement)),
         Some(true)
     );
-    assert!(matches!(retry.borrow().as_ref(), Some(Ok(_))));
+    assert!(watched::read(&retry, |value| matches!(value, Some(Ok(_)))));
 }
 
 #[test]
@@ -263,8 +264,11 @@ fn reconnecting_one_subscription_preserves_other_subscriptions_and_their_queries
     snapshots.connected(id, processes.clone(), replacement);
     snapshots.end(id, process_generation);
 
-    assert_eq!(terminal_value.borrow().as_ref(), Some(&Ok(snapshot.value)));
-    assert!(process_value.borrow().is_none());
+    assert_eq!(
+        watched::read(&terminal_value, |value| value.clone()),
+        Some(Ok(snapshot.value))
+    );
+    assert!(watched::read(&process_value, Option::is_none));
     assert_eq!(snapshots.queries_for(id, &terminals.clone()), [query]);
 
     snapshots.end(id, replacement);
@@ -291,7 +295,7 @@ fn removing_one_subscription_keeps_other_stream_generations_and_cached_values() 
     snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::new("terminals")])]));
     snapshots.end(id, other);
     assert_eq!(snapshots.install(id, generation, &snapshot), Some(false));
-    assert!(current.borrow().is_some());
+    assert!(watched::read(&current, Option::is_some));
     assert!(!snapshots.connected(id, Topic::new("processes"), other));
 }
 

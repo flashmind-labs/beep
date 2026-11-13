@@ -13,6 +13,7 @@ use super::{
 };
 use beep_proto::ModelId;
 use beep_proto::node::agent::{ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview};
+use beep_proto::watched;
 use house::HouseRules;
 use std::{
     collections::VecDeque,
@@ -314,7 +315,8 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
     let mut nudged = false;
 
     loop {
-        let next = step(&live.borrow_and_update(), agents.submitted(&id), nudged);
+        let submitted = agents.submitted(&id);
+        let next = watched::read_and_update(&mut live, |live| step(live, submitted, nudged));
 
         match next {
             Step::Wait => {

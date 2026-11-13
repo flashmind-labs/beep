@@ -3,6 +3,7 @@
 use super::work_folder::{self, WorkRoot};
 use crate::{files::paths, lock};
 use anyhow::{Context, Result, bail};
+use beep_proto::watched;
 use beep_proto::{AGENT_FILE_CHUNK, MAX_WORK_UPLOAD};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -68,7 +69,7 @@ pub(super) fn write(
 ) -> Result<String> {
     let _writing = lock(&WRITING);
 
-    if running.is_some_and(|session| session.live.borrow().closing) {
+    if running.is_some_and(|session| watched::read(&session.live, |live| live.closing)) {
         bail!("the session is closed; its attachments were removed");
     }
 

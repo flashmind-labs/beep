@@ -7,13 +7,14 @@ use super::{
     disk::{self, Base, Hashes, Scan, Seen},
     enabled,
 };
-use anyhow::{Context, Result, bail};
 use crate::events::paths::Paths;
+use anyhow::{Context, Result, bail};
 use beep_mesh::{Key, Mesh, MeshError, PeerClient};
 use beep_proto::node::{
     LinkRx, LinkTx,
     skills::{Conflict, Listed, PROTOCOL, Reply, Request, SkillFile},
 };
+use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -677,17 +678,16 @@ pub(crate) async fn serve(
 
     let reply = match request {
         Request::Conflicts {} => Reply::Conflicts {
-            conflicts: skills.conflicts.borrow().clone(),
+            conflicts: watched::read_sent(&skills.conflicts, Clone::clone),
         },
         Request::List {} => {
             // The first pass lists them; it runs as the node joins.
             let mut listed = skills.listed.subscribe();
-            let skills = timeout(READ_LIMIT, listed.wait_for(Option::is_some))
+            timeout(READ_LIMIT, watched::wait_for(&mut listed, Option::is_some))
                 .await
                 .context("the skills were not listed in time")?
-                .context("the node stopped")?
-                .clone()
-                .unwrap_or_default();
+                .context("the node stopped")?;
+            let skills = watched::read(&listed, Clone::clone).unwrap_or_default();
             Reply::Skills { skills }
         }
         Request::Get { name, hash } => Reply::Files {
@@ -713,11 +713,11 @@ pub(crate) async fn serve(
                 bail!("only a desktop keeps a copy of a skill");
             }
 
-            let held = skills
-                .listed
-                .borrow()
-                .as_ref()
-                .is_some_and(|listed| listed.iter().any(|l| l.name == name && l.hash == hash));
+            let held = watched::read_sent(&skills.listed, |listed| {
+                listed
+                    .as_ref()
+                    .is_some_and(|listed| listed.iter().any(|l| l.name == name && l.hash == hash))
+            });
             if !held {
                 bail!("this machine has no such copy of {name}");
             }

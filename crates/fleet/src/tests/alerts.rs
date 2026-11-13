@@ -6,6 +6,7 @@ use beep_proto::node::{
     agent::{Alert, AlertKind, OptionKind, Question},
     commands, link,
 };
+use beep_proto::watched;
 use iroh::{
     Endpoint, SecretKey,
     endpoint::{Connection, RecvStream, SendStream, presets},
@@ -152,7 +153,7 @@ async fn until_online(mesh: &Mesh, id: EndpointId, online: bool) {
     let mut updates = mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if mesh
                 .devices()
@@ -279,7 +280,7 @@ async fn two(closed: Arc<Notify>) -> (Dev, Dev) {
     let mut updates = desktop.mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if desktop
                 .mesh

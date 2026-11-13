@@ -10,9 +10,11 @@ use super::{
     saved::{Phase, Saved},
     worktree,
 };
+use crate::agents::live::Live;
 use crate::agents::{OpenSession, Session, session::Command};
 use anyhow::{Context, Result, anyhow};
 use beep_proto::node::{agent::Status, mesh_state::SessionMove};
+use beep_proto::watched;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{sync::watch, task::spawn_blocking};
 
@@ -72,7 +74,7 @@ pub(super) async fn run(
 fn live(env: &Env, id: &str) -> Option<Arc<Session>> {
     env.agents
         .get(id)
-        .filter(|session| session.live.borrow().status() != Status::Ended)
+        .filter(|session| watched::read(&session.live, Live::status) != Status::Ended)
 }
 
 /// Waits for the turn and what was queued before the move to be done, and
@@ -90,7 +92,7 @@ async fn end(
     // Idle with nothing queued is the end; a session that ends by itself
     // ends the wait too.
     let mut live = session.live.clone();
-    live.wait_for(|live| match live.status() {
+    watched::wait_for(&mut live, |live| match live.status() {
         Status::Ended => true,
         Status::Idle => live.info.state.queued == 0 && live.info.state.subagents == 0,
         _ => false,
@@ -98,13 +100,13 @@ async fn end(
     .await
     .context("the session vanished")?;
 
-    if live.borrow().status() == Status::Ended {
+    if watched::read(&live, Live::status) == Status::Ended {
         return Ok(None);
     }
     // The session ends only once the target found it can take it, so a
     // machine that cannot never costs the session.
     loop {
-        let now = target.borrow_and_update().clone();
+        let now = watched::read_and_update(target, Clone::clone);
 
         match now {
             Target::Failed(reason) => return Err(anyhow!(reason)),
@@ -114,7 +116,7 @@ async fn end(
 
         tokio::select! {
             changed = target.changed() => changed.context("the move lost its target")?,
-            ended = live.wait_for(|live| live.status() == Status::Ended) => {
+            ended = watched::wait_for(&mut live, |live| live.status() == Status::Ended) => {
                 ended.context("the session vanished")?;
                 return Ok(None);
             }
@@ -166,7 +168,7 @@ async fn land(
     target: &mut watch::Receiver<Target>,
 ) -> Result<()> {
     loop {
-        let now = target.borrow_and_update().clone();
+        let now = watched::read_and_update(target, Clone::clone);
 
         match now {
             Target::Landed => {

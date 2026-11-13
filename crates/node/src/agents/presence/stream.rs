@@ -3,6 +3,7 @@
 use crate::agents::Agents;
 use anyhow::Result;
 use beep_proto::node::{LinkRx, LinkTx, agent::SessionsReply};
+use beep_proto::watched;
 
 /// Sends the known presence first, then after every open, update or close.
 pub(in crate::agents) async fn follow(
@@ -13,7 +14,7 @@ pub(in crate::agents) async fn follow(
     let mut changes = agents.presence.subscribe();
 
     loop {
-        changes.borrow_and_update();
+        watched::read_and_update(&mut changes, |_| ());
         let owned = agents.owned();
         let mut sessions = agents.presence.snapshot();
 

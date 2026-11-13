@@ -28,8 +28,9 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, agent, desktop, sign_in, setup, tool_update, version,
+    LinkRx, LinkTx, Open, Opened, agent, desktop, setup, sign_in, tool_update, version,
 };
+use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
 use std::{
     future::Future,
@@ -317,7 +318,7 @@ impl Default for Sharing {
 
 impl Sharing {
     pub(crate) fn get(&self) -> Option<Transfers> {
-        self.0.borrow().clone()
+        watched::read_sent(&self.0, Clone::clone)
     }
 
     pub(crate) fn set(&self, transfers: Transfers) {

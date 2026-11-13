@@ -13,6 +13,7 @@
 use super::{Agents, Command, Live, Session, children};
 use crate::{agents::tags, link::Membership};
 use beep_proto::node::agent::{Status, StopReason};
+use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -180,41 +181,36 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
 
     while std::mem::take(&mut first) || live.changed().await.is_ok() {
         let mut ended = false;
-        let note = {
-            let now = live.borrow_and_update();
-
-            match now.status() {
-                Status::Ended => {
-                    ended = true;
-                    now.stopped_by_user
-                        .then(|| note_of(&now, NoteState::Closed))
-                }
-                Status::Asking if !asking => {
-                    asking = true;
-                    Some(note_of(&now, NoteState::Asking))
-                }
-                Status::Asking => None,
-                Status::Idle => {
-                    asking = false;
-                    let done = now.info.turns > turns;
-                    turns = now.info.turns;
-                    // A turn with prompts behind it is not the end, and the
-                    // parent knows of a stop it made itself.
-                    if !done {
-                        None
-                    } else if now.last_stop == Some(StopReason::Cancelled) {
-                        now.stopped_by_user
-                            .then(|| note_of(&now, NoteState::Stopped))
-                    } else {
-                        (now.info.state.queued == 0).then(|| note_of(&now, NoteState::Finished))
-                    }
-                }
-                _ => {
-                    asking = false;
+        let note = watched::read_and_update(&mut live, |now| match now.status() {
+            Status::Ended => {
+                ended = true;
+                now.stopped_by_user.then(|| note_of(now, NoteState::Closed))
+            }
+            Status::Asking if !asking => {
+                asking = true;
+                Some(note_of(now, NoteState::Asking))
+            }
+            Status::Asking => None,
+            Status::Idle => {
+                asking = false;
+                let done = now.info.turns > turns;
+                turns = now.info.turns;
+                // A turn with prompts behind it is not the end, and the
+                // parent knows of a stop it made itself.
+                if !done {
                     None
+                } else if now.last_stop == Some(StopReason::Cancelled) {
+                    now.stopped_by_user
+                        .then(|| note_of(now, NoteState::Stopped))
+                } else {
+                    (now.info.state.queued == 0).then(|| note_of(now, NoteState::Finished))
                 }
             }
-        };
+            _ => {
+                asking = false;
+                None
+            }
+        });
         let Some(note) = note else {
             if ended {
                 return;
@@ -279,11 +275,12 @@ async fn deliver(
     note: &ChildNote,
 ) -> Result<(), String> {
     let (idle, stopped) = {
-        let live = parent.live.borrow();
-        let status = live.status();
-        let stopped = status == Status::Ended
-            || (status == Status::Idle && live.last_stop == Some(StopReason::Cancelled));
-        (status == Status::Idle, stopped)
+        watched::read(&parent.live, |live| {
+            let status = live.status();
+            let stopped = status == Status::Ended
+                || (status == Status::Idle && live.last_stop == Some(StopReason::Cancelled));
+            (status == Status::Idle, stopped)
+        })
     };
 
     if stopped || waits.holds(&Agents::name_of(parent), id) {

@@ -26,6 +26,7 @@ use beep_proto::node::{
     agent::RunNews,
     tools::{ForgeReach, HostReach},
 };
+use beep_proto::watched;
 use tokio::sync::watch;
 
 pub(crate) use watcher::watch;
@@ -50,16 +51,13 @@ impl Default for Ci {
 impl Ci {
     /// How this node's calls to each host went.
     pub(crate) fn reach(&self) -> ForgeReach {
-        self.reach.borrow().clone()
+        watched::read_sent(&self.reach, Clone::clone)
     }
 
     fn reach_of(&self, host: &str) -> HostReach {
-        self.reach
-            .borrow()
-            .hosts
-            .get(host)
-            .copied()
-            .unwrap_or_default()
+        watched::read_sent(&self.reach, |reach| {
+            reach.hosts.get(host).copied().unwrap_or_default()
+        })
     }
 
     fn record_reach(&self, host: &str, ok: bool) {

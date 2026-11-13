@@ -27,6 +27,7 @@ use beep_proto::node::{
     status::{PROTOCOL as STATUS, Report},
     tools::{PROTOCOL as TOOLS, Reply, Request as ToolRequest, Tool},
 };
+use beep_proto::watched;
 use beep_proto::{
     SecretText,
     node::{
@@ -132,7 +133,7 @@ impl Member {
         let mut updates = self.mesh.updates();
         timeout(LIMIT, async {
             loop {
-                updates.borrow_and_update();
+                watched::read_and_update(&mut updates, |_| ());
 
                 if self
                     .mesh
@@ -1479,14 +1480,13 @@ async fn fake_answer(mut stream: TcpStream, mut folder: watch::Receiver<FakeFold
             .next()
             .and_then(|n| n.parse().ok())
             .expect("a number");
-        let event = folder
-            .wait_for(|folder| folder.event > since)
+        watched::wait_for(&mut folder, |folder| folder.event > since)
             .await
-            .expect("the test holds the folder")
-            .event;
+            .expect("the test holds the folder");
+        let event = watched::read(&folder, |folder| folder.event);
         format!(r#"[{{"id":{event},"type":"FolderResumed"}}]"#)
     } else {
-        let paused = folder.borrow().paused;
+        let paused = watched::read(&folder, |folder| folder.paused);
         format!(r#"[{{"id":"game-1","label":"Game","path":{path},"paused":{paused}}}]"#)
     };
     let reply = format!(
@@ -2152,7 +2152,7 @@ async fn env_after_restart(desktop: &Member, node: &Node) -> String {
     let mut updates = desktop.mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
             let conn = desktop.reach(node.id).await;
             let call = try_tool(
                 &conn,
@@ -3616,7 +3616,7 @@ async fn fake_syncthing_answer(
         std::future::pending::<()>().await;
         return;
     } else if text.starts_with("GET /rest/db/status?folder=kept ") {
-        let need = *need.borrow();
+        let need = watched::read(&need, |need| *need);
         let state = if need == 0 { "idle" } else { "syncing" };
         json!({"needTotalItems": need, "state": state})
     } else {
@@ -3886,7 +3886,12 @@ async fn until_status_shows(dir: &Path, shown: impl Fn(&str) -> bool) -> String 
         }
     })
     .await;
-    found.unwrap_or_else(|_| panic!("status never showed it; it last said:\n{}", *last.borrow()))
+    found.unwrap_or_else(|_| {
+        panic!(
+            "status never showed it; it last said:\n{}",
+            watched::read(&last, Clone::clone)
+        )
+    })
 }
 
 #[tokio::test]
@@ -4594,7 +4599,7 @@ mod topic_streams {
         let mut changes = desktop.mesh.updates();
         timeout(LIMIT, async {
             loop {
-                changes.borrow_and_update();
+                watched::read_and_update(&mut changes, |_| ());
                 if desktop.mesh.peer(node).is_some_and(|connection| {
                     connection.stable_id() != previous && connection.close_reason().is_none()
                 }) {

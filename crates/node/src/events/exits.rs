@@ -1,6 +1,7 @@
 //! Shared, leased process-exit notifications. One OS registration serves each PID.
 
 use anyhow::{Result, bail};
+use beep_proto::watched;
 use std::{
     collections::HashMap,
     sync::{Arc, LazyLock, Mutex, Weak},
@@ -26,7 +27,7 @@ impl Exit {
         processes.retain(|_, entry| entry.strong_count() > 0);
 
         if let Some(held) = processes.get(&pid).and_then(Weak::upgrade)
-            && !*held.exited.borrow()
+            && !watched::read(&held.exited, |exited| *exited)
         {
             return Ok(held);
         }
@@ -55,12 +56,12 @@ impl Exit {
 
     /// Whether the process has exited, as last heard.
     pub(crate) fn exited(&self) -> bool {
-        *self.exited.borrow()
+        watched::read(&self.exited, |exited| *exited)
     }
 
     pub(crate) async fn wait(&self) {
         let mut exited = self.exited.clone();
-        let _ = exited.wait_for(|exited| *exited).await;
+        let _ = watched::wait_for(&mut exited, |exited| *exited).await;
     }
 }
 

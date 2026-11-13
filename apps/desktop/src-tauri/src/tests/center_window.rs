@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::watched;
 
 #[test]
 fn a_project_label_reads_back_as_its_name() {
@@ -84,7 +85,7 @@ fn native_work_hears_whether_its_window_shows() {
     assert!(!hidden(&shown));
 
     told.clear(LABEL);
-    assert!(shown.borrow_and_update().is_some());
+    assert!(watched::read_and_update(&mut shown, Option::is_some));
     assert!(shown.has_changed().is_err(), "it closes with the window");
 }
 

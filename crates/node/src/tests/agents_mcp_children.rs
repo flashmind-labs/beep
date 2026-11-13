@@ -4,6 +4,7 @@ use crate::{
     machine::provision::Provision,
 };
 use beep_proto::node::agent::{Question, State};
+use beep_proto::watched;
 use std::{collections::BTreeMap, time::Duration};
 
 fn endpoint() -> EndpointId {
@@ -289,7 +290,9 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
-        live.wait_for(|live| live.agent_session.is_some() && live.info.turns == 1),
+        watched::wait_for(&mut live, |live| {
+            live.agent_session.is_some() && live.info.turns == 1
+        }),
     )
     .await
     .unwrap()
@@ -330,7 +333,9 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     assert!(!failed, "{text}");
     tokio::time::timeout(
         Duration::from_secs(20),
-        child_live.wait_for(|live| live.info.turns == 2 && live.info.state.status == Status::Idle),
+        watched::wait_for(&mut child_live, |live| {
+            live.info.turns == 2 && live.info.state.status == Status::Idle
+        }),
     )
     .await
     .unwrap()
@@ -374,7 +379,9 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         let mut live = session.live.clone();
         tokio::time::timeout(
             Duration::from_secs(20),
-            live.wait_for(|live| live.agent_session.is_some() && live.info.turns == 1),
+            watched::wait_for(&mut live, |live| {
+                live.agent_session.is_some() && live.info.turns == 1
+            }),
         )
         .await
         .expect("the session settles")
@@ -494,7 +501,9 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
-        live.wait_for(|live| live.agent_session.is_some() && live.info.turns == 1),
+        watched::wait_for(&mut live, |live| {
+            live.agent_session.is_some() && live.info.turns == 1
+        }),
     )
     .await
     .expect("the session settles")

@@ -10,6 +10,7 @@ use crate::{
     error::{FleetError, Result},
     peer::Peers,
 };
+use beep_proto::watched;
 use beep_proto::{HostedRuns, LabeledProjectLists, PlanLimits, ProjectRunDetail, SpendReport};
 use std::{
     collections::{HashMap, HashSet},
@@ -518,7 +519,7 @@ impl Session {
                 read
             }
         };
-        report.limits = self.plans.borrow().clone();
+        report.limits = watched::read_sent(&self.plans, Clone::clone);
         Ok(report)
     }
 
@@ -554,7 +555,7 @@ impl Session {
 
         for mut follow in follows {
             // A plan of the agent already shown is not waited for: the next read brings it.
-            let shown = self.plans.borrow().clone();
+            let shown = watched::read_sent(&self.plans, Clone::clone);
             follow
                 .waiting
                 .retain(|agent| !shown.iter().any(|plan| plan.agent == *agent));
@@ -606,7 +607,7 @@ impl Session {
         let Some((mut report, _)) = self.spend.get(&(), Duration::ZERO) else {
             return Ok(());
         };
-        report.limits = self.plans.borrow().clone();
+        report.limits = watched::read_sent(&self.plans, Clone::clone);
         let bytes = rmp_serde::to_vec_named(&report).map_err(io::Error::other)?;
         let part = path.with_extension("part");
         fs::write(&part, bytes)?;

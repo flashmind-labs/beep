@@ -3,6 +3,7 @@
 //! `open_project`, `hide_on_close`, `is_center`.
 
 use crate::{bar, error::Result};
+use beep_proto::watched;
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
@@ -344,7 +345,7 @@ impl OnScreen {
 /// Whether a window `OnScreen::watch` follows is hidden. One never told is
 /// taken as shown.
 pub(crate) fn hidden(shown: &watch::Receiver<Option<bool>>) -> bool {
-    *shown.borrow() == Some(false)
+    watched::read(shown, |shown| *shown == Some(false))
 }
 
 /// Whether a page hears its window's state again when nothing changed.
