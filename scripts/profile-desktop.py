@@ -312,6 +312,15 @@ def positive(value):
     return number
 
 
+def default_log():
+    if sys.platform == "darwin":
+        return pathlib.Path.home() / "Library/Logs/Beep/beep.log"
+    # Matches dirs::state_dir() on Linux: an absolute XDG_STATE_HOME, else ~/.local/state.
+    state = os.environ.get("XDG_STATE_HOME", "")
+    base = pathlib.Path(state) if os.path.isabs(state) else pathlib.Path.home() / ".local/state"
+    return base / "beep/logs/beep.log"
+
+
 def main():
     profiler_started = time.monotonic()
     parser = argparse.ArgumentParser(description=__doc__)
@@ -321,7 +330,7 @@ def main():
     parser.add_argument("--label", default="unspecified", help="test condition, such as home-idle")
     parser.add_argument("--sample-above", type=positive, help="opt in to stack sampling above this CPU percent")
     parser.add_argument("--sample-count", type=int, choices=range(1, 11), default=2)
-    parser.add_argument("--log", type=pathlib.Path, default=pathlib.Path.home() / "Library/Logs/Beep/beep.log")
+    parser.add_argument("--log", type=pathlib.Path, default=default_log())
     parser.add_argument("--metrics", type=pathlib.Path,
                         default=pathlib.Path.home() / "Library/Application Support/com.flashmind.beep.desktop/node/metrics.log")
     parser.add_argument("--no-battery", action="store_true")
