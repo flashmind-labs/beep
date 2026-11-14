@@ -24,7 +24,8 @@ fn allowed(url: &Url) -> bool {
         return true;
     }
 
-    let app_origin = if cfg!(target_os = "windows") {
+    // WebView2 and Android's WebView serve the app over http, WebKit over its own scheme.
+    let app_origin = if cfg!(any(target_os = "windows", target_os = "android")) {
         url.scheme() == "http" && url.host_str() == Some("tauri.localhost")
     } else {
         url.scheme() == "tauri" && url.host_str() == Some("localhost")
