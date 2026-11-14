@@ -40,3 +40,46 @@ fn tool_versions_are_bare() {
 
     assert_eq!(tool_version("tool", "no version here"), "no version here");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn claude_login_respects_the_status_command() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let program = dir.path().join("claude");
+    let cases = [
+        (r#"{"loggedIn":false,"authMethod":"none"}"#, 0, false, None),
+        (r#"{"loggedIn":false,"authMethod":"none"}"#, 1, false, None),
+        (
+            r#"{"loggedIn":true,"email":"you@example.com"}"#,
+            0,
+            true,
+            Some("you@example.com"),
+        ),
+    ];
+
+    for (status, exit, signed_in, account) in cases {
+        tokio::fs::write(
+            &program,
+            format!("#!/bin/sh\nprintf '%s\\n' '{status}'\nexit {exit}\n"),
+        )
+        .await
+        .unwrap();
+        tokio::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700))
+            .await
+            .unwrap();
+
+        let read = login(
+            "claude",
+            &program,
+            &["auth", "status"],
+            claude_logged_in,
+            claude_account,
+        )
+        .await;
+
+        assert_eq!(read.signed_in, signed_in);
+        assert_eq!(read.account.as_deref(), account);
+    }
+}

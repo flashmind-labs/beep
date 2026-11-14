@@ -133,3 +133,27 @@ fn configuring_a_harness_passes_its_default_model_to_sessions() {
         config.default_model
     );
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn claude_sign_in_respects_signed_out_status() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let cli = dir.path().join("claude");
+    tokio::fs::write(
+        &cli,
+        "#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false,\"authMethod\":\"none\"}'\nexit 1\n",
+    )
+    .await
+    .unwrap();
+    tokio::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700))
+        .await
+        .unwrap();
+
+    let read = sign_in("claude", &cli, &kind("claude")).await;
+
+    assert_eq!(read.signed_in, Some(false));
+    assert_eq!(read.account, None);
+    assert_eq!(read.plan, None);
+}

@@ -66,9 +66,6 @@ impl Desk {
         if let Some(worktree) = &ask.worktree {
             self.check_worktree_move(&ask, worktree).await?;
         }
-        // A worktree session's folder is below the worktree, else below the
-        // checkout.
-        let base = ask.worktree.as_ref().map_or(theirs.as_str(), |w| w.folder);
 
         if self.project_folder(ask.project, ask.to).is_none() {
             return Err(FleetError::refused(
@@ -76,14 +73,14 @@ impl Desk {
             ));
         }
 
-        let path = Path::new(ask.cwd)
-            .strip_prefix(base)
-            .ok()
-            .filter(|rest| {
-                rest.components()
-                    .all(|part| matches!(part, Component::Normal(_)))
-            })
-            .and_then(Path::to_str)
+        // A worktree session's folder is below the worktree, or below the
+        // checkout when it started there and entered the worktree later: the
+        // target takes the checkout's paths into the worktree it makes.
+        let path = ask
+            .worktree
+            .as_ref()
+            .and_then(|w| inside(ask.cwd, w.folder))
+            .or_else(|| inside(ask.cwd, &theirs))
             .ok_or_else(|| FleetError::refused("the session works outside the project's checkout"))?
             .to_owned();
         let record = SessionMove {
@@ -233,3 +230,15 @@ const KEEP_MOVES_MS: u64 = 30 * 24 * 3600 * 1000;
 
 /// A session id no move has, to ask a node whether it knows moves at all.
 const PROBE: &str = "probe";
+
+/// `cwd` relative to `base`, when it is `base` or a folder below it.
+fn inside<'a>(cwd: &'a str, base: &str) -> Option<&'a str> {
+    Path::new(cwd)
+        .strip_prefix(base)
+        .ok()
+        .filter(|rest| {
+            rest.components()
+                .all(|part| matches!(part, Component::Normal(_)))
+        })
+        .and_then(Path::to_str)
+}
