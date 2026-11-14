@@ -11,6 +11,7 @@ const SETTINGS_PAGES = [
   ["creds", "Credentials"],
   ["instr", "Instructions"],
   ["skills", "Skills"],
+  ["plugins", "Plugins"],
 ] as const;
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number][0];

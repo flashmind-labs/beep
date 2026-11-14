@@ -2,7 +2,7 @@
 
 use crate::{
     ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
-    node::agent::{CheckoutPlan, Effort, SessionDevice},
+    node::agent::{CheckoutPlan, Effort, SessionDevice, StopReason},
 };
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -96,6 +96,9 @@ wire_structs! {
         /// The model reported by the session.
         #[serde(default)]
         pub model: Option<String>,
+        /// Why its last turn ended; none before the first.
+        #[serde(default)]
+        pub last_stop: Option<StopReason>,
     }
 
     /// What a session Beep runs has used, as `GetAgentSessionUsage` gives it.

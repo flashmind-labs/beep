@@ -1,0 +1,35 @@
+{
+  "id": "session-notes",
+  "name": "Session notes",
+  "version": "0.2.0",
+  "api": 1,
+  "description": "A short note on each session, set from its header.",
+  "entry": "main.ts",
+  "permissions": ["ui.add", "tools"],
+  "activation": ["slot:session.row", "slot:session.header"],
+  "tools": [
+    {
+      "name": "get_note",
+      "description": "The note on a session.",
+      "input": {
+        "type": "object",
+        "properties": { "session": { "type": "string", "minLength": 1 } },
+        "required": ["session"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_note",
+      "description": "Set the note on a session; an empty note clears it.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "session": { "type": "string", "minLength": 1 },
+          "note": { "type": "string", "maxLength": 200 }
+        },
+        "required": ["session", "note"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

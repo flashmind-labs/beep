@@ -116,7 +116,7 @@ body:not(.mobile) .nt-bell { border: 0 }
 body:not(.mobile) .dhead.ag-head { height: 42px; padding: 0 calc(var(--top-w, 104px) + 8px) 0 6px; gap: 8px; border-bottom: 0 }
 body:not(.mobile) .ag-head .dcoderav { width: 18px; height: 18px; border: 0; background: none }
 /* The title, with where the session runs on a line of its own under it, so neither is cut short. */
-body:not(.mobile) .ag-head .tt { display: grid; line-height: 16px }
+body:not(.mobile) .ag-head .tt { display: grid; min-width: 10em; line-height: 16px }
 body:not(.mobile) .ag-head .tt b { font-size: 13px }
 body:not(.mobile) .ag-head .tt small { min-width: 0; line-height: 14px }
 body:not(.mobile) .ag-head .dstate { padding: 0; border: 0; background: none; font-size: 10.5px; font-weight: 500 }
@@ -308,7 +308,9 @@ body:not(.mobile) :is(.dmnv, .dmag) { border-color: transparent; background: var
 body:not(.mobile) .dmt-t { border-radius: var(--radius-sm); background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 9%, transparent) }
 
 /* ----- Session usage in the header: a context meter, then tokens and spend as number and unit ----- */
-body:not(.mobile) .dhead .aguse { display: flex; align-items: center; justify-content: flex-end; gap: 12px; max-width: none; font-family: var(--mono); font-size: 11px; white-space: nowrap }
+body:not(.mobile) .dhead .aguse { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 12px; max-width: none; font-family: var(--mono); font-size: 11px; white-space: nowrap }
+/* The usage keeps its width until the row is too narrow for the plugin (style.css), then it gives way to the state and the title. */
+@container aghead (max-width: 700px) { body:not(.mobile) .dhead .aguse { flex-shrink: 1; overflow: clip } }
 .aguse > span { display: inline-flex; align-items: baseline; gap: 5px }
 body.mobile .aguse > span + span { margin-left: 10px }
 .aguse b { font-weight: 500; color: var(--fg) }

@@ -289,7 +289,7 @@ fn step(live: &Live, submitted: bool, nudged: bool) -> Step {
         return Step::Wait;
     }
 
-    if live.last_stop == Some(StopReason::Cancelled) {
+    if live.info.state.last_stop == Some(StopReason::Cancelled) {
         return Step::Fail("The review was stopped.".to_owned());
     }
 
@@ -354,7 +354,7 @@ fn review_done(agents: &Agents, session: &Session) {
         title: live.info.title.clone(),
         cwd: live.info.cwd.clone(),
         kind: AlertKind::TurnEnded {
-            stop_reason: live.last_stop.unwrap_or(StopReason::EndTurn),
+            stop_reason: live.info.state.last_stop.unwrap_or(StopReason::EndTurn),
             last_message: live.info.last_message.clone(),
             error: None,
         },

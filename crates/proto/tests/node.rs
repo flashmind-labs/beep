@@ -783,6 +783,7 @@ mod tools {
             (Tool::FileReport, "file_report"),
             (Tool::HarnessInfo, "harness_info"),
             (Tool::ListProjects, "list_projects"),
+            (Tool::Plugins, "plugins"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));

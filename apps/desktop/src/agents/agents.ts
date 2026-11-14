@@ -136,6 +136,8 @@ export interface AgentPage {
   queued: number;
   queued_messages?: string[];
   turns: number;
+  /// Why the last turn ended, as the node's `StopReason` names it; null before the first.
+  last_stop?: string | null;
   /// The entries held, newest last, and how many came before them. A read
   /// brings the newest; older ones are joined on as the reader goes up.
   entries: AgentEntry[];

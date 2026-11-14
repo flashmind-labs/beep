@@ -26,7 +26,7 @@ use beep_proto::{
     ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage,
     ListAgentModels, MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
     node::{
-        agent::{CheckoutPlan, Effort},
+        agent::{CheckoutPlan, Effort, StopReason},
         harness::HarnessConfig,
         mesh_state::StateValue,
     },
@@ -212,6 +212,8 @@ pub struct SessionPage {
     queued: u32,
     queued_messages: Vec<String>,
     turns: u32,
+    /// Why its last turn ended; none before the first.
+    last_stop: Option<StopReason>,
     entries: Vec<EntryRow>,
     earlier: u32,
 }
@@ -235,6 +237,7 @@ impl From<AgentSessionView> for SessionPage {
             queued: view.queued,
             queued_messages: view.queued_messages,
             turns: view.turns,
+            last_stop: view.last_stop,
             entries: view.entries.into_iter().map(EntryRow::from).collect(),
             earlier: view.earlier,
         }

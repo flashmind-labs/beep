@@ -198,7 +198,7 @@ impl Actor {
         if self.turn.is_none() {
             if self.waiting() == 0 {
                 let ended = watched::read_sent(&self.live, |live| {
-                    live.last_stop.map(|stop_reason| AlertKind::TurnEnded {
+                    live.info.state.last_stop.map(|stop_reason| AlertKind::TurnEnded {
                         stop_reason,
                         last_message: live.info.last_message.clone(),
                         error: live.info.state.error.clone(),
@@ -343,12 +343,12 @@ impl Actor {
             live.stopped(by_user);
             live.info.turns += 1;
             live.info.last_activity = crate::agents::unix_now();
-            live.last_stop = Some(stop);
             live.info.question = None;
             let state: &mut State = &mut live.info.state;
             state.status = Status::Idle;
             state.summary.clear();
             state.error = error;
+            state.last_stop = Some(stop);
             files = live.turn_files();
             made = live.turn_made();
             worktrees = live.turn_worktrees();

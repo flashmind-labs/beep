@@ -64,6 +64,7 @@ fn the_filter_parses_and_quiets_per_snapshot_lines() {
     let text = filter.to_string();
     assert!(text.contains("beep_desktop_lib::fleet::events=info"));
     assert!(text.contains("beep_node::link::events=warn"));
+    assert!(text.contains("plugin=info"));
 }
 
 #[cfg(target_os = "linux")]
