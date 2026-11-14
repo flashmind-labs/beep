@@ -34,7 +34,7 @@ export function DiffToolbar(props: DiffToolbarProps) {
     <span className="dv-sum" title={props.view ? baseTitle(props.view, props.uncommitted) : ""}>
       <DiffSummary view={props.view} loading={props.loading} uncommitted={props.uncommitted} />
     </span>
-    <input ref={props.findRef} className="dv-find" placeholder="Filter" aria-label="Filter files" spellCheck={false} disabled={none}
+    <input ref={props.findRef} className="dv-find" placeholder="Filter files and lines" aria-label="Filter files and lines" spellCheck={false} disabled={none}
       value={props.filter} onChange={event => props.onFilter(event.currentTarget.value)} />
     <span className="dv-tools">
       {props.showUncommitted && <button type="button" className="dv-btn icon"

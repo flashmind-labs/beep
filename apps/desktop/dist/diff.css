@@ -161,3 +161,7 @@
 .dv-fbnote[hidden] { display: none }
 .dv-fbnote pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/17px var(--mono); color: var(--muted); max-height: 120px; overflow: auto }
 .dv-fbnote .a { display: flex; gap: 8px }
+.dv-tr.dv-match { grid-template-columns: auto minmax(0, 1fr); color: var(--muted) }
+.dv-tr.dv-match .nm i { color: var(--muted) }
+.dv-tr.dv-match mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--fg); border-radius: 2px }
+.dv-l.dv-hit { box-shadow: inset 2px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent) }

@@ -38,7 +38,7 @@ export function DiffRows({ rows, comments, readOnly, gutter, edit, comment }: Ro
     const at: [Side, number] | null = row.k === "-" ? (row.old === null ? null : ["old", row.old]) : row.new === null ? null : ["new", row.new];
     const cls = row.k === "+" ? " add" : row.k === "-" ? " del" : "";
     return <Fragment key={index}>
-      <div className={`dv-l${cls}`}>
+      <div className={`dv-l${cls}`} data-at={at ? lineKey(...at) : undefined}>
         <span className="dv-g" onClick={open && at ? () => open(...at) : undefined}><span>{row.old ?? ""}</span><span>{row.new ?? ""}</span></span>
         <TextCell text={row.text} eol={row.eol}/>
       </div>
@@ -50,7 +50,7 @@ export function DiffRows({ rows, comments, readOnly, gutter, edit, comment }: Ro
 function Cell({ cell, at, open }: { cell: SplitCell | null; at: [Side, number] | null; open: Gutter | null }) {
   if (!cell) return <div className="dv-l none"><span className="dv-g"><span/></span><span className="dv-c"/></div>;
   const cls = cell.k === "+" ? " add" : cell.k === "-" ? " del" : "";
-  return <div className={`dv-l${cls}`}>
+  return <div className={`dv-l${cls}`} data-at={at ? lineKey(...at) : undefined}>
     <span className="dv-g" onClick={open && at ? () => open(...at) : undefined}><span>{cell.num}</span></span>
     <TextCell text={cell.text} eol={cell.eol}/>
   </div>;

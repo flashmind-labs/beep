@@ -1,6 +1,9 @@
 import { useCallback, useLayoutEffect, useMemo, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { compactFolders, grouped, matchesFilter, splitPath, STATUS_LETTER, type DiffFile } from "./diff-state.ts";
+import { compactFolders, grouped, lineMatches, matchesFilter, splitPath, STATUS_LETTER, type DiffFile, type LineMatch } from "./diff-state.ts";
+
+/// Matching lines listed under each file while filtering.
+const LINES_PER_FILE = 50;
 
 interface Folder {
   kind: "folder";
@@ -12,7 +15,10 @@ interface FileItem { kind: "file"; file: DiffFile; name: string }
 type TreeItem = Folder | FileItem;
 
 /// One line of the list: a folder or a file, indented by its depth.
-type Row = { kind: "folder"; folder: Folder; open: boolean; depth: number } | { kind: "file"; item: FileItem; depth: number };
+type Row =
+  | { kind: "folder"; folder: Folder; open: boolean; depth: number }
+  | { kind: "file"; item: FileItem; depth: number }
+  | { kind: "line"; path: string; match: LineMatch; depth: number };
 
 interface DiffTreeProps {
   files: readonly DiffFile[];
@@ -26,6 +32,7 @@ interface DiffTreeProps {
   reveal: number;
   onFolder: (path: string, open: boolean) => void;
   onFile: (path: string) => void;
+  onLine: (path: string, match: LineMatch) => void;
   onMenu: (event: MouseEvent<HTMLButtonElement>, file: DiffFile) => void;
 }
 
@@ -59,6 +66,7 @@ function flatten(items: readonly TreeItem[], filter: string, open: (path: string
     if (item.kind === "file") {
       if (!matchesFilter(item.file, filter)) continue;
       out.push({ kind: "file", item, depth });
+      for (const match of lineMatches(item.file, filter, LINES_PER_FILE)) out.push({ kind: "line", path: item.file.path, match, depth: depth + 1 });
       any = true;
       continue;
     }
@@ -87,6 +95,7 @@ export function DiffTree(props: DiffTreeProps) {
   // A key function kept while the rows stay, so the virtualizer keeps its measurements.
   const getItemKey = useCallback((index: number) => {
     const row = rows[index];
+    if (row.kind === "line") return `l:${row.path}:${row.match.side}:${row.match.line}`;
     return row.kind === "folder" ? `d:${row.folder.path}` : `f:${row.item.file.path}`;
   }, [rows]);
   const virtual = useVirtualizer({
@@ -103,6 +112,14 @@ export function DiffTree(props: DiffTreeProps) {
   }, [props.reveal]);
 
   function draw(row: Row) {
+    if (row.kind === "line") {
+      const { path, match } = row;
+      return <button type="button" className="dv-tr dv-match" title={`${path}:${match.line}`} onClick={() => props.onLine(path, match)}>
+        <span className={`dv-st ${match.side === "old" ? "D" : "A"}`}>{match.line}</span>
+        <span className="nm"><Marked text={match.text.trim()} query={props.filter.trim()} /></span>
+      </button>;
+    }
+
     if (row.kind === "folder") {
       const item = row.folder;
       return <details className="dv-dir" data-folder={item.path} open={row.open}>
@@ -134,4 +151,18 @@ export function DiffTree(props: DiffTreeProps) {
     {virtual.getVirtualItems().map(item => <div key={item.key} className="dv-tree-row" data-index={item.index} ref={virtual.measureElement}
       style={{ transform: `translateY(${item.start}px)`, paddingLeft: rows[item.index].depth * 16 }}>{draw(rows[item.index])}</div>)}
   </div>;
+}
+
+/// `text` with each place it holds `query`, any case, marked.
+function Marked({ text, query }: { text: string; query: string }) {
+  const lower = text.toLowerCase(), want = query.toLowerCase(), parts = [];
+  let at = 0;
+
+  for (let i = lower.indexOf(want); want && i >= 0; i = lower.indexOf(want, at)) {
+    parts.push(text.slice(at, i), <mark key={i}>{text.slice(i, i + want.length)}</mark>);
+    at = i + want.length;
+  }
+
+  parts.push(text.slice(at));
+  return <i>{parts}</i>;
 }
