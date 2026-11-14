@@ -1,6 +1,6 @@
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
-import { composeMessage as compose, expandPills, fenceSpan, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
+import { composeMessage as compose, expandPills, fenceSpans, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { sessionBody } from "../agents/session-frame.tsx";
@@ -158,9 +158,9 @@ function draw(field: HTMLTextAreaElement) {
     if (log && log.scrollTop !== top) log.scrollTop = top!;
   }
 
-  const value = field.value, pills = pillsIn(value), fence = fenceSpan(value, pastes), layer = f.layer;
+  const value = field.value, pills = pillsIn(value), fences = fenceSpans(value, pastes), layer = f.layer;
 
-  if (!pills.length && !fence) {
+  if (!pills.length && !fences.length) {
     layer.hidden = true;
     if (f.active) { overlay.remove([f.slot]); f.active = false; }
     return;
@@ -173,7 +173,7 @@ function draw(field: HTMLTextAreaElement) {
   layer.style.top = `${field.offsetTop + field.clientTop}px`;
   layer.style.width = `${field.clientWidth}px`;
   layer.style.height = `${field.clientHeight}px`;
-  overlay.set([{ slot: f.slot, host: layer, content: <ComposeOverlay value={value} pills={pills} fence={fence} /> }]);
+  overlay.set([{ slot: f.slot, host: layer, content: <ComposeOverlay value={value} pills={pills} fences={fences} /> }]);
   f.active = true;
   layer.scrollTop = field.scrollTop;
 }

@@ -3,16 +3,18 @@ import type { Pill } from "./compose-text.ts";
 import { Button } from "../ui/kit.tsx";
 import { plural } from "../ui/format.ts";
 
-export function ComposeOverlay({ value, pills, fence }: { value: string; pills: Pill[]; fence: { start: number; end: number } | null }) {
-  const code = useRef<HTMLSpanElement>(null);
-  const [outline, setOutline] = useState<{ top: number; height: number } | null>(null);
+export function ComposeOverlay({ value, pills, fences }: { value: string; pills: Pill[]; fences: { start: number; end: number }[] }) {
+  const code = useRef<(HTMLSpanElement | null)[]>([]);
+  const [outlines, setOutlines] = useState<{ top: number; height: number }[]>([]);
   useLayoutEffect(() => {
-    const node = code.current, layer = node?.parentElement;
-    const rects = node ? [...node.getClientRects()] : [];
-    if (!layer || !rects.length) { setOutline(null); return; }
-    const top = Math.min(...rects.map(rect => rect.top)), bottom = Math.max(...rects.map(rect => rect.bottom));
-    const next = { top: top - layer.getBoundingClientRect().top + layer.scrollTop - 3, height: bottom - top + 6 };
-    setOutline(previous => previous?.top === next.top && previous.height === next.height ? previous : next);
+    const next = fences.flatMap((_, i) => {
+      const node = code.current[i], layer = node?.parentElement;
+      const rects = node ? [...node.getClientRects()] : [];
+      if (!layer || !rects.length) return [];
+      const top = Math.min(...rects.map(rect => rect.top)), bottom = Math.max(...rects.map(rect => rect.bottom));
+      return [{ top: top - layer.getBoundingClientRect().top + layer.scrollTop - 3, height: bottom - top + 6 }];
+    });
+    setOutlines(previous => previous.length === next.length && previous.every((o, i) => o.top === next[i].top && o.height === next[i].height) ? previous : next);
   });
   const run = (start: number, end: number) => {
     const result: ReactNode[] = [];
@@ -26,7 +28,13 @@ export function ComposeOverlay({ value, pills, fence }: { value: string; pills: 
     result.push(value.slice(at, end));
     return result;
   };
-  return <>{fence ? <>{run(0, fence.start)}<span ref={code}>{run(fence.start, fence.end)}</span>{run(fence.end, value.length)}</> : run(0, value.length)}{" "}{outline && fence && <div className="cx-code" style={{ top: outline.top, height: outline.height }} />}</>;
+  let at = 0;
+  const parts = fences.flatMap((fence, i) => {
+    const before = run(at, fence.start);
+    at = fence.end;
+    return [<span key={`t${i}`}>{before}</span>, <span key={`c${i}`} ref={node => { code.current[i] = node; }}>{run(fence.start, fence.end)}</span>];
+  });
+  return <>{parts}<span key="rest">{run(at, value.length)}</span>{" "}{fences.length > 0 && outlines.map((o, i) => <div key={i} className="cx-code" style={{ top: o.top, height: o.height }} />)}</>;
 }
 
 /// A pasted text's preview, above the field, or below it when there is no room above.

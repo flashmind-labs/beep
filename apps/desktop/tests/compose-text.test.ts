@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeMessage, fenceAfterBlankLine, imagePath, pillAt, pillLabel, pillsIn, Pastes, snapCaret, snapSelection } from "../src/chat/compose-text.ts";
+import { composeMessage, fenceAfterBlankLine, fenceSpans, imagePath, pillAt, pillLabel, pillsIn, Pastes, snapCaret, snapSelection } from "../src/chat/compose-text.ts";
 
 // The fence cases are flsh's own (flashmind-tui repl/input.rs), same
 // inputs and outputs.
@@ -23,8 +23,12 @@ test("submit closes automatic fence at three newlines", () => {
       "Investigate this:\n\n\n```\nidk idk idk\n...\n```\n\n\nThe above is an error about XYZ",
     ],
     [
-      "Explain this\n\n\n    first\n\n    second\n\n\nMore context\n\nAnother paragraph\n\n\nLast paragraph",
-      "Explain this\n\n\n```\n    first\n\n    second\n```\n\n\nMore context\n\nAnother paragraph\n\n\nLast paragraph",
+      "Explain this\n\n\n    first\n\n    second\n\n\nMore context\n\nAnother paragraph",
+      "Explain this\n\n\n```\n    first\n\n    second\n```\n\n\nMore context\n\nAnother paragraph",
+    ],
+    [
+      "hello\n\n\nthis is an example\n\n\nand btw\n\n\n\nthis is also an example\n\n\n",
+      "hello\n\n\n```\nthis is an example\n```\n\n\nand btw\n\n\n```\nthis is also an example\n```",
     ],
     ["\n\n\n    text\n\n\nMore context", "```\n    text\n```\n\n\nMore context"],
     ["Explain this\n\n\n    text\n\n\n", "Explain this\n\n\n```\n    text\n```"],
@@ -53,6 +57,12 @@ test("submit leaves plain, fenced and command input unchanged", () => {
   ]) {
     assert.equal(fenceAfterBlankLine(input), input.trim());
   }
+});
+
+test("the composer outlines every fenced part", () => {
+  const value = "a\n\n\nb\n\n\nc\n\n\nd";
+  assert.deepEqual(fenceSpans(value, new Pastes()).map(s => value.slice(s.start, s.end)), ["b", "d"]);
+  assert.deepEqual(fenceSpans("plain", new Pastes()), []);
 });
 
 // ----- Pills -----

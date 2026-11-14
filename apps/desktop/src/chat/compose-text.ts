@@ -23,21 +23,29 @@ export function lineCount(text: string) {
   return text.endsWith("\n") ? n - 1 : n;
 }
 
-/// Fences the text between the first two triple line breaks: "prompt", three
-/// line breaks, the content, three more, then the rest.
+const TRIPLE = "\n\n\n";
+
+/// Fences every other part between triple line breaks: "prompt", three line
+/// breaks, code, three more, prose, three more, code, and so on. A part with
+/// only blank lines is left out.
 export function fenceAfterBlankLine(text: string) {
   const trimmed = text.trim();
   if (trimmed.startsWith("/") || trimmed.startsWith("!") || text.includes("```") || text.includes("~~~")) return trimmed;
-  const at = text.indexOf("\n\n\n");
-  if (at < 0) return trimmed;
-  const prompt = text.slice(0, at).trim(), rest = text.slice(at + 3);
-  const end = rest.indexOf("\n\n\n");
-  const content = (end < 0 ? rest : rest.slice(0, end)).trimEnd();
-  if (!content) return trimmed;
-  let fenced = prompt ? `${prompt}\n\n\n\`\`\`\n${content}\n\`\`\`` : `\`\`\`\n${content}\n\`\`\``;
-  const suffix = end < 0 ? "" : rest.slice(end + 3).trimEnd();
-  if (suffix) fenced += `\n\n\n${suffix}`;
-  return fenced;
+  const parts = text.split(TRIPLE);
+  if (parts.length < 2) return trimmed;
+  const out: string[] = [];
+
+  parts.forEach((part, i) => {
+    if (i % 2 === 0) {
+      if (part.trim()) out.push(part.trim());
+      return;
+    }
+
+    const code = part.replace(/^\n+/, "").trimEnd();
+    if (code) out.push(`\`\`\`\n${code}\n\`\`\``);
+  });
+
+  return out.join(TRIPLE);
 }
 
 // ----- Pasted text pills -----
@@ -113,17 +121,30 @@ export function composeMessage(value: string, pastes: Pick<Pastes, "get">) {
   return fenceAfterBlankLine(expandPills(value, pastes));
 }
 
-/// Where the code fence goes in `value`, from the start of its content to
-/// its trimmed end, or null when sending adds none.
-export function fenceSpan(value: string, pastes: Pick<Pastes, "get">) {
+/// Where the code fences go in `value`, each from the start of its content
+/// to its trimmed end. Empty when sending adds none.
+export function fenceSpans(value: string, pastes: Pick<Pastes, "get">) {
   const expanded = expandPills(value, pastes);
-  if (fenceAfterBlankLine(expanded) === expanded.trim()) return null;
-  const at = value.indexOf("\n\n\n");
-  if (at < 0) return null;
-  const start = at + 3, next = value.indexOf("\n\n\n", start);
-  let end = next < 0 ? value.length : next;
-  while (end > start && /\s/.test(value[end - 1])) end--;
-  return end > start ? { start, end } : null;
+  if (fenceAfterBlankLine(expanded) === expanded.trim()) return [];
+  const spans: { start: number; end: number }[] = [];
+  let at = 0;
+
+  for (let i = 0; ; i++) {
+    const next = value.indexOf(TRIPLE, at);
+    const end = next < 0 ? value.length : next;
+
+    if (i % 2 === 1) {
+      let start = at, stop = end;
+      while (start < stop && value[start] === "\n") start++;
+      while (stop > start && /\s/.test(value[stop - 1])) stop--;
+      if (stop > start) spans.push({ start, end: stop });
+    }
+
+    if (next < 0) break;
+    at = next + TRIPLE.length;
+  }
+
+  return spans;
 }
 
 /// A caret at `pos`, moved out of any pill it fell into: past it when it
