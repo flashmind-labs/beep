@@ -7,6 +7,17 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.32] - 2026-11-14
+
+### Fixed
+
+- Desktop: model settings hide unavailable context limits and their explanation while keeping supported compaction controls.
+- Desktop: a picture opened from the attachments window fills the app
+  instead of showing as small as the window.
+- Desktop: an agent's message is no longer cut in two when a background
+  subagent calls a tool while the message is being written (needs the updated
+  node).
+
 ## [0.8.31] - 2026-11-13
 
 ### Changed

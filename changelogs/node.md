@@ -2,6 +2,20 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.27] - 2026-11-14
+
+### Added
+
+- Node: ACP v2 support is back but off by default; set BEEP_ACP_VERSION=2 in
+  an agent's environment to try it (it falls back to v1 when the agent only
+  speaks v1). Agents with v2 now accept the Beep MCP server instead of failing
+  to start.
+
+### Fixed
+
+- Node: an agent's message is no longer cut in two when a background
+  subagent calls a tool while the message is being written.
+
 ## [0.6.26] - 2026-11-13
 
 ### Fixed
