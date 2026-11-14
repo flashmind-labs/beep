@@ -62,6 +62,9 @@ pub struct WslDistro {
     pub kept: bool,
     /// Why the kept node is not running, in words for the user.
     pub problem: Option<String>,
+    /// `agents` and `node` were read; a distribution that is not running
+    /// is only looked into when asked (`wsl::Request::Probe`).
+    pub probed: bool,
 }
 
 /// An agent found on the machine whose ACP adapter the node installs.

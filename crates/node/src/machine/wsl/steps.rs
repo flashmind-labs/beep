@@ -2,14 +2,17 @@
 //! and inside one, probing it, installing beep-node, running it and joining
 //! it to the mesh. Inside a distribution everything runs in its `sh`.
 
-use super::distro::{self, DistroName, Found};
+use super::distro::{self, DistroName, Found, Listed};
+use crate::agents::locate::{HOME_BINS, NODE_VERSIONS, SYSTEM_BINS};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::harness::HARNESSES;
 use std::{ffi::OsString, process::Stdio, time::Duration};
 use tokio::{io::AsyncWriteExt, process::Command, time::timeout};
 
 /// How long listing the distributions may take.
-const LIST_LIMIT: Duration = Duration::from_secs(10);
+const LIST_LIMIT: Duration = Duration::from_secs(5);
+/// How long asking a distribution whether its node runs may take.
+const RUNNING_LIMIT: Duration = Duration::from_secs(20);
 /// How long probing a distribution may take, starting it included.
 const PROBE_LIMIT: Duration = Duration::from_secs(30);
 /// How long installing beep-node in a distribution may take.
@@ -25,10 +28,36 @@ const INSTALL_URL: &str = "https://releases.flashmind.com/beep/node/install.sh";
 /// Where the installer puts beep-node inside a distribution.
 const NODE: &str = "\"$HOME/.local/bin/beep-node\"";
 
-/// The distributions, or only the running ones.
-pub(crate) async fn list(running: bool) -> Result<Vec<DistroName>> {
-    let printed = wsl(list_args(running), None, LIST_LIMIT).await?;
-    Ok(distro::distros(&printed))
+/// The distributions and whether each runs, from one `--list --verbose`,
+/// or where its states are in another language, two quiet lists.
+pub(crate) async fn list() -> Result<Vec<Listed>> {
+    let verbose = wsl(list_args(List::Verbose), None, LIST_LIMIT).await?;
+
+    if let Some(listed) = distro::listed(&verbose) {
+        return Ok(listed);
+    }
+
+    let all = wsl(list_args(List::All), None, LIST_LIMIT).await?;
+    // Fails when none runs.
+    let running = wsl(list_args(List::Running), None, LIST_LIMIT)
+        .await
+        .map(|printed| distro::distros(&printed))
+        .unwrap_or_default();
+    Ok(distro::distros(&all)
+        .into_iter()
+        .map(|name| Listed {
+            running: running.contains(&name),
+            name,
+        })
+        .collect())
+}
+
+/// Whether a node already runs in `distro`, such as one another Beep on
+/// this machine keeps. Starts the distribution.
+pub(crate) async fn node_running(distro: &DistroName) -> bool {
+    wsl(in_distro(distro, RUNNING), None, RUNNING_LIMIT)
+        .await
+        .is_ok()
 }
 
 /// What `distro` has: its coding agents and beep-node. Starts it when it
@@ -58,13 +87,21 @@ pub(crate) fn run_command(distro: &DistroName) -> Command {
     command
 }
 
-fn list_args(running: bool) -> Vec<OsString> {
-    let running = running.then_some("--running");
-    ["--list", "--quiet"]
-        .into_iter()
-        .chain(running)
-        .map(OsString::from)
-        .collect()
+/// Which list `wsl.exe` prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum List {
+    Verbose,
+    All,
+    Running,
+}
+
+fn list_args(list: List) -> Vec<OsString> {
+    let args: &[&str] = match list {
+        List::Verbose => &["--list", "--verbose"],
+        List::All => &["--list", "--quiet"],
+        List::Running => &["--list", "--quiet", "--running"],
+    };
+    args.iter().map(OsString::from).collect()
 }
 
 /// The arguments that run `script` in `distro`'s login `sh`, in its home.
@@ -83,21 +120,28 @@ fn in_distro(distro: &DistroName, script: &str) -> Vec<OsString> {
     .into()
 }
 
-/// Prints `agent <name> <path>` for each coding agent found, also in the
-/// usual per-user install folders a login shell may leave off `PATH`, and
+/// Prints `agent <name> <path>` for each coding agent found, on `PATH` or
+/// in the install folders the node itself looks in (`locate`), and
 /// `node beep-node <version>` and `id <id>` when beep-node is installed.
 fn probe_script() -> String {
     let agents: Vec<&str> = HARNESSES.iter().map(|harness| harness.agent).collect();
+    let home: Vec<String> = HOME_BINS.iter().map(|dir| format!("$HOME/{dir}")).collect();
+    let versions: Vec<String> = NODE_VERSIONS
+        .iter()
+        .map(|(versions, tail)| format!("\"$HOME/{versions}\"/*/{tail}"))
+        .collect();
     format!(
-        "PATH=\"$HOME/.claude/local:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.bun/bin:\
-         $HOME/.volta/bin:$HOME/.local/share/pnpm:$PATH\"\n\
-         for d in \"$HOME\"/.nvm/versions/node/*/bin; do [ -d \"$d\" ] && PATH=\"$PATH:$d\"; done\n\
+        "PATH=\"$PATH:{home}:{system}\"\n\
+         for d in {versions}; do [ -d \"$d\" ] && PATH=\"$PATH:$d\"; done\n\
          for a in {agents}; do p=$(command -v \"$a\") && echo \"agent $a $p\"; done\n\
          if [ -x {NODE} ]; then\n\
          \x20 echo \"node $({NODE} version)\"\n\
          \x20 i=$({NODE} id 2>/dev/null) && echo \"id $i\"\n\
          fi\n\
          exit 0\n",
+        home = home.join(":"),
+        system = SYSTEM_BINS.join(":"),
+        versions = versions.join(" "),
         agents = agents.join(" "),
     )
 }
@@ -118,6 +162,10 @@ fn install_script() -> String {
 /// Windows folders WSL appends to `PATH`: a WSL machine runs Linux tools.
 const RUN: &str = "PATH=$(printf %s \"$PATH\" | tr : '\\n' | grep -v '^/mnt/' | paste -sd : -)\n\
                    exec \"$HOME/.local/bin/beep-node\" --with-parent run\n";
+
+/// Succeeds when a node runs from the default folder, which the nodes a
+/// Windows node runs use.
+const RUNNING: &str = "exec \"$HOME/.local/bin/beep-node\" status --quiet\n";
 
 /// Joins the running node with the ticket on stdin, never starting a
 /// service of its own.

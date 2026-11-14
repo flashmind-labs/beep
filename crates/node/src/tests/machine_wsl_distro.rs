@@ -60,3 +60,28 @@ some line a profile printed
     );
     assert_eq!(found(""), Found::default());
 }
+
+#[test]
+fn the_verbose_list_gives_names_and_whether_each_runs() {
+    let verbose = "  NAME              STATE           VERSION\r\n\
+                   * Ubuntu-24.04    Running         2\r\n\
+                   \x20 Debian          Stopped         2\r\n\
+                   \x20 docker-desktop  Running         2\r\n";
+    let read = listed(verbose).expect("English states");
+    let names: Vec<(String, bool)> = read
+        .iter()
+        .map(|listed| (listed.name.to_string(), listed.running))
+        .collect();
+    assert_eq!(
+        names,
+        [("Ubuntu-24.04".to_owned(), true), ("Debian".to_owned(), false)]
+    );
+    assert_eq!(listed(&decode(&utf16(verbose))), Some(read));
+}
+
+#[test]
+fn a_state_in_another_language_asks_for_the_quiet_lists() {
+    let verbose = "  NAME      STATUS            VERSION\n* Ubuntu    Wird ausgefuehrt  2\n";
+    assert_eq!(listed(verbose), None);
+    assert_eq!(listed(""), Some(Vec::new()));
+}

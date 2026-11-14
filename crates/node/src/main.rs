@@ -157,7 +157,11 @@ enum Command {
     /// waiting for Syncthing, missing its folder, or not syncing and why.
     /// Says so when no node is running.
     #[command(visible_aliases = ["s", "st"])]
-    Status,
+    Status {
+        /// Prints nothing, and fails when no node runs from `--dir`.
+        #[arg(short, long)]
+        quiet: bool,
+    },
     /// Sends a problem report with every machine's log to Beep.
     ///
     /// Collects the log, status, version and OS of every machine of the
@@ -549,7 +553,14 @@ async fn run() -> Result<()> {
             println!("{}", state::State::load(&dir)?.key.public());
             Ok(())
         }
-        Command::Status => {
+        Command::Status { quiet: true } => {
+            if peers::is_running(&dir) {
+                Ok(())
+            } else {
+                process::exit(1)
+            }
+        }
+        Command::Status { quiet: false } => {
             let text = match peers::local_status(&dir).await? {
                 Some(status) => {
                     let now = SystemTime::now()

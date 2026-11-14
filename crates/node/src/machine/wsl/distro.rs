@@ -80,6 +80,46 @@ pub(crate) fn distros(listed: &str) -> Vec<DistroName> {
         .collect()
 }
 
+/// A distribution as `wsl.exe --list` gives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Listed {
+    pub(crate) name: DistroName,
+    pub(crate) running: bool,
+}
+
+/// The distributions in what `wsl.exe --list --verbose` printed: a header,
+/// then a line each of name, state and WSL version, the default one marked
+/// `*`. `None` when a state is not one this reads, as on a Windows in
+/// another language.
+pub(crate) fn listed(verbose: &str) -> Option<Vec<Listed>> {
+    let mut found = Vec::new();
+    let lines = verbose
+        .lines()
+        .map(|line| line.trim_matches(|c: char| c.is_whitespace() || c == '\0'))
+        .filter(|line| !line.is_empty())
+        .skip(1);
+
+    for line in lines {
+        let words: Vec<&str> = line.trim_start_matches('*').split_whitespace().collect();
+        let [name, state @ .., _version] = words.as_slice() else {
+            return None;
+        };
+        let running = match state.join(" ").as_str() {
+            "Running" => true,
+            "Stopped" | "Installing" | "Converting" | "Uninstalling" => false,
+            _ => return None,
+        };
+
+        if let Ok(name) = name.parse::<DistroName>()
+            && !for_an_app(&name)
+        {
+            found.push(Listed { name, running });
+        }
+    }
+
+    Some(found)
+}
+
 /// A distribution an app runs its own engine in, such as
 /// `docker-desktop-data`, which has no user to run agents for.
 fn for_an_app(name: &DistroName) -> bool {

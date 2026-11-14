@@ -137,7 +137,8 @@ pub async fn serve(
     // A Windows node runs the WSL distributions added as machines.
     #[cfg(windows)]
     {
-        let wsl = crate::machine::wsl::Wsl::start(&state.dir, &offers);
+        let wsl = crate::machine::wsl::Wsl::new(&state.dir, &offers);
+        wsl.lend(offers.lends_to_peers()).await;
         offers.extra.push(Arc::new(wsl));
     }
     // The plans read ahead too: Claude Code takes a while to start, and a

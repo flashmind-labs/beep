@@ -236,6 +236,7 @@ mod env {
                 machine_id: None,
                 kept: true,
                 problem: None,
+                probed: true,
             }],
             ..EnvReport::default()
         };

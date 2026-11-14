@@ -377,7 +377,8 @@ pub mod wsl {
     //! `wsl/1`: a Windows node runs a WSL distribution as a machine of its
     //! own: a Linux beep-node inside it, with its own key, kept running by
     //! the Windows node. The caller sends one `Request`; the node answers
-    //! with any number of `Step`, then `Done` or `Failed`.
+    //! with any number of `Step`, then `Done` or `Failed`, also for a
+    //! request it does not know.
 
     use crate::SecretText;
     use serde::{Deserialize, Serialize};
@@ -393,6 +394,12 @@ pub mod wsl {
         Add { distro: String, ticket: SecretText },
         /// Stops running the node of `distro`. It stays installed there.
         Stop { distro: String },
+        /// Runs the node of `distro` again, added before and turned off or
+        /// stopped with WSL.
+        Start { distro: String },
+        /// Looks again at what each distribution has, starting the stopped
+        /// ones to look; the machine's next report holds it.
+        Probe {},
     }
 
     /// What the node answers.

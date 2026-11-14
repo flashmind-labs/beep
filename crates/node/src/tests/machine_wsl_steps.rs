@@ -7,10 +7,11 @@ fn strings(args: &[OsString]) -> Vec<String> {
 }
 
 #[test]
-fn listing_asks_for_names_only() {
-    assert_eq!(strings(&list_args(false)), ["--list", "--quiet"]);
+fn listing_asks_for_states_or_names() {
+    assert_eq!(strings(&list_args(List::Verbose)), ["--list", "--verbose"]);
+    assert_eq!(strings(&list_args(List::All)), ["--list", "--quiet"]);
     assert_eq!(
-        strings(&list_args(true)),
+        strings(&list_args(List::Running)),
         ["--list", "--quiet", "--running"]
     );
 }
@@ -31,12 +32,16 @@ fn the_probe_looks_for_every_harness_and_the_node() {
         assert!(script.contains(&format!(" {} ", harness.agent)) || script.contains(&format!(" {};", harness.agent)));
     }
     assert!(script.contains("version") && script.contains(" id "));
+    // The folders the node itself looks in.
+    assert!(HOME_BINS.iter().all(|dir| script.contains(&format!("$HOME/{dir}"))));
+    assert!(NODE_VERSIONS.iter().all(|(versions, _)| script.contains(versions)));
 }
 
 #[test]
 fn the_ticket_never_goes_on_the_command_line() {
     assert!(JOIN.contains("mesh join --no-service -"));
     assert!(RUN.contains("--with-parent run"));
+    assert!(RUNNING.contains("status --quiet"));
     assert!(install_script().contains(INSTALL_URL));
 }
 
@@ -53,6 +58,8 @@ fn the_probe_script_runs_in_sh() {
 
     let home = tempfile::tempdir().expect("a home");
     let bin = home.path().join(".local/bin");
+    let nvm = home.path().join(".nvm/versions/node/v22.1.0/bin");
+    std::fs::create_dir_all(&nvm).expect("nvm");
     std::fs::create_dir_all(&bin).expect("bin");
     let scripts = [
         ("claude", "#!/bin/sh\n"),
@@ -61,6 +68,10 @@ fn the_probe_script_runs_in_sh() {
             "#!/bin/sh\ncase $1 in version) echo 'beep-node 0.7.4';; id) echo 4f1c;; esac\n",
         ),
     ];
+
+    let codex = nvm.join("codex");
+    std::fs::write(&codex, "#!/bin/sh\n").expect("written");
+    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).expect("mode");
 
     for (name, text) in scripts {
         let path = bin.join(name);
@@ -78,7 +89,7 @@ fn the_probe_script_runs_in_sh() {
         .expect("sh runs");
     assert!(out.status.success());
     let found = distro::found(&String::from_utf8_lossy(&out.stdout));
-    assert_eq!(found.agents, ["claude"]);
+    assert_eq!(found.agents, ["claude", "codex"]);
     assert_eq!(found.node.as_deref(), Some("0.7.4"));
     assert_eq!(found.machine_id.as_deref(), Some("4f1c"));
 }

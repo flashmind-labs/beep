@@ -53,36 +53,46 @@ pub(super) fn path_with(programs: &[&Path]) -> Option<OsString> {
     env::join_paths(dirs).ok()
 }
 
+/// The per-user install folders under home: the native installer, then the
+/// usual per-user bins.
+pub(crate) const HOME_BINS: &[&str] = &[
+    ".claude/local",
+    ".local/bin",
+    ".npm-global/bin",
+    ".bun/bin",
+    ".volta/bin",
+    ".asdf/shims",
+    ".local/share/mise/shims",
+    "Library/pnpm",
+    ".local/share/pnpm",
+    "bin",
+];
+
+/// The folders under home where version managers keep each Node, and the
+/// bin folder inside each version.
+pub(crate) const NODE_VERSIONS: &[(&str, &str)] = &[
+    (".nvm/versions/node", "bin"),
+    (".local/share/fnm/node-versions", "installation/bin"),
+    (
+        "Library/Application Support/fnm/node-versions",
+        "installation/bin",
+    ),
+];
+
+/// The folders of the system's package managers.
+pub(crate) const SYSTEM_BINS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
+
 fn folders(home: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![
-        // The native installer, then the usual per-user bins.
-        home.join(".claude/local"),
-        home.join(".local/bin"),
-        home.join(".npm-global/bin"),
-        home.join(".bun/bin"),
-        home.join(".volta/bin"),
-        home.join(".asdf/shims"),
-        home.join(".local/share/mise/shims"),
-        home.join("Library/pnpm"),
-        home.join(".local/share/pnpm"),
-        home.join("bin"),
-    ];
+    let mut dirs: Vec<PathBuf> = HOME_BINS.iter().map(|dir| home.join(dir)).collect();
     // Every installed Node of the version managers, newest first.
-    for (versions, tail) in [
-        (".nvm/versions/node", "bin"),
-        (".local/share/fnm/node-versions", "installation/bin"),
-        (
-            "Library/Application Support/fnm/node-versions",
-            "installation/bin",
-        ),
-    ] {
+    for (versions, tail) in NODE_VERSIONS {
         dirs.extend(
             newest_first(&home.join(versions))
                 .into_iter()
                 .map(|dir| dir.join(tail)),
         );
     }
-    dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
+    dirs.extend(SYSTEM_BINS.iter().map(PathBuf::from));
 
     if cfg!(windows) {
         dirs.extend(env::var_os("APPDATA").map(|dir| PathBuf::from(dir).join("npm")));

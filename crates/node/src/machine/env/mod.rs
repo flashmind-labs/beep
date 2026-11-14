@@ -22,6 +22,9 @@ use tokio::{sync::OnceCell, time::timeout};
 
 /// How long one probe command may take.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long listing and looking into the WSL distributions may take.
+#[cfg(windows)]
+const WSL_LIMIT: Duration = Duration::from_secs(20);
 /// The longest version line kept.
 const MAX_VERSION: usize = 80;
 
@@ -49,7 +52,29 @@ const KNOWN_TOOLS: &[(&str, &[&str])] = &[
     ("brew", &["--version"]),
 ];
 
+/// What the machine has, its WSL distributions looked into beside the rest.
 pub async fn probe() -> EnvReport {
+    let (report, wsl) = tokio::join!(probe_machine(), wsl());
+    EnvReport { wsl, ..report }
+}
+
+/// The WSL distributions of a Windows machine, within `WSL_LIMIT`.
+#[cfg(windows)]
+async fn wsl() -> Vec<beep_proto::node::WslDistro> {
+    timeout(WSL_LIMIT, crate::machine::wsl::report())
+        .await
+        .unwrap_or_else(|_| {
+            log::warn!("the WSL distributions took over {} s to list", WSL_LIMIT.as_secs());
+            Vec::new()
+        })
+}
+
+#[cfg(not(windows))]
+async fn wsl() -> Vec<beep_proto::node::WslDistro> {
+    Vec::new()
+}
+
+async fn probe_machine() -> EnvReport {
     let (tools, found) = probe_tools(ToolScope::All).await;
     let home = dirs::home_dir();
     let at = |name: &str| {
@@ -127,9 +152,7 @@ pub async fn probe() -> EnvReport {
         // Filled in by the status stream, which knows the installs.
         adapters: Vec::new(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
-        #[cfg(windows)]
-        wsl: crate::machine::wsl::report().await,
-        #[cfg(not(windows))]
+        // Filled in by `probe`, at the same time.
         wsl: Vec::new(),
     }
 }

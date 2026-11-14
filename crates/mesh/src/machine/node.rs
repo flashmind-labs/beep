@@ -388,6 +388,19 @@ pub async fn stop_wsl(client: &PeerClient, distro: &str) -> Result<(), MeshError
     ask_wsl(client, &request, drop).await
 }
 
+/// Has a Windows node run the node of its WSL distribution `distro` again.
+pub async fn start_wsl(client: &PeerClient, distro: &str) -> Result<(), MeshError> {
+    let request = wsl::Request::Start {
+        distro: distro.to_owned(),
+    };
+    ask_wsl(client, &request, drop).await
+}
+
+/// Has a Windows node look again at what each of its WSL distributions has.
+pub async fn probe_wsl(client: &PeerClient) -> Result<(), MeshError> {
+    ask_wsl(client, &wsl::Request::Probe {}, drop).await
+}
+
 async fn ask_wsl(
     client: &PeerClient,
     request: &wsl::Request,

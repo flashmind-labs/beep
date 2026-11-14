@@ -1,29 +1,55 @@
 //! `wsl/1` (see `beep_proto::node::wsl`): adds a WSL distribution as a
-//! machine, or stops running one.
+//! machine, turns its node off or on, and looks into the distributions.
 
-use super::{distro::DistroName, keeper::Keeper, steps};
+use super::{
+    distro::DistroName,
+    keeper::{self, Keeper},
+    report, steps,
+};
 use crate::{
-    link::{Offers, Protocol, Session},
+    link::{Offers, Protocol, Session, from_mesh::Membership},
     machine::env,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use beep_proto::{
-    SecretText,
+    SecretText, lenient,
     node::{
         LinkRx, LinkTx,
         wsl::{Event, PROTOCOL, Request},
     },
 };
-use std::{path::Path, sync::Arc};
+use std::{
+    convert::Infallible,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-/// Serves `wsl/1` and keeps the WSL machines running.
-pub struct Wsl(Arc<Keeper>);
+/// Serves `wsl/1`, and runs the WSL machines while the node serves as a
+/// machine itself.
+pub struct Wsl {
+    /// The node's folder, which saves the WSL machines.
+    dir: PathBuf,
+    mesh: Membership,
+}
 
 impl Wsl {
-    /// Starts the WSL machines saved in the node's folder `dir`. Needs a
-    /// running Tokio runtime.
-    pub fn start(dir: &Path, offers: &Offers) -> Self {
-        Self(Keeper::start(dir, offers.mesh.clone()))
+    /// The WSL machines saved in the node's folder `dir`, not running yet.
+    pub fn new(dir: &Path, offers: &Offers) -> Self {
+        Self {
+            dir: dir.to_owned(),
+            mesh: offers.mesh.clone(),
+        }
+    }
+
+    /// Runs the WSL machines while the node serves as a machine (`lent`),
+    /// else stops them. Only one process runs them: the one whose node
+    /// serves. Needs a running Tokio runtime.
+    pub async fn lend(&self, lent: bool) {
+        if lent {
+            Keeper::start(&self.dir, self.mesh.clone());
+        } else if let Some(keeper) = keeper::running() {
+            keeper.halt().await;
+        }
     }
 }
 
@@ -33,18 +59,22 @@ impl Protocol for Wsl {
     }
 
     fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session {
-        Box::pin(serve(tx, rx, self.0.clone()))
+        Box::pin(serve(tx, rx))
     }
 }
 
-async fn serve(mut tx: LinkTx, mut rx: LinkRx, keeper: Arc<Keeper>) -> Result<()> {
-    let Some(request) = rx.recv::<Request>().await? else {
+async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+    // Read apart, so a request from a newer Beep gets an answer.
+    let read = |bytes: &[u8]| Ok::<_, Infallible>(lenient::from_slice::<Request>(bytes));
+    let Some(request) = rx.recv_with(read).await? else {
         return Ok(());
     };
-    let done = match request {
-        Request::Add { distro, ticket } => add(&keeper, &distro, &ticket, &mut tx).await,
-        Request::Stop { distro } => stop(&keeper, &distro).await,
-        _ => Err(anyhow!("Update Beep on this machine first.")),
+    let done = match (request, keeper::running()) {
+        (Err(_), _) => Err(anyhow!("Update Beep on this machine first.")),
+        (Ok(_), None) => Err(anyhow!(
+            "This computer runs no WSL machines while Beep may not use it."
+        )),
+        (Ok(request), Some(keeper)) => answer(request, keeper, &mut tx).await,
     };
     // Its report says how the distributions stand now.
     env::changed();
@@ -61,16 +91,26 @@ async fn serve(mut tx: LinkTx, mut rx: LinkRx, keeper: Arc<Keeper>) -> Result<()
     tx.finish().await
 }
 
+async fn answer(request: Request, keeper: &Arc<Keeper>, tx: &mut LinkTx) -> Result<()> {
+    match request {
+        Request::Add { distro, ticket } => add(keeper, &distro, &ticket, tx).await,
+        Request::Stop { distro } => keeper.stop(&distro.parse()?).await,
+        Request::Start { distro } => keeper.keep(&distro.parse()?),
+        Request::Probe {} => report::probe_all().await,
+        _ => Err(anyhow!("Update Beep on this machine first.")),
+    }
+}
+
 /// Installs beep-node in `distro`, keeps it running and joins it with
 /// `ticket`, telling the caller each step. A node that could not join is
 /// not kept.
-async fn add(keeper: &Keeper, distro: &str, ticket: &SecretText, tx: &mut LinkTx) -> Result<()> {
+async fn add(keeper: &Arc<Keeper>, distro: &str, ticket: &SecretText, tx: &mut LinkTx) -> Result<()> {
     let distro: DistroName = distro.parse()?;
-    let listed = steps::list(false)
+    let listed = steps::list()
         .await
         .context("could not list the WSL distributions")?;
 
-    if !listed.contains(&distro) {
+    if !listed.iter().any(|listed| listed.name == distro) {
         bail!("This machine has no WSL distribution named {distro}.");
     }
 
@@ -106,11 +146,6 @@ async fn add(keeper: &Keeper, distro: &str, ticket: &SecretText, tx: &mut LinkTx
     }
 
     Ok(())
-}
-
-async fn stop(keeper: &Keeper, distro: &str) -> Result<()> {
-    let distro: DistroName = distro.parse()?;
-    keeper.stop(&distro).await
 }
 
 /// Tells the caller a step began. A caller gone does not stop the work.

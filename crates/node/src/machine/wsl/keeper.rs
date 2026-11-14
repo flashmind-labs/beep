@@ -3,7 +3,10 @@
 //! and all, so each node runs as a child of this one: started again with a
 //! growing pause when it exits, stopped when it is turned off or its
 //! machine leaves the mesh. The distributions kept are saved in the node's
-//! folder.
+//! folder; one removed from WSL is dropped. When WSL stops a distribution,
+//! as `wsl --shutdown` does, its node waits until it is turned on again or
+//! this node starts again. A node another process already runs, such as a
+//! beep-node service beside the desktop app, is left to it.
 //!
 //! A child stops gently when its stdin closes (`--with-parent` inside).
 //! Each runs in a job that ends with this process, so a node that exits
@@ -15,6 +18,7 @@ use crate::{
     run::process::{self, GroupLeader},
 };
 use anyhow::{Context, Result};
+use futures::future::join_all;
 use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -24,7 +28,10 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -53,6 +60,8 @@ const TAIL_LINES: usize = 20;
 pub(crate) struct Keeper {
     /// The node's folder, which holds `SAVED`.
     dir: PathBuf,
+    /// The node serves as a machine, so it runs the WSL machines.
+    active: AtomicBool,
     kept: Mutex<BTreeMap<DistroName, Kept>>,
     /// The mesh this node belongs to, to stop the nodes removed from it.
     mesh: crate::link::from_mesh::Membership,
@@ -70,13 +79,16 @@ struct Kept {
     task: AbortOnDropHandle<()>,
 }
 
-/// The keeper of this process's node, once it serves. A process runs one
-/// node, and the machine's report, made apart from it, reads it.
+/// The keeper of this process's node, once it served as a machine. A
+/// process runs one node, and the machine's report, made apart from it,
+/// reads it.
 static KEEPER: OnceLock<Arc<Keeper>> = OnceLock::new();
 
-/// The keeper, once the node started it.
+/// The keeper, while the node serves as a machine.
 pub(crate) fn running() -> Option<&'static Arc<Keeper>> {
-    KEEPER.get()
+    KEEPER
+        .get()
+        .filter(|keeper| keeper.active.load(Ordering::SeqCst))
 }
 
 /// How a distribution's node stands, for the machine's report.
@@ -85,23 +97,25 @@ pub(crate) struct Standing {
     pub(crate) problem: Option<String>,
 }
 
-impl Keeper {
-    /// Starts the nodes saved in `dir`, and stops each one the mesh
-    /// removes. Only the first call starts them; later ones get its keeper.
-    pub(crate) fn start(dir: &Path, mesh: crate::link::from_mesh::Membership) -> Arc<Self> {
-        KEEPER
-            .get_or_init(|| Self::started(dir, mesh))
-            .clone()
-    }
+/// Why a node is no longer started again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    /// It was turned off, or the keeper halted.
+    Stopped,
+    /// WSL stopped its distribution, as `wsl --shutdown` does: the user
+    /// stopped WSL, so it waits to be turned on, or for the next start.
+    Paused,
+    /// Its distribution was removed.
+    Gone,
+}
 
-    fn started(dir: &Path, mesh: crate::link::from_mesh::Membership) -> Arc<Self> {
-        let keeper = Arc::new(Self {
-            dir: dir.to_owned(),
-            kept: Mutex::default(),
-            mesh,
-            watch: Mutex::default(),
-        });
-        let saved = match read(dir) {
+impl Keeper {
+    /// Starts the nodes saved in `dir`, and from then on stops each one the
+    /// mesh removes. A keeper halted before starts them again.
+    pub(crate) fn start(dir: &Path, mesh: crate::link::from_mesh::Membership) -> Arc<Self> {
+        let keeper = KEEPER.get_or_init(|| Self::new(dir, mesh)).clone();
+        keeper.active.store(true, Ordering::SeqCst);
+        let saved = match read(&keeper.dir) {
             Ok(saved) => saved,
             Err(e) => {
                 log::warn!("not starting the WSL machines: {e:#}");
@@ -113,6 +127,17 @@ impl Keeper {
             keeper.run(distro);
         }
 
+        keeper
+    }
+
+    fn new(dir: &Path, mesh: crate::link::from_mesh::Membership) -> Arc<Self> {
+        let keeper = Arc::new(Self {
+            dir: dir.to_owned(),
+            active: AtomicBool::new(false),
+            kept: Mutex::default(),
+            mesh,
+            watch: Mutex::default(),
+        });
         let weak = Arc::downgrade(&keeper);
         *lock(&keeper.watch) = Some(AbortOnDropHandle::new(tokio::spawn(async move {
             loop {
@@ -126,9 +151,21 @@ impl Keeper {
         keeper
     }
 
-    /// Keeps `distro`'s node running from now on, starting it unless it runs.
-    pub(crate) fn keep(&self, distro: &DistroName) -> Result<()> {
-        let mut saved = self.saved();
+    /// Stops every node, keeping the ones saved for the next start, as
+    /// while the node does not serve as a machine.
+    pub(crate) async fn halt(&self) {
+        self.active.store(false, Ordering::SeqCst);
+        let kept = std::mem::take(&mut *lock(&self.kept));
+        let stops = kept
+            .into_iter()
+            .map(|(distro, kept)| async move { finish(&distro, kept).await });
+        join_all(stops).await;
+    }
+
+    /// Keeps `distro`'s node running from now on, starting it unless it
+    /// runs, such as after it was turned off or WSL stopped.
+    pub(crate) fn keep(self: &Arc<Self>, distro: &DistroName) -> Result<()> {
+        let mut saved = read(&self.dir)?;
 
         if !saved.contains(distro) {
             saved.push(distro.clone());
@@ -141,18 +178,11 @@ impl Keeper {
 
     /// Stops `distro`'s node and keeps it no longer.
     pub(crate) async fn stop(&self, distro: &DistroName) -> Result<()> {
-        let mut saved = self.saved();
-        saved.retain(|kept| kept != distro);
-        write(&self.dir, &saved)?;
+        self.unsave(distro)?;
         let kept = lock(&self.kept).remove(distro);
 
         if let Some(kept) = kept {
-            kept.stop.cancel();
-            let stopped = timeout(STOP_LIMIT * 2, kept.task).await;
-
-            if stopped.is_err() {
-                log::warn!("the node in {distro} did not stop in time");
-            }
+            finish(distro, kept).await;
         }
 
         Ok(())
@@ -175,21 +205,38 @@ impl Keeper {
         })
     }
 
-    fn saved(&self) -> Vec<DistroName> {
+    /// The distributions kept.
+    pub(crate) fn kept(&self) -> Vec<DistroName> {
         lock(&self.kept).keys().cloned().collect()
     }
 
-    /// Starts keeping `distro`'s node running, unless it is.
-    fn run(&self, distro: DistroName) {
+    fn unsave(&self, distro: &DistroName) -> Result<()> {
+        let mut saved = read(&self.dir)?;
+        saved.retain(|kept| kept != distro);
+        write(&self.dir, &saved)
+    }
+
+    /// Starts keeping `distro`'s node running, unless that runs.
+    fn run(self: &Arc<Self>, distro: DistroName) {
         let mut kept = lock(&self.kept);
 
-        if kept.contains_key(&distro) {
+        if kept.get(&distro).is_some_and(|kept| !kept.task.is_finished()) {
             return;
         }
 
         let stop = CancellationToken::new();
         let (problem, standing) = watch::channel(None);
-        let task = tokio::spawn(keep_running(distro.clone(), stop.clone(), problem));
+        let keeper = Arc::downgrade(self);
+        let (running, cancel) = (distro.clone(), stop.clone());
+        let task = tokio::spawn(async move {
+            let ended = keep_running(&running, &cancel, &problem).await;
+
+            if ended == Ended::Gone
+                && let Some(keeper) = keeper.upgrade()
+            {
+                keeper.forget(&running);
+            }
+        });
         log::info!("keeping the node in WSL distribution {distro} running");
         kept.insert(
             distro,
@@ -200,6 +247,18 @@ impl Keeper {
                 task: AbortOnDropHandle::new(task),
             },
         );
+    }
+
+    /// Keeps a removed distribution no longer. Called last by its own task.
+    fn forget(&self, distro: &DistroName) {
+        log::info!("WSL distribution {distro} was removed: no longer keeping its node");
+
+        if let Err(e) = self.unsave(distro) {
+            log::warn!("could not forget WSL distribution {distro}: {e:#}");
+        }
+
+        let kept = lock(&self.kept).remove(distro);
+        drop(kept);
     }
 
     /// Stops the nodes whose machines the mesh had and no longer has.
@@ -230,26 +289,46 @@ impl Keeper {
     }
 }
 
+/// Stops a kept node and waits for it.
+async fn finish(distro: &DistroName, kept: Kept) {
+    kept.stop.cancel();
+
+    if timeout(STOP_LIMIT * 2, kept.task).await.is_err() {
+        log::warn!("the node in {distro} did not stop in time");
+    }
+}
+
 /// Runs `distro`'s node until `stop`, starting it again whenever it exits,
-/// after a pause that grows while it keeps failing. `problem` says why it
-/// is not running.
+/// after a pause that grows while it keeps failing, unless WSL stopped or
+/// removed the distribution. It waits while another process runs that node.
+/// `problem` says why it is not running.
 async fn keep_running(
-    distro: DistroName,
-    stop: CancellationToken,
-    problem: watch::Sender<Option<String>>,
-) {
+    distro: &DistroName,
+    stop: &CancellationToken,
+    problem: &watch::Sender<Option<String>>,
+) -> Ended {
     let mut restarts = Restarts::default();
 
     loop {
         let started = Instant::now();
-        let ended = match run_once(&distro, &stop, &problem).await {
-            Ok(None) => return,
-            Ok(Some(ended)) => ended,
-            Err(e) => format!("{e:#}"),
+        let ended = if steps::node_running(distro).await {
+            "Its node already runs, started by another Beep on this computer".to_owned()
+        } else {
+            let ran = match run_once(distro, stop, problem).await {
+                Ok(None) => return Ended::Stopped,
+                Ok(Some(ended)) => ended,
+                Err(e) => format!("{e:#}"),
+            };
+
+            if let Some(ended) = after_exit(distro, problem).await {
+                return ended;
+            }
+
+            ran
         };
         let pause = restarts.after(started.elapsed());
         let said = format!(
-            "{ended}. Starting it again in {} s.",
+            "{ended}. Trying again in {} s.",
             pause.as_secs().max(1)
         );
         log::warn!("the node in WSL distribution {distro}: {said}");
@@ -257,8 +336,38 @@ async fn keep_running(
 
         select! {
             () = sleep(pause) => {}
-            () = stop.cancelled() => return,
+            () = stop.cancelled() => return Ended::Stopped,
         }
+    }
+}
+
+/// Whether WSL stopped or removed `distro`, after its node exited; `None`
+/// when it still runs and the node starts again.
+async fn after_exit(
+    distro: &DistroName,
+    problem: &watch::Sender<Option<String>>,
+) -> Option<Ended> {
+    let listed = match steps::list().await {
+        Ok(listed) => listed,
+        Err(e) => {
+            log::debug!("could not list the WSL distributions: {e:#}");
+            return None;
+        }
+    };
+
+    match listed.iter().find(|listed| listed.name == *distro) {
+        None => {
+            problem.send_replace(Some(format!("There is no WSL distribution {distro} any more.")));
+            Some(Ended::Gone)
+        }
+        Some(listed) if !listed.running => {
+            log::info!("WSL stopped {distro}: its node waits to be turned on");
+            problem.send_replace(Some(format!(
+                "WSL stopped {distro}. Turn it on to start its node again."
+            )));
+            Some(Ended::Paused)
+        }
+        Some(_) => None,
     }
 }
 
