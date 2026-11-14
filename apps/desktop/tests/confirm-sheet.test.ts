@@ -8,7 +8,7 @@ Object.assign(globalThis, {
   Node: dom.window.Node, HTMLElement: dom.window.HTMLElement,
 });
 const { flushSync } = await import("react-dom");
-const { confirmSheet, renameSheet } = await import("../src/ui/menu.ts");
+const { confirmSheet, renameSheet } = await import("../src/ui/menu.tsx");
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 for (const dismiss of ["Escape", "Cancel"]) {

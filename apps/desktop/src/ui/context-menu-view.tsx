@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Header, Menu, MenuItem, MenuSection, Separator } from "react-aria-components";
-import type { MenuItem as Item, MenuLine } from "./menu.ts";
+import type { MenuItem as Item, MenuLine } from "./menu.tsx";
 
 /// The menu of `items`; lines are numbered in order, as `menuLines` counts them.
 export function ContextMenu({ title, items, choose }: { title: string; items: readonly Item[]; choose(index: number): void }) {

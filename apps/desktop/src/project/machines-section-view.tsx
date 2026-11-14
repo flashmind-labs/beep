@@ -2,7 +2,7 @@ import { Icon } from "../ui/icons.tsx";
 import type { Freshness } from "../ui/pagecache.ts";
 import { SyncMachine, SyncProject } from "./syncpage-view.tsx";
 import type { makeFileSync, MachineDetail } from "./filesync.ts";
-import type { gitControls, missingMachine } from "./loads.ts";
+import type { gitControls, missingMachine } from "./loads.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 
 type Sync = ReturnType<typeof makeFileSync>;

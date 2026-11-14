@@ -2,7 +2,7 @@
 // this Mac has. The menus of the Files tab and the Changes tab share these
 // lines; the folder, the file and the app are all resolved in Rust.
 
-import { openMenu, type MenuAction } from "../ui/menu.ts";
+import { openMenu, type MenuAction } from "../ui/menu.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 /// An app macOS says can open a file (OpenApp).

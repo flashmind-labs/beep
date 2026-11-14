@@ -2,10 +2,10 @@
 // machine stops syncing the project and leaves its list; its folder stays,
 // unless the user ticks to delete it there too.
 import { invoke } from "../ui/tauri.ts";
-import { confirmSheet, type MenuItem } from "../ui/menu.ts";
+import { confirmSheet, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
 import { refresh } from "../center/refresh.ts";
-import { loadWhere } from "./loads.ts";
+import { loadWhere } from "./loads.tsx";
 import { removeBlock, workingIn } from "./removemachine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { plainPath, type WhereRow } from "./projects-state.ts";

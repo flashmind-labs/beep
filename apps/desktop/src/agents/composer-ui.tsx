@@ -1,4 +1,4 @@
-import { useDialogRef } from "../ui/parts.ts";
+import { useDialogRef } from "../ui/parts.tsx";
 import { createRef, isValidElement, useLayoutEffect, useRef, useState, useEffect, lazy, Suspense, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
@@ -8,7 +8,7 @@ import type { OutboxRow, Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 import { Button } from "../ui/kit.tsx";
 import { plural } from "../ui/format.ts";
-import { openViewer } from "../chat/media.ts";
+import { openViewer } from "../chat/media.tsx";
 
 // What the session's composer shows around its field: the queued steers,
 // attachments, the mention menu, the background work line, the pills and

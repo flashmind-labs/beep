@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 
 const dom = new JSDOM("<body><input></body>");
 Object.assign(globalThis, { window: dom.window, document: dom.window.document });
-const { makeTouchBar } = await import("../src/terminals/touchbar.ts");
+const { makeTouchBar } = await import("../src/terminals/touchbar.tsx");
 
 test("touch keys preserve terminal focus and apply modifiers once", () => {
   const sent: string[] = [];

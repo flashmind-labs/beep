@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { fileSize, openViewer } from "../chat/media.ts";
+import { fileSize, openViewer } from "../chat/media.tsx";
 import { actualView, fitView, pinchStep, zoomAt, type Touches } from "./media-state.ts";
 import { FileActions } from "./media-view.tsx";
 import type { MediaTab } from "./media.ts";

@@ -1,7 +1,7 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MC, machinesIn, machinesOut, renderMachines } from "../src/machines/machines.ts";
+import { MC, machinesIn, machinesOut, renderMachines } from "../src/machines/machines.tsx";
 import { S } from "../src/bar/core.ts";
 import { openBarPage } from "../src/bar/bar-app.tsx";
 import { flushSync } from "react-dom";

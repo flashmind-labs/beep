@@ -1,6 +1,6 @@
 import type { LiveMode } from "./projectlive.ts";
 import { formatAgo } from "../ui/format.ts";
-import { going, hostCounts, hostLabel, progressText, runChip, runKey, runsCount, runSpan, type RunDetail, type RunRow, type RunsRow } from "./runs.ts";
+import { going, hostCounts, hostLabel, progressText, runChip, runKey, runsCount, runSpan, type RunDetail, type RunRow, type RunsRow } from "./runs.tsx";
 import { Button, EmptyPanel, onRowKey, SectionHead } from "../ui/kit.tsx";
 
 export interface RunsViewProps {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sendReview } from "../src/review/diff.ts";
+import { sendReview } from "../src/review/diff.tsx";
 
 test("a review send that rejects frees the Send button and shows why", async () => {
   const state: Record<string, unknown> = { sending: false, error: "", view: null, draft: [{ path: "a.ts", side: "new", line: 1, text: "x" }] };

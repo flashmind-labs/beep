@@ -17,7 +17,7 @@ import { focusChanges, revalidateChanges } from "./changes.ts";
 import { pointFilesAt } from "./files.ts";
 import { paneRoot, startWorktrees } from "./worktree.ts";
 import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
-import type { TerminalRow } from "../terminals/terminals.ts";
+import type { TerminalRow } from "../terminals/terminals.tsx";
 import { newTermLike } from "../terminals/newkey-state.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";

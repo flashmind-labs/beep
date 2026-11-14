@@ -1,6 +1,6 @@
 // First run, Set up this computer: what this computer has of what Beep's agents need, and what
 // Set up does next. firstrun-setup.ts runs it.
-import type { MachineEnv } from "../machines/machines.ts";
+import type { MachineEnv } from "../machines/machines.tsx";
 
 /// What the setup checks, in the order Set up works through them.
 export type Item = "git" | "node" | "claude" | "codex";

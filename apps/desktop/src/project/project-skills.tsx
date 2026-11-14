@@ -1,7 +1,7 @@
 // A project's Skills sheet: which library skills its checkouts get on every machine.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { openSheet } from "../ui/parts.ts";
+import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { Button, Checkbox, SheetHead } from "../ui/kit.tsx";

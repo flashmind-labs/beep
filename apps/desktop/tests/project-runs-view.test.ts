@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { RunsView, type RunsViewProps } from "../src/project/runs-view.tsx";
-import type { RunRow, RunDetail } from "../src/project/runs.ts";
+import type { RunRow, RunDetail } from "../src/project/runs.tsx";
 
 test("run log updates retain the row, focus and scroll", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });

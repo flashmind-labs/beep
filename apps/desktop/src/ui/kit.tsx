@@ -2,7 +2,7 @@
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
-import { copy } from "./parts.ts";
+import { copy } from "./parts.tsx";
 
 /// A section: its head (title, count, then `action`) over a panel of `children`.
 export function Section({ id, title, count = 0, action, children }: { id?: string; title: ReactNode; count?: number | string; action?: ReactNode; children: ReactNode }) {

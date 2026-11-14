@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef } from "react";
 import { checkoutNote, forkNote, placeChoices, previewLine, type BranchPicks, type ImportFork, type PreviewView } from "../review/branchwork.ts";
 import type { MachineFolder } from "../project/projects-state.ts";
 import { doneText, folderHelp, folderNote, looksLikeRepo, machineChips, progressText, type ImportState } from "./importproject-state.ts";
-import type { Machine } from "./importproject.ts";
+import type { Machine } from "./importproject.tsx";
 import { SyncthingChoice } from "../project/syncthing-choice.tsx";
 import type { SyncthingImportChoice } from "../project/syncthing.ts";
 import { Button, type ButtonLook, SheetHead, Spinner } from "../ui/kit.tsx";

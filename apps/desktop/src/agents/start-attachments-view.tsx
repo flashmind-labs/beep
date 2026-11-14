@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { AttachmentBatch, ImagePreview } from "./composer-ui.tsx";
-import { identity } from "../ui/parts.ts";
+import { identity } from "../ui/parts.tsx";
 import { Icon } from "../ui/icons.tsx";
 import type { Attached } from "./agentqueue.ts";
 

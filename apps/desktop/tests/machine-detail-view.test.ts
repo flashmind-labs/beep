@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement, type ComponentProps } from "react";
-import type { Machine } from "../src/machines/machines.ts";
+import type { Machine } from "../src/machines/machines.tsx";
 
 test("machine detail preserves a draft and log position on updates and routes its actions", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });

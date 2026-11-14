@@ -1,5 +1,5 @@
 import { joinPath, uploadParts, withMentions } from "../agentpane/files-state.ts";
-import { fileBase64 } from "../chat/attach.ts";
+import { fileBase64 } from "../chat/attach.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 interface PendingFile {

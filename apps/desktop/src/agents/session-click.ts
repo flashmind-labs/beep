@@ -1,23 +1,23 @@
 // What a click in the open session's log and pane does.
 import { S } from "../bar/core.ts";
-import { openViewer } from "../chat/media.ts";
+import { openViewer } from "../chat/media.tsx";
 import { linkedPath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode } from "./turnrows.ts";
 import { AG, openOf, where } from "./agents.ts";
-import { fullPic } from "./images.ts";
+import { fullPic } from "./images.tsx";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, loadSessions, sessions } from "./sessions.ts";
-import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.ts";
-import { toggleModelPicker, closeModelPicker } from "./modelpill.ts";
-import { cycleMode } from "./modepill.ts";
+import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
+import { toggleModelPicker, closeModelPicker } from "./modelpill.tsx";
+import { cycleMode } from "./modepill.tsx";
 import { answerAgentQuestion } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { nativeSession } from "./native-session-state.ts";
-import { isOpen, openAgent, resumeAgent } from "./session.ts";
+import { isOpen, openAgent, resumeAgent } from "./session.tsx";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 
 /// Opens the conversation of the subagent whose call is entry `at`; false when it has none to open.

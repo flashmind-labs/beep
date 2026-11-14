@@ -1,9 +1,9 @@
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
 import { type Attached, dropDelivered, type OutboxRow, sentFromOutbox, type Waiting } from "./agentqueue.ts";
-import { resumePicks } from "./modelpill.ts";
-import { sessionPicks } from "./session.ts";
-import { composeMessage, prependDraft } from "../chat/compose.ts";
+import { resumePicks } from "./modelpill.tsx";
+import { sessionPicks } from "./session.tsx";
+import { composeMessage, prependDraft } from "../chat/compose.tsx";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
@@ -11,10 +11,10 @@ import { MN, currentMentions, mentionImages, setMentionImages, type MentionState
 import { disposeComposerUi, showAgentQueue, showUploadPending } from "./composer-ui.tsx";
 import { type AgentQuestion, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
-import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.ts";
-import { redrawAgentHints } from "./session-head.ts";
-import { drawAgentAttached, keepSentImages, keepAgentPics } from "./images.ts";
-import { drawAgentBody } from "./logview.ts";
+import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.tsx";
+import { redrawAgentHints } from "./session-head.tsx";
+import { drawAgentAttached, keepSentImages, keepAgentPics } from "./images.tsx";
+import { drawAgentBody } from "./logview.tsx";
 import { sameSession } from "./running-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";

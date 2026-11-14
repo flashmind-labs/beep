@@ -14,9 +14,9 @@ import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-v
 import { MoveBox, MoveHere } from "./move-view.tsx";
 import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, useUploadPending, WorkLine } from "./composer-ui.tsx";
 import { cancelContinue, continuing } from "./continue-here.ts";
-import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.ts";
+import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.tsx";
 import { conversationAppearance } from "../ui/conversation-appearance.ts";
-import { syncJump } from "./logview.ts";
+import { syncJump } from "./logview.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import type { SessionUsage } from "./agents.ts";
 

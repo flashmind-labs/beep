@@ -1,5 +1,5 @@
 import { AttachmentBatch, ImagePreview } from "./composer-ui.tsx";
-import { identity } from "../ui/parts.ts";
+import { identity } from "../ui/parts.tsx";
 import { agentMessage } from "./session-frame.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef } from "react";
@@ -7,7 +7,7 @@ import { shortSize } from "../agentpane/files-state.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { Icon } from "../ui/icons.tsx";
 import { AG, folderName } from "./agents.ts";
-import { drawAgentAttached } from "./images.ts";
+import { drawAgentAttached } from "./images.tsx";
 import { answerUpload, MN, removeMention } from "./workdrop.ts";
 
 /// Takes image `i` off the message, with the file it is a preview of.

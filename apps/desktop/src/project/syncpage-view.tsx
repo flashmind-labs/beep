@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { clockWarning } from "../machines/clock.ts";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { gitSyncWarning } from "./gitsync-state.ts";
 import { conflictList, conflictSub, gitConflict, machineMeta, stateChip, stateNote, syncedBySyncthing, syncPct, syncSummary, waitingList, type Conflict, type MachineDetail, type makeFileSync } from "./filesync.ts";
 import { Button, Chip, EmptyPanel, SectionHead } from "../ui/kit.tsx";

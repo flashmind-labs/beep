@@ -5,7 +5,7 @@
 import { S } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AG, where } from "./agents.ts";
-import { drawAgentBody, rowInView, syncJump } from "./logview.ts";
+import { drawAgentBody, rowInView, syncJump } from "./logview.tsx";
 import { OLDER_MAX, OLDER_PAGE, PROMPT_READS, type Reading, type Run, drawsEachPage, lacksPrompt, olderBefore, takeOlder } from "./older-state.ts";
 import { sessionBody } from "./session-frame.tsx";
 

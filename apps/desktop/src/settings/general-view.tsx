@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useStore } from "zustand";
 import { skillSync, projectSync, beepSyncOverSyncthing, type SyncSettingKind } from "./skill-sync.ts";
-import type { MacSettings } from "./settings.ts";
+import type { MacSettings } from "./settings.tsx";
 import { Button, Switch } from "../ui/kit.tsx";
 import { SettingRow } from "./overview-view.tsx";
 

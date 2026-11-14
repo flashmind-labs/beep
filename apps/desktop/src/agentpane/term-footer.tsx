@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { closeTab, type MediaTab } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { readError } from "./read.ts";

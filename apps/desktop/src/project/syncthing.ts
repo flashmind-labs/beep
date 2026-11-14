@@ -3,7 +3,7 @@ import type { IgnoredSync } from "./ignored-sync-state.ts";
 // A project-wide Syncthing preference, applied by each machine.
 import { createStore } from "zustand/vanilla";
 import { invoke } from "../ui/tauri.ts";
-import { confirmSheet, openMenu, type MenuAction, type MenuItem, type MenuLine } from "../ui/menu.ts";
+import { confirmSheet, openMenu, type MenuAction, type MenuItem, type MenuLine } from "../ui/menu.tsx";
 import { reason } from "../ui/format.ts";
 import { latest, STALE } from "../ui/active.ts";
 import type { Project } from "./projects-state.ts";

@@ -1,9 +1,9 @@
 // Every synced project's state for the sidebar and Home: which projects sync
 // and their conflicts. A project's Machines section shows the detail.
 import { state } from "../center/state.ts";
-import { currentLocation } from "../center/views.ts";
-import { drawSide } from "../center/sidebar.ts";
-import { draw } from "../center/home.ts";
+import { currentLocation } from "../center/views.tsx";
+import { drawSide } from "../center/sidebar.tsx";
+import { draw } from "../center/home.tsx";
 import { fsync } from "./sections.ts";
 
 /// How often a project's sync detail is read while its summary changes.

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useStore } from "zustand";
-import { ensureStash, stash, stashAction, stashAnchor, toggleStash } from "./stash.ts";
+import { ensureStash, stash, stashAction, stashAnchor, toggleStash } from "./stash.tsx";
 
 export function StashIndicator({ project }: { project: string | null }) {
   const count = useStore(stash, state => project ? state.entries.get(project)?.length ?? 0 : 0);

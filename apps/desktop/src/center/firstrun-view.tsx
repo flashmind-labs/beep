@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { JoinTicketFields, type JoinTicket } from "../machines/jointicket-view.tsx";
-import { useDialogRef } from "../ui/parts.ts";
+import { useDialogRef } from "../ui/parts.tsx";
 import { ITEMS, ITEM_NAMES, ITEM_ROLES, pending, ready, row, type Item, type Row, type Setup } from "./firstrun-state.ts";
 import type { SetupRun } from "./firstrun-setup.ts";
 import { Button, Spinner } from "../ui/kit.tsx";

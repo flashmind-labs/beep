@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { WINDOWS } from "./platform.ts";
 import { SheetHead } from "./kit.tsx";
-import { openSheet } from "./parts.ts";
+import { openSheet } from "./parts.tsx";
 import { filterShortcuts, SHORTCUTS, type ShortcutSection } from "./shortcuts.ts";
 
 let shut: (() => void) | null = null;

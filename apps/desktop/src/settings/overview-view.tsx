@@ -3,7 +3,7 @@ import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { CODING_AGENTS, subKey, type SettingsSub } from "./settings-nav.ts";
 import { onRowKey, SkeletonRows } from "../ui/kit.tsx";
 import { harnessName } from "./providers-state.ts";
-import type { Machine } from "../machines/machines.ts";
+import type { Machine } from "../machines/machines.tsx";
 import { Button } from "../ui/kit.tsx";
 
 /// A settings row: title and note on the left, its control on the right. `extra` goes under the note.

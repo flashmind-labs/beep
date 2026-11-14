@@ -1,7 +1,7 @@
 import { Button, Spinner } from "../ui/kit.tsx";
 import { useCallback, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react";
 import { ModelControls } from "./model-controls.tsx";
-import { fileSize } from "../chat/media.ts";
+import { fileSize } from "../chat/media.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { resolvePath } from "./media-state.ts";
 import { P, saveFile, type MediaTab } from "./media.ts";

@@ -1,7 +1,7 @@
 import "../agents/copy-markdown.ts";
-import { initConversationSwitcher } from "../agents/conversation-switcher.ts";
-import { openAgent } from "../agents/session.ts";
-import "../chat/diagrams.ts";
+import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
+import { openAgent } from "../agents/session.tsx";
+import "../chat/diagrams.tsx";
 // bar/: the bar's page, its views, keys and hints, and the pane
 // the command center embeds it as. Entry: this file (dist/app.js).
 // The bar: the popover the Option double tap opens.
@@ -9,7 +9,7 @@ import "../ui/window-defaults.ts";
 import "../ui/zoom.ts";
 import { followSkin } from "../ui/skin.ts";
 import { guardClicks } from "../ui/clickguard.ts";
-import { followToolUpdates } from "../machines/machines.ts";
+import { followToolUpdates } from "../machines/machines.tsx";
 import { perfView } from "../ui/perf.ts";
 followSkin();
 guardClicks();

@@ -4,12 +4,12 @@ import { AgentFeed, BACKGROUND_FOLLOWS, type Activity } from "./agentfeed-state.
 import { TranscriptCache, transcriptKey, type TranscriptCursor, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { S, changeListeners } from "../bar/core.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_ACTIVE, where } from "./agents.ts";
-import { drawAgentBody } from "./logview.ts";
+import { drawAgentBody } from "./logview.tsx";
 import { disposeQueue } from "./messages.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { joinRuns } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
-import { applyAgentPage, isOpen, pollAgent } from "./session.ts";
+import { applyAgentPage, isOpen, pollAgent } from "./session.tsx";
 import { paneShown } from "../ui/active.ts";
 
 // Room for the open session, those followed off screen and a few recent.

@@ -1,5 +1,5 @@
 import { Icon } from "../ui/icons.tsx";
-import { identity } from "../ui/parts.ts";
+import { identity } from "../ui/parts.tsx";
 import { type OutboxRow, outboxNote, type Waiting } from "./agentqueue.ts";
 
 

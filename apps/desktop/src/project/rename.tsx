@@ -3,8 +3,8 @@ import { flushSync } from "react-dom";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { refresh } from "../center/refresh.ts";
-import { closeMenu } from "../ui/menu.ts";
-import { openSheet } from "../ui/parts.ts";
+import { closeMenu } from "../ui/menu.tsx";
+import { openSheet } from "../ui/parts.tsx";
 import { projectName, type Project } from "./projects-state.ts";
 import { Button, Checkbox, SheetHead } from "../ui/kit.tsx";
 

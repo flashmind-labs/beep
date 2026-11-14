@@ -4,7 +4,7 @@ import { SyncthingChoice } from "../project/syncthing-choice.tsx";
 import type { SyncthingImportChoice } from "../project/syncthing.ts";
 import type { MachineFolder } from "../project/projects-state.ts";
 import { addable, folderFacts, type FolderState } from "./addfolder-state.ts";
-import type { AddFolderOptions } from "./addfolder.ts";
+import type { AddFolderOptions } from "./addfolder.tsx";
 import { Button, SheetHead } from "../ui/kit.tsx";
 
 interface Props {

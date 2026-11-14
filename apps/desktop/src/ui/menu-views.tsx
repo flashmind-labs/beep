@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { reason } from "./format.ts";
-import type { ConfirmOptions, RenameOptions } from "./menu.ts";
+import type { ConfirmOptions, RenameOptions } from "./menu.tsx";
 import { Button, Checkbox, SheetHead } from "./kit.tsx";
 
 /// The box of a right-click menu at `at`, kept inside the window. A click

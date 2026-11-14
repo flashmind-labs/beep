@@ -1,10 +1,10 @@
 // The HTML of the last Home, kept for the next launch: the app puts it on the page before the
 // scripts load, and the first real view removes it. Saved when the window loses focus, not on every draw.
 import { onPhone } from "../ui/platform.ts";
-import { dialogOpen } from "../ui/parts.ts";
+import { dialogOpen } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { state } from "./state.ts";
-import { currentLocation } from "./views.ts";
+import { currentLocation } from "./views.tsx";
 import { frameOf } from "./home-frame-state.ts";
 
 /// Keeps what Home shows now, when it is Home on a desktop window with its answer drawn.

@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import type { AgentQuestion } from "./agents.ts";
 import { AgentLogShell, type LogShell } from "./log-shell-view.tsx";
-import { createLog, disposeLog, resetLog, setUnits, type LogWindow, type Unit } from "./logwindow.ts";
+import { createLog, disposeLog, resetLog, setUnits, type LogWindow, type Unit } from "./logwindow.tsx";
 
 interface ShellOwner {
   view: DocumentView;

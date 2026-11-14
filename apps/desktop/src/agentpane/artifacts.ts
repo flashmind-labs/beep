@@ -6,9 +6,9 @@ import type { ArtifactAction, ArtifactPreview, ArtifactsModel } from "./artifact
 
 import { type Artifact, artifactVersion, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
 import { revealPath } from "./files.ts";
-import { fileSize } from "../chat/media.ts";
+import { fileSize } from "../chat/media.tsx";
 import { openPath, paneSession } from "./media.ts";
-import { writeClipboard } from "../ui/parts.ts";
+import { writeClipboard } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 

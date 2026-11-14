@@ -2,7 +2,7 @@
 /// in Beep, after the turn running there ends.
 
 import { createStore } from "zustand";
-import { confirmSheet } from "../ui/menu.ts";
+import { confirmSheet } from "../ui/menu.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { errorText } from "../machines/machines-state.ts";
 import { AG, type AgentRow, agentKind, openOf, where } from "./agents.ts";

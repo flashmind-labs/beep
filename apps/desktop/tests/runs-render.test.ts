@@ -1,7 +1,7 @@
 import "./git-history-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeRuns, type RunsRow } from "../src/project/runs.ts";
+import { makeRuns, type RunsRow } from "../src/project/runs.tsx";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { PageCache } from "../src/ui/pagecache.ts";

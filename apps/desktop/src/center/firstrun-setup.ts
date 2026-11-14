@@ -1,7 +1,7 @@
 // First run, Set up this computer: installs what this computer lacks of Git, Node.js, Claude Code
 // and Codex, then opens each agent's sign-in in turn. The view follows `get` through `subscribe`.
-import type { Machine } from "../machines/machines.ts";
-import { openSignIn } from "../machines/signin.ts";
+import type { Machine } from "../machines/machines.tsx";
+import { openSignIn } from "../machines/signin.tsx";
 import { reason } from "../ui/format.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { invoke } from "../ui/tauri.ts";

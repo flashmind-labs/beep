@@ -1,7 +1,7 @@
 // A synthetic branch diff shaped like a large real one: about 600 files and
 // 40k changed lines, most files small, a few past the fold limit. Paths and
 // text are made up.
-import { diffView } from "../../src/review/diff.ts";
+import { diffView } from "../../src/review/diff.tsx";
 import { windowDiffOwner } from "../../src/review/diff-owner.ts";
 import type { DiffFile, DiffLine, DiffView } from "../../src/review/diff-state.ts";
 

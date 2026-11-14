@@ -6,7 +6,7 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, plural, reason } from "../ui/format.ts";
-import { diffView, type DiffViewHandle } from "../review/diff.ts";
+import { diffView, type DiffViewHandle } from "../review/diff.tsx";
 import { compareFiles } from "./compare.ts";
 import { loadClocks } from "../machines/clock.ts";
 import { plainPath } from "./projects-state.ts";

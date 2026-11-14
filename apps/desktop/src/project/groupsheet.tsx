@@ -1,7 +1,7 @@
 import { createRef, useLayoutEffect, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "../ui/tauri.ts";
-import { openSheet } from "../ui/parts.ts";
+import { openSheet } from "../ui/parts.tsx";
 import { addGroupFolder, groupPath, type ProjectGroup } from "./projects-state.ts";
 import { reason } from "../ui/format.ts";
 import { Button, SheetHead } from "../ui/kit.tsx";

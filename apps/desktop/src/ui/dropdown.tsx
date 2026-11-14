@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Button, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
-import { useDialogRef } from "./parts.ts";
+import { useDialogRef } from "./parts.tsx";
 import { Icon } from "./icons.tsx";
 
 /// A single choice, opened from a compact button in a toolbar.

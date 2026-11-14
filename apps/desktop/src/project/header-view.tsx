@@ -1,4 +1,4 @@
-import { openMenu } from "../ui/menu.ts";
+import { openMenu } from "../ui/menu.tsx";
 import { CHEV, openEditor, type EditorRow } from "./editors.ts";
 import { Button } from "../ui/kit.tsx";
 

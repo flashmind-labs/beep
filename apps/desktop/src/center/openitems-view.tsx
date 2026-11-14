@@ -3,13 +3,13 @@ import { Icon } from "../ui/icons.tsx";
 import { LabelGroup } from "../project/split-view.tsx";
 import { arranged, issueSelection, setIssueSelection } from "../project/openlist.ts";
 import { OpenListControls, OpenListStart } from "../project/openlist-view.tsx";
-import { labelFilter, type LabelFilter } from "../project/split.ts";
+import { labelFilter, type LabelFilter } from "../project/split.tsx";
 import { reviewStart, itemChips, newestFirst, projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
-import { draw } from "./home.ts";
+import { draw } from "./home.tsx";
 import { importTitle, openUrl, quickImport, replyItem, rowImports, type OpenRepo } from "./openitems.ts";
-import { projectRows } from "./sidebar.ts";
+import { projectRows } from "./sidebar.tsx";
 import { state } from "./state.ts";
-import { go } from "./views.ts";
+import { go } from "./views.tsx";
 import { Button, Checkbox, Chip, Spinner, SectionHead, useLazyCount } from "../ui/kit.tsx";
 
 function Import({ repo }: { repo: OpenRepo }) {

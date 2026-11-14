@@ -17,7 +17,7 @@ import {
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
 import type { AgentHost } from "../agents/agents.ts";
-import type { Picked } from "../agents/agentpicker.ts";
+import type { Picked } from "../agents/agentpicker.tsx";
 import { keepEffort } from "../agents/agentpick.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import { reason } from "../ui/format.ts";
@@ -28,7 +28,7 @@ const invoke = async <T = unknown>(cmd: string, args?: Record<string, unknown>) 
 // The sessions and picker modules pull in the whole session view, so they load
 // the first time a review is asked for, not with every diff.
 const agents = () => import("../agents/agents.ts");
-const picker = () => import("../agents/agentpicker.ts");
+const picker = () => import("../agents/agentpicker.tsx");
 
 /// How often a running review is read.
 

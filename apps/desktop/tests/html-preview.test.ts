@@ -20,8 +20,8 @@ const stubs = new Map(Object.entries({
   "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const fileError = e => e.message; export const drawTermStatus = () => {};",
   "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
   "ui/tauri.ts": "export const invoke = globalThis.previewInvoke;",
-  "chat/media.ts": "export const fileSize = () => ''; export const openViewer = () => {};",
-  "ui/menu.ts": "export const confirmSheet = () => {}; export const openMenu = () => {};",
+  "chat/media.tsx": "export const fileSize = () => ''; export const openViewer = () => {};",
+  "ui/menu.tsx": "export const confirmSheet = () => {}; export const openMenu = () => {};",
   "agents/workdrop.ts": "export const addMention = () => {};",
 }).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
 const hook = registerHooks({ load(url, context, next) {

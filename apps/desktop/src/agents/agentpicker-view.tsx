@@ -4,8 +4,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { agentKind } from "./agents.ts";
 import { effortNote, effortsOf, placePopover, railOf, type ModelRow } from "./agentpick.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
-import type { Picked } from "./agentpicker.ts";
-import { useDialogRef } from "../ui/parts.ts";
+import type { Picked } from "./agentpicker.tsx";
+import { useDialogRef } from "../ui/parts.tsx";
 
 interface PickerProps {
   picked: Picked;

@@ -3,8 +3,8 @@ import { agentLabel } from "../project/projects-state.ts";
 import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
 import { harnessMark } from "../ui/icons.tsx";
 import { money, tokenCount } from "../ui/format.ts";
-import { useDialogRef } from "../ui/parts.ts";
-import { asOf, harnessLine, harnessName, modelTotals, PERIODS, pillPlans, planName, projectExtra, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.ts";
+import { useDialogRef } from "../ui/parts.tsx";
+import { asOf, harnessLine, harnessName, modelTotals, PERIODS, pillPlans, planName, projectExtra, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageView } from "./usage.tsx";
 
 function Bar({ used }: { used: number }) { return <span className="bar"><i className={used > WARN_USED ? "warn" : ""} style={{ width: `${used}%` }} /></span>; }
 /// A harness's mark, else its short name: never a letter tile.

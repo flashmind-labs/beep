@@ -5,14 +5,14 @@ import { formatAgo, plural } from "../ui/format.ts";
 import { Dropdown } from "../ui/dropdown.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { itemChips, type GitItemRow } from "../center/openitems-state.ts";
-import { projectWindowProps, openProjects, setProjectOnTop } from "../center/sidebar.ts";
+import { projectWindowProps, openProjects, setProjectOnTop } from "../center/sidebar.tsx";
 import { agentLabel, foundSessions, parseFolded, type FoundRow, type Project } from "./projects-state.ts";
 import { PROJECT_SORTS, searchOverview, type ProjectSort, type OverviewGroup } from "./overview-state.ts";
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
-import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.ts";
+import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.tsx";
 import { state } from "../center/state.ts";
 import { redrawProjects } from "./sections.ts";
-import { dialogOpen } from "../ui/parts.ts";
+import { dialogOpen } from "../ui/parts.tsx";
 import { Button, SectionHead, useLazyCount } from "../ui/kit.tsx";
 
 type Group = OverviewGroup<Project>;

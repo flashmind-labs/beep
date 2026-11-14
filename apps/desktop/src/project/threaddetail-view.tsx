@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { formatAgo } from "../ui/format.ts";
 import { patchHtml } from "../ui/patch.ts";
-import { forgeLabel, type ThreadDetailRow, type ThreadStub } from "./threaddetail.ts";
+import { forgeLabel, type ThreadDetailRow, type ThreadStub } from "./threaddetail.tsx";
 import { Button, Chip, EmptyPanel } from "../ui/kit.tsx";
 
 const CHECKS: Record<string, [string, string]> = { failed: ["blocked", "checks failing"], passed: ["done", "checks passing"], running: ["running", "checks running"], queued: ["running", "checks queued"], waiting: ["running", "checks waiting"] };

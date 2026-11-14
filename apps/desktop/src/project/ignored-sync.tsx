@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { openSheet } from "../ui/parts.ts";
+import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { ignoredSelection, type IgnoredSync } from "./ignored-sync-state.ts";

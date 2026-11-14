@@ -1,10 +1,10 @@
-import { bindPromptStash } from "../chat/stash.ts";
-import { draftText } from "../chat/compose.ts";
+import { bindPromptStash } from "../chat/stash.tsx";
+import { draftText } from "../chat/compose.tsx";
 import { stashFile } from "../chat/stash-state.ts";
 import { windowHooks } from "../bar/core.ts";
 import { AG } from "./agents.ts";
 import type { Attached } from "./agentqueue.ts";
-import { attachPreview, drawAgentAttached } from "./images.ts";
+import { attachPreview, drawAgentAttached } from "./images.tsx";
 import { MN, prepareStashFiles } from "./workdrop.ts";
 
 export function bindSessionStash(field: HTMLTextAreaElement) {

@@ -2,18 +2,18 @@ import { refreshTopicSubscriptions, subscribeEach, topic } from "../ui/mesh-even
 import { commandKey } from "../ui/platform.ts";
 // Settings as a sheet over the command center window.
 import { formatAgo } from "../ui/format.ts";
-import { mountSheetFrame, sheetAbove } from "../ui/parts.ts";
+import { mountSheetFrame, sheetAbove } from "../ui/parts.tsx";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { PageTiming } from "../center/page-timing.ts";
 import { perfLayer, perfOpened } from "../ui/perf.ts";
 import { pane } from "../bar/pane.ts";
-import { instructionsPage } from "./instructions.ts";
-import { providersPage } from "./providers.ts";
-import { connectSettingsSheet, settingsClosed, showSettingsPage } from "./settings.ts";
+import { instructionsPage } from "./instructions.tsx";
+import { providersPage } from "./providers.tsx";
+import { connectSettingsSheet, settingsClosed, showSettingsPage } from "./settings.tsx";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { CenterView, ViewArg, ViewName } from "../center/state.ts";
-import { boxOf, currentLocation, windowProject, toMain, drawTop } from "../center/views.ts";
+import { boxOf, currentLocation, windowProject, toMain, drawTop } from "../center/views.tsx";
 
 /// Settings as a sheet over the window: a dimmed backdrop and a centered sheet
 /// with its sections on the left.

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { S } from "../src/bar/core.ts";
 import { sendAgentMessage, steerMessage } from "../src/agents/messages.ts";
-import { pollAgent } from "../src/agents/session.ts";
+import { pollAgent } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { MN, resetMentions, currentMentions, rememberMentionImages } from "../src/agents/workdrop.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";

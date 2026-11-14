@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { invoke } from "../ui/tauri.ts";
-import { openSheet } from "../ui/parts.ts";
+import { openSheet } from "../ui/parts.tsx";
 import { reason } from "../ui/format.ts";
 import type { Project } from "./projects-state.ts";
 import { Button, SheetHead } from "../ui/kit.tsx";

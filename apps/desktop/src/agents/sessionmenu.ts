@@ -2,8 +2,8 @@ import { windowHooks } from "../bar/core.ts";
 import { forgetView } from "../agentpane/view-memory.ts";
 import { onPhone } from "../ui/platform.ts";
 // The right-click menu of a coding agent session, shared by every row that shows one.
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
-import { writeClipboard } from "../ui/parts.ts";
+import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
+import { writeClipboard } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
 import type { AgentRow, Started } from "./agents.ts";
@@ -11,15 +11,15 @@ import { parentSession, loadSessions, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
 import { AG, AGENT_ACTIVE, openOf, where } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
-import { workingSubagents } from "./logview.ts";
-import { runs } from "./tasks.ts";
+import { workingSubagents } from "./logview.tsx";
+import { runs } from "./tasks.tsx";
 import { drainOutbox, stopAllWork } from "./messages.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
 import { forgetTranscript, offScreen, takeHeldSteers, transcripts } from "./session-follow.ts";
-import { prependDraft } from "../chat/compose.ts";
-import { forgetLog } from "./session.ts";
+import { prependDraft } from "../chat/compose.tsx";
+import { forgetLog } from "./session.tsx";
 
 /// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
 /// first while any of those run.

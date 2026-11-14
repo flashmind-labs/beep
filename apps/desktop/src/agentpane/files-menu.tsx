@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type CSSProperties, type RefObject } from "react";
 import { Menu, MenuItem, Separator } from "react-aria-components";
-import type { MenuAction } from "../ui/menu.ts";
+import type { MenuAction } from "../ui/menu.tsx";
 
 export interface FilesMenuProps {
   items: readonly [string, string][];
