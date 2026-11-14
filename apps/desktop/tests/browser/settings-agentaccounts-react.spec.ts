@@ -81,8 +81,8 @@ test("Claude signs in on the selected machine and refreshes its account", async 
   await expect(row("offline-box").getByRole("button")).toHaveCount(0);
   await expect(row("unknown-box").getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   await row("test-box").getByRole("button", { name: "Sign in", exact: true }).click();
-  const sheet = page.getByRole("dialog", { name: "Sign in claude on test-box", exact: true });
-  await expect(sheet).toContainText("claude is signed in on test-box.");
+  const sheet = page.getByRole("dialog", { name: "Sign in to Claude Code on test-box", exact: true });
+  await expect(sheet).toContainText("Claude Code is signed in on test-box.");
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "machine_sign_in").map(call => call.args))).toContainEqual({ machineId: "test-box", tool: "claude", step: { step: "start" } });
   await page.evaluate(machines => window.__navigation.respond("list_machines", machines), [login("build-box", true, "one@example.com"), login("test-box", true, "two@example.com")]);
   await sheet.getByRole("button", { name: "Close", exact: true }).click();

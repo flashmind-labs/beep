@@ -9,6 +9,7 @@ import { invoke } from "../ui/tauri.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { stillRunning, type SignInView } from "./signin-state.ts";
 import { SignInBody } from "./signin-view.tsx";
+import { harnessName } from "../settings/providers-state.ts";
 
 type Step = { step: "start" } | { step: "state" } | { step: "answer"; text: string } | { step: "cancel" };
 
@@ -30,7 +31,7 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
     await step({ step: "state" });
     if (error) throw new Error(error);
   } }, { machine: machine.id, when: () => active });
-  const shell = openSheet(`Sign in ${tool} on ${machine.name}`, "am-sheet", {
+  const shell = openSheet(`Sign in to ${harnessName(tool)} on ${machine.name}`, "am-sheet", {
     onClose: () => {
       open = false;
       active = false;
