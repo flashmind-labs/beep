@@ -168,3 +168,27 @@ pub async fn stop_wsl_machine(
         .await
         .map_err(|e| DesktopError::BadRequest(format!("{e:#}")))
 }
+
+/// Has Windows machine `machine_id` run the node of its WSL distribution
+/// `distro` again.
+#[tauri::command]
+pub async fn start_wsl_machine(
+    fleet: Machines<'_>,
+    machine_id: String,
+    distro: String,
+) -> Result<()> {
+    let client = fleet.client(fleet.machine(&machine_id)?).await?;
+    machine::start_wsl(&client, &distro)
+        .await
+        .map_err(|e| DesktopError::BadRequest(format!("{e:#}")))
+}
+
+/// Has Windows machine `machine_id` look into each of its WSL distributions,
+/// starting the stopped ones; its next report says what they have.
+#[tauri::command]
+pub async fn probe_wsl_machines(fleet: Machines<'_>, machine_id: String) -> Result<()> {
+    let client = fleet.client(fleet.machine(&machine_id)?).await?;
+    machine::probe_wsl(&client)
+        .await
+        .map_err(|e| DesktopError::BadRequest(format!("{e:#}")))
+}

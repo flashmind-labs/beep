@@ -308,7 +308,7 @@ test("settings machines", async ({ page }) => {
 });
 
 test("settings machine with WSL", async ({ page }) => {
-  const wsl = (name: string, agents: string[], machineId: string | null) => ({ name, agents, node: machineId ? "0.9.0" : null, machine_id: machineId, kept: !!machineId, problem: null });
+  const wsl = (name: string, agents: string[], machineId: string | null) => ({ name, agents, node: machineId ? "0.9.0" : null, machine_id: machineId, kept: !!machineId, problem: null, probed: true });
   const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], wsl: [wsl("Ubuntu", ["claude", "codex"], "wsl-box"), wsl("Debian", ["gemini"], null)] };
   const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }, machine("wsl-box", "Ubuntu on desk-pc", true, 0)];
   await openDesktop(page, false, { ...settingsResponses, list_machines: machines });

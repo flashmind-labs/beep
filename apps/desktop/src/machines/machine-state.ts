@@ -23,6 +23,9 @@ export interface WslDistro {
   kept: boolean;
   /// Why the kept node is not running.
   problem: string | null;
+  /// `agents` and `node` were read; a stopped distribution is looked into
+  /// only when asked.
+  probed: boolean;
 }
 
 /// What a machine reported about itself (MachineEnv).
