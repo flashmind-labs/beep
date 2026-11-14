@@ -7,6 +7,13 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.4] - 2026-11-14
+
+### Fixed
+
+- Desktop: a finished agent turn with an unknown length no longer shows a bare "Worked" heading.
+- Desktop: the model picker's search field uses the same frosted glass as the rest of the picker instead of a dark band.
+
 ## [0.9.3] - 2026-11-14
 
 ### Added

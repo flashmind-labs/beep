@@ -2,6 +2,12 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.2] - 2026-11-14
+
+### Fixed
+
+- Node: an Android phone with two screens, such as a foldable, shows the screen that is on in the Device tab instead of a blank view, and follows the phone as it opens or closes.
+
 ## [0.7.1] - 2026-11-14
 
 ### Added
