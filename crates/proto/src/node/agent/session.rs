@@ -209,6 +209,10 @@ pub struct ParentLink {
     /// was not in full access: a child may not run above it.
     #[serde(default)]
     pub mode: Option<String>,
+    /// Started in the background: shown only under its parent, and deleted
+    /// once it closes, which it does when its parent closes.
+    #[serde(default)]
+    pub background: bool,
 }
 
 /// The git checkout a session works in, as its node works it out from what

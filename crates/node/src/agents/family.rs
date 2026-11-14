@@ -154,6 +154,7 @@ impl Agents {
             others: 0,
             agent: info.agent.clone(),
             mode: held_to(&info)?,
+            background: false,
         })
     }
 
@@ -304,6 +305,35 @@ impl Agents {
         self.watch_parent(&session);
         session.named_info().await?;
         Ok(session)
+    }
+
+    /// Deletes the background children that closed for good. One that
+    /// cannot be deleted is still dropped from the node's sessions.
+    pub(super) async fn delete_closed_background(&self) {
+        let closed: Vec<(String, String)> = self
+            .lock()
+            .iter()
+            .filter(|(_, session)| {
+                watched::read(&session.live, |live| {
+                    live.info.parent.as_ref().is_some_and(|link| link.background)
+                        && ended_for_good(live)
+                })
+            })
+            .map(|(key, session)| (session.agent.clone(), key.clone()))
+            .collect();
+
+        if closed.is_empty() {
+            return;
+        }
+
+        for (agent, id) in closed {
+            if let Err(e) = self.delete_session(&agent, &id).await {
+                log::warn!("background child {id} was not deleted: {e:#}");
+                self.lock().remove(&id);
+            }
+        }
+
+        crate::link::restart::changed();
     }
 
     /// The parent's state, when it runs here: the child ends with it.

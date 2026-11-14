@@ -1376,6 +1376,7 @@ mod agent {
                     others: 0,
                     agent: "claude".into(),
                     mode: None,
+                    background: false,
                 }),
                 ..SessionInfo::default()
             };
@@ -1432,6 +1433,7 @@ mod agent {
                     others: 1,
                     agent: "claude".into(),
                     mode: Some("plan".into()),
+                    background: false,
                 }),
                 ..SessionInfo::default()
             };

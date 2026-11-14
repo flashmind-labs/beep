@@ -125,6 +125,8 @@ struct StartArgs {
     model: Option<String>,
     #[serde(default)]
     wait: bool,
+    #[serde(default)]
+    background: bool,
 }
 
 #[derive(Deserialize)]
@@ -315,6 +317,7 @@ impl Reach<'_> {
             cwd,
             model,
             wait,
+            background,
         } = args;
 
         if prompt.trim().is_empty() {
@@ -353,7 +356,7 @@ impl Reach<'_> {
         };
 
         let link = match self.agents.link_for(parent, self.who) {
-            Ok(link) => link,
+            Ok(link) => ParentLink { background, ..link },
             Err(e) => return fail(e),
         };
         let parts = StartParts {

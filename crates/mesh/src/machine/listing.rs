@@ -144,7 +144,9 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
     );
     let children: HashSet<_> = owned
         .iter()
-        .filter(|linked| linked.parent.is_some() || linked.reviewer)
+        .filter(|linked| {
+            linked.parent.as_ref().is_some_and(|link| link.background) || linked.reviewer
+        })
         .map(|linked| (linked.session.agent.clone(), linked.session.id.clone()))
         .collect();
     let mut owned: HashMap<_, _> = owned

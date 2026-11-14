@@ -50,7 +50,7 @@ fn an_idle_session_with_running_subagents_lists_as_working() {
 }
 
 #[tokio::test]
-async fn project_history_hides_children_but_keeps_the_parent() {
+async fn project_history_hides_background_children_only() {
     use crate::MeshError;
     use crate::machine::sessions::Reading;
     use beep_proto::node::agent::{SessionsReply, SessionsRequest};
@@ -83,13 +83,20 @@ async fn project_history_hides_children_but_keeps_the_parent() {
                         others: 0,
                         agent: "codex".into(),
                         mode: None,
+                        background: true,
+                    });
+                    let mut front = child.clone();
+                    front.id = "front".into();
+                    front.parent = child.parent.clone().map(|link| ParentLink {
+                        background: false,
+                        ..link
                     });
                     Ok(SessionsReply::Sessions {
-                        sessions: vec![parent, child],
+                        sessions: vec![parent, child, front],
                     })
                 }
                 SessionsRequest::InFolders { .. } => Ok(SessionsReply::External {
-                    sessions: ["parent", "child", "outside"]
+                    sessions: ["parent", "child", "front", "outside"]
                         .into_iter()
                         .map(|id| ExternalSession {
                             id: id.into(),
@@ -115,6 +122,6 @@ async fn project_history_hides_children_but_keeps_the_parent() {
             .iter()
             .map(|session| session.id.as_str())
             .collect::<Vec<_>>(),
-        ["parent", "outside"]
+        ["parent", "front", "outside"]
     );
 }
