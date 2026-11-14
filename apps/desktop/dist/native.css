@@ -3,7 +3,8 @@
    Loaded before mobile.css, and scoped away from the phone layout. */
 
 /* ----- Window ----- */
-body:not(.mobile) .cwin { background: var(--deep); isolation: isolate }
+/* On an unfolded phone the system bars sit over the window's edges; elsewhere the insets are zero. */
+body:not(.mobile) .cwin { background: var(--deep); isolation: isolate; box-sizing: border-box; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left) }
 body:not(.mobile) .cc-side { position: relative; isolation: isolate; background: transparent; border-right: 0 }
 body:not(.mobile) .cc-main { margin: 6px 6px 6px 0; border: 1px solid transparent; border-radius: var(--radius); background: transparent; overflow: visible }
 /* On macOS the window is the system's sidebar material (src-tauri center/window.rs); the page stays opaque. */
