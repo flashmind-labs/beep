@@ -175,6 +175,11 @@ pub(super) async fn shutdown(id: &DeviceId) -> Result<()> {
 
 /// What `xcrun simctl args` printed; an error with what it said when it
 /// failed.
+/// Simulator `id`'s unified log of the last minutes, a line per entry.
+pub(super) async fn logs(id: &DeviceId) -> Result<String> {
+    simctl(&["spawn", &id.0, "log", "show", "--last", "5m", "--style", "compact"]).await
+}
+
 async fn simctl(args: &[&str]) -> Result<String> {
     let mut command = process::command("xcrun");
     command

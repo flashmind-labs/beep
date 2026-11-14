@@ -13,6 +13,7 @@ fn a_discovery_file_names_the_avd_and_its_grpc_service() {
     let running = parse_discovery(text).expect("parsed");
     assert_eq!(running.avd, "Pixel_9_Pro");
     assert_eq!(running.port, 8554);
+    assert_eq!(running.console, Some(5554));
     assert_eq!(running.token.expose_secret(), "c2VjcmV0+dG9rZW4=");
     assert_eq!(
         running.dir,

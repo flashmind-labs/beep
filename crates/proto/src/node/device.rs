@@ -5,7 +5,8 @@
 //! and the desktop sends `Input` until it closes the stream or the node sends
 //! `Ended`. `Platforms` gets one `Reply::Platforms`: the mobile platforms a
 //! checkout builds for. `FollowPhones` turns the stream into the machine's
-//! phone list, sent now and on every change.
+//! phone list, sent now and on every change. `Logs` gets one `Reply::Logs`:
+//! a device's newest log lines.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -16,6 +17,8 @@ pub const PROTOCOL: &str = "device/1";
 pub const MAX_SIDE: u32 = 2048;
 /// The most one `Input::Text` may carry, in bytes.
 pub const MAX_TEXT: usize = 4096;
+/// The most log lines one `Logs` answers with.
+pub const MAX_LOG_LINES: u32 = 1000;
 
 /// An emulator, simulator or phone: an Android AVD name, an iOS simulator
 /// UDID or a phone's adb serial.
@@ -60,6 +63,13 @@ pub enum Request {
     /// The machine's phones now, then again each time one comes or goes,
     /// as `Reply::Devices`, until the desktop closes the stream.
     FollowPhones {},
+    /// Device `id`'s newest log lines containing `filter` (any case; all
+    /// lines when empty), at most `lines` of them, as `Reply::Logs`.
+    Logs {
+        id: DeviceId,
+        lines: u32,
+        filter: String,
+    },
 }
 
 /// Something the user did on the attached device's screen or buttons.
@@ -139,6 +149,10 @@ pub enum Reply {
     /// Android first; empty when the folder is no mobile app.
     Platforms {
         platforms: Vec<Platform>,
+    },
+    /// The answer to `Logs`, oldest line first.
+    Logs {
+        text: String,
     },
 }
 

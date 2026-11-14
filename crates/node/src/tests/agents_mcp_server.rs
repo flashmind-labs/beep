@@ -641,6 +641,11 @@ strict_action_test!(
     json!({"action":"swipe", "machine":"build-box", "device":"phone", "x":1, "y":2, "x2":3, "y2":4, "duration_ms":300})
 );
 strict_action_test!(
+    device_logs_rejects_unused_arguments,
+    "device",
+    json!({"action":"logs", "machine":"build-box", "device":"phone", "filter":"beep", "lines":50})
+);
+strict_action_test!(
     device_type_rejects_unused_arguments,
     "device",
     json!({"action":"type", "machine":"build-box", "device":"phone", "text":"hello"})

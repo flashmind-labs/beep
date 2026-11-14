@@ -13,7 +13,10 @@ use crate::agents::{Agents, reach::Access};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    device::{Device, DeviceId, DeviceState, Frame, Input, MAX_SIDE, Platform, Reply, Request},
+    device::{
+        Device, DeviceId, DeviceState, Frame, Input, MAX_LOG_LINES, MAX_SIDE, Platform, Reply,
+        Request,
+    },
 };
 use beep_proto::watched;
 use futures::FutureExt;
@@ -41,7 +44,7 @@ const NO_SIMULATORS: &str = "iOS simulators only run on a Mac.";
 /// something.
 const MIN_SIDE: u32 = 64;
 
-/// Serves one stream: answers `List`, `Boot`, `Shutdown` and `Platforms`
+/// Serves one stream: answers `List`, `Boot`, `Shutdown`, `Logs` and `Platforms`
 /// until the desktop closes it, or follows a device once it asks to
 /// `Attach`, or the phones once it asks to `FollowPhones`.
 pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
@@ -52,6 +55,12 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
             },
             Request::Boot { id } => done(boot(&id).await),
             Request::Shutdown { id } => done(shutdown(&id).await),
+            Request::Logs { id, lines, filter } => match logs(&id, lines, &filter).await {
+                Ok(text) => Reply::Logs { text },
+                Err(e) => Reply::Failed {
+                    reason: format!("{e:#}"),
+                },
+            },
             Request::Attach { id, max_side } => return attach(tx, rx, &id, max_side).await,
             Request::FollowPhones {} => return phone::follow(tx, rx).await,
             Request::Input { .. } => Reply::Failed {
@@ -124,6 +133,39 @@ async fn shutdown(id: &DeviceId) -> Result<()> {
         #[cfg(not(target_os = "macos"))]
         Platform::Ios => anyhow::bail!(NO_SIMULATORS),
     }
+}
+
+/// Device `id`'s newest `lines` log lines containing `filter`: logcat for
+/// Android, the unified log of the last minutes for an iOS simulator.
+async fn logs(id: &DeviceId, lines: u32, filter: &str) -> Result<String> {
+    let device = find(id).await?;
+
+    if device.state != DeviceState::On {
+        anyhow::bail!("{} is not on.", device.name);
+    }
+
+    let text = match device.platform {
+        Platform::Android if device.phone => phone::logcat(id).await?,
+        Platform::Android => phone::logcat(&android::serial(id).await?).await?,
+        #[cfg(target_os = "macos")]
+        Platform::Ios => ios::logs(id).await?,
+        #[cfg(not(target_os = "macos"))]
+        Platform::Ios => anyhow::bail!(NO_SIMULATORS),
+    };
+
+    Ok(newest_lines(&text, filter, lines.min(MAX_LOG_LINES)))
+}
+
+/// The last `lines` lines of `text` that contain `filter`, in any case.
+fn newest_lines(text: &str, filter: &str, lines: u32) -> String {
+    let filter = filter.to_lowercase();
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|line| filter.is_empty() || line.to_lowercase().contains(&filter))
+        .collect();
+    let lines = usize::try_from(lines).unwrap_or(usize::MAX);
+
+    kept[kept.len().saturating_sub(lines)..].join("\n")
 }
 
 /// `device`, unless it is a phone, which only its owner starts and stops.

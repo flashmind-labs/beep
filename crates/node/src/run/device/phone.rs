@@ -35,6 +35,8 @@ const TAP_SLOP: f64 = 16.0;
 const JPEG_QUALITY: u8 = 80;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG";
 const NO_ADB: &str = "adb is not installed on this machine.";
+/// How many of the newest logcat lines a filter looks through.
+const LOGCAT_LINES: &str = "20000";
 /// The first wait before following adb again after it stopped, doubled
 /// each time up to `TRACK_RETRY_MAX`.
 const TRACK_RETRY: Duration = Duration::from_secs(5);
@@ -310,6 +312,14 @@ fn frame(png: &[u8], max_side: u32) -> Result<((u32, u32), Frame)> {
     };
 
     Ok((full, frame))
+}
+
+/// The newest lines of the Android device with adb serial `id`'s log.
+pub(super) async fn logcat(id: &DeviceId) -> Result<String> {
+    let adb = env::adb().context(NO_ADB)?;
+    let printed = call(&adb, id, &["logcat", "-d", "-t", LOGCAT_LINES]).await?;
+
+    Ok(String::from_utf8_lossy(&printed).into_owned())
 }
 
 /// What `adb -s id <args>` printed, once it succeeded.

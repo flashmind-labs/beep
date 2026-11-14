@@ -177,23 +177,23 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
         }),
         json!({
             "name": DEVICE,
-            "description": "Android emulators and phones and iOS simulators on the user's machines. Actions:\n\
+            "description": "Android emulators and phones, iOS simulators. Actions:\n\
                 list: devices on every machine\n\
-                boot, shutdown, show: machine + device; boot and show open it in the user's Device tab; booting can take a minute\n\
-                screenshot: machine + device\n\
+                boot, shutdown, show: boot and show open the user's Device tab\n\
+                screenshot\n\
                 tap: x, y\n\
                 swipe: x, y to x2, y2, optional duration_ms\n\
                 type: text\n\
                 press: key (return, delete, tab, escape, left, right, up, down, home, back, app_switch, power, volume_up, volume_down, rotate)\n\
-                Input actions take machine + device and return a new screenshot. Coordinates are in the last screenshot's pixels.\n\
-                Use a device that is already on before booting another. After boot, wait until list says it is on.\n\
-                Install and start the app with commands on the device's machine (your shell, or run for another machine): \
-                adb -s <id> install and shell am start for Android, xcrun simctl install and xcrun simctl launch for iOS.\n\
-                Take a screenshot before the first tap. The user may be using a device too: do not shut down one you did not boot.",
+                logs: newest log lines; optional filter, lines\n\
+                All but list take machine + device. Input actions return a new screenshot; coordinates are in its pixels.\n\
+                Prefer one that is on; after boot, wait until list says on.\n\
+                Install and start apps with adb -s <id> or xcrun simctl on the device's machine (your shell, or run).\n\
+                Screenshot before the first tap. Do not shut down a device you did not boot.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["list", "boot", "shutdown", "show", "screenshot", "tap", "swipe", "type", "press"] },
+                    "action": { "type": "string", "enum": ["list", "boot", "shutdown", "show", "screenshot", "tap", "swipe", "type", "press", "logs"] },
                     "machine": machine,
                     "device": text("The device's name or id, as list gives it"),
                     "x": { "type": "number" },
@@ -202,7 +202,9 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
                     "y2": { "type": "number" },
                     "duration_ms": { "type": "integer", "minimum": 0, "maximum": 5000 },
                     "text": { "type": "string" },
-                    "key": { "type": "string" }
+                    "key": { "type": "string" },
+                    "filter": { "type": "string" },
+                    "lines": { "type": "integer" }
                 },
                 "required": ["action"],
                 "additionalProperties": false
@@ -467,6 +469,7 @@ fn close_actions(tool: &mut Value) {
             ),
             ("type", &["text"][..], &["machine", "device", "text"][..]),
             ("press", &["key"][..], &["machine", "device", "key"][..]),
+            ("logs", &["filter", "lines"][..], &["machine", "device"][..]),
         ] {
             let mut fields = vec!["action"];
             if action != "list" {

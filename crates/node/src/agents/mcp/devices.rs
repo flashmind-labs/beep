@@ -16,8 +16,8 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     agent::SessionDevice,
     device::{
-        Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, Reply,
-        Request, TouchPhase,
+        Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_LOG_LINES, MAX_TEXT,
+        Platform, Reply, Request, TouchPhase,
     },
 };
 use iroh::EndpointId;
@@ -40,6 +40,10 @@ const VIEW_STOPPED: &str = "the device's view stopped";
 const LIST_LIMIT: Duration = Duration::from_secs(15);
 /// How long a machine has to start or stop a device.
 const POWER_LIMIT: Duration = Duration::from_secs(60);
+/// How long reading a device's logs may take.
+const LOGS_LIMIT: Duration = Duration::from_secs(30);
+/// The log lines a `logs` call gets when it does not say.
+const LOG_LINES: u32 = 200;
 /// How long the first frame of a device may take.
 const SHOT_LIMIT: Duration = Duration::from_secs(15);
 /// The longer side of a screenshot, in pixels.
@@ -89,6 +93,12 @@ enum Action {
         #[serde(flatten)]
         at: Target,
         key: Press,
+    },
+    Logs {
+        #[serde(flatten)]
+        at: Target,
+        lines: Option<u32>,
+        filter: Option<String>,
     },
 }
 
@@ -222,6 +232,21 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
             done(ask(offers, mesh, &machine, &shutdown, POWER_LIMIT).await?)?;
             let called = Called::ok(format!("Shut down {} on {}.", device.name, machine.name));
             Ok((called, None))
+        }
+        Action::Logs { at, lines, filter } => {
+            let (machine, device) = find(offers, mesh, &at).await?;
+            let request = Request::Logs {
+                id: device.id.clone(),
+                lines: lines.unwrap_or(LOG_LINES).min(MAX_LOG_LINES),
+                filter: filter.unwrap_or_default(),
+            };
+            let text = match ask(offers, mesh, &machine, &request, LOGS_LIMIT).await? {
+                Reply::Logs { text } if text.is_empty() => "No log lines match.".to_owned(),
+                Reply::Logs { text } => text,
+                Reply::Failed { reason } => bail!("{reason}"),
+                other => bail!("{} answered {other:?}", machine.name),
+            };
+            Ok((Called::ok(text), Some(used(&machine, &device))))
         }
         Action::Show(at) => {
             let (machine, device) = find(offers, mesh, &at).await?;
