@@ -145,6 +145,7 @@ pub fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
         AgentSteer::DropSteers {} => Request::DropSteers {},
         AgentSteer::SetMode { mode } => Request::SetMode { mode },
         AgentSteer::StopTask { task } => Request::StopTask { task },
+        AgentSteer::SetDevice { device } => Request::SetDevice { device },
         AgentSteer::Cancel {} => Request::Cancel {},
         AgentSteer::StopAll {} => Request::StopAll {},
         AgentSteer::Close {} => Request::Close {},

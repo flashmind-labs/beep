@@ -330,6 +330,17 @@ async fn info(client: &PeerClient, agent: &str, session: &str) -> Result<agent::
         .ok_or_else(not_found)
 }
 
+/// The device session `session` of `agent` uses, as its node keeps it.
+pub(crate) async fn device(
+    fleet: &Fleet,
+    machine: EndpointId,
+    agent: &str,
+    session: &str,
+) -> Result<Option<agent::SessionDevice>> {
+    let client = fleet.client(machine).await?;
+    Ok(info(&client, agent, session).await?.device)
+}
+
 pub(crate) async fn usage(
     fleet: &Fleet,
     machine: EndpointId,

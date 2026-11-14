@@ -2,7 +2,7 @@
 
 use crate::{
     ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
-    node::agent::{CheckoutPlan, Effort},
+    node::agent::{CheckoutPlan, Effort, SessionDevice},
 };
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -243,6 +243,7 @@ wire_enum! {
     /// without ending the turn.
     /// `Cancel` stops only the main agent's turn; `StopAll` also ends the
     /// session's subagents, background commands and the agents it started.
+    /// `SetDevice` keeps the session's device, or forgets it.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum AgentSteer {
         0 Prompt { text: String }
@@ -255,6 +256,7 @@ wire_enum! {
         7 SetMode { mode: String }
         8 StopTask { task: String }
         9 StopAll {}
+        10 SetDevice { device: Option<SessionDevice> }
     }
 }
 

@@ -47,9 +47,9 @@ pub(crate) trait Backend: Sync {
             ))
         }
     }
-    /// Runs a `device` call: emulators and simulators, which this node
-    /// reaches over `device/1`.
-    fn device(&self, _args: Value) -> impl Future<Output = Called> + Send {
+    /// Runs `session`'s `device` call: emulators and simulators, which this
+    /// node reaches over `device/1`.
+    fn device(&self, _session: &str, _args: Value) -> impl Future<Output = Called> + Send {
         async { Called::failed("Devices are unavailable on this backend.") }
     }
     /// Puts `question` to the user in `session` and waits for the answer.
@@ -288,7 +288,7 @@ async fn call_tool<B: Backend>(backend: &B, session: &str, name: &str, args: Val
                 Err(e) => Called::failed(format!("Could not read the transcript: {e:#}")),
             };
         }
-        DEVICE => return backend.device(args).await,
+        DEVICE => return backend.device(session, args).await,
         _ => {}
     }
 

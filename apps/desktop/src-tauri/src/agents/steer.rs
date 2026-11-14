@@ -9,8 +9,13 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{
     AgentSteer, ModelId, SteerAgentSession, Upload, check_agent_images, image_key,
-    node::agent::Effort,
+    node::{
+        agent::{Effort, SessionDevice},
+        device::DeviceId,
+    },
 };
+use iroh::EndpointId;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, WebviewWindow};
 
@@ -55,6 +60,32 @@ pub enum Steer {
     StopTask {
         task: String,
     },
+    /// Keeps the device the session uses, or forgets it.
+    Device {
+        device: Option<DevicePick>,
+    },
+}
+
+/// A device as the page names it: its machine and its id there.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DevicePick {
+    pub(crate) machine: String,
+    pub(crate) device: String,
+}
+
+impl TryFrom<DevicePick> for SessionDevice {
+    type Error = DesktopError;
+
+    fn try_from(pick: DevicePick) -> Result<Self> {
+        let machine = pick
+            .machine
+            .parse::<EndpointId>()
+            .map_err(|_| DesktopError::BadRequest(format!("no machine {}", pick.machine)))?;
+        Ok(Self {
+            machine,
+            device: DeviceId(pick.device),
+        })
+    }
 }
 
 /// Why `agent_steer` failed, as the page tells it apart:
@@ -118,6 +149,9 @@ impl TryFrom<Steer> for AgentSteer {
             Steer::Configure { model, effort } => Self::Configure { model, effort },
             Steer::Mode { mode } => Self::SetMode { mode },
             Steer::StopTask { task } => Self::StopTask { task },
+            Steer::Device { device } => Self::SetDevice {
+                device: device.map(SessionDevice::try_from).transpose()?,
+            },
         })
     }
 }
@@ -141,12 +175,17 @@ pub(crate) fn uploads(images: Vec<PastedImage>) -> Result<Vec<Upload>> {
     Ok(images)
 }
 
-/// Whether a node of `version` reads `StopAll`: one after 0.5.0. A node
-/// that has not said its version is taken as older.
-fn stops_all(version: Option<&str>) -> bool {
+/// The last node that reads no `StopAll`.
+const BEFORE_STOP_ALL: Version = Version::new(0, 5, 0);
+/// The last node that reads no `SetDevice`.
+pub(crate) const BEFORE_SET_DEVICE: Version = Version::new(0, 6, 27);
+
+/// Whether a node of `version` is newer than `last`, the last release
+/// without a request. A node that has not said its version is taken as older.
+pub(crate) fn newer_than(version: Option<&str>, last: &Version) -> bool {
     version
-        .and_then(|version| semver::Version::parse(version).ok())
-        .is_some_and(|version| version > semver::Version::new(0, 5, 0))
+        .and_then(|version| Version::parse(version).ok())
+        .is_some_and(|version| version > *last)
 }
 
 #[tauri::command]
@@ -213,10 +252,16 @@ pub(crate) async fn sent(
     };
 
     let machine = fleet.machine(&machine_id)?;
+    let version = fleet.status().version(machine);
+    // A node that cannot read a request would end its whole event stream.
     let steer = match steer {
-        // A node that cannot read it would end its whole event stream.
-        AgentSteer::StopAll {} if !stops_all(fleet.status().version(machine).as_deref()) => {
+        AgentSteer::StopAll {} if !newer_than(version.as_deref(), &BEFORE_STOP_ALL) => {
             AgentSteer::Cancel {}
+        }
+        AgentSteer::SetDevice { .. } if !newer_than(version.as_deref(), &BEFORE_SET_DEVICE) => {
+            return Err(DesktopError::BadRequest(
+                "beep-node there is too old to keep a session's device".into(),
+            ));
         }
         steer => steer,
     };

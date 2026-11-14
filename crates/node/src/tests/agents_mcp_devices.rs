@@ -173,6 +173,7 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
         &offers,
         &mesh,
         &screens,
+        "s1",
         json!({ "action": "boot", "machine": "nowhere", "device": "Pixel 9" }),
     )
     .await;
@@ -183,6 +184,7 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
         &offers,
         &mesh,
         &screens,
+        "s1",
         json!({ "action": "screenshot", "machine": "build-box", "device": "no-such-device" }),
     )
     .await;
@@ -193,7 +195,7 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
         called.text
     );
 
-    let called = call(&offers, &mesh, &screens, json!({ "action": "list" })).await;
+    let called = call(&offers, &mesh, &screens, "s1", json!({ "action": "list" })).await;
     assert!(!called.failed);
     assert!(called.text.starts_with("- build-box (this machine)"), "{}", called.text);
 }

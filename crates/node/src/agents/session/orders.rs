@@ -106,6 +106,14 @@ impl Actor {
             Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
             Command::SetMode(mode) => Ok(self.set_mode(cx, mode)),
             Command::StopTask(task) => Ok(self.stop_task(cx, task)),
+            Command::SetDevice(device) => {
+                self.live.send_if_modified(|live| {
+                    let changed = live.info.device != device;
+                    live.info.device = device;
+                    changed
+                });
+                Ok(Ok(()))
+            }
         }
     }
 

@@ -47,7 +47,7 @@ impl Backend for Fake {
         })
     }
 
-    async fn device(&self, args: Value) -> Called {
+    async fn device(&self, _session: &str, args: Value) -> Called {
         let mut called = Called::ok(format!("{} on build-box: 2 x 4 pixels.", args["device"]));
         called.image = Some(beep_proto::node::device::Frame {
             jpeg: vec![1, 2, 3],

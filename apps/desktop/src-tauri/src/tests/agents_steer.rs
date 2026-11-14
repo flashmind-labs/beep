@@ -80,11 +80,38 @@ fn stop_all_comes_from_the_page_as_stop_all() {
 }
 
 #[test]
-fn stop_all_goes_only_to_nodes_after_0_5_0() {
+fn new_requests_go_only_to_nodes_that_read_them() {
+    let stops_all = |version| newer_than(version, &BEFORE_STOP_ALL);
     assert!(!stops_all(None));
     assert!(!stops_all(Some("")));
     assert!(!stops_all(Some("0.4.7")));
     assert!(!stops_all(Some("0.5.0")));
     assert!(stops_all(Some("0.5.1")));
     assert!(stops_all(Some("0.6.0")));
+    assert!(!newer_than(Some("0.6.27"), &BEFORE_SET_DEVICE));
+    assert!(newer_than(Some("0.6.28"), &BEFORE_SET_DEVICE));
+}
+
+#[test]
+fn a_device_comes_from_the_page_as_set_device() {
+    let machine = iroh::SecretKey::generate().public();
+    let steer: Steer = serde_json::from_value(serde_json::json!({
+        "device": { "device": { "machine": machine.to_string(), "device": "Pixel_9" } }
+    }))
+    .unwrap();
+    let device = Some(SessionDevice {
+        machine,
+        device: DeviceId("Pixel_9".into()),
+    });
+    assert_eq!(
+        AgentSteer::try_from(steer).unwrap(),
+        AgentSteer::SetDevice { device }
+    );
+
+    let forget: Steer =
+        serde_json::from_value(serde_json::json!({ "device": { "device": null } })).unwrap();
+    assert_eq!(
+        AgentSteer::try_from(forget).unwrap(),
+        AgentSteer::SetDevice { device: None }
+    );
 }

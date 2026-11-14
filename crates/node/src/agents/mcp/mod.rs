@@ -235,9 +235,9 @@ impl Backend for Node {
         Ok(machines::call(&self.offers, &mesh, request).await)
     }
 
-    async fn device(&self, args: Value) -> Called {
+    async fn device(&self, session: &str, args: Value) -> Called {
         match self.offers.mesh.get() {
-            Some(mesh) => devices::call(&self.offers, &mesh, &self.screens, args).await,
+            Some(mesh) => devices::call(&self.offers, &mesh, &self.screens, session, args).await,
             None => Called::failed(NO_MESH),
         }
     }

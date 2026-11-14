@@ -182,7 +182,11 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
                 swipe: x, y to x2, y2, optional duration_ms\n\
                 type: text\n\
                 press: key (return, delete, tab, escape, left, right, up, down, home, back, app_switch, power, volume_up, volume_down, rotate)\n\
-                Input actions take machine + device and return a new screenshot. Coordinates are in the last screenshot's pixels.",
+                Input actions take machine + device and return a new screenshot. Coordinates are in the last screenshot's pixels.\n\
+                Use a device that is already on before booting another. After boot, wait until list says it is on.\n\
+                Install and start the app with commands on the device's machine (your shell, or run for another machine): \
+                adb install and adb shell am start for Android, xcrun simctl install and xcrun simctl launch for iOS.\n\
+                Take a screenshot before the first tap. The user may be using a device too: do not shut down one you did not boot.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

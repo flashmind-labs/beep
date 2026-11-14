@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use beep_proto::watched;
 use beep_proto::{
     ModelId,
-    node::agent::{Entry, ParentLink, Status},
+    node::agent::{Entry, ParentLink, SessionDevice, Status},
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -71,6 +71,9 @@ pub(crate) struct OpenSession {
     model: Option<ModelId>,
     #[serde(default)]
     title: Option<String>,
+    /// The device it used, kept as `SessionInfo::device`.
+    #[serde(default)]
+    device: Option<SessionDevice>,
 }
 
 impl OpenSession {
@@ -177,6 +180,7 @@ impl Agents {
                 transcript,
                 model: live.info.model.clone(),
                 title: live.info.title.clone(),
+                device: live.info.device.clone(),
             })
         })
     }
@@ -268,6 +272,13 @@ impl Agents {
             },
         )?;
         self.watch_parent(&session);
+
+        if open.device.is_some() {
+            session
+                .order(Command::SetDevice(open.device))
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
 
         for kid in open.kids {
             self.adopt_remote(&session, kid);
