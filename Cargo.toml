@@ -1,6 +1,28 @@
 [workspace]
 resolver = "3"
-members = ["crates/proto", "crates/projects", "crates/server", "crates/node", "crates/mesh", "crates/fleet", "crates/report", "crates/plugins"]
+members = [
+    "apps/desktop/src-tauri",
+    "crates/fleet",
+    "crates/mesh",
+    "crates/node",
+    "crates/plugins",
+    "crates/projects",
+    "crates/proto",
+    "crates/report",
+    "crates/server",
+]
+# A bare `cargo build`, `clippy` or `test` leaves the Tauri app out: it needs
+# the platform's web view libraries. Name it with `-p beep-desktop`.
+default-members = [
+    "crates/fleet",
+    "crates/mesh",
+    "crates/node",
+    "crates/plugins",
+    "crates/projects",
+    "crates/proto",
+    "crates/report",
+    "crates/server",
+]
 
 [workspace.package]
 edition = "2024"
@@ -11,19 +33,26 @@ publish = false
 # One version for every crate. Entries carry the features all users share;
 # a crate adds its own with `features = [...]`.
 [workspace.dependencies]
+beep-fleet = { path = "crates/fleet" }
 beep-mesh = { path = "crates/mesh" }
-beep-node = { path = "crates/node" }
+# The phone leaves out the host; a node and the desktop turn it on.
+beep-node = { path = "crates/node", default-features = false }
+beep-plugins = { path = "crates/plugins" }
 beep-projects = { path = "crates/projects" }
 beep-proto = { path = "crates/proto" }
 beep-report = { path = "crates/report" }
 
 agent-client-protocol = "5.2"
+ammonia = "4"
 anyhow = "1"
+arboard = "3.7"
 async-trait = "0.1"
 axum = "0.8"
 bao-tree = "0.17"
 base64 = "0.23"
+battery = "0.7"
 blake3 = "1"
+block2 = "0.6"
 bytes = "1"
 chrono = "0.4"
 clap = "4"
@@ -51,14 +80,27 @@ iroh-tickets = "1"
 jsonschema = { version = "0.61.2", default-features = false }
 libc = "0.2"
 log = "0.4"
+mac-notification-sys = "0.6"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 mime_guess = "2"
 notify = "8"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false }
+objc2-application-services = { version = "0.3", default-features = false }
+objc2-core-foundation = { version = "0.3", default-features = false }
+objc2-core-graphics = { version = "0.3", default-features = false }
+objc2-foundation = { version = "0.3", default-features = false }
+objc2-screen-capture-kit = { version = "0.3", default-features = false }
+open = "5"
 oxc = "0.158"
+percent-encoding = "2"
 portable-pty = "0.9"
 prost = "0.14"
 protox = "0.10"
+pulldown-cmark = { version = "0.13", default-features = false }
+pulldown-latex = "0.8"
+qrcode = { version = "0.14", default-features = false }
 rand = "0.10"
 regex = "1"
 reqwest = { version = "0.13.5", default-features = false }
@@ -68,10 +110,12 @@ roxmltree = "0.21"
 rquickjs = "0.14"
 rusqlite = { version = "0.42", features = ["bundled"] }
 rust-ini = "0.21"
+rust_decimal = "1"
 rustix = "1"
 rustls = { version = "0.23", default-features = false }
 rusty-s3 = "0.11"
 secrecy = "0.10"
+security-framework = "3"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
@@ -81,7 +125,19 @@ sha2 = "0.11"
 shlex = "2"
 strum = { version = "0.28", features = ["derive"] }
 subtle = "2"
+sysinfo = { version = "0.40", default-features = false }
 tar = { version = "0.4", default-features = false }
+tauri = { version = "2", default-features = false }
+tauri-build = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-barcode-scanner = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-sparkle-updater = "0.3"
+tauri-plugin-updater = "2"
 tempfile = "3"
 thiserror = "2"
 tokio = "1"
@@ -95,11 +151,13 @@ tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 tower = "0.5"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-appender = "0.2"
 tracing-log = { version = "0.2", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std"] }
 url = "2"
 uuid = "1"
 webpki-roots = "1"
+webview2-com = "0.39"
 which = "8"
 windows-sys = "0.61"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }

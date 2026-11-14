@@ -37,6 +37,6 @@ url.workspace = true
 
 [dev-dependencies]
 # The default features carry the in-process terminal host the tests start.
-beep-node.workspace = true
+beep-node = { workspace = true, default-features = true }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }

@@ -25,17 +25,17 @@ ENV APPIMAGE_EXTRACT_AND_RUN=1
 # The target cache keeps the bundles of earlier versions, so clear them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/src/apps/desktop/src-tauri/target,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
     --mount=type=cache,target=/root/.cache/tauri,sharing=locked \
     --mount=type=secret,id=updater_key,required=true \
     --mount=type=secret,id=updater_password \
     export TAURI_SIGNING_PRIVATE_KEY="$(cat /run/secrets/updater_key)" \
     && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /run/secrets/updater_password 2>/dev/null || true)" \
-    && rm -rf src-tauri/target/release/bundle \
+    && rm -rf /src/target/release/bundle \
     && bash /usr/local/bin/build-desktop-linux \
     && mkdir /dist \
-    && cp src-tauri/target/release/bundle/deb/*.deb /dist/ \
-    && cp src-tauri/target/release/bundle/appimage/*.AppImage* /dist/
+    && cp /src/target/release/bundle/deb/*.deb /dist/ \
+    && cp /src/target/release/bundle/appimage/*.AppImage* /dist/
 
 FROM scratch
 COPY --from=build /dist /
