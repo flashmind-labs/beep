@@ -990,10 +990,11 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .cc-side-toggle:hover { background: var(--elev); color: var(--fg) }
 .cc-side-toggle:active { transform: scale(.98) }
 .cc-side-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
-.cwin.side-collapsed { grid-template-columns: 80px minmax(0, 1fr) }
-/* A phone has no window buttons to clear: the folded sidebar is a bare rail of icons. */
-html[data-phone] .cwin.side-collapsed { grid-template-columns: 48px minmax(0, 1fr) }
-html[data-phone] .side-collapsed .cc-side { padding-inline: 4px }
+/* Folded, the sidebar is a bare rail of icons; on macOS the header clears the traffic lights instead. */
+.cwin.side-collapsed { grid-template-columns: 32px minmax(0, 1fr) }
+.side-collapsed .cc-side { padding-inline: 0 }
+.side-collapsed .cc-brand { padding: 0 }
+html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 52px }
 .side-collapsed .cc-brand b, .side-collapsed > .cc-grip, .side-collapsed .cc-foot, .side-collapsed .cc-grp h3, .side-collapsed .cc-si.none, .side-collapsed .cc-si > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot):not(.open), .side-collapsed .cc-si .open > :not(svg):not(.sidebar-icon):not(.cc-pdot):not(.ddot), .side-collapsed .cc-org > :not(svg):not(.sidebar-icon):not(.twist) { display: none }
 .side-collapsed .cc-si, .side-collapsed .cc-org { justify-content: center; padding: 8px; min-height: 32px; box-sizing: border-box }
 .side-collapsed .cc-si .open { justify-content: center; padding: 0 }

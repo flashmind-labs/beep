@@ -328,8 +328,6 @@ function watchNetwork() {
 
 export function initMobile() {
   mounted = true;
-  // Styles that differ on a phone in either layout, such as the narrower folded sidebar.
-  document.documentElement.toggleAttribute("data-phone", onPhone());
   drawMobile(at());
   apply();
   window.addEventListener("resize", apply);
