@@ -81,7 +81,7 @@ impl PluginJob {
         }
 
         // Instances come before the first render.
-        self.take_mail(sandbox)?;
+        self.take_mail(sandbox, Instant::now())?;
         let Some(placements) = sandbox.render()? else {
             return Ok(true);
         };
@@ -97,7 +97,7 @@ impl PluginJob {
             return Ok(());
         }
 
-        self.take_mail(sandbox)?;
+        self.take_mail(sandbox, now)?;
         sandbox.fire_due(now)?;
         for delivery in self.inbox.take() {
             sandbox.deliver(&delivery)?;
@@ -106,8 +106,9 @@ impl PluginJob {
         Ok(())
     }
 
-    /// Runs the events and applies the instances that waited for the plugin.
-    fn take_mail(&self, sandbox: &mut Sandbox) -> Result<(), SandboxError> {
+    /// Runs the events, applies the instances and answers the tool calls that
+    /// waited for the plugin.
+    fn take_mail(&self, sandbox: &mut Sandbox, now: Instant) -> Result<(), SandboxError> {
         let mail = self.mailbox.take();
 
         for event in &mail.events {
@@ -115,6 +116,9 @@ impl PluginJob {
         }
         if let Some(instances) = mail.instances {
             sandbox.set_instances(&instances)?;
+        }
+        for call in mail.calls {
+            sandbox.call_tool(call, now)?;
         }
 
         Ok(())

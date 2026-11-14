@@ -28,6 +28,8 @@ pub(crate) const PREFIX: &str = "Beep: ";
 ///   <machine>`
 /// - `Read status`, `Read logs on <machine>`, `Read metrics`, `File a
 ///   report: <description>`
+/// - `List plugins`, `Read plugin: <id>`, `Create plugin: <id>`, `Call plugin
+///   <id>: <tool>`
 ///
 /// A grouped tool (`machines`, `run`, `files`, `agent`, `beep`) takes the
 /// words of the tool its action calls.
@@ -63,6 +65,7 @@ pub(crate) enum Tool {
     Files,
     Agent,
     Beep,
+    Plugins,
 }
 
 impl Tool {
@@ -205,6 +208,15 @@ impl Tool {
                     None => format!("{PREFIX}Use {group}"),
                 }
             }
+            Self::Plugins => match (text("action").unwrap_or_default(), text("plugin")) {
+                ("list", _) => format!("{PREFIX}List plugins"),
+                ("status", plugin) => with("Read plugin".to_owned(), plugin),
+                ("create", plugin) => with("Create plugin".to_owned(), plugin),
+                ("call", Some(plugin)) => {
+                    with(format!("Call plugin {plugin}"), text("tool"))
+                }
+                _ => format!("{PREFIX}Use plugins"),
+            },
             Self::Device => {
                 let number = |key: &str| {
                     args.and_then(|args| args.get(key)?.as_number())

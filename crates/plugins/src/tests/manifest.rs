@@ -150,3 +150,44 @@ fn a_missing_api_is_version_one_and_a_newer_one_needs_a_newer_beep() {
     let zero = r#"{ "id": "ab", "name": "n", "version": "1.0.0", "api": 0 }"#;
     assert!(Manifest::parse(zero).is_err());
 }
+
+fn with_tools(permissions: &str, tools: &str) -> String {
+    format!(
+        r#"{{ "id": "ab", "name": "n", "version": "1.0.0", "permissions": [{permissions}], "tools": {tools} }}"#
+    )
+}
+
+#[test]
+fn tools_need_the_permission_and_stay_within_the_limits() {
+    let one = r#"[{ "name": "get_note", "description": "Reads.", "input": { "type": "object" } }]"#;
+    let manifest = Manifest::parse(&with_tools(r#""tools""#, one)).unwrap();
+    assert_eq!(manifest.tools[0].name.to_string(), "get_note");
+
+    let error = Manifest::parse(&with_tools("", one)).unwrap_err();
+    assert!(error.to_string().contains("tools permission"), "{error}");
+
+    for name in ["Get", "1a", "a-b", "", &"a".repeat(42)] {
+        let tools = format!(r#"[{{ "name": "{name}" }}]"#);
+        assert!(
+            Manifest::parse(&with_tools(r#""tools""#, &tools)).is_err(),
+            "{name:?}"
+        );
+    }
+
+    let nine: Vec<String> = (0..9).map(|n| format!(r#"{{ "name": "t{n}" }}"#)).collect();
+    let nine = format!("[{}]", nine.join(","));
+    assert!(Manifest::parse(&with_tools(r#""tools""#, &nine)).is_err());
+
+    let twice = r#"[{ "name": "a" }, { "name": "a" }]"#;
+    assert!(Manifest::parse(&with_tools(r#""tools""#, twice)).is_err());
+
+    let long = format!(
+        r#"[{{ "name": "a", "description": "{}" }}]"#,
+        "x".repeat(301)
+    );
+    assert!(Manifest::parse(&with_tools(r#""tools""#, &long)).is_err());
+
+    let schema = r#"[{ "name": "a", "input": { "type": 5 } }]"#;
+    let error = Manifest::parse(&with_tools(r#""tools""#, schema)).unwrap_err();
+    assert!(error.to_string().contains("not valid"), "{error}");
+}

@@ -6,6 +6,7 @@ use crate::event::Action;
 use crate::instance::{
     ComposerContext, InstanceKey, SessionHeaderContext, SessionRowContext, SlotContext,
 };
+use crate::tool::{ToolCall, ToolError};
 use crate::topic::Publication;
 use crate::ui::{Align, CallbackId, Position, Slot, Tone};
 
@@ -1286,15 +1287,69 @@ fn the_composer_context_is_machine_and_session() {
     assert_eq!(text_of(sandbox.render().unwrap()), "build-box:s1");
 }
 
-fn session_notes() -> Sandbox {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/session-notes");
+/// The example, copied so that its store lands in a temp folder and not in the repository.
+fn session_notes() -> (tempfile::TempDir, Sandbox) {
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/session-notes");
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("session-notes");
+    std::fs::create_dir(&dir).unwrap();
+    for file in ["beep-plugin.json", "main.ts"] {
+        std::fs::copy(from.join(file), dir.join(file)).unwrap();
+    }
+    let sandbox = Sandbox::load(&dir, Instant::now()).unwrap();
 
-    Sandbox::load(&dir, Instant::now()).unwrap()
+    (root, sandbox)
+}
+
+/// Calls a tool of the sandbox and returns its answer.
+fn call_tool(
+    sandbox: &mut Sandbox,
+    name: &str,
+    input: serde_json::Value,
+) -> Result<String, ToolError> {
+    let (reply, answer) = std::sync::mpsc::channel();
+    let call = ToolCall {
+        name: name.parse().unwrap(),
+        input: input.to_string(),
+        reply,
+    };
+    sandbox.call_tool(call, Instant::now()).unwrap();
+
+    answer.try_recv().expect("the handler answered at once")
+}
+
+#[test]
+fn session_notes_tools_read_and_write_the_notes_the_rows_show() {
+    let (_root, mut sandbox) = session_notes();
+    sandbox
+        .set_instances(&[row_instance("a", "Alpha")])
+        .unwrap();
+    assert!(sandbox.render().unwrap().unwrap().is_empty());
+
+    let set = call_tool(
+        &mut sandbox,
+        "set_note",
+        json!({ "session": "a", "note": " ship it " }),
+    );
+    assert_eq!(set.unwrap(), r#"{"note":"ship it"}"#);
+    assert_eq!(
+        call_tool(&mut sandbox, "get_note", json!({ "session": "a" })).unwrap(),
+        r#"{"note":"ship it"}"#
+    );
+    assert_eq!(
+        call_tool(&mut sandbox, "get_note", json!({ "session": "b" })).unwrap(),
+        r#"{"note":""}"#
+    );
+
+    // The row the UI shows follows the tool's write.
+    let placements = sandbox.render().unwrap().unwrap();
+    assert_eq!(placements.len(), 1);
+    assert_eq!(text_of(Some(placements)), "ship it");
 }
 
 #[test]
 fn session_notes_draws_a_note_per_row_from_the_header() {
-    let mut sandbox = session_notes();
+    let (_root, mut sandbox) = session_notes();
     sandbox
         .set_instances(&[
             row_instance("a", "Alpha"),

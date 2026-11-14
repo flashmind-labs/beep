@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 use thiserror::Error;
 
+use crate::tool::{ToolSpec, ToolsError, check_all};
 use crate::topic::{Topic, TopicError};
 use crate::ui::Slot;
 
@@ -89,6 +90,10 @@ pub enum Permission {
     #[serde(rename = "sessions.read")]
     #[strum(serialize = "sessions.read")]
     SessionsRead,
+    /// Give coding agents tools, declared in `tools` and set up with `beep.tool`.
+    #[serde(rename = "tools")]
+    #[strum(serialize = "tools")]
+    Tools,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -173,6 +178,9 @@ pub struct Manifest {
     /// When the plugin starts. Default: `["startup"]`.
     #[serde(default = "default_activation")]
     pub activation: Vec<Activation>,
+    /// The tools the plugin gives coding agents. Needs the `tools` permission.
+    #[serde(default)]
+    pub tools: Vec<ToolSpec>,
 }
 
 #[derive(Debug, Error)]
@@ -192,6 +200,8 @@ pub enum ManifestError {
     Api(NonZeroU32),
     #[error("activation needs at least one entry")]
     NoActivation,
+    #[error("invalid tools: {0}")]
+    Tools(#[from] ToolsError),
 }
 
 impl Manifest {
@@ -243,6 +253,8 @@ impl Manifest {
         if manifest.activation.is_empty() {
             return Err(ManifestError::NoActivation);
         }
+
+        check_all(&manifest.tools, &manifest.permissions)?;
 
         Ok(manifest)
     }

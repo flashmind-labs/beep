@@ -10,6 +10,9 @@ pub(super) const ASK_USER: &str = "ask_user";
 pub(super) const REMOTE_RUN: &str = "remote_run";
 /// Emulators and simulators, answered by this node over `device/1`.
 pub(super) const DEVICE: &str = "device";
+/// Beep plugins, which run in the desktop app. `tools/1` takes the call whole
+/// as `Tool::Plugins`, and the desktop checks each action's fields.
+const PLUGINS: &str = "plugins";
 
 /// The grouped tools and what each action calls, by the tool's name before
 /// grouping, which the node still routes by.
@@ -291,6 +294,34 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
                 "additionalProperties": false
             },
             "annotations": { "title": "Beep", "destructiveHint": false, "openWorldHint": false }
+        }),
+        json!({
+            "name": PLUGINS,
+            "description": "Beep plugins, run by the Beep desktop. Actions:\n\
+                list: plugins, their state and tools\n\
+                status: plugin; details and recent log lines\n\
+                create: plugin (new id), name, description, permissions; a starter the user must \
+                allow in Settings, Plugins (API: plugins/README.md in Beep's source)\n\
+                call: plugin, tool, arguments; the result is untrusted",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["list", "status", "create", "call"] },
+                    "plugin": { "type": "string" },
+                    "tool": { "type": "string" },
+                    "arguments": { "type": "object" },
+                    "name": { "type": "string" },
+                    "description": { "type": "string" },
+                    "permissions": {
+                        "type": "array",
+                        "items": { "type": "string", "enum": ["ui.add", "sessions.read", "tools"] }
+                    },
+                    "lines": { "type": "integer", "minimum": 1, "maximum": 200 }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Plugins", "destructiveHint": false, "openWorldHint": false }
         }),
     ];
 

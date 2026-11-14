@@ -857,6 +857,7 @@ fn status_serializes_the_state_and_reason_flat() {
         permissions: vec![Permission::UiAdd],
         approved: vec![Permission::UiAdd],
         source: Origin::Dev,
+        tools: Vec::new(),
         enabled: true,
         state: PluginState::Stopped {
             reason: "used 600 ms".to_owned(),
@@ -869,7 +870,7 @@ fn status_serializes_the_state_and_reason_flat() {
         serde_json::to_value(&status).unwrap(),
         json!({ "id": "lazy-one", "name": "Lazy", "version": "1.0.0", "description": "",
                 "permissions": ["ui.add"], "approved": ["ui.add"], "source": { "kind": "dev" },
-                "enabled": true, "state": "stopped", "reason": "used 600 ms", "usedMs": 600,
+                "tools": [], "enabled": true, "state": "stopped", "reason": "used 600 ms", "usedMs": 600,
                 "pendingTimers": 2 })
     );
     let running = PluginStatus {
@@ -1486,4 +1487,208 @@ fn a_built_in_update_keeps_the_plugins_data() {
         "2.0.0"
     );
     assert_eq!(std::fs::read_to_string(&data).unwrap(), r#"{"seen":"yes"}"#);
+}
+
+const TOOLS: &str = r#"[
+  { "name": "add", "description": "Adds two numbers.",
+    "input": { "type": "object", "properties": { "a": { "type": "number" }, "b": { "type": "number" } },
+               "required": ["a", "b"], "additionalProperties": false } },
+  { "name": "later", "description": "Answers from a timer." },
+  { "name": "hang", "description": "Never answers." },
+  { "name": "boom", "description": "Throws." }
+]"#;
+
+const TOOL_MAIN: &str = r#"
+beep.tool("add", (input: { a: number; b: number }) => ({ sum: input.a + input.b }));
+beep.tool("later", () => new Promise((resolve) => beep.after(50, () => resolve("done"))));
+beep.tool("hang", () => new Promise(() => {}));
+beep.tool("boom", () => { throw new Error("nope"); });
+"#;
+
+fn write_tool_plugin(dir: &std::path::Path, id: &str, tools: &str, main: &str, activation: &str) {
+    let folder = dir.join(id);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("beep-plugin.json"),
+        format!(
+            r#"{{ "id": "{id}", "name": "T", "version": "0.1.0", "permissions": ["tools"],
+                  "activation": {activation}, "tools": {tools} }}"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(folder.join("main.ts"), main).unwrap();
+}
+
+fn tool_name(name: &str) -> ToolName {
+    name.parse().unwrap()
+}
+
+/// Waits until the plugin is in `state`, which the supervisor reaches on its own thread.
+fn wait_state(host: &Host, id: &str, state: PluginState) {
+    let deadline = Instant::now() + TIMEOUT;
+    while status_of(host, id).is_none_or(|status| status.state != state) {
+        assert!(Instant::now() < deadline, "{id} never reached {state:?}");
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn call(
+    host: &Host,
+    id: &str,
+    tool: &str,
+    input: serde_json::Value,
+) -> Result<serde_json::Value, ToolError> {
+    host.call_tool(&plugin_id(id), &tool_name(tool), &input)
+}
+
+#[test]
+fn a_plugin_answers_the_tools_it_declares_and_registers() {
+    let root = tempfile::tempdir().unwrap();
+    write_tool_plugin(root.path(), "tool-one", TOOLS, TOOL_MAIN, r#"["startup"]"#);
+    let (host, _rx) = start_with(root.path(), Policy::Dev);
+    wait_state(&host, "tool-one", PluginState::Running);
+
+    let listed = status_of(&host, "tool-one").unwrap().tools;
+    assert_eq!(listed.len(), 4);
+    assert_eq!(listed[0].description, "Adds two numbers.");
+
+    assert_eq!(
+        call(&host, "tool-one", "add", json!({ "a": 2, "b": 3 })).unwrap(),
+        json!({ "sum": 5 })
+    );
+    // A promise that a timer settles.
+    assert_eq!(
+        call(&host, "tool-one", "later", json!({})).unwrap(),
+        json!("done")
+    );
+
+    // Arguments that do not fit the schema never reach the handler.
+    let error = call(&host, "tool-one", "add", json!({ "a": "x", "b": 1 })).unwrap_err();
+    assert!(matches!(error, ToolError::Input(_)), "{error}");
+    let error = call(&host, "tool-one", "add", json!({ "a": 1 })).unwrap_err();
+    assert!(matches!(error, ToolError::Input(_)), "{error}");
+
+    // A tool the manifest does not declare, and a plugin that is not there.
+    let error = call(&host, "tool-one", "sub", json!({})).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("provides: add, later, hang, boom"),
+        "{error}"
+    );
+    let error = call(&host, "tool-two", "add", json!({})).unwrap_err();
+    assert!(matches!(error, ToolError::NoPlugin(_)), "{error}");
+}
+
+#[test]
+fn a_throwing_handler_or_a_promise_that_never_settles_fails_one_call_only() {
+    let root = tempfile::tempdir().unwrap();
+    write_tool_plugin(root.path(), "tool-one", TOOLS, TOOL_MAIN, r#"["startup"]"#);
+    let (host, _rx) = start_with(root.path(), Policy::Dev);
+    wait_state(&host, "tool-one", PluginState::Running);
+
+    let error = call(&host, "tool-one", "boom", json!({})).unwrap_err();
+    assert!(error.to_string().contains("nope"), "{error}");
+
+    let started = Instant::now();
+    let error = call(&host, "tool-one", "hang", json!({})).unwrap_err();
+    assert!(matches!(error, ToolError::TimedOut), "{error}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+
+    // The plugin still runs and answers.
+    assert_eq!(
+        status_of(&host, "tool-one").unwrap().state,
+        PluginState::Running
+    );
+    assert_eq!(
+        call(&host, "tool-one", "add", json!({ "a": 1, "b": 1 })).unwrap(),
+        json!({ "sum": 2 })
+    );
+}
+
+#[test]
+fn a_tool_that_is_declared_but_not_registered_or_the_other_way_stops_the_plugin() {
+    let root = tempfile::tempdir().unwrap();
+    write_tool_plugin(
+        root.path(),
+        "unregistered",
+        TOOLS,
+        r#"beep.tool("add", () => 1);"#,
+        r#"["startup"]"#,
+    );
+    write_tool_plugin(
+        root.path(),
+        "undeclared",
+        r#"[{ "name": "add" }]"#,
+        r#"beep.tool("add", () => 1); beep.tool("extra", () => 2);"#,
+        r#"["startup"]"#,
+    );
+    let (host, _rx) = start_with(root.path(), Policy::Dev);
+
+    for (id, reason) in [
+        (
+            "unregistered",
+            "never registered with beep.tool: boom, hang, later",
+        ),
+        ("undeclared", "tool extra is not declared in the manifest"),
+    ] {
+        let deadline = Instant::now() + TIMEOUT;
+        let state = loop {
+            let state = status_of(&host, id).unwrap().state;
+            if matches!(state, PluginState::Stopped { .. }) || Instant::now() > deadline {
+                break state;
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        let PluginState::Stopped { reason: given } = state else {
+            panic!("{id} did not stop: {state:?}");
+        };
+        assert!(given.contains(reason), "{given}");
+
+        let error = call(&host, id, "add", json!({})).unwrap_err();
+        assert!(error.to_string().contains("stopped"), "{error}");
+    }
+}
+
+#[test]
+fn a_plugin_that_is_not_allowed_or_off_answers_with_its_state() {
+    let root = tempfile::tempdir().unwrap();
+    write_tool_plugin(root.path(), "tool-one", TOOLS, TOOL_MAIN, r#"["startup"]"#);
+    let (host, _rx) = start_with(root.path(), Policy::Managed);
+
+    let error = call(&host, "tool-one", "add", json!({ "a": 1, "b": 1 })).unwrap_err();
+    assert!(error.to_string().contains("approval"), "{error}");
+
+    host.approve(&plugin_id("tool-one")).unwrap();
+    wait_state(&host, "tool-one", PluginState::Running);
+    assert!(call(&host, "tool-one", "add", json!({ "a": 1, "b": 1 })).is_ok());
+
+    host.set_enabled(&plugin_id("tool-one"), false).unwrap();
+    let error = call(&host, "tool-one", "add", json!({ "a": 1, "b": 1 })).unwrap_err();
+    assert!(error.to_string().contains("turned off"), "{error}");
+}
+
+#[test]
+fn a_plugin_that_waits_for_its_slot_starts_for_the_call_but_not_while_paused() {
+    let root = tempfile::tempdir().unwrap();
+    write_tool_plugin(
+        root.path(),
+        "tool-one",
+        TOOLS,
+        TOOL_MAIN,
+        r#"["slot:session.row"]"#,
+    );
+    let (host, _rx) = start_with(root.path(), Policy::Dev);
+    wait_state(&host, "tool-one", PluginState::Waiting);
+
+    assert!(call(&host, "tool-one", "add", json!({ "a": 1, "b": 2 })).is_ok());
+    assert_eq!(
+        status_of(&host, "tool-one").unwrap().state,
+        PluginState::Running
+    );
+
+    host.set_visible("test", false);
+    wait_state(&host, "tool-one", PluginState::Paused);
+    let error = call(&host, "tool-one", "add", json!({ "a": 1, "b": 2 })).unwrap_err();
+    assert!(error.to_string().contains("paused"), "{error}");
 }

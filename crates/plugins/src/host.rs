@@ -20,8 +20,9 @@ use crate::managed::{Managed, Origin, Policy, Record, Verdict};
 use crate::manifest::{Activation, Manifest, PluginId};
 use crate::meter::{BUDGET, Meter};
 use crate::sandbox::locked;
-use crate::status::{Info, Lifecycle, PluginStatus, Registry};
+use crate::status::{Info, Lifecycle, PluginState, PluginStatus, Registry};
 use crate::store::DATA_DIR;
+use crate::tool::{MAX_JSON_BYTES, TIMEOUT, ToolCall, ToolError, ToolName};
 use crate::topic::{Delivery, Inbox, Publication, Topic, TopicError};
 use crate::ui::Placement;
 
@@ -30,6 +31,9 @@ const RELOAD_QUIET: Duration = Duration::from_millis(200);
 
 /// How long a slot-activated plugin keeps running after its slots left the page.
 pub(crate) const IDLE_GRACE: Duration = Duration::from_secs(60);
+
+/// How long past a tool's own deadline `Host::call_tool` waits for the plugin's thread.
+const CALL_GRACE: Duration = Duration::from_secs(2);
 
 /// The most `ui.*` topics whose latest value the host keeps.
 const MAX_LOCAL_TOPICS: usize = 64;
@@ -122,6 +126,11 @@ pub(crate) enum Event {
     },
     /// The user used a control a plugin drew.
     Ui(UiEvent),
+    /// A coding agent called a tool of a plugin.
+    Tool {
+        id: PluginId,
+        call: ToolCall,
+    },
     Stop,
 }
 
@@ -348,7 +357,8 @@ impl Host {
     }
 
     /// Has the supervisor read the plugin's folder and record again, and waits for it.
-    fn refresh(&self, id: &PluginId) {
+    /// Call it after writing files into a plugin's folder.
+    pub fn refresh(&self, id: &PluginId) {
         let (done, finished) = mpsc::channel();
         let sent = self.events.send(Event::Refresh {
             id: id.clone(),
@@ -379,6 +389,71 @@ impl Host {
         let _ = self.events.send(Event::Ui(event));
 
         Ok(())
+    }
+}
+
+impl Host {
+    /// Calls a tool a plugin provides, on the plugin's thread, and returns its
+    /// result. The plugin must be running (a plugin that waits for its slot starts
+    /// for the call) and the arguments must fit the tool's schema. A promise
+    /// that does not settle within ten seconds fails the call, not the plugin.
+    /// Blocks until the plugin answers.
+    pub fn call_tool(
+        &self,
+        id: &PluginId,
+        tool: &ToolName,
+        input: &serde_json::Value,
+    ) -> Result<serde_json::Value, ToolError> {
+        let status = self
+            .status()
+            .into_iter()
+            .find(|status| &status.id == id)
+            .ok_or_else(|| ToolError::NoPlugin(id.clone()))?;
+        if !matches!(status.state, PluginState::Waiting | PluginState::Running) {
+            return Err(ToolError::NotRunning {
+                plugin: id.clone(),
+                state: status.state,
+            });
+        }
+
+        let Some(spec) = status.tools.iter().find(|spec| &spec.name == tool) else {
+            return Err(ToolError::NoTool {
+                plugin: id.clone(),
+                tool: tool.clone(),
+                provided: status.tools.iter().map(|spec| spec.name.clone()).collect(),
+            });
+        };
+        spec.check_input(input)?;
+        let text = input.to_string();
+        if text.len() > MAX_JSON_BYTES {
+            return Err(ToolError::Input(format!(
+                "over {MAX_JSON_BYTES} bytes of JSON"
+            )));
+        }
+
+        let (reply, answer) = mpsc::channel();
+        let call = ToolCall {
+            name: tool.clone(),
+            input: text,
+            reply,
+        };
+        self.events
+            .send(Event::Tool {
+                id: id.clone(),
+                call,
+            })
+            .map_err(|_| ToolError::Stopped)?;
+
+        // The plugin's own deadline is first; this one covers a thread that is gone.
+        let answered =
+            answer
+                .recv_timeout(TIMEOUT + CALL_GRACE)
+                .map_err(|error| match error {
+                    RecvTimeoutError::Timeout => ToolError::TimedOut,
+                    RecvTimeoutError::Disconnected => ToolError::Stopped,
+                })??;
+
+        serde_json::from_str(&answered).map_err(|error| ToolError::Failed(error.to_string()))
     }
 }
 
@@ -580,6 +655,7 @@ impl Supervisor {
             Event::Instances(batch) => self.note_instances(batch),
             Event::Visible { window, visible } => self.note_visible(window, visible),
             Event::Ui(event) => self.route_ui(event),
+            Event::Tool { id, call } => self.route_tool(&id, call),
         }
 
         true
@@ -766,6 +842,34 @@ impl Supervisor {
         }
     }
 
+    /// Gives a tool call to the plugin's thread. A plugin that waits for its slot
+    /// starts for the call, and one that is off, paused or stopped answers with
+    /// its state.
+    fn route_tool(&mut self, id: &PluginId, call: ToolCall) {
+        let state = locked(&self.published.registry).state(id);
+        if state == Some(PluginState::Waiting) && !self.windows.is_empty() {
+            self.start_plugin(id);
+        }
+
+        let state = locked(&self.published.registry).state(id);
+        let refused = match (state, self.running.get(id)) {
+            (Some(PluginState::Running), Some(running)) => match running.mailbox.push_call(call) {
+                Ok(()) => return running.wake(),
+                Err(call) => (call, ToolError::Busy),
+            },
+            (Some(state), _) => (
+                call,
+                ToolError::NotRunning {
+                    plugin: id.clone(),
+                    state,
+                },
+            ),
+            (None, _) => (call, ToolError::NoPlugin(id.clone())),
+        };
+
+        let _ = refused.0.reply.send(Err(refused.1));
+    }
+
     /// Gives an event to the plugin that drew the control, within its rate limit.
     fn route_ui(&mut self, event: UiEvent) {
         let Some(running) = self.running.get_mut(&event.plugin) else {
@@ -854,6 +958,7 @@ impl Supervisor {
                         permissions: manifest.permissions,
                         approved: assessed.approved,
                         source: assessed.origin,
+                        tools: manifest.tools,
                         enabled: assessed.enabled,
                     },
                     lifecycle,
@@ -887,6 +992,7 @@ impl Supervisor {
                         source: record
                             .as_ref()
                             .map_or(Origin::Local, |record| record.origin.clone()),
+                        tools: Vec::new(),
                         enabled: record.is_none_or(|record| record.enabled),
                     },
                     Lifecycle::Stopped(error.to_string()),

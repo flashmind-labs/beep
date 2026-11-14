@@ -3,7 +3,7 @@
 Prototype. A plugin is a folder `<plugins dir>/<id>/` with a `beep-plugin.json`
 and TypeScript files. The desktop runs it in an embedded sandbox, reloads it
 when its files change, and draws what it places. A plugin never touches the DOM.
-There are three slots and two permissions (`ui.add`, `sessions.read`).
+There are three slots and three permissions (`ui.add`, `sessions.read`, `tools`).
 Folders and files whose names start with a dot are never plugins.
 
 ## Installing and approval
@@ -56,8 +56,11 @@ that folder with the same id runs instead.
   `main.ts`, a path inside the folder.
 - `activation`: optional, when the plugin starts, default `["startup"]`. See
   Activation.
-- `permissions`: `ui.add` (place UI) and `sessions.read` (follow `agents` and
-  `agent` topics). Unknown permissions or fields fail the load.
+- `permissions`: `ui.add` (place UI), `sessions.read` (follow `agents` and
+  `agent` topics) and `tools` (give coding agents tools, see Tools for agents).
+  Unknown permissions or fields fail the load.
+- `tools`: optional, the tools the plugin gives coding agents. Needs the `tools`
+  permission.
 
 ## API
 
@@ -83,6 +86,7 @@ const stop = beep.on({ name: "ui.composer" }, event => { /* event.data */ });
 - `on(topic, callback)`: follow a topic, see below. Returns a function that stops it.
 - `log(...values)`, and `console.log`, `console.warn`, `console.error`: see Logs.
 - `store.get(key)`, `store.set(key, value)`, `store.delete(key)`: see Store.
+- `tool(name, handler)`: answer a tool coding agents call, see Tools for agents.
 - `image`, `sprite`, `text`, `row`, `button`, `toggle`, `input`: build nodes. Images
   are paths inside the folder, at most 256 KB each and 4 MB per plugin.
 
@@ -121,6 +125,57 @@ when all keys and values would pass 256 KB. Changes are written to
 `<plugins dir>/.data/<id>.json` a couple of seconds later (atomically) and when the
 plugin stops or reloads. Disabling a plugin or updating it (a built-in too) keeps
 its data; removing it deletes the data.
+
+## Tools for agents
+
+Coding agents reach plugins through the `plugins` tool of the Beep MCP server, on
+the desktop's own node and, through the mesh, on any other machine's node (the
+call goes to an online desktop; a phone runs no plugins and never answers). The
+Settings page shows the permission as "Give tools to your agents": coding agents can
+call the tools this plugin lists.
+
+What an agent can do:
+
+- `list`: every plugin with its state, source, permissions and tools.
+- `status`: one plugin, with its placements count and its recent log lines (up to
+  200, default 50) read from the newest daily file of the app's log, the lines
+  whose message starts with `plugin: <id>: `.
+- `create`: write a starter plugin (id, name, description, permissions) into the
+  plugins folder as a local plugin. It does not run until the user allows it in
+  Settings, Plugins. In a development folder (`BEEP_PLUGINS_DIR`) it runs at once,
+  as any plugin there does.
+- `call`: call a tool a plugin provides with arguments. The result comes back as
+  text (JSON when it is not a string), at most 64 KB, and is untrusted output.
+
+What an agent cannot do: allow a plugin or a permission, turn one on or off, install,
+update or remove one, or call a plugin that is off, waiting for approval, paused
+(no window visible) or stopped; the call fails and names the state. A plugin that
+waits for its slot starts for the call.
+
+A plugin declares each tool in its manifest and registers its handler:
+
+```json
+{ "permissions": ["tools"],
+  "tools": [{ "name": "get_note", "description": "The note on a session.",
+              "input": { "type": "object", "properties": { "session": { "type": "string" } },
+                         "required": ["session"], "additionalProperties": false } }] }
+```
+
+```ts
+beep.tool<{ session: string }>("get_note", ({ session }) => ({ note: notes.get()[session] ?? "" }));
+```
+
+- Names match `^[a-z][a-z0-9_]{0,40}$`. A plugin has at most 8 tools, each description
+  is at most 300 characters, and `input` is a JSON Schema that the host compiles when
+  it reads the manifest. The host checks the arguments against it before the
+  handler runs.
+- A handler returns a JSON value or a promise of one, and runs on the plugin's thread
+  under the usual CPU budget. A thrown error is the call's error. A promise that does
+  not settle within 10 seconds fails the call and the plugin keeps running.
+- A tool declared but never registered, or registered with `beep.tool` but not
+  declared, stops the plugin and its status says which.
+- `examples/session-notes` gives `get_note` and `set_note`, so an agent reads and
+  writes the notes the UI shows.
 
 ## Slots
 
@@ -222,7 +277,7 @@ The host adds up the CPU time a plugin uses in its script (time waiting for a bu
 machine does not count). A plugin that uses more than
 500 ms of CPU in any 60 seconds is stopped, with the reason, and shows nothing until its files
 change. The `plugins_status` command lists each plugin's id, name, version, description,
-`permissions` asked for, `approved` permissions, `source` (`local`, `git`, `dev` or `builtin`),
+`permissions` asked for, `approved` permissions, the `tools` it declares, `source` (`local`, `git`, `dev` or `builtin`),
 `enabled`, `state` (`waiting`, `running`, `paused`, `disabled`, `needs-approval` with
 the `missing` permissions, or `stopped` with a `reason`), `usedMs` (CPU time) over the last minute
 and `pendingTimers`. The desktop emits `plugins-status` when a plugin is added, removed

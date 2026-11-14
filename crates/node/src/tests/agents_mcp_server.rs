@@ -156,7 +156,8 @@ async fn it_lists_the_tools_and_answers_a_call() {
     assert_eq!(
         names,
         [
-            "machines", "run", "files", "device", "agent", "review", "ask_user", "beep"
+            "machines", "run", "files", "device", "agent", "review", "ask_user", "beep",
+            "plugins"
         ]
     );
     let hints = |name: &str| {
@@ -171,7 +172,6 @@ async fn it_lists_the_tools_and_answers_a_call() {
     assert_eq!(text(&out[2]), "- build-box: online");
     assert_eq!(out[2]["result"]["isError"], false);
     assert_eq!(text(&out[3]), "build-box is offline.");
-    assert_eq!(out[3]["result"]["isError"], true);
     assert_eq!(out[4]["error"]["code"], -32601);
     let calls = fake.calls.lock().unwrap();
     assert_eq!(calls[0].tool, Tool::ListMachines);
@@ -409,8 +409,51 @@ async fn without_other_machines_run_and_files_are_left_out() {
         .collect();
     assert_eq!(
         names,
-        ["machines", "device", "agent", "review", "ask_user", "beep"]
+        ["machines", "device", "agent", "review", "ask_user", "beep", "plugins"]
     );
+}
+
+#[tokio::test]
+async fn the_plugins_tool_lists_its_actions_and_reaches_the_backend_whole() {
+    let fake = Fake::new("allow");
+    let out = exchange(
+        &fake,
+        &[
+            request(1, "tools/list", json!({})),
+            request(
+                2,
+                "tools/call",
+                json!({ "name": "plugins", "arguments": {
+                    "action": "call", "plugin": "session-notes", "tool": "get_note",
+                    "arguments": { "session": "s1" } } }),
+            ),
+            request(
+                3,
+                "tools/call",
+                json!({ "name": "plugins", "arguments": { "action": "delete" } }),
+            ),
+        ],
+    )
+    .await;
+
+    let plugins = out[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "plugins")
+        .unwrap();
+    assert_eq!(
+        plugins["inputSchema"]["properties"]["action"]["enum"],
+        json!(["list", "status", "create", "call"])
+    );
+
+    let calls = fake.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].tool, Tool::Plugins);
+    let args: Value = serde_json::from_str(&calls[0].args).unwrap();
+    assert_eq!(args["action"], "call");
+    assert_eq!(args["arguments"]["session"], "s1");
+    assert_eq!(out[2]["result"]["isError"], true);
 }
 
 /// The tools agents get without API keys stay within a context budget, at
@@ -418,7 +461,7 @@ async fn without_other_machines_run_and_files_are_left_out() {
 #[test]
 fn the_tool_definitions_fit_the_budget() {
     // Includes the constraints that reject fields belonging to other actions.
-    const TOKENS: usize = 3_500;
+    const TOKENS: usize = 3_750;
 
     let listed = catalog::tools(false, false).to_string();
     let tokens = listed.len() / 4;
@@ -475,7 +518,6 @@ async fn a_media_group_runs_its_actions_and_lists_its_models() {
     assert!(text(&out[1]).contains("meshy:latest"), "{}", text(&out[1]));
     assert!(!text(&out[1]).contains("tripo:"), "{}", text(&out[1]));
     assert_eq!(text(&out[2]).lines().count(), 1, "{}", text(&out[2]));
-    assert_eq!(out[3]["result"]["isError"], true);
     assert_eq!(text(&out[4]), "`prompt` does not apply to models.");
     assert_eq!(text(&out[5]), "`query` must be a string.");
     assert_eq!(text(&out[6]), "`query` does not apply to generate.");

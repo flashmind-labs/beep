@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -7,6 +8,7 @@ use serde::Serialize;
 use crate::managed::Origin;
 use crate::manifest::{Permission, PluginId};
 use crate::meter::Meter;
+use crate::tool::ToolSpec;
 
 /// Where a plugin stands, as the page and agent tools read it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -45,6 +47,8 @@ pub struct PluginStatus {
     /// What the user allowed.
     pub approved: Vec<Permission>,
     pub source: Origin,
+    /// The tools the manifest gives coding agents.
+    pub tools: Vec<ToolSpec>,
     /// Whether the user left it turned on.
     pub enabled: bool,
     #[serde(flatten)]
@@ -72,6 +76,7 @@ pub(crate) struct Info {
     pub permissions: Vec<Permission>,
     pub approved: Vec<Permission>,
     pub source: Origin,
+    pub tools: Vec<ToolSpec>,
     pub enabled: bool,
 }
 
@@ -144,22 +149,30 @@ impl Registry {
         all
     }
 
+    /// A plugin's state as the page and agent tools read it.
+    pub(crate) fn state(&self, id: &PluginId) -> Option<PluginState> {
+        self.entries.get(id).map(|entry| self.state_of(entry))
+    }
+
+    fn state_of(&self, entry: &Entry) -> PluginState {
+        match &entry.lifecycle {
+            Lifecycle::Waiting => PluginState::Waiting,
+            Lifecycle::Running if self.visible => PluginState::Running,
+            Lifecycle::Running => PluginState::Paused,
+            Lifecycle::Stopped(reason) => PluginState::Stopped {
+                reason: reason.clone(),
+            },
+            Lifecycle::Disabled => PluginState::Disabled,
+            Lifecycle::NeedsApproval(missing) => PluginState::NeedsApproval {
+                missing: missing.clone(),
+            },
+        }
+    }
+
     pub(crate) fn list(&self, now: Instant) -> Vec<PluginStatus> {
         self.entries
             .iter()
             .map(|(id, entry)| {
-                let state = match &entry.lifecycle {
-                    Lifecycle::Waiting => PluginState::Waiting,
-                    Lifecycle::Running if self.visible => PluginState::Running,
-                    Lifecycle::Running => PluginState::Paused,
-                    Lifecycle::Stopped(reason) => PluginState::Stopped {
-                        reason: reason.clone(),
-                    },
-                    Lifecycle::Disabled => PluginState::Disabled,
-                    Lifecycle::NeedsApproval(missing) => PluginState::NeedsApproval {
-                        missing: missing.clone(),
-                    },
-                };
                 let (used, timers) = entry.meter.as_ref().map_or((0, 0), |meter| {
                     (meter.used(now).as_millis(), meter.timers())
                 });
@@ -172,12 +185,28 @@ impl Registry {
                     permissions: entry.info.permissions.clone(),
                     approved: entry.info.approved.clone(),
                     source: entry.info.source.clone(),
+                    tools: entry.info.tools.clone(),
                     enabled: entry.info.enabled,
-                    state,
+                    state: self.state_of(entry),
                     used_ms: u64::try_from(used).unwrap_or(u64::MAX),
                     pending_timers: timers,
                 }
             })
             .collect()
+    }
+}
+
+impl fmt::Display for PluginState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Waiting => f.write_str("waiting to start"),
+            Self::Running => f.write_str("running"),
+            Self::Paused => f.write_str("paused while no Beep window is visible"),
+            Self::Stopped { reason } => write!(f, "stopped ({reason})"),
+            Self::Disabled => f.write_str("turned off"),
+            Self::NeedsApproval { .. } => {
+                f.write_str("waiting for the user's approval in Settings, Plugins")
+            }
+        }
     }
 }

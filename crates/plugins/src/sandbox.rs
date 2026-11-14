@@ -18,6 +18,7 @@ use crate::manifest::{Manifest, ManifestError, Permission, PluginId};
 use crate::meter::Meter;
 use crate::source::{Imports, Sources};
 use crate::store::{DATA_DIR, Store};
+use crate::tool::{ToolCall, Tools};
 use crate::topic::{Delivery, Subscriptions, Topic};
 use crate::ui::{
     MAX_FRAMES, Motion, Node, Placement, RawNode, RawPlace, RawPlacement, RawRepeat, Repeat, Slot,
@@ -71,6 +72,8 @@ pub(crate) enum SandboxError {
     Image { src: String, reason: ImageError },
     #[error("invalid sprite: {0}")]
     Sprite(#[from] SpriteError),
+    #[error("tools declared in the manifest but never registered with beep.tool: {0}")]
+    Unregistered(String),
     #[error("used {used_ms} ms of CPU time in the last minute, the budget is {budget_ms} ms")]
     OverBudget { used_ms: u64, budget_ms: u64 },
 }
@@ -80,6 +83,7 @@ pub(crate) enum SandboxError {
 pub(crate) struct Sandbox {
     // Drop order matters: persistent handles, then the context, then the runtime.
     fire: Persistent<Function<'static>>,
+    tool: Persistent<Function<'static>>,
     emit: Persistent<Function<'static>>,
     instances: Persistent<Function<'static>>,
     invoke: Persistent<Function<'static>>,
@@ -89,6 +93,7 @@ pub(crate) struct Sandbox {
     id: PluginId,
     timers: Arc<Mutex<Timers>>,
     subscriptions: Arc<Mutex<Subscriptions>>,
+    tools: Arc<Mutex<Tools>>,
     budget: Budget,
     meter: Arc<Meter>,
     images: Resolver,
@@ -184,6 +189,7 @@ impl Sandbox {
             data.join(format!("{}.json", manifest.id)),
         )));
         let console = Arc::new(Mutex::new(Console::new(manifest.id.clone())));
+        let tools = Arc::new(Mutex::new(Tools::new(&manifest.tools)));
 
         let started = Cpu::start();
         budget.start();
@@ -193,13 +199,14 @@ impl Sandbox {
             let schedule = schedule_function(&ctx, &timers)?;
             let (listen, unlisten) = subscribe_functions(&ctx, &subscriptions)?;
             let check_place = Function::new(ctx.clone(), check_place)?;
-            let native = native_functions(&ctx, &store, &console)?;
+            let native = native_functions(&ctx, &store, &console, &tools)?;
             let factory: Function = caught(&ctx, ctx.eval(PRELUDE))?;
             let api: Object = caught(
                 &ctx,
                 factory.call((schedule, can_place, listen, unlisten, check_place, native)),
             )?;
             let fire: Function = caught(&ctx, api.get("fire"))?;
+            let tool: Function = caught(&ctx, api.get("tool"))?;
             let emit: Function = caught(&ctx, api.get("emit"))?;
             let instances: Function = caught(&ctx, api.get("instances"))?;
             let invoke: Function = caught(&ctx, api.get("invoke"))?;
@@ -211,6 +218,7 @@ impl Sandbox {
 
             Ok::<_, SandboxError>((
                 Persistent::save(&ctx, fire),
+                Persistent::save(&ctx, tool),
                 Persistent::save(&ctx, emit),
                 Persistent::save(&ctx, instances),
                 Persistent::save(&ctx, invoke),
@@ -220,13 +228,17 @@ impl Sandbox {
         let drained = drain_jobs(&runtime);
         budget.stop();
         meter.record(Instant::now(), started.spent());
-        let (fire, emit, instances, invoke, render) = loaded?;
+        let (fire, tool, emit, instances, invoke, render) = loaded?;
         drained?;
         check_meter(&meter)?;
         meter.set_timers(locked(&timers).pending.len());
+        if let Some(missing) = locked(&tools).unregistered() {
+            return Err(SandboxError::Unregistered(missing));
+        }
 
         Ok(Self {
             fire,
+            tool,
             emit,
             instances,
             invoke,
@@ -236,6 +248,7 @@ impl Sandbox {
             id: manifest.id,
             timers,
             subscriptions,
+            tools,
             budget,
             meter,
             images: Resolver::new(Assets::new(root)),
@@ -244,7 +257,8 @@ impl Sandbox {
         })
     }
 
-    /// When the earliest pending timer is due, or the store's changes are.
+    /// When the earliest pending timer is due, or a tool call's time runs out,
+    /// or the store's changes are.
     pub(crate) fn next_timer(&self) -> Option<Instant> {
         let timer = locked(&self.timers)
             .pending
@@ -252,16 +266,21 @@ impl Sandbox {
             .map(|(_, due)| *due)
             .min();
 
-        [timer, locked(&self.store).due()]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            timer,
+            locked(&self.tools).next_due(),
+            locked(&self.store).due(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Runs every timer due at `now`, in due order, and writes the store if its
     /// changes are due. Timers they set land after `now`.
     pub(crate) fn fire_due(&mut self, now: Instant) -> Result<(), SandboxError> {
         locked(&self.store).flush_due(now);
+        locked(&self.tools).expire(now);
 
         let due = {
             let mut timers = locked(&self.timers);
@@ -286,6 +305,19 @@ impl Sandbox {
         }
 
         Ok(())
+    }
+
+    /// Runs a tool's handler. A value or a settled promise answers the call at
+    /// once; a pending promise answers when it settles, or times out.
+    pub(crate) fn call_tool(&mut self, call: ToolCall, now: Instant) -> Result<(), SandboxError> {
+        let name = call.name.to_string();
+        let input = call.input.clone();
+        let id = locked(&self.tools).start(call, now);
+
+        self.enter(|ctx| {
+            let run = self.tool.clone().restore(ctx)?;
+            caught(ctx, run.call::<_, ()>((id, name, input)))
+        })
     }
 
     /// Hands an update to the callbacks subscribed to its topic.
@@ -398,11 +430,12 @@ impl Sandbox {
     }
 }
 
-/// The native functions behind `console`, `beep.log` and `beep.store`.
+/// The native functions behind `console`, `beep.log`, `beep.store` and `beep.tool`.
 fn native_functions<'js>(
     ctx: &Ctx<'js>,
     store: &Arc<Mutex<Store>>,
     console: &Arc<Mutex<Console>>,
+    tools: &Arc<Mutex<Tools>>,
 ) -> Result<Object<'js>, SandboxError> {
     let console = Arc::clone(console);
     let log = move |level: String, text: String| {
@@ -421,11 +454,18 @@ fn native_functions<'js>(
     let held = Arc::clone(store);
     let remove = move |key: String| locked(&held).delete(&key, Instant::now());
 
+    let held = Arc::clone(tools);
+    let tool = move |name: String| locked(&held).register(&name);
+    let held = Arc::clone(tools);
+    let settle = move |id: u32, ok: bool, text: String| locked(&held).settle(id, ok, text);
+
     let native = Object::new(ctx.clone())?;
     native.set("log", Function::new(ctx.clone(), log)?)?;
     native.set("get", Function::new(ctx.clone(), get)?)?;
     native.set("set", Function::new(ctx.clone(), set)?)?;
     native.set("remove", Function::new(ctx.clone(), remove)?)?;
+    native.set("tool", Function::new(ctx.clone(), tool)?)?;
+    native.set("settle", Function::new(ctx.clone(), settle)?)?;
 
     Ok(native)
 }

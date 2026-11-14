@@ -31,3 +31,6 @@ admin.sock
 !/apps/desktop/src-tauri/.cargo/config.toml
 
 .worktrees
+
+# What Beep writes into a plugins folder: managed state, plugin data and staging.
+/plugins/examples/.*

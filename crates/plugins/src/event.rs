@@ -8,6 +8,7 @@ use thiserror::Error;
 use crate::instance::Instance;
 use crate::manifest::PluginId;
 use crate::sandbox::locked;
+use crate::tool::{MAX_PENDING as MAX_CALLS, ToolCall};
 use crate::ui::CallbackId;
 
 /// The most events per second the host runs for one plugin.
@@ -90,17 +91,19 @@ impl Limiter {
 }
 
 /// Work for one plugin's thread besides topic updates: the page's instances,
-/// and events on its controls.
+/// events on its controls and tool calls.
 #[derive(Default)]
 pub(crate) struct Mailbox {
     instances: Mutex<Option<Arc<Vec<Instance>>>>,
     events: Mutex<Vec<UiEvent>>,
+    calls: Mutex<Vec<ToolCall>>,
 }
 
 /// What a plugin's thread takes from its mailbox.
 pub(crate) struct Mail {
     pub(crate) instances: Option<Arc<Vec<Instance>>>,
     pub(crate) events: Vec<UiEvent>,
+    pub(crate) calls: Vec<ToolCall>,
 }
 
 impl Mailbox {
@@ -128,10 +131,23 @@ impl Mailbox {
         events.push(event);
     }
 
+    /// Queues a tool call, or gives it back when too many wait.
+    pub(crate) fn push_call(&self, call: ToolCall) -> Result<(), ToolCall> {
+        let mut calls = locked(&self.calls);
+        if calls.len() >= MAX_CALLS {
+            return Err(call);
+        }
+
+        calls.push(call);
+
+        Ok(())
+    }
+
     pub(crate) fn take(&self) -> Mail {
         Mail {
             instances: locked(&self.instances).take(),
             events: std::mem::take(&mut *locked(&self.events)),
+            calls: std::mem::take(&mut *locked(&self.calls)),
         }
     }
 }

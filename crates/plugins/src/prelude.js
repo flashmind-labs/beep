@@ -5,9 +5,11 @@
 // returns "" or why the host refuses the subscription; `unlisten(id)` drops it.
 // `checkPlace(optionsJson)` returns "" or why the host refuses the options.
 // `native` holds `log(level, text)`, `get(key)` (JSON text or undefined),
-// `set(key, json)` (returns "" or why the store refuses it) and `remove(key)`.
-// The function returns { fire(id), emit(eventJson), instances(json),
-// invoke(id, argumentJson), render() }.
+// `set(key, json)` (returns "" or why the store refuses it), `remove(key)`,
+// `tool(name)` (returns "" or why the host refuses the tool) and
+// `settle(id, ok, text)` (answers a tool call with JSON text or an error).
+// The function returns { fire(id), tool(id, name, inputJson), emit(eventJson),
+// instances(json), invoke(id, argumentJson), render() }.
 //
 // A slot can be on the page many times. The host tells the prelude which
 // instances are live (`instances`), and `render()` runs each placement once per
@@ -244,8 +246,22 @@
     },
   });
 
+  // Tool handlers by name.
+  const tools = new Map();
+
+  function tool(name, handler) {
+    if (typeof handler !== "function") {
+      throw new TypeError("beep.tool needs a handler function");
+    }
+    const refused = native.tool(String(name));
+    if (refused) {
+      throw new Error(refused);
+    }
+    tools.set(String(name), handler);
+  }
+
   const api = {
-    place, state, after, on, image, sprite, text, row, button, toggle, input,
+    place, state, after, on, image, sprite, text, row, button, toggle, input, tool,
     log: logger("info"),
     store,
   };
@@ -270,6 +286,32 @@
       }
       timers.delete(id);
       callback();
+    },
+    // Runs a tool's handler. The answer goes to `settle` now, or when a returned
+    // promise settles.
+    tool(id, name, json) {
+      const handler = tools.get(name);
+      if (handler === undefined) {
+        native.settle(id, false, `no tool ${name}`);
+        return;
+      }
+      const done = (value) => {
+        try {
+          const text = stringify(value);
+          native.settle(id, true, text === undefined ? "null" : text);
+        } catch (error) {
+          native.settle(id, false, show(error));
+        }
+      };
+      const failed = (error) => native.settle(id, false, show(error));
+      let result;
+      try {
+        result = handler(JSON.parse(json));
+      } catch (error) {
+        failed(error);
+        return;
+      }
+      Promise.resolve(result).then(done, failed);
     },
     emit(json) {
       const event = JSON.parse(json);

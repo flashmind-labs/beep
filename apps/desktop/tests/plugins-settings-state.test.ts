@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   IDLE, UNEXPECTED, consentAction, consentTitle, consentVersions, flowStep, isNewPermission, openStage, parseFailure, parsePreview,
-  parseRows, parseSource, parseStaged, parseUpdateCheck, permissionLabel, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
+  parseRows, parseSource, parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
   updateLine, type Flow, type PluginPreview, type PluginRow, type StagedPlugin,
 } from "../src/settings/plugins-settings-state.ts";
 
@@ -72,6 +72,8 @@ test("repository addresses lose their scheme, user and .git", () => {
 test("permissions have plain labels", () => {
   assert.equal(permissionLabel("ui.add"), "Add to the interface");
   assert.equal(permissionLabel("sessions.read"), "Read your sessions");
+  assert.equal(permissionLabel("tools"), "Give tools to your agents");
+  assert.equal(permissionMeaning("tools"), "Coding agents can call the tools this plugin lists.");
 });
 
 test("the state line says what the user sees", () => {

@@ -2,7 +2,7 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::mcp,
+    agents::mcp::{self, PluginTools},
     agents::{AgentKind, Agents, SESSIONS_ALPN, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::Folders,
     files::search::Searches,
@@ -363,6 +363,9 @@ pub struct Offers {
     pub skills: Skills,
     /// The node these offers are served by, once it is made.
     pub(crate) reach: Reach,
+    /// Answers the `plugins` tool, for a host that runs plugins (the desktop
+    /// app). Other nodes send the tool to a desktop of the mesh.
+    pub plugins: Option<Arc<dyn PluginTools>>,
 }
 
 impl Offers {
@@ -395,6 +398,7 @@ impl Offers {
             withheld: Arc::default(),
             skills: Skills::default(),
             reach: Reach::default(),
+            plugins: None,
         }
     }
 
@@ -576,6 +580,7 @@ pub(super) async fn serve_open(
                         commands_off: commands_off(&offers),
                         transfers: offers.transfers.get(),
                         agents: Some(offers.agents.clone()),
+                        plugins: offers.plugins.clone(),
                     },
                 };
                 peer_tools::serve(tx, rx, caller).await

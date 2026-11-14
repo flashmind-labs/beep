@@ -1,7 +1,8 @@
 /// <reference path="../../sdk/beep.d.ts" />
 
 // A short note on each session's row, set from the open session's header.
-// Notes are kept in the plugin's store, so they survive a restart.
+// Notes are kept in the plugin's store, so they survive a restart. Coding agents
+// can read and write them with the get_note and set_note tools.
 
 type Notes = Readonly<Record<string, string>>;
 
@@ -28,11 +29,28 @@ function set(state: State<Notes>, session: string, value: string): void {
   state.set({ ...state.get(), [session]: value });
 }
 
-function save(session: string, value: string): void {
+function keep(session: string, value: string): void {
   set(notes, session, value.trim());
   beep.store.set(NOTES_KEY, notes.get());
+}
+
+function save(session: string, value: string): void {
+  keep(session, value);
   set(drafts, session, "");
 }
+
+// What coding agents can do, through the plugins tool of the Beep MCP server.
+interface SessionInput {
+  readonly session: string;
+}
+
+beep.tool<SessionInput>("get_note", ({ session }) => ({ note: notes.get()[session] ?? "" }));
+
+beep.tool<SessionInput & { readonly note: string }>("set_note", ({ session, note }) => {
+  keep(session, note);
+
+  return { note: notes.get()[session] ?? "" };
+});
 
 // Nothing is drawn for a session without a note, so its row does not change.
 beep.place({ slot: "session.row" }, (row) => {

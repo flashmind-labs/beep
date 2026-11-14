@@ -311,6 +311,17 @@ interface Beep {
    */
   on(topic: Topic, callback: (event: TopicEvent) => void): () => void;
 
+  /**
+   * Give coding agents a tool. `name` must be declared in the manifest's `tools`
+   * with a description and an `input` JSON Schema, and every declared tool must be
+   * registered, or the plugin does not load. The handler gets the arguments, already
+   * checked against the schema, and returns a JSON value or a promise of one. It runs
+   * on the plugin's thread under the usual CPU budget; a promise that does not settle
+   * within 10 seconds fails the call, not the plugin, and a thrown error is the
+   * call's error. Results over 64 KB fail. Needs the "tools" permission.
+   */
+  tool<Input = unknown>(name: string, handler: (input: Input) => unknown): void;
+
   /** Build an image node. */
   image(options: ImageOptions): Node;
 

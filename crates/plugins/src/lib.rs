@@ -15,6 +15,7 @@ mod sandbox;
 mod source;
 mod status;
 mod store;
+mod tool;
 mod topic;
 mod ui;
 
@@ -32,5 +33,8 @@ pub use manifest::{
     Permission, PluginId,
 };
 pub use status::{PluginState, PluginStatus};
+pub use tool::{
+    InvalidToolName, MAX_DESCRIPTION, MAX_TOOLS, ToolError, ToolName, ToolSpec, ToolsError,
+};
 pub use topic::{Publication, Topic, TopicError};
 pub use ui::{Align, CallbackId, Motion, Node, Placement, Position, Repeat, Slot, Step, Tone};

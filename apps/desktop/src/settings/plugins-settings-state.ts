@@ -2,7 +2,7 @@
 // can be tested without Tauri. plugins-settings.ts runs them and
 // plugins-settings-view.tsx draws them.
 
-export type PluginPermission = "ui.add" | "sessions.read";
+export type PluginPermission = "ui.add" | "sessions.read" | "tools";
 
 /// Where a plugin came from.
 export type PluginSource =
@@ -68,6 +68,7 @@ export interface PluginFailure {
 const LABELS: Record<PluginPermission, { label: string; meaning: string }> = {
   "ui.add": { label: "Add to the interface", meaning: "Show text, buttons and images in the message box, session rows and session header." },
   "sessions.read": { label: "Read your sessions", meaning: "See your coding agent sessions and what each one is doing." },
+  tools: { label: "Give tools to your agents", meaning: "Coding agents can call the tools this plugin lists." },
 };
 
 export const permissionLabel = (permission: PluginPermission) => LABELS[permission].label;
@@ -246,7 +247,7 @@ const isFlag = (value: unknown): value is boolean => typeof value === "boolean";
 const textOrNull = (value: unknown): string | null | undefined => value === null ? null : isText(value) ? value : undefined;
 
 function permission(value: unknown): PluginPermission | null {
-  return value === "ui.add" || value === "sessions.read" ? value : null;
+  return value === "ui.add" || value === "sessions.read" || value === "tools" ? value : null;
 }
 
 function permissions(value: unknown): PluginPermission[] | null {

@@ -80,6 +80,9 @@ pub enum Tool {
     BeepMetrics,
     /// Projects and their checkouts from this node's replicated mesh state.
     ListProjects,
+    /// Beep plugins, which run in a desktop: its `args` hold the `plugins`
+    /// tool's arguments. A node forwards it to a desktop of the mesh.
+    Plugins,
     /// A tool a newer node calls that this one does not know.
     #[serde(other)]
     Unknown,
