@@ -277,7 +277,18 @@ test("settings machines", async ({ page }) => {
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {
-    await openDesktop(page, false, settingsResponses);
+    await openDesktop(page, false, section === "Agent accounts" ? {
+      ...settingsResponses,
+      agent_accounts: { claude: null, codex_key: null, machines: [
+        { id: "build-box", name: "build-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+        { id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+        { id: "offline-box", name: "offline-box", online: false, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+      ] },
+      list_machines: [
+        { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
+        { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } },
+      ],
+    } : settingsResponses);
     await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
     const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
     await expect(nav).toBeVisible();

@@ -61,7 +61,7 @@ pub async fn probe() -> EnvReport {
     let mut logins = Vec::new();
 
     if let Some(program) = at("claude") {
-        let mut claude = login(
+        let claude = login(
             "claude",
             &program,
             &["auth", "status"],
@@ -69,7 +69,6 @@ pub async fn probe() -> EnvReport {
             claude_account,
         )
         .await;
-        claude.signed_in = claude.signed_in || claude_in_keychain().await;
         logins.push(claude);
     }
 
@@ -274,27 +273,6 @@ async fn has_file(home: Option<&Path>, path: &str) -> bool {
     tokio::fs::metadata(home.join(path))
         .await
         .is_ok_and(|meta| meta.is_file() && meta.len() > 2)
-}
-
-/// The macOS Keychain item Claude Code keeps its sign-in in.
-const CLAUDE_KEYCHAIN: &str = "Claude Code-credentials";
-
-/// Whether Claude Code's Keychain item is there, on a Mac where `claude
-/// auth status` cannot see it. Asks for the item's attributes, not its
-/// secret, so the Keychain never prompts.
-pub(crate) async fn claude_in_keychain() -> bool {
-    if env::consts::OS != "macos" {
-        return false;
-    }
-
-    let found = crate::run::process::command("/usr/bin/security")
-        .args(["find-generic-password", "-s", CLAUDE_KEYCHAIN])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .status();
-    matches!(timeout(PROBE_TIMEOUT, found).await, Ok(Ok(status)) if status.success())
 }
 
 /// `loggedIn` in `claude auth status`, which prints JSON; `None` for any

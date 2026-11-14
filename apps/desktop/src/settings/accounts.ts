@@ -8,6 +8,7 @@ import { cliHost, draft as credentialDraft, editFor } from "./credentials.ts";
 import type { ApiProvider, CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
 import { copy } from "../ui/parts.ts";
 import type { Machine } from "../machines/machines.ts";
+import { openSignIn } from "../machines/signin.ts";
 import { redrawSettings, SET, setShown } from "./settings.ts";
 import { Mounted } from "./settings-shell-view.tsx";
 import { Channel, invoke } from "../ui/tauri.ts";
@@ -267,6 +268,12 @@ const agentActions: AgentAccountActions = {
     ACC.claudeFlow = false; await loadAgentAccounts();
   },
   claudeCancel() { invoke("cancel_claude_sign_in").catch(console.warn); },
+  claudeMachineSign(id) {
+    const machine = ACC.data?.machines.find(machine => machine.id === id);
+    if (!machine?.online) return;
+
+    openSignIn(machine, "claude", () => { void loadAgentAccounts(); });
+  },
   async codexSign(id) {
     if (ACC.codex[id]?.starting || ACC.codex[id]?.task !== undefined) return;
     ACC.codex[id] = { starting: true }; redrawAgents();
