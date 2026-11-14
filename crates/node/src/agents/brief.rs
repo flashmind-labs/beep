@@ -5,7 +5,7 @@ pub(crate) const BRIEF: &str = "The `beep` MCP server's tools reach the user's o
 - machines: the user's machines, what each can do (Xcode, Android, GPU, Docker, Blender) and its coding agents, projects and their checkouts, a harness's models. Pick the machine whose tools fit the work.
 - run: commands on another machine, never your own. Offered when there is another machine, as is files.
 - files: syncs a project (Git commits; uncommitted Git edits never move) or sends files to a machine.
-- device: boots, screenshots and drives Android emulators and iOS simulators to test mobile apps. The user sees them in the Device tab.
+- device: boots, screenshots and drives Android emulators, Android phones and iOS simulators to test mobile apps. The user sees them in the Device tab.
 - agent: starts another coding agent on any machine, linked to you, and follows it; replies arrive in your session. Also reads any session's transcript.
 - review: has your changes reviewed and returns the findings.
 - ask_user: asks the user and waits for the answer.

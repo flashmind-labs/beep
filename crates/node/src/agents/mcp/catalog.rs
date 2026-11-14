@@ -177,7 +177,7 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
         }),
         json!({
             "name": DEVICE,
-            "description": "Android emulators and iOS simulators on the user's machines. Actions:\n\
+            "description": "Android emulators and phones and iOS simulators on the user's machines. Actions:\n\
                 list: devices on every machine\n\
                 boot, shutdown, show: machine + device; boot and show open it in the user's Device tab; booting can take a minute\n\
                 screenshot: machine + device\n\
@@ -188,7 +188,7 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
                 Input actions take machine + device and return a new screenshot. Coordinates are in the last screenshot's pixels.\n\
                 Use a device that is already on before booting another. After boot, wait until list says it is on.\n\
                 Install and start the app with commands on the device's machine (your shell, or run for another machine): \
-                adb install and adb shell am start for Android, xcrun simctl install and xcrun simctl launch for iOS.\n\
+                adb -s <id> install and shell am start for Android, xcrun simctl install and xcrun simctl launch for iOS.\n\
                 Take a screenshot before the first tap. The user may be using a device too: do not shut down one you did not boot.",
             "inputSchema": {
                 "type": "object",

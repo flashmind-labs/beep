@@ -129,6 +129,7 @@ pub(super) fn parse_simulators(text: &str) -> Result<Vec<Device>> {
                     platform: Platform::Ios,
                     state: state(&device.state),
                     os: Some(os.clone()),
+                    phone: false,
                 })
         })
         .collect();

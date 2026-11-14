@@ -16,9 +16,11 @@ import {
 } from "./device-state.ts";
 
 /// How often the list is read again while the tab shows: a booting device
-/// soon, otherwise now and then, as devices start and stop outside Beep.
+/// soon, otherwise now and then for what nodes do not announce (iOS
+/// simulators, nodes without adb or older ones). A node announces `devices`
+/// when adb sees a phone or emulator come or go.
 const BOOTING_POLL_MS = 2000;
-const IDLE_POLL_MS = 10_000;
+const IDLE_POLL_MS = 60_000;
 /// How long a platform check that could not reach its machine waits to go again.
 const PLATFORMS_RETRY_MS = 60_000;
 
@@ -149,6 +151,7 @@ export function setDeviceShown(shown: boolean) {
 }
 
 onShownChange(() => shownChanged(), true);
+subscribeChanges(topic("devices"), { deliver: "latest", receive: readDevices }, { when: visible });
 
 function shownChanged() {
   if (!visible()) {

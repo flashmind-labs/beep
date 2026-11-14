@@ -118,7 +118,7 @@ hex = { version = "0.4", optional = true }
 humantime = { version = "2", optional = true }
 ignore = { version = "0.4", optional = true }
 # Device frames: the emulator's pixels encoded, the simulator's measured.
-image = { version = "0.25", default-features = false, features = ["jpeg"], optional = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"], optional = true }
 # Port mapping and metrics: a node is reached from outside.
 iroh = { version = "1.4.1", optional = true }
 iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"], optional = true }

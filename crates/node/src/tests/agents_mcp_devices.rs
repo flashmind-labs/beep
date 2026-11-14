@@ -10,6 +10,7 @@ fn device(id: &str, name: &str) -> Device {
         platform: Platform::Ios,
         state: DeviceState::On,
         os: Some("iOS 26.5".to_owned()),
+        phone: false,
     }
 }
 
