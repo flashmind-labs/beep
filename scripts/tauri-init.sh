@@ -44,8 +44,6 @@ else
     sed -i.bak 's/#[0-9A-Fa-f]\{6\}/#0B0E1D/' "$icons/android/values/ic_launcher_background.xml"
     rm "$icons/android/values/ic_launcher_background.xml.bak"
     cp -R "$icons"/android/. "$dir/app/src/main/res/"
-    # The release build reads every .pro file in the app folder.
-    cp src-tauri/android-rules.pro "$dir/app/beep-rules.pro"
 fi
 
 rm -rf "$icons"

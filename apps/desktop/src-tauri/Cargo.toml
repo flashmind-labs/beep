@@ -85,12 +85,14 @@ beep-mesh = { path = "../../../crates/mesh", features = ["thumbs"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
 
-# Phone only: the camera scans the pairing QR code.
-[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
-tauri-plugin-barcode-scanner = "2"
+# Android scans the pairing QR code with zxing's capture screen.
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-qr-scan = { path = "qr-scan" }
 
 # The iPhone keeps its key in the Keychain.
 [target.'cfg(target_os = "ios")'.dependencies]
+# The camera scans the pairing QR code.
+tauri-plugin-barcode-scanner = "2"
 security-framework = "3"
 # Removes the web view's bar above the keyboard.
 objc2 = "0.6"

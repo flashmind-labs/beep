@@ -1,0 +1,12 @@
+[package]
+name = "tauri-plugin-qr-scan"
+version = "0.1.0"
+edition = "2024"
+publish = false
+links = "tauri-plugin-qr-scan"
+
+[dependencies]
+tauri = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

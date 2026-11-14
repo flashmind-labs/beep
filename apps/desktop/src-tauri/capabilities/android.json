@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android",
+  "windows": [
+    "center"
+  ],
+  "platforms": [
+    "android"
+  ],
+  "permissions": [
+    "qr-scan:allow-scan"
+  ]
+}

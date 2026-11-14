@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <!-- zxing's capture screen follows the rotation sensor, which reads
+             landscape on an unfolded foldable and turns the preview sideways. -->
+        <activity
+            android:name="app.beep.qrscan.PortraitCaptureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:stateNotNeeded="true"
+            tools:ignore="LockedOrientationActivity" />
+    </application>
+</manifest>
