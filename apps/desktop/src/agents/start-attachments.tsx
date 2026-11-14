@@ -11,7 +11,7 @@ import { StartFiles } from "./start-files.ts";
 
 export function startAttachments(c: StartComposer, error: (text: string) => void, changed: () => void) {
   const images: Attached[] = [];
-  const files = new StartFiles();
+  const files = new StartFiles(() => draw(), error);
   let reading = 0, locked = false;
   let serial = Promise.resolve();
   const remove = (kind: "image" | "file", index: number) => {
@@ -19,14 +19,14 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     if (kind === "image") {
       const [image] = images.splice(index, 1);
       const at = files.pending.findIndex(entry => entry.file === image.original);
-      if (at >= 0) files.pending.splice(at, 1);
-    } else files.pending.splice(index, 1);
+      if (at >= 0) files.remove(at);
+    } else files.remove(index);
     draw();
     c.input.focus();
   };
   const draw = () => {
     c.update({ attachmentView: images.length || files.pending.length
-      ? <StartAttachmentChips images={[...images]} files={[...files.pending]} remove={remove} />
+      ? <StartAttachmentChips images={[...images]} files={[...files.pending]} progress={files.progress} remove={remove} />
       : null });
   };
   const add = (input: Iterable<File>) => {
@@ -57,7 +57,10 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     get reading() { return reading > 0; },
     get count() { return images.length + files.pending.length; },
     setBusy(value: boolean) { locked = value; drawPicker(); },
-    clear() { images.length = 0; files.pending.length = 0; draw(); },
+    /// After a start: the agent reads the uploaded files, so they stay.
+    clear() { images.length = 0; files.forget(); draw(); },
+    /// The draft is abandoned: its uploads are deleted.
+    discard() { images.length = 0; files.discardAll(); draw(); },
     bindStash(project: () => string | null) {
       bindPromptStash(c.input, {
         project,
@@ -70,7 +73,7 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
           if (reading) throw new Error("Wait for the attachments to finish loading");
           return { text: draftText(c.input.value), images: images.filter(image => image.original === null).map(({ name, mime, size, data }) => ({ name, mime, size, data })), paths: [], files: await Promise.all(files.pending.map(async ({ file }) => ({ name: file.name, mime: file.type, size: file.size, data: await fileBase64(file) }))) };
         },
-        clear: () => { c.setText(""); images.length = 0; files.pending.length = 0; draw(); c.input.dispatchEvent(new Event("input", { bubbles: true })); },
+        clear: () => { c.setText(""); images.length = 0; files.discardAll(); draw(); c.input.dispatchEvent(new Event("input", { bubbles: true })); },
         prepare: async message => {
           const restoredFiles = message.files.map(stashFile);
           message.images.forEach(stashFile);
@@ -80,7 +83,8 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
           return () => {
             c.setText([message.text, ...message.paths.map(path => `@${path}`)].filter(Boolean).join("\n"));
             images.splice(0, images.length, ...restored);
-            files.pending.splice(0, files.pending.length, ...restoredFiles.map(file => ({ file })));
+            files.discardAll();
+            files.add(restoredFiles);
             draw(); c.input.dispatchEvent(new Event("input", { bubbles: true }));
           };
         },

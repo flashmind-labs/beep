@@ -22,8 +22,8 @@ test("a start uploads a dropped video in chunks and mentions it from any worktre
   answers.agent_tree_upload = ".beep/uploads/screen recording 2.mov";
   const files = new StartFiles();
   files.add([new File([new Uint8Array(UPLOAD_PART + 1)], "screen recording.mov", { type: "video/quicktime" })]);
-  assert.equal(calls.length, 0, "the drop must wait for the final machine selection");
-  const text = await files.prompt("Inspect this", "machine-one", "/srv/project", () => {});
+  assert.equal(calls.length, 0, "the drop waits for a machine and folder");
+  const text = await files.prompt("Inspect this", "machine-one", "/srv/project");
   assert.equal(text, 'Inspect this\n\n@"/srv/project/.beep/uploads/screen recording 2.mov"');
   const parts = uploads();
   assert.equal(parts.length, 2);
@@ -40,12 +40,12 @@ test("retrying a start reuses completed files but changing destinations uploads 
   answers.agent_tree_upload = ".beep/uploads/clip.mp4";
   const files = new StartFiles();
   files.add([new File(["video"], "clip.mp4")]);
-  const first = await files.prompt("", "machine-one", "/srv/project", () => {});
+  const first = await files.prompt("", "machine-one", "/srv/project");
   assert.equal(first, "@/srv/project/.beep/uploads/clip.mp4");
-  await files.prompt("Try again", "machine-one", "/srv/project", () => {});
+  await files.prompt("Try again", "machine-one", "/srv/project");
   assert.equal(uploads().length, 1);
-  await files.prompt("", "machine-two", "/srv/project", () => {});
-  await files.prompt("", "machine-two", "/srv/other", () => {});
+  await files.prompt("", "machine-two", "/srv/project");
+  await files.prompt("", "machine-two", "/srv/other");
   assert.equal(uploads().length, 3);
 });
 
@@ -62,7 +62,7 @@ test("large recordings and empty files upload in bounded parts", async () => {
   };
   files.add([file, new File([], "empty.txt")]);
   assert.equal(files.pending.length, 2);
-  await files.prompt("", "machine-one", "/srv/project", () => {});
+  await files.prompt("", "machine-one", "/srv/project");
   const parts = uploads();
   assert.equal(parts.length, 34);
   assert.equal(parts[0].size, size);
@@ -72,7 +72,35 @@ test("large recordings and empty files upload in bounded parts", async () => {
 test("an unreadable drop prevents starting and stays available for removal", async () => {
   const files = new StartFiles();
   files.add([{ name: "folder", size: 1, slice() { throw new Error("unreadable"); } } as unknown as File]);
-  await assert.rejects(files.prompt("Task", "machine-one", "/srv/project", () => {}), /could not be read/);
+  await assert.rejects(files.prompt("Task", "machine-one", "/srv/project"), /could not be read/);
   assert.equal(files.pending.length, 1);
-  assert.equal(files.pending[0].uploaded, undefined);
+  assert.equal(files.pending[0].path, null);
+});
+
+test("a file uploads when attached and is deleted when removed", async () => {
+  calls.length = 0;
+  answers.agent_tree_upload = ".beep/uploads/notes.txt";
+  answers.agent_tree_edit = null;
+  const files = new StartFiles();
+  files.moveTo("machine-one", "/srv/project");
+  files.add([new File(["notes"], "notes.txt")]);
+  await files.prompt("", "machine-one", "/srv/project");
+  assert.equal(uploads().length, 1, "Start reuses the upload made on attach");
+  files.remove(0);
+  const deleted = calls.filter(c => c.cmd === "agent_tree_edit").map(c => c.args as Record<string, unknown>);
+  assert.deepEqual(deleted, [{ machineId: "machine-one", root: "/srv/project", action: { Delete: { paths: [".beep/uploads/notes.txt"] } } }]);
+});
+
+test("a started prompt keeps its uploads and an abandoned one deletes them", async () => {
+  calls.length = 0;
+  answers.agent_tree_upload = ".beep/uploads/a.txt";
+  answers.agent_tree_edit = null;
+  const files = new StartFiles();
+  files.add([new File(["a"], "a.txt")]);
+  await files.prompt("", "machine-one", "/srv/project");
+  files.forget();
+  files.add([new File(["a"], "a.txt")]);
+  await files.prompt("", "machine-one", "/srv/project");
+  files.discardAll();
+  assert.equal(calls.filter(c => c.cmd === "agent_tree_edit").length, 1);
 });

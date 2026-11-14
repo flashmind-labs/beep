@@ -316,6 +316,7 @@ impl Actor {
             end => end,
         };
         let closed = matches!(end, Ok(End::Closed));
+        let node_stopped = matches!(end, Ok(End::NodeStopped));
         let by_user = self.by_user;
         // Stopped as the user asked, or with the node, so not a failure to
         // alert about.
@@ -375,6 +376,13 @@ impl Actor {
                 spawn_blocking(move || crate::agents::uploads::remove(&info.agent, &info.id)).await;
             if let Err(e) = removed.unwrap_or_else(|e| Err(e.into())) {
                 log::warn!("could not remove closed session attachments: {e:#}");
+            }
+        } else if !node_stopped {
+            let info = watched::read_sent(&self.live, |live| live.info.clone());
+            let marked =
+                spawn_blocking(move || crate::agents::uploads::ended(&info.agent, &info.id)).await;
+            if let Err(e) = marked.unwrap_or_else(|e| Err(e.into())) {
+                log::warn!("could not mark ended session attachments: {e:#}");
             }
         }
 
