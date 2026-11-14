@@ -63,9 +63,6 @@ export interface OpenRow<P = OpenProject> {
   items: GitItemRow[];
 }
 
-/// Items a project shows before "Show all".
-export const ITEMS_SHOWN = 3;
-
 /// Whether an item waits on the user: a PR asking for their review, or
 /// one of theirs with changes requested or failing checks.
 export function waitsOnYou(item: Item) {

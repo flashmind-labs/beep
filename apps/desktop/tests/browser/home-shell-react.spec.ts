@@ -51,21 +51,21 @@ test("Git issue list loads more rows while scrolling", async ({ page }) => {
   }).toBe(1);
 });
 
-test("Git issue filters and selection keep their controls and choices", async ({ page }) => {
-  const item = (number: number, label: string) => ({ host: "example.test", repo: "org/repo", number, title: `Issue ${number}`, kind: "issue", url: `https://example.test/org/repo/issues/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [label] });
-  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "bug"), item(2, "feature")] }, agent_hosts: [] });
+test("Home lists pull requests and issues by repository, unfolded, with their buttons under the pointer", async ({ page }) => {
+  const item = (number: number, kind: string) => ({ host: "example.test", repo: "org/repo", number, title: `Change ${number}`, kind, url: `https://example.test/org/repo/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: ["bug"] });
+  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "pull_request"), item(2, "issue"), item(3, "issue")] }, agent_hosts: [] });
   await page.getByRole("tab", { name: "PRs and issues" }).click();
-  const issues = page.locator("#sec-git .cc-cols > div").nth(1);
-  await issues.getByRole("button", { name: "bug", exact: true }).click();
-  await expect(issues.getByRole("button", { name: /Issue 1/ })).toBeVisible();
-  await expect(issues.getByRole("button", { name: /Issue 2/ })).toHaveCount(0);
-  await issues.getByRole("button", { name: "Select", exact: true }).click();
-  await issues.getByRole("checkbox", { name: "Pick this issue" }).check();
-  await expect(issues.getByText("1 picked")).toBeVisible();
-  await expect(issues.getByRole("button", { name: /Start 1/ })).toBeEnabled();
-  await issues.getByRole("button", { name: "bug", exact: true }).click();
-  await expect(issues.getByRole("checkbox", { name: "Pick this issue" })).toHaveCount(2);
-  await expect(issues.getByText("1 picked")).toBeVisible();
+  const pulls = page.locator("#sec-git .cc-cols > .pl").first(), issues = page.locator("#sec-git .cc-cols > .pl").nth(1);
+  await expect(pulls.locator(".pl-head")).toContainText("Pull requests");
+  await expect(pulls.locator(".it")).toHaveCount(1);
+  await expect(issues.locator(".pl-head")).toContainText("1 repo · 2 open");
+  await expect(issues.locator(".it")).toHaveCount(2);
+  const row = pulls.locator(".it"), review = row.getByRole("button", { name: "Review" });
+  await expect(review).toHaveCount(0);
+  await row.hover();
+  await expect(review).toBeVisible();
+  await issues.getByRole("button", { name: /org\/repo/ }).click();
+  await expect(issues.locator(".it")).toHaveCount(0);
 });
 
 test("Machines retains a focused terminal action when another machine changes", async ({ page }) => {

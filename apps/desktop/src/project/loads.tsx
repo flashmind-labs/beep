@@ -13,11 +13,11 @@ import { type MenuItem } from "../ui/menu.tsx";
 import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
 import { parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { ElsewhereSection, FoundSection } from "./outside-lists.tsx";
+import { FoundSection, RepoSection } from "./outside-lists.tsx";
 import type { RecentSessions } from "./split-view.tsx";
 import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
-import { repoUrl, reviewStart } from "../center/openitems-state.ts";
+import { reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId } from "./localid.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
@@ -392,11 +392,11 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
     // A checkout the machines found imports as it is; otherwise the sheet clones.
     const here = foundFor(state.found, r.repo);
     const failed = here && state.foundError?.name === here.name ? state.foundError.message : null;
-    return { key: `${r.host} ${r.repo}`, name: r.repo, failed, url: repoUrl(r.items[0].url), last: r.last,
-      importing: !!here && state.importing === here.name, disabled: !!here && state.importing != null, primary: i === 0,
-      items: r.items, import: () => { if (here) void importFromPage(here); else importSheet(r.repo); } };
+    const importing = !!here && state.importing === here.name;
+    return { key: `${r.host} ${r.repo}`, name: r.repo, failed, last: r.last, open: i === 0, items: r.items,
+      action: { label: importing ? "Importing…" : "Import project", primary: i === 0, disabled: !!here && state.importing != null, run: () => { if (here) void importFromPage(here); else importSheet(r.repo); } } };
   });
-  return <div id="sec-elsewhere"><ElsewhereSection repos={body} open={openUrl}
+  return <div id="sec-elsewhere"><RepoSection id="section:elsewhere" title="Your PRs and issues elsewhere" note="in repos without a project" repos={body} open={openUrl}
     review={item => go("pane", { agentnew: reviewStart(item, null, state.home?.machines?.filter(m => m.can_host !== false)) })}
     reply={item => { void replyItem(item); }}
   /></div>;

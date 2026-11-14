@@ -21,22 +21,23 @@ const act = (event: MouseEvent, run: () => void) => { event.stopPropagation(); r
 
 function Fold({ id, title, count, note, children }: { id: string; title: string; count: string; note: string; children: ReactNode }) {
   const [open, toggle] = useFold(id, true);
-  return <section className="cc-panel pl"><button type="button" className="pl-head" aria-expanded={open} onClick={toggle}><span className="twist"><Icon name="twist" /></span><span className="lbl">{title}</span><span className="n">{count}</span><span className="note">{note}</span></button>{open && <div className="pl-body">{children}</div>}</section>;
+  return <section className="cc-panel pl"><button type="button" className="pl-head" aria-expanded={open} onClick={toggle}><span className="twist"><Icon name="twist" /></span><span className="lbl">{title}</span><span className="n">{count}</span>{note && <span className="note">{note}</span>}</button>{open && <div className="pl-body">{children}</div>}</section>;
 }
 
-export interface ElsewhereRepo { key: string; name: string; failed: string | null; url: string; last: number; importing: boolean; disabled: boolean; primary: boolean; items: GitItemRow[]; import(): void }
+/// A repository's line: `open` unfolds its items at first, `action` is its one button.
+export interface RepoLine { key: string; name: string; failed: string | null; last: number; open: boolean; items: GitItemRow[]; action: { label: string; primary?: boolean; disabled?: boolean; run(): void } }
 
 function counts(items: GitItemRow[]) {
   const prs = items.filter(item => item.kind === "pull_request").length;
   return [prs && plural(prs, "PR", "PRs"), items.length > prs && plural(items.length - prs, "issue", "issues")].filter(Boolean).join(" · ");
 }
 
-function RepoLines({ repo, review, reply, open }: { repo: ElsewhereRepo; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
-  const [shown, toggle] = useFold(`repo:${repo.key}`, repo.primary);
+function RepoLines({ repo, review, reply, open }: { repo: RepoLine; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
+  const [shown, toggle] = useFold(`repo:${repo.key}`, repo.open);
   return <>
     <div className="pl-row repo" onClick={toggle}>
       <button type="button" className="t" aria-expanded={shown} title={repo.name}><span className="twist"><Icon name="twist" /></span><b>{repo.name}</b><span className="dim">{repo.failed ?? counts(repo.items)}</span></button>
-      <span className="r"><span className="age">{formatAgo(repo.last, "short")}</span><span className="acts"><Button look={repo.primary ? "primary" : "secondary"} small disabled={repo.disabled} onClick={event => act(event, repo.import)}>{repo.importing ? "Importing…" : "Import project"}</Button></span></span>
+      <span className="r"><span className="age">{formatAgo(repo.last, "short")}</span><span className="acts"><Button look={repo.action.primary ? "primary" : "secondary"} small disabled={repo.action.disabled} onClick={event => act(event, repo.action.run)}>{repo.action.label}</Button></span></span>
     </div>
     {shown && repo.items.map(item => <div key={item.url} className="pl-row it" onClick={() => open(item.url)}>
       <span className="ic"><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>
@@ -46,9 +47,10 @@ function RepoLines({ repo, review, reply, open }: { repo: ElsewhereRepo; open(ur
   </>;
 }
 
-export function ElsewhereSection({ repos, open, review, reply }: { repos: ElsewhereRepo[]; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
+/// Open PRs and issues by repository: a line per repository, which unfolds to its items.
+export function RepoSection({ id, title, note, repos, open, review, reply }: { id: string; title: string; note: string; repos: RepoLine[]; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
   const total = repos.reduce((sum, repo) => sum + repo.items.length, 0);
-  return <Fold id="section:elsewhere" title="Your PRs and issues elsewhere" count={`${plural(repos.length, "repo", "repos")} · ${total} open`} note="in repos without a project">
+  return <Fold id={id} title={title} count={`${plural(repos.length, "repo", "repos")} · ${total} open`} note={note}>
     {repos.map(repo => <RepoLines key={repo.key} repo={repo} open={open} review={review} reply={reply} />)}
   </Fold>;
 }

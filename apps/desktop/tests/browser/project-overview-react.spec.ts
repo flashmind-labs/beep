@@ -16,6 +16,7 @@ test("outside project rows retain focus and keep import clicks separate", async 
   await expect(title).toBeFocused();
   await title.press('Enter');
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').map(call => call.args.url))).toContain(item.url);
+  await section.locator('.pl-row.repo').hover();
   await section.getByRole('button', { name: 'Import project' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length)).toBe(1);
@@ -33,6 +34,7 @@ test("the lists under the cards fold, open a repo's items and keep button clicks
   await expect(first).toHaveAttribute('aria-expanded', 'true');
   await expect(second).toHaveAttribute('aria-expanded', 'false');
   await expect(section.locator('.it')).toHaveCount(2);
+  await section.locator('.it').first().hover();
   await expect(section.locator('.it').first().getByRole('button', { name: 'Review' })).toBeVisible();
   await expect(section.locator('.it').nth(1).getByRole('button', { name: 'Review' })).toHaveCount(0);
   await second.click();
@@ -53,6 +55,7 @@ test("the lists under the cards fold, open a repo's items and keep button clicks
   await expect(section.locator('.it')).toHaveCount(1);
   // Reply leaves the page for the agent; it must not also open the item's URL.
   const opened = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length);
+  await section.locator('.it').hover();
   await section.locator('.it').getByRole('button', { name: 'Reply' }).click();
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length)).toBe(opened);
 });

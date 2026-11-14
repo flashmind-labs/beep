@@ -40,12 +40,6 @@ function importMachine() {
   return machines.find(m => m.id === last?.machine) || machines[0] || null;
 }
 
-export function importTitle() {
-  const machine = importMachine();
-  if (!machine) return "No machine is online; Import opens the sheet";
-  return `Imports on ${machine.name}. Right-click for Import with settings…`;
-}
-
 /// Imports from the row with the last machine and folder; the row turns
 /// into the project once it is in. With no machine online, the sheet.
 export async function quickImport(p: OpenRepo) {
