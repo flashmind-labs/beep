@@ -86,7 +86,7 @@ export interface ModelRow {
 /// The model column for `list` (`undefined` while the machine is asked, `null`
 /// when it cannot say), filtered by `query`.
 export function modelRows(list: AgentModels | null | undefined, query: string): { rows: ModelRow[]; note: string } {
-  const q = query.trim(), words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const q = query.trim(), words = searchText(q).split(/\s+/).filter(Boolean);
   // The harness's own "default" entry is our Default row: one row, whose
   // note says what it resolves to.
   const isDefault = (m: ModelInfo) => m.id.toLowerCase() === "default" || /^default\b/i.test(m.name);
@@ -97,7 +97,7 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   const first: ModelRow = { value: "", label: "Default", note: resolves };
   // Every word of the query, in any order, as flashmind-cli matches models: in the
   // name, the id or the provider.
-  const fits = (r: ModelRow) => { const text = `${r.label} ${r.value} ${r.note}`.toLowerCase(); return words.every(w => text.includes(w)); };
+  const fits = (r: ModelRow) => { const text = searchText(`${r.label} ${r.value} ${r.note}`); return words.every(w => text.includes(w)); };
   if (list === undefined) return { rows: [first], note: "Asking the machine which models it has…" };
   if (list === null) return { rows: [first], note: "Couldn't load models." };
   if (list.pick === "fixed") return { rows: [first], note: "It runs its own model here." };
@@ -114,8 +114,11 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   return { rows, note: rows.length ? "" : "No model matches." };
 }
 
-/// A picker search split into what it names, as in `opus 5.5 high` or
-/// `pi sonnet low`: a harness among those offered, a thinking level and the
+/// Lowercase text with `-` and `_` read as `.`, so `5.5` finds `claude-opus-5-5`.
+const searchText = (text: string) => text.toLowerCase().replace(/[-_]/g, ".");
+
+/// A picker search split into what it names, as in `opus 5.5 high`,
+/// `opus 5.5 med` or `pi sonnet low`: a harness among those offered, a thinking level and the
 /// words a model must match.
 export interface ModelSearch {
   agent: string | null;
@@ -123,7 +126,11 @@ export interface ModelSearch {
   words: string;
 }
 
-const EFFORT_WORDS = new Set(Object.values(EFFORTS).flatMap(levels => levels.map(e => e.value)));
+/// The thinking levels a search takes: each level's value and its short form.
+const EFFORT_WORDS = new Map<string, string>([
+  ...Object.values(EFFORTS).flatMap(levels => levels.map(e => [e.value, e.value] as const)),
+  ["lo", "low"], ["med", "medium"], ["hi", "high"], ["xhi", "xhigh"],
+]);
 
 export function modelSearch(query: string, offered: readonly string[]): ModelSearch {
   let agent: string | null = null, effort: string | null = null;
@@ -131,7 +138,8 @@ export function modelSearch(query: string, offered: readonly string[]): ModelSea
 
   for (const word of query.trim().split(/\s+/).filter(Boolean)) {
     const w = word.toLowerCase();
-    if (EFFORT_WORDS.has(w)) effort = w;
+    const level = EFFORT_WORDS.get(w);
+    if (level) effort = level;
     else if (!agent && offered.includes(w)) agent = w;
     else words.push(word);
   }

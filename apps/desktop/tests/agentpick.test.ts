@@ -103,7 +103,8 @@ test("a name under several providers shows its provider and resolves with it", a
   const ids = (q: string) => modelRows(list, q).rows.map(r => r.value).filter(Boolean);
   assert.deepEqual(ids("flash mistral"), ["mistral:deepseek-v4-1-flash"], "the provider is searched");
   assert.deepEqual(ids("deepseek v4.1"), ["openrouter:deepseek/deepseek-v4.1-flash", "mistral:deepseek-v4-1-flash"], "the name is searched");
-  assert.deepEqual(ids("v4-1"), ["mistral:deepseek-v4-1-flash"], "the id is searched");
+  assert.deepEqual(ids("deepseek/"), ["openrouter:deepseek/deepseek-v4.1-flash"], "the id is searched");
+  assert.deepEqual(ids("v4-1"), ids("v4.1"), "a version matches with any separator");
 
   assert.equal(modelId(list, "DeepSeek V4.1 Flash"), "DeepSeek V4.1 Flash", "a bare name under two providers stays as typed");
   assert.equal(modelId(list, "mistral · DeepSeek V4.1 Flash"), "mistral:deepseek-v4-1-flash");
@@ -136,4 +137,8 @@ test("a search names a model, a thinking level and a harness, subscription harne
   assert.deepEqual(rows("opus 5 high").rows, ["claude/opus", "pi/anthropic/claude-opus-5-5", "claude/"]);
   assert.deepEqual(rows("pi opus max"), { search: { agent: "pi", effort: "max", words: "opus" }, rows: ["pi/anthropic/claude-opus-5-5"] });
   assert.deepEqual(rows("high").rows, ["codex/", "codex/gpt-6"], "a level alone stays on the picked harness");
+  assert.deepEqual(modelSearch("opus 5.5 med", offered), { agent: null, effort: "medium", words: "opus 5.5" });
+  assert.deepEqual(modelSearch("opus 5.5 hi", offered).effort, "high");
+  assert.deepEqual(rows("pi opus 5.5 xhi"), { search: { agent: "pi", effort: "xhigh", words: "opus 5.5" }, rows: ["pi/anthropic/claude-opus-5-5"] });
+  assert.deepEqual(rows("claude opus 5-5").rows, ["claude/opus", "claude/"], "a version matches with any separator");
 });
