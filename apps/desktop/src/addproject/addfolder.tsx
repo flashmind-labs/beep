@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { AddFolderView } from "./addfolder-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
@@ -138,10 +138,10 @@ async function submit() {
 function draw() {
   if (!view) return;
   const current = view;
-  flushSync(() => current(createElement(AddFolderView, {
-    state, machines: opts.machines ?? [], reading, sync: syncthing,
-    pick: (machine: string) => update({ type: "pick", machine }), choose: () => void choose(), browse: browseTo,
-    cancelBrowse: () => update({ type: "browse", listing: null }), use, submit: () => void submit(),
-    back: () => { const back = opts.onBack; close?.(); back?.(); }, close: () => close?.(),
-  })));
+  flushSync(() => current(<AddFolderView
+    state={state} machines={opts.machines ?? []} reading={reading} sync={syncthing}
+    pick={(machine: string) => update({ type: "pick", machine })} choose={() => void choose()} browse={browseTo}
+    cancelBrowse={() => update({ type: "browse", listing: null })} use={use} submit={() => void submit()}
+    back={() => { const back = opts.onBack; close?.(); back?.(); }} close={() => close?.()}
+  />));
 }

@@ -175,7 +175,7 @@ export async function startTerminal(t: MediaTab) {
 }
 
 /// A terminal tab's footer says how its terminal stands again, in place of a note.
-export function drawTermStatus(t: MediaTab) {
+function drawTermStatus(t: MediaTab) {
   t.note = null;
   touchTab(t);
 }

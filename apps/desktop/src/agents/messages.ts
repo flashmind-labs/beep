@@ -497,7 +497,7 @@ listen<OutboxChanged>("outbox-changed", ({ payload }) => {
 });
 
 /// Takes waiting message `id` out; to edit, it goes back in the field.
-export async function editOutbox(id: number, edit: boolean) {
+async function editOutbox(id: number, edit: boolean) {
   const o = AG.open, taken = await takeOutbox(id);
   if (!taken || !isOpen(o)) return;
   AG.outbox = AG.outbox.filter(row => row.id !== id);

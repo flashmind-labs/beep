@@ -1,4 +1,4 @@
-import { createElement, createRef, type MouseEvent as ReactMouseEvent } from "react";
+import { createRef, type MouseEvent as ReactMouseEvent } from "react";
 import { placeWindowParts } from "./window-root.tsx";
 import { PaletteView } from "./palette-view.tsx";
 import type { NavigationArgs } from "./state.ts";
@@ -114,17 +114,18 @@ function close() {
 
 function draw(q: string) {
   if (!open) return;
-  placeWindowParts({ palette: createElement("div", { className: "cc-scrim",
-    onMouseDown: (e: ReactMouseEvent) => { if (e.target === e.currentTarget) { e.preventDefault(); close(); } } }, createElement(PaletteView, {
-    input: field, hits, selected: sel, query: q, searchIcon: IC.find,
-    group: (hit: Hit) => hit.top ? "Top hit" : GROUPS[hit.kind],
-    icon: (hit: Hit) => {
-      const name = ICON_OF[hit.kind] ?? hit.kind;
-      return name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
-    },
-    search: (value: string) => searching?.type(value), choose: pick,
-    hover: (index: number) => { if (sel !== index) { sel = index; mark(); } },
-  })) });
+  placeWindowParts({ palette: <div className="cc-scrim" onMouseDown={(e: ReactMouseEvent) => { if (e.target === e.currentTarget) { e.preventDefault(); close(); } }}>
+    <PaletteView
+      input={field} hits={hits} selected={sel} query={q} searchIcon={IC.find}
+      group={(hit: Hit) => hit.top ? "Top hit" : GROUPS[hit.kind]}
+      icon={(hit: Hit) => {
+        const name = ICON_OF[hit.kind] ?? hit.kind;
+        return name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC];
+      }}
+      search={(value: string) => searching?.type(value)} choose={pick}
+      hover={(index: number) => { if (sel !== index) { sel = index; mark(); } }}
+    />
+  </div> });
 }
 
 /// Highlights the selected row and keeps it in view.

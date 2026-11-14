@@ -1,6 +1,6 @@
 // One persistent sandbox renders diagrams while streamed replies replace their HTML.
 // Previews receive only the cached SVG, so they do not load Mermaid again.
-import { createElement, type SyntheticEvent } from "react";
+import { type SyntheticEvent } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { notice, saveUrl } from "./media.tsx";
@@ -31,12 +31,11 @@ function close() {
 function expand(source: string) {
   if (dialog) close();
   returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  dialogScope.set([{ slot: "dialog", host: document.body, content: createElement("dialog", {
-    "aria-label": "Diagram",
-    ref: (element: HTMLDialogElement | null) => { dialog = element; },
-    onCancel: (event: SyntheticEvent<HTMLDialogElement>) => { event.preventDefault(); close(); },
-    style: { width: "100vw", height: "100vh", maxWidth: "100vw", maxHeight: "100vh", margin: 0, padding: 0, border: 0, background: "var(--d-bg, #181818)" },
-  }) }]);
+  dialogScope.set([{ slot: "dialog", host: document.body, content: <dialog
+    aria-label="Diagram"
+    ref={element => { dialog = element; }}
+    onCancel={(event: SyntheticEvent<HTMLDialogElement>) => { event.preventDefault(); close(); }}
+    style={{ width: "100vw", height: "100vh", maxWidth: "100vw", maxHeight: "100vh", margin: 0, padding: 0, border: 0, background: "var(--d-bg, #181818)" }} /> }]);
   if (!dialog) return;
   const frame = makeFrame(source, true);
   frame.style.height = "100%";

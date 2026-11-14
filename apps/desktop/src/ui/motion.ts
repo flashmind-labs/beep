@@ -34,7 +34,7 @@ export function withMove(move: Move, step: () => void) {
 export type Swipe = "back" | "forward";
 
 /// What a swipe needs of the window: whether there is a page that way, and going to it.
-export interface SwipePages { has(to: Swipe): boolean; go(to: Swipe): void }
+interface SwipePages { has(to: Swipe): boolean; go(to: Swipe): void }
 
 /// How far the fingers travel before a swipe goes, how far before its direction is read, and
 /// how long the wheel rests between two swipes.

@@ -1,5 +1,4 @@
 import { lastProjectVisit, leaveProject, noteProjectVisit, readProjectSort, saveProjectSort } from "./project-preferences.ts";
-import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectRunning } from "./running-view.tsx";
 import { ProjectsOverview } from "./overview-view.tsx";
@@ -44,9 +43,9 @@ export function overviewSection(rows: Project[]): PagePart[] {
   leaveProject();
   const groups = overviewGroups(rows, state.top, state.groups, overviewOrder(rows));
   overviewHost ??= retainedHost(null);
-  showWindowParts([{ part: "project-overview", host: overviewHost, content: createElement(ProjectsOverview, { groups, editing: state.renaming, sort: projectSort, changeSort,
-    sync: (name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name)), add: addProject,
-  }) }]);
+  showWindowParts([{ part: "project-overview", host: overviewHost, content: <ProjectsOverview groups={groups} editing={state.renaming} sort={projectSort} changeSort={changeSort}
+    sync={(name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name))} add={addProject}
+  /> }]);
   return [hostPart(overviewHost)];
 }
 
@@ -92,10 +91,10 @@ export function projectDetail(p: Project): PagePart[] {
   disposeProjectShell();
 
   // A project only agents ran in has no checkout to list runs or code host lists for.
-  return [viewPart("fallback", createElement("div", { key: p.name, className: "pj-cols pj-half" }, createElement(ProjectFallback, {
-    session: sessionsList(p, running),
-    machines: whereSection(p, rows, !!machines), running: agentsSection(running), agents: customAgentsSection(rows),
-  })))];
+  return [viewPart("fallback", <div key={p.name} className="pj-cols pj-half"><ProjectFallback
+    session={sessionsList(p, running)}
+    machines={whereSection(p, rows, !!machines)} running={agentsSection(running)} agents={customAgentsSection(rows)}
+  /></div>)];
 }
 
 /// The project's custom agents: the named agents its folder defines for
@@ -149,11 +148,11 @@ export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
       terminalSummary: all === undefined ? "Reading…" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
   }
   const note = pageFresh("where", p.name, readingWhere.has(p.name));
-  return createElement("section", { key: p.name, className: "pm-section" }, createElement(MachinesSection, { sync: fsync, project: p.name, items, model, imported: p.imported, known,
-    count: whereCount(rows, false), fresh: note }));
+  return <section key={p.name} className="pm-section"><MachinesSection sync={fsync} project={p.name} items={items} model={model} imported={p.imported} known={known}
+    count={whereCount(rows, false)} fresh={note} /></section>;
 }
 
 /// The coding agents running in the project's folders now.
 export function agentsSection(running: RunningAgent[]) {
-  return createElement("div", { id: "sec-project-agents" }, createElement(ProjectRunning, { running }));
+  return <div id="sec-project-agents"><ProjectRunning running={running} /></div>;
 }

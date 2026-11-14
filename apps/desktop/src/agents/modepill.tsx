@@ -1,6 +1,5 @@
 // The session's mode: the pill by its field, Shift+Tab, and the plan waiting
 // for approval above the field.
-import { createElement } from "react";
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentMode, AgentPlan } from "./mode-view.tsx";
 import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, openOf, where } from "./agents.ts";
@@ -54,6 +53,6 @@ const FULL_MODES = new Set(["bypassPermissions", "agent-full-access", "yolo"]);
 export function drawModes() {
   const m = AG.modes, s = AG.page?.session, q = s?.question;
   const name = m?.modes.find(x => x.id === m.current)?.name ?? m?.current ?? "";
-  showAgentControl("mode", hasModes() && !FULL_MODES.has(m?.current ?? "") ? createElement(AgentMode, { name, plan: m?.current === "plan" }) : null);
-  showAgentControl("plan", s && q && m?.plan != null ? createElement(AgentPlan, { harness: agentKind(s.agent).name, plan: m.plan, question: q, approvalKey: questionKey(q, openOf(s)), answering: AG.answering }) : null);
+  showAgentControl("mode", hasModes() && !FULL_MODES.has(m?.current ?? "") ? <AgentMode name={name} plan={m?.current === "plan"} /> : null);
+  showAgentControl("plan", s && q && m?.plan != null ? <AgentPlan harness={agentKind(s.agent).name} plan={m.plan} question={q} approvalKey={questionKey(q, openOf(s))} answering={AG.answering} /> : null);
 }

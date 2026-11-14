@@ -7,6 +7,7 @@ import { AgentStopFace } from "./mode-view.tsx";
 import type { OutboxRow, Waiting } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 import { Button } from "../ui/kit.tsx";
+import { Icon } from "../ui/icons.tsx";
 import { plural } from "../ui/format.ts";
 import { openViewer } from "../chat/media.tsx";
 
@@ -173,6 +174,11 @@ const AttachmentSheet = lazy(async () => {
     </ModalOverlay>;
   } };
 });
+
+/// The x on an attachment chip; `data` names the data attribute that holds `index`.
+export function RemoveChip({ name, data, index, remove }: { name: string; data: string; index: number; remove(): void }) {
+  return <button type="button" aria-label={`Remove ${name}`} {...{ [data]: index }} onClick={remove}><Icon name="x" /></button>;
+}
 
 /// The input bar keeps one attachment control; its window shows every file.
 export function AttachmentBatch({ count, children }: { count: number; children: ReactNode }) {

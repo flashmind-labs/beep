@@ -28,7 +28,7 @@ export function forgetHeight() { barHeight = 0; }
 /// Sizes the bar to its content once per frame, so a streaming reply does
 /// not resize the window on every token. In a window's pane the bar does
 /// not size its window, so nothing is measured.
-export function fit() {
+function fit() {
   if (PANE) return;
   fitFrame ||= requestAnimationFrame(() => {
     fitFrame = 0;

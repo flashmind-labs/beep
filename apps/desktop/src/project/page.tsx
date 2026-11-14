@@ -11,7 +11,7 @@ import { openProjectMenu } from "./syncthing.ts";
 import { openProjectSkills } from "./project-skills.tsx";
 import { editorsFor } from "./editors.ts";
 import { ProjectEditors } from "./header-view.tsx";
-import { createElement, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { localProjectId } from "./localid.ts";
 import { type CenterView, state, warm } from "../center/state.ts";
@@ -27,7 +27,7 @@ import { projectComp, drawProjectComp } from "./composer.tsx";
 import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection, disposeSessionPanel } from "./loads.tsx";
 import { ensureHome } from "../center/refresh.ts";
 import { Icon } from "../ui/icons.tsx";
-import { EmptyPanel } from "../ui/kit.tsx";
+import { Button, EmptyPanel } from "../ui/kit.tsx";
 
 /// What the page last drew. It stays rendered while another page shows, so
 /// coming back keeps its place.
@@ -35,7 +35,7 @@ let shown: { project: string; split: boolean; parts: PagePart[] } | null = null;
 
 /// A new project gets a new view, so nothing of the last one carries over.
 export function ProjectsPage() {
-  return shown && createElement(Parts, { key: shown.project, className: shown.split ? "cc-view split" : "cc-view", project: shown.project, parts: shown.parts });
+  return shown && <Parts key={shown.project} className={shown.split ? "cc-view split" : "cc-view"} project={shown.project} parts={shown.parts} />;
 }
 
 export function drawProjects() {
@@ -47,9 +47,9 @@ export function drawProjects() {
   let one: Project | null = null;
 
   if (!state.home) {
-    parts.push(viewPart("loading", createElement(EmptyPanel, { title: "Loading projects…" })));
+    parts.push(viewPart("loading", <EmptyPanel title="Loading projects…" />));
   } else if (!rows || !rows.length) {
-    parts.push(viewPart("none", createElement(NoProjects, { add: addProject })));
+    parts.push(viewPart("none", <NoProjects add={addProject} />));
   } else {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
@@ -122,8 +122,8 @@ export const projectsView: CenterView<"projects"> = {
       const rows = projectRows();
       const sub = rows?.length ? overviewSub(overviewGroups(rows, state.top, state.groups)) : "Repositories on your machines";
       // Group controls follow mesh support.
-      const tools = [state.groups ? createElement("button", { key: "group", type: "button", className: "dbtn small pj-tool", "aria-label": "New group", onClick: () => editGroup() }, createElement("span", { style: { display: "contents" } }, createElement(Icon, { name: "folder" })), " New group") : null,
-        createElement("button", { key: "add", type: "button", className: "dbtn small pj-tool", "aria-label": "Add a project", onClick: addProject }, createElement("span", { style: { display: "contents" } }, createElement(Icon, { name: "plus" })), " Add a project")];
+      const tools = [state.groups ? <Button key="group" small className="pj-tool" aria-label="New group" onClick={() => editGroup()}><span style={{ display: "contents" }}><Icon name="folder" /></span> New group</Button> : null,
+        <Button key="add" small className="pj-tool" aria-label="Add a project" onClick={addProject}><span style={{ display: "contents" }}><Icon name="plus" /></span> Add a project</Button>];
       return { title: "Projects", sub, reactTools: tools };
     }
 
@@ -132,14 +132,14 @@ export const projectsView: CenterView<"projects"> = {
 
     if (p) {
       for (const f of forgeLinks(p.url, runs.hosts(localProjectId(p.name)))) {
-        tools.push(createElement("button", { key: `forge:${f.url}`, type: "button", className: "dbtn small", title: f.url, onClick: () => openUrl(f.url) }, f.label));
+        tools.push(<Button key={`forge:${f.url}`} small title={f.url} onClick={() => openUrl(f.url)}>{f.label}</Button>);
       }
 
       const here = whereRows(p, state.where.get(p.name) || null, state.mac?.id || null).find(r => r.mac && r.folder);
       const editors = editorsFor(here?.folder, redrawProjectsPage);
-      if (here?.folder && editors.length) tools.push(createElement(ProjectEditors, { key: "editors", editors, folder: here.folder }));
+      if (here?.folder && editors.length) tools.push(<ProjectEditors key="editors" editors={editors} folder={here.folder} />);
       // The rest goes in one menu, so the header keeps to a line.
-      tools.push(createElement("button", { key: "more", type: "button", className: "dbtn quiet small", title: "More", "aria-label": "More", onClick: (event: React.MouseEvent) => {
+      tools.push(<Button key="more" look="quiet" small title="More" aria-label="More" onClick={(event: React.MouseEvent) => {
         const project = (projectRows() || []).find(row => row.name === p.name) ?? p;
         const on = state.top.includes(project.name);
         const items: MenuAction[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
@@ -148,7 +148,7 @@ export const projectsView: CenterView<"projects"> = {
         items.push({ label: "Skills…", on: () => openProjectSkills(project.name) });
         if (project.imported) openProjectMenu(event.nativeEvent, project, items, { label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) }, () => { whereDue.add(project.name); revalidate(project.name); });
         else openMenu(event.nativeEvent, project.name, items);
-      } }, "⋯"));
+      }}>⋯</Button>);
     }
 
     return { title: p ? projectName(p) : state.picked, sub: projectLine(p), reactTools: tools };

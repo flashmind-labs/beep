@@ -1,6 +1,6 @@
 // settings/: the Settings pages (credentials, coding agents, instructions,
 // machines) and the window's sheet (sheet.ts). Entry: this file.
-import { createElement, createRef, type ReactNode, type ReactElement } from "react";
+import { createRef, type ReactNode, type ReactElement } from "react";
 import { flushSync } from "react-dom";
 import { AgentsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview, SkillsOverview } from "./overview-view.tsx";
 import { SkillsView } from "./skills-view.tsx";
@@ -54,7 +54,7 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
   // The window shows Settings as its sheet, never as a page of the pane.
   if (!SET.root && windowHooks) return windowHooks.openSettings();
   if (!SET.root) S.view = "settings";
-  if (root && shownSheet !== root) showSheet(root, createElement(SettingsLoading));
+  if (root && shownSheet !== root) showSheet(root, <SettingsLoading />);
   const token = ++SET.token;
   const alive = () => SET.token === token && setShown();
   const [got, mac] = await Promise.all([
@@ -67,7 +67,7 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
     SET.local = null;
     renderedPath = null;
     leavePage();
-    if (SET.root) showSheet(SET.root, createElement(SettingsFailure, { error: String(got) }));
+    if (SET.root) showSheet(SET.root, <SettingsFailure error={String(got)} />);
     else flushSync(() => openBarPage(() => { barSettings = null; }).show({ view: "settings-failure", error: String(got) }));
     return;
   }
@@ -101,7 +101,7 @@ export function redrawSettings() {
   else drawBarSettings();
 }
 
-export const setRoot = () => SET.root ?? bar;
+const setRoot = () => SET.root ?? bar;
 /// The sheet is open, or the bar still shows Settings.
 export const setShown = () => SET.root ? SET.root.isConnected : S.view === "settings";
 
@@ -126,11 +126,11 @@ function showSheet(sheet: HTMLElement, content: ReactNode) {
 }
 function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPath, version: string) {
   const openPage = (page: SettingsPage) => goTo(selectPage(page));
-  showSheet(sheet, createElement(SettingsShell, {
-    navigation: createElement(SettingsNavigation, { pages, path, version, subs: subEntries, pageName: pageLabel, subName: subLabel, count: navCount, openPage, openSub: (sub: SettingsSub) => goTo(openSub(sub)) }),
-    breadcrumb: createElement(SettingsBreadcrumb, { path, page: pageLabel(path.page), sub: path.sub ? subLabel(path.sub) : null, openPage }),
-    children: settingsSections(SET.local?.mac ?? null, true).find(([page]) => page === path.page)?.[1] ?? null,
-  }));
+  showSheet(sheet, <SettingsShell
+    navigation={<SettingsNavigation pages={pages} path={path} version={version} subs={subEntries} pageName={pageLabel} subName={subLabel} count={navCount} openPage={openPage} openSub={(sub: SettingsSub) => goTo(openSub(sub))} />}
+    breadcrumb={<SettingsBreadcrumb path={path} page={pageLabel(path.page)} sub={path.sub ? subLabel(path.sub) : null} openPage={openPage} />}>
+    {settingsSections(SET.local?.mac ?? null, true).find(([page]) => page === path.page)?.[1] ?? null}
+  </SettingsShell>);
 }
 
 /// The sheet closed: its pages stop drawing; its content goes with its frame.
@@ -237,11 +237,11 @@ function drawBarSettings() {
 
 /// The sections of Settings, in order, each with the page it is.
 function settingsSections(mac: MacControl | null, sheet: boolean): [SettingsPage, ReactElement][] {
-  const sec = (page: LocalView & SettingsPage, title: string) => createElement(SettingsSection, { key: page, page, title, children: localView(page) });
-  const host = (page: SettingsPage) => createElement(SettingsHost, { key: page, page, hostRef: pageHost });
+  const sec = (page: LocalView & SettingsPage, title: string) => <SettingsSection key={page} page={page} title={title}>{localView(page)}</SettingsSection>;
+  const host = (page: SettingsPage) => <SettingsHost key={page} page={page} hostRef={pageHost} />;
   const sub = SET.path?.sub;
   const agents = sheet && sub?.kind === "agent" ? host("agents")
-    : createElement(AgentSettingsSection, { key: "agents", bar: sheet ? null : localView("agent-bar"), accounts: agentAccountsContent(), overview: sheet ? localView("agent-overview") : null });
+    : <AgentSettingsSection key="agents" bar={sheet ? null : localView("agent-bar")} accounts={agentAccountsContent()} overview={sheet ? localView("agent-overview") : null} />;
   return [
     ["general", sec("general", "General")],
     ["appearance", sec("appearance", "Appearance")],
@@ -250,7 +250,7 @@ function settingsSections(mac: MacControl | null, sheet: boolean): [SettingsPage
     ["agents", agents],
     ["creds", sec("creds", "Credentials")],
     ["instr", sheet ? host("instr") : sec("instr", "Instructions")],
-    ["skills", sheet ? sec("skills", "Skill libraries") : createElement(SettingsSection, { key: "skills", page: "skills", title: "Skills", children: localView("skills-bar") })],
+    ["skills", sheet ? sec("skills", "Skill libraries") : <SettingsSection key="skills" page="skills" title="Skills">{localView("skills-bar")}</SettingsSection>],
   ];
 }
 
@@ -300,28 +300,26 @@ type LocalView = "general" | "appearance" | "mac" | "machines" | "instr" | "cred
 function localView(kind: LocalView): ReactNode {
   const local = SET.local;
   switch (kind) {
-    case "general": return local ? createElement(GeneralView, {
-      settings: local.set, phone: onPhone(), busy: generalPending,
-      autostart: (enabled: boolean) => void change(generalPending, "autostart", "set_autostart", { enabled }),
-      notices: (enabled: boolean) => void change(generalPending, "notices", "set_agent_notices", { enabled }),
-      chooseSaves: () => void change(generalPending, "saves", "choose_save_folder", {}),
-      useDownloads: () => void change(generalPending, "saves", "use_downloads", {}),
-      shortcuts: () => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts(),
-      report: () => windowHooks ? windowHooks.openReport() : toWindow("report"),
-    }) : null;
-    case "appearance": return createElement(AppearanceView);
-    case "mac": return local?.mac ? createElement(ComputerView, {
-      mac: local.mac, busy: macPending.size > 0,
-      setEnabled: (enabled: boolean) => void change(macPending, "mac", "set_mac_control", { enabled }),
-      allow: (permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); },
-    }) : null;
-    case "machines": return createElement(MachinesOverview, { machines: SET.machines, open: () => { void renderMachines(); } });
-    case "instr": return createElement(InstructionsOverview, { open: () => toWindow("instructions") });
+    case "general": return local ? <GeneralView
+      settings={local.set} phone={onPhone()} busy={generalPending}
+      autostart={(enabled: boolean) => void change(generalPending, "autostart", "set_autostart", { enabled })}
+      notices={(enabled: boolean) => void change(generalPending, "notices", "set_agent_notices", { enabled })}
+      chooseSaves={() => void change(generalPending, "saves", "choose_save_folder", {})}
+      useDownloads={() => void change(generalPending, "saves", "use_downloads", {})}
+      shortcuts={() => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts()}
+      report={() => windowHooks ? windowHooks.openReport() : toWindow("report")} /> : null;
+    case "appearance": return <AppearanceView />;
+    case "mac": return local?.mac ? <ComputerView
+      mac={local.mac} busy={macPending.size > 0}
+      setEnabled={(enabled: boolean) => void change(macPending, "mac", "set_mac_control", { enabled })}
+      allow={(permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); }} /> : null;
+    case "machines": return <MachinesOverview machines={SET.machines} open={() => { void renderMachines(); }} />;
+    case "instr": return <InstructionsOverview open={() => toWindow("instructions")} />;
     case "creds": return credentialsContent();
-    case "skills": return createElement(SkillsView);
-    case "skills-bar": return createElement(SkillsOverview, { open: () => windowHooks ? windowHooks.openSettings() : toWindow("settings") });
-    case "agent-bar": return createElement(AgentsOverview, { open: () => toWindow("providers") });
-    case "agent-overview": return createElement(CodingAgentOverview, { open: (sub: SettingsSub) => goTo(openSub(sub)) });
+    case "skills": return <SkillsView />;
+    case "skills-bar": return <SkillsOverview open={() => windowHooks ? windowHooks.openSettings() : toWindow("settings")} />;
+    case "agent-bar": return <AgentsOverview open={() => toWindow("providers")} />;
+    case "agent-overview": return <CodingAgentOverview open={(sub: SettingsSub) => goTo(openSub(sub))} />;
   }
 }
 

@@ -2,7 +2,6 @@
 // above the field with their count, which opens the Running tab, where each
 // one shows with its Stop button.
 import { Spinner } from "../ui/kit.tsx";
-import { createElement } from "react";
 import { showAgentControl } from "./composer-ui.tsx";
 import { type AgentTask, type OpenAgent, AG, AGENT_READ_WAIT_MS, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
@@ -51,14 +50,17 @@ export function drawTasks() {
   }
 
   // No tasks draws nothing, and an unchanged line does not draw again.
-  showAgentControl("tasks", live.length === 0 ? null : createElement(TasksLine, { count: live.length }));
+  showAgentControl("tasks", live.length === 0 ? null : <TasksLine count={live.length} />);
 }
 
 /// "3 commands running", which opens the Running tab.
 function TasksLine({ count }: { count: number }) {
-  return createElement("button", { type: "button", className: "ag-tasks", title: "Show them in the Running tab", onClick: showRunning },
-    createElement(Spinner, { dot: true }),
-    createElement("span", null, `${plural(count, "command", "commands")} running`));
+  return (
+    <button type="button" className="ag-tasks" title="Show them in the Running tab" onClick={showRunning}>
+      <Spinner dot />
+      <span>{plural(count, "command", "commands")} running</span>
+    </button>
+  );
 }
 
 /// Stop was clicked on task `id` in the Running tab.

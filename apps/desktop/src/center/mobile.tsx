@@ -3,7 +3,6 @@
 // mobile.css, scoped to `body.mobile`; this file sets the class and draws the bars.
 import { isMobile, onPhone } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
-import { createElement } from "react";
 import { MobileTabs, MobileBack, HideKeyboard } from "./mobile-view.tsx";
 import { placeWindowParts, removeWindowPart, showWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
@@ -62,8 +61,8 @@ let mounted = false;
 function drawMobile(now: MobileAt) {
   if (!mounted) return;
   placeWindowParts({
-    "mobile-tabs": createElement(MobileTabs, { active: activeTab(now), needsReply: !!state.home?.needs_you.length, open: tab => OPEN[tab]() }),
-    "mobile-back": createElement(MobileBack, { hidden: backTo(now) === null, back }),
+    "mobile-tabs": <MobileTabs active={activeTab(now)} needsReply={!!state.home?.needs_you.length} open={tab => OPEN[tab]()} />,
+    "mobile-back": <MobileBack hidden={backTo(now) === null} back={back} />,
   });
 }
 
@@ -239,7 +238,7 @@ function keyboard() {
     const field = e.target instanceof Element ? e.target.closest<HTMLElement>(".dinput") : null;
     if (!field || keyboardHost === field || !document.body.classList.contains("mobile")) return;
     keyboardHost = field;
-    showWindowParts([{ part: "mobile-keyboard", host: field, content: createElement(HideKeyboard, { dismiss }) }]);
+    showWindowParts([{ part: "mobile-keyboard", host: field, content: <HideKeyboard dismiss={dismiss} /> }]);
   });
 
   // A downward drag outside the field, as when scrolling back through the log.

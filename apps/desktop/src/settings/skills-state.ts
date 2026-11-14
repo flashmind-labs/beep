@@ -62,7 +62,7 @@ export function coverage(pick: Pick, skills: readonly LibrarySkill[]): Coverage 
   return count === skills.length && skills.length > 0 ? "all" : "some";
 }
 
-export function pickedCount(pick: Pick, skills: readonly LibrarySkill[]) {
+function pickedCount(pick: Pick, skills: readonly LibrarySkill[]) {
   return skills.filter(skill => pickHas(pick, skill.name)).length;
 }
 

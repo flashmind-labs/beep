@@ -3,7 +3,7 @@
 
 /// One shortcut: its key caps ("/" between alternatives, a space between keys
 /// pressed in turn) and what it does.
-export interface Shortcut {
+interface Shortcut {
   keys: string;
   does: string;
 }

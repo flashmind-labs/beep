@@ -3,7 +3,7 @@
 // the app's windows share, so a change in one shows in the others at once.
 // Also the layout picked for Home and a project's front page.
 
-export interface Skin {
+interface Skin {
   id: string;
   name: string;
   /// A color that stands for it in the picker.
@@ -31,7 +31,7 @@ export const SKINS: readonly Skin[] = [
   { id: "warm", name: "Warm", swatch: "#f3efe8", light: true },
 ];
 
-export const DEFAULT_SKIN = "linear";
+const DEFAULT_SKIN = "linear";
 const KEY = "beep.skin";
 
 /// The picked skin's id, the default when none or an unknown one is kept.

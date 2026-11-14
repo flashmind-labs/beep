@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { NoticesView } from "./notices-view.tsx";
@@ -80,10 +79,10 @@ export function mountNotices() {
     const index = focused ? [...host.querySelectorAll(".nt-row")].indexOf(focused) : -1;
     const action = focused ? [...focused.querySelectorAll("button")].indexOf(active as HTMLButtonElement) : -1;
     const shown = opened ? find(notes, opened) : null;
-    placeWindowParts({ notices: createElement(NoticesView, {
-      items: notes, open, shown, answering, failed, keeping, toggle: () => toggle(!open), back: backToList,
-      dismiss, openItem, answer, keep: keepCopy,
-    }) });
+    placeWindowParts({ notices: <NoticesView
+      items={notes} open={open} shown={shown} answering={answering} failed={failed} keeping={keeping} toggle={() => toggle(!open)} back={backToList}
+      dismiss={dismiss} openItem={openItem} answer={answer} keep={keepCopy}
+    /> });
     if (focused && !focused.isConnected && open) {
       const rows = [...host.querySelectorAll<HTMLElement>(".nt-row")];
       const row = rows.find(r => r.dataset.id === focused.dataset.id) ?? rows[Math.min(index, rows.length - 1)];

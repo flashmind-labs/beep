@@ -1,4 +1,4 @@
-import { createElement, createRef } from "react";
+import { createRef } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView } from "../ui/document-root.tsx";
 import { FindView } from "./find-view.tsx";
@@ -41,13 +41,12 @@ export function openChatFind(chat: ChatSearch) {
   const field = createRef<HTMLInputElement>();
   const root = createDocumentView(layer);
   let useRegex = false, statusText = "";
-  const draw = () => flushSync(() => root.render(createElement(FindView, {
-    field, error, status: statusText, regex: useRegex, disabled: !matches.length,
-    input: () => { clearTimeout(timer); timer = window.setTimeout(() => { timer = 0; refresh(true); }, 100); },
-    enter: reverse => move(reverse ? -1 : 1),
-    toggleRegex: () => { useRegex = !useRegex; clearTimeout(timer); timer = 0; refresh(true); input.focus({ preventScroll: true }); },
-    move, close: () => close(),
-  })));
+  const draw = () => flushSync(() => root.render(<FindView
+    field={field} error={error} status={statusText} regex={useRegex} disabled={!matches.length}
+    input={() => { clearTimeout(timer); timer = window.setTimeout(() => { timer = 0; refresh(true); }, 100); }}
+    enter={reverse => move(reverse ? -1 : 1)}
+    toggleRegex={() => { useRegex = !useRegex; clearTimeout(timer); timer = 0; refresh(true); input.focus({ preventScroll: true }); }}
+    move={move} close={() => close()} />));
   let input: HTMLInputElement;
   let matches: Match[] = [], current = -1, timer = 0, updateTimer = 0, loading = !!chat.prepare, closed = false;
   let pattern: RegExp | null = null, error = "";

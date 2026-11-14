@@ -15,7 +15,7 @@ import { renderSettings, settingsBack } from "../settings/settings.tsx";
 import { setPaneShown } from "../ui/active.ts";
 
 /// What the window can open in the pane by name.
-export type PanePage = "agents" | "settings" | "machines";
+type PanePage = "agents" | "settings" | "machines";
 
 /// What the window can open in the pane: a page, or an agent view.
 export type PaneTarget =

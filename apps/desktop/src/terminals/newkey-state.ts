@@ -2,7 +2,7 @@ import { commandKey, WINDOWS } from "../ui/platform.ts";
 // ⌘N with a terminal on screen: a new terminal like it, not a new agent.
 
 /// A terminal on screen: where it runs, and whether it has the keys.
-export interface TermShown {
+interface TermShown {
   machine_id: string;
   machine_name: string;
   cwd: string;

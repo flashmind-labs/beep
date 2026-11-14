@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpan, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
@@ -174,7 +173,7 @@ function draw(field: HTMLTextAreaElement) {
   layer.style.top = `${field.offsetTop + field.clientTop}px`;
   layer.style.width = `${field.clientWidth}px`;
   layer.style.height = `${field.clientHeight}px`;
-  overlay.set([{ slot: f.slot, host: layer, content: createElement(ComposeOverlay, { value, pills, fence }) }]);
+  overlay.set([{ slot: f.slot, host: layer, content: <ComposeOverlay value={value} pills={pills} fence={fence} /> }]);
   f.active = true;
   layer.scrollTop = field.scrollTop;
 }
@@ -321,11 +320,10 @@ function openPop(field: HTMLTextAreaElement, id: number) {
   const preview = shown.length > PREVIEW_LINES ? `${shown.slice(0, PREVIEW_LINES).join("\n")}\n…` : text;
   const parent = field.parentElement;
   if (!parent) return;
-  overlay.set([{ slot: `popup:${f.slot}`, host: parent, content: createElement(ComposePopup, {
-    text: preview, lines: lineCount(text), node: element => { f.pop = element; },
-    expand: () => { if (select()) insert(field, text); closePop(field); },
-    remove: () => { if (select()) insert(field, ""); closePop(field); },
-  }) }]);
+  overlay.set([{ slot: `popup:${f.slot}`, host: parent, content: <ComposePopup
+    text={preview} lines={lineCount(text)} node={element => { f.pop = element; }}
+    expand={() => { if (select()) insert(field, text); closePop(field); }}
+    remove={() => { if (select()) insert(field, ""); closePop(field); }} /> }]);
   const pop = f.pop;
   if (!pop) return;
   const away = (e: MouseEvent) => { if (!pop.contains(e.target as Node)) closePop(field); };

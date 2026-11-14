@@ -4,7 +4,6 @@
 // this module picks which turns are drawn and keeps the reader's place.
 // A turn draws again only when one of its rows changed, and then only that
 // row, so a streaming reply updates alone.
-import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import type { TurnHeading } from "./turn-heading-view.tsx";
@@ -246,7 +245,7 @@ export function logSearchSources(log: HTMLElement) {
 
   if (!w.search) {
     const host = document.createElement("div"), view = createDocumentView(host);
-    flushSync(() => view.render(w.units.map(u => createElement("div", { key: u.key }, createElement(TurnRows, { rows: keyedRows(u.rows()) })))));
+    flushSync(() => view.render(w.units.map(u => <div key={u.key}><TurnRows rows={keyedRows(u.rows())} /></div>)));
     const roots = [...host.children].filter((el): el is HTMLElement => el instanceof HTMLElement);
     w.search = { view, sources: w.units.map((u, i) => ({ key: u.key, root: roots[i] ?? document.createElement("div") })) };
   }

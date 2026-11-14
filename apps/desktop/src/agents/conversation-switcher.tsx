@@ -4,7 +4,6 @@ import { type ConversationChoice, conversationHistory, conversationKey, firstCon
 import { loadSessions, parentSession, sessions } from "./sessions.ts";
 import { withoutCopies } from "./move-store.ts";
 import { S } from "../bar/core.ts";
-import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { ConversationSwitcher } from "./conversation-switcher-view.tsx";
 import { dialogOpen, openSheet } from "../ui/parts.tsx";
@@ -50,9 +49,9 @@ export function initConversationSwitcher(options: SwitcherOptions) {
       close, rows, index: currentKey ? rows.findIndex(c => conversationKey(c.row) === currentKey) : -1,
       draw() {
         if (!open) return;
-        flushSync(() => render(createElement(ConversationSwitcher, {
-          rows, index: p.index, current: currentKey, choose: (index: number) => { p.index = index; finish(true); },
-        })));
+        flushSync(() => render(
+          <ConversationSwitcher rows={rows} index={p.index} current={currentKey} choose={(index: number) => { p.index = index; finish(true); }} />,
+        ));
       },
     };
     picker = p;

@@ -1,4 +1,4 @@
-import { createElement, Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { createDocumentScope, documentScopes } from "../ui/document-root.tsx";
@@ -11,8 +11,10 @@ import { CenterWindow, shell, type ShellPart } from "./window-shell.tsx";
 const container = typeof document === "undefined" ? null : document.querySelector(".cwin");
 if (container) {
   const root = createRoot(container);
-  flushSync(() => root.render(createElement(RouterContextProvider, { router: windowHistory.router,
-    children: createElement(Fragment, null, createElement(RouterProvider, { router: windowHistory.router }), createElement(CenterWindow), documentScopes()) })));
+  flushSync(() => root.render(
+    <RouterContextProvider router={windowHistory.router}>
+      <Fragment><RouterProvider router={windowHistory.router} /><CenterWindow />{documentScopes()}</Fragment>
+    </RouterContextProvider>));
 }
 
 /// Fills places of the window, synchronously; null empties one.
@@ -33,6 +35,6 @@ export function removeWindowPart(part: Part) {
   removeWindowParts([part]);
 }
 
-export function removeWindowParts(removed: readonly Part[]) {
+function removeWindowParts(removed: readonly Part[]) {
   scope.remove(removed);
 }

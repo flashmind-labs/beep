@@ -1,6 +1,5 @@
 // The bar's page as a pane in the window: its header, and handoffs from
 // other windows.
-import { createElement } from "react";
 import { invoke, listen } from "../ui/tauri.ts";
 import { bar, type View } from "../bar/core.ts";
 import { pane } from "../bar/pane.ts";
@@ -28,8 +27,8 @@ function paneTitle(): ViewHead {
   const on = paneOn();
   const [title, sub] = on.view ? PANE_TITLES[on.view] : ["Beep", ""];
   // The phone hides the list's own header, so New sits in the page header there.
-  if (on.view === "agents") return { title, sub, reactTools: createElement("button", { type: "button", className: "dbtn small ag-new-top", onClick: () => go("pane", { agentnew: { prompt: "" } }) }, "New") };
-  if (on.view === "agentnew") return { title, sub, reactTools: createElement("button", { type: "button", className: "dbtn small", onClick: () => go("pane", "agents") }, "All sessions") };
+  if (on.view === "agents") return { title, sub, reactTools: <button type="button" className="dbtn small ag-new-top" onClick={() => go("pane", { agentnew: { prompt: "" } })}>New</button> };
+  if (on.view === "agentnew") return { title, sub, reactTools: <button type="button" className="dbtn small" onClick={() => go("pane", "agents")}>All sessions</button> };
   return { title, sub };
 }
 
@@ -64,7 +63,7 @@ export async function debugWithAgent(text: string) {
 export const readPending = () => invoke<CenterTarget | null>("center_pending").catch(() => null);
 
 /// Shows what the bar or tray asked for, once; Home when nothing is waiting.
-export async function takePending(fallback: "home" | null) {
+async function takePending(fallback: "home" | null) {
   showPending(await readPending(), fallback);
 }
 

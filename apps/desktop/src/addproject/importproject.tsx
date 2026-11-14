@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ImportProjectView } from "./importproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
@@ -192,18 +192,18 @@ function draw() {
   if (!view) return;
   const current = view;
   const folder = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
-  flushSync(() => current(createElement(ImportProjectView, {
-    state, machines, preview, previewFor, previewError, fork, picks, reading, folder, goes: goesIn(), syncChoice: syncthing,
-    edit: (repo: string) => { update({ type: "edit", repo }); schedulePreview(); },
-    pick: (machine: string | null) => { update({ type: "pick", machine }); learnBase(); },
-    submit: () => void submit(), close: closeImportProject, choose: () => void choose(), unchoose: () => update({ type: "unchoose" }),
-    folderInput: (value: string) => {
+  flushSync(() => current(<ImportProjectView
+    state={state} machines={machines} preview={preview} previewFor={previewFor} previewError={previewError} fork={fork} picks={picks} reading={reading} folder={folder} goes={goesIn()} syncChoice={syncthing}
+    edit={(repo: string) => { update({ type: "edit", repo }); schedulePreview(); }}
+    pick={(machine: string | null) => { update({ type: "pick", machine }); learnBase(); }}
+    submit={() => void submit()} close={closeImportProject} choose={() => void choose()} unchoose={() => update({ type: "unchoose" })}
+    folderInput={(value: string) => {
       if (state.chosen) { resetFolder(); state = next(state, { type: "unchoose" }); void syncthing.follow(state.machine, null); }
       folderText = value; draw();
-    },
-    browse: browseTo, cancelBrowse: () => update({ type: "browse", listing: null }), useFolder: (listing: MachineFolder) => update({ type: "choose", listing }),
-    pickBranch: (branch: string, machine: string | null) => { if (machine === null) delete picks[branch]; else picks[branch] = machine; draw(); },
-  })));
+    }}
+    browse={browseTo} cancelBrowse={() => update({ type: "browse", listing: null })} useFolder={(listing: MachineFolder) => update({ type: "choose", listing })}
+    pickBranch={(branch: string, machine: string | null) => { if (machine === null) delete picks[branch]; else picks[branch] = machine; draw(); }}
+  />));
 }
 
 /// Reads a folder on the picked machine (`path` null for where it starts),

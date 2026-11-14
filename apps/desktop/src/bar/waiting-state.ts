@@ -11,11 +11,11 @@ export interface WaitingSession {
 }
 
 /// The most rows the list shows.
-export const WAITING_MAX = 10;
+const WAITING_MAX = 10;
 
 const ORDER: Record<WaitingKind, number> = { asking: 0, done: 1, running: 2, idle: 3 };
 
-export function waitingKind(s: AgentSession, unread: ReadonlySet<string>): WaitingKind | null {
+function waitingKind(s: AgentSession, unread: ReadonlySet<string>): WaitingKind | null {
   if (s.status === "asking" || s.question) return "asking";
   if (s.status === "ended" || s.status === "closing") return null;
   if (s.status === "working" || s.status === "running" || s.status === "starting") return "running";

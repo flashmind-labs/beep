@@ -35,7 +35,7 @@ export interface GitHubAccount {
 }
 
 /// A CLI's sign-in on this Mac (LoginView).
-export type CliLogin = { state: "signed_in"; account?: string | null } | { state: "signed_out" } | { state: "missing" };
+type CliLogin = { state: "signed_in"; account?: string | null } | { state: "signed_out" } | { state: "missing" };
 
 /// What gh and teacli on this Mac are signed in to (CliLogins).
 export interface CliLogins {

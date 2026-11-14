@@ -5,7 +5,6 @@ import { paneSession } from "../agentpane/media.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { bar, S } from "../bar/core.ts";
-import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { ICON } from "../ui/icons.tsx";
 
@@ -86,7 +85,7 @@ bar.addEventListener("dragover", e => {
   e.preventDefault();
   if (overlaid) return;
   overlaid = true;
-  dropOverlay.set([{ slot: "drop", host: bar, content: createElement("div", { className: "ddrop", id: "ddrop" }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: ICON.image } }), "Drop images to send, other files to upload") }]);
+  dropOverlay.set([{ slot: "drop", host: bar, content: <div className="ddrop" id="ddrop"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: ICON.image }} />Drop images to send, other files to upload</div> }]);
 });
 bar.addEventListener("dragleave", e => {
   const into = e.relatedTarget instanceof Element ? e.relatedTarget : null;

@@ -14,7 +14,7 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
 /// What the viewer says of a model under it.
-export interface ModelInfo {
+interface ModelInfo {
   format: string;
   triangles: number;
   meshes: number;

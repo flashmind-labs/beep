@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { UsageWidget } from "./usage-view.tsx";
@@ -214,8 +213,8 @@ export function mountUsage(read: (refresh: boolean) => Promise<UsageView | null>
   const draw = () => {
     if (!hasUsage(view)) { placeWindowParts({ usage: null }); return; }
     const current = view;
-    placeWindowParts({ usage: createElement(UsageWidget, { view: current, open, period, allProjects,
-      toggle: () => toggle(!open), pick, more: () => { allProjects = !allProjects; draw(); } }) });
+    placeWindowParts({ usage: <UsageWidget view={current} open={open} period={period} allProjects={allProjects}
+      toggle={() => toggle(!open)} pick={pick} more={() => { allProjects = !allProjects; draw(); }} /> });
   };
 
   const load = async (refresh: boolean) => {

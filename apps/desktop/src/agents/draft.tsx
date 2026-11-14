@@ -2,7 +2,6 @@
 // header and side pane, with the shared new-agent composer centered in the
 // empty conversation. Sending from it starts the session in place (session.ts
 // openAgent with `adopt`); the pane and its terminals stay.
-import { createElement } from "react";
 import { createStore } from "zustand/vanilla";
 import { S, windowHooks } from "../bar/core.ts";
 import { rebindPane, startPane } from "../agentpane/media.ts";
@@ -53,7 +52,7 @@ function drawFrame(project: string) {
   const draft = host = document.createElement("div"); draft.id = "agdraft"; body.append(draft);
   const openProject = () => windowHooks?.goBack({ view: "projects", arg: { project } }, true);
   machine.setState("", true);
-  showSessionFrame({ head: createElement(DraftHead, { project, openProject, machine }), field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
+  showSessionFrame({ head: <DraftHead project={project} openProject={openProject} machine={machine} />, field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
   draftMessage.current = projectComp.input;
   draft.append(projectComp.form);
   bound = "";

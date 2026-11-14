@@ -57,7 +57,7 @@ function row({ session: s, kind }: WaitingSession): WaitingRow {
 }
 
 /// Draws the list; the list takes the focus with `focus`, or when it had it.
-export function drawWaiting(focus = false) {
+function drawWaiting(focus = false) {
   if (S.view !== "waiting") return;
   W.rows = pick();
   W.sel = Math.min(W.sel, Math.max(0, W.rows.length - 1));

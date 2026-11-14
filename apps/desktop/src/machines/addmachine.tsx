@@ -4,7 +4,7 @@ import { latest, onShownChange, STALE } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
-import { createElement, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { openSheet } from "../ui/parts.tsx";
 import { AddMachineBody } from "./addmachine-view.tsx";
@@ -161,11 +161,11 @@ function update(event: AddEvent) {
 function draw(focus = true) {
   if (!sheet || !render) return;
   const box = sheet, show = render;
-  flushSync(() => show(createElement(AddMachineBody, {
-    state, kind, mac, macAsked, now: Date.now(),
-    selectKind: (selected: TicketKind) => { if (kind !== selected) { kind = selected; void start(); } },
-    useThisMac: () => { void useThisMac(); }, start: () => { void start(); }, close: closeAddMachine,
-  })));
+  flushSync(() => show(<AddMachineBody
+    state={state} kind={kind} mac={mac} macAsked={macAsked} now={Date.now()}
+    selectKind={(selected: TicketKind) => { if (kind !== selected) { kind = selected; void start(); } }}
+    useThisMac={() => { void useThisMac(); }} start={() => { void start(); }} close={closeAddMachine}
+  />));
   const first = box.querySelector("button");
   if (focus && first && !box.contains(document.activeElement)) first.focus();
 }

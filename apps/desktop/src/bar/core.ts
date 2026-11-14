@@ -25,7 +25,7 @@ export function current(): PaneNow {
 /// Told when the view changes, for the window's sidebar.
 export const changeListeners: ((now: PaneNow) => void)[] = [];
 let changeQueued = false;
-export function changed() {
+function changed() {
   if (changeQueued) return;
   changeQueued = true;
   queueMicrotask(() => {

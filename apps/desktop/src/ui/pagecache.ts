@@ -17,7 +17,7 @@ interface Slot {
 }
 
 /// The cache as the app saves it.
-export interface PageCacheFile {
+interface PageCacheFile {
   format: number;
   account: string;
   slots: Record<string, Slot>;
@@ -30,7 +30,7 @@ export const PAGE_CACHE_FORMAT = 1;
 export const REFRESH_MS = 3 * 60_000;
 /// Where the project lives and its sessions come from the machines, not
 /// the code host, and change as agents start, so they read sooner.
-export const MACHINE_REFRESH_MS = 60_000;
+const MACHINE_REFRESH_MS = 60_000;
 
 /// Opening a project reads what the mesh keeps of its code host (pull
 /// requests, issues, runs) again once it is this old, so an issue closed or a
@@ -54,7 +54,7 @@ export class Changes {
 }
 
 /// Each section's `REFRESH_MS` or `MACHINE_REFRESH_MS`.
-export const REFRESH: Record<PageSection, number> = {
+const REFRESH: Record<PageSection, number> = {
   where: MACHINE_REFRESH_MS,
   sessions: MACHINE_REFRESH_MS,
   threads: REFRESH_MS,
@@ -64,13 +64,13 @@ export const REFRESH: Record<PageSection, number> = {
   gitsync: MACHINE_REFRESH_MS,
 };
 /// Answers kept at most, across every project and section.
-export const MAX_SLOTS = 150;
+const MAX_SLOTS = 150;
 /// The saved file's size at most, in characters of JSON.
-export const MAX_CHARS = 1_000_000;
+const MAX_CHARS = 1_000_000;
 /// An answer older than this is not shown at all.
-export const MAX_AGE_MS = 14 * 86_400_000;
+const MAX_AGE_MS = 14 * 86_400_000;
 /// Data younger than this needs no note on its section.
-export const QUIET_MS = 60_000;
+const QUIET_MS = 60_000;
 
 function slotKey(section: PageSection, id: string) { return `${section}\n${id}`; }
 

@@ -1,5 +1,4 @@
 import { CredentialsView, type CredentialActions } from "./credentials-view.tsx";
-import { createElement } from "react";
 import { AgentAccountsView, type AgentAccountActions } from "./agentaccounts-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { tokenDraft } from "./agentaccounts.ts";
@@ -108,7 +107,7 @@ const credsEntered = () => { credsShown = true; };
 const credsLeft = () => { credsShown = false; credEditVersion++; };
 export function credentialsContent() {
   const machines = Array.isArray(SET.machines) ? SET.machines : null;
-  return createElement(Mounted, { entered: credsEntered, left: credsLeft, children: createElement(CredentialsView, { state: CRED, machines, actions: credActions }) });
+  return <Mounted entered={credsEntered} left={credsLeft}><CredentialsView state={CRED} machines={machines} actions={credActions} /></Mounted>;
 }
 export function renderCreds() {
   if (credsShown) redrawSettings();
@@ -235,7 +234,7 @@ let agentEditVersion = 0;
 const agentsEntered = () => { agentsShown = true; void ACC.poll?.check(); };
 const agentsLeft = () => { agentsShown = false; agentEditVersion++; };
 export function agentAccountsContent() {
-  return createElement(Mounted, { entered: agentsEntered, left: agentsLeft, children: createElement(AgentAccountsView, { state: ACC, ago: ms => formatAgo(ms, "chat"), now: Date.now(), actions: agentActions }) });
+  return <Mounted entered={agentsEntered} left={agentsLeft}><AgentAccountsView state={ACC} ago={ms => formatAgo(ms, "chat")} now={Date.now()} actions={agentActions} /></Mounted>;
 }
 function renderAgents() {
   if (agentsShown) redrawSettings();

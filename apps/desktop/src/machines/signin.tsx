@@ -1,7 +1,6 @@
 // The sign-in sheet: a machine of the mesh runs a coding agent's own
 // sign-in (sign-in/1) and this Mac shows the link and code it printed, and
 // sends back the code the page gives.
-import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { reason } from "../ui/format.ts";
 import { openSheet } from "../ui/parts.tsx";
@@ -76,12 +75,12 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
 
   function draw() {
     if (!active) return;
-    flushSync(() => shell.render(createElement(SignInBody, {
-      machineName: machine.name, tool, view, error, sending, send,
-      retry: () => { view = null; draw(); void step({ step: "start" }); },
-      close: shell.close,
-      openUrl: (url: string) => { void invoke("open_url", { url }).catch(console.warn); },
-    })));
+    flushSync(() => shell.render(<SignInBody
+      machineName={machine.name} tool={tool} view={view} error={error} sending={sending} send={send}
+      retry={() => { view = null; draw(); void step({ step: "start" }); }}
+      close={shell.close}
+      openUrl={(url: string) => { void invoke("open_url", { url }).catch(console.warn); }}
+    />));
   }
 
   draw();

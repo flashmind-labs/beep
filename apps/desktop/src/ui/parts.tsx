@@ -1,5 +1,5 @@
 // Shared command-center controls, dialog lifetimes, focus and clipboard behavior.
-import { createElement, createRef, useCallback, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
+import { createRef, useCallback, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { createDocumentScope } from "./document-root.tsx";
 
 /// `text` on the clipboard. The webview may refuse the async way; the old way
@@ -85,11 +85,13 @@ interface SheetFrameOptions {
 export function mountSheetFrame(label: string, cls: string, options: SheetFrameOptions) {
   const rootRef = createRef<HTMLDivElement>(), sheetRef = createRef<HTMLDivElement>();
   const owner = createDocumentScope<"sheet">();
-  const frame = (content: ReactNode, named = label) => createElement("div", {
-    className: options.scrimClass, ref: rootRef,
-    onMouseDown: (event: ReactMouseEvent) => { if (event.target === event.currentTarget) options.onScrim(); },
-  }, createElement("div", { className: cls, role: "dialog", "aria-modal": true, "aria-label": named, ref: sheetRef,
-    ...options.ownKeys ? { tabIndex: -1, onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation() } : {} }, content));
+  const frame = (content: ReactNode, named = label) => (
+    <div className={options.scrimClass} ref={rootRef}
+      onMouseDown={(event: ReactMouseEvent) => { if (event.target === event.currentTarget) options.onScrim(); }}>
+      <div className={cls} role="dialog" aria-modal aria-label={named} ref={sheetRef}
+        {...options.ownKeys ? { tabIndex: -1, onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation() } : {}}>{content}</div>
+    </div>
+  );
   owner.set([{ slot: "sheet", host: options.host, content: frame(null) }]);
   const root = rootRef.current, sheet = sheetRef.current;
   // The scope commits synchronously, so its DOM refs must be available here.

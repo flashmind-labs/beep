@@ -5,8 +5,8 @@ import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import type { FoundLibrary, LibraryProblem, Pick, SkillLibrary } from "./skills-state.ts";
 
-export type AddState = { kind: "closed" } | { kind: "open"; busy: boolean; error: string | null };
-export type FindState = { kind: "idle" } | { kind: "scanning" } | { kind: "found"; found: FoundLibrary[] } | { kind: "failed"; message: string };
+type AddState = { kind: "closed" } | { kind: "open"; busy: boolean; error: string | null };
+type FindState = { kind: "idle" } | { kind: "scanning" } | { kind: "found"; found: FoundLibrary[] } | { kind: "failed"; message: string };
 
 export interface SkillsState {
   /// Null until the first read answers.

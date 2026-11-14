@@ -1,6 +1,5 @@
 // The open session's head and key hints: its title, folder, usage and the
 // editors that open its folder.
-import { createElement } from "react";
 import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
 import { PANE, windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
@@ -103,7 +102,7 @@ export async function drawEditors(machine: string, cwd: string, current: () => b
     if (!current() || editorHead !== head || sessionEditHost() !== target) return;
     editorFolder = folder;
     const editors = editorsFor(folder, draw);
-    if (folder && editors.length) setSessionPortal(target, createElement(ProjectEditors, { editors, folder }));
+    if (folder && editors.length) setSessionPortal(target, <ProjectEditors editors={editors} folder={folder} />);
     else removeSessionPortal(target);
   };
   draw();

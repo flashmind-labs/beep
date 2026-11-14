@@ -1,5 +1,4 @@
 // Images for a coding agent: attached to a message, and shown in its log.
-import { createElement } from "react";
 import type { Attached } from "./agentqueue.ts";
 import { fileBase64, picPreview } from "../chat/attach.tsx";
 import { S } from "../bar/core.ts";
@@ -51,7 +50,7 @@ export async function attachPreview(list: Attached[], file: File, original: stri
 /// The chips of waiting images above the field, as in the mock.
 export function drawAgentAttached() {
   const visible = !!(AG.att.length || AG.attError || MN.paths.length || MN.uploads.length || MN.ask);
-  showAgentAttachments(visible ? createElement(AgentAttachments) : null);
+  showAgentAttachments(visible ? <AgentAttachments /> : null);
   if (S.view === "agent") redrawAgentHints();
 }
 

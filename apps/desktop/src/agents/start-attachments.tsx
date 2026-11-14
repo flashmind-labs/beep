@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { fileBase64 } from "../chat/attach.tsx";
 import { draftText } from "../chat/compose.tsx";
 import { bindPromptStash } from "../chat/stash.tsx";
@@ -27,7 +26,7 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
   };
   const draw = () => {
     c.update({ attachmentView: images.length || files.pending.length
-      ? createElement(StartAttachmentChips, { images: [...images], files: [...files.pending], remove })
+      ? <StartAttachmentChips images={[...images]} files={[...files.pending]} remove={remove} />
       : null });
   };
   const add = (input: Iterable<File>) => {
@@ -43,7 +42,7 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     }).catch(e => error(String(e))).finally(() => { reading--; changed(); });
     return serial;
   };
-  const drawPicker = () => c.update({ uploadPicker: createElement(FilePicker, { attach: add, disabled: locked }) });
+  const drawPicker = () => c.update({ uploadPicker: <FilePicker attach={add} disabled={locked} /> });
   drawPicker();
   return {
     add, images, files,

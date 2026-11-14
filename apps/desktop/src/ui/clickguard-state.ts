@@ -2,7 +2,7 @@
 // `click` for it, which a row would take as a plain click and open its session.
 
 /// What a click is, as far as the guard needs.
-export interface ClickInfo {
+interface ClickInfo {
   button: number;
   ctrlKey: boolean;
   /// The target is a text field, the terminal or a link, which keep their own Ctrl+click.

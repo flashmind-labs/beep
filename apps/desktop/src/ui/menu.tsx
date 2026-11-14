@@ -1,7 +1,6 @@
 // Right-click menus in the window, and the sheet that asks before a step
 // that cannot be undone, such as removing a machine.
 import { focusBack, openSheet } from "./parts.tsx";
-import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentScope } from "./document-root.tsx";
 import { ConfirmView, MenuBox, RenameView } from "./menu-views.tsx";
@@ -17,7 +16,7 @@ export interface MenuAction {
 }
 
 /// A line that switches a setting, with a check while `checked`.
-export interface MenuToggle {
+interface MenuToggle {
   kind: "toggle";
   label: string;
   checked: boolean;
@@ -25,20 +24,20 @@ export interface MenuToggle {
 }
 
 /// Lines under a small label.
-export interface MenuSection {
+interface MenuSection {
   kind: "section";
   label: string;
   items: readonly MenuLine[];
 }
 
 /// A rule between groups of lines.
-export interface MenuSeparator { kind: "separator" }
+interface MenuSeparator { kind: "separator" }
 
 export type MenuLine = MenuAction | MenuToggle;
 export type MenuItem = MenuLine | MenuSection | MenuSeparator;
 
 /// The lines of `items` in order, as the menu numbers them for choosing.
-export function menuLines(items: readonly MenuItem[]): MenuLine[] {
+function menuLines(items: readonly MenuItem[]): MenuLine[] {
   return items.flatMap(item => {
     switch (item.kind) {
       case "section": return item.items;
@@ -69,7 +68,7 @@ export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[
   const escape = () => { mine.close(); focusBack(back); };
   const draw = () => {
     const View = MenuView;
-    owner.set([{ slot: "menu", host: document.body, content: createElement(MenuBox, { at, close: mine.close, escape }, View ? createElement(View, { title, items: current, choose }) : null) }]);
+    owner.set([{ slot: "menu", host: document.body, content: <MenuBox at={at} close={mine.close} escape={escape}>{View ? <View title={title} items={current} choose={choose} /> : null}</MenuBox> }]);
   };
 
   draw();
@@ -124,7 +123,7 @@ export function confirmSheet(options: ConfirmOptions) {
     },
   });
   const close = () => { if (allowed()) shut(); };
-  flushSync(() => render(createElement(ConfirmView, { options, close, pending: value => { busy = value; } })));
+  flushSync(() => render(<ConfirmView options={options} close={close} pending={value => { busy = value; }} />));
 }
 
 export interface RenameOptions { title: string; value: string; run(text: string): Promise<unknown> }
@@ -135,5 +134,5 @@ export function renameSheet(options: RenameOptions) {
   let busy = false;
   const { close: shut, render } = openSheet(options.title, "am-sheet", { canClose: () => !busy });
   const close = () => { if (!busy) shut(); };
-  flushSync(() => render(createElement(RenameView, { options, close, pending: value => { busy = value; } })));
+  flushSync(() => render(<RenameView options={options} close={close} pending={value => { busy = value; }} />));
 }

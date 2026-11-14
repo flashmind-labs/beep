@@ -3,7 +3,6 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { showUploadPending } from "./composer-ui.tsx";
 import { SessionPicks } from "./agentmodels.ts";
-import { createElement } from "react";
 import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
@@ -160,8 +159,8 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await invoke("agent_title_save", { ...where(openOf(s)), title });
     await retitleOpen({ ...openOf(s), title: title || null });
   };
-  const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: shownUsage(s), moveKey: agentKey(s), saveTitle });
-  const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: agentKey(s), continueHere, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
+  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} cwd={s.cwd} machine={s.machine_name} usage={shownUsage(s)} moveKey={agentKey(s)} saveTitle={saveTitle} />;
+  const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} continueHere={continueHere} attach={agentDrop} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} />;
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   activateMentions(s);
   drawAgentHeading();

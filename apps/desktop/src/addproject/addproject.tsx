@@ -1,4 +1,4 @@
-import { createElement, createRef, type ReactNode } from "react";
+import { createRef, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { AddProjectView } from "./addproject-view.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
@@ -279,14 +279,14 @@ function draw() {
   if (!view) return;
   const current = view;
   const active = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>(".ap-row") : null;
-  flushSync(() => current(createElement(AddProjectView, {
-    searchField, rowBox, found, shown: shownRows(), hosts, machines: opts.machines, query, looking: [...looking.values()], unread: [...unread.values()], error, importing, batch, picked, status, failed, sync: syncthing,
-    search: (value: string) => { query = value; draw(); }, toggle, toggleAll: () => { picked = toggleAllShown(shownRows().map(row => row.name), picked, status); draw(); },
-    importPicked: () => void importPicked(), importOne: (row: FoundRow) => void doImport(row),
-    choose: () => { const action = opts.onChoose; closeAddProject(); action?.(); },
-    clone: (repo?: string) => { const action = opts.onClone; closeAddProject(); action?.(repo); },
-    create: () => { const action = opts.onNew; closeAddProject(); action?.(); },
-  })));
+  flushSync(() => current(<AddProjectView
+    searchField={searchField} rowBox={rowBox} found={found} shown={shownRows()} hosts={hosts} machines={opts.machines} query={query} looking={[...looking.values()]} unread={[...unread.values()]} error={error} importing={importing} batch={batch} picked={picked} status={status} failed={failed} sync={syncthing}
+    search={(value: string) => { query = value; draw(); }} toggle={toggle} toggleAll={() => { picked = toggleAllShown(shownRows().map(row => row.name), picked, status); draw(); }}
+    importPicked={() => void importPicked()} importOne={(row: FoundRow) => void doImport(row)}
+    choose={() => { const action = opts.onChoose; closeAddProject(); action?.(); }}
+    clone={(repo?: string) => { const action = opts.onClone; closeAddProject(); action?.(repo); }}
+    create={() => { const action = opts.onNew; closeAddProject(); action?.(); }}
+  />));
   if (active && !active.isConnected) {
     const search = searchField.current;
     if (search && !search.hidden) search.focus();

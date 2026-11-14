@@ -2,7 +2,6 @@ import { compactPromptAttachments } from "./promptparts-state.ts";
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
 import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, mediaPaths, parseTool, subagent, tailLines } from "./agentlog.ts";
-import { createElement } from "react";
 import { toolDetails } from "./tool-details.ts";
 import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, plural, tokenCount } from "../ui/format.ts";
@@ -101,7 +100,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   drawModes();
   drawTasks();
   drawQueue();
-  showAgentControl("state", createElement(AgentStatus, { status: s.status, stopping }));
+  showAgentControl("state", <AgentStatus status={s.status} stopping={stopping} />);
   tickClocks();
   redrawAgentHints();
   // Only a turn that runs can be stopped; stopped, it says so at once,

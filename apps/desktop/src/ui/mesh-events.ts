@@ -9,12 +9,12 @@ export interface MeshEvent { machine_id: string; topic: Topic; revision: number;
 interface Interest { machine: string | null; topic: Topic }
 /// How a coalesced subscriber takes the updates pending after its wait: `latest` rereads its own
 /// state once for all of them; `each` gets every update in arrival order, without waiting between them.
-export type Delivery =
+type Delivery =
   | { deliver: "latest"; receive: () => unknown }
   | { deliver: "each"; receive: (event: MeshEvent) => unknown };
 /// `machine` limits the topics to one machine; omitted, they cover the mesh. `when` pauses the
 /// subscriber while false. `wait` is how long a coalesced subscriber waits before it reads.
-export interface SubscribeOptions { machine?: string | null; when?: () => boolean; wait?: number }
+interface SubscribeOptions { machine?: string | null; when?: () => boolean; wait?: number }
 interface Subscriber {
   interests: Interest[];
   delivery: Delivery;

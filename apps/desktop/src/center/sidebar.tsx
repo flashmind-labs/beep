@@ -36,7 +36,7 @@ import { refresh } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
-import { createElement, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
@@ -90,11 +90,11 @@ export function drawSide() {
   const side: ReactNode[] = [];
 
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
-    if (g.items != null) side.push(createElement(SidebarGroupView, { key: name, name, group: g }));
+    if (g.items != null) side.push(<SidebarGroupView key={name} name={name} group={g} />);
   }
 
   const host = windowHost("side");
-  placeWindowParts({ sidebar: createElement(SidebarShell, { host, phone: onPhone(), links, groups: side, footer: footer(home?.machines), addMachine: openAddMachine }) });
+  placeWindowParts({ sidebar: <SidebarShell host={host} phone={onPhone()} links={links} groups={side} footer={footer(home?.machines)} addMachine={openAddMachine} /> });
   if (currentLocation()?.view === "pane") drawTop();
 }
 
@@ -196,10 +196,10 @@ export function removeProject(name: string) {
 }
 
 function projectReact(project: Placed<Project>, label: string, pinned: boolean, indented: boolean) {
-  return createElement(SidebarProjectRow, { project, label, pinned, indented, conflicts: conflictList(fsync.detail(project.name)).length,
-    current: currentLocation()?.view === "projects" && state.picked === project.name,
-    open: () => openProjects(project.name), pin: () => { void setProjectOnTop(project.name, !pinned); },
-    windowProps: projectWindowProps(project.name) });
+  return <SidebarProjectRow project={project} label={label} pinned={pinned} indented={indented} conflicts={conflictList(fsync.detail(project.name)).length}
+    current={currentLocation()?.view === "projects" && state.picked === project.name}
+    open={() => openProjects(project.name)} pin={() => { void setProjectOnTop(project.name, !pinned); }}
+    windowProps={projectWindowProps(project.name)} />;
 }
 registerSidebarGroup<Placed<Project>>("pinned", {
   order: 2,
@@ -214,7 +214,7 @@ registerSidebarGroup("views", {
   title: "Beep",
   load: async () => ["settings" as const],
   key: v => v,
-  render: v => createElement(SidebarItem, { svg: IC.gear, label: "Settings", current: false, shortcut: WINDOWS ? "Ctrl+," : "⌘,", open: () => go("pane", v) }),
+  render: v => <SidebarItem svg={IC.gear} label="Settings" shortcut={WINDOWS ? "Ctrl+," : "⌘,"} open={() => go("pane", v)} />,
 });
 
 /// Imported projects merged with the folders agents run in.
@@ -354,12 +354,13 @@ registerSidebarGroup("projects", {
   render: p => {
     if (!p.group && p.org === undefined) return projectReact(p, p.repo ?? projectName(p), false, !!p.repo);
     const title = p.group ? p.group.name : `${p.org}/`;
-    const label = p.group ? createElement("span", { className: "sidebar-icon", style: { display: "contents" } }, createElement(Icon, { name: "folder" })) : null;
-    return createElement("button", { type: "button", className: `cc-org${p.group ? " gp" : ""}`,
-      title: p.group ? `${title}\n${p.group.paths.join(", ")} on every machine` : title, "aria-label": title,
-      "aria-expanded": !p.folded, "aria-current": currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked) ? "true" : undefined,
-      onClick: () => toggleFold(p), onContextMenu: (event: React.MouseEvent) => p.group ? groupMenu(event.nativeEvent, p.group, [foldItem(p)]) : openMenu(event.nativeEvent, p.org ?? "", [foldItem(p)]) },
-      createElement("span", { className: `twist${p.folded ? "" : " open"}` }, createElement(Icon, { name: "twist" })), label, createElement("span", { className: "tt" }, title));
+    const label = p.group ? <span className="sidebar-icon" style={{ display: "contents" }}><Icon name="folder" /></span> : null;
+    return <button type="button" className={`cc-org${p.group ? " gp" : ""}`}
+      title={p.group ? `${title}\n${p.group.paths.join(", ")} on every machine` : title} aria-label={title}
+      aria-expanded={!p.folded} aria-current={currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked) ? "true" : undefined}
+      onClick={() => toggleFold(p)} onContextMenu={(event: React.MouseEvent) => p.group ? groupMenu(event.nativeEvent, p.group, [foldItem(p)]) : openMenu(event.nativeEvent, p.org ?? "", [foldItem(p)])}>
+      <span className={`twist${p.folded ? "" : " open"}`}><Icon name="twist" /></span>{label}<span className="tt">{title}</span>
+    </button>;
   },
 
 });

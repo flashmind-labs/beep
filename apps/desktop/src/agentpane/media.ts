@@ -253,7 +253,7 @@ export function openPath(path: string) {
   return true;
 }
 
-export function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
+function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
   if (!P.tabs.some(x => x.id === t.id)) {
     const tab: MediaTab = { size: 0, done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, ...t };
     P.tabs.push(tab);

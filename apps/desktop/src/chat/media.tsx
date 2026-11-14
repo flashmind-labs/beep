@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { Viewer, ViewerNotice } from "./viewer-view.tsx";
 import { bar } from "../bar/core.ts";
@@ -18,7 +17,7 @@ export function fileSize(n: number) {
 export const GONE = "No longer available";
 
 /// The pictures the viewer goes through, and the one it shows.
-export const V: { pics: ViewerPic[]; at: number } = { pics: [], at: 0 };
+const V: { pics: ViewerPic[]; at: number } = { pics: [], at: 0 };
 let viewerHost = bar;
 let viewerFocus: HTMLElement | null = null;
 /// The viewer and its notes, drawn at the end of the element they cover.
@@ -49,7 +48,7 @@ type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
 /// The open picture over the whole bar, with arrows when there are more.
 function drawViewer() {
   viewerOpen = true;
-  overlays.set([{ slot: "viewer", host: viewerHost, content: createElement(Viewer, { pictures: V.pics, at: V.at }) }]);
+  overlays.set([{ slot: "viewer", host: viewerHost, content: <Viewer pictures={V.pics} at={V.at} /> }]);
 }
 
 export function viewerAct(a: ViewerAct) {
@@ -111,6 +110,6 @@ let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 export function notice(text: string, { path, bad }: { path?: string; bad?: boolean } = {}) {
   clearTimeout(noticeTimer);
   overlays.remove(["notice"]);
-  overlays.set([{ slot: "notice", host: viewerOpen ? viewerHost : bar, content: createElement(ViewerNotice, { text, path: path ?? null, bad: !!bad }) }]);
+  overlays.set([{ slot: "notice", host: viewerOpen ? viewerHost : bar, content: <ViewerNotice text={text} path={path ?? null} bad={!!bad} /> }]);
   noticeTimer = setTimeout(() => overlays.remove(["notice"]), 5000);
 }

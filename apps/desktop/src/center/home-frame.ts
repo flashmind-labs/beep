@@ -8,7 +8,7 @@ import { currentLocation } from "./views.tsx";
 import { frameOf } from "./home-frame-state.ts";
 
 /// Keeps what Home shows now, when it is Home on a desktop window with its answer drawn.
-export function keepHomeFrame() {
+function keepHomeFrame() {
   if (onPhone() || document.body.classList.contains("mobile") || document.body.classList.contains("pw")) return;
   if (currentLocation()?.view !== "home" || !state.home || dialogOpen()) return;
 

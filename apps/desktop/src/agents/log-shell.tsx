@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView, type DocumentView } from "../ui/document-root.tsx";
 import type { AgentQuestion } from "./agents.ts";
@@ -71,7 +70,7 @@ export function showLogShell(body: HTMLElement, value: LogShell, units: readonly
   if (log.el && !next.log) resetLog(log);
   if (!prior || !sameShell(prior, next)) {
     owner.value = next;
-    flushSync(() => owner?.view.render(createElement(AgentLogShell, { value: next, log })));
+    flushSync(() => owner?.view.render(<AgentLogShell value={next} log={log} />));
   }
   if (log.el && next.log && units && !prior?.log) setUnits(log, units, held);
   return !deferred;

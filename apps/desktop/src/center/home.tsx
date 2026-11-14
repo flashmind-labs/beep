@@ -18,7 +18,6 @@ import { ambient } from "../ui/active.ts";
 import { frontLayout, layoutChanged } from "../ui/skin.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
-import { createElement } from "react";
 import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { HomeShell, type HomeTab } from "./home-shell.tsx";
@@ -39,7 +38,7 @@ export function openAsking(n: NeedsYou) {
 /// The Home tab on screen.
 export let homeTab: HomeTab = "overview";
 /// The tab each section Home can jump to sits on.
-export const TAB_OF: Record<string, HomeTab> = {
+const TAB_OF: Record<string, HomeTab> = {
   "sec-needs": "overview", "sec-running": "overview",
   "sec-git": "git", "sec-machines": "machines",
 };
@@ -73,7 +72,7 @@ function page(home: HomeView) {
 
   return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
-    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, error: state.error, unavailable: !machines && !running, offline, content: tab.key === "overview" ? createElement(HomeOverview, { home }) : tab.key === "git" ? createElement(HomeGit, { view: git || { items: [], hosts: [] } }) : machines ? createElement(HomeMachines, { machines }) : null,
+    addMachine: openAddMachine, useMac: () => { void useThisMac(); }, error: state.error, unavailable: !machines && !running, offline, content: tab.key === "overview" ? <HomeOverview home={home} /> : tab.key === "git" ? <HomeGit view={git || { items: [], hosts: [] }} /> : machines ? <HomeMachines machines={machines} /> : null,
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 
@@ -83,9 +82,9 @@ export function stuck() { return !state.home && Date.now() - state.since >= CONN
 /// Before Home first loads: the dots, then Retry and Show log once the wait is long.
 function drawConnecting() {
   const secs = Math.round((Date.now() - state.since) / 1000);
-  placeWindowParts({ home: createElement(ConnectingView, { stuck: stuck(), text: `No answer from your machines for ${secs} seconds. Still trying.`,
-    retry: () => { void refresh(); drawConnecting(); },
-    log: () => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); } }) });
+  placeWindowParts({ home: <ConnectingView stuck={stuck()} text={`No answer from your machines for ${secs} seconds. Still trying.`}
+    retry={() => { void refresh(); drawConnecting(); }}
+    log={() => { void invoke("open_log").catch(e => console.warn("opening the log:", e)); }} /> });
 }
 
 export function draw() {
@@ -94,7 +93,7 @@ export function draw() {
   if (!state.home) return drawConnecting();
   const home = homeForDisplay(state.home), view = windowHost("view");
   const top = view.scrollTop;
-  placeWindowParts({ home: createElement(HomeShell, page(home)) });
+  placeWindowParts({ home: <HomeShell {...page(home)} /> });
   view.scrollTop = top;
   applyScroll();
   scrollTarget = null;
@@ -138,7 +137,7 @@ export const homeView: CenterView<"home"> = {
 
 
 /// Element Home scrolls to once it has drawn.
-export let scrollTarget: string | null = null;
+let scrollTarget: string | null = null;
 
 export function jump(id?: string) {
   if (!go("home")) return;
@@ -157,7 +156,7 @@ export function jump(id?: string) {
   applyScroll();
 }
 
-export function applyScroll() {
+function applyScroll() {
   if (!scrollTarget) return;
   const el = document.getElementById(scrollTarget);
   if (el) { el.scrollIntoView({ block: "start" }); scrollTarget = null; }

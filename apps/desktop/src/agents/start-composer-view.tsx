@@ -6,7 +6,7 @@ import { Fragment, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type C
 import { FieldMenu } from "./composer-ui.tsx";
 
 export interface StartComposerNodes { input: HTMLTextAreaElement | null; project: HTMLButtonElement | null; machine: HTMLButtonElement | null; folder: HTMLButtonElement | null; harness: HTMLButtonElement | null; pick: HTMLDivElement | null; att: HTMLDivElement | null; box: HTMLDivElement | null; grow: () => void }
-export interface ChoiceContents { project: ReactNode; machine: ReactNode; folder: ReactNode }
+interface ChoiceContents { project: ReactNode; machine: ReactNode; folder: ReactNode }
 /// Which pill's menu or picker is open.
 type ComposerOpen = "pick" | "project" | "host" | "folder" | "base" | null;
 

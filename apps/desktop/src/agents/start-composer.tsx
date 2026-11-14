@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView } from "../ui/document-root.tsx";
 import { StartComposerView, type StartComposerActions, type StartComposerNodes, type StartComposerState } from "./start-composer-view.tsx";
@@ -39,7 +39,7 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
   };
   const draw = () => {
     form.classList.toggle("centered", state.centered);
-    flushSync(() => root.render(createElement(StartComposerView, { nodes, choices, projectPicker, externalChoices, ids, title, state, actions })));
+    flushSync(() => root.render(<StartComposerView {...{ nodes, choices, projectPicker, externalChoices, ids, title, state, actions }} />));
   };
   const update = (patch: Partial<StartComposerState>) => {
     const next = { ...state, ...patch };

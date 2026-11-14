@@ -21,7 +21,7 @@ interface AgentMachine {
 }
 
 /// A CLI sign-in a machine reports, such as Claude Code's (LoginView).
-export interface CliLogin {
+interface CliLogin {
   tool: string;
   signed_in: boolean;
   account?: string | null;

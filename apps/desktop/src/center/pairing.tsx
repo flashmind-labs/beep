@@ -1,5 +1,4 @@
 // A phone with no mesh yet: scan or paste the code from a desktop's Add machine sheet.
-import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { onPhone } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -15,15 +14,15 @@ export async function pairing(): Promise<void> {
   const screen = createDocumentScope<"pairing">();
 
   await new Promise<void>(done => {
-    screen.set([{ slot: "pairing", host: document.body, content: createElement("div", null, createElement(PairingScreen, {
-      commands: {
+    screen.set([{ slot: "pairing", host: document.body, content: <div><PairingScreen
+      commands={{
         checkPermission: () => invoke<{ camera: string }>(SCANNER + "check_permissions"),
         requestPermission: () => invoke<{ camera: string }>(SCANNER + "request_permissions"),
         scan: () => invoke<{ content?: string }>(SCANNER + "scan", { formats: ["QR_CODE"], windowed: false }),
         cancelScan: () => invoke(SCANNER + "cancel"),
         pair: ticket => invoke("mobile_pair", { ticket }),
-      },
-      done: () => { screen.dispose(); done(); },
-    })) }]);
+      }}
+      done={() => { screen.dispose(); done(); }}
+    /></div> }]);
   });
 }

@@ -826,7 +826,7 @@ function rgb(color: number): [number, number, number] {
 }
 
 /// `over` at `alpha` over `under`, as 0xRRGGBB.
-export function blend(under: number, over: number, alpha: number): number {
+function blend(under: number, over: number, alpha: number): number {
   const mix = (shift: number) => Math.round(((under >> shift) & 0xff) * (1 - alpha) + ((over >> shift) & 0xff) * alpha);
   return (mix(16) << 16) | (mix(8) << 8) | mix(0);
 }

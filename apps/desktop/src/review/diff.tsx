@@ -1,7 +1,7 @@
 // The diff viewer: diffView makes one over a DiffSource and loads it.
 // diff-viewer.ts holds its state, diff-view.tsx renders it, diff-comments.ts
 // edits its review comments and diff-keys.ts takes its keys.
-import { createElement, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { STALE } from "../ui/active.ts";
 import type { MenuItem } from "../ui/menu.tsx";
@@ -67,7 +67,7 @@ export function diffView(src: DiffSource): DiffViewHandle {
     say: text => say(v, text),
   });
 
-  src.owner.set(createPortal(createElement(DiffViewer, { v }), v.root));
+  src.owner.set(createPortal(<DiffViewer v={v} />, v.root));
   const opened = perfOpen("diff");
   void load(v).then(() => { if (v.state.view) opened(); });
 

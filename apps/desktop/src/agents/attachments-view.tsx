@@ -1,4 +1,4 @@
-import { AttachmentBatch, ImagePreview } from "./composer-ui.tsx";
+import { AttachmentBatch, ImagePreview, RemoveChip } from "./composer-ui.tsx";
 import { identity } from "../ui/parts.tsx";
 import { agentMessage } from "./session-frame.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
@@ -30,7 +30,7 @@ export function AgentAttachments() {
   useLayoutEffect(() => { if (ask) queueMicrotask(() => { if (MN.ask === ask) there.current?.focus(); }); }, [ask]);
   const machine = paneSession()?.machine_name ?? "the machine";
   const loose = MN.paths.filter(path => !AG.att.some(image => image.original === path));
-  return <><AttachmentBatch count={AG.att.length + loose.length + MN.uploads.length}>{AG.att.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={AG.att} index={i} listed /><button type="button" aria-label={`Remove ${image.name}`} data-agatt={i} onClick={() => removeImage(i)}><Icon name="x" /></button></span>)}
+  return <><AttachmentBatch count={AG.att.length + loose.length + MN.uploads.length}>{AG.att.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={AG.att} index={i} listed /><RemoveChip name={image.name} data="data-agatt" index={i} remove={() => removeImage(i)} /></span>)}
     {MN.paths.map((path, i) => {
       if (AG.att.some(image => image.original === path)) return null;
       const file = MN.files.get(path);
@@ -39,7 +39,7 @@ export function AgentAttachments() {
 
       return <span className={url ? "att" : "agment"} key={path} title={path}>
         {url ? <ImagePreview images={[{ url, name }]} index={0} listed={false} /> : <><Icon name="doc" /><span className="nm">{name}</span></>}
-        <button type="button" aria-label={`Remove ${name}`} data-agment={i} onClick={() => removeMention(i)}><Icon name="x" /></button>
+        <RemoveChip name={name} data="data-agment" index={i} remove={() => removeMention(i)} />
       </span>;
     })}
     {MN.uploads.map(upload => <span className="agment up" key={identity(upload)} title={`Uploading to ${machine}`}><Spinner /><span className="nm">{upload.name}</span><small>{upload.size ? Math.round(upload.done / upload.size * 100) : 0}%</small></span>)}

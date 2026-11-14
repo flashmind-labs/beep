@@ -2,7 +2,7 @@
 // from any session, like tmux sessions: the node owns them, so they keep running
 // with the window closed and can be attached to again. The window's Terminals
 // page is view.ts; makeTerminals here holds its state.
-import { createElement, Fragment, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { TerminalOutput, terminalOutput, TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
@@ -14,6 +14,7 @@ import type { Ago } from "../ui/format.ts";
 import type { TileData } from "../project/board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { reason } from "../ui/format.ts";
+import { Button } from "../ui/kit.tsx";
 import { newTermLike } from "./newkey-state.ts";
 
 /// The terminals of every project shown, their live views and the
@@ -367,13 +368,13 @@ export function makeTerminals(deps: TerminalDeps) {
     const t = of(ALL);
     const f = t.form!;
     const submit = () => { if (!t.busy && f.machine && places.length) void start(ALL, f); };
-    return createElement("form", { key: formVersion, className: "cc-panel tm-form", onSubmit: (event: FormEvent) => { event.preventDefault(); submit(); } },
-      createElement(NewTerminalFields, {
-        places, machine: f.machine, cwd: f.cwd, command: f.command, name: f.name, busy: t.busy,
-        choose: (machine: string) => { f.machine = machine; redraw(); },
-        change: (field: "cwd" | "command" | "name", value: string) => { f[field] = value; },
-        start: submit, cancel: () => { t.form = null; redraw(); },
-      }));
+    return <form key={formVersion} className="cc-panel tm-form" onSubmit={(event: FormEvent) => { event.preventDefault(); submit(); }}>
+      <NewTerminalFields
+        places={places} machine={f.machine} cwd={f.cwd} command={f.command} name={f.name} busy={t.busy}
+        choose={(machine: string) => { f.machine = machine; redraw(); }}
+        change={(field: "cwd" | "command" | "name", value: string) => { f[field] = value; }}
+        start={submit} cancel={() => { t.form = null; redraw(); }} />
+    </form>;
   }
 
   /// The open terminal: its live screen, or the last lines of a view-only one.
@@ -411,24 +412,26 @@ export function makeTerminals(deps: TerminalDeps) {
 
     if (live.link === "view_only") {
       const o = t.output;
-      body = createElement(TerminalOutput, { command: `${open.machine_name} ${open.cwd} $ ${open.command}`, earlier: !!o?.earlier, lines: o ? o.lines : [] });
+      body = <TerminalOutput command={`${open.machine_name} ${open.cwd} $ ${open.command}`} earlier={!!o?.earlier} lines={o ? o.lines : []} />;
       watch(name);
     } else {
       // A redraw moves the screen to the new page, which drops the focus:
       // the keys typed next would reach the window instead.
       const keep = live.screen.focused();
-      body = createElement(TerminalScreen, { element: live.screen.el });
+      body = <TerminalScreen element={live.screen.el} />;
       watch(null);
       requestAnimationFrame(() => live.screen.fit());
       if (keep) queueMicrotask(() => live.screen.focus());
     }
 
-    return createElement("div", { className: "cc-panel tm-panel", key: open.id },
-      createElement("div", { className: "tm-head", onContextMenu: (event: ReactMouseEvent) => { event.preventDefault(); openMenu(event.nativeEvent, open.name, items); } },
-        createElement(TerminalHeader, { terminal: open, state: stateLabel(open), link: live.link, watching: live.watching,
-          focus: () => { focusOpen(); }, toggle: toggleTyping, detach: detachHere, attach: attachHere, stop })),
-      body,
-      createElement("div", { className: "tm-foot" }, createElement(TerminalFooter, { active: live.link === "attached" && open.state === "running", label: linkLabel(live.link, live.watching, open.machine_name, live.tries), started: ago(open.started_at) })));
+    return <div className="cc-panel tm-panel" key={open.id}>
+      <div className="tm-head" onContextMenu={(event: ReactMouseEvent) => { event.preventDefault(); openMenu(event.nativeEvent, open.name, items); }}>
+        <TerminalHeader terminal={open} state={stateLabel(open)} link={live.link} watching={live.watching}
+          focus={() => { focusOpen(); }} toggle={toggleTyping} detach={detachHere} attach={attachHere} stop={stop} />
+      </div>
+      {body}
+      <div className="tm-foot"><TerminalFooter active={live.link === "attached" && open.state === "running"} label={linkLabel(live.link, live.watching, open.machine_name, live.tries)} started={ago(open.started_at)} /></div>
+    </div>;
   }
 
   /// Opens the New terminal form of the Terminals page on `machine`.
@@ -489,13 +492,14 @@ export function makeTerminals(deps: TerminalDeps) {
     } else {
       watch(null);
       const any = (t.list || []).length > 0;
-      right = createElement("div", { className: "cc-conn" }, createElement("b", null, any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"),
-        createElement("button", { type: "button", className: "dbtn pri", onClick: () => newOn(places[0]?.id || null) }, "New terminal"));
+      right = <div className="cc-conn"><b>{any ? "Pick a terminal" : t.list ? "No terminals yet" : "Loading…"}</b>
+        <Button look="primary" onClick={() => newOn(places[0]?.id || null)}>New terminal</Button></div>;
     }
-    return createElement(Fragment, null,
-      t.error && createElement("div", { className: "cc-err" }, t.error),
-      createElement("div", { className: "tl" }, createElement(TerminalPage, { groups, selected: t.open, ago,
-        open: (id: string) => select(ALL, id), create: (id: string) => newOn(id), children: right })));
+    return <>
+      {t.error && <div className="cc-err">{t.error}</div>}
+      <div className="tl"><TerminalPage groups={groups} selected={t.open} ago={ago}
+        open={(id: string) => select(ALL, id)} create={(id: string) => newOn(id)}>{right}</TerminalPage></div>
+    </>;
   }
 
   return {
@@ -548,7 +552,7 @@ export type TermEvent =
   | TermNotice;
 
 /// The events other than output, as JSON on the channel (TermNotice).
-export type TermNotice =
+type TermNotice =
   | { kind: "attached" }
   | { kind: "ended"; state: string; code: number | null }
   | { kind: "view_only" };
@@ -795,7 +799,7 @@ export function terminalsCount(groups: readonly MachineTerminals<unknown>[]) {
 }
 
 /// "running", "exited 1", "stopped", "offline", "gone".
-export function stateLabel(t: Pick<TerminalRow, "state"> & Partial<Pick<TerminalRow, "code">>) {
+function stateLabel(t: Pick<TerminalRow, "state"> & Partial<Pick<TerminalRow, "code">>) {
   if (t.state === "exited") return t.code == null ? "ended" : t.code === 0 ? "done" : `exited ${t.code}`;
   return t.state;
 }
@@ -830,8 +834,8 @@ export function splice(next: number, at: number, len: number): { skip: number; g
 
 /// How long after attaching output still counts as the node's replay of what
 /// it kept, at most, and the pause in output that ends the replay sooner.
-export const REPLAY_MAX_MS = 2000;
-export const REPLAY_GAP_MS = 150;
+const REPLAY_MAX_MS = 2000;
+const REPLAY_GAP_MS = 150;
 
 /// Which output on a stream replays what the node kept from before the view
 /// attached. The node sends that at once; the protocol does not say where it
@@ -884,7 +888,7 @@ export function newView(): string {
 }
 
 /// A stream's messages back in order by their index.
-export class InOrder {
+class InOrder {
   private next = 0;
   private readonly held = new Map<number, unknown>();
 
@@ -954,7 +958,7 @@ export function endsForGood(state: string) {
 }
 
 /// The footer line of an open terminal.
-export function linkLabel(link: Link, watching: boolean, machine: string, tries = 0) {
+function linkLabel(link: Link, watching: boolean, machine: string, tries = 0) {
   switch (link) {
     case "attaching": return tries ? `Reconnecting to ${machine}…` : "Attaching…";
     case "attached": return watching ? "Watching: typing is off" : `Attached: what you type goes to ${machine}`;

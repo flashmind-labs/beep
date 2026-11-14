@@ -1,6 +1,6 @@
 // The touch key bar above the soft keyboard, for termview.ts. Drawn as in the
 // phone layout.
-import { createElement, createRef } from "react";
+import { createRef } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { TermKeyState, type TermKey, type TermMod } from "./touchkeys-state.ts";
 import { TouchKeys } from "./touchbar-view.tsx";
@@ -27,7 +27,7 @@ export function makeTouchBar(send: (data: string) => void): TouchBar {
   let bottom: number | null = null;
   const toggle = (mod: TermMod) => { state.toggle(mod); paint(); };
   const press = (key: TermKey) => { const armed = state.mods.size > 0; send(state.press(key)); if (armed) paint(); };
-  const paint = () => scope.set([{ slot: "bar", host: document.body, content: createElement(TouchKeys, { bar, bottom, mods: new Set(state.mods), toggle, press }) }]);
+  const paint = () => scope.set([{ slot: "bar", host: document.body, content: <TouchKeys bar={bar} bottom={bottom} mods={new Set(state.mods)} toggle={toggle} press={press} /> }]);
   paint();
 
   return {

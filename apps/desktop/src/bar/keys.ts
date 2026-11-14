@@ -21,7 +21,7 @@ import { dialogOpen } from "../ui/parts.tsx";
 /// Normalize events dispatched on the document to its body.
 const target = (event: KeyboardEvent): Element => event.target instanceof Element ? event.target : document.body;
 
-export function back() {
+function back() {
   if (closeAgentNewMenus()) return;
   if (S.view === "agent" || S.view === "agentnew" || S.view === "agents") return agentBack();
   if (S.view === "waiting" && waitingBack()) return;

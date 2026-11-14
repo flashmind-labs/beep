@@ -1,5 +1,5 @@
 import { projectName } from "../project/projects-state.ts";
-import { createElement, Fragment, memo } from "react";
+import { Fragment, memo } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
@@ -58,24 +58,24 @@ export function drawPage(name: Page, on = true) {
 /// coming back keeps their place.
 function CenterPages() {
   const view = useStore(shell, s => s.view), drawn = useStore(shown, s => s.drawn);
-  return PAGES.map(name => createElement(PageBox, { key: name, name, hidden: view !== name, drawn: drawn[name] }));
+  return PAGES.map(name => <PageBox key={name} name={name} hidden={view !== name} drawn={drawn[name]} />);
 }
 
 const PageBox = memo(function PageBox({ name, hidden, drawn }: { name: Page; hidden: boolean; drawn: number }) {
-  return createElement("div", { className: "cc-box", hidden, ref: keepBox[name] }, drawn ? createElement(PageContent, { name, drawn }) : null);
+  return <div className="cc-box" hidden={hidden} ref={keepBox[name]}>{drawn ? <PageContent name={name} drawn={drawn} /> : null}</div>;
 });
 
 /// What page `name` draws, again only when it draws. Settings borrows
 /// Instructions and Coding agents, so those draw into whichever host mounted them.
 const PageContent = memo(function PageContent({ name }: { name: Page; drawn: number }) {
   switch (name) {
-    case "projects": return createElement(ProjectsPage);
-    case "terminals": return createElement(TerminalsPage);
+    case "projects": return <ProjectsPage />;
+    case "terminals": return <TerminalsPage />;
     case "instructions": case "providers": return null;
   }
 });
 
-placeWindowParts({ pages: createElement(CenterPages) });
+placeWindowParts({ pages: <CenterPages /> });
 
 /// The element view `name` draws in; Home and the pane have theirs in the page.
 export function boxOf(name: ViewName): HTMLElement | null {
@@ -272,11 +272,11 @@ export function drawTop() {
   if (project) document.title = label ?? project;
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? S.view : null]);
   placeWindowParts({
-    "project-back": project ? createElement("button", { type: "button", className: "dbtn small pw-back", id: "pw-back", title: `Back to ${label} (esc)`, hidden: currentPage?.view === "projects", onClick: () => void openProjects(project) }, shortName(label ?? project)) : null,
+    "project-back": project ? <button type="button" className="dbtn small pw-back" id="pw-back" title={`Back to ${label} (esc)`} hidden={currentPage?.view === "projects"} onClick={() => void openProjects(project)}>{shortName(label ?? project)}</button> : null,
     title: head.title || "Beep",
     date: head.sub || "",
-    scope: head.reactScope ? createElement(Fragment, { key: page }, head.reactScope) : null,
-    tools: head.reactTools ? createElement(Fragment, { key: page }, head.reactTools) : null,
+    scope: head.reactScope ? <Fragment key={page}>{head.reactScope}</Fragment> : null,
+    tools: head.reactTools ? <Fragment key={page}>{head.reactTools}</Fragment> : null,
   });
   syncMobile();
 }

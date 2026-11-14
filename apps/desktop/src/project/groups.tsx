@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { SidebarMachine } from "../machines/sidebar-machine-view.tsx";
 // Project groups in the sidebar: heading, menu, rename and remove.
 import { invoke } from "../ui/tauri.ts";
@@ -93,7 +92,7 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
     return mac ? [...machines, { thisMac: mac }] : machines;
   },
   key: m => "thisMac" in m ? "this-mac" : m.id,
-  render: m => createElement(SidebarMachine, { machine: m }),
+  render: m => <SidebarMachine machine={m} />,
 
 });
 

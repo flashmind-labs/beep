@@ -28,7 +28,7 @@ export interface BoardCard {
 }
 
 /// What a card's button does: one thing, or a menu of them.
-export type CardAction =
+type CardAction =
   | { kind: "run"; label: string; primary: boolean; run(): void }
   | { kind: "menu"; label: string; items: readonly MenuAction[] };
 

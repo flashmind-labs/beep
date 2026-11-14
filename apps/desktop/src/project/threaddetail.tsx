@@ -2,7 +2,7 @@
 // description and comments, read from the host through a machine with the
 // project. The app renders the text as Markdown and drops raw
 // HTML before it gets here, so the HTML it gives is safe to insert. Commenting stays on the host.
-import { createElement, useReducer, type ComponentProps } from "react";
+import { useReducer, type ComponentProps } from "react";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { ThreadDetailView, type ThreadActions } from "./threaddetail-view.tsx";
@@ -95,7 +95,7 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
       stub, data, error: readState.error, acts, text: draft.text, posting: draft.posting, draftError: draft.error,
       edit: (value: string) => { draft.text = value; redraw(); }, post, open: (url: string) => { void deps.openUrl(url); },
     });
-    return createElement("div", { style: { display: "contents" }, key }, createElement(ThreadPane, { view }));
+    return <div style={{ display: "contents" }} key={key}><ThreadPane view={view} /></div>;
   }
 
   return { pane };
@@ -103,5 +103,5 @@ export function makeThreadDetail(deps: { redraw: () => void; openUrl: (url: stri
 
 function ThreadPane({ view }: { view: (redraw: () => void) => ComponentProps<typeof ThreadDetailView> }) {
   const [, redraw] = useReducer((n: number) => n + 1, 0);
-  return createElement(ThreadDetailView, view(redraw));
+  return <ThreadDetailView {...view(redraw)} />;
 }

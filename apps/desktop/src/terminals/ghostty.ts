@@ -75,7 +75,7 @@ export interface CellSize {
 
 export type Dirty = "clean" | "partial" | "full";
 
-export type CursorShape = "bar" | "block" | "underline" | "hollow";
+type CursorShape = "bar" | "block" | "underline" | "hollow";
 
 export interface Cursor {
   x: number;
@@ -94,7 +94,7 @@ export interface Colors {
   palette: Uint32Array;
 }
 
-export type ImageLayer = "below-background" | "below-text" | "above-text";
+type ImageLayer = "below-background" | "below-text" | "above-text";
 
 /// Where an image is drawn: from cell (col, row) of the view, which may be
 /// above or left of it, moved by the offset, at width by height pixels of
@@ -142,7 +142,7 @@ export const Attr = {
 } as const;
 
 /// Underline styles by their value in Attr's underline bits.
-export const UNDERLINE_STYLES: readonly Underline[] = ["none", "single", "double", "curly", "dotted", "dashed"];
+const UNDERLINE_STYLES: readonly Underline[] = ["none", "single", "double", "curly", "dotted", "dashed"];
 
 /// One row of cells ready to draw, in arrays reused from row to row.
 export class RowCells {

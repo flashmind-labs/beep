@@ -1,6 +1,6 @@
 // The model and thinking pill by a session's field, and switching them.
 import { agentMessage } from "./session-frame.tsx";
-import { createElement, createRef } from "react";
+import { createRef } from "react";
 import { modelPickHost, showAgentControl, showAgentControlFor } from "./composer-ui.tsx";
 import type { SessionPick } from "./agentmodels.ts";
 import { isNativeSession } from "./native-session-state.ts";
@@ -31,7 +31,7 @@ export function drawModelPill() {
   const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
   const content = pillContent(s.agent, displayModel, p.effort, s.machine_id);
   const signature = JSON.stringify([s.agent, content.props.detail, AG.modelOpen, why, can]);
-  showAgentControlFor("model", signature, () => createElement("button", { ref: modelPill, className: "agc-pill agm", id: "agmodelb", "aria-expanded": AG.modelOpen, title: why, disabled: !can }, content));
+  showAgentControlFor("model", signature, () => <button ref={modelPill} className="agc-pill agm" id="agmodelb" aria-expanded={AG.modelOpen} title={why} disabled={!can}>{content}</button>);
 }
 
 export function toggleModelPicker() {

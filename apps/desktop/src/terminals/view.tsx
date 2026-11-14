@@ -1,6 +1,6 @@
 // The command center's Terminals page, and the terminals Home lists.
 import { formatAgo } from "../ui/format.ts";
-import { createElement } from "react";
+import { Button } from "../ui/kit.tsx";
 import { invoke, indexedChannel } from "../ui/tauri.ts";
 import { ALL, byMachine, lazyScreen, makeTerminals, terminalsCount } from "./terminals.tsx";
 import { type CenterView, keptSection, state } from "../center/state.ts";
@@ -50,14 +50,14 @@ function drawTerminals() {
 }
 
 export function TerminalsPage() {
-  return createElement("div", { className: "cc-view tl-view" }, allTerms.machinesPanel(termMachines()));
+  return <div className="cc-view tl-view">{allTerms.machinesPanel(termMachines())}</div>;
 }
 
 export const terminalsView: CenterView<"terminals"> = {
   title() {
     const list = allTerms.list(ALL);
     const sub = list ? terminalsCount(byMachine(termMachines(), list)) : "";
-    const add = createElement("button", { type: "button", className: "dbtn pri small", disabled: !termMachines().some(m => m.online), onClick: () => allTerms.newOn(termMachines().find(m => m.online)?.id || null) }, "New terminal");
+    const add = <Button look="primary" small disabled={!termMachines().some(m => m.online)} onClick={() => allTerms.newOn(termMachines().find(m => m.online)?.id || null)}>New terminal</Button>;
     return { title: "Terminals", sub, reactTools: list === null ? null : add };
   },
   mount() {

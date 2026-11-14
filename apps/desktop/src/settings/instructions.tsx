@@ -1,11 +1,11 @@
 // The Instructions view: the user's rules for every agent Beep runs.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import type { Ago } from "../ui/format.ts";
 import { MAX_BYTES, bytes } from "./instructions-state.ts";
 import type { VersionRow } from "./instructions-state.ts";
 import type { CenterView, InstructionsTab } from "../center/state.ts";
+import { Button } from "../ui/kit.tsx";
 import { InstructionsView, type InstructionsState } from "./instructions-view.tsx";
 
 /// What the window hands `instructionsPage`.
@@ -74,20 +74,19 @@ export function instructionsPage(deps: InstructionsDeps): CenterView<"instructio
 
   function draw() {
     if (!host) return;
-    showWindowParts([{ part: "settings-page:instructions", host, content: createElement(InstructionsView, {
-      state: st, ago, setTab,
-      setDraft: value => { st.draft = value; draw(); },
-      save: () => { void save(); },
-      discard: () => { st.draft = null; st.note = ""; draw(); },
-      showVersion: version => { st.shown = st.shown === `v${version}` ? null : `v${version}`; draw(); },
-      restoreVersion: version => { st.draft = version.text; void save(`Restored version ${version.version}`).then(() => setTab("editor")); },
-    }) }]);
+    showWindowParts([{ part: "settings-page:instructions", host, content: <InstructionsView
+      state={st} ago={ago} setTab={setTab}
+      setDraft={value => { st.draft = value; draw(); }}
+      save={() => { void save(); }}
+      discard={() => { st.draft = null; st.note = ""; draw(); }}
+      showVersion={version => { st.shown = st.shown === `v${version}` ? null : `v${version}`; draw(); }}
+      restoreVersion={version => { st.draft = version.text; void save(`Restored version ${version.version}`).then(() => setTab("editor")); }} /> }]);
   }
 
   function unmount() { removeWindowPart("settings-page:instructions"); host = null; }
 
   return {
-    title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", reactTools: createElement("button", { type: "button", className: "dbtn quiet small", onClick: () => deps.openSettings() }, "Settings") }),
+    title: () => ({ title: "Instructions", sub: "Your rules for every agent Beep runs", reactTools: <Button look="quiet" small onClick={() => deps.openSettings()}>Settings</Button> }),
     mount(container, arg) {
       unmount();
       host = container;

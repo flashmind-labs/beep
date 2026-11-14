@@ -1,6 +1,5 @@
 // The first launch: start here, or link another desktop. Start sets this computer up for
 // agents when it lacks something.
-import { createElement } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { joinTicket } from "../machines/jointicket.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -42,7 +41,7 @@ export async function firstRun() {
     closed = true;
     keep(); screen.dispose();
   };
-  screen.set([{ slot: "first-run", host: document.body, content: createElement("div", null, createElement(FirstRunScreen, { done: leave, join: joinTicket, prepare })) }]);
+  screen.set([{ slot: "first-run", host: document.body, content: <div><FirstRunScreen done={leave} join={joinTicket} prepare={prepare} /></div> }]);
 }
 
 /// Set up for this computer, or null when there is none to run here.

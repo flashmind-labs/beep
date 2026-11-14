@@ -1,7 +1,7 @@
 // report/: the "Report a problem" sheet. Main file: this one; its logic is
 // in report-state.ts.
 import { invoke } from "../ui/tauri.ts";
-import { createElement, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { openSheet } from "../ui/parts.tsx";
 import { ReportBody } from "./report-view.tsx";
@@ -132,15 +132,15 @@ function draw() {
   if (!sheet || !render) return;
   const box = sheet, show = render;
   const title = state.step === "sent" || state.step === "issue" ? "Sent" : "Report a problem";
-  flushSync(() => show(createElement(ReportBody, {
-    state, title, opened, issueText, debug: !!debug,
-    update, collect, send, back, retry, openIssue,
-    cancel: () => { if (!busy()) close?.(); },
-    done: () => close?.(),
-    startDebug: () => { const typed = state.text; const start = debug; close?.(); start?.(typed); },
-    openFile: (path: string) => { opened = opened === path ? null : path; draw(); },
-    openUrl: () => { void invoke("open_url", { url: state.issueUrl }).catch(e => console.warn("opening the issue:", e)); },
-  }), title));
+  flushSync(() => show(<ReportBody
+    state={state} title={title} opened={opened} issueText={issueText} debug={!!debug}
+    update={update} collect={collect} send={send} back={back} retry={retry} openIssue={openIssue}
+    cancel={() => { if (!busy()) close?.(); }}
+    done={() => close?.()}
+    startDebug={() => { const typed = state.text; const start = debug; close?.(); start?.(typed); }}
+    openFile={(path: string) => { opened = opened === path ? null : path; draw(); }}
+    openUrl={() => { void invoke("open_url", { url: state.issueUrl }).catch(e => console.warn("opening the issue:", e)); }}
+  />, title));
   const first = box.querySelector<HTMLElement>("textarea, .rp-foot .pri");
   if (first && !box.contains(document.activeElement)) first.focus();
 }

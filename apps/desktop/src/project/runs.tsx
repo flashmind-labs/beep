@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import type { LiveMode } from "./projectlive.ts";
 import { RunsView } from "./runs-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -65,7 +64,7 @@ export interface RunRow {
 }
 
 /// How a pull request's newest runs stand (ChecksRow).
-export interface ChecksRow {
+interface ChecksRow {
   number: number;
   state: RunState;
   run_id: number;
@@ -169,7 +168,7 @@ export interface RunDetail {
 }
 
 /// "48s", "3m 12s", "1h 4m": how long `ms` milliseconds is.
-export function span(ms: number) {
+function span(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -456,13 +455,13 @@ export function makeRuns(deps: RunDeps) {
     const id = agent.project_id, s = of(id);
     ensure(id);
     schedule(id);
-    return createElement("div", { className: "pj-actions", id: "sec-actions", key: id }, createElement(RunsView, {
-      data: s.data, error: s.error, only: s.only ?? null, open: s.open, mode: deps.mode?.(id) ?? null,
-      refresh: () => { void load(id, true); },
-      filter: (state: string | null) => { s.only = state; redraw(); },
-      toggle: (run: RunRow) => toggle(id, run), hover: (run: RunRow) => hovered(id, run),
-      leave: () => { if (hover) { clearTimeout(hover); hover = null; } },
-      menu: (e: MouseEvent, run: RunRow) => {
+    return <div className="pj-actions" id="sec-actions" key={id}><RunsView
+      data={s.data} error={s.error} only={s.only ?? null} open={s.open} mode={deps.mode?.(id) ?? null}
+      refresh={() => { void load(id, true); }}
+      filter={(state: string | null) => { s.only = state; redraw(); }}
+      toggle={(run: RunRow) => toggle(id, run)} hover={(run: RunRow) => hovered(id, run)}
+      leave={() => { if (hover) { clearTimeout(hover); hover = null; } }}
+      menu={(e: MouseEvent, run: RunRow) => {
         const hosts = s.data?.hosts ?? [];
         const items: MenuItem[] = [{ label: `Open on ${hostLabel(run.host, hosts)}`, on: () => openUrl(run.url) }];
         const d = s.open === runKey(run) ? openDetail(id) : null;
@@ -470,10 +469,10 @@ export function makeRuns(deps: RunDeps) {
         const job = d?.jobs.find(j => j.state === "failed");
         if (job?.url) { const url = job.url; items.push({ label: "Full log", on: () => openUrl(url) }); }
         openMenu(e, `${run.workflow} #${run.number}`, items);
-      },
-      detail: (run: RunRow) => ({ data: details.get(detailKey(id, run))?.data ?? null, error: detailErrors.get(detailKey(id, run)) ?? "" }),
-      fix: (detail: RunDetail) => fix(openDetail(id) ?? detail), openUrl,
-    }));
+      }}
+      detail={(run: RunRow) => ({ data: details.get(detailKey(id, run))?.data ?? null, error: detailErrors.get(detailKey(id, run)) ?? "" })}
+      fix={(detail: RunDetail) => fix(openDetail(id) ?? detail)} openUrl={openUrl}
+    /></div>;
   }
 
   return {

@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { retainedHost } from "./page-view.tsx";
@@ -309,7 +308,7 @@ export function disposeSessionPanel() { if (sessionsTab) removeWindowPart("proje
 
 export function sessionsHost(project: string, rows: SessionRow[]) {
   if (sessionsTab?.project !== project) { disposeSessionPanel(); sessionsTab = { project, host: retainedHost("cc-panel") }; }
-  showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: createElement(ProjectSessions, { rows, all: true }) }]);
+  showWindowParts([{ part: "project-sessions:all", host: sessionsTab.host, identity: project, content: <ProjectSessions rows={rows} all /> }]);
   return sessionsTab.host;
 }
 
@@ -367,9 +366,7 @@ async function readSessions(name: string) {
 /// three, each with Import; the sheet lists them all.
 export function foundSection(enabled: boolean) {
   if (!enabled || !state.found?.length) return null;
-  return createElement("div", { id: "sec-found" }, createElement(FoundSection, {
-    rows: state.found, importing: state.importing, error: state.foundError, importOne: importFromPage, add: addProject,
-  }));
+  return <div id="sec-found"><FoundSection rows={state.found} importing={state.importing} error={state.foundError} importOne={importFromPage} add={addProject} /></div>;
 }
 
 let askedGit = false;
@@ -393,10 +390,10 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
       importing: !!here && state.importing === here.name, disabled: !!here && state.importing != null, primary: i === 0,
       items: r.items.slice(0, ITEMS_SHOWN), import: () => { if (here) void importFromPage(here); else importSheet(r.repo); } };
   });
-  return createElement("div", { id: "sec-elsewhere" }, createElement(ElsewhereSection, { repos: body, open: openUrl,
-    review: item => go("pane", { agentnew: reviewStart(item, null, state.home?.machines?.filter(m => m.can_host !== false)) }),
-    reply: item => { void replyItem(item); },
-  }));
+  return <div id="sec-elsewhere"><ElsewhereSection repos={body} open={openUrl}
+    review={item => go("pane", { agentnew: reviewStart(item, null, state.home?.machines?.filter(m => m.can_host !== false)) })}
+    reply={item => { void replyItem(item); }}
+  /></div>;
 }
 
 // Reopened sessions and moves change independently of project membership.

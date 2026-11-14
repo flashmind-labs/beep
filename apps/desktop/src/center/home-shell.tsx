@@ -6,7 +6,7 @@ import { Button } from "../ui/kit.tsx";
 
 export type HomeTab = "overview" | "git" | "machines";
 
-export interface HomeShellProps {
+interface HomeShellProps {
   machines: MachineCard[] | null;
   mac: MacRow | null;
   jump(id: string): void;

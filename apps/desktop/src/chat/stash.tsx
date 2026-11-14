@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createStore } from "zustand";
 import { createDocumentScope } from "../ui/document-root.tsx";
@@ -92,7 +91,7 @@ function note(field: HTMLTextAreaElement, text: string) {
   if (!root) return;
   const prior = notices.get(root), key = prior?.key ?? String(++nextNotice);
   if (prior) clearTimeout(prior.timer);
-  noticeScope.set([{ slot: key, host: root, content: createElement("div", { className: "prompt-stash-note", role: "status" }, text) }]);
+  noticeScope.set([{ slot: key, host: root, content: <div className="prompt-stash-note" role="status">{text}</div> }]);
   const timer = setTimeout(() => { noticeScope.remove([key]); notices.delete(root); }, 6000);
   notices.set(root, { key, timer });
 }
@@ -115,7 +114,7 @@ function drawPanel() {
   if (!anchor || !list.length) { close(); return; }
   const field = active(project), binding = field && bindings.get(field);
   const swap = !!field?.value.trim() || !!binding?.hasAttachments();
-  const content = createElement(StashPanel, { project, entries: list, busy, canPop: !!field, swap, anchor, onClose: close, onRemove: id => remove(project, id), onPop: id => pop(id), onOutside: outside });
+  const content = <StashPanel project={project} entries={list} busy={busy} canPop={!!field} swap={swap} anchor={anchor} onClose={close} onRemove={id => remove(project, id)} onPop={id => pop(id)} onOutside={outside} />;
   panelScope.set([{ slot: "panel", host: document.body, content, identity: String(panelOpened) }]);
 }
 

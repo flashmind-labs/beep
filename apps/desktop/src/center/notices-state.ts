@@ -7,7 +7,7 @@ import { bytes, formatAgo } from "../ui/format.ts";
 export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "skill_conflict" | "run" | "removed";
 
 /// A build's note opens its project on the run.
-export type NoteTarget = PaneTarget | { projects: ProjectsArg };
+type NoteTarget = PaneTarget | { projects: ProjectsArg };
 
 /// What the mesh told this Mac, as `notes_list` gives it.
 export interface Note {

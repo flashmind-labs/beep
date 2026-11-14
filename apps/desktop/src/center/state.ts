@@ -21,7 +21,7 @@ export interface Started {
 // ---------- Window state ----------
 
 /// What a view's mount gets: a pane target, or the Projects page's pick.
-export interface ViewArgs {
+interface ViewArgs {
   home: null;
   pane: PaneTarget;
   projects: ProjectsArg | null;
@@ -30,9 +30,9 @@ export interface ViewArgs {
   terminals: null;
 }
 
-export interface ProvidersArg { agent: string | null; settings: boolean }
+interface ProvidersArg { agent: string | null; settings: boolean }
 export type InstructionsTab = "editor" | "history";
-export interface InstructionsArg { tab: InstructionsTab | null }
+interface InstructionsArg { tab: InstructionsTab | null }
 /// The names of the views the window can show.
 export type ViewName = keyof ViewArgs;
 export type ViewArg = ViewArgs[ViewName];
@@ -42,7 +42,7 @@ export type NavigationArgs = { [K in ViewName]: null extends ViewArgs[K]
   : [view: K, arg: ViewArgs[K]] }[ViewName];
 /// `run` opens that run on the Actions tile.
 export interface ProjectsArg { project: string | null; tile?: string | null; run?: RunAt | null }
-export interface RunAt { id: number; host: string }
+interface RunAt { id: number; host: string }
 
 /// A view's header: its title and line, buttons, and an element beside the title.
 export interface ViewHead { title: string; sub?: string; reactTools?: ReactNode; reactScope?: ReactNode }

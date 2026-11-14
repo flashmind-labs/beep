@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProviderHeader, ProvidersView, type SharedProviderSettings } from "./providers-view.tsx";
 // The Coding agents page: per machine, each harness (Claude Code, Codex, pi,
@@ -323,26 +322,25 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     const draft = hv?.installed ? st.drafts.get(draftKey) ?? draftOf(hv) : null;
     const behind = updatable(current || null);
     const updateCount = [...st.updating].filter(k => k.startsWith(`${machine} `)).length;
-    showWindowParts([{ part: "settings-page:providers", host: root, content: createElement(ProvidersView, {
-      machines: st.machines, machine, machineName: machineName(), view: current, picked: st.picked,
-      draft, others: hv ? st.others.get(hv.agent) : undefined, saving: st.saving,
-      updating: hv ? st.updating.has(key(hv.agent)) : false, adapter: hv ? adapter(hv.agent) : null,
-      error: st.machines === null ? st.note : machine ? st.errors.get(machine) ?? "" : st.note, inSettings, savedAll: st.savedAll.get(draftKey) ?? "",
-      includeProgram: st.includeProgram, shared: sharedAgent ? sharedSettings(sharedAgent) : null, flsh, contexts,
-      loadOthers, loadCompact, changeCompact, saveCompact: saveSharedCompact, discardCompact,
-      loading: isLoading(), checked: checkedLabel(current ? current.checked_at : null, Date.now()), updateCount, canUpdate: !!behind.length,
-      pick: (agent: string) => { st.picked = agent; draw(); },
-      toggle: (item: HarnessView, on: boolean) => { void save(item, toggledInput(item, on)); },
-      update: (item: HarnessView) => { void update([item.agent]); }, retryAdapter: (agent: string) => { void retryAdapters(agent); },
-      openAccounts: () => deps.openSettings("agents"),
-      setDraft: (value: Partial<HarnessDraft>) => { if (!hv || !draft) return; st.drafts.set(draftKey, { ...draft, ...value }); draw(); },
-      save: (item: HarnessView) => { if (draft) void save(item, settingsInput(item.settings.enabled, draft)); },
-      saveAll: (item: HarnessView) => { if (draft) void saveAll(item, settingsInput(item.settings.enabled, draft)); },
-      discard: () => { st.drafts.delete(draftKey); draw(); },
-      setIncludeProgram: (value: boolean) => { st.includeProgram = value; draw(); },
-      dismissError: () => { if (machine) st.errors.delete(machine); draw(); },
-      pickMachine, refresh: () => { void load(true); }, updateAll: () => { void update(behind); },
-    }) }]);
+    showWindowParts([{ part: "settings-page:providers", host: root, content: <ProvidersView
+      machines={st.machines} machine={machine} machineName={machineName()} view={current} picked={st.picked}
+      draft={draft} others={hv ? st.others.get(hv.agent) : undefined} saving={st.saving}
+      updating={hv ? st.updating.has(key(hv.agent)) : false} adapter={hv ? adapter(hv.agent) : null}
+      error={st.machines === null ? st.note : machine ? st.errors.get(machine) ?? "" : st.note} inSettings={inSettings} savedAll={st.savedAll.get(draftKey) ?? ""}
+      includeProgram={st.includeProgram} shared={sharedAgent ? sharedSettings(sharedAgent) : null} flsh={flsh} contexts={contexts}
+      loadOthers={loadOthers} loadCompact={loadCompact} changeCompact={changeCompact} saveCompact={saveSharedCompact} discardCompact={discardCompact}
+      loading={isLoading()} checked={checkedLabel(current ? current.checked_at : null, Date.now())} updateCount={updateCount} canUpdate={!!behind.length}
+      pick={(agent: string) => { st.picked = agent; draw(); }}
+      toggle={(item: HarnessView, on: boolean) => { void save(item, toggledInput(item, on)); }}
+      update={(item: HarnessView) => { void update([item.agent]); }} retryAdapter={(agent: string) => { void retryAdapters(agent); }}
+      openAccounts={() => deps.openSettings("agents")}
+      setDraft={(value: Partial<HarnessDraft>) => { if (!hv || !draft) return; st.drafts.set(draftKey, { ...draft, ...value }); draw(); }}
+      save={(item: HarnessView) => { if (draft) void save(item, settingsInput(item.settings.enabled, draft)); }}
+      saveAll={(item: HarnessView) => { if (draft) void saveAll(item, settingsInput(item.settings.enabled, draft)); }}
+      discard={() => { st.drafts.delete(draftKey); draw(); }}
+      setIncludeProgram={(value: boolean) => { st.includeProgram = value; draw(); }}
+      dismissError={() => { if (machine) st.errors.delete(machine); draw(); }}
+      pickMachine={pickMachine} refresh={() => { void load(true); }} updateAll={() => { void update(behind); }} /> }]);
   }
 
   return {
@@ -351,14 +349,13 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
       const current = view();
       return {
         title: "Coding agents", sub: "What each machine can run",
-        reactTools: inSettings ? null : createElement(ProviderHeader, {
-          machines: st.machines, machine: st.machine, loading: isLoading(),
-          checked: checkedLabel(current ? current.checked_at : null, Date.now()),
-          updateCount: [...st.updating].filter(key => key.startsWith(`${st.machine} `)).length,
-          canUpdate: !!updatable(current || null).length,
-          pickMachine, refresh: () => { void load(true); },
-          updateAll: () => { void update(updatable(view() || null)); },
-        }),
+        reactTools: inSettings ? null : <ProviderHeader
+          machines={st.machines} machine={st.machine} loading={isLoading()}
+          checked={checkedLabel(current ? current.checked_at : null, Date.now())}
+          updateCount={[...st.updating].filter(key => key.startsWith(`${st.machine} `)).length}
+          canUpdate={!!updatable(current || null).length}
+          pickMachine={pickMachine} refresh={() => { void load(true); }}
+          updateAll={() => { void update(updatable(view() || null)); }} />,
       };
     },
     // Settings opens it at one agent (`arg.agent`), which its left pane picks.

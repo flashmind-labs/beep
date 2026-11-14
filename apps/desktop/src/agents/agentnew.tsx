@@ -1,6 +1,6 @@
 import { keepProjectPick, lastProjectPick } from "./agentmodels.ts";
 import { Spinner } from "../ui/kit.tsx";
-import { createElement, createRef, Fragment, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { startAttachments } from "./start-attachments.tsx";
@@ -227,7 +227,7 @@ function drawParts() {
   drawPill(c, none);
   drawPicker(c);
   drawUnder(c);
-  c.update({ notes: createElement(NewAgentNotes, { waiting: !AG.hosts, none, noMachine: !f.machine && !!AG.hosts?.length, openMachines }) });
+  c.update({ notes: <NewAgentNotes waiting={!AG.hosts} none={none} noMachine={!f.machine && !!AG.hosts?.length} openMachines={openMachines} /> });
 }
 
 function openMachines() { void import("../machines/machines.tsx").then(m => m.renderMachines()); }
@@ -275,21 +275,21 @@ function drawUnder(c: StartComposer) {
   const shown = folderPill(f.cwd, host?.workspace, host?.home);
   const co = barCheckout(f.checkout ?? DEFAULT_CHECKOUT, baseFor(f.base, formBranches()));
   drawExtras(c);
-  c.update({ choiceContents: { project: createElement(ProjectChoice, { name: f.project || "No project" }), machine: host ? host.machine_name : "Pick a machine", folder: createElement(FolderChoice, { checkout, label: checkout ? co.label : shown.label, detail: checkout ? co.sub : shown.path }) } });
-  c.update({ under: createElement(ChoiceMenuView, { menu: projectMenu() ?? hostMenu() ?? folderMenu(checkout) ?? baseMenu(), anchor: menuAnchor, bounds: menuBounds, pick: pickChoice }) });
+  c.update({ choiceContents: { project: <ProjectChoice name={f.project || "No project"} />, machine: host ? host.machine_name : "Pick a machine", folder: <FolderChoice checkout={checkout} label={checkout ? co.label : shown.label} detail={checkout ? co.sub : shown.path} /> } });
+  c.update({ under: <ChoiceMenuView menu={projectMenu() ?? hostMenu() ?? folderMenu(checkout) ?? baseMenu()} anchor={menuAnchor} bounds={menuBounds} pick={pickChoice} /> });
 }
 
 const baseButton = createRef<HTMLButtonElement>();
 
 function drawExtras(c: StartComposer) {
   const f = AG.form, base = baseFor(f.base, formBranches()) || "HEAD";
-  const folder = f.typing ? createElement(FolderInput, { value: f.cwd, menu, change: typeFolder, keyDown: folderKey, leave: () => { if (AG.form.typing) doneTyping(); }, pick: pickFolder }) : null;
+  const folder = f.typing ? <FolderInput value={f.cwd} menu={menu} change={typeFolder} keyDown={folderKey} leave={() => { if (AG.form.typing) doneTyping(); }} pick={pickFolder} /> : null;
   const branch = checkoutHere() && makesBranch(f.checkout ?? DEFAULT_CHECKOUT)
     ? f.baseTyping
-      ? createElement(BaseInput, { value: f.base ?? "", placeholder: base, change: value => { f.base = value.trim() || null; drawExtras(c); }, keyDown: baseKey, leave: () => { if (AG.form.baseTyping) { AG.form.baseTyping = false; drawParts(); } } })
-      : createElement(BaseChoice, { base, open: f.open === "base", button: baseButton, toggle: toggleBase })
+      ? <BaseInput value={f.base ?? ""} placeholder={base} change={value => { f.base = value.trim() || null; drawExtras(c); }} keyDown={baseKey} leave={() => { if (AG.form.baseTyping) { AG.form.baseTyping = false; drawParts(); } }} />
+      : <BaseChoice base={base} open={f.open === "base"} button={baseButton} toggle={toggleBase} />
     : null;
-  c.update({ extras: createElement(Fragment, null, folder, branch) });
+  c.update({ extras: <>{folder}{branch}</> });
 }
 
 /// The pill the open menu hangs from, and the area it stays in.
@@ -309,9 +309,9 @@ function projectMenu(): ChoiceMenu | null {
   const rows = (PROJECTS ?? []).map(p => {
     const here = machine ? p.places.find(x => x.machine === machine) : null;
     const where = here ? tildePath(here.cwd, formHost()?.home) : `${plural(p.places.length, "machine", "machines")}`;
-    return { kind: "button", action: "agp", value: p.name, selected: f.project === p.name, label: createElement("span", null, p.name), detail: where, mono: !!here } satisfies ChoiceRow;
+    return { kind: "button", action: "agp", value: p.name, selected: f.project === p.name, label: <span>{p.name}</span>, detail: where, mono: !!here } satisfies ChoiceRow;
   });
-  const note: ChoiceRow[] = PROJECTS === null ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement(Spinner), " Reading projects…"), detail: "" }] : [];
+  const note: ChoiceRow[] = PROJECTS === null ? [{ kind: "button", action: null, value: "loading", disabled: true, label: <span><Spinner /> Reading projects…</span>, detail: "" }] : [];
   return { style: "", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agp", value: "", selected: !f.project, label: "No project", detail: "pick one to start" }] };
 }
 
@@ -366,8 +366,8 @@ function baseMenu(): ChoiceMenu | null {
   const f = AG.form;
   if (f.open !== "base") return null;
   const list = formBranches(), picked = baseFor(f.base, list);
-  const rows: ChoiceRow[] = baseRows(list).map(name => ({ kind: "button", action: "agb", value: name, selected: picked === name, label: createElement("span", { className: "mono" }, name), detail: name === list?.default_branch ? "default" : "" }));
-  const note: ChoiceRow[] = list === undefined ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement(Spinner), " Reading branches…"), detail: "" }] : [];
+  const rows: ChoiceRow[] = baseRows(list).map(name => ({ kind: "button", action: "agb", value: name, selected: picked === name, label: <span className="mono">{name}</span>, detail: name === list?.default_branch ? "default" : "" }));
+  const note: ChoiceRow[] = list === undefined ? [{ kind: "button", action: null, value: "loading", disabled: true, label: <span><Spinner /> Reading branches…</span>, detail: "" }] : [];
   return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit…", detail: "" }] };
 }
 
@@ -380,7 +380,7 @@ function hostMenu(): ChoiceMenu | null {
   const f = AG.form;
   if (f.open !== "host") return null;
   const rows = machineRows(AG.hosts ?? [], KNOWN?.map(m => ({ id: m.id, name: m.name, online: m.online })) ?? null, a => agentKind(a).name, AGENT_ORDER);
-  return { style: "cols", rows: rows.map(m => ({ kind: "button", action: "agm", value: m.id, selected: f.machine === m.id, disabled: !m.enabled, dot: m.online ? "on" : "off", label: createElement("span", null, m.name), detail: m.note })) };
+  return { style: "cols", rows: rows.map(m => ({ kind: "button", action: "agm", value: m.id, selected: f.machine === m.id, disabled: !m.enabled, dot: m.online ? "on" : "off", label: <span>{m.name}</span>, detail: m.note })) };
 }
 
 /// Whether the folder is one of the project's checkouts on the machine
@@ -404,7 +404,7 @@ function folderMenu(checkout: boolean): ChoiceMenu | null {
       if (r.kind === "rule") return { kind: "rule" };
       if (r.kind === "type") return { kind: "button", action: "agtype", value: "1", label: "Type a folder…", detail: "" };
       if (r.kind === "workspace") return { kind: "button", action: "agf", value: "", selected: r.on, label: "Workspace", detail: r.shown, mono: true };
-      return { kind: "button", action: "agf", value: r.cwd, selected: r.on, label: createElement("span", null, r.project), detail: r.shown, mono: true };
+      return { kind: "button", action: "agf", value: r.cwd, selected: r.on, label: <span>{r.project}</span>, detail: r.shown, mono: true };
     });
     return { style: "folder", rows };
   }
@@ -415,12 +415,12 @@ function folderMenu(checkout: boolean): ChoiceMenu | null {
   const trees = checkout ? knownWorktrees(sessions, f.machine || null, f.cwd) : [];
   const workspace = host?.workspace ? tildePath(host.workspace, host.home) : "~";
   const rows: ChoiceRow[] = [
-    ...places.map(p => ({ kind: "button", action: "agf", value: p, selected: f.cwd.trim() === p, label: createElement("span", { className: "mono" }, tildePath(p, host?.home)), detail: "checkout" } as const)),
+    ...places.map(p => ({ kind: "button", action: "agf", value: p, selected: f.cwd.trim() === p, label: <span className="mono">{tildePath(p, host?.home)}</span>, detail: "checkout" } as const)),
     ...(checkout ? [{ kind: "rule" } as const,
       { kind: "button", action: "agk", value: "current", selected: same("current"), label: "Current checkout", detail: "as it is" } as const,
       { kind: "button", action: "agk", value: "branch", selected: same("branch"), label: "New branch", detail: "in the checkout, named from the prompt" } as const,
       { kind: "button", action: "agk", value: "new", selected: same("new"), label: "New worktree", detail: "new branch in .worktrees/" } as const,
-      ...trees.map(t => ({ kind: "button", action: "agw", value: t, selected: same({ worktree: t }), label: createElement("span", { className: "mono" }, t.split("/").slice(-2).join("/")), detail: "worktree" } as const))] : []),
+      ...trees.map(t => ({ kind: "button", action: "agw", value: t, selected: same({ worktree: t }), label: <span className="mono">{t.split("/").slice(-2).join("/")}</span>, detail: "worktree" } as const))] : []),
     ...(places.length || checkout ? [{ kind: "rule" } as const] : []),
     { kind: "button", action: "agf", value: "", selected: !f.cwd.trim(), label: "Workspace", detail: workspace, mono: true },
     { kind: "button", action: "agtype", value: "1", label: "Type a folder…", detail: "" },

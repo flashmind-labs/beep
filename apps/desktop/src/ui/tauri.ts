@@ -2,14 +2,14 @@
 import { dropViews, takeSnapshotView, writeScope } from "./snapshot-state.ts";
 
 /// A channel Rust streams events into, passed as an `invoke` argument.
-export interface TauriChannel<T> {
+interface TauriChannel<T> {
   /// The callback Rust's messages go to.
   id: number;
   onmessage: (message: T) => void;
 }
 
 /// An event Rust emits to the webviews.
-export interface TauriEvent<T> {
+interface TauriEvent<T> {
   payload: T;
 }
 

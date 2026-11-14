@@ -1,4 +1,4 @@
-import { createElement, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { NewProjectView } from "./newproject-view.tsx";
 // The "New project" sheet: a name, where the repository goes (each host with
@@ -118,18 +118,18 @@ function setForm(next: NewProjectForm) { form = next; error = null; draw(); }
 function draw() {
   if (!view) return;
   const current = view;
-  flushSync(() => current(createElement(NewProjectView, {
-    forges, loadError, form, machines: online(), defaults, creating, error, created, hostError: hostError(),
-    name: (name: string) => setForm({ ...form, name }),
-    host: (host: string | null) => setForm(pickHost(form, forges ?? [], host)),
-    owner: (event: ReactMouseEvent<HTMLButtonElement>) => {
+  flushSync(() => current(<NewProjectView
+    forges={forges} loadError={loadError} form={form} machines={online()} defaults={defaults} creating={creating} error={error} created={created} hostError={hostError()}
+    name={(name: string) => setForm({ ...form, name })}
+    host={(host: string | null) => setForm(pickHost(form, forges ?? [], host))}
+    owner={(event: ReactMouseEvent<HTMLButtonElement>) => {
       const anchor = event.currentTarget;
       openMenu(event.nativeEvent, "Owner", (forges ?? []).find(f => f.host === form.host)?.owners.map(owner => ({ label: owner, on: () => { setForm({ ...form, owner }); if (anchor.isConnected) anchor.focus(); } })) ?? []);
-    },
-    privacy: (isPrivate: boolean) => setForm({ ...form, isPrivate }),
-    machine: (id: string) => setForm(toggleMachine(form, id)), submit: () => void submit(),
-    folder: (id: string, folder: string) => setForm({ ...form, folders: { ...form.folders, [id]: folder } }),
-    back: () => { closeNewProject(); opts.onBack?.(); }, close: closeNewProject,
-    clone: (url: string) => { closeNewProject(); opts.onClone?.(url); },
-  })));
+    }}
+    privacy={(isPrivate: boolean) => setForm({ ...form, isPrivate })}
+    machine={(id: string) => setForm(toggleMachine(form, id))} submit={() => void submit()}
+    folder={(id: string, folder: string) => setForm({ ...form, folders: { ...form.folders, [id]: folder } })}
+    back={() => { closeNewProject(); opts.onBack?.(); }} close={closeNewProject}
+    clone={(url: string) => { closeNewProject(); opts.onClone?.(url); }}
+  />));
 }

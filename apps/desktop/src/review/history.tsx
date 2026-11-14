@@ -1,4 +1,4 @@
-import { createElement, Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { showWindowParts } from "../center/window-root.tsx";
 import { retainedHost } from "../project/page-view.tsx";
 import { HistoryFacts } from "./history-facts.tsx";
@@ -125,10 +125,9 @@ export function makeGitHistory(deps: HistoryDeps) {
   }
 
   function navigation(p: ProjectHistory) {
-    return createElement(HistoryNavigation, {
-      query: p.query, back: deps.back,
-      refresh: () => void refresh(p.name), collapse: () => { p.open.clear(); renderTree(p); },
-      search: (query: string) => {
+    return <HistoryNavigation query={p.query} back={deps.back}
+      refresh={() => void refresh(p.name)} collapse={() => { p.open.clear(); renderTree(p); }}
+      search={(query: string) => {
         p.query = query;
         clearTimeout(p.timer);
         p.timer = setTimeout(() => {
@@ -137,8 +136,7 @@ export function makeGitHistory(deps: HistoryDeps) {
           renderTree(p);
           if (!found.loaded && !found.loading) void load(p, found);
         }, 250);
-      },
-    });
+      }} />;
   }
 
   async function load(p: ProjectHistory, target: CommitList, more = false) {
@@ -175,13 +173,13 @@ export function makeGitHistory(deps: HistoryDeps) {
     }
   }
 
-  function node(p: ProjectHistory, key: string, label: ReactNode[], children: () => ReactNode[], on?: () => void,
+  function node(p: ProjectHistory, key: string, label: ReactNode, children: () => ReactNode[], on?: () => void,
     options: { commit?: boolean; title?: string; current?: boolean } = {}) {
     const open = p.open.has(key);
-    return createElement(TreeNode, { key, nodeKey: key, label, open, ...options, onSelect: on, onToggle: (isOpen: boolean) => {
+    return <TreeNode key={key} nodeKey={key} label={label} open={open} {...options} onSelect={on} onToggle={(isOpen: boolean) => {
       if (isOpen) p.open.add(key); else p.open.delete(key);
       renderTree(p);
-    } }, open ? children() : null);
+    }}>{open ? children() : null}</TreeNode>;
   }
 
   function fileRead(p: ProjectHistory, selected: GitSelection): FileRead {
@@ -213,35 +211,34 @@ export function makeGitHistory(deps: HistoryDeps) {
   function changedFiles(p: ProjectHistory, selected: GitSelection): ReactNode[] {
     const result = fileRead(p, selected);
     if (!result.loaded && !result.loading && !result.error) void readFiles(p, selected);
-    const rows: ReactNode[] = result.rows.map(f => createElement("button", {
-      key: f.path, type: "button", className: "gh-file", "data-path": f.path,
-      "data-selection": selectionKey(selected), title: f.old_path ? `${f.old_path} -> ${f.path}` : f.path,
-      "aria-current": String(!!p.selected && selectionKey(p.selected) === selectionKey(selected) && p.path === f.path),
-      onClick: () => { p.selected = selected; p.path = f.path; p.tab = "changes"; renderTree(p); renderDetail(p); },
-    }, createElement("span", { className: "gh-status" }, STATUS_LETTER[f.status]), createElement("span", null, f.path)));
-    if (result.loading) rows.push(createElement("p", { key: "loading", className: "gh-empty" }, "Reading changed files…"));
+    const rows: ReactNode[] = result.rows.map(f => <button key={f.path} type="button" className="gh-file" data-path={f.path}
+      data-selection={selectionKey(selected)} title={f.old_path ? `${f.old_path} -> ${f.path}` : f.path}
+      aria-current={!!p.selected && selectionKey(p.selected) === selectionKey(selected) && p.path === f.path}
+      onClick={() => { p.selected = selected; p.path = f.path; p.tab = "changes"; renderTree(p); renderDetail(p); }}>
+      <span className="gh-status">{STATUS_LETTER[f.status]}</span><span>{f.path}</span></button>);
+    if (result.loading) rows.push(<p key="loading" className="gh-empty">Reading changed files…</p>);
     if (result.error) rows.push(treeError(result.error, () => { result.error = ""; result.loaded = false; void readFiles(p, selected); }));
-    if (result.loaded && !rows.length) rows.push(createElement("p", { key: "empty", className: "gh-empty" }, selected.kind === "working" ? "Working tree clean." : "This commit changes no files."));
+    if (result.loaded && !rows.length) rows.push(<p key="empty" className="gh-empty">{selected.kind === "working" ? "Working tree clean." : "This commit changes no files."}</p>);
     return rows;
   }
 
   function treeError(message: string, retry: () => void) {
-    return createElement("div", { key: "error" }, createElement("div", { className: "cc-note" }, createElement("span", { className: "ddot bad" }), createElement("span", { className: "cc-err" }, message)), createElement("button", { type: "button", className: "gh-more", onClick: retry }, "Try again"));
+    return <div key="error"><div className="cc-note"><span className="ddot bad" /><span className="cc-err">{message}</span></div><button type="button" className="gh-more" onClick={retry}>Try again</button></div>;
   }
 
   function commitNode(p: ProjectHistory, c: GitCommit, origin: string, prefix = "") {
     const selected: GitSelection = { kind: "commit", commit: c, origin };
-    return node(p, `${prefix}commit:${c.id}`, [createElement("span", { key: "dot", className: `gh-dot${c.parents.length > 1 ? " merge" : ""}` }), createElement("span", { key: "subject", className: "gh-subject" }, c.subject || "Untitled commit"), createElement("code", { key: "id" }, c.id.slice(0, 7))], () => [
-      node(p, `${prefix}changes:${c.id}`, [createElement("span", { key: "label" }, "Changes")], () => changedFiles(p, selected), () => select(p, selected)),
+    return node(p, `${prefix}commit:${c.id}`, <><span className={`gh-dot${c.parents.length > 1 ? " merge" : ""}`} /><span className="gh-subject">{c.subject || "Untitled commit"}</span><code>{c.id.slice(0, 7)}</code></>, () => [
+      node(p, `${prefix}changes:${c.id}`, <span>Changes</span>, () => changedFiles(p, selected), () => select(p, selected)),
     ], () => { select(p, selected); void readFiles(p, selected); }, { commit: true, title: `${c.subject}\n${c.id}`, current: p.selected?.kind === "commit" && p.selected.commit.id === c.id });
   }
 
   function listStatus(p: ProjectHistory, found: CommitList): ReactNode[] {
     const rows: ReactNode[] = [];
-    if (found.loading && !found.loaded) rows.push(createElement("p", { key: "loading", className: "gh-empty" }, "Reading history…"));
+    if (found.loading && !found.loaded) rows.push(<p key="loading" className="gh-empty">Reading history…</p>);
     if (found.error) rows.push(treeError(found.error, () => void load(p, found, found.rows.length > 0)));
-    if (found.loaded && !found.rows.length) rows.push(createElement("p", { key: "empty", className: "gh-empty" }, found.search ? "No commits match this search." : "No commits yet."));
-    if (!found.loading && found.next !== null) rows.push(createElement("button", { key: "more", type: "button", className: "gh-more", onClick: () => void load(p, found, true) }, "Load older commits"));
+    if (found.loaded && !found.rows.length) rows.push(<p key="empty" className="gh-empty">{found.search ? "No commits match this search." : "No commits yet."}</p>);
+    if (!found.loading && found.next !== null) rows.push(<button key="more" type="button" className="gh-more" onClick={() => void load(p, found, true)}>Load older commits</button>);
     return rows;
   }
 
@@ -252,40 +249,40 @@ export function makeGitHistory(deps: HistoryDeps) {
   function treeSessions(p: ProjectHistory, w: GitWorktree): ReactNode[] {
     const all = deps.sessions(p.name);
     const related = branchSessions(all || [], p.data?.machine_id, w.path, p.data?.worktrees.map(tree => tree.path));
-    return related.length ? related.map(s => createElement(SessionLink, { key: `${s.machine_id}:${s.agent}:${s.id}`, session: s, open: deps.openSession }))
-      : [createElement("p", { key: "empty", className: "gh-empty" }, all === undefined ? "Reading sessions…" : "No sessions in this worktree.")];
+    return related.length ? related.map(s => <SessionLink key={`${s.machine_id}:${s.agent}:${s.id}`} session={s} open={deps.openSession} />)
+      : [<p key="empty" className="gh-empty">{all === undefined ? "Reading sessions…" : "No sessions in this worktree."}</p>];
   }
 
   function renderTree(p: ProjectHistory) {
     const found = list(p, null, p.query);
-    const history = node(p, "history", [createElement("b", { key: "label" }, "All history"), createElement("small", { key: "count" }, found.rows.length ? `${found.rows.length}${found.next !== null ? "+" : ""}` : "")], () => {
+    const history = node(p, "history", <><b>All history</b><small>{found.rows.length ? `${found.rows.length}${found.next !== null ? "+" : ""}` : ""}</small></>, () => {
       const days = dayGroups(found.rows);
       if (!days.length) return listRows(p, found, "All history");
       if (!p.started) { p.open.add(`day:${p.query}:${days[0][0]}`); p.started = true; }
-      return [...days.map(([day, commits]) => node(p, `day:${p.query}:${day}`, [createElement("span", { key: "day" }, day), createElement("small", { key: "count" }, String(commits.length))], () => commits.map(c => commitNode(p, c, "All history")))), ...listStatus(p, found)];
+      return [...days.map(([day, commits]) => node(p, `day:${p.query}:${day}`, <><span>{day}</span><small>{commits.length}</small></>, () => commits.map(c => commitNode(p, c, "All history")))), ...listStatus(p, found)];
     });
     const refs = (p.data?.refs || []).filter(r => r.kind !== "tag");
-    const branches = node(p, "branches", [createElement("b", { key: "label" }, "Branches"), createElement("small", { key: "count" }, String(refs.length))], () => refs.map(ref => {
+    const branches = node(p, "branches", <><b>Branches</b><small>{refs.length}</small></>, () => refs.map(ref => {
       const branchList = list(p, ref.head);
-      return node(p, `branch:${ref.kind}:${ref.name}`, [createElement("code", { key: "name" }, ref.name), createElement("small", { key: "kind" }, ref.kind === "remote" ? "remote" : "")], () => {
+      return node(p, `branch:${ref.kind}:${ref.name}`, <><code>{ref.name}</code><small>{ref.kind === "remote" ? "remote" : ""}</small></>, () => {
         if (!branchList.loaded && !branchList.loading && !branchList.error) void load(p, branchList);
         return listRows(p, branchList, `Branches / ${ref.name}`, `${ref.name}:`);
       });
     }));
-    const worktrees = node(p, "worktrees", [createElement("b", { key: "label" }, "Worktrees"), createElement("small", { key: "count" }, String(p.data?.worktrees.length ?? 0))], () => (p.data?.worktrees || []).map(w => {
+    const worktrees = node(p, "worktrees", <><b>Worktrees</b><small>{p.data?.worktrees.length ?? 0}</small></>, () => (p.data?.worktrees || []).map(w => {
       const selected: GitSelection = { kind: "working", worktree: w };
-      return node(p, `worktree:${w.path}`, [createElement("code", { key: "name" }, w.branch || w.head?.slice(0, 7) || "Unborn checkout"), createElement("small", { key: "main" }, w.main ? "main checkout" : "")], () => [
-        createElement("div", { key: "location", className: "gh-location" }, `${p.data?.machine_name}\n`, createElement("code", null, w.path)),
-        node(p, `working:${w.path}`, [createElement("span", { key: "label" }, "Uncommitted changes")], () => changedFiles(p, selected), () => { select(p, selected); void readFiles(p, selected); }),
-        node(p, `sessions:${w.path}`, [createElement("span", { key: "label" }, "Sessions")], () => treeSessions(p, w)),
+      return node(p, `worktree:${w.path}`, <><code>{w.branch || w.head?.slice(0, 7) || "Unborn checkout"}</code><small>{w.main ? "main checkout" : ""}</small></>, () => [
+        <div key="location" className="gh-location">{`${p.data?.machine_name}\n`}<code>{w.path}</code></div>,
+        node(p, `working:${w.path}`, <span>Uncommitted changes</span>, () => changedFiles(p, selected), () => { select(p, selected); void readFiles(p, selected); }),
+        node(p, `sessions:${w.path}`, <span>Sessions</span>, () => treeSessions(p, w)),
       ]);
     }));
     const machine = p.data?.machine_name ?? null;
-    renderHistory(p, "navigation", p.nav, createElement(Fragment, null,
-      createElement("div", { style: { display: "contents" } }, navigation(p)),
-      createElement("div", { className: "gh-tree", "data-started": p.started ? "true" : undefined }, history, branches, worktrees),
-      createElement("div", { className: "gh-nav-foot" }, machine ? `All branches · ${machine}` : ""),
-    ));
+    renderHistory(p, "navigation", p.nav, <>
+      <div style={{ display: "contents" }}>{navigation(p)}</div>
+      <div className="gh-tree" data-started={p.started ? "true" : undefined}>{history}{branches}{worktrees}</div>
+      <div className="gh-nav-foot">{machine ? `All branches · ${machine}` : ""}</div>
+    </>);
   }
 
   function select(p: ProjectHistory, selected: GitSelection) {
@@ -306,7 +303,7 @@ export function makeGitHistory(deps: HistoryDeps) {
 
     if (!selected || !p.data) {
       const found = list(p, null, p.query);
-      renderHistory(p, "detail", p.detail, createElement("p", { className: "gh-empty" }, found.loading ? "Reading Git history…" : "Select a commit or worktree to see its changes."));
+      renderHistory(p, "detail", p.detail, <p className="gh-empty">{found.loading ? "Reading Git history…" : "Select a commit or worktree to see its changes."}</p>);
       return;
     }
 
@@ -318,21 +315,18 @@ export function makeGitHistory(deps: HistoryDeps) {
         metadata: `${selected.commit.author} · ${new Date(selected.commit.committed_at).toLocaleString()}`, id: selected.commit.id, copyLabel: "Copy SHA" }
       : { breadcrumb: `Worktrees / ${selected.worktree.branch || "Detached HEAD"}`, title: `Uncommitted changes in ${selected.worktree.branch || "checkout"}`,
         metadata: `${selected.worktree.path} · ${p.data.machine_name}`, id: selected.worktree.path, copyLabel: "Copy path" };
-    const header = createElement(HistoryHeader, {
-      key: selectionKey(selected), breadcrumb: shown.breadcrumb, title: shown.title, metadata: shown.metadata,
-      copyValue: shown.id, copyLabel: shown.copyLabel,
-      tab: p.tab, onTab: (tab: ProjectHistory["tab"]) => { p.tab = tab; renderDetail(p); },
-    });
+    const header = <HistoryHeader key={selectionKey(selected)} breadcrumb={shown.breadcrumb} title={shown.title} metadata={shown.metadata}
+      copyValue={shown.id} copyLabel={shown.copyLabel}
+      tab={p.tab} onTab={(tab: ProjectHistory["tab"]) => { p.tab = tab; renderDetail(p); }} />;
     let body: ReactNode = null, diff: HTMLElement | null = null;
     if (p.tab === "details") {
-      body = createElement("div", { className: "gh-facts-root" }, createElement(HistoryFacts, {
-        id: shown.id, author: c?.author ?? null, parents: c?.parents ?? [], onParent: id => void parent(p, id),
-      }));
+      body = <div className="gh-facts-root"><HistoryFacts
+        id={shown.id} author={c?.author ?? null} parents={c?.parents ?? []} onParent={id => void parent(p, id)} /></div>;
     } else if (p.tab === "sessions") {
       const currentTree = w || (ref && p.data.worktrees.find(tree => tree.branch === ref.name));
       const all = deps.sessions(p.name);
       const sessions = currentTree ? branchSessions(all || [], p.data.machine_id, currentTree.path, p.data.worktrees.map(tree => tree.path)) : [];
-      body = createElement(HistorySessions, { linked: !!currentTree, loading: all === undefined, sessions, open: deps.openSession });
+      body = <HistorySessions linked={!!currentTree} loading={all === undefined} sessions={sessions} open={deps.openSession} />;
     } else {
       const path = p.path;
       const key = `${selectionKey(selected)}\0${path || ""}`;
@@ -354,10 +348,10 @@ export function makeGitHistory(deps: HistoryDeps) {
           review: { key: `history:${p.name}:${key}`, heading: () => c?.subject || "Worktree changes", send: async () => "Open a session to send a review." },
         });
       }
-      if (path) body = createElement(HistoryPath, { path, showAll: () => { p.path = null; renderDetail(p); } });
+      if (path) body = <HistoryPath path={path} showAll={() => { p.path = null; renderDetail(p); }} />;
       diff = p.view.el;
     }
-    renderHistory(p, "detail", p.detail, createElement(HistoryDetail, { header, body, diff }));
+    renderHistory(p, "detail", p.detail, <HistoryDetail header={header} body={body} diff={diff} />);
   }
 
   function panels(name: string) {

@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { MachineList, MachineLoading } from "./list-view.tsx";
@@ -414,8 +413,8 @@ function showScreen(at: MachinesHost | null, page: MachinesPage) {
     return;
   }
 
-  embedded.set([{ slot: "machines", host: at.root, content: page.view === "machines" ? createElement(MachineList, page.props)
-    : page.view === "machine" ? createElement(MachineDetail, page.props) : createElement(MachineLoading) }]);
+  embedded.set([{ slot: "machines", host: at.root, content: page.view === "machines" ? <MachineList {...page.props} />
+    : page.view === "machine" ? <MachineDetail {...page.props} /> : <MachineLoading /> }]);
 }
 
 function drawList(at: MachinesHost | null) {

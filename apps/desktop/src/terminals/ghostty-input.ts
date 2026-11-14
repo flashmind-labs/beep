@@ -57,7 +57,7 @@ const REPEAT_DISTANCE_PX = 6;
 /// The most bytes one key, mouse or focus event encodes to.
 const ENCODED_CAP = 128;
 
-export interface Modifiers {
+interface Modifiers {
   shift: boolean;
   ctrl: boolean;
   alt: boolean;
@@ -427,7 +427,7 @@ export class TerminalInput {
 /// ESC b, rather than the "∫" macOS makes of it. Ghostty's own option-as-alt
 /// setting applies only to macOS builds, not this one. A key name such as
 /// "Enter" types nothing.
-export function typed(input: KeyInput): string {
+function typed(input: KeyInput): string {
   if (input.alt && !input.ctrl && !input.meta) {
     const base = unshifted(input.code);
     if (base !== 0) {

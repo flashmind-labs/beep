@@ -1,4 +1,4 @@
-import { createElement, createRef, type ReactElement, type RefObject } from "react";
+import { createRef, type ReactElement, type RefObject } from "react";
 import { AgentPicker, AgentPillContent } from "./agentpicker-view.tsx";
 // The harness, model and thinking picker, as the start form and a project's
 // agent bar both show it: the pill that opens it, the popover with its rail,
@@ -125,7 +125,7 @@ export interface PickerOpts {
 /// The pill's inside: the harness badge, thinking level and model.
 export function pillContent(agent: string, model: string, effort: string | null, machine: string | null) {
   const detail = pillDetail(modelLabel(knownModels(machine, agent), model), agent, effort);
-  return createElement(AgentPillContent, { agent, detail });
+  return <AgentPillContent agent={agent} detail={detail} />;
 }
 
 // The host's owner renders the picker; it must also clear it on close so
@@ -156,21 +156,23 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   const loading = entry?.status === "loading" && !list;
   const data = o.machine ? modelRows(list, p.query) : { rows: [{ value: "", label: "Default", note: "its own" }], note: o.noMachine };
   const note = failed ? "Couldn't load models." : loading ? "Asking the machine which models it has…" : data.note;
-  const view = createElement(AgentPicker, {
-    picked: p, offered: o.offered, everywhere: o.everywhere, machineName: o.machine?.name ?? null, machineId: o.machine?.id ?? null,
-    rows: data.rows, note, loading, failed,
-    onRetry: () => {
-      const current = key ? MODELS.get(key) : undefined;
-      if (current && current.status !== "loading") current.status = "idle";
-      drawPicker(el, o);
-    },
-    onQuery: (query: string) => { p.query = query; drawPicker(el, o); },
-    onAgent: (next: string) => { p.agent = next; p.query = ""; p.model = ""; o.changed("agent"); },
-    onModel: (next: string) => { p.model = next; p.query = ""; o.changed("model"); },
-    onEffort: (next: string | null) => { p.effort = next; o.changed("effort"); },
-    anchor: o.anchor, bounds: o.bounds, search,
-  });
-  o.render(view);
+  const onRetry = () => {
+    const current = key ? MODELS.get(key) : undefined;
+    if (current && current.status !== "loading") current.status = "idle";
+    drawPicker(el, o);
+  };
+  o.render(
+    <AgentPicker
+      picked={p} offered={o.offered} everywhere={o.everywhere} machineName={o.machine?.name ?? null} machineId={o.machine?.id ?? null}
+      rows={data.rows} note={note} loading={loading} failed={failed}
+      onRetry={onRetry}
+      onQuery={(query: string) => { p.query = query; drawPicker(el, o); }}
+      onAgent={(next: string) => { p.agent = next; p.query = ""; p.model = ""; o.changed("agent"); }}
+      onModel={(next: string) => { p.model = next; p.query = ""; o.changed("model"); }}
+      onEffort={(next: string | null) => { p.effort = next; o.changed("effort"); }}
+      anchor={o.anchor} bounds={o.bounds} search={search}
+    />,
+  );
 }
 
 /// Focuses the picker's search, when it shows in `el`.

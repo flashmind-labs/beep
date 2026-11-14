@@ -1,4 +1,3 @@
-import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { AddMachineView } from "./addmachine-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -43,13 +42,13 @@ export function openAddToMachine(o: AddToMachine) {
 
   const draw = () => {
     if (!open) return;
-    flushSync(() => render(createElement(AddMachineView, {
-      title, project, machine: machine.name, from: o.from == null ? null : plainPath(o.from), folder, browsing, reading, adding, error, copying,
-      edit: (value: string) => { folder = value; error = null; draw(); }, choose: () => void choose(), add: () => void add(), close,
-      browse: (path: string | null) => void read(path, next => { browsing = next; }),
-      cancelBrowse: () => { browsing = null; draw(); },
-      useFolder: (listing: MachineFolder) => { folder = destination(listing, project, change); browsing = null; draw(); },
-    })));
+    flushSync(() => render(<AddMachineView
+      title={title} project={project} machine={machine.name} from={o.from == null ? null : plainPath(o.from)} folder={folder} browsing={browsing} reading={reading} adding={adding} error={error} copying={copying}
+      edit={(value: string) => { folder = value; error = null; draw(); }} choose={() => void choose()} add={() => void add()} close={close}
+      browse={(path: string | null) => void read(path, next => { browsing = next; })}
+      cancelBrowse={() => { browsing = null; draw(); }}
+      useFolder={(listing: MachineFolder) => { folder = destination(listing, project, change); browsing = null; draw(); }}
+    />));
   };
 
   /// Reads a folder on the machine (`path` null for where it starts).

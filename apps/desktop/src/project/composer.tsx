@@ -1,6 +1,5 @@
 import { keepProjectPick, lastProjectPick } from "../agents/agentmodels.ts";
 import { StashBar } from "../chat/stash-hints.tsx";
-import { createElement } from "react";
 import { ComposerChoices, type ComposerChoicesState } from "./composer-choices.tsx";
 import { composeField, composeMessage } from "../chat/compose.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -55,7 +54,7 @@ export const projectComp = (() => {
     branch: (value: string) => { if (pc.target?.kind === "issue") pc.target.branch = value; },
     clear: () => { pc.target = null; composer.setText(""); redrawProjects(); },
   };
-  const renderChoices = (value: ComposerChoicesState) => composer.setChoices(createElement(ComposerChoices, { value, actions }));
+  const renderChoices = (value: ComposerChoicesState) => composer.setChoices(<ComposerChoices value={value} actions={actions} />);
   renderChoices({ machine: "Machine", adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
   // Esc or a click outside closes the picker.
   form.addEventListener("keydown", e => {
@@ -227,7 +226,7 @@ function fitField() {
 export function drawProjectComp(name: string) {
   const c = projectComp, inDraft = currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name;
   // The empty agent view shows the stash with its key hints.
-  c.setFooter(inDraft ? null : createElement(StashBar, { project: name }));
+  c.setFooter(inDraft ? null : <StashBar project={name} />);
   c.setPresentation(inDraft ? "centered" : "compact");
 
   if (pc.project !== name) {

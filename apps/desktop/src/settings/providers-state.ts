@@ -114,7 +114,7 @@ export function hasUpdate(h: HarnessView) {
 export const planOf = (s: SignInView) => (s.plan ? ` · ${cap(s.plan)} plan` : "");
 
 /// The line under a harness's name: its sign-in, or why it cannot run.
-export function statusLine(h: HarnessView): { text: string; bad: boolean } {
+function statusLine(h: HarnessView): { text: string; bad: boolean } {
   if (!h.installed) return { text: "Not installed", bad: false };
   if (!h.settings.enabled) return { text: "Turned off: Auto and the start form skip it", bad: false };
   const s = h.sign_in;

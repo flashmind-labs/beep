@@ -1,23 +1,23 @@
 // UI timings kept in memory as fixed-bucket histograms until the next flush (#571).
 // Every sample carries only a fixed view name and kind: never content, ids, paths or names.
 
-export const PERF_VIEWS = ["home", "session", "new", "project", "diff", "picker", "settings", "bar", "terminals", "list", "other"] as const;
+const PERF_VIEWS = ["home", "session", "new", "project", "diff", "picker", "settings", "bar", "terminals", "list", "other"] as const;
 export type PerfView = typeof PERF_VIEWS[number];
-export type PerfWindow = "main" | "bar" | "phone";
+type PerfWindow = "main" | "bar" | "phone";
 /// What a sample measures: input to next paint, a long task, a long animation frame,
 /// open to first content, or a cached draw to fresh data.
 export type PerfKind = "interaction" | "long_task" | "frame" | "open" | "fresh";
-export type PerfInput = "pointer" | "key" | "other";
+type PerfInput = "pointer" | "key" | "other";
 export type PerfEntry = "event" | "longtask" | "long-animation-frame";
 
 /// Upper bounds in ms; one more bucket holds everything above the last.
-export const PERF_BUCKETS_MS = [16, 33, 50, 100, 200, 300, 500, 1000, 2000, 5000] as const;
+const PERF_BUCKETS_MS = [16, 33, 50, 100, 200, 300, 500, 1000, 2000, 5000] as const;
 /// One slow sample each batch carries for the app's log.
-export const SLOW_MS: Partial<Record<PerfKind, number>> = { interaction: 500, long_task: 200 };
+const SLOW_MS: Partial<Record<PerfKind, number>> = { interaction: 500, long_task: 200 };
 const MAX_SLOW = 8;
 const MAX_MS = 600_000;
 
-export interface PerfHistogram {
+interface PerfHistogram {
   kind: PerfKind;
   view: PerfView;
   input: PerfInput | null;
@@ -26,7 +26,7 @@ export interface PerfHistogram {
   max_ms: number;
 }
 
-export interface PerfSlow { kind: PerfKind; view: PerfView; ms: number }
+interface PerfSlow { kind: PerfKind; view: PerfView; ms: number }
 
 /// One flush, as `desktop_ui_metrics` takes it.
 export interface PerfBatch {
@@ -123,7 +123,7 @@ export class PerfAggregate {
 
 /// The view shown at a moment shortly before now, so an input is charged to
 /// the view it happened in even when it opened another.
-export class ViewHistory {
+class ViewHistory {
   private changes: { at: number; view: PerfView }[];
 
   constructor(view: PerfView, at: number) { this.changes = [{ at, view }]; }
