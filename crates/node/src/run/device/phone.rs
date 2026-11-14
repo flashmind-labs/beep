@@ -1,5 +1,5 @@
 //! Android phones over adb, by USB or Wi-Fi: listed from `adb devices`,
-//! shown from `screencap` and driven with `input`, with `track` saying when
+//! shown from `screencap` and driven with `input`, with `track_phones` saying when
 //! one comes or goes. Emulators, which adb lists too, are left to
 //! `android`, which reaches them faster.
 
@@ -43,7 +43,7 @@ const TRACK_RETRY_MAX: Duration = Duration::from_secs(300);
 const ROTATE: &str = "settings put system accelerometer_rotation 0; \
     settings put system user_rotation $(( ($(settings get system user_rotation) + 1) % 4 ))";
 
-/// The phones here as adb last listed them, kept by `track`.
+/// The phones here as adb last listed them, kept by `track_phones`.
 static PHONES: LazyLock<watch::Sender<Vec<Device>>> =
     LazyLock::new(|| watch::Sender::new(Vec::new()));
 
@@ -79,7 +79,7 @@ pub(super) async fn list() -> Vec<Device> {
 /// Says `devices` changed each time adb sees a phone or emulator come, go
 /// or change state, for as long as the node runs, so desktops read the list
 /// then instead of polling. Nothing to follow without adb.
-pub(crate) async fn track() {
+pub async fn track_phones() {
     let Some(adb) = env::adb() else {
         return;
     };

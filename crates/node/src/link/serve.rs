@@ -213,7 +213,7 @@ pub async fn serve(
     // node's folder.
     let _mcp = mcp::start(&state.dir, &offers);
     // Desktops read the device list when adb sees a phone come or go.
-    let _devices = AbortOnDropHandle::new(tokio::spawn(device::track()));
+    let _devices = AbortOnDropHandle::new(tokio::spawn(device::track_phones()));
     // Logs when the async workers, or a step that hung before, stop moving.
     let _watchdog = watchdog::start();
     // `beep-node update` asks the node to hold still over another one.

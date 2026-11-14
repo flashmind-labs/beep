@@ -121,14 +121,20 @@ impl Machine {
             let _upkeep = home.offers.agents.start_upkeep();
             let _mcp = mcp::start(&home.dir, &home.offers);
             // Terminal Claude Code sessions report their state here; the
-            // MCP server stops when this task does, with the app.
-            tokio::join!(listen_hooks(&home.offers.agents, &home.dir), async {
-                if let Err(e) =
-                    beep_node::agents::presence::listen(home.offers.agents.clone(), &home.dir).await
-                {
-                    log::warn!("not taking session presence: {e:#}");
-                }
-            });
+            // MCP server stops when this task does, with the app. The
+            // phones on this Mac's adb go to the desktops that follow them.
+            tokio::join!(
+                listen_hooks(&home.offers.agents, &home.dir),
+                async {
+                    if let Err(e) =
+                        beep_node::agents::presence::listen(home.offers.agents.clone(), &home.dir)
+                            .await
+                    {
+                        log::warn!("not taking session presence: {e:#}");
+                    }
+                },
+                link::track_phones(),
+            );
             pending::<()>().await;
         });
     }
