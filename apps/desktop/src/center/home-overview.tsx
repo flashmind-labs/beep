@@ -61,11 +61,11 @@ function needsCards(home: HomeView): BoardCard[] {
   for (const item of (state.git?.items || []).filter(waitsOnYou).sort(newestFirst)) {
     const open = () => openUrl(item.url);
     const project = repos.get(`${item.host} ${item.repo}`)?.project ?? null;
-    // A review can be read on the host or handed to an agent.
-    const review = () => { go("pane", { agentnew: reviewStart(item, project, home.machines?.filter(m => m.can_host !== false)) }); };
+    // A review can be read on the host, or in a project handed to an agent.
+    const review = project && (() => { go("pane", { agentnew: reviewStart(item, project, home.machines?.filter(m => m.can_host !== false)) }); });
     cards.push({ key: item.url, lane: "needs", project: project?.name ?? item.repo, session: false, lead: <span style={{ display: "contents" }}><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>,
       title: `#${item.number} ${item.title}`, sub: [item.repo, itemChips(item).map(c => c.text).join(", ")].filter(Boolean).join(" · "), foot: null,
-      action: item.review_requested ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
+      action: item.review_requested && review ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
   }
 
   // A project's conflicts share one card: its Machines section lists them.
@@ -166,5 +166,5 @@ export function HomeOverview({ home }: { home: HomeView }) {
 function Empty({ home }: { home: HomeView }) {
   const reach = machinesReach(home.machines ?? []);
   if (reach !== "reached") return <EmptyPanel text={reach === "connecting" ? "Connecting to your machines…" : "No machine is online."} />;
-  return <PaintedEmpty><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button look="primary" small onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</Button></PaintedEmpty>;
+  return <PaintedEmpty><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button look="primary" small onClick={() => go("projects", { project: null })}>Start an agent</Button></PaintedEmpty>;
 }

@@ -145,10 +145,10 @@ function projectHere() {
 
 /// ⌘N: in a project (its page, or one of its sessions) the agent
 /// view with an empty conversation and the project's start input, focused;
-/// elsewhere the start form.
+/// elsewhere Projects, to pick the project to start in.
 function newAgentHere() {
   const to = projectHere();
-  if (!to) return void go("pane", { agentnew: { prompt: "" } });
+  if (!to) return void go("projects", { project: null });
   go("pane", { draft: { project: to.project, machine: to.machine } });
 }
 pane.connect({

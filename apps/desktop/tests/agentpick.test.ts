@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { formProjects, harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, projectAt, startPlace } from "../src/agents/agentpick.ts";
+import { harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, startPlace } from "../src/agents/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
@@ -45,21 +45,6 @@ test("New branch and New worktree send a plan; the checkout and a worktree send 
   assert.deepEqual(startPlace("branch", cwd, " "), { cwd, checkout: { new_branch: { base: null } } });
   assert.deepEqual(startPlace("new", cwd, null), { cwd, checkout: { new_worktree: { base: null } } });
   assert.deepEqual(startPlace({ worktree: `${cwd}/.worktrees/fix-it` }, cwd, "main"), { cwd: `${cwd}/.worktrees/fix-it`, checkout: null });
-});
-
-const ROWS = [
-  { name: "acme/widget", machine_id: "a", folder: "/home/user/acme/widget" },
-  { name: "acme/widget", machine_id: "b", folder: "/Users/user/Projects/widget" },
-  { name: "acme/relay", machine_id: "a", folder: "/home/user/srv/relay" },
-  { name: "acme/empty", machine_id: "a", folder: "" },
-];
-
-test("a folder picked is the project whose checkout it is", () => {
-  const projects = formProjects(ROWS);
-  assert.equal(projectAt(projects, "a", "/home/user/acme/widget/")?.name, "acme/widget");
-  assert.equal(projectAt(projects, null, "~/srv/relay")?.name, "acme/relay");
-  assert.equal(projectAt(projects, "b", "/home/user/srv/relay"), null, "not checked out on that machine");
-  assert.equal(projectAt(projects, "a", ""), null);
 });
 
 test("the harness's own default entry folds into one Default row", () => {

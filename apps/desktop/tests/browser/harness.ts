@@ -61,6 +61,15 @@ const fixture: Fixture = {
 /// window keeps `interactive-widget` for Android keyboards.
 const knownWarnings = [/^Viewport argument key "interactive-widget" not recognized/];
 
+/// Opens the start form from the project's checkout on build-box, as its
+/// "Start an agent here" does.
+export async function openStartForm(page: Page): Promise<void> {
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
+  await page.getByRole("article", { name: machine, exact: true }).locator(".pm-head").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Start an agent here" }).click();
+  await expect(page.locator("#agprompt")).toBeVisible();
+}
+
 /// Collects the page's uncaught errors and console errors, without known browser warnings.
 export function pageErrors(page: Page): string[] {
   const errors: string[] = [];

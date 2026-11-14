@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, openStartForm } from "./harness.ts";
 
 for (const width of [1280, 390]) {
   test(`nested message lists fit at ${width}px`, async ({ page }) => {
@@ -70,9 +70,9 @@ for (const width of [1280, 390]) {
   });
 }
 
-test("the start screen does not scroll sideways under its painting", async ({ page }, info) => {
+test("the start screen does not scroll sideways under its painting", async ({ page }) => {
   await openDesktop(page, false, {});
-  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await openStartForm(page);
   const wrap = page.locator("#agcomposer");
   await expect(wrap.locator(".agc-intro h3")).toBeVisible();
   await wrap.hover();

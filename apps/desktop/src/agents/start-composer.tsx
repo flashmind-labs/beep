@@ -8,7 +8,6 @@ import { bindMentionMenu, type MenuPlace } from "./mentionmenu.ts";
 type Presentation = "compact" | "centered";
 
 interface Options {
-  projectPicker?: boolean;
   externalChoices?: boolean;
   presentation?: Presentation;
   /// The ids the new-agent page and its tests use.
@@ -24,22 +23,22 @@ interface Options {
 /// (a project page and the empty agent view) and keeps its draft, caret and
 /// focus, so React owns what is inside it and callers change it through
 /// `update` and the setters.
-export function makeStartComposer({ projectPicker = false, externalChoices = false, presentation = "centered", ids = false, title = "Enter starts, Shift+Enter adds a line", actions, place }: Options) {
+export function makeStartComposer({ externalChoices = false, presentation = "centered", ids = false, title = "Enter starts, Shift+Enter adds a line", actions, place }: Options) {
   const form = document.createElement("form"), choices = document.createElement("span");
   form.className = "cc-pjc";
   choices.className = "choices";
   if (ids) choices.id = "agchoices";
-  const nodes: StartComposerNodes = { input: null, project: null, machine: null, folder: null, harness: null, pick: null, att: null, box: null, grow: () => {} };
+  const nodes: StartComposerNodes = { input: null, machine: null, folder: null, harness: null, pick: null, att: null, box: null, grow: () => {} };
   const root = createDocumentView(form);
   let state: StartComposerState = {
     centered: presentation === "centered", busy: false, welcome: presentation === "centered" ? nextSessionIntro() : "",
     error: "", progress: "", placeholder: "", invalid: false, dropping: false, sendDisabled: false, sendTitle: null, stashLocked: false,
-    harness: null, harnessDisabled: false, open: null, projectTitle: "The project this agent works on", folderHidden: false, folderTitle: null,
+    harness: null, harnessDisabled: false, open: null, folderHidden: false, folderTitle: null,
     choiceView: null, choiceContents: null, attachmentView: null, uploadPicker: null, notes: null, footer: null, under: null, extras: null, picker: null,
   };
   const draw = () => {
     form.classList.toggle("centered", state.centered);
-    flushSync(() => root.render(<StartComposerView {...{ nodes, choices, projectPicker, externalChoices, ids, title, state, actions }} />));
+    flushSync(() => root.render(<StartComposerView {...{ nodes, choices, externalChoices, ids, title, state, actions }} />));
   };
   const update = (patch: Partial<StartComposerState>) => {
     const next = { ...state, ...patch };
@@ -96,7 +95,7 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
     att: required(nodes.att),
     box: required(nodes.box),
     /// The choice pills of the new-agent form, for placing their menus.
-    choice: (which: "project" | "host" | "folder") => (which === "project" ? nodes.project : which === "host" ? nodes.machine : nodes.folder),
+    choice: (which: "host" | "folder") => (which === "host" ? nodes.machine : nodes.folder),
     /// Puts `text` in the task field, as sending or a fill from elsewhere does.
     setText: (text: string) => { required(nodes.input).value = text; nodes.grow(); },
     /// Fits the task field to its text; a no-op until the form is on the page.

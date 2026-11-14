@@ -2,7 +2,7 @@ import "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
-import { FolderChoice, NewAgentNotes, ProjectChoice } from "../src/agents/start-composer-view.tsx";
+import { FolderChoice, NewAgentNotes } from "../src/agents/start-composer-view.tsx";
 import { startDom } from "./start-react-env.ts";
 
 const actions = { submit() {}, harness() {} };
@@ -30,15 +30,15 @@ test("new agent choices retain controls across updates", async () => {
   const env = startDom();
   try {
     const { makeStartComposer } = await import("../src/agents/start-composer.tsx");
-    const c = makeStartComposer({ place: () => null, projectPicker: true, actions }); env.dom.window.document.body.append(c.form);
-    const choices = (machine: string) => ({ project: createElement(ProjectChoice, { name: "Project" }), machine, folder: createElement(FolderChoice, { checkout: false, label: "Home", detail: "~/work" }) });
+    const c = makeStartComposer({ place: () => null, actions }); env.dom.window.document.body.append(c.form);
+    const choices = (machine: string) => ({ machine, folder: createElement(FolderChoice, { checkout: false, label: "Home", detail: "~/work" }) });
     c.update({ choiceContents: choices("First") });
-    const folder = c.choice("folder"), project = c.choice("project"), machine = c.choice("host");
-    assert.ok(folder && project && machine); machine.focus();
+    const folder = c.choice("folder"), machine = c.choice("host");
+    assert.ok(folder && machine); machine.focus();
     c.update({ choiceContents: choices("Second") }); c.setBusy(true); c.setBusy(false);
-    assert.equal(c.choice("folder"), folder); assert.equal(c.choice("project"), project); assert.equal(c.choice("host"), machine);
+    assert.equal(c.choice("folder"), folder); assert.equal(c.choice("host"), machine);
     assert.equal(document.activeElement, machine); assert.equal(machine.textContent, "Second");
-    assert.equal(folder.textContent, "Home ~/work"); assert.equal(project.textContent, "Project");
+    assert.equal(folder.textContent, "Home ~/work");
     c.dispose(); c.form.remove();
   } finally { env.close(); }
 });
