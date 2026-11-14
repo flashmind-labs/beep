@@ -197,3 +197,24 @@ async fn recovery_context_cannot_rename_a_v2_conversation() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_steer_waits_for_the_turn_the_user_stopped() {
+    with_actor(async |mut actor, cx| {
+        let session = actor.acp_session.clone().unwrap();
+        actor.takes_steering = true;
+        actor.send_prompt(
+            &cx,
+            acp::prompt(&session, &Prompt::from("look".to_owned()), None),
+            true,
+        );
+        actor.by_user = true;
+        actor.steers.push_back(Prompt::from("it's dark now".to_owned()));
+
+        actor.steer_now(&cx).unwrap();
+
+        assert!(actor.steering.is_none());
+        assert_eq!(actor.steers.len(), 1);
+    })
+    .await;
+}

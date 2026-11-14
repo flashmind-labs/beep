@@ -97,10 +97,13 @@ impl Actor {
     }
 
     /// Injects immediately when supported. Older adapters end the turn at
-    /// a tool boundary so the steer can go as the next prompt.
+    /// a tool boundary so the steer can go as the next prompt. A turn the
+    /// user stopped takes none: injected, the agent works on in that turn
+    /// instead of stopping, and the steer goes as the next prompt anyway.
     pub(super) fn steer_now(&mut self, cx: &ConnectionTo<Agent>) -> Result<()> {
         if self.steers.is_empty()
             || self.turn.is_none()
+            || self.by_user
             || self.stopping.is_some()
             || self.steering.is_some()
             || self.steer_after_turn
