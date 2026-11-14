@@ -258,6 +258,8 @@ function drawPicker(c: StartComposer) {
     changed: what => {
       if (what === "models") return drawPill(c, false);
       Object.assign(f, { agent: picked.agent, model: picked.model, effort: picked.effort, query: picked.query });
+      // A model found under another harness keeps with it.
+      if (what === "model" && f.modelFor && machine) f.modelFor = `${machine}/${picked.agent}`;
       if (what !== "agent") keepProjectPick(f.project ?? null, picked);
       if (what === "model") { f.open = null; drawParts(); return c.input.focus(); }
       drawParts();

@@ -69,7 +69,8 @@ function drawModelPicker() {
   if (!AG.modelOpen || !s) { closedPicker(el); return; }
   const now = sessionPicks.get(s.id) ?? { model: "", effort: null };
   const pending = resumePicks.get(s.id);
-  const picked: Picked = { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: pending ? pending.effort : now.effort, query: "" };
+  const was = pending ? pending.effort : now.effort;
+  const picked: Picked = { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: was, query: "" };
   drawPicker(el, {
     render: view => { if (el.isConnected) showAgentControl("pick", view); },
     picked,
@@ -82,14 +83,16 @@ function drawModelPicker() {
     changed: what => {
       if (what === "models") return drawModelPill();
       if (what === "agent") return;
+      // A search such as `opus high` picks the thinking level with the model.
+      const both = what === "model" && picked.effort !== was;
       if (what === "model") { AG.modelOpen = false; drawModelPicker(); }
-      switchSessionModel(s, { model: picked.model, effort: picked.effort }, what);
+      switchSessionModel(s, { model: picked.model, effort: picked.effort }, both ? "both" : what);
     },
   });
 }
 
-/// Switches session `s` to the model or thinking in `next`.
-export async function switchSessionModel(s: AgentRow, next: { model: string; effort: string | null }, what: "model" | "effort") {
+/// Switches session `s` to the model, the thinking or both in `next`.
+export async function switchSessionModel(s: AgentRow, next: { model: string; effort: string | null }, what: "model" | "effort" | "both") {
   next = { ...next, model: modelId(knownModels(s.machine_id, s.agent), next.model) };
   if (s.status === "ended") {
     resumePicks.set(s.id, next);
@@ -100,12 +103,12 @@ export async function switchSessionModel(s: AgentRow, next: { model: string; eff
   }
 
   const was = sessionPicks.get(s.id) ?? { model: "", effort: null };
-  const model = what === "model" ? next.model || null : null, effort = what === "effort" ? next.effort : null;
+  const model = what !== "effort" ? next.model || null : null, effort = what !== "model" ? next.effort : null;
 
   if (model || effort) {
     if (await steerAgent({ configure: { model, effort } })) sessionPicks.set(s.id, next);
-  } else if (what === "model" ? was.model : was.effort) {
-    AG.note = `A running session cannot go back to Default; pick ${what === "model" ? "a model" : "a level"} by name.`;
+  } else if (what === "effort" ? was.effort : was.model) {
+    AG.note = `A running session cannot go back to Default; pick ${what === "effort" ? "a level" : "a model"} by name.`;
     drawAgentBody();
   }
 
