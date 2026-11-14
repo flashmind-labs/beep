@@ -487,7 +487,7 @@ impl Agents {
         begin: Begin,
     ) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
-        let cwd = folder(cwd)?;
+        let (cwd, brief) = in_project(cwd, begin.resume.is_some(), begin.brief)?;
         let recovery_cwd = crate::files::paths::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
         let recovering = crate::lock(&self.recovering);
         anyhow::ensure!(
@@ -573,7 +573,7 @@ impl Agents {
             parent: begin.parent,
             follows: begin.follows,
             note: begin.note,
-            brief: begin.brief,
+            brief,
             rule,
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
             images: self.images.clone(),
@@ -675,6 +675,39 @@ pub(super) struct Begin {
     pub(super) follows: Option<watch::Receiver<Live>>,
     /// A temporary reviewer (`agents::reviews`).
     pub(super) review: bool,
+}
+
+/// The folder a session asked to run in `cwd` runs in, with Beep's brief
+/// to it: the project folder when `cwd` is in a linked worktree, even a
+/// removed one, so the session outlives its worktrees. The brief then names
+/// the worktree, unless one came already.
+fn in_project(
+    cwd: Option<&str>,
+    resumed: bool,
+    brief: Option<Cow<'static, str>>,
+) -> Result<(PathBuf, Option<Cow<'static, str>>)> {
+    let asked = folder(cwd).or_else(|e| {
+        cwd.map(PathBuf::from)
+            .filter(|gone| checkout::project_of(gone).is_some())
+            .ok_or(e)
+    })?;
+    let Some(project) = checkout::project_of(&asked) else {
+        return Ok((asked, brief));
+    };
+
+    let (project_shown, tree) = (project.display(), asked.display());
+    let said = match (resumed, asked.exists()) {
+        (false, _) => format!(
+            "This session runs in the project folder {project_shown}. Work and commit in the worktree {tree}."
+        ),
+        (true, true) => format!(
+            "This session now runs in the project folder {project_shown}. Its work so far is in the worktree {tree}; continue there."
+        ),
+        (true, false) => format!(
+            "This session now runs in the project folder {project_shown}. The worktree it worked in, {tree}, was removed."
+        ),
+    };
+    Ok((project, brief.or(Some(Cow::Owned(said)))))
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or

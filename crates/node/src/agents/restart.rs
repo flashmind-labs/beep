@@ -2,7 +2,9 @@
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
 use super::{
-    Agents, Begin, Command, Prompt,
+    AgentKind, Agents, Begin, Command, Prompt, checkout,
+    found::Agent,
+    moving,
     family::RemoteKid,
     session::{NODE_STOPPED, Session},
 };
@@ -13,8 +15,12 @@ use beep_proto::{
     node::agent::{Entry, ParentLink, SessionDevice, Status},
 };
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Arc, time::Duration};
-use tokio::time::timeout;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::{task::spawn_blocking, time::timeout};
 
 /// How long resumed sessions wait for the user's agent settings before
 /// starting without them.
@@ -250,6 +256,7 @@ impl Agents {
             .named(&open.agent)
             .with_context(|| format!("this node no longer runs {}", open.agent))?;
         self.prepare(&kind).await?;
+        to_project(&kind, &open.session, &open.cwd).await;
         let cwd = open.cwd.to_string_lossy();
         let follows = open
             .parent
@@ -296,6 +303,28 @@ impl Agents {
         }
 
         Ok(())
+    }
+}
+
+/// Readies resumed session `id` of `kind`, kept for `cwd`, to run in its
+/// project folder when `cwd` is in a worktree (`Agents::start`): Claude
+/// Code's transcript goes along. A failure only costs the history.
+pub(super) async fn to_project(kind: &AgentKind, id: &str, cwd: &Path) {
+    if kind.name.parse::<Agent>() != Ok(Agent::Claude) {
+        return;
+    }
+
+    let (id, cwd) = (id.to_owned(), cwd.to_owned());
+    let moved = spawn_blocking(move || {
+        let Some(project) = checkout::project_of(&cwd) else {
+            return Ok(());
+        };
+        moving::rehome_claude(&id, &cwd, &project)
+    })
+    .await;
+
+    if let Ok(Err(e)) | Err(e) = moved.map_err(anyhow::Error::from) {
+        log::warn!("could not carry a Claude transcript to its project folder: {e:#}");
     }
 }
 
