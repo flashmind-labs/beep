@@ -5,7 +5,7 @@ mod apps;
 mod gpu;
 mod latest;
 
-pub(crate) use latest::{Probes, fresh, machine};
+pub(crate) use latest::{Probes, changed, fresh, machine};
 
 use crate::agents::locate;
 use crate::files::syncthing::Syncthing;
@@ -127,6 +127,10 @@ pub async fn probe() -> EnvReport {
         // Filled in by the status stream, which knows the installs.
         adapters: Vec::new(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
+        #[cfg(windows)]
+        wsl: crate::machine::wsl::report().await,
+        #[cfg(not(windows))]
+        wsl: Vec::new(),
     }
 }
 

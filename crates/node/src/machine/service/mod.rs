@@ -20,6 +20,7 @@ pub mod logs;
 mod parent;
 mod systemd;
 mod windows;
+pub(crate) use windows::from_utf16;
 
 /// How the service starts the node: the same command `run` serves.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,8 +377,8 @@ impl Installed {
 
 /// Finishes when the process that started this one exits: on Windows, the
 /// service's node passes `--with-parent` so stopping the scheduled task,
-/// which ends only the process it started, stops the node too. Never
-/// finishes elsewhere.
+/// which ends only the process it started, stops the node too. Elsewhere
+/// it finishes when stdin closes.
 pub async fn parent_exited() -> Result<()> {
     #[cfg(windows)]
     {
@@ -385,8 +386,13 @@ pub async fn parent_exited() -> Result<()> {
         tokio::task::spawn_blocking(move || parent::wait(&parent)).await??;
         Ok(())
     }
+    // The parent holds the other end, as a Windows node does for the node
+    // it runs in WSL.
     #[cfg(not(windows))]
-    std::future::pending().await
+    {
+        tokio::io::copy(&mut tokio::io::stdin(), &mut tokio::io::sink()).await?;
+        Ok(())
+    }
 }
 
 /// What restarting the node's service did, after its binary was replaced.

@@ -1,6 +1,6 @@
 //! The machine's latest probe, shared by every `status/1` stream and
 //! `list_machines`. One task probes while anyone follows it: at once when
-//! the last report is old, every [`REPROBE`] and on a sign-in, never two
+//! the last report is old, every [`REPROBE`] and on [`changed`], never two
 //! probes at a time.
 
 use beep_proto::node::EnvReport;
@@ -19,6 +19,15 @@ use tokio::{
 
 /// How often the machine is probed again while followed.
 pub(crate) const REPROBE: Duration = Duration::from_secs(10 * 60);
+
+/// Changed each time something the report holds changed, such as a
+/// sign-in that ended signed in.
+static CHANGED: LazyLock<watch::Sender<()>> = LazyLock::new(|| watch::channel(()).0);
+
+/// Has the machine probed again, as something its report holds changed.
+pub(crate) fn changed() {
+    CHANGED.send_replace(());
+}
 
 /// A probe's report and when it was made.
 #[derive(Clone, Debug)]
@@ -125,8 +134,8 @@ impl Probes {
     }
 
     async fn probe_while_followed(&self) {
-        let mut signed_in = crate::machine::sign_in::signed_in();
-        signed_in.mark_unchanged();
+        let mut changes = CHANGED.subscribe();
+        changes.mark_unchanged();
 
         loop {
             let due = watched::read_sent(&self.latest, |probed| {
@@ -137,7 +146,7 @@ impl Probes {
 
             tokio::select! {
                 _ = tokio::time::sleep_until(due) => {}
-                Ok(()) = signed_in.changed() => {}
+                Ok(()) = changes.changed() => {}
                 () = self.latest.closed() => {
                     if self.stop() {
                         return;

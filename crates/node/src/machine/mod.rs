@@ -1,5 +1,6 @@
 //! The machine itself: what it has (`env`, `stats`, `host`), installing and
-//! running the node (`service`, `update`, `provision`), and the watch on
+//! running the node (`service`, `update`, `provision`), the WSL
+//! distributions a Windows node runs as machines (`wsl`), and the watch on
 //! the CI runs of pinned projects (`ci`).
 
 pub(crate) mod ci;
@@ -11,6 +12,7 @@ pub(crate) mod sign_in;
 pub(crate) mod stats;
 #[cfg(feature = "cli")]
 pub mod update;
+pub mod wsl;
 
 /// The most open files the node asks for; the common soft limits, 256 on a
 /// Mac and 1024 on Linux, are low for a node that syncs folders.

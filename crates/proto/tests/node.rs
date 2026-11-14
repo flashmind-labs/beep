@@ -222,6 +222,38 @@ mod env {
         assert_eq!((read.os.as_str(), read.cpus), ("linux", 8));
         assert!(read.apps.is_empty() && read.gpus.is_empty() && read.adapters.is_empty());
         assert!(read.syncthing.is_empty() && read.version.is_empty());
+        assert!(read.wsl.is_empty());
+    }
+
+    #[test]
+    fn a_report_with_wsl_distros_round_trips() {
+        let report = EnvReport {
+            os: "windows".into(),
+            wsl: vec![WslDistro {
+                name: "Ubuntu".into(),
+                agents: vec!["claude".into()],
+                node: Some("0.7.4".into()),
+                machine_id: None,
+                kept: true,
+                problem: None,
+            }],
+            ..EnvReport::default()
+        };
+        let bytes = rmp_serde::to_vec(&report).expect("encodes");
+        let read: EnvReport = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!(read, report);
+    }
+
+    #[test]
+    fn a_wsl_request_round_trips() {
+        let request = wsl::Request::Add {
+            distro: "Ubuntu".into(),
+            ticket: beep_proto::SecretText::new("ticket"),
+        };
+        let bytes = rmp_serde::to_vec(&request).expect("encodes");
+        let read: wsl::Request = beep_proto::lenient::from_slice(&bytes).expect("decodes");
+        assert_eq!(read, request);
+        assert!(!format!("{read:?}").contains("ticket\""));
     }
 }
 

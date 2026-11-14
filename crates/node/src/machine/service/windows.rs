@@ -309,8 +309,9 @@ fn utf16(text: &str) -> Vec<u8> {
         .collect()
 }
 
-/// The task file `utf16` wrote, as text.
-pub(super) fn from_utf16(bytes: &[u8]) -> String {
+/// UTF-16LE text, such as the task file `utf16` wrote, with or without its
+/// byte order mark.
+pub(crate) fn from_utf16(bytes: &[u8]) -> String {
     let units: Vec<u16> = bytes
         .as_chunks::<2>()
         .0

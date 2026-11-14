@@ -40,6 +40,28 @@ pub struct EnvReport {
     /// The beep-node version, such as "0.1.0".
     #[serde(default)]
     pub version: String,
+    /// The WSL distributions of a Windows machine, each of which can run a
+    /// node of its own; empty elsewhere.
+    #[serde(default)]
+    pub wsl: Vec<WslDistro>,
+}
+
+/// A WSL distribution on a Windows machine, and what it has for Beep.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WslDistro {
+    /// As `wsl.exe --list` names it, such as `Ubuntu`.
+    pub name: String,
+    /// The coding agent CLIs found inside it, such as `claude`.
+    pub agents: Vec<String>,
+    /// The version of the beep-node installed inside it, if any.
+    pub node: Option<String>,
+    /// That node's id in the mesh, once it made its key.
+    pub machine_id: Option<String>,
+    /// The Windows node keeps that node running.
+    pub kept: bool,
+    /// Why the kept node is not running, in words for the user.
+    pub problem: Option<String>,
 }
 
 /// An agent found on the machine whose ACP adapter the node installs.

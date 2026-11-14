@@ -74,6 +74,7 @@ host = [
     "dep:libc",
     "dep:rustix",
     "dep:windows-sys",
+    "dep:thiserror",
     "beep-proto/logging",
     "beep-proto/https",
     "beep-proto/http2",
@@ -85,7 +86,6 @@ cli = [
     "dep:clap",
     "dep:flate2",
     "dep:tar",
-    "dep:thiserror",
     "dep:zip",
 ]
 

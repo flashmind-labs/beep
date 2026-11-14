@@ -1,8 +1,10 @@
 //! One-request protocols of a node: files, logs, search, background
-//! tasks, tool and node updates, and a command in a shell.
+//! tasks, tool and node updates, a command in a shell, and its WSL
+//! machines.
 
 use super::{said, stream_closed, timed_out, unexpected};
 use crate::{MeshError, PeerClient};
+use beep_proto::SecretText;
 use beep_proto::node::{
     files, logs,
     process::{self, TaskId},
@@ -11,7 +13,7 @@ use beep_proto::node::{
     shell::{self, Event},
     sign_in,
     tool_update::{self, Tool},
-    update,
+    update, wsl,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use std::time::Duration;
@@ -37,6 +39,9 @@ pub(super) const TASK_LIMIT: Duration = Duration::from_secs(20);
 const SIGN_IN_LIMIT: Duration = Duration::from_secs(45);
 /// How long a request to the node's shared folders may take.
 const FILES_LIMIT: Duration = Duration::from_secs(30);
+/// How long one step of adding a WSL machine may take: installing
+/// beep-node in it downloads a release.
+const WSL_STEP: Duration = Duration::from_secs(10 * 60);
 
 /// How a failed exchange reads: what the node was doing when it went quiet
 /// or closed the stream.
@@ -357,6 +362,58 @@ pub async fn exec(client: &PeerClient, command: &str, limit: Duration) -> Result
     timeout(limit + GRACE, answer)
         .await
         .map_err(|e| timed_out(e, "the node stopped answering"))?
+}
+
+/// Has a Windows node install beep-node in its WSL distribution `distro`,
+/// keep it running and join it to the mesh with `ticket`. `step` hears each
+/// step as it begins, in words for the user.
+pub async fn add_wsl(
+    client: &PeerClient,
+    distro: &str,
+    ticket: SecretText,
+    step: impl FnMut(String),
+) -> Result<(), MeshError> {
+    let request = wsl::Request::Add {
+        distro: distro.to_owned(),
+        ticket,
+    };
+    ask_wsl(client, &request, step).await
+}
+
+/// Has a Windows node stop running the node of its WSL distribution `distro`.
+pub async fn stop_wsl(client: &PeerClient, distro: &str) -> Result<(), MeshError> {
+    let request = wsl::Request::Stop {
+        distro: distro.to_owned(),
+    };
+    ask_wsl(client, &request, drop).await
+}
+
+async fn ask_wsl(
+    client: &PeerClient,
+    request: &wsl::Request,
+    mut step: impl FnMut(String),
+) -> Result<(), MeshError> {
+    let (mut tx, mut rx) = client.open(wsl::PROTOCOL).await?;
+    tx.send(request).await.map_err(MeshError::Link)?;
+
+    loop {
+        let event = timeout(WSL_STEP, rx.recv::<wsl::Event>())
+            .await
+            .map_err(|e| timed_out(e, "the machine stopped answering"))?
+            .map_err(MeshError::Link)?;
+
+        match event {
+            Some(wsl::Event::Step { text }) => step(text),
+            Some(wsl::Event::Done {}) => return Ok(()),
+            Some(wsl::Event::Failed { reason }) => return Err(said(reason)),
+            Some(other) => return Err(unexpected(&other)),
+            None => {
+                return Err(stream_closed(
+                    "the machine closed the stream without an answer",
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(test)]

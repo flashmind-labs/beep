@@ -58,15 +58,6 @@ struct Entry {
 /// The sign-ins of this node, one per tool: the last one started.
 static SIGN_INS: LazyLock<Mutex<Vec<Entry>>> = LazyLock::new(Mutex::default);
 
-/// Changed each time a sign-in ends signed in, so the machine is probed
-/// again and its Sign-ins row turns signed in.
-static SIGNED_IN: LazyLock<watch::Sender<()>> = LazyLock::new(|| watch::channel(()).0);
-
-/// Says when a sign-in on this machine ended signed in.
-pub(crate) fn signed_in() -> watch::Receiver<()> {
-    SIGNED_IN.subscribe()
-}
-
 /// Serves one `sign-in/1` stream: one state per request.
 pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     while let Some(request) = rx.recv::<Request>().await? {
@@ -223,8 +214,9 @@ async fn run(
     });
     changed(tool);
 
+    // Probed again, so its Sign-ins row turns signed in.
     if signed_in {
-        SIGNED_IN.send_replace(());
+        env::changed();
     }
 }
 
