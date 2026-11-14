@@ -198,6 +198,8 @@ export function startPane(s: PaneSession) {
     foldInBar();
     if ("zoom" in saved && (saved.zoom === "right" || saved.zoom === "bottom")) P.zoom = saved.zoom;
   }
+  // Each tab reopened above took the phone's screen; a session still opens on its chat.
+  P.phoneShown = false;
   draw();
   paneReleased = false;
   rememberPane();

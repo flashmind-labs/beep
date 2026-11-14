@@ -75,15 +75,19 @@ test("a file opened from the log takes a phone's screen", async ({ page }) => {
 });
 
 test("a phone reopens a session on its chat, not the last picture it showed", async ({ page }) => {
-  // The session last showed a picture, as one tapped in its chat leaves it.
-  const pic = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-  await page.addInitScript(url => localStorage.setItem("beep.projectView.build-box\ns", JSON.stringify({ on: { right: url, bottom: url }, tabs: [{ path: null, url, name: "shot.png" }] })), pic);
+  // The session had two pictures open, as ones tapped in its chat leave it.
+  const pics = ["iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="].map(data => `data:image/png;base64,${data}`);
+  await page.addInitScript(([first, second]) => localStorage.setItem("beep.projectView.build-box\ns", JSON.stringify({
+    on: { right: second, bottom: second },
+    tabs: [{ path: null, url: first, name: "first.png" }, { path: null, url: second, name: "second.png" }],
+  })), pics);
   await page.setViewportSize({ width: 390, height: 844 });
   await openDesktop(page, false, { agent_view: view, center_home: home });
-  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), { ...session, id: "other" });
-  await expect(page.locator("#agmnav")).toBeVisible();
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
-  await expect(page.locator("#agmnav")).toContainText("shot.png");
+  await expect(page.locator("#agmnav")).toContainText("second.png");
   await expect(page.locator("#agmnav [aria-selected=true]")).toHaveText("Chat");
   await expect(page.locator(".agconv")).toBeVisible();
+  // A tab the user picks still takes the screen.
+  await page.locator("#agmnav").getByRole("button", { name: "second.png" }).click();
+  await expect(page.locator(".agconv")).toBeHidden();
 });
