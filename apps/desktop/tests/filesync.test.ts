@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { conflictList, conflictPrompt, conflictTotal, fileSyncTile, machineMeta, originalOf, stateChip, stateNote, syncSummary, waitingList } from "../src/project/filesync.ts";
 import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
@@ -130,11 +130,15 @@ test("a sync update during its initial read reconciles the new snapshot before c
     return ++reads === 1 ? initial : detail([machine({ pending: 2 })]);
   }) as Parameters<typeof makeFileSync>[0]["invoke"];
   const sync = makeFileSync({ invoke, redraw() {} });
+  mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
   const first = sync.ensure("example");
   const changed = sync.follow(new Set(["example"]), [], 5000);
   assert.equal(reads, 1);
   finish(detail([machine({ pending: 0 })]));
   await Promise.all([first, changed]);
+  mock.timers.tick(5000);
+  await new Promise(resolve => setImmediate(resolve));
+  mock.timers.reset();
   assert.equal(reads, 2);
   assert.equal(sync.detail("example")!.machines[0].pending, 2);
 });

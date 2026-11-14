@@ -66,7 +66,7 @@ impl<'a> CallTiming<'a> {
             outcome: "cancelled",
             quiet: false,
         };
-        tracing::info!(call = timing.id, protocol, ?peer, "peer call started");
+        tracing::debug!(call = timing.id, protocol, ?peer, "peer call started");
         timing
     }
 
@@ -475,7 +475,7 @@ impl PeerClient {
             let (_tx, mut rx) = self.open_sending(protocol, request).await?;
             metrics::histogram!("beep_peer_phase_seconds", "protocol" => protocol.to_owned(), "phase" => "open", "outcome" => "ok")
                 .record(timing.phase_started.elapsed().as_secs_f64());
-            tracing::info!(call = timing.id, protocol, "peer request sent; waiting for reply");
+            tracing::debug!(call = timing.id, protocol, "peer request sent; waiting for reply");
             timing.phase = "reply";
             timing.phase_started = Instant::now();
             rx.recv()
