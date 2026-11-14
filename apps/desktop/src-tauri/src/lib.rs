@@ -222,6 +222,7 @@ pub fn run() {
             agents::sessions::agent_title_save,
             agents::sessions::agent_start,
             agents::sessions::agent_usage,
+            agents::sessions::agent_device,
             agents::sessions::session_folder_here,
             agents::local_file::local_file,
             agents::local_file::open_local_file,

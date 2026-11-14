@@ -22,7 +22,7 @@ use agent_client_protocol::v1::schema::McpServer;
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionInfo, Status,
+    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionDevice, SessionInfo, Status,
 };
 use beep_proto::watched;
 use futures::stream::FuturesUnordered;
@@ -115,6 +115,8 @@ pub(super) enum Command {
     /// Stops one of the agent's background tasks, by the agent's id, without
     /// ending the turn.
     StopTask(String),
+    /// Keeps the device the session uses, or forgets it.
+    SetDevice(Option<SessionDevice>),
     /// Puts a question of the node's own to the user, as the agent's are:
     /// `ask_user` or an approval for the Beep MCP server. The answer goes
     /// to `reply`; it is dropped when the session ends or the turn is

@@ -4,7 +4,7 @@
 
 use crate::{
     agents::{
-        steer::{PastedImage, uploads},
+        steer::{self, DevicePick, PastedImage, uploads},
         work_copy,
     },
     beep::epoch_ms,
@@ -813,6 +813,43 @@ pub async fn agent_usage(
                 .await,
         )
     }
+}
+
+/// The device a session uses, as its machine keeps it.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum KeptDevice {
+    Kept {
+        pick: Option<DevicePick>,
+    },
+    /// The machine's beep-node is too old to keep one.
+    Unsupported,
+}
+
+#[tauri::command]
+pub async fn agent_device(
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+) -> Result<KeptDevice> {
+    let machine = fleet.machine(&machine_id)?;
+    let version = fleet.status().version(machine);
+
+    if !steer::newer_than(version.as_deref(), &steer::BEFORE_SET_DEVICE) {
+        return Ok(KeptDevice::Unsupported);
+    }
+
+    let read = direct::device(&fleet, machine, &agent, &session);
+    let step = "reading the session's device";
+    let device = fleet
+        .asked(machine, &session, step, SMALL_LIMIT, read)
+        .await?;
+    let pick = device.map(|used| DevicePick {
+        machine: used.machine.to_string(),
+        device: used.device.0,
+    });
+    Ok(KeptDevice::Kept { pick })
 }
 
 /// A session's modes for the page.

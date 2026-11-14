@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
-    agent::{self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionInfo, Status},
+    agent::{self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionDevice, SessionInfo, Status},
     harness::{AgentSettings, HarnessReport},
     usage::PlanUsage,
 };
@@ -50,6 +50,21 @@ impl Agents {
     pub(crate) fn folder_of(&self, session: &str) -> Option<PathBuf> {
         self.get(session)
             .map(|session| PathBuf::from(session.info().cwd))
+    }
+
+    /// Keeps `device` as the device `session` uses, or forgets it.
+    pub(crate) async fn set_device(
+        &self,
+        session: &str,
+        device: Option<SessionDevice>,
+    ) -> Result<()> {
+        let session = self
+            .get(session)
+            .with_context(|| format!("there is no session {session} here"))?;
+        session
+            .order(Command::SetDevice(device))
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     /// Puts `question` to the user in `session` and waits for the answer.

@@ -90,6 +90,30 @@ export function defaultPick(machines: readonly DeviceMachine[], session: string 
   return pick ? { machine: pick.machine, device: pick.device.id } : null;
 }
 
+/// The device a session keeps among `machines`: shown while it is on or
+/// booting, forgotten once its machine lists it off or no longer has it. A
+/// machine that is not listed, or did not list its devices, leaves it be.
+export function keptPick(machines: readonly DeviceMachine[], kept: DevicePick | null): { pick: DevicePick | null; forget: boolean } {
+  const machine = kept ? machines.find(m => m.machine_id === kept.machine) : null;
+  if (!kept || !machine || machine.error !== null) return { pick: null, forget: false };
+  const state = machine.devices.find(d => d.id === kept.device)?.state ?? "Off";
+  return state === "Off" ? { pick: null, forget: true } : { pick: kept, forget: false };
+}
+
+/// The device a session keeps on its machine, or that its machine's
+/// beep-node is too old to keep one.
+export type KeptDevice = { kind: "kept"; pick: DevicePick | null } | { kind: "unsupported" };
+
+/// `agent_device`'s answer, checked; null when it does not read.
+export function readKeptDevice(value: unknown): KeptDevice | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "unsupported") return { kind: "unsupported" };
+  if (value.kind !== "kept") return null;
+  const pick = value.pick;
+  if (pick === null) return { kind: "kept", pick: null };
+  return isRecord(pick) && typeof pick.machine === "string" && typeof pick.device === "string" ? { kind: "kept", pick: { machine: pick.machine, device: pick.device } } : null;
+}
+
 /// Whether a session has the Device tab: its checkout builds for a mobile
 /// platform and a machine serves `device/1`.
 export const showsDeviceTab = (platforms: readonly DevicePlatform[], hosts: readonly DeviceHost[]) => platforms.length > 0 && hosts.length > 0;

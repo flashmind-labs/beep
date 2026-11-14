@@ -32,6 +32,7 @@ impl TryFrom<Request> for Command {
             Request::Answer { question, reply } => Command::Answer { question, reply },
             Request::SetMode { mode } => Command::SetMode(mode),
             Request::StopTask { task } => Command::StopTask(task),
+            Request::SetDevice { device } => Command::SetDevice(device),
             // Stop ends the main turn alone.
             Request::Cancel {} => Command::Cancel { by_user: true },
             Request::StopAll {} => Command::StopAll { by_user: true },
