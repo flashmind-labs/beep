@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="apps/desktop/tests/browser/ui-baseline.spec.ts-snapshots/home-overview-macOS-linux.png" alt="The Beep desktop: a board of agents across projects and machines" width="860">
+  <img src="apps/desktop/tests/browser/ui-baseline.spec.ts-snapshots/first-run-macOS-linux.png" alt="Welcome to Beep, over a painted sunrise" width="860">
 </p>
 
 Desktops, phones and `beep-node`s form a signed peer-to-peer mesh over iroh.
