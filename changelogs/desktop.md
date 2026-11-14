@@ -7,6 +7,16 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.6] - 2026-11-14
+
+### Changed
+
+- Desktop: every other block between triple line breaks in a message now goes out as code, not only the first.
+
+### Fixed
+
+- Desktop: a phone connected over adb to the Mac running the app shows a notification and appears in the Device tab at once, as it already did on other machines.
+
 ## [0.9.5] - 2026-11-14
 
 ### Added
