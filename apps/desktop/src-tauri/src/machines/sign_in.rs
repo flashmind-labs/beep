@@ -75,7 +75,7 @@ pub async fn machine_sign_in(
     step: Step,
 ) -> Result<SignInView> {
     let machine = fleet.member(&machine_id).ok_or_else(|| {
-        DesktopError::BadRequest("That machine is not in this Mac's mesh.".into())
+        DesktopError::BadRequest("That machine is not in this computer's mesh.".into())
     })?;
     let request = match step {
         Step::Start => Request::Start { tool },

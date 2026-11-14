@@ -9,7 +9,7 @@ pub enum ImportError {
     #[error("Give the repository as org/repo or as its URL, such as https://github.com/org/repo.")]
     Malformed,
     #[error(
-        "{0} is not GitHub or a Forgejo/Gitea server in Settings > Credentials. Make a token on {0} at /user/settings/applications and add it there, or run `teacli login https://{0} --token <token>` on this Mac and use that sign-in."
+        "{0} is not GitHub or a Forgejo/Gitea server in Settings > Credentials. Make a token on {0} at /user/settings/applications and add it there, or run `teacli login https://{0} --token <token>` on this computer and use that sign-in."
     )]
     UnknownHost(String),
     #[error("That machine is not one of yours.")]

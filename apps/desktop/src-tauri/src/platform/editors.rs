@@ -130,7 +130,9 @@ pub async fn open_in_editor(editor: Editor, path: String) -> Result<()> {
     let folder = Path::new(&path);
 
     if !folder.is_absolute() || !folder.is_dir() {
-        return Err(DesktopError::BadRequest("not a folder on this Mac".into()));
+        return Err(DesktopError::BadRequest(
+            "not a folder on this computer".into(),
+        ));
     }
 
     let found = found()

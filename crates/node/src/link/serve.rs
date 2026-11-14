@@ -518,7 +518,7 @@ fn commands_off(offers: &Offers) -> Option<String> {
         })
         .unwrap_or_else(|| "This machine".to_owned());
     Some(format!(
-        "{name} doesn't run commands: Let Beep use this Mac is off in its Settings."
+        "{name} doesn't run commands: Let Beep use this computer is off in its Settings."
     ))
 }
 

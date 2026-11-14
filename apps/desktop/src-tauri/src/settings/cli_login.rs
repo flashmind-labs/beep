@@ -116,7 +116,7 @@ pub async fn cli_logins() -> Result<CliLogins> {
 #[tauri::command]
 pub async fn use_gh_account(fleet: FleetState<'_>, login: String) -> Result<CredentialView> {
     let login = parse_login(&login).ok_or_else(|| refused("That is not a GitHub login"))?;
-    let gh = find_tool("gh").ok_or_else(|| refused("gh is not installed on this Mac"))?;
+    let gh = find_tool("gh").ok_or_else(|| refused("gh is not installed on this computer"))?;
     let token = gh_account_token(&gh, &login).await?;
     credentials::save(&fleet, Service::GitHub, token).await
 }
@@ -147,7 +147,7 @@ async fn gh_account_token(gh: &Path, login: &str) -> Result<SecretText> {
     }
 
     Err(refused(&format!(
-        "gh has no token for @{login} on this Mac"
+        "gh has no token for @{login} on this computer"
     )))
 }
 
@@ -224,8 +224,8 @@ pub(crate) async fn save_gh_login(fleet: &Arc<Session>) -> Result<CredentialView
 async fn gh_token() -> Result<SecretText> {
     match gh_login(false).await? {
         Login::SignedIn { token, .. } => Ok(token),
-        Login::SignedOut => Err(refused("gh is not signed in on this Mac")),
-        Login::Missing => Err(refused("gh is not installed on this Mac")),
+        Login::SignedOut => Err(refused("gh is not signed in on this computer")),
+        Login::Missing => Err(refused("gh is not installed on this computer")),
     }
 }
 

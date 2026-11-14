@@ -641,7 +641,9 @@ pub fn skill_reveal(app: AppHandle, folder: String, name: String) -> Result<()> 
     let climbs = skill.components().any(|part| part == Component::ParentDir);
 
     if name.contains(['/', '\\']) || climbs || !skill.starts_with(&home) || !skill.is_dir() {
-        return Err(DesktopError::BadRequest("not a skill on this Mac".into()));
+        return Err(DesktopError::BadRequest(
+            "not a skill on this computer".into(),
+        ));
     }
 
     crate::platform::reveal(&skill)?;

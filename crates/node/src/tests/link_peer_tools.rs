@@ -94,7 +94,7 @@ async fn a_desktop_runs_a_nodes_command_unless_it_lends_itself_to_no_one() {
     assert!(!failed && text.contains("ran-here"), "{text}");
     let off = Caller {
         commands_off: Some(
-            "mac doesn't run commands: Let Beep use this Mac is off in its Settings.".into(),
+            "mac doesn't run commands: Let Beep use this computer is off in its Settings.".into(),
         ),
         ..caller(table, false)
     };
@@ -102,7 +102,7 @@ async fn a_desktop_runs_a_nodes_command_unless_it_lends_itself_to_no_one() {
         panic!("not done");
     };
     assert!(
-        failed && text.contains("Let Beep use this Mac is off"),
+        failed && text.contains("Let Beep use this computer is off"),
         "{text}"
     );
     assert!(!text.contains("ran-here") && !text.contains("offline"));

@@ -140,7 +140,7 @@ pub async fn gh_sign_in(
     sign_in: State<'_, GhSignIn>,
     on_code: Channel<DeviceCode>,
 ) -> Result<CredentialView> {
-    let gh = find_tool("gh").ok_or_else(|| refused("gh is not installed on this Mac"))?;
+    let gh = find_tool("gh").ok_or_else(|| refused("gh is not installed on this computer"))?;
     let Started {
         id,
         cancelled,
