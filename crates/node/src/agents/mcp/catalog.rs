@@ -186,14 +186,17 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
                 type: text\n\
                 press: key (return, delete, tab, escape, left, right, up, down, home, back, app_switch, power, volume_up, volume_down, rotate)\n\
                 logs: newest log lines; optional filter, lines\n\
+                ui: the screen's labelled elements and where to tap them\n\
+                install: text = APK or .app path on the device's machine\n\
+                launch: text = package, bundle id or URL\n\
+                reset: text = Android package to stop and clear\n\
                 All but list take machine + device. Input actions return a new screenshot; coordinates are in its pixels.\n\
                 Prefer one that is on; after boot, wait until list says on.\n\
-                Install and start apps with adb -s <id> or xcrun simctl on the device's machine (your shell, or run).\n\
                 Screenshot before the first tap. Do not shut down a device you did not boot.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "action": { "type": "string", "enum": ["list", "boot", "shutdown", "show", "screenshot", "tap", "swipe", "type", "press", "logs"] },
+                    "action": { "type": "string", "enum": ["list", "boot", "shutdown", "show", "screenshot", "tap", "swipe", "type", "press", "logs", "ui", "install", "launch", "reset"] },
                     "machine": machine,
                     "device": text("The device's name or id, as list gives it"),
                     "x": { "type": "number" },
@@ -455,29 +458,35 @@ fn close_actions(tool: &mut Value) {
             }
         }
     } else if name == DEVICE {
-        for (action, extra, required) in [
-            ("list", &[][..], &[][..]),
-            ("boot", &[][..], &["machine", "device"][..]),
-            ("shutdown", &[][..], &["machine", "device"][..]),
-            ("show", &[][..], &["machine", "device"][..]),
-            ("screenshot", &[][..], &["machine", "device"][..]),
-            ("tap", &["x", "y"][..], &["machine", "device", "x", "y"][..]),
+        // Actions that take the same fields share one rule.
+        for (actions, extra, required) in [
+            (&["list"][..], &[][..], &[][..]),
             (
-                "swipe",
+                &["boot", "shutdown", "show", "screenshot", "ui"][..],
+                &[][..],
+                &["machine", "device"][..],
+            ),
+            (&["tap"][..], &["x", "y"][..], &["machine", "device", "x", "y"][..]),
+            (
+                &["swipe"][..],
                 &["x", "y", "x2", "y2", "duration_ms"][..],
                 &["machine", "device", "x", "y", "x2", "y2"][..],
             ),
-            ("type", &["text"][..], &["machine", "device", "text"][..]),
-            ("press", &["key"][..], &["machine", "device", "key"][..]),
-            ("logs", &["filter", "lines"][..], &["machine", "device"][..]),
+            (
+                &["type", "install", "launch", "reset"][..],
+                &["text"][..],
+                &["machine", "device", "text"][..],
+            ),
+            (&["press"][..], &["key"][..], &["machine", "device", "key"][..]),
+            (&["logs"][..], &["filter", "lines"][..], &["machine", "device"][..]),
         ] {
             let mut fields = vec!["action"];
-            if action != "list" {
+            if actions != ["list"] {
                 fields.extend(["machine", "device"]);
             }
             fields.extend(extra);
             let schema = json!({"propertyNames": {"enum": fields}, "required": required});
-            conditions.push(json!({"if": {"properties": {"action": {"const": action}}, "required": ["action"]}, "then": schema}));
+            conditions.push(json!({"if": {"properties": {"action": {"enum": actions}}, "required": ["action"]}, "then": schema}));
         }
     } else if name == "review" {
         conditions

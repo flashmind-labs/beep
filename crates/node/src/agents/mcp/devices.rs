@@ -16,8 +16,8 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     agent::SessionDevice,
     device::{
-        Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_LOG_LINES, MAX_TEXT,
-        Platform, Reply, Request, TouchPhase,
+        Button, Device, DeviceId, DeviceState, Element, Frame, Input, Key, MAX_LOG_LINES,
+        MAX_TEXT, Platform, Reply, Request, TouchPhase,
     },
 };
 use iroh::EndpointId;
@@ -40,6 +40,12 @@ const VIEW_STOPPED: &str = "the device's view stopped";
 const LIST_LIMIT: Duration = Duration::from_secs(15);
 /// How long a machine has to start or stop a device.
 const POWER_LIMIT: Duration = Duration::from_secs(60);
+/// How long reading what a screen shows may take.
+const UI_LIMIT: Duration = Duration::from_secs(30);
+/// How long an install may take, a large app over USB included.
+const INSTALL_LIMIT: Duration = Duration::from_secs(300);
+/// The most elements a `ui` call lists.
+const MAX_ELEMENTS: usize = 300;
 /// How long reading a device's logs may take.
 const LOGS_LIMIT: Duration = Duration::from_secs(30);
 /// The log lines a `logs` call gets when it does not say.
@@ -99,6 +105,25 @@ enum Action {
         at: Target,
         lines: Option<u32>,
         filter: Option<String>,
+    },
+    Ui(Target),
+    /// `text` is the APK or `.app` path on the device's machine.
+    Install {
+        #[serde(flatten)]
+        at: Target,
+        text: String,
+    },
+    /// `text` is a package, bundle id or URL.
+    Launch {
+        #[serde(flatten)]
+        at: Target,
+        text: String,
+    },
+    /// `text` is an Android package.
+    Reset {
+        #[serde(flatten)]
+        at: Target,
+        text: String,
     },
 }
 
@@ -248,6 +273,48 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
             };
             Ok((Called::ok(text), Some(used(&machine, &device))))
         }
+        Action::Ui(at) => {
+            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
+            let shot = viewer.shot().await?;
+            let (machine, device) = find(offers, mesh, &at).await?;
+            let request = Request::Ui { id: device.id };
+            let elements = match ask(offers, mesh, &machine, &request, UI_LIMIT).await? {
+                Reply::Ui { elements } => elements,
+                Reply::Failed { reason } => bail!("{reason}"),
+                other => bail!("{} answered {other:?}", machine.name),
+            };
+            Ok((Called::ok(placed(&elements, shot.width, shot.height)), Some(used)))
+        }
+        Action::Install { at, text } => {
+            let (machine, device) = find(offers, mesh, &at).await?;
+            let request = Request::Install {
+                id: device.id.clone(),
+                path: text.clone(),
+            };
+            done(ask(offers, mesh, &machine, &request, INSTALL_LIMIT).await?)?;
+            let called = Called::ok(format!("Installed {text} on {}.", device.name));
+            Ok((called, Some(used(&machine, &device))))
+        }
+        Action::Launch { at, text } => {
+            let (machine, device) = find(offers, mesh, &at).await?;
+            let request = Request::Launch {
+                id: device.id.clone(),
+                target: text.clone(),
+            };
+            done(ask(offers, mesh, &machine, &request, LIST_LIMIT).await?)?;
+            let called = Called::ok(format!("Opened {text} on {}.", device.name));
+            Ok((called, Some(used(&machine, &device))))
+        }
+        Action::Reset { at, text } => {
+            let (machine, device) = find(offers, mesh, &at).await?;
+            let request = Request::Reset {
+                id: device.id.clone(),
+                app: text.clone(),
+            };
+            done(ask(offers, mesh, &machine, &request, LIST_LIMIT).await?)?;
+            let called = Called::ok(format!("Cleared {text} on {}.", device.name));
+            Ok((called, Some(used(&machine, &device))))
+        }
         Action::Show(at) => {
             let (machine, device) = find(offers, mesh, &at).await?;
 
@@ -326,6 +393,31 @@ async fn drive(viewer: &Viewer, at: &Target, inputs: Vec<(Input, Duration)>) -> 
 }
 
 /// A screenshot for the agent, with its size.
+/// A line per element, with where to tap it in a `width` by `height`
+/// screenshot.
+fn placed(elements: &[Element], width: u32, height: u32) -> String {
+    if elements.is_empty() {
+        return "Nothing on the screen has a label or an id.".to_owned();
+    }
+
+    let (width, height) = (width as f32, height as f32);
+    elements
+        .iter()
+        .take(MAX_ELEMENTS)
+        .map(|element| {
+            let x = ((element.x + element.width / 2.0) * width).round();
+            let y = ((element.y + element.height / 2.0) * height).round();
+            let id = if element.id.is_empty() {
+                String::new()
+            } else {
+                format!(" #{}", element.id)
+            };
+            format!("- {:?} {}{id} at {x}, {y}", element.label, element.kind)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn shown(at: &Target, frame: Frame) -> Result<Called> {
     let mut called = Called::ok(format!(
         "{} on {}: {} x {} pixels.",

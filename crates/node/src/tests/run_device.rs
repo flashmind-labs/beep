@@ -196,6 +196,12 @@ async fn a_real_device_shows_its_screen_and_takes_input() {
     };
     eprintln!("logs:\n{text}");
     assert!(!text.is_empty() && text.lines().count() <= 5, "{text}");
+    let ui = ask(Request::Ui { id: id.clone() }).await;
+    let Reply::Ui { elements } = ui else {
+        panic!("no screen contents: {ui:?}");
+    };
+    eprintln!("ui: {} elements, first {:?}", elements.len(), elements.first());
+    assert!(!elements.is_empty());
 
     if booted {
         let reply = ask(Request::Shutdown { id }).await;
