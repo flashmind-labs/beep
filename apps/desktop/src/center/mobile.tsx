@@ -339,5 +339,21 @@ export function initMobile() {
   swipeBack();
   keyboard();
   tips(document);
-  if (onPhone()) watchNetwork();
+  if (onPhone()) {
+    watchNetwork();
+    void window.__TAURI__.app?.onBackButtonPress(systemBack);
+  }
+}
+
+/// Android's back button: closes what floats, then goes back a page, and
+/// leaves the app from the first page.
+function systemBack() {
+  const open = document.querySelector<HTMLElement>('[role="dialog"], [role="menu"], [role="listbox"]');
+  if (open) {
+    (document.activeElement ?? open).dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    return;
+  }
+
+  if (document.body.classList.contains("mobile") && canGoBack()) return back();
+  if (!goHistory(false)) void invoke("quit");
 }

@@ -21,6 +21,11 @@ interface TauriGlobal {
   event: {
     listen<T = unknown>(event: string, handler: (event: TauriEvent<T>) => void): Promise<() => void>;
   };
+  /// Absent from the browser tests' stand-in.
+  app?: {
+    /// Android's back button calls `handler` instead of closing the app.
+    onBackButtonPress(handler: () => void): Promise<unknown>;
+  };
   webviewWindow: {
     /// Its `listen` hears only events sent to this window; `event.listen` hears them for every window.
     getCurrentWebviewWindow(): { listen<T = unknown>(event: string, handler: (event: TauriEvent<T>) => void): Promise<() => void> };
