@@ -101,31 +101,38 @@
 .am-kind span { font-size: 12px; color: var(--muted); font-weight: 400 }
 .am-kind[aria-checked="true"] { border-color: var(--accent) }
 .am-sheet input.am-code { width: 100%; box-sizing: border-box; margin-bottom: 12px; color: inherit }
-.fr-scrim { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--ink) }
-.fr-card { width: min(420px, 90%); padding: 20px 22px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); display: grid; gap: 12px }
-.fr-card b { font-size: 16px; font-weight: 600 }
-.fr-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px }
-.fr-head { display: grid; gap: 10px }
-.fr-sub { line-height: 1.45 }
-.fr-btn { display: block; width: 100%; height: auto; padding: 13px 15px; text-align: left; white-space: normal }
-.fr-big { display: grid; gap: 3px }
-.fr-big b { font-size: 14px; font-weight: 600 }
-.fr-big span { font-size: 12.5px; font-weight: 400; line-height: 1.4; opacity: .8 }
-.fr-card .am-line, .fr-card .am-msg { margin-bottom: 0 }
+/* First run: the dithered scene fills the band above, the words sit below it and never over it. */
+.fr-scrim { position: fixed; inset: 0; z-index: 40; display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(28px, .35fr); justify-items: center; background: var(--ink); overflow: hidden }
 .fr-scrim.under { z-index: 30 }
-.fr-setup { width: min(460px, 90%) }
-.fr-items { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden }
-.fr-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px 12px }
-.fr-item + .fr-item { border-top: 1px solid var(--border) }
+.fr-scrim.fr-scrim > .dither-art { display: block; position: static; z-index: 0; left: auto; top: auto; grid-row: 1; width: 100%; height: 100%; min-height: 0; opacity: 1; transform: none; -webkit-mask-image: linear-gradient(#000 62%, transparent 97%), linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(#000 62%, transparent 97%), linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect; image-rendering: pixelated }
+.fr-card { grid-row: 2; width: min(440px, 90%); display: grid; gap: 16px }
+.fr-setup { width: min(480px, 90%) }
+.fr-head { display: grid; gap: 12px }
+.fr-head svg { width: 26px; height: 26px }
+.fr-head b { font-size: 21px; font-weight: 600; letter-spacing: -.01em }
+.fr-sub { margin-top: 4px; font-size: 13px; line-height: 1.5; color: var(--muted) }
+.fr-ways { display: grid; gap: 6px }
+.fr-card .dbtn.fr-way { display: flex; align-items: center; gap: 14px; width: 100%; height: auto; min-height: 0; padding: 11px 14px; border: 0; border-radius: var(--radius-sm); text-align: left; white-space: normal; background: var(--lit, none), color-mix(in srgb, var(--fg) 5%, transparent) }
+.fr-card .dbtn.fr-way:hover:not(:disabled), .fr-card .dbtn.fr-way:focus-visible { background: var(--lit, none), color-mix(in srgb, var(--fg) 10%, transparent) }
+.fr-card .dbtn.fr-way.first { box-shadow: inset 2px 0 0 var(--accent) }
+.fr-big { flex: 1; min-width: 0; display: grid; gap: 3px }
+.fr-big b { font-family: var(--body); font-size: 14px; font-weight: 600 }
+.fr-big span { font-family: var(--mono); font-size: 11.5px; font-weight: 400; line-height: 1.5; color: var(--muted) }
+.fr-way kbd { flex: none; color: var(--dim) }
+.fr-card .am-line, .fr-card .am-msg { margin-bottom: 0 }
+.fr-items { display: grid; gap: 2px }
+.fr-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; min-height: 44px; padding: 6px 8px 6px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 4%, transparent) }
+.fr-item:first-child { background: var(--lit, none), color-mix(in srgb, var(--fg) 4%, transparent) }
 .fr-item-name { display: grid; min-width: 0 }
-.fr-card .fr-item-name b { font-size: 13px }
-.fr-item-name span { font-size: 12px; color: var(--muted) }
-.fr-item-state { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); white-space: nowrap }
+.fr-item-name b { font-size: 13px; font-weight: 600 }
+.fr-item-name span { font-family: var(--mono); font-size: 11px; color: var(--dim) }
+.fr-item-state { display: flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap }
+.fr-item-state > span:not(.dspin) { margin-right: 4px }
 .fr-item-state.ok { color: var(--ok) }
-.fr-item-state.bad { color: var(--err); white-space: normal; max-width: 240px }
+.fr-item-state.bad { color: var(--err); white-space: normal; max-width: 260px }
 .fr-foot { display: flex; gap: 10px; align-items: center }
 .fr-foot .dbtn { flex: none }
-.fr-note { font-size: 12px; color: var(--muted) }
+.fr-note { font-family: var(--mono); font-size: 11.5px; color: var(--muted) }
 .fr-end { margin-left: auto }
 /* Report a problem. */
 .rp-ta { display: block; box-sizing: border-box; width: 100%; min-height: 84px; margin-bottom: 14px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; line-height: 18px; outline: 0; resize: vertical; caret-color: var(--accent); -webkit-user-select: text; user-select: text }

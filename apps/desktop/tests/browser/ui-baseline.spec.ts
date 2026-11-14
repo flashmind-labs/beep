@@ -483,3 +483,29 @@ test("phone projects overflow", async ({ page }) => {
   await baseline(page, "phone-projects-overflow");
 });
 
+
+/// The first launch on a computer that is alone in its mesh.
+async function openFirstRun(page: Page) {
+  const env = { os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "build-box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], tools: [{ name: "git", version: "2.50.1" }, { name: "node", version: "25.9.0" }, { name: "claude", version: "2.1.0" }], logins: [] };
+  await openDesktop(page, false, { center_home: home, list_machines: [{ ...machine(machineId, machineId, true, 0), env }] });
+  await page.addInitScript(() => localStorage.removeItem("beep.firstRunDone"));
+  // The sun has risen: the painting is still, as with Reduce motion.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await page.waitForFunction(() => window.__navigation.ready());
+  await expect(page.getByRole("dialog", { name: "First run" })).toBeVisible();
+}
+
+test("first run", async ({ page }) => {
+  await openFirstRun(page);
+  await baseline(page, "first-run");
+});
+
+test("first run set up", async ({ page }) => {
+  await openFirstRun(page);
+  await page.getByRole("button", { name: /^Start here/ }).click();
+  const setup = page.getByRole("dialog", { name: "Set up this computer" });
+  await expect(setup.getByRole("button", { name: "Sign in: Claude Code" })).toBeVisible();
+  await expect(setup.getByRole("button", { name: "Install: Codex" })).toBeVisible();
+  await baseline(page, "first-run-setup");
+});

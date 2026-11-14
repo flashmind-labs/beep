@@ -6,7 +6,7 @@ import { createElement } from "react";
 async function page() {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
   const previous = new Map<string, PropertyDescriptor | undefined>();
-  for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
+  for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, MutationObserver: dom.window.MutationObserver, ResizeObserver: class { observe() {} disconnect() {} }, IS_REACT_ACT_ENVIRONMENT: true })) {
     previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
@@ -32,13 +32,13 @@ test("first run moves focus through the link flow and removes its fields when go
     const view = render(createElement(FirstRunScreen, { done: () => { completions++; }, join, prepare: async () => null }));
     const start = view.getByRole("button", { name: /^Start/ });
     assert.equal(dom.window.document.activeElement, start);
-    fireEvent.click(view.getByRole("button", { name: /^Link another desktop/ }));
+    fireEvent.click(view.getByRole("button", { name: /^Join my other computer/ }));
     const field = view.getByLabelText("Desktop ticket");
     assert.equal(dom.window.document.activeElement, field);
     fireEvent.click(view.getByRole("button", { name: "Back" }));
     assert.equal(field.isConnected, false);
     assert.equal(dom.window.document.activeElement, view.getByRole("button", { name: /^Start/ }));
-    fireEvent.click(view.getByRole("button", { name: /^Link another desktop/ }));
+    fireEvent.click(view.getByRole("button", { name: /^Join my other computer/ }));
     fireEvent.change(view.getByLabelText("Desktop ticket"), { target: { value: "ticket" } });
     fireEvent.click(view.getByRole("button", { name: "Link" }));
     await new Promise<void>(resolve => setImmediate(resolve));
@@ -61,13 +61,14 @@ test("Start shows what this computer lacks and Set up starts the run", async () 
     get: () => state,
     subscribe: () => () => {},
     start: () => { starts++; },
+    act: () => {},
     skip: () => {},
     dispose: () => {},
   };
   try {
     const view = render(createElement(FirstRunScreen, { done: () => {}, join: async () => {}, prepare: async () => run }));
     fireEvent.click(view.getByRole("button", { name: /^Start/ }));
-    const setUp = await findByRole(view.container, "button", { name: "Set up" });
+    const setUp = await findByRole(view.container, "button", { name: "Set up all" });
     assert.ok(view.getByText("Installed · v2.47.1"));
     assert.equal(view.getAllByText("Not installed").length, 3);
     fireEvent.click(setUp);
