@@ -32,6 +32,7 @@ host! {
     mod traffic;
     pub(crate) mod watchdog;
 
+    pub use crate::run::device::track_phones;
     pub use serve::{Offers, listen_hooks, serve};
     pub use traffic::Traffic;
 }

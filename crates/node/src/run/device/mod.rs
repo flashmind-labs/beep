@@ -30,7 +30,7 @@ use tokio_util::task::AbortOnDropHandle;
 use tonic::{Status, Streaming};
 
 pub use beep_proto::node::device::PROTOCOL;
-pub(crate) use phone::track;
+pub use phone::track_phones;
 
 /// The shortest wait between two frames: about 30 a second.
 const FRAME_GAP: Duration = Duration::from_millis(33);
