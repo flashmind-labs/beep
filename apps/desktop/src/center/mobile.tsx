@@ -195,6 +195,8 @@ function keyboard() {
     root.setProperty("--mb-vv-top", top);
     root.setProperty("--mb-vv-height", height);
     for (const log of ends) log.scrollTop = log.scrollHeight;
+    // The window moved under any open menu: they place themselves again on a resize.
+    window.dispatchEvent(new Event("resize"));
 
     if (up) unscroll();
   };
