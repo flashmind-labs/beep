@@ -166,13 +166,9 @@ def update_locks(tree: Path, apps: list[App]) -> list[str]:
     files = []
 
     # Resolving lockfiles may read the registry; this never publishes packages.
-    if any(app.name == "beep-node" for app in apps):
+    if any(app.name == "beep-node" or app.package for app in apps):
         run(tree, "cargo", "metadata", "--format-version", "1")
         files.append("Cargo.lock")
-
-    if any(app.package for app in apps):
-        run(tree / "apps/desktop/src-tauri", "cargo", "metadata", "--format-version", "1")
-        files.append("apps/desktop/src-tauri/Cargo.lock")
 
     return files
 

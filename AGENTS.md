@@ -39,8 +39,10 @@ server features, and nodes do not connect to it.
   `priority: low` when it fits.
 - Close an issue as completed only when main implements all of it and a
   commit or `file:line` shows it. Partial work stays open.
-- The desktop is a separate Cargo workspace: `just desktop-dev`,
-  `just desktop-check`, `just desktop-build`.
+- One Cargo workspace holds every crate and the desktop app; versions live
+  in the root `[workspace.dependencies]`. The desktop (`beep-desktop`) is
+  outside `default-members`: `just desktop-dev`, `just desktop-check`,
+  `just desktop-build`.
 - The phone app is `apps/desktop` built for iOS and Android: `just ios-run`
   (connected iPhone), `just ios-sim-run`, `just android-run`. On a phone it is
   a mesh observer (`cfg(mobile)`): no node, no agents, no terminals hosted.
