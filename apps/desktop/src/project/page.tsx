@@ -135,7 +135,10 @@ export const projectsView: CenterView<"projects"> = {
       // A phone starts agents from here; its page has no bar.
       if (isMobile()) tools.push(<Button key="new" small className="pj-tool" aria-label="New agent" onClick={() => go("pane", { draft: { project: p.name, machine: null } })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New agent</Button>);
 
-      for (const f of forgeLinks(p.url, runs.hosts(localProjectId(p.name)))) {
+      // A phone's top bar has no room for them: they go in the menu.
+      const forges = forgeLinks(p.url, runs.hosts(localProjectId(p.name)));
+
+      for (const f of isMobile() ? [] : forges) {
         tools.push(<Button key={`forge:${f.url}`} small title={f.url} onClick={() => openUrl(f.url)}>{f.label}</Button>);
       }
 
@@ -147,6 +150,7 @@ export const projectsView: CenterView<"projects"> = {
         const project = (projectRows() || []).find(row => row.name === p.name) ?? p;
         const on = state.top.includes(project.name);
         const items: MenuAction[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
+        if (isMobile()) items.push(...forges.map(f => ({ label: `Open on ${f.label}`, on: () => openUrl(f.url) })));
         if (!windowProject && !onPhone()) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(project.name) });
         if (project.imported) items.push({ label: "Rename…", on: () => renameProject(project) });
         items.push({ label: "Skills…", on: () => openProjectSkills(project.name) });

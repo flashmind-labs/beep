@@ -11,6 +11,12 @@ test("a phone starts an agent from the + in the project's top bar", async ({ pag
   // The page keeps its room: the task bar is not on it.
   await expect(page.locator("textarea")).toHaveCount(0);
 
+  // The forge links wait in the menu.
+  await expect(page.locator(".cc-top .tools button")).toHaveCount(2);
+  await page.locator('.cc-top button[aria-label="More"]').tap();
+  await expect(page.getByText("Open on Forgejo")).toBeVisible();
+  await page.keyboard.press("Escape");
+
   await page.locator('.cc-top button[aria-label="New agent"]').tap();
   await expect(page.locator("#agdraft textarea")).toBeVisible();
 });
