@@ -1270,7 +1270,7 @@ fn own_cat(files: &'static [(&'static str, &'static [u8])]) -> [Builtin; 1] {
 }
 
 #[test]
-fn a_built_in_is_installed_allowed_and_running_at_first_start() {
+fn a_built_in_is_installed_allowed_and_off_at_first_start() {
     let root = tempfile::tempdir().unwrap();
 
     let (host, rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V1));
@@ -1278,8 +1278,10 @@ fn a_built_in_is_installed_allowed_and_running_at_first_start() {
     let status = status_of(&host, "own-cat").unwrap();
     assert_eq!(status.source, Origin::Builtin);
     assert_eq!(status.approved, [Permission::UiAdd]);
-    assert!(status.enabled);
+    assert!(!status.enabled);
     assert!(root.path().join("own-cat/art/frame.png").is_file());
+
+    host.set_enabled(&plugin_id("own-cat"), true).unwrap();
     wait_for(&rx, |placements| texts(placements) == ["one"]);
 }
 
@@ -1475,6 +1477,7 @@ fn a_built_in_update_keeps_the_plugins_data() {
     ];
     let root = tempfile::tempdir().unwrap();
     let (host, rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(V1));
+    host.set_enabled(&plugin_id("own-cat"), true).unwrap();
     wait_for(&rx, |p| texts(p) == ["stored"]);
     drop(host);
     let data = root.path().join(".data/own-cat.json");

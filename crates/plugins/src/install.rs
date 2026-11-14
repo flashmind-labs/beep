@@ -155,7 +155,9 @@ impl Managed {
         let target = dir.join(id.to_string());
         let held = dir.join(format!("{OLD_PREFIX}{id}"));
         let before = self.record(&id);
-        let enabled = before.as_ref().is_none_or(|record| record.enabled);
+        let enabled = before
+            .as_ref()
+            .map_or(origin != Origin::Builtin, |record| record.enabled);
         let approved = sorted(&shown.permissions);
 
         self.update(&id, None, |record| {
@@ -177,8 +179,8 @@ impl Managed {
     }
 
     /// Makes the plugins folder hold the app's copy of each built-in, with its
-    /// record: allowed for what its manifest asks, on unless the user turned it
-    /// off. A copy that differs from the app's is replaced. A development folder
+    /// record: allowed for what its manifest asks, off until the user turns it
+    /// on. A copy that differs from the app's is replaced. A development folder
     /// is left alone.
     pub(crate) fn sync_builtins(&self, dir: &Path, builtins: &[Builtin]) {
         if self.policy() == Policy::Dev {
