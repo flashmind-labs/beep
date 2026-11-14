@@ -1,9 +1,15 @@
 import { useState } from "react";
 import { Button, CopyButton, SheetHead, Spinner } from "../ui/kit.tsx";
+import type { MachineView } from "./machine-state.ts";
+import { WslRows } from "./wsl-view.tsx";
+import { wslHosts, type WslActions } from "./wsl-state.ts";
 import { HOME_SEARCH, INSTALL, INSTALL_WINDOWS, KINDS, describeMachine, macOption, timeLeft, withSearch, type AddState, type MacSeen, type TicketKind } from "./addmachine-state.ts";
 
 interface AddMachineBodyProps {
   state: AddState; kind: TicketKind; mac: MacSeen | null; macAsked: boolean; now: number;
+  /// The mesh's machines, for the WSL distributions of the Windows ones.
+  machines: readonly MachineView[];
+  wsl: WslActions;
   selectKind: (kind: TicketKind) => void; useThisMac: () => void; start: () => void; close: () => void;
 }
 
@@ -11,11 +17,13 @@ export function AddMachineBody(p: AddMachineBodyProps) {
   const [search, setSearch] = useState(HOME_SEARCH);
   const option = p.state.step === "linked" || p.state.step === "paired" ? null : macOption(p.mac, p.macAsked);
   const done = p.state.step === "linked" || p.state.step === "paired" || p.state.step === "expired";
+  const wsl = !done && p.kind === "node" ? wslHosts(p.machines, null) : [];
   return <>
     <SheetHead title="Add a machine" />
     {!done && <div className="am-kinds" role="radiogroup" aria-label="Kind of machine">{KINDS.map(k => <Button key={k.kind} className="am-kind" role="radio" aria-checked={p.kind === k.kind} onClick={() => p.selectKind(k.kind)}><b>{k.title}</b><span>{k.sub}</span></Button>)}</div>}
     {option && <div className="am-mac"><div className="am-label">This computer</div>{option.button ? <div className="am-line"><div className="am-mac-text">{option.text}</div><Button look="primary" onClick={p.useThisMac}>{option.button}</Button></div> : option.busy ? <div className="am-wait"><Spinner />{option.text}</div> : <div className={`am-msg${option.bad ? " bad" : ""}`}>{option.done && <><span className="ddot" /> </>}{option.text}</div>}</div>}
-    {option && p.state.step !== "linked" && p.state.step !== "paired" && <div className="am-label am-other">Another machine</div>}
+    {wsl.map(host => <div key={host.id} className="am-mac"><div className="am-label">WSL on {host.name}</div><WslRows host={host} machines={p.machines} actions={p.wsl} /></div>)}
+    {(option || wsl.length > 0) && p.state.step !== "linked" && p.state.step !== "paired" && <div className="am-label am-other">Another machine</div>}
     <Body {...p} search={search} setSearch={setSearch} />
   </>;
 }

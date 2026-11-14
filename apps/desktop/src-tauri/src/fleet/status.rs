@@ -760,6 +760,7 @@ fn machine_env(env: EnvReport) -> MachineEnv {
             })
             .collect(),
         avds: env.avds,
+        wsl: env.wsl,
     }
 }
 

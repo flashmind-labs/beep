@@ -5,6 +5,8 @@
 //! fresh install.
 
 use crate::{beep::state::Prefs, machines::desktop, platform::logfile};
+#[cfg(windows)]
+use beep_node::machine::wsl::Wsl;
 use beep_node::{
     agents::{
         mcp::{self, PluginTools},
@@ -89,6 +91,12 @@ impl Machine {
         }
         // Searches read the agents' logs ahead on tasks of their own.
         async_runtime::block_on(async { offers.offer_searches(dir, &Search::default()) });
+        // Windows runs the WSL distributions added as machines.
+        #[cfg(windows)]
+        {
+            let wsl = async_runtime::block_on(async { Wsl::start(dir, &offers) });
+            offers.extra.push(Arc::new(wsl));
+        }
         Self {
             keeping: Mutex::default(),
             name: crate::beep::identity::computer_name(),

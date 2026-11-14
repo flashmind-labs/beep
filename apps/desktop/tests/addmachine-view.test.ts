@@ -13,7 +13,7 @@ test("machine setup preserves the project folder and manual ticket while updates
   const { AddMachineBody } = await import("../src/machines/addmachine-view.tsx");
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
   let picked = "", useMac = 0, closed = 0;
-  const props: ComponentProps<typeof AddMachineBody> = { state: { step: "waiting", token: "example", command: "join", expiresAt: 120000 }, kind: "node", mac: null, macAsked: false, now: 0,
+  const props: ComponentProps<typeof AddMachineBody> = { state: { step: "waiting", token: "example", command: "join", expiresAt: 120000 }, kind: "node", mac: null, macAsked: false, now: 0, machines: [], wsl: { add: async () => {}, stop: async () => {} },
     selectKind: kind => { picked = kind; }, useThisMac: () => { useMac++; }, start: () => {}, close: () => { closed++; } };
   try {
     const view = render(createElement(AddMachineBody, props));

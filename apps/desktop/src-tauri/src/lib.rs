@@ -286,6 +286,8 @@ pub fn run() {
             machines::add::ticket_machine,
             bar::app::open_log,
             machines::add::set_machine_search,
+            machines::add::add_wsl_machine,
+            machines::add::stop_wsl_machine,
             machines::list::list_machines,
             machines::list::machine_log,
             machines::list::machine_traffic,

@@ -10,9 +10,24 @@ interface MachineTool {
   version: string | null;
 }
 
+/// A WSL distribution of a Windows machine (WslDistro).
+export interface WslDistro {
+  name: string;
+  /// The coding agent CLIs found inside it, such as `claude`.
+  agents: string[];
+  /// The beep-node version installed inside it.
+  node: string | null;
+  /// That node's id in the mesh, once it made its key.
+  machine_id: string | null;
+  /// The Windows machine keeps that node running.
+  kept: boolean;
+  /// Why the kept node is not running.
+  problem: string | null;
+}
+
 /// What a machine reported about itself (MachineEnv).
 export interface MachineEnv {
-  /// `linux` or `macos`.
+  /// `linux`, `macos` or `windows`.
   os: string;
   os_version: string;
   arch: string;
@@ -24,6 +39,8 @@ export interface MachineEnv {
   tools: MachineTool[];
   logins: { tool: string; signed_in: boolean; account: string | null }[];
   avds: string[];
+  /// The WSL distributions of a Windows machine.
+  wsl: WslDistro[];
 }
 
 /// A machine as `list_machines` gives it (MachineView).

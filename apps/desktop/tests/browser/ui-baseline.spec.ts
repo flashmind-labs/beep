@@ -307,6 +307,19 @@ test("settings machines", async ({ page }) => {
   await baseline(page, "settings-machines");
 });
 
+test("settings machine with WSL", async ({ page }) => {
+  const wsl = (name: string, agents: string[], machineId: string | null) => ({ name, agents, node: machineId ? "0.9.0" : null, machine_id: machineId, kept: !!machineId, problem: null });
+  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], wsl: [wsl("Ubuntu", ["claude", "codex"], "wsl-box"), wsl("Debian", ["gemini"], null)] };
+  const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }, machine("wsl-box", "Ubuntu on desk-pc", true, 0)];
+  await openDesktop(page, false, { ...settingsResponses, list_machines: machines });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: /^Machines/ }).click();
+  await page.locator("[data-machine='desk-pc']").click();
+  await expect(page.getByRole("button", { name: "Add Debian as a machine" })).toBeVisible();
+  await baseline(page, "settings-machine-wsl");
+});
+
 test("settings plugins", async ({ page }) => {
   const git = { kind: "git", url: "https://github.com/owner/idle-timer.git", ref: null, subfolder: null, commit: "4f0915a8b3c2d1e0f9a8b7c6d5e4f30211223344" };
   const plugin = (id: string, name: string, description: string, extra: Record<string, unknown>) => ({ id, name, version: "0.2.0", description, permissions: ["ui.add"], approved: ["ui.add"], source: { kind: "builtin" }, enabled: true, state: "running", usedMs: 0, pendingTimers: 0, ...extra });
