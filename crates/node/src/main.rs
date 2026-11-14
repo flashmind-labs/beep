@@ -316,7 +316,7 @@ fn signal() -> Result<impl Future<Output = &'static str>> {
 /// The log filter unless `RUST_LOG` says otherwise: the node at info, the
 /// networking crates under it (iroh, its QUIC and port mapping) only when
 /// something goes wrong, since they log every packet path at info.
-const LOG_FILTER: &str = "info,iroh=warn,noq=warn,n0=warn,netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn,notify::inotify=warn";
+const LOG_FILTER: &str = "info,iroh=warn,noq=error,n0=warn,netwatch=error,netdev=warn,portmapper=warn,igd_next=warn,notify::inotify=warn";
 
 /// Logs to stderr, or to `log_file` when given, a new one each day.
 fn start_logging(log_file: Option<&Path>) -> Result<()> {

@@ -12,8 +12,8 @@ use tracing_appender::{
 use tracing_subscriber::EnvFilter;
 
 const LOG_FILTER: &str = "info,beep_desktop=debug,beep_desktop_lib::fleet::events=info,\
-                          beep_node::link::events=warn,iroh=warn,noq=warn,n0=warn,\
-                          netwatch=warn,netdev=warn,portmapper=warn,igd_next=warn,\
+                          beep_node::link::events=warn,iroh=warn,noq=error,n0=warn,\
+                          netwatch=error,netdev=warn,portmapper=warn,igd_next=warn,\
                           notify::inotify=warn";
 /// The current daily log and the two previous daily logs.
 const FILES_KEPT: usize = 3;

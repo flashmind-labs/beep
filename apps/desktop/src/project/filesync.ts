@@ -169,18 +169,30 @@ export function makeFileSync(deps: FileSyncDeps) {
   }
 
   /// Answers a sync change: the `changed` projects, whose summary differs,
-  /// are read again, and the projects on screen (`viewed` and the watched
-  /// one) once their detail is `age` old.
+  /// and the projects on screen (`viewed` and the watched one) are read
+  /// once their detail is `age` old. Each read asks every machine, so a
+  /// busy sync reads a changed project at most once per `age`, and once
+  /// more after it to show where it settled.
   async function follow(changed: ReadonlySet<string>, viewed: readonly string[], age: number) {
     const shown = new Set(viewed);
     if (watched) shown.add(watched);
     const due = [...shown].filter(p => !changed.has(p)).map(p => ensure(p, age));
-    await Promise.all([...[...changed].map(reload), ...due]);
+    await Promise.all([...[...changed].map(p => throttled(p, age)), ...due]);
   }
 
-  async function reload(name: string) {
-    await loads.get(name);
-    await load(name);
+  /// The changed projects whose read waits for their detail to be `age` old.
+  const trailing = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function throttled(name: string, age: number): Promise<void> | undefined {
+    if (trailing.has(name)) return;
+    const s = of(name);
+    const wait = s.loading ? age : s.read_at + age - Date.now();
+    if (wait <= 0) return load(name);
+
+    trailing.set(name, setTimeout(() => {
+      trailing.delete(name);
+      void load(name);
+    }, Math.max(wait, 0)));
   }
 
   async function act(name: string, what: string, run: () => Promise<unknown>) {
