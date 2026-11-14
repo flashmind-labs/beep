@@ -173,19 +173,18 @@ impl Retry {
         followed: Result<()>,
         replied: bool,
     ) -> bool {
-        if let Err(e) = followed {
-            let error = e.to_string();
-
-            if self.logged.as_ref() != Some(&error) {
-                log::debug!(
-                    "following {} from {}: {error}",
-                    self.what,
-                    fleet.name_of(id)
-                );
-                self.logged = Some(error);
-            }
-        } else {
+        let Err(e) = followed else {
             return false;
+        };
+        let error = e.to_string();
+
+        if self.logged.as_ref() != Some(&error) {
+            log::debug!(
+                "following {} from {}: {error}",
+                self.what,
+                fleet.name_of(id)
+            );
+            self.logged = Some(error);
         }
 
         if held(replied, self.started.elapsed()) {
