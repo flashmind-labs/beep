@@ -7,6 +7,21 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.38] - 2026-11-14
+
+### Added
+
+- Desktop: the list of changed files beside a diff now shows how many
+  draft review comments each file has, for example after a review with
+  an agent, so they can be read before the review is sent.
+
+### Changed
+
+- Desktop: the worktree menu in an agent session's Files and Changes
+  tabs lists the session's folder, the worktrees that session created
+  and still exist, and the one currently shown. A "Show all" checkbox
+  next to the search lists every worktree of the repository.
+
 ## [0.8.37] - 2026-11-14
 
 ### Changed
