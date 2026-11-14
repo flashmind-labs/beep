@@ -16,6 +16,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 COPY apps/desktop apps/desktop
 COPY apps/diagrams/assets apps/diagrams/assets
+COPY plugins plugins
 COPY scripts/build-desktop-linux.sh /usr/local/bin/build-desktop-linux
 WORKDIR /src/apps/desktop
 RUN npm ci

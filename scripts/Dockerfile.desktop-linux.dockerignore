@@ -12,6 +12,10 @@ apps/diagrams/*
 apps/desktop/node_modules/
 apps/desktop/src-tauri/target/
 
+!plugins/
+plugins/*
+!plugins/examples/
+
 !scripts/
 scripts/*
 !scripts/build-desktop-linux.sh
