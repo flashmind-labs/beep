@@ -1,18 +1,20 @@
 import { createStore } from "zustand";
 import { browserBackend, createAssetCache, parseAssetRef, type AssetBackend, type AssetRef } from "./assets.ts";
-import { MAX_FRAMES, parseMotions, type SpriteMotion } from "./sprite.ts";
+import { isPlay, MAX_FRAMES, parseMotions, parseReactions, type SpriteMotion, type SpritePlay, type SpriteReactions } from "./sprite.ts";
 
 /// A named place in the app. A slot can be on the page many times, each with its own context.
 export type PluginSlotName = "composer" | "session.row" | "session.header";
 export type PluginAlign = "start" | "center" | "end";
 export type PluginTone = "normal" | "dim" | "accent";
+/// How a placement comes and goes: a short fade or rise, or nothing.
+export type PluginTransition = "none" | "fade" | "rise";
 
 /// Names a function the plugin passed in a tree, valid for one render of one instance.
 export type CallbackId = number;
 
 export type PluginNode =
   | { kind: "image"; asset: AssetRef; width: number; height: number; pixelated: boolean }
-  | { kind: "sprite"; frames: AssetRef[]; rest: number; width: number; height: number; pixelated: boolean; motions: SpriteMotion[] }
+  | { kind: "sprite"; frames: AssetRef[]; rest: number; width: number; height: number; pixelated: boolean; motions: SpriteMotion[]; reactions: SpriteReactions; play: SpritePlay | null }
   | { kind: "text"; text: string; tone: PluginTone }
   | { kind: "row"; gap: number; children: PluginNode[] }
   | { kind: "button"; label: string; children: PluginNode[]; onPress: CallbackId }
@@ -29,6 +31,8 @@ export interface Placement {
   /// The key the page reported the instance with.
   instance: string;
   position: PluginPosition;
+  enter: PluginTransition;
+  leave: PluginTransition;
   node: PluginNode;
 }
 
@@ -70,9 +74,11 @@ function parseNode(raw: unknown, depth: number): PluginNode | null {
     const frames = raw.frames.map(parseAssetRef);
     if (!frames.every(frame => frame !== null)) return null;
     const motions = parseMotions(raw.motions, frames.length);
-    if (motions === null || typeof rest !== "number" || !Number.isInteger(rest) || rest < 0 || rest >= frames.length) return null;
+    const reactions = parseReactions(raw.reactions, frames.length);
+    const play: unknown = raw.play;
+    if (motions === null || reactions === null || (play !== null && !isPlay(play, reactions)) || typeof rest !== "number" || !Number.isInteger(rest) || rest < 0 || rest >= frames.length) return null;
     if (!isLength(width) || !isLength(height) || typeof pixelated !== "boolean") return null;
-    return { kind: "sprite", frames, rest, width, height, pixelated, motions };
+    return { kind: "sprite", frames, rest, width, height, pixelated, motions, reactions, play };
   }
 
   if (raw.kind === "text") {
@@ -114,17 +120,19 @@ function parsePosition(raw: unknown): PluginPosition | null {
   return isLength(offset) && isLength(sink) ? { kind: "edge", align, offset, sink } : null;
 }
 
+const isTransition = (value: unknown): value is PluginTransition => value === "none" || value === "fade" || value === "rise";
+
 function parsePlacement(raw: unknown): Placement | null {
   if (!isRecord(raw)) return null;
-  const { plugin, slot, instance } = raw;
+  const { plugin, slot, instance, enter, leave } = raw;
   if (typeof plugin !== "string" || !isSlot(slot)) return null;
   if (typeof instance !== "string" || instance.length === 0 || byteLength(instance) > MAX_KEY_BYTES) return null;
 
   const position = parsePosition(raw.position);
   const node = parseNode(raw.node, 0);
   // Only the composer stands on an edge; every other slot is in the page's flow.
-  if (position === null || node === null || (position.kind === "edge") !== (slot === "composer")) return null;
-  return { plugin, slot, instance, position, node };
+  if (position === null || node === null || !isTransition(enter) || !isTransition(leave) || (position.kind === "edge") !== (slot === "composer")) return null;
+  return { plugin, slot, instance, position, enter, leave, node };
 }
 
 /// Reads the host's payload, dropping each placement that is not valid.
@@ -221,6 +229,61 @@ export interface ComposerShown {
 /// What the page publishes itself: a `ui.` topic and its value. `null` means the thing went away.
 export type UiUpdate = { name: "ui.composer"; data: ComposerShown | null };
 
+/// Where a session's turn stands, as the `session.turn` topic tells plugins. `turn` counts the turns
+/// that ended: a larger number than before is a new end, the same number is a repeat.
+export type TurnState = "starting" | "working" | "asking" | "idle" | "ended";
+export type TurnOutcome = "finished" | "cancelled" | "failed" | "refused" | "token-limit" | "request-limit" | "stopped";
+export interface SessionTurn { session: string; state: TurnState; outcome: TurnOutcome | null; turn: number }
+
+/// What `session.turn` is built from: the page the open session shows. `last_stop` is the node's
+/// `StopReason`, as the desktop sends it.
+export interface TurnSource {
+  session: { id: string; status: string; question?: object | null; subagents?: number };
+  turns: number;
+  last_stop?: string | null;
+}
+
+const OUTCOMES: ReadonlyMap<string, TurnOutcome> = new Map([
+  ["EndTurn", "finished"], ["Cancelled", "cancelled"], ["Failed", "failed"], ["Refusal", "refused"],
+  ["MaxTokens", "token-limit"], ["MaxTurnRequests", "request-limit"],
+]);
+
+/// A turn runs while the session works, runs subagents or runs with nothing more known; it waits on
+/// the user when it asks. A stop reason this page does not know is `stopped`.
+export function sessionTurn({ session, turns, last_stop }: TurnSource): SessionTurn {
+  const { id, status, question, subagents } = session;
+  const asking = status === "asking" || (question ?? null) !== null;
+  const running = status === "working" || status === "running" || (status === "idle" && (subagents ?? 0) > 0);
+  const state: TurnState = asking ? "asking" : running ? "working" : status === "starting" || status === "ended" ? status : "idle";
+  return { session: id, state, outcome: typeof last_stop === "string" ? OUTCOMES.get(last_stop) ?? "stopped" : null, turn: turns };
+}
+
+const TURN_TOPIC = "session.turn";
+/// The sessions whose latest turn the page keeps for plugins that follow later.
+const MAX_TURNS = 256;
+const turns = new Map<string, { machine: string; turn: SessionTurn; json: string }>();
+let sendTurn: ((machine: string, turn: SessionTurn) => void) | null = null;
+
+/// Publishes `session.turn` for a session the page follows. Only a change is sent, so a turn end that
+/// shows again in the next snapshots reaches plugins once.
+export function publishTurn(machine: string, source: TurnSource): void {
+  const turn = sessionTurn(source);
+  const key = JSON.stringify([machine, turn.session]);
+  const json = JSON.stringify(turn);
+  if (turns.get(key)?.json === json) return;
+
+  turns.delete(key);
+  turns.set(key, { machine, turn, json });
+  for (const old of turns.keys()) {
+    if (turns.size <= MAX_TURNS) break;
+    turns.delete(old);
+  }
+  sendTurn?.(machine, turn);
+}
+
+const followsTurn = (topic: WantedTopic, machine: string, { session }: SessionTurn) =>
+  (topic.key === null || topic.key === session) && (topic.machine === null || topic.machine === machine);
+
 /// The mesh topics the page follows for plugins; the desktop refuses others too.
 const MESH_NAMES: ReadonlySet<string> = new Set(["agents", "agent"]);
 const WORD = /^[A-Za-z0-9._-]{1,128}$/;
@@ -276,7 +339,15 @@ export function connectPluginTopics(bridge: TopicsBridge): Promise<void> {
   const forward = (topic: WantedTopic, machine: string | null, data: unknown) =>
     bridge.invoke("plugins_publish", { update: { topic, machine, data } }).catch(() => undefined);
 
+  let turnTopics: WantedTopic[] = [];
   const sync = (wanted: readonly WantedTopic[]) => {
+    const before = new Set(turnTopics.map(wantedKey));
+    turnTopics = wanted.filter(topic => topic.name === TURN_TOPIC);
+    // A plugin that follows later gets what the page knows.
+    for (const topic of turnTopics.filter(topic => !before.has(wantedKey(topic)))) {
+      for (const { machine, turn } of turns.values()) if (followsTurn(topic, machine, turn)) void forward(topic, machine, turn);
+    }
+
     const next = new Map(meshTopics(wanted).map(topic => [wantedKey(topic), topic]));
     for (const [key, stop] of stops) {
       if (next.has(key)) continue;
@@ -290,6 +361,9 @@ export function connectPluginTopics(bridge: TopicsBridge): Promise<void> {
   };
 
   sendUi = update => void forward({ name: update.name, key: null, machine: null }, null, update.data);
+  sendTurn = (machine, turn) => {
+    for (const topic of turnTopics) if (followsTurn(topic, machine, turn)) void forward(topic, machine, turn);
+  };
   for (const update of waitingUi.values()) sendUi(update);
   waitingUi.clear();
 

@@ -44,7 +44,7 @@ that folder with the same id runs instead.
 
 ```json
 { "id": "composer-cat", "name": "Composer cat", "version": "0.2.0", "api": 1,
-  "description": "A cat sits on the message box.", "entry": "main.ts", "permissions": ["ui.add"],
+  "description": "A cat sits on the message box.", "entry": "main.ts", "permissions": ["ui.add", "sessions.read"],
   "activation": ["slot:composer"] }
 ```
 
@@ -56,8 +56,8 @@ that folder with the same id runs instead.
   `main.ts`, a path inside the folder.
 - `activation`: optional, when the plugin starts, default `["startup"]`. See
   Activation.
-- `permissions`: `ui.add` (place UI), `sessions.read` (follow `agents` and
-  `agent` topics) and `tools` (give coding agents tools, see Tools for agents).
+- `permissions`: `ui.add` (place UI), `sessions.read` (follow `session.turn`,
+  `agents` and `agent` topics) and `tools` (give coding agents tools, see Tools for agents).
   Unknown permissions or fields fail the load.
 - `tools`: optional, the tools the plugin gives coding agents. Needs the `tools`
   permission.
@@ -194,6 +194,12 @@ default `end`), `offset` and `sink` in px. It takes no pointer except on control
 The other slots flow inline and take only `slot`; other options fail the load. A
 slot draws nothing, and takes no room, until a plugin fills it.
 
+Every slot also takes `enter` and `leave`, each `"none"` (default), `"fade"` or
+`"rise"`: a short (about 150 ms) transition the page does with CSS when the node
+appears, and when the plugin stops drawing it. A node that left stays on the page
+until its leave is done, and comes back if the plugin draws it again before then.
+Both are skipped under reduced motion.
+
 `session.row` takes no controls, since the whole row is a button. Rendering a
 button, toggle or input there stops the plugin.
 
@@ -205,7 +211,7 @@ heights measured by hand, and its rows have no stable message id.
 - `text(text, { tone })`: `tone` is `"normal"`, `"dim"` or `"accent"`.
 - `row({ gap }, children)`: children left to right.
 - `image({ src, width, height, pixelated })`.
-- `sprite({ rest, width, height, pixelated, motions })`: see Animation.
+- `sprite({ rest, width, height, pixelated, motions, reactions, play })`: see Animation.
 - `button({ label, onPress }, children?)`: `label` is the accessible name and the
   content when there are no children.
 - `toggle({ label, value, onChange })`: `onChange(value)` gets the new value.
@@ -245,9 +251,27 @@ it shows, 16 to 60000 ms), and after the last step the sprite goes back to `rest
 
 Motions play one at a time, in due order. A sprite has at most 8 motions, 64 steps
 in each and 32 distinct frames. To change what the sprite does, return another node
-after a state change (the cat returns a plain `image` while it is happy). The page
-draws only the rest frame while its window is hidden or the user asks for reduced
-motion, and starts the motions again when it can.
+after a state change: the cat types (a looping motion) while its session works, and
+rests on another frame while it asks. The page draws only the rest frame while its
+window is hidden or the user asks for reduced motion, and starts the motions again
+when it can.
+
+A sprite can also declare reactions, named motions that play once when asked:
+
+```ts
+beep.sprite({
+  rest: "art/cat-idle.png", width: 72, height: 56, pixelated: true,
+  reactions: { happy: { steps: [{ frame: "art/cat-happy.png", ms: 1400 }] } },
+  play: { name: "happy", id: 3 },
+});
+```
+
+`play` asks for one. The page plays it once for each new `id`, over whatever plays
+now, then starts the motions again. Keep the request in the node and change `id` to
+ask again: the same `id` on a later draw plays nothing, and a request already in the
+node when the sprite appears is not played. Up to 8 reactions, and their frames
+count toward the 32. A reaction does not play while the window is hidden or under
+reduced motion. The plugin sets no timer for any of it.
 
 Images are sent to the page once per content hash, not in every update, and the page
 drops one when no placement uses it.
@@ -293,12 +317,28 @@ callback is one more entry into the sandbox, followed by the usual redraw.
   `{ machine, session }`, or `null` when none is shown. A plugin that follows it
   late gets the latest value at once. No permission needed. The `composer`
   slot's context says the same, so most plugins need not follow it.
+- `session.turn` (a session id as `key` and its `machine`): where the session's turn
+  stands. It needs `sessions.read` and is stable. `data` is
+  `{ session, state, outcome, turn }`:
+  - `state` is `starting`, `working` (also while subagents run), `asking`,
+    `idle` or `ended`.
+  - `outcome` is how the last turn ended, `null` before the first: `finished`,
+    `cancelled`, `failed`, `refused`, `token-limit`, `request-limit` or `stopped`
+    (any other reason).
+  - `turn` counts the turns that ended. A bigger number than the last update is a
+    new end, the same number is a repeat. The first update may describe an end that
+    came before you followed, so compare against it rather than react to it.
+
+  The app builds it from the session views it already follows (the open session,
+  and ones that run or ask), so nothing more is asked of the machines, and a session
+  it does not follow sends nothing. A plugin that follows late gets the latest one.
 - `agents` and `agent` (a session id as `key`, or all sessions without one):
   the app's session topics. They need `sessions.read`.
 - Any other name is refused.
 
-Mesh topic payloads are the app's internal view shapes. They can change between
-releases, so narrow `data` and do nothing when it is not what you expect.
+`session.turn` and the `ui.` topics are stable. The payloads of `agents` and `agent`
+are the app's internal view shapes: they can change between releases, so prefer
+`session.turn`, narrow `data` and do nothing when it is not what you expect.
 
 Updates queue per plugin and only the newest per topic and machine is delivered.
 Events over 256 KB are dropped.
@@ -319,7 +359,8 @@ BEEP_PLUGINS_DIR=$PWD/plugins/examples just desktop-dev
 
 `examples/session-notes` puts a note on each session's row, set from an input
 and a button in the open session's header, and keeps the notes in its store.
-`examples/composer-cat` keeps its turn parsing in a second file, `turn.ts`.
+`examples/composer-cat` follows `ui.composer` and `session.turn`: it types while the
+turn runs, asks while the session asks, and reacts once to each way a turn ends.
 
 Regenerate the cat frames with
 `python3 -I plugins/examples/composer-cat/art-src/sprite.py`.

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assetRefs, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, followPlugin, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent, startDraft, typeInto } from "../src/plugins/plugins-state.ts";
+import { assetRefs, publishTurn, sessionTurn, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, followPlugin, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent, startDraft, typeInto } from "../src/plugins/plugins-state.ts";
 import type { InputDraft, InstanceBatch, SlotInstance, WantedTopic } from "../src/plugins/plugins-state.ts";
 
 const ref = (digit: string, mime = "image/png") => ({ hash: digit.repeat(64), mime });
@@ -8,10 +8,10 @@ const image = { kind: "image", asset: ref("a"), width: 60, height: 48, pixelated
 const sprite = { kind: "sprite", frames: [ref("a"), ref("b"), ref("c")], rest: 0, width: 72, height: 56, pixelated: true, motions: [
   { steps: [{ frame: 1, ms: 140 }], repeat: { kind: "every", minMs: 3000, maxMs: 7000 } },
   { steps: [{ frame: 2, ms: 200 }, { frame: 1, ms: 200 }], repeat: { kind: "once" } },
-] };
-const placement = { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "end", offset: 84, sink: 3 }, node: image };
+], reactions: { happy: [{ frame: 2, ms: 300 }], yawn: [{ frame: 1, ms: 100 }, { frame: 2, ms: 100 }] }, play: { name: "happy", id: 3 } };
+const placement = { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "end", offset: 84, sink: 3 }, enter: "none", leave: "none", node: image };
 const text = (value: string, tone = "normal") => ({ kind: "text", text: value, tone });
-const inline = (slot: string, instance: string, node: unknown) => ({ plugin: "session-notes", slot, instance, position: { kind: "inline" }, node });
+const inline = (slot: string, instance: string, node: unknown) => ({ plugin: "session-notes", slot, instance, position: { kind: "inline" }, enter: "none", leave: "none", node });
 
 test("a valid placement is read as sent", () => {
   assert.deepEqual(parsePlacements([placement]), [placement]);
@@ -53,6 +53,15 @@ test("invalid placements are dropped and the rest kept", () => {
   assert.deepEqual(parsePlacements([...bad, placement]), [placement]);
 });
 
+test("enter and leave are read, and a value that is not a transition drops the placement", () => {
+  for (const enter of ["none", "fade", "rise"]) for (const leave of ["none", "fade", "rise"]) {
+    assert.deepEqual(parsePlacements([{ ...placement, enter, leave }]), [{ ...placement, enter, leave }]);
+  }
+  for (const bad of ["slide", null, 1, undefined]) {
+    assert.deepEqual(parsePlacements([{ ...placement, enter: bad }, { ...placement, leave: bad }]), []);
+  }
+});
+
 test("rows nested too deep are refused", () => {
   let node: unknown = text("deep");
   for (let i = 0; i < 12; i++) node = { kind: "row", gap: 0, children: [node] };
@@ -66,6 +75,7 @@ test("placements are picked by slot", () => {
 test("sprites are read as sent", () => {
   assert.deepEqual(parsePlacements([{ ...placement, node: sprite }]), [{ ...placement, node: sprite }]);
   assert.deepEqual(parsePlacements([{ ...placement, node: { ...sprite, motions: [] } }]).length, 1);
+  assert.deepEqual(parsePlacements([{ ...placement, node: { ...sprite, reactions: {}, play: null } }]).length, 1);
   const loop = { ...sprite, motions: [{ steps: [{ frame: 1, ms: 80 }, { frame: 2, ms: 80 }], repeat: { kind: "loop" } }] };
   assert.deepEqual(parsePlacements([{ ...placement, node: loop }]), [{ ...placement, node: loop }]);
 });
@@ -94,6 +104,16 @@ test("invalid sprites are dropped", () => {
     { ...sprite, motions: [motion({ repeat: { kind: "every", minMs: 500, maxMs: 3600001 } })] },
     { ...sprite, motions: [motion({ repeat: { kind: "sometimes" } })] },
     { ...sprite, motions: [motion({ repeat: { kind: "loop" } }), motion({})] },
+    { ...sprite, reactions: undefined },
+    { ...sprite, reactions: { happy: [] } },
+    { ...sprite, reactions: { happy: [{ frame: 3, ms: 100 }] } },
+    { ...sprite, reactions: { happy: [{ frame: 1, ms: 15 }] } },
+    { ...sprite, reactions: Object.fromEntries(Array.from({ length: 9 }, (_, index) => [`r${index}`, [{ frame: 1, ms: 100 }]])), play: null },
+    { ...sprite, play: { name: "sad", id: 1 } },
+    { ...sprite, play: { name: "constructor", id: 1 } },
+    { ...sprite, play: { name: "happy", id: -1 } },
+    { ...sprite, play: { name: "happy", id: 1.5 } },
+    { ...sprite, play: undefined },
   ];
   for (const node of bad) assert.deepEqual(parsePlacements([{ ...placement, node }]), [], JSON.stringify(node).slice(0, 120));
 });
@@ -441,4 +461,47 @@ test("the page keeps a bounded list of values it waits for", () => {
 
   assert.equal(draft.pending.length, 64);
   assert.equal(draft.text.length, 200);
+});
+
+const page = (status: string, turns: number, last_stop: string | null, extra: object = {}) => ({ session: { id: "s1", status, ...extra }, turns, last_stop });
+
+test("session.turn maps the page's status and the node's stop reason", () => {
+  const states: [string, object, string][] = [
+    ["starting", {}, "starting"], ["working", {}, "working"], ["running", {}, "working"], ["asking", {}, "asking"], ["idle", {}, "idle"],
+    ["ended", {}, "ended"], ["waiting", {}, "idle"], ["idle", { subagents: 2 }, "working"], ["idle", { subagents: 0 }, "idle"],
+    ["working", { question: { id: 1 } }, "asking"], ["idle", { question: null }, "idle"],
+  ];
+  for (const [status, extra, state] of states) assert.equal(sessionTurn(page(status, 2, null, extra)).state, state, `${status} ${JSON.stringify(extra)}`);
+
+  const outcomes: [string | null | undefined, string | null][] = [
+    ["EndTurn", "finished"], ["Cancelled", "cancelled"], ["Failed", "failed"], ["Refusal", "refused"], ["MaxTokens", "token-limit"],
+    ["MaxTurnRequests", "request-limit"], ["Other", "stopped"], ["FromANewerNode", "stopped"], [null, null], [undefined, null],
+  ];
+  for (const [stop, outcome] of outcomes) assert.deepEqual(sessionTurn({ ...page("idle", 4, null), last_stop: stop }), { session: "s1", state: "idle", outcome, turn: 4 }, String(stop));
+});
+
+test("session.turn reaches plugins that follow it, once for each change, and a late follower gets the latest", async () => {
+  const turn = { name: "session.turn", key: "s1", machine: "m1" };
+  const fake = fakeBridge([turn, { name: "session.turn", key: "other", machine: "m1" }]);
+  publishTurn("m1", page("working", 3, "EndTurn"));
+  await connectPluginTopics(fake.bridge);
+  const sent = () => fake.calls.filter(call => call.cmd === "plugins_publish").map(call => call.args);
+  const data = (state: string, outcome: string | null, count: number) => ({ update: { topic: turn, machine: "m1", data: { session: "s1", state, outcome, turn: count } } });
+
+  // What the page knew before the plugin followed arrives at once, and only for the session it named.
+  assert.deepEqual(sent(), [data("working", "finished", 3)]);
+
+  // The same snapshot again is not a new update; a new end is.
+  publishTurn("m1", page("working", 3, "EndTurn"));
+  publishTurn("m1", page("idle", 4, "Cancelled"));
+  publishTurn("m1", page("idle", 4, "Cancelled"));
+  publishTurn("m2", page("idle", 9, "Failed"));
+  publishTurn("m1", { ...page("idle", 4, "Cancelled"), session: { id: "s2", status: "idle" } });
+  assert.deepEqual(sent(), [data("working", "finished", 3), data("idle", "cancelled", 4)]);
+
+  // Followed with no key or machine, every session's updates arrive.
+  fake.change([{ name: "session.turn", key: null, machine: null }]);
+  assert.equal(sent().length, 2 + 3);
+  publishTurn("m1", page("working", 4, "Cancelled"));
+  assert.equal(sent().length, 2 + 3 + 1);
 });

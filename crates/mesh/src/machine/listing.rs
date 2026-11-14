@@ -410,6 +410,7 @@ pub fn beep_view(host: &Host, info: SessionInfo) -> AgentSessionView {
         turns,
         entries: Vec::new(),
         earlier: 0,
+        last_stop: state.last_stop,
     }
 }
 

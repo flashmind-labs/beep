@@ -42,7 +42,6 @@ fn the_embedded_composer_cat_matches_its_source() {
         .filter(|line| line.starts_with("import "))
         .filter_map(|line| line.split('"').nth(1))
         .collect();
-    assert!(!imports.is_empty());
     for import in imports {
         assert!(
             embedded(import.trim_start_matches("./")).is_some(),
@@ -69,5 +68,5 @@ fn the_embedded_composer_cat_matches_its_source() {
         assert_eq!(&std::fs::read(source.join(name)).unwrap(), bytes, "{name}");
     }
     let art = std::fs::read_dir(source.join("art")).unwrap().count();
-    assert_eq!(art, COMPOSER_CAT.len() - 3);
+    assert_eq!(art, COMPOSER_CAT.len() - 2);
 }

@@ -25,7 +25,7 @@ const edge = { kind: "edge", align: "end", offset: 84, sink: 3 };
 
 function placement(name: string) {
   const { asset, width, height } = sprite(name);
-  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: edge, node: { kind: "image", asset, width: width * 2, height: height * 2, pixelated: true } };
+  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: edge, enter: "none", leave: "none", node: { kind: "image", asset, width: width * 2, height: height * 2, pixelated: true } };
 }
 
 type Repeat = { kind: "once" } | { kind: "every"; minMs: number; maxMs: number };
@@ -33,8 +33,21 @@ type Repeat = { kind: "once" } | { kind: "every"; minMs: number; maxMs: number }
 /// The cat as a sprite: the idle frame at rest (frame 0) and one motion to the blink frame (frame 1).
 function catSprite(repeat: Repeat, ms = 5000) {
   const idle = sprite("cat-idle.png");
-  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: edge, node: { kind: "sprite", frames: [idle.asset, sprite("cat-blink.png").asset], rest: 0, width: idle.width * 2, height: idle.height * 2, pixelated: true, motions: [{ steps: [{ frame: 1, ms }], repeat }] } };
+  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: edge, enter: "none", leave: "none", node: { kind: "sprite", frames: [idle.asset, sprite("cat-blink.png").asset], rest: 0, width: idle.width * 2, height: idle.height * 2, pixelated: true, motions: [{ steps: [{ frame: 1, ms }], repeat }], reactions: {}, play: null } };
 }
+
+type Step = { frame: number; ms: number };
+
+/// A cat with three frames (idle, blink, happy), the given motions, a reaction each for `happy` (frame 2 for 200 ms,
+/// then frame 1 for 100 ms) and `blink` (frame 1 for 100 ms), and the reaction asked for now. It enters and leaves as told.
+function reacting(play: { name: string; id: number } | null, motions: { steps: Step[]; repeat: { kind: "loop" } | { kind: "once" } }[] = [], transitions: { enter: string; leave: string } = { enter: "none", leave: "none" }) {
+  const idle = sprite("cat-idle.png");
+  const frames = [idle.asset, sprite("cat-blink.png").asset, sprite("cat-happy.png").asset];
+  const reactions = { happy: [{ frame: 2, ms: 200 }, { frame: 1, ms: 100 }], blink: [{ frame: 1, ms: 100 }] };
+  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: edge, ...transitions, node: { kind: "sprite", frames, rest: 0, width: idle.width * 2, height: idle.height * 2, pixelated: true, motions, reactions, play } };
+}
+
+const typing = [{ steps: [{ frame: 1, ms: 100 }, { frame: 2, ms: 100 }], repeat: { kind: "loop" as const } }];
 
 const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
 const commands = [{ name: "review", description: "Review work", hint: "[path]" }, { name: "run", description: "Run checks", hint: "" }];
@@ -165,7 +178,7 @@ function events(page: Page): Promise<unknown[]> {
   return page.evaluate(() => window.__navigation.calls().filter(call => call.command === "plugins_event").map(call => call.args.event));
 }
 
-const inline = (slot: string, instance: string, node: unknown) => ({ plugin: "session-notes", slot, instance, position: { kind: "inline" }, node });
+const inline = (slot: string, instance: string, node: unknown) => ({ plugin: "session-notes", slot, instance, position: { kind: "inline" }, enter: "none", leave: "none", node });
 const note = (text: string) => ({ kind: "text", text, tone: "accent" });
 const listed = [0, 1].map(index => ({ id: `agent-${index}`, machine_id: "build-box", machine_name: "Build box", agent: "codex", title: `Agent ${index}`, cwd: "/srv/project", status: "working", doing: "Working", started_at: index, last_activity: index, external: false, question: null }));
 
@@ -222,12 +235,15 @@ test("the open session's header reports its instance, and a header button press 
   await expect(button).toBeVisible();
   expect((await box(page.locator(".ag-head"))).height).toBe(head.height);
 
-  // In a narrow window the title keeps room to read and nothing in the header overlaps.
-  await page.setViewportSize({ width: 760, height: 900 });
+  // In a narrower window the title keeps room to read and nothing in the header overlaps. In a narrow one the plugin leaves.
+  await page.setViewportSize({ width: 1000, height: 900 });
   const parts = await Promise.all([".ag-head .tt", ".pluginhere", "#agstate"].map(selector => box(page.locator(selector))));
   expect(parts[0].width).toBeGreaterThan(100);
   for (const [i, a] of parts.entries()) for (const b of parts.slice(i + 1)) expect(a.x + a.width <= b.x + 0.5 || b.x + b.width <= a.x + 0.5).toBe(true);
-  if (process.env.PLUGIN_SLOT_SHOTS === "1") await page.screenshot({ path: "../../docs/plugin-header-narrow.png", clip: { x: 0, y: 0, width: 760, height: 120 } });
+  if (process.env.PLUGIN_SLOT_SHOTS === "1") await page.screenshot({ path: "../../docs/plugin-header-narrow.png", clip: { x: 0, y: 0, width: 1000, height: 120 } });
+  await page.setViewportSize({ width: 760, height: 900 });
+  await expect(page.locator(".pluginhere")).toBeHidden();
+  expect((await box(page.locator(".ag-head .tt"))).width).toBeGreaterThan(100);
   await page.setViewportSize({ width: 1280, height: 900 });
   await button.click();
   await expect.poll(() => events(page)).toEqual([{ plugin: "session-notes", id: 5, action: { kind: "press" } }]);
@@ -281,7 +297,7 @@ test("a late echo of older text does not replace what the user typed since", asy
 
 test("a composer slot with a control takes the pointer there only, and the cat still takes none", async ({ page }) => {
   const cat = placement("cat-idle.png");
-  const press = { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "start", offset: 8, sink: 0 }, node: { kind: "button", label: "Poke", children: [], onPress: 2 } };
+  const press = { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "start", offset: 8, sink: 0 }, enter: "none", leave: "none", node: { kind: "button", label: "Poke", children: [], onPress: 2 } };
   await openSession(page, [cat, press]);
 
   const slot = page.locator(".pluginslot");
@@ -425,3 +441,172 @@ for (const scheme of ["dark", "light"] as const) {
     await page.screenshot({ path: docs(scheme === "dark" ? "plugin-slot.png" : "plugin-slot-alt.png"), clip: { x: 0, y: top, width: 1280, height: Math.min(900, field.y + field.height + 16) - top } });
   });
 }
+
+/// Sends the host's placements to the page, as `plugins-changed` does.
+const change = (page: Page, placements: unknown[]) => page.evaluate(list => window.__navigation.emit("plugins-changed", list), placements);
+
+test("a sprite plays a reaction once for each new id, then goes back to its motions", async ({ page }) => {
+  await freezeClock(page);
+  // A request that is there when the sprite appears is old news.
+  await openSession(page, [reacting({ name: "blink", id: 7 }, typing)]);
+  await expect(page.locator(".pluginsprite img")).toHaveCount(3);
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+  const before = await traffic(page);
+
+  // A new id plays the reaction over the typing loop, once.
+  await change(page, [reacting({ name: "happy", id: 8 }, typing)]);
+  await expect.poll(() => visibleFrames(page)).toEqual([2]);
+  await page.clock.runFor(199);
+  expect(await visibleFrames(page)).toEqual([2]);
+  await page.clock.runFor(1);
+  expect(await visibleFrames(page)).toEqual([1]);
+  await page.clock.runFor(100);
+
+  // The loop is back. The same id on a later draw does not play it again.
+  expect(await visibleFrames(page)).toEqual([1]);
+  await change(page, [reacting({ name: "happy", id: 8 }, typing)]);
+  await page.clock.runFor(100);
+  expect(await visibleFrames(page)).toEqual([2]);
+  await page.clock.runFor(100);
+  expect(await visibleFrames(page)).toEqual([1]);
+
+  // A newer id plays again, even for the same reaction, and a change of motions in the same draw is kept.
+  await change(page, [reacting({ name: "happy", id: 9 }, [])]);
+  await expect.poll(() => visibleFrames(page)).toEqual([2]);
+  await page.clock.runFor(300);
+  expect(await visibleFrames(page)).toEqual([0]);
+  await page.clock.runFor(10_000);
+  expect(await visibleFrames(page)).toEqual([0]);
+
+  expect((await traffic(page)).filter(command => command === "plugins_event")).toEqual(before.filter(command => command === "plugins_event"));
+});
+
+test("a looping motion pauses while the window is hidden, and a reaction does not play then", async ({ page }) => {
+  await freezeClock(page);
+  await openSession(page, [reacting(null, typing)]);
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+
+  await page.clock.runFor(100);
+  expect(await visibleFrames(page)).toEqual([2]);
+
+  await page.evaluate(() => window.__navigation.emit("center-hidden", null));
+  expect(await visibleFrames(page)).toEqual([0]);
+  await page.clock.runFor(5000);
+  expect(await visibleFrames(page)).toEqual([0]);
+  await change(page, [reacting({ name: "happy", id: 1 }, typing)]);
+  await page.clock.runFor(5000);
+  expect(await visibleFrames(page)).toEqual([0]);
+
+  await page.evaluate(() => window.__navigation.emit("center-shown", null));
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+});
+
+test("reduced motion holds the rest frame for a loop and a reaction", async ({ page }) => {
+  await freezeClock(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openSession(page, [reacting(null, typing)]);
+  await expect(page.locator(".pluginsprite img")).toHaveCount(3);
+
+  await change(page, [reacting({ name: "happy", id: 1 }, typing)]);
+  await page.clock.runFor(1000);
+
+  expect(await visibleFrames(page)).toEqual([0]);
+});
+
+const motion = (page: Page) => page.locator(".pluginmotion");
+
+test("a placement that declares an enter is wrapped for it, and one that does not is not", async ({ page }) => {
+  await openSession(page, [reacting(null, [], { enter: "rise", leave: "fade" })]);
+
+  await expect(motion(page)).toHaveCount(1);
+  await expect(motion(page)).toHaveAttribute("data-enter", "rise");
+  await expect(motion(page)).toHaveAttribute("data-leave", "fade");
+  await expect(motion(page)).not.toHaveAttribute("data-leaving");
+  await expect(motion(page).locator(".pluginsprite")).toHaveCount(1);
+
+  await change(page, [reacting(null, [])]);
+  await expect(page.locator(".pluginsprite")).toHaveCount(1);
+  await expect(motion(page)).toHaveCount(0);
+});
+
+test("a left placement stays for its leave, then goes", async ({ page }) => {
+  await freezeClock(page);
+  await openSession(page, [reacting(null, [], { enter: "none", leave: "rise" })]);
+  await expect(page.locator(".pluginsprite")).toHaveCount(1);
+
+  await change(page, []);
+  await expect(motion(page)).toHaveAttribute("data-leaving", "");
+  await page.clock.runFor(149);
+  await expect(motion(page)).toHaveCount(1);
+  await page.clock.runFor(1);
+  await expect(page.locator(".pluginslot")).toHaveCount(0);
+
+  // A placement that comes back before the leave is done stays.
+  await change(page, [reacting(null, [], { enter: "none", leave: "rise" })]);
+  await expect(page.locator(".pluginsprite")).toHaveCount(1);
+  await change(page, []);
+  await page.clock.runFor(100);
+  await change(page, [reacting(null, [], { enter: "none", leave: "rise" })]);
+  await page.clock.runFor(1000);
+  await expect(page.locator(".pluginsprite")).toHaveCount(1);
+  await expect(motion(page)).not.toHaveAttribute("data-leaving");
+});
+
+test("a placement with no leave goes at once, and so does one under reduced motion", async ({ page }) => {
+  await freezeClock(page);
+  await openSession(page, [reacting(null, [], { enter: "fade", leave: "none" })]);
+  await change(page, []);
+  await expect(page.locator(".pluginslot")).toHaveCount(0);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await change(page, [reacting(null, [], { enter: "fade", leave: "fade" })]);
+  await expect(page.locator(".pluginsprite")).toHaveCount(1);
+  await change(page, []);
+  await expect(page.locator(".pluginslot")).toHaveCount(0);
+});
+
+test("enter and leave animate only when the user allows motion", async ({ page }) => {
+  await openSession(page, [reacting(null, [], { enter: "rise", leave: "rise" })]);
+  const animation = () => motion(page).evaluate(element => getComputedStyle(element).animationName);
+
+  expect(await animation()).toBe("plugin-rise-in");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await animation()).toBe("none");
+});
+
+test("the open session's turns reach plugins as session.turn, once for each change", async ({ page }) => {
+  const wanted = { name: "session.turn", key: "notice-one", machine: "build-box" };
+  await openDesktop(page, true, { agent_commands: commands, plugins_wanted: [wanted] });
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command !== "agent_follow" || args?.session !== "notice-one") return invoke<T>(command, args);
+      const channel = args.onEvent as { onmessage(value: unknown): void };
+      const base = await invoke<{ session: Record<string, unknown> }>("agent_view", { session: "notice-one" });
+      Reflect.set(window, "pushTurn", (status: string, turns: number, last_stop: string | null) => {
+        channel.onmessage({ kind: "snapshot", resumed: false, cursor: { start: 0, next: 0, fingerprint: `${status}${turns}` }, page: { ...base, entries: [], earlier: 0, turns, last_stop, session: { ...base.session, status } }, modes: null, tasks: [] });
+      });
+      return new Promise<T>(() => {});
+    };
+  });
+  await page.evaluate(session => window.__navigation.open({ agent: session }), agent);
+  await expect.poll(() => page.evaluate(() => Reflect.has(window, "pushTurn"))).toBe(true);
+  const push = (status: string, turns: number, stop: string | null) => page.evaluate(([a, b, c]) => (Reflect.get(window, "pushTurn") as (...rest: unknown[]) => void)(a, b, c), [status, turns, stop] as const);
+
+  await push("working", 0, null);
+  await push("working", 0, null);
+  await push("idle", 1, "EndTurn");
+  await push("idle", 1, "EndTurn");
+  await push("asking", 1, "EndTurn");
+  await push("idle", 2, "MaxTokens");
+
+  const turns = async () => (await published(page)).filter(update => update.topic.name === "session.turn");
+  await expect.poll(async () => (await turns()).length).toBe(4);
+  expect((await turns()).map(update => [update.topic, update.machine, update.data])).toEqual([
+    [wanted, "build-box", { session: "notice-one", state: "working", outcome: null, turn: 0 }],
+    [wanted, "build-box", { session: "notice-one", state: "idle", outcome: "finished", turn: 1 }],
+    [wanted, "build-box", { session: "notice-one", state: "asking", outcome: "finished", turn: 1 }],
+    [wanted, "build-box", { session: "notice-one", state: "idle", outcome: "token-limit", turn: 2 }],
+  ]);
+});

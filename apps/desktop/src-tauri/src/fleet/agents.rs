@@ -277,6 +277,7 @@ pub(crate) async fn session(
                 turns: 0,
                 entries: Vec::new(),
                 earlier: 0,
+                last_stop: None,
             }
         }
     };

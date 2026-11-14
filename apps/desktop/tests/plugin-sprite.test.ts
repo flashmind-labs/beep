@@ -229,3 +229,60 @@ test("a driver starts over when it becomes active again", () => {
   assert.equal(fake.timers.size, 1);
   assert.equal(fake.frames.at(-1), 0);
 });
+
+const loop: SpriteMotion = { steps: [{ frame: 1, ms: 80 }, { frame: 2, ms: 80 }], repeat: { kind: "loop" } };
+
+test("a reaction plays once over the motions, then they start over", () => {
+  const fake = fakeHost();
+  const driver = createSpriteDriver(createSpriteScript([loop], 0, () => 0), 0, fake.host);
+  driver.setActive(true);
+  fake.step();
+  assert.deepEqual(fake.frames, [1, 2]);
+
+  driver.play([{ frame: 3, ms: 100 }, { frame: 4, ms: 50 }]);
+  assert.equal(fake.timers.size, 1);
+  fake.step();
+  fake.step();
+  assert.deepEqual(fake.frames, [1, 2, 3, 4, 1]);
+
+  // The loop goes on, and the reaction does not come back.
+  fake.step();
+  fake.step();
+  assert.deepEqual(fake.frames, [1, 2, 3, 4, 1, 2, 1]);
+  assert.equal(fake.timers.size, 1);
+});
+
+test("a reaction needs an active driver, and hiding the sprite drops it", () => {
+  const fake = fakeHost();
+  const driver = createSpriteDriver(createSpriteScript([blink], 0, () => 0), 0, fake.host);
+
+  driver.play([{ frame: 3, ms: 100 }]);
+  assert.deepEqual(fake.frames, []);
+  assert.equal(fake.timers.size, 0);
+
+  driver.setActive(true);
+  driver.play([{ frame: 3, ms: 100 }, { frame: 4, ms: 100 }]);
+  driver.setActive(false);
+  assert.equal(fake.frames.at(-1), 0);
+  assert.equal(fake.timers.size, 0);
+
+  // Shown again, the motions begin, not the half-played reaction.
+  driver.setActive(true);
+  assert.equal(fake.frames.at(-1), 0);
+  fake.step();
+  assert.equal(fake.frames.at(-1), 1);
+});
+
+test("a second reaction replaces the one playing", () => {
+  const fake = fakeHost();
+  const driver = createSpriteDriver(createSpriteScript([], 0, () => 0), 0, fake.host);
+  driver.setActive(true);
+
+  driver.play([{ frame: 3, ms: 100 }, { frame: 4, ms: 100 }]);
+  driver.play([{ frame: 5, ms: 40 }]);
+  assert.equal(fake.timers.size, 1);
+  fake.step();
+
+  assert.deepEqual(fake.frames, [0, 3, 5, 0]);
+  assert.equal(fake.timers.size, 0);
+});

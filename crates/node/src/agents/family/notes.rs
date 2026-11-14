@@ -200,7 +200,7 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
                 // parent knows of a stop it made itself.
                 if !done {
                     None
-                } else if now.last_stop == Some(StopReason::Cancelled) {
+                } else if now.info.state.last_stop == Some(StopReason::Cancelled) {
                     now.stopped_by_user
                         .then(|| note_of(now, NoteState::Stopped))
                 } else {
@@ -279,7 +279,7 @@ async fn deliver(
         watched::read(&parent.live, |live| {
             let status = live.status();
             let stopped = status == Status::Ended
-                || (status == Status::Idle && live.last_stop == Some(StopReason::Cancelled));
+                || (status == Status::Idle && live.info.state.last_stop == Some(StopReason::Cancelled));
             (status == Status::Idle, stopped)
         })
     };

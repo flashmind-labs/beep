@@ -36,8 +36,8 @@ const COMPOSER_CAT: &[(&str, &[u8])] = &[
         include_bytes!("../../../../../plugins/examples/composer-cat/main.ts"),
     ),
     (
-        "turn.ts",
-        include_bytes!("../../../../../plugins/examples/composer-cat/turn.ts"),
+        "art/cat-ask.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-ask.png"),
     ),
     (
         "art/cat-blink.png",
@@ -56,12 +56,36 @@ const COMPOSER_CAT: &[(&str, &[u8])] = &[
         include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-idle.png"),
     ),
     (
+        "art/cat-sad.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-sad.png"),
+    ),
+    (
+        "art/cat-startled.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-startled.png"),
+    ),
+    (
         "art/cat-tail-a.png",
         include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-tail-a.png"),
     ),
     (
         "art/cat-tail-b.png",
         include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-tail-b.png"),
+    ),
+    (
+        "art/cat-type-a.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-type-a.png"),
+    ),
+    (
+        "art/cat-type-b.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-type-b.png"),
+    ),
+    (
+        "art/cat-yawn-a.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-yawn-a.png"),
+    ),
+    (
+        "art/cat-yawn-b.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-yawn-b.png"),
     ),
 ];
 

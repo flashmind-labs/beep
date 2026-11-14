@@ -34,7 +34,7 @@ pub struct Topic {
 enum Family {
     /// `ui.*`: state the page publishes itself.
     Local,
-    /// Mesh topics that expose sessions.
+    /// Topics that expose sessions: `session.turn`, which the page builds, and the mesh's.
     Sessions,
 }
 
@@ -42,7 +42,7 @@ enum Family {
 pub enum TopicError {
     #[error("invalid topic: {0}")]
     Invalid(String),
-    #[error("unknown topic {0:?}: plugins can follow ui.* topics, agents and agent")]
+    #[error("unknown topic {0:?}: plugins can follow ui.* topics, session.turn, agents and agent")]
     Unknown(String),
     #[error("topic {topic:?} needs the {permission} permission")]
     Denied {
@@ -88,7 +88,7 @@ impl Topic {
 
     fn family(&self) -> Result<Family, TopicError> {
         match self.name.as_str() {
-            "agents" | "agent" => Ok(Family::Sessions),
+            "agents" | "agent" | "session.turn" => Ok(Family::Sessions),
             _ if self.is_local() => Ok(Family::Local),
             other => Err(TopicError::Unknown(other.to_owned())),
         }

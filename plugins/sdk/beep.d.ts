@@ -78,11 +78,29 @@ interface SpriteMotion {
   readonly repeat?: SpriteRepeat;
 }
 
+/** Frames that play once when the plugin asks for them by name; see `SpritePlay`. */
+interface SpriteReaction {
+  /** At most 64 steps. When they are done the sprite goes back to its motions. */
+  readonly steps: readonly SpriteStep[];
+}
+
+/**
+ * Asks a sprite to play its reaction `name`. The page plays it once for each new `id` and
+ * ignores the same `id` on later draws, so keep the request in the node and change `id` to
+ * ask again. A request that is already there when the sprite appears is not played.
+ */
+interface SpritePlay {
+  readonly name: string;
+  /** An integer, 0 to 4294967295. */
+  readonly id: number;
+}
+
 /**
  * A picture the page animates by itself: it shows `rest`, and plays the
  * motions one at a time. The plugin is not woken for any frame. To change what
  * it shows, return another node after a state change. Draws only the rest
- * frame while the window is hidden or the user prefers reduced motion.
+ * frame while the window is hidden or the user prefers reduced motion. A
+ * reaction interrupts the motions, plays once, and the motions start over.
  */
 interface SpriteNode {
   readonly kind: "sprite";
@@ -91,6 +109,8 @@ interface SpriteNode {
   readonly height: number;
   readonly pixelated: boolean;
   readonly motions: readonly SpriteMotion[];
+  readonly reactions?: Readonly<Record<string, SpriteReaction>>;
+  readonly play?: SpritePlay;
 }
 
 /** A line of plain text. */
@@ -159,6 +179,10 @@ interface SpriteOptions {
   pixelated?: boolean;
   /** At most 8 motions and 32 distinct frames in all. Default none. */
   motions?: readonly SpriteMotion[];
+  /** Motions played on request, by name. At most 8; their frames count toward the 32. Default none. */
+  reactions?: Readonly<Record<string, SpriteReaction>>;
+  /** The reaction to play now. It must name one of `reactions`. Default none. */
+  play?: SpritePlay;
 }
 
 /** Options for `beep.row`. */
@@ -201,8 +225,19 @@ interface InputOptions {
   onSubmit?: (value: string) => void;
 }
 
+/** How a placement comes and goes: a short (about 150 ms) fade or rise, or nothing. Skipped under reduced motion. */
+type Transition = "none" | "fade" | "rise";
+
+/** Options every slot takes. */
+interface PlaceTransitions {
+  /** How the placement appears. Default "none". */
+  enter?: Transition;
+  /** How it goes when the plugin stops drawing it. Default "none". */
+  leave?: Transition;
+}
+
 /** The composer stands on the edge of the message box. */
-interface ComposerPlace {
+interface ComposerPlace extends PlaceTransitions {
   slot: "composer";
   /** Side of the slot to align to. Default "end". */
   align?: Align;
@@ -213,7 +248,7 @@ interface ComposerPlace {
 }
 
 /** Other slots draw in the page's normal flow and take no position. */
-interface InlinePlace<S extends Exclude<Slot, "composer">> {
+interface InlinePlace<S extends Exclude<Slot, "composer">> extends PlaceTransitions {
   slot: S;
 }
 
@@ -223,11 +258,15 @@ interface InlinePlace<S extends Exclude<Slot, "composer">> {
  *   `{ machine: string, session: string }`, or null when no message box is shown.
  *   The "composer" slot's context says the same. Other "ui." names are the
  *   app's own state. No permission needed.
+ * - "session.turn": where a session's turn stands. Name the session with `key` and its
+ *   `machine`. Needs "sessions.read". `data` is a `SessionTurn`. It covers the sessions
+ *   the app follows (the open one, and ones that run or ask); the latest value arrives
+ *   right away if the app has one.
  * - "agents": the sessions of every machine, or of `machine`. Needs "sessions.read".
  * - "agent": one session, named by `key` (a session id), or every session without
  *   a key. Needs "sessions.read".
- * Any other name is refused. The shape of mesh topics' `data` is the app's
- * internal view and can change between releases.
+ * Any other name is refused. `session.turn` and "ui." topics are stable. The shape of
+ * "agents" and "agent" `data` is the app's internal view and can change between releases.
  */
 interface Topic {
   readonly name: string;
@@ -235,6 +274,31 @@ interface Topic {
   readonly key?: string | null;
   /** Only this machine's updates. Default: every machine. */
   readonly machine?: string | null;
+}
+
+/** Why a turn ended, as "session.turn" reports it. */
+type TurnOutcome =
+  | "finished"
+  | "cancelled"
+  | "failed"
+  | "refused"
+  | "token-limit"
+  | "request-limit"
+  | "stopped";
+
+/** The `data` of "session.turn". */
+interface SessionTurn {
+  readonly session: string;
+  /** "working" covers a session that waits on subagents. */
+  readonly state: "starting" | "working" | "asking" | "idle" | "ended";
+  /** How the last turn ended, null before the first. */
+  readonly outcome: TurnOutcome | null;
+  /**
+   * How many turns have ended. A larger number than the last update is a new end;
+   * the same number is a repeat. The first update may describe an end that came
+   * before you followed.
+   */
+  readonly turn: number;
 }
 
 /** One update to a topic. */

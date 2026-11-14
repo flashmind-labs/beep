@@ -35,7 +35,7 @@ fn session_topics_need_the_permission() {
     let mut without = Subscriptions::new(&[Permission::UiAdd]);
     let mut with = Subscriptions::new(&[Permission::SessionsRead]);
 
-    for name in ["agents", "agent"] {
+    for name in ["agents", "agent", "session.turn"] {
         assert!(matches!(
             add(&mut without, 1, name),
             Err(TopicError::Denied {

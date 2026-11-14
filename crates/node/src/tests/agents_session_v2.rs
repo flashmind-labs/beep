@@ -57,7 +57,7 @@ async fn v2_acceptance_does_not_end_the_turn_and_cancel_waits_for_idle() {
         .await
         .unwrap();
     until(&session, |live| {
-        live.last_stop == Some(StopReason::Cancelled) || live.status() == Status::Ended
+        live.info.state.last_stop == Some(StopReason::Cancelled) || live.status() == Status::Ended
     })
     .await;
     assert_eq!(session.info().state.status, Status::Idle);
@@ -159,7 +159,7 @@ async fn v2_failures_and_unknown_stop_reasons_still_finish() {
             session.info().state.error
         );
         assert_eq!(
-            watched::read(&session.live, |live| live.last_stop),
+            watched::read(&session.live, |live| live.info.state.last_stop),
             Some(stop),
             "{prompt}"
         );
@@ -226,7 +226,7 @@ async fn a_v2_resume_snapshot_keeps_queued_input_behind_active_work() {
         .await
         .unwrap();
     until(&session, |live| {
-        live.last_stop == Some(StopReason::Cancelled) || live.status() == Status::Ended
+        live.info.state.last_stop == Some(StopReason::Cancelled) || live.status() == Status::Ended
     })
     .await;
     assert_eq!(session.info().turns, 1);

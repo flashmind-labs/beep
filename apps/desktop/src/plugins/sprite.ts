@@ -8,6 +8,12 @@ export interface SpriteStep { frame: number; ms: number }
 /// Steps played in turn. After the last one the sprite goes back to its rest frame.
 export interface SpriteMotion { steps: SpriteStep[]; repeat: SpriteRepeat }
 
+/// Motions that play once, when the plugin asks for one by name.
+export type SpriteReactions = Record<string, SpriteStep[]>;
+
+/// A request to play the reaction `name` once. A new `id` asks again.
+export interface SpritePlay { name: string; id: number }
+
 export const MAX_MOTIONS = 8;
 export const MAX_STEPS = 64;
 export const MAX_FRAMES = 32;
@@ -28,15 +34,21 @@ function parseRepeat(raw: unknown): SpriteRepeat | null {
   return isInt(minMs, MIN_EVERY_MS, MAX_EVERY_MS) && isInt(maxMs, MIN_EVERY_MS, MAX_EVERY_MS) && minMs <= maxMs ? { kind: "every", minMs, maxMs } : null;
 }
 
-function parseMotion(raw: unknown, frames: number): SpriteMotion | null {
-  if (!isRecord(raw) || !Array.isArray(raw.steps) || raw.steps.length === 0 || raw.steps.length > MAX_STEPS) return null;
+function parseSteps(raw: unknown, frames: number): SpriteStep[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_STEPS) return null;
   const steps: SpriteStep[] = [];
-  for (const step of raw.steps) {
+  for (const step of raw) {
     if (!isRecord(step) || !isInt(step.frame, 0, frames - 1) || !isInt(step.ms, MIN_STEP_MS, MAX_STEP_MS)) return null;
     steps.push({ frame: step.frame, ms: step.ms });
   }
+  return steps;
+}
+
+function parseMotion(raw: unknown, frames: number): SpriteMotion | null {
+  if (!isRecord(raw)) return null;
+  const steps = parseSteps(raw.steps, frames);
   const repeat = parseRepeat(raw.repeat);
-  return repeat === null ? null : { steps, repeat };
+  return steps === null || repeat === null ? null : { steps, repeat };
 }
 
 /// Reads a sprite's motions from the host, or null when any is invalid. `frames` is how many frames the sprite has.
@@ -51,6 +63,22 @@ export function parseMotions(raw: unknown, frames: number): SpriteMotion[] | nul
   // A loop plays all the time, so nothing else could.
   return motions.some(motion => motion.repeat.kind === "loop") && motions.length > 1 ? null : motions;
 }
+
+/// Reads a sprite's reactions, steps by name, or null when any is invalid.
+export function parseReactions(raw: unknown, frames: number): SpriteReactions | null {
+  if (!isRecord(raw) || Object.keys(raw).length > MAX_MOTIONS) return null;
+  const reactions: [string, SpriteStep[]][] = [];
+  for (const [name, reaction] of Object.entries(raw)) {
+    const steps = parseSteps(reaction, frames);
+    if (steps === null) return null;
+    reactions.push([name, steps]);
+  }
+  return Object.fromEntries(reactions);
+}
+
+/// Whether `raw` asks for a reaction the sprite has.
+export const isPlay = (raw: unknown, reactions: SpriteReactions): raw is SpritePlay =>
+  isRecord(raw) && typeof raw.name === "string" && Object.hasOwn(reactions, raw.name) && isInt(raw.id, 0, 0xffffffff);
 
 /// What to show now, and how long until `next` should be called. `wait` null: nothing more happens.
 export interface Tick { frame: number; wait: number | null }
@@ -124,6 +152,8 @@ export interface SpriteHost {
 /// and none while inactive. Inactive means hidden or reduced motion: the rest frame shows.
 export interface SpriteDriver {
   setActive(active: boolean): void;
+  /// Plays `steps` once now, then goes back to the script. Nothing happens while inactive.
+  play(steps: readonly SpriteStep[]): void;
   /// Stops for good, without touching the frame.
   stop(): void;
 }
@@ -131,6 +161,7 @@ export interface SpriteDriver {
 export function createSpriteDriver(script: SpriteScript, rest: number, host: SpriteHost): SpriteDriver {
   let timer: number | null = null;
   let active = false;
+  let reaction: { steps: readonly SpriteStep[]; at: number } | null = null;
 
   const clear = () => {
     if (timer !== null) host.clearTimer(timer);
@@ -140,9 +171,26 @@ export function createSpriteDriver(script: SpriteScript, rest: number, host: Spr
     host.setFrame(tick.frame);
     timer = tick.wait === null ? null : host.setTimer(fire, tick.wait);
   };
+  const show = (steps: readonly SpriteStep[], at: number) => {
+    reaction = { steps, at };
+    run({ frame: steps[at].frame, wait: steps[at].ms });
+  };
   const fire = () => {
     timer = null;
-    if (active) run(script.next(host.now()));
+    if (!active) return;
+    if (reaction === null) {
+      run(script.next(host.now()));
+      return;
+    }
+
+    const { steps, at } = reaction;
+    if (at + 1 < steps.length) {
+      show(steps, at + 1);
+      return;
+    }
+
+    reaction = null;
+    run(script.begin(host.now()));
   };
 
   return {
@@ -150,8 +198,14 @@ export function createSpriteDriver(script: SpriteScript, rest: number, host: Spr
       if (next === active) return;
       active = next;
       clear();
+      reaction = null;
       if (next) run(script.begin(host.now()));
       else host.setFrame(rest);
+    },
+    play(steps) {
+      if (!active || steps.length === 0) return;
+      clear();
+      show(steps, 0);
     },
     stop() {
       active = false;

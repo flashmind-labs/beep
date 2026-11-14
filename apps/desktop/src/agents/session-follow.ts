@@ -11,6 +11,7 @@ import { joinRuns } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
 import { applyAgentPage, isOpen, pollAgent } from "./session.tsx";
 import { paneShown } from "../ui/active.ts";
+import { publishTurn } from "../plugins/plugins-state.ts";
 
 // Room for the open session, those followed off screen and a few recent.
 export const transcripts = new TranscriptCache<AgentPage>(BACKGROUND_FOLLOWS + 4);
@@ -61,6 +62,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     }
 
     feed.activity(o, activityOf(page.session));
+    publishTurn(o.machine_id, page);
     offScreen.set(key, { modes: update.modes, tasks: update.tasks });
     const fresh = update.kind === "delta" ? update.page : page;
     if (!open) return;

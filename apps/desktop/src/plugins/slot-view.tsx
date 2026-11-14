@@ -97,6 +97,10 @@ function SpriteView({ node }: { node: Extract<PluginNode, { kind: "sprite" }> })
   const box = useRef<HTMLSpanElement>(null);
   const ready = node.frames.every(frame => urls.has(frame.hash));
   const script = JSON.stringify([node.rest, node.motions]);
+  const driver = useRef<SpriteDriver | null>(null);
+  // A reaction asked before this sprite appeared is old news.
+  const played = useRef(node.play?.id ?? null);
+  const playId = node.play?.id ?? null;
 
   useEffect(() => {
     const element = box.current;
@@ -104,18 +108,26 @@ function SpriteView({ node }: { node: Extract<PluginNode, { kind: "sprite" }> })
 
     const images = Array.from(element.children);
     const show = (frame: number) => images.forEach((image, index) => image.toggleAttribute("data-on", index === frame));
-    const driver = createSpriteDriver(createSpriteScript(node.motions, node.rest, Math.random), node.rest, {
+    const next = createSpriteDriver(createSpriteScript(node.motions, node.rest, Math.random), node.rest, {
       now: () => performance.now(),
       setFrame: show,
       setTimer: (fn, ms) => window.setTimeout(fn, ms),
       clearTimer: id => window.clearTimeout(id),
     });
     show(node.rest);
-    sprites.add(driver);
-    driver.setActive(canAnimate());
-    return () => { sprites.delete(driver); driver.stop(); };
+    sprites.add(next);
+    next.setActive(canAnimate());
+    driver.current = next;
+    return () => { driver.current = null; sprites.delete(next); next.stop(); };
     // The script's text stands for its motions.
   }, [ready, script]);
+
+  // Each new id plays its reaction once, then the motions go on.
+  useEffect(() => {
+    if (node.play === null || node.play.id === played.current) return;
+    played.current = node.play.id;
+    driver.current?.play(node.reactions[node.play.name]);
+  }, [playId]);
 
   if (!ready) return null;
   return <span ref={box} className="pluginsprite" style={{ width: node.width, height: node.height, imageRendering: node.pixelated ? "pixelated" : undefined }}>
@@ -156,15 +168,63 @@ const hasControls = (node: PluginNode): boolean => {
   }
 };
 
+/// How long a left placement stays to play its leave. The stylesheet's animations last as long.
+const TRANSITION_MS = 150;
+
+interface Drawn { key: string; placement: Placement; leaving: boolean }
+
+/// The placements to draw: what the plugin has now, and each one it just removed that declares a leave,
+/// as it last was, until its leave is done. Reduced motion skips the leave.
+function useDrawn(placements: readonly Placement[]): Drawn[] {
+  const held = useRef(new Map<string, Placement>());
+  const timers = useRef(new Map<string, number>());
+  const [, redraw] = useState(0);
+  const current = new Map(placements.map((placement, index) => [`${placement.plugin}:${index}`, placement]));
+  const keeps = (placement: Placement) => placement.leave !== "none" && !(reducedMotion?.matches ?? false);
+
+  useEffect(() => {
+    for (const [key, placement] of current) {
+      held.current.set(key, placement);
+      window.clearTimeout(timers.current.get(key));
+      timers.current.delete(key);
+    }
+
+    for (const [key, placement] of held.current) {
+      if (current.has(key) || timers.current.has(key)) continue;
+      if (!keeps(placement)) {
+        held.current.delete(key);
+        continue;
+      }
+
+      timers.current.set(key, window.setTimeout(() => {
+        held.current.delete(key);
+        timers.current.delete(key);
+        redraw(count => count + 1);
+      }, TRANSITION_MS));
+    }
+  }, [placements]);
+  useEffect(() => () => timers.current.forEach(timer => window.clearTimeout(timer)), []);
+
+  const gone = [...held.current].filter(([key, placement]) => !current.has(key) && keeps(placement));
+  return [...current, ...gone].map(([key, placement]) => ({ key, placement, leaving: !current.has(key) }));
+}
+
+/// A placement's node, in a wrapper that plays its enter and leave when it declares either.
+function Placed({ drawn: { placement, leaving } }: { drawn: Drawn }) {
+  const node = <NodeView node={placement.node} plugin={placement.plugin} />;
+  if (placement.enter === "none" && placement.leave === "none") return node;
+  return <span className="pluginmotion" data-enter={placement.enter} data-leave={placement.leave} data-leaving={leaving ? "" : undefined}>{node}</span>;
+}
+
 /// A zero-height line in the page's flow, for the slot that stands on an edge. What plugins place stands on it, over what is above.
 /// It takes no pointer except on controls, and hides from screen readers unless it holds some.
 export function PluginSlot({ name }: { name: "composer" }) {
   const placements = useStore(pluginsStore, state => state.placements);
-  const here = placementsFor(placements, name);
-  if (here.length === 0) return null;
+  const drawn = useDrawn(placementsFor(placements, name));
+  if (drawn.length === 0) return null;
 
-  return <div className="pluginslot" aria-hidden={here.some(placement => hasControls(placement.node)) ? undefined : true}>
-    {here.map((placement, index) => <div className="pluginplace" key={`${placement.plugin}:${index}`} style={placement.position.kind === "edge" ? edgeStyle(placement.position) : undefined}><NodeView node={placement.node} plugin={placement.plugin} /></div>)}
+  return <div className="pluginslot" aria-hidden={drawn.some(({ placement }) => hasControls(placement.node)) ? undefined : true}>
+    {drawn.map(item => <div className="pluginplace" key={item.key} style={item.placement.position.kind === "edge" ? edgeStyle(item.placement.position) : undefined}><Placed drawn={item} /></div>)}
   </div>;
 }
 
@@ -182,10 +242,10 @@ function PluginHere({ instance }: { instance: SlotInstance }) {
     return () => { if (shown) instanceBook.hide(slot, key); };
   }, [slot, key, context]);
 
-  const placements = useStore(pluginsStore, state => state.index.get(instanceId(slot, key)) ?? NONE);
-  if (placements.length === 0) return null;
+  const drawn = useDrawn(useStore(pluginsStore, state => state.index.get(instanceId(slot, key)) ?? NONE));
+  if (drawn.length === 0) return null;
 
-  return <span className="pluginhere" data-plugin-slot={slot}>{placements.map((placement, index) => <NodeView key={`${placement.plugin}:${index}`} node={placement.node} plugin={placement.plugin} />)}</span>;
+  return <span className="pluginhere" data-plugin-slot={slot}>{drawn.map(item => <Placed key={item.key} drawn={item} />)}</span>;
 }
 
 /// The `session.row` slot of a session's row in the session list: after the title, before the state.

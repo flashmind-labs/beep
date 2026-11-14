@@ -5,7 +5,7 @@
 use super::{acp::Prompt, images::Images, usage::UsageHub};
 use agent_client_protocol::v1::schema::{CompactionId, ToolCallId, ToolKind};
 use beep_proto::node::{
-    agent::{AgentCommand, Entry, SessionInfo, StopReason},
+    agent::{AgentCommand, Entry, SessionInfo},
     usage::ModelTokens,
 };
 use std::{
@@ -67,8 +67,6 @@ const EDIT_KINDS: &[ToolKind] = &[ToolKind::Edit, ToolKind::Delete, ToolKind::Mo
 #[derive(Debug, Default)]
 pub(crate) struct Live {
     pub(crate) info: SessionInfo,
-    /// Why the last turn ended.
-    pub(crate) last_stop: Option<StopReason>,
     /// The user stopped the last turn, or closed the session.
     pub(crate) stopped_by_user: bool,
     /// An explicit close was accepted. Late uploads must not recreate its cache.

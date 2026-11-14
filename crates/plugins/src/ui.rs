@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
 use thiserror::Error;
@@ -106,7 +108,7 @@ pub enum Node {
         pixelated: bool,
     },
     /// Frames the page plays by itself, with no wakeups of the plugin. It
-    /// shows `rest` unless a motion is playing.
+    /// shows `rest` unless a motion or a reaction is playing.
     Sprite {
         /// Each distinct frame once. `rest` and steps index into it.
         frames: Vec<AssetRef>,
@@ -115,6 +117,10 @@ pub enum Node {
         height: u16,
         pixelated: bool,
         motions: Vec<Motion>,
+        /// Motions that play once when asked, by name.
+        reactions: BTreeMap<String, Vec<Step>>,
+        /// The reaction to play now. The page plays it once for each new `id`.
+        play: Option<Play>,
     },
     Text {
         text: String,
@@ -153,6 +159,13 @@ impl Node {
             Node::Button { .. } | Node::Toggle { .. } | Node::Input { .. } => true,
         }
     }
+}
+
+/// A request to play the reaction `name`. A new `id` asks again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Play {
+    pub name: String,
+    pub id: u32,
 }
 
 /// Frames shown in turn: each step shows its frame for `ms`, then the sprite
@@ -201,6 +214,16 @@ pub enum Position {
     Inline,
 }
 
+/// How a placement comes and goes on the page: a short fade or rise, or none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Transition {
+    #[default]
+    None,
+    Fade,
+    Rise,
+}
+
 /// One node a plugin put in one instance of a slot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Placement {
@@ -209,6 +232,8 @@ pub struct Placement {
     /// The instance of the slot the page reported.
     pub instance: InstanceKey,
     pub position: Position,
+    pub enter: Transition,
+    pub leave: Transition,
     pub node: Node,
 }
 
@@ -234,19 +259,41 @@ pub(crate) enum RawPlace {
         offset: u16,
         #[serde(default)]
         sink: u16,
+        #[serde(default)]
+        enter: Transition,
+        #[serde(default)]
+        leave: Transition,
     },
     #[serde(rename = "session.row")]
-    SessionRow {},
+    SessionRow {
+        #[serde(default)]
+        enter: Transition,
+        #[serde(default)]
+        leave: Transition,
+    },
     #[serde(rename = "session.header")]
-    SessionHeader {},
+    SessionHeader {
+        #[serde(default)]
+        enter: Transition,
+        #[serde(default)]
+        leave: Transition,
+    },
 }
 
 impl RawPlace {
     pub(crate) fn slot(&self) -> Slot {
         match self {
             RawPlace::Composer { .. } => Slot::Composer,
-            RawPlace::SessionRow {} => Slot::SessionRow,
-            RawPlace::SessionHeader {} => Slot::SessionHeader,
+            RawPlace::SessionRow { .. } => Slot::SessionRow,
+            RawPlace::SessionHeader { .. } => Slot::SessionHeader,
+        }
+    }
+
+    pub(crate) fn transitions(&self) -> (Transition, Transition) {
+        match *self {
+            RawPlace::Composer { enter, leave, .. }
+            | RawPlace::SessionRow { enter, leave }
+            | RawPlace::SessionHeader { enter, leave } => (enter, leave),
         }
     }
 
@@ -256,12 +303,13 @@ impl RawPlace {
                 align,
                 offset,
                 sink,
+                ..
             } => Position::Edge {
                 align,
                 offset,
                 sink,
             },
-            RawPlace::SessionRow {} | RawPlace::SessionHeader {} => Position::Inline,
+            RawPlace::SessionRow { .. } | RawPlace::SessionHeader { .. } => Position::Inline,
         }
     }
 }
@@ -291,6 +339,10 @@ pub(crate) enum RawNode {
         pixelated: bool,
         #[serde(default)]
         motions: Vec<RawMotion>,
+        #[serde(default)]
+        reactions: BTreeMap<String, RawReaction>,
+        #[serde(default)]
+        play: Option<Play>,
     },
     Text {
         text: String,
@@ -332,6 +384,13 @@ pub(crate) struct RawMotion {
     pub steps: Vec<RawStep>,
     #[serde(default)]
     pub repeat: RawRepeat,
+}
+
+/// A motion that plays once, when the sprite is asked to.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawReaction {
+    pub steps: Vec<RawStep>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -388,24 +447,32 @@ pub(crate) enum SpriteError {
     Range { min: u32, max: u32 },
     #[error("a looping motion must be the only motion")]
     LoopAlone,
+    #[error("the sprite has no reaction named {0:?}")]
+    NoReaction(String),
+}
+
+/// Checks the count and durations of one motion's or reaction's steps.
+fn check_steps(steps: &[RawStep]) -> Result<(), SpriteError> {
+    if steps.is_empty() {
+        return Err(SpriteError::NoSteps);
+    }
+    if steps.len() > MAX_STEPS {
+        return Err(SpriteError::TooManySteps(steps.len()));
+    }
+    if let Some(step) = steps
+        .iter()
+        .find(|step| !(MIN_STEP_MS..=MAX_STEP_MS).contains(&step.ms))
+    {
+        return Err(SpriteError::StepDuration(step.ms));
+    }
+
+    Ok(())
 }
 
 impl RawMotion {
     /// Checks the counts, durations and range, without reading any file.
     pub(crate) fn check(&self) -> Result<(), SpriteError> {
-        if self.steps.is_empty() {
-            return Err(SpriteError::NoSteps);
-        }
-        if self.steps.len() > MAX_STEPS {
-            return Err(SpriteError::TooManySteps(self.steps.len()));
-        }
-        if let Some(step) = self
-            .steps
-            .iter()
-            .find(|step| !(MIN_STEP_MS..=MAX_STEP_MS).contains(&step.ms))
-        {
-            return Err(SpriteError::StepDuration(step.ms));
-        }
+        check_steps(&self.steps)?;
         if let RawRepeat::Every(RawRange { min, max }) = self.repeat {
             let inside = |ms| (MIN_EVERY_MS..=MAX_EVERY_MS).contains(&ms);
             if !inside(min) || !inside(max) || min > max {
@@ -417,8 +484,12 @@ impl RawMotion {
     }
 }
 
-/// Checks the motions of one sprite together.
-pub(crate) fn check_motions(motions: &[RawMotion]) -> Result<(), SpriteError> {
+/// Checks the motions and reactions of one sprite together, and that `play` names a reaction.
+pub(crate) fn check_motions(
+    motions: &[RawMotion],
+    reactions: &BTreeMap<String, RawReaction>,
+    play: Option<&Play>,
+) -> Result<(), SpriteError> {
     if motions.len() > MAX_MOTIONS {
         return Err(SpriteError::TooManyMotions(motions.len()));
     }
@@ -431,5 +502,17 @@ pub(crate) fn check_motions(motions: &[RawMotion]) -> Result<(), SpriteError> {
         return Err(SpriteError::LoopAlone);
     }
 
-    Ok(())
+    if reactions.len() > MAX_MOTIONS {
+        return Err(SpriteError::TooManyMotions(reactions.len()));
+    }
+    reactions
+        .values()
+        .try_for_each(|reaction| check_steps(&reaction.steps))?;
+
+    match play {
+        Some(Play { name, .. }) if !reactions.contains_key(name) => {
+            Err(SpriteError::NoReaction(name.clone()))
+        }
+        _ => Ok(()),
+    }
 }

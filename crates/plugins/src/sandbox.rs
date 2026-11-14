@@ -21,8 +21,8 @@ use crate::store::{DATA_DIR, Store};
 use crate::tool::{ToolCall, Tools};
 use crate::topic::{Delivery, Subscriptions, Topic};
 use crate::ui::{
-    MAX_FRAMES, Motion, Node, Placement, RawNode, RawPlace, RawPlacement, RawRepeat, Repeat, Slot,
-    SpriteError, Step, check_motions,
+    MAX_FRAMES, Motion, Node, Placement, RawNode, RawPlace, RawPlacement, RawRepeat, RawStep,
+    Repeat, Slot, SpriteError, Step, check_motions,
 };
 
 const PRELUDE: &str = include_str!("prelude.js");
@@ -384,6 +384,7 @@ impl Sandbox {
 
             let raw: RawPlacement = serde_json::from_str(json)?;
             let slot = raw.place.slot();
+            let (enter, leave) = raw.place.transitions();
             used.nodes = 0;
             let node = self.images.resolve(raw.node, &mut used)?;
             if !slot.is_interactive() && node.is_interactive() {
@@ -395,6 +396,8 @@ impl Sandbox {
                 slot,
                 instance: raw.instance,
                 position: raw.place.position(),
+                enter,
+                leave,
                 node,
             });
         }
@@ -608,11 +611,17 @@ impl Resolver {
                 height,
                 pixelated,
                 motions,
+                reactions,
+                play,
             } => {
-                check_motions(&motions)?;
+                check_motions(&motions, &reactions, play.as_ref())?;
 
                 let mut paths = vec![rest.as_str()];
-                for step in motions.iter().flat_map(|motion| &motion.steps) {
+                let steps = motions
+                    .iter()
+                    .flat_map(|motion| &motion.steps)
+                    .chain(reactions.values().flat_map(|reaction| &reaction.steps));
+                for step in steps {
                     if !paths.contains(&step.frame.as_str()) {
                         paths.push(&step.frame);
                     }
@@ -633,17 +642,19 @@ impl Resolver {
                         .and_then(|at| u16::try_from(at).ok())
                         .unwrap_or(0)
                 };
+                let steps = |steps: &[RawStep]| -> Vec<Step> {
+                    steps
+                        .iter()
+                        .map(|step| Step {
+                            frame: index(&step.frame),
+                            ms: step.ms,
+                        })
+                        .collect()
+                };
                 let motions = motions
                     .iter()
                     .map(|motion| Motion {
-                        steps: motion
-                            .steps
-                            .iter()
-                            .map(|step| Step {
-                                frame: index(&step.frame),
-                                ms: step.ms,
-                            })
-                            .collect(),
+                        steps: steps(&motion.steps),
                         repeat: match &motion.repeat {
                             RawRepeat::Loop => Repeat::Loop,
                             RawRepeat::Once => Repeat::Once,
@@ -654,6 +665,10 @@ impl Resolver {
                         },
                     })
                     .collect();
+                let reactions = reactions
+                    .iter()
+                    .map(|(name, reaction)| (name.clone(), steps(&reaction.steps)))
+                    .collect();
 
                 Node::Sprite {
                     frames,
@@ -662,6 +677,8 @@ impl Resolver {
                     height,
                     pixelated,
                     motions,
+                    reactions,
+                    play,
                 }
             }
             RawNode::Text { text, tone } => Node::Text { text, tone },

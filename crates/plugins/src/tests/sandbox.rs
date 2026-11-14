@@ -8,7 +8,7 @@ use crate::instance::{
 };
 use crate::tool::{ToolCall, ToolError};
 use crate::topic::Publication;
-use crate::ui::{Align, CallbackId, Position, Slot, Tone};
+use crate::ui::{Align, CallbackId, Position, Slot, Tone, Transition};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot a real image";
 
@@ -596,16 +596,21 @@ fn composer_cat_declares_its_motions_and_holds_no_timers() {
 
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].slot, Slot::Composer);
+    assert_eq!(first[0].enter, Transition::Rise);
+    assert_eq!(first[0].leave, Transition::None);
     let Node::Sprite {
         frames,
         rest,
         motions,
+        reactions,
+        play,
         ..
     } = &first[0].node
     else {
         panic!("expected a sprite, got {:?}", first[0].node);
     };
-    assert_eq!(frames.len(), 5);
+    // Idle: five frames for the motions, five more for the reactions.
+    assert_eq!(frames.len(), 10);
     assert_eq!(
         frames[usize::from(*rest)].hash.to_string(),
         file_hash(&dir, "art/cat-idle.png")
@@ -616,7 +621,12 @@ fn composer_cat_declares_its_motions_and_holds_no_timers() {
             .iter()
             .all(|motion| matches!(motion.repeat, Repeat::Every { .. }))
     );
-    assert_eq!(sandbox.assets().len(), 5);
+    assert_eq!(
+        reactions.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["happy", "sad", "startled", "yawn"]
+    );
+    assert_eq!(*play, None);
+    assert_eq!(sandbox.assets().len(), 10);
 
     // Nothing is pending, so a quiet minute needs no wakeup and no redraw.
     assert_eq!(sandbox.next_timer(), None);
@@ -624,67 +634,118 @@ fn composer_cat_declares_its_motions_and_holds_no_timers() {
     assert!(sandbox.render().unwrap().is_none());
 }
 
-fn agent_state(session: &str, status: &str) -> serde_json::Value {
-    json!({ "Sessions": { "Sessions": { "sessions": [
-        { "id": session, "state": { "status": status, "subagents": 0 } }
-    ] } } })
+fn session_turn(state: &str, outcome: Option<&str>, turn: u32) -> serde_json::Value {
+    json!({ "session": "s1", "state": state, "outcome": outcome, "turn": turn })
+}
+
+/// The cat as the page gets it: the rest frame's file, the motions' repeats and the requested reaction.
+struct Cat {
+    rest: String,
+    motions: Vec<Repeat>,
+    play: Option<(String, u32)>,
+}
+
+fn cat(sandbox: &mut Sandbox) -> Option<Cat> {
+    let placements = sandbox.render().unwrap()?;
+    let Node::Sprite {
+        frames,
+        rest,
+        motions,
+        play,
+        ..
+    } = &placements[0].node
+    else {
+        panic!("expected a sprite, got {:?}", placements[0].node);
+    };
+
+    Some(Cat {
+        rest: frames[usize::from(*rest)].hash.to_string(),
+        motions: motions.iter().map(|motion| motion.repeat).collect(),
+        play: play.as_ref().map(|play| (play.name.clone(), play.id)),
+    })
 }
 
 #[test]
-fn composer_cat_is_happy_when_a_turn_ends() {
+fn composer_cat_types_asks_and_reacts_to_each_way_a_turn_ends() {
     let dir = cat_dir();
-    let start = Instant::now();
-    let mut sandbox = with_composer(Sandbox::load(&dir, start).unwrap());
-    let happy = file_hash(&dir, "art/cat-happy.png");
+    let mut sandbox = with_composer(Sandbox::load(&dir, Instant::now()).unwrap());
     let composer = topic("ui.composer", None, None);
-    let session = topic("agent", Some("s1"), Some("build-box"));
-    // The image shown now, or none when nothing was redrawn.
-    let shown = |sandbox: &mut Sandbox| {
-        sandbox
-            .render()
-            .unwrap()
-            .map(|placements| match &placements[0].node {
-                Node::Image { asset, .. } => asset.hash.to_string(),
-                Node::Sprite { .. } => "sprite".to_owned(),
-                other => panic!("unexpected {other:?}"),
-            })
-    };
+    let session = topic("session.turn", Some("s1"), Some("build-box"));
+    let idle = file_hash(&dir, "art/cat-idle.png");
+    let ask = file_hash(&dir, "art/cat-ask.png");
 
     assert_eq!(sandbox.take_wanted(), Some(vec![composer.clone()]));
-    assert_eq!(shown(&mut sandbox).as_deref(), Some("sprite"));
+    assert!(cat(&mut sandbox).is_some());
 
-    // An update for a session nobody shows is not followed yet.
-    let message = json!({ "machine": "build-box", "session": "s1" });
-    sandbox
-        .deliver(&update(composer.clone(), None, message))
-        .unwrap();
-    let mut wanted = vec![composer.clone(), session.clone()];
+    let open = json!({ "machine": "build-box", "session": "s1" });
+    sandbox.deliver(&update(composer, None, open)).unwrap();
+    let mut wanted = vec![topic("ui.composer", None, None), session.clone()];
     wanted.sort();
     assert_eq!(sandbox.take_wanted(), Some(wanted));
 
-    let send = |sandbox: &mut Sandbox, status: &str| {
-        let data = agent_state("s1", status);
+    let mut send = |state: &str, outcome: Option<&str>, turn: u32| {
+        let data = session_turn(state, outcome, turn);
         sandbox
             .deliver(&update(session.clone(), Some("build-box"), data))
             .unwrap();
+
+        cat(&mut sandbox).expect("a redraw")
     };
 
-    // The first update is only a baseline, even for a session that is idle.
-    send(&mut sandbox, "Idle");
-    assert_eq!(shown(&mut sandbox), None);
-    assert_eq!(sandbox.next_timer(), None);
+    // The first update is a baseline: an end that came before is not reacted to.
+    let shown = send("idle", Some("finished"), 4);
+    assert_eq!(
+        (shown.rest.as_str(), shown.motions.len(), shown.play),
+        (idle.as_str(), 3, None)
+    );
 
-    send(&mut sandbox, "Working");
-    assert_eq!(shown(&mut sandbox), None);
+    // While the turn runs, the typing loop is the only motion.
+    let shown = send("working", Some("finished"), 4);
+    assert_eq!(shown.motions, [Repeat::Loop]);
+    assert_eq!(shown.play, None);
 
-    send(&mut sandbox, "Idle");
-    assert_eq!(shown(&mut sandbox), Some(happy));
+    // While it asks, the ears stay up on the rest frame, with no motion.
+    let shown = send("asking", Some("finished"), 4);
+    assert_eq!(
+        (shown.rest.as_str(), shown.motions.len()),
+        (ask.as_str(), 0)
+    );
 
-    // One timer ends it, and the sprite comes back.
-    let due = sandbox.next_timer().expect("a timer for the happy frame");
-    assert!(due >= start + Duration::from_millis(1000));
-    sandbox.fire_due(due).unwrap();
-    assert_eq!(shown(&mut sandbox).as_deref(), Some("sprite"));
+    // Each end plays its reaction once, with a new id, and the idle motions return.
+    let ends = [
+        ("finished", "happy"),
+        ("cancelled", "startled"),
+        ("failed", "sad"),
+        ("refused", "sad"),
+        ("token-limit", "yawn"),
+        ("request-limit", "yawn"),
+        ("stopped", "yawn"),
+    ];
+    for (index, (outcome, reaction)) in ends.into_iter().enumerate() {
+        let turn = 5 + u32::try_from(index).unwrap();
+        let id = 1 + u32::try_from(index).unwrap();
+
+        let shown = send("idle", Some(outcome), turn);
+        assert_eq!(shown.play, Some((reaction.to_owned(), id)), "{outcome}");
+        assert_eq!(
+            (shown.rest.as_str(), shown.motions.len()),
+            (idle.as_str(), 3)
+        );
+
+        // The same end again, and the next turn starting, ask for nothing new.
+        let again = send("idle", Some(outcome), turn);
+        assert_eq!(
+            again.play,
+            Some((reaction.to_owned(), id)),
+            "{outcome} again"
+        );
+        let next = send("working", Some(outcome), turn);
+        assert_eq!(
+            next.play,
+            Some((reaction.to_owned(), id)),
+            "{outcome} working"
+        );
+    }
     assert_eq!(sandbox.next_timer(), None);
 }
 
@@ -692,7 +753,7 @@ fn composer_cat_is_happy_when_a_turn_ends() {
 fn composer_cat_ignores_what_it_does_not_expect() {
     let mut sandbox = with_composer(Sandbox::load(&cat_dir(), Instant::now()).unwrap());
     let composer = topic("ui.composer", None, None);
-    let session = topic("agent", Some("s1"), Some("m1"));
+    let session = topic("session.turn", Some("s1"), Some("m1"));
     sandbox.render().unwrap();
     sandbox.take_wanted();
 
@@ -704,23 +765,21 @@ fn composer_cat_ignores_what_it_does_not_expect() {
     }
 
     let open = json!({ "machine": "m1", "session": "s1" });
-    sandbox
-        .deliver(&update(composer.clone(), None, open))
-        .unwrap();
+    sandbox.deliver(&update(composer, None, open)).unwrap();
+    sandbox.render().unwrap();
+
     for data in [
         json!(null),
-        json!({ "Sessions": 1 }),
-        json!({ "Sessions": { "Sessions": { "sessions": [{ "id": "other", "state": { "status": "Working" } }] } } }),
-        json!({ "Sessions": { "Sessions": { "sessions": [{ "id": "s1" }] } } }),
+        json!({ "session": "s1" }),
+        json!({ "session": "s1", "state": "napping", "outcome": null, "turn": 1 }),
+        json!({ "session": "s1", "state": "idle", "outcome": "won", "turn": 1 }),
+        json!({ "session": "s1", "state": "idle", "outcome": null, "turn": "1" }),
         json!({ "error": "boom" }),
     ] {
         sandbox
             .deliver(&update(session.clone(), Some("m1"), data))
             .unwrap();
     }
-    sandbox
-        .deliver(&update(composer, None, json!(null)))
-        .unwrap();
 
     assert!(sandbox.render().unwrap().is_none());
 }
@@ -1467,6 +1526,7 @@ fn a_sprite_lists_each_frame_once_and_steps_point_at_them() {
         height,
         pixelated,
         motions,
+        ..
     } = node
     else {
         panic!("expected a sprite");
@@ -1516,6 +1576,68 @@ fn a_sprite_node_serializes_with_indexes_and_camel_case() {
     assert_eq!(
         json["motions"][0],
         json!({ "steps": [{ "frame": 1, "ms": 100 }], "repeat": { "kind": "every", "minMs": 500, "maxMs": 900 } })
+    );
+}
+
+#[test]
+fn a_sprite_declares_reactions_and_asks_for_one() {
+    let fixture = sprite_fixture(
+        r#"beep.place({ slot: "composer" }, () => beep.sprite({
+          rest: "art/cat.png", width: 8, height: 8,
+          reactions: { happy: { steps: [{ frame: "art/a.png", ms: 100 }, { frame: "art/b.png", ms: 80 }] } },
+          play: { name: "happy", id: 3 } }));"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    let node = only_node(sandbox.render().unwrap());
+    let json = serde_json::to_value(&node).unwrap();
+
+    assert_eq!(
+        json["reactions"],
+        json!({ "happy": [{ "frame": 1, "ms": 100 }, { "frame": 2, "ms": 80 }] })
+    );
+    assert_eq!(json["play"], json!({ "name": "happy", "id": 3 }));
+    assert_eq!(json["frames"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn a_sprite_cannot_play_a_reaction_it_lacks() {
+    let fixture = sprite_fixture(
+        r#"beep.place({ slot: "composer" }, () => beep.sprite({
+          rest: "art/cat.png", width: 8, height: 8,
+          play: { name: "happy", id: 1 } }));"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    assert!(matches!(
+        sandbox.render().unwrap_err(),
+        SandboxError::Sprite(SpriteError::NoReaction(name)) if name == "happy"
+    ));
+}
+
+#[test]
+fn a_placement_declares_how_it_enters_and_leaves() {
+    let fixture = sprite_fixture(
+        r#"beep.place({ slot: "composer", enter: "rise", leave: "fade" }, () =>
+             beep.text("a"));
+           beep.place({ slot: "session.row" }, () => beep.text("b"));"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+    sandbox
+        .set_instances(&[composer_instance(), row_instance("r", "Row")])
+        .unwrap();
+
+    let placements = sandbox.render().unwrap().unwrap();
+
+    let json = serde_json::to_value(&placements[0]).unwrap();
+    assert_eq!(
+        (json["enter"].as_str(), json["leave"].as_str()),
+        (Some("rise"), Some("fade"))
+    );
+    let json = serde_json::to_value(&placements[1]).unwrap();
+    assert_eq!(
+        (json["enter"].as_str(), json["leave"].as_str()),
+        (Some("none"), Some("none"))
     );
 }
 

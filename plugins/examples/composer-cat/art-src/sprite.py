@@ -3,8 +3,8 @@
 Run: python3 -I plugins/examples/composer-cat/art-src/sprite.py
 Standard library only. The cat is rasterized from shapes, outlined by
 dilation and shaded by rule, then small details are stamped on top. Every
-frame is the same drawing with one parameter changed (eyes, tail or ear).
-The happy frame changes the eyes and lifts the tail tip.
+frame is the same drawing with a few parameters changed (eyes, mouth, ears,
+tail, paws, a floating mark). Names of the poses are listed in `frames()`.
 """
 
 import math
@@ -67,7 +67,7 @@ def path_steps(points):
     return steps
 
 
-def thick_path(points, radius, tip_radius, scale_to=None):
+def thick_path(points, radius, tip_radius, scale_to=None, bump=0.0):
     """Discs stamped along a polyline. Returns pixels and path parameter.
     The parameter runs 0 to 1 over `scale_to` (default `points`); steps past
     its end stay at 1, so a longer path keeps the pattern of a shorter one."""
@@ -82,6 +82,8 @@ def thick_path(points, radius, tip_radius, scale_to=None):
                 if best is None or d < best:
                     best, where = d, min(1.0, i / last)
             limit = radius + (tip_radius - radius) * where
+            if bump and int(where * 20) % 2:
+                limit += bump  # ragged edge for puffed fur
             if best is not None and best <= limit:
                 out[(x, y)] = where
     return out
@@ -179,8 +181,29 @@ def tail_shader(parts):
     return shade
 
 
-def draw_tail(cv, sway, raised):
-    parts = thick_path(swayed_tail(sway, raised), TAIL_RADIUS, TAIL_TIP_RADIUS, scale_to=TAIL_PATH if raised else None)
+# Low tail: lies along the floor and droops at the tip.
+TAIL_LOW = [
+    (19.5, 24.8), (23.5, 25.6), (27.5, 25.8), (30.5, 25.4), (32.6, 24.2),
+]
+
+# Puffed tail: stands straight up, thick and ragged.
+TAIL_PUFF = [
+    (19.5, 24.8), (23.5, 25.2), (27.0, 23.0), (28.6, 19.0), (28.8, 14.0),
+    (28.6, 10.0), (28.8, 6.4),
+]
+
+
+def draw_tail(cv, sway=0.0, style="idle"):
+    scale_to, bump = None, 0.0
+    radius, tip_radius = TAIL_RADIUS, TAIL_TIP_RADIUS
+    if style == "low":
+        points = TAIL_LOW
+    elif style == "puffed":
+        points, radius, tip_radius, bump = TAIL_PUFF, 2.5, 2.3, 0.45
+    else:
+        points = swayed_tail(sway, style == "raised")
+        scale_to = TAIL_PATH if style == "raised" else None
+    parts = thick_path(points, radius, tip_radius, scale_to=scale_to, bump=bump)
     mask = set(parts)
     cv.paint(mask, tail_shader(parts))
     # Light the left edge of the tail, shade the right edge.
@@ -192,7 +215,7 @@ def draw_tail(cv, sway, raised):
                 cv.set(x, y, SHADOW)
 
 
-def draw_body(cv):
+def draw_body(cv, paws="down"):
     top = ellipse(*BODY_TOP)
     low = {p for p in ellipse(*BODY_LOW) if p[1] <= FLOOR}
     body = top | low
@@ -214,7 +237,12 @@ def draw_body(cv):
         if cv.px.get((x, y)) in (BASE, SHADOW, LIGHT):
             cv.set(x, y, STRIPE)
     # Front paws: cream, 4 px wide, one outline column between them.
-    for x0 in (9, 14):
+    # A lifted paw leaves the body fill below it and floats 3 rows higher.
+    for x0, side in ((9, "left"), (14, "right")):
+        if paws == side:
+            lifted = {(x, y) for x in range(x0, x0 + 4) for y in (FLOOR - 5, FLOOR - 4, FLOOR - 3)}
+            cv.paint(lifted, lambda x, y: CREAM_SHADOW if y == FLOOR - 3 else CREAM)
+            continue
         for x in range(x0, x0 + 4):
             cv.set(x, FLOOR - 1, CREAM)
             cv.set(x, FLOOR, CREAM_SHADOW if x in (12, 17) else CREAM)
@@ -231,6 +259,17 @@ def body_mask():
 EAR_PIVOT = (9.0, 6.0)
 EAR_TIP_ANGLE = math.radians(20)
 
+# Left ear triangles (a, b, apex); the right ear is the mirror image.
+EAR_POSES = {
+    "normal": ((4.2, 9.2), (11.4, 3.4), (4.0, 0.6)),
+    # Perked: more upright, the tip leans in.
+    "up": ((4.8, 9.0), (11.0, 3.4), (6.0, 0.2)),
+    # Flat back: pressed sideways along the head.
+    "back": ((5.0, 9.6), (10.4, 3.4), (0.4, 5.8)),
+    # Drooped: fall sideways, the tips point down and out.
+    "droop": ((6.4, 6.4), (10.6, 3.4), (0.2, 9.0)),
+}
+
 
 def rotate(p, pivot, angle):
     """Turn p about pivot so an upward point swings to the left (screen y down)."""
@@ -239,11 +278,10 @@ def rotate(p, pivot, angle):
     return (pivot[0] + vx * c + vy * s, pivot[1] - vx * s + vy * c)
 
 
-def ear_points(side, tipped):
-    """Left ear triangle (a, b, apex). The tipped ear folds down and out."""
-    a, b = (4.2, 9.2), (11.4, 3.4)
-    apex = (4.0, 0.6)
-    if tipped:
+def ear_points(side, ears):
+    """Ear triangle (a, b, apex). The tipped pose folds the left ear down and out."""
+    a, b, apex = EAR_POSES.get(ears, EAR_POSES["normal"])
+    if ears == "tipped" and side == "left":
         a, b, apex = (rotate(p, EAR_PIVOT, EAR_TIP_ANGLE) for p in (a, b, apex))
     if side == "left":
         return a, b, apex
@@ -251,23 +289,24 @@ def ear_points(side, tipped):
     return mx(a), mx(b), mx(apex)
 
 
-def ear_mask(ear_tipped):
+def ear_mask(ears):
+    """Ear pixels that join the head outline."""
     out = set()
     for side in ("left", "right"):
-        out |= triangle(*ear_points(side, ear_tipped and side == "left"))
+        out |= triangle(*ear_points(side, ears))
     return out
 
 
-def draw_ears(cv, ear_tipped):
+def draw_ears(cv, ears):
     for side in ("left", "right"):
-        mask = triangle(*ear_points(side, ear_tipped and side == "left"))
+        mask = triangle(*ear_points(side, ears))
         cv.paint(mask, round_shader(CX + (-8 if side == "left" else 8), 5, 6, 6))
 
 
-def draw_inner_ears(cv, ear_tipped):
+def draw_inner_ears(cv, ears):
     """Pink inner ear: the ear triangle pulled towards its centre."""
     for side in ("left", "right"):
-        a, b, apex = ear_points(side, ear_tipped and side == "left")
+        a, b, apex = ear_points(side, ears)
         cx, cy = (a[0] + b[0] + apex[0]) / 3, (a[1] + b[1] + apex[1]) / 3
         pull = lambda p: (cx + (p[0] - cx) * 0.5, cy + (p[1] - cy) * 0.5)
         outer = triangle(a, b, apex)
@@ -276,9 +315,9 @@ def draw_inner_ears(cv, ear_tipped):
                 cv.set(x, y, PINK)
 
 
-def draw_head(cv, ear_tipped):
+def draw_head(cv, ears):
     head = ellipse(*HEAD)
-    cv.paint(head, round_shader(*HEAD), merge=ear_mask(ear_tipped) | body_mask())
+    cv.paint(head, round_shader(*HEAD), merge=ear_mask(ears) | body_mask())
     # Muzzle: cream with a shadow tone along its bottom.
     muzzle = ellipse(CX, 16.6, 4.4, 2.8)
     for x, y in muzzle:
@@ -286,41 +325,104 @@ def draw_head(cv, ear_tipped):
         cv.set(x, y, CREAM_SHADOW if low else CREAM)
 
 
-def draw_face(cv, blink, happy):
+# Eye rows are shifted per pose; x0 is the left column of the left eye
+# (8), and the right eye is the mirror image.
+def eye_pixels(eyes):
+    """Dark pixels of the left eye, plus its white highlight if any."""
+    if eyes == "happy":
+        # Small upward arcs, the reverse of the blink's.
+        return [(7, 14), (8, 13), (9, 13), (10, 14)], None
+    if eyes == "blink":
+        return [(7, 13), (8, 14), (9, 14), (10, 13)], None
+    if eyes == "squint":
+        # Squeezed shut: a ">" on the left eye.
+        return [(7, 12), (8, 13), (9, 13), (7, 14)], None
+    if eyes == "down":
+        return [(x, y) for x in (8, 9) for y in (13, 14, 15)], (8, 13)
+    if eyes == "wide":
+        return [(x, y) for x in (7, 8, 9) for y in (11, 12, 13, 14)], (7, 11)
+    if eyes == "round":
+        # White all round with a small pupil.
+        return [(x, y) for x in (8, 9) for y in (12, 13)], None
+    if eyes == "half":
+        # Heavy lids over a low gaze: lid line, then a short pupil.
+        return [(7, 12), (8, 12), (9, 12), (10, 12), (8, 13), (9, 13), (8, 14), (9, 14)], (8, 13)
+    return [(x, y) for x in (8, 9) for y in (12, 13, 14)], (8, 12)
+
+
+def draw_eyes(cv, eyes):
+    dark, light = eye_pixels(eyes)
+    mirror_x = lambda x: 2 * int(CX) - 1 - x
+    if eyes == "round":
+        for x in range(7, 11):
+            for y in range(11, 15):
+                for xx in (x, mirror_x(x)):
+                    cv.set(xx, y, WHITE)
+    for x, y in dark:
+        cv.set(x, y, EYE)
+        if eyes == "squint":
+            continue
+        cv.set(mirror_x(x), y, EYE)
+    if eyes == "squint":
+        # The right eye is a "<": mirror the left.
+        for x, y in dark:
+            cv.set(mirror_x(x), y, EYE)
+    if light:
+        cv.set(light[0], light[1], WHITE)
+        cv.set(light[0] + 10, light[1], WHITE)
+
+
+def draw_mouth(cv, mouth):
+    cv.set(13, 16, PINK)
+    cv.set(14, 16, PINK)
+    if mouth in ("open", "wide"):
+        # Open mouth under the nose: dark inside, tongue at the bottom.
+        top, wide = (17, 3) if mouth == "wide" else (17, 1)
+        hole = {(x, y) for x in range(14 - 1 - wide, 14 + 1 + wide) for y in range(top, top + 1 + wide)}
+        cv.paint(hole, lambda x, y: PINK if y == top + wide and wide > 1 and 13 - wide + 1 <= x <= 14 + wide - 1 else EYE)
+        return
+    if mouth == "sad":
+        pts = ((13, 17), (14, 17), (12, 18), (15, 18))
+    else:
+        pts = ((13, 17), (14, 17), (12, 16), (15, 16))
+    for x, y in pts:
+        cv.set(x, y, OUTLINE)
+
+
+def draw_face(cv, eyes, mouth):
     # Forehead stripes.
     for x, y in ((13, 3), (14, 3), (13, 4), (14, 4), (13, 5), (14, 5)):
         cv.set(x, y, STRIPE)
     for x, y in ((10, 4), (10, 5), (17, 4), (17, 5)):
         cv.set(x, y, STRIPE)
-    # Eyes: 2 by 3, wide and low, one white highlight at the top left.
-    for x0 in (8, 18):
-        if happy:
-            # Small upward arcs, the reverse of the blink's.
-            for x, y in ((x0 - 1, 14), (x0, 13), (x0 + 1, 13), (x0 + 2, 14)):
-                cv.set(x, y, EYE)
-        elif blink:
-            for x, y in ((x0 - 1, 13), (x0, 14), (x0 + 1, 14), (x0 + 2, 13)):
-                cv.set(x, y, EYE)
-        else:
-            for x in (x0, x0 + 1):
-                for y in (12, 13, 14):
-                    cv.set(x, y, EYE)
-            cv.set(x0, 12, WHITE)
-    # Nose and mouth.
-    cv.set(13, 16, PINK)
-    cv.set(14, 16, PINK)
-    for x, y in ((13, 17), (14, 17), (12, 16), (15, 16)):
-        cv.set(x, y, OUTLINE)
+    if eyes == "half":
+        # Worried brows: the inner ends are higher.
+        for x, y in ((8, 10), (9, 9), (10, 9), (17, 9), (18, 9), (19, 10)):
+            cv.set(x, y, STRIPE)
+    draw_eyes(cv, eyes)
+    draw_mouth(cv, mouth)
 
 
-def render(blink=False, sway=0.0, ear_tipped=False, happy=False):
+# A "?" floating up and to the right of the right ear.
+QUESTION = ((27, 1), (28, 1), (29, 1), (29, 2), (28, 3), (28, 4), (28, 6))
+
+
+def draw_question(cv):
+    mask = set(QUESTION)
+    cv.paint(mask, lambda x, y: WHITE)
+
+
+def render(eyes="open", mouth="smile", ears="normal", tail="idle", sway=0.0,
+           paws="down", question=False):
     cv = Canvas()
-    draw_tail(cv, sway, happy)
-    draw_ears(cv, ear_tipped)
-    draw_body(cv)
-    draw_head(cv, ear_tipped)
-    draw_inner_ears(cv, ear_tipped)
-    draw_face(cv, blink, happy)
+    draw_tail(cv, sway, tail)
+    draw_ears(cv, ears)
+    draw_body(cv, paws)
+    draw_head(cv, ears)
+    draw_inner_ears(cv, ears)
+    draw_face(cv, eyes, mouth)
+    if question:
+        draw_question(cv)
     return cv.rows()
 
 
@@ -345,11 +447,23 @@ def png(grid):
 def frames():
     return {
         "cat-idle": render(),
-        "cat-blink": render(blink=True),
+        "cat-blink": render(eyes="blink"),
         "cat-tail-a": render(sway=-1.5),
         "cat-tail-b": render(sway=1.0),
-        "cat-ear": render(ear_tipped=True),
-        "cat-happy": render(happy=True),
+        "cat-ear": render(ears="tipped"),
+        "cat-happy": render(eyes="happy", tail="raised"),
+        # Typing: eyes down, front paws lifted in turn.
+        "cat-type-a": render(eyes="down", paws="left"),
+        "cat-type-b": render(eyes="down", paws="right"),
+        # Waiting for an answer.
+        "cat-ask": render(eyes="wide", ears="up", question=True),
+        # Cancelled turn.
+        "cat-startled": render(eyes="round", ears="back", tail="puffed"),
+        # Failed turn.
+        "cat-sad": render(eyes="half", mouth="sad", ears="droop", tail="low"),
+        # Turn that hit a limit.
+        "cat-yawn-a": render(eyes="squint", mouth="open"),
+        "cat-yawn-b": render(eyes="squint", mouth="wide"),
     }
 
 

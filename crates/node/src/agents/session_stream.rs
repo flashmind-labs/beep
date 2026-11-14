@@ -306,7 +306,7 @@ impl Seen {
             self.turns = info.turns;
             events.push(Event::TurnDone {
                 turn: info.turns,
-                stop_reason: live.last_stop.unwrap_or(agent::StopReason::Other),
+                stop_reason: live.info.state.last_stop.unwrap_or(agent::StopReason::Other),
                 last_message: info.last_message.clone(),
             });
         }

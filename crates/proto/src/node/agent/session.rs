@@ -261,6 +261,9 @@ pub struct State {
     /// with any runs until they finish.
     #[serde(default)]
     pub subagents: u32,
+    /// Why the last turn ended; none before the first.
+    #[serde(default)]
+    pub last_stop: Option<StopReason>,
 }
 
 impl State {
