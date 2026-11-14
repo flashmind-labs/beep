@@ -99,7 +99,7 @@ impl PeerShell {
                 ));
             };
             let script = match query {
-                GitRead::State => beep_projects::checkout_sync::state_script(root),
+                GitRead::State => beep_projects::checkout_sync::local_state_script(root),
                 GitRead::Branches { fallback } => branches::branches_script(root, &fallback),
                 GitRead::History {
                     revision,

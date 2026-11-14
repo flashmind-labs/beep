@@ -157,22 +157,29 @@ export function projectPlaces(p: Project) {
 const readingGit = new Set<string>();
 export const gitDue = new Set<string>();
 
-/// Reads each checkout's branch and distance from its upstream. Kept apart
-/// from "where" so a slow fetch never holds the page.
+/// Reads each checkout's branch and distance from its upstream: the local refs
+/// first, then again after a fetch. Kept apart from "where" so a slow fetch
+/// never holds the page.
 export async function loadGit(name: string) {
   if (readingGit.has(name)) return;
   readingGit.add(name);
   gitDue.delete(name);
 
   try {
-    const rows = await invoke<GitRow[]>("project_git_state", { project: name });
+    for (const fetch of [false, true]) await readGit(name, fetch);
+  } finally {
+    readingGit.delete(name);
+  }
+}
+
+async function readGit(name: string, fetch: boolean) {
+  try {
+    const rows = await invoke<GitRow[]>("project_git_state", { project: name, fetch });
     state.gitsync.set(name, rows);
     keep("gitsync", name, rows);
   } catch (e) {
     console.warn("project git state:", e);
     if (!state.gitsync.has(name)) state.gitsync.set(name, []);
-  } finally {
-    readingGit.delete(name);
   }
 
   if (currentLocation()?.view === "projects" && state.picked === name) redrawProjectsPage();
