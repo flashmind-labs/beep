@@ -263,6 +263,14 @@ test("project page", async ({ page }) => {
   await baseline(page, "project-page");
 });
 
+test("project bar when its machine runs no coding agent yet", async ({ page }) => {
+  const wslBox = { ...machine("wsl-box", "Ubuntu on desk-pc", true, 0), env: { os: "linux", os_version: "Ubuntu 24.04", arch: "x86_64", hostname: "desk-pc", cpus: 8, memory_mb: 16384, home: "/home/user", tools: [{ name: "claude", version: "2.1.0" }], logins: [], avds: [], gpus: [], wsl: [] }, adapters: [{ agent: "claude", failed: "needs Node.js: unpacking failed" }] };
+  const hosts = [{ machine_id: machineId, machine_name: machineId, agents: ["codex"], workspace: null, home: null, capabilities: [] }];
+  await openProject(page, { center_home: { ...home, projects: [project(projectName, undefined, "wsl-box")] }, list_machines: [wslBox], agent_hosts: hosts });
+  await expect(page.getByText("No coding agent runs on Ubuntu on desk-pc yet")).toBeVisible();
+  await baseline(page, "project-bar-blocked");
+});
+
 test("project sessions", async ({ page }) => {
   await openProject(page);
   await page.locator(".pj-strip button").filter({ hasText: "Sessions" }).click();

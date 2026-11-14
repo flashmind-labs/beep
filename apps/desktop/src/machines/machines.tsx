@@ -153,6 +153,20 @@ async function loadToolUpdates() {
   }
 }
 
+/// Who follows the list besides the page, such as the Add a machine sheet.
+const listWatchers = new Set<(list: readonly Machine[]) => void>();
+
+/// Follows the machine list the Machines page shows, read again now and on
+/// each change: the Add a machine sheet shows the same WSL rows as a
+/// machine's page. Returns the unfollow.
+export function followMachineList(watch: (list: readonly Machine[]) => void): () => void {
+  listWatchers.add(watch);
+  const unsubscribe = subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() });
+  if (MC.list) watch(MC.list);
+  void readList();
+  return () => { listWatchers.delete(watch); unsubscribe(); };
+}
+
 // Concurrent invalidations share one read and request a fresh pass before publishing.
 let listRead: Promise<void> | null = null;
 let listAgain = false;
@@ -171,6 +185,7 @@ function readList(): Promise<void> {
         ]);
         if (listAgain) continue;
         MC.list = list;
+        for (const watch of listWatchers) watch(list);
         MC.traffic = traffic;
         MC.updatable = new Set(updatable.map(u => u.id));
         MC.mac = mac?.id || null;

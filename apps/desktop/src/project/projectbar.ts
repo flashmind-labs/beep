@@ -3,6 +3,8 @@
 
 import type { CheckoutPick } from "../agents/agentpick.ts";
 import type { SessionRow } from "./projects-state.ts";
+import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
+import { isCoder } from "../machines/machines-state.ts";
 
 /// A machine that can run a coding agent, the fields the bar reads.
 export interface BarHost {
@@ -44,20 +46,58 @@ export function nextBarMachine(places: readonly { machine: string; cwd: string }
   return able[(current + 1) % able.length];
 }
 
-/// Whether the bar can start an agent, or what it needs first: the project
-/// on a machine with a coding agent, or a coding agent on any machine.
-export type BarReadiness = "ready" | "no checkout" | "no agent";
+/// An online machine with a coding agent installed that Beep cannot run
+/// yet, such as one whose agent's adapter failed to install; `problem` says
+/// why when the machine said.
+export interface BlockedHost {
+  machine_id: string;
+  machine_name: string;
+  problem: string | null;
+}
 
-export function barReadiness(places: readonly { machine: string; cwd: string }[], hosts: readonly BarHost[] | null, machine: string): BarReadiness {
-  if (hosts === null || barPlace(places, hosts, machine)) return "ready";
-  return addHosts(hosts).length ? "no checkout" : "no agent";
+/// A machine as `list_machines` gives it, the fields `blockedHosts` reads.
+interface ListedMachine {
+  id: string;
+  name: string;
+  online: boolean;
+  env: { tools: readonly { name: string }[] } | null;
+  adapters?: readonly AdapterInstall[];
+}
+
+/// The online machines among `machines` that have a coding agent installed
+/// or installing, but are not among the `hosts` that run one.
+export function blockedHosts(machines: readonly ListedMachine[], hosts: readonly BarHost[]): BlockedHost[] {
+  return machines
+    .filter(m => m.online && !hosts.some(h => h.machine_id === m.id))
+    .filter(m => (m.adapters ?? []).length > 0 || (m.env?.tools ?? []).some(t => isCoder(t.name)))
+    .map(m => {
+      const adapter = (m.adapters ?? []).find(a => a.failed !== null) ?? m.adapters?.[0];
+      return { machine_id: m.id, machine_name: m.name, problem: adapter ? adapterLine(adapter) : null };
+    });
+}
+
+/// Whether the bar can start an agent, or what it needs first: the project
+/// on a machine with a coding agent, the agents on the machine it is on to
+/// run (`blocked`), or a coding agent on any machine.
+export type BarReadiness =
+  | { kind: "ready" }
+  | { kind: "no checkout" }
+  | { kind: "blocked"; host: BlockedHost }
+  | { kind: "no agent" };
+
+export function barReadiness(places: readonly { machine: string; cwd: string }[], hosts: readonly BarHost[] | null, machine: string, blocked: readonly BlockedHost[] = []): BarReadiness {
+  if (hosts === null || barPlace(places, hosts, machine)) return { kind: "ready" };
+  const host = blocked.find(b => places.some(p => p.machine === b.machine_id));
+  if (host) return { kind: "blocked", host };
+  return addHosts(hosts).length ? { kind: "no checkout" } : { kind: "no agent" };
 }
 
 /// What the bar's field asks for, and why Enter does not start yet.
 export function barPrompt(name: string, readiness: BarReadiness) {
-  switch (readiness) {
+  switch (readiness.kind) {
     case "ready": return `Describe a task for a coding agent in ${name}`;
     case "no checkout": return `Add ${name} to a machine to start an agent`;
+    case "blocked": return `${name} is on ${readiness.host.machine_name}, where no coding agent runs yet`;
     case "no agent": return "No machine has a coding agent. Install one in Coding agents";
   }
 }

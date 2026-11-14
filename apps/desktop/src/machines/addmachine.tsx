@@ -32,7 +32,7 @@ let ticker: Timer, poller: (() => void) | undefined, close: (() => void) | null 
 // This Mac's mac_control view, and whether the sheet turned it on.
 let mac: MacSeen | null = null, macAsked = false, macPoller: (() => void) | undefined;
 /// The mesh's machines, for the WSL distributions of the Windows ones.
-let machines: MachineView[] = [];
+let machines: MachineView[] = [], unfollowMachines: (() => void) | undefined;
 let render: ((content: ReactNode) => void) | null = null;
 let opening = 0;
 
@@ -59,8 +59,8 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   macAsked = false;
   machines = [];
   loadMac();
-  void loadMachines();
-  macPoller = subscribeChanges(topic("machines"), { deliver: "latest", receive: () => { loadMac(); void loadMachines(); } });
+  followMachines();
+  macPoller = subscribeChanges(topic("machines"), { deliver: "latest", receive: () => loadMac() });
   start();
 }
 
@@ -76,6 +76,8 @@ function closed() {
   clearInterval(ticker);
   poller?.();
   macPoller?.();
+  unfollowMachines?.();
+  unfollowMachines = undefined;
   ticker = undefined;
   poller = macPoller = undefined;
   root = sheet = close = null;
@@ -139,19 +141,17 @@ async function loadMac() {
   draw(false);
 }
 
-/// Reads the mesh's machines and redraws their WSL distributions.
-async function loadMachines() {
+/// Follows the Machines page's list, so the WSL rows read as on a
+/// machine's page.
+function followMachines() {
   const asked = opening;
-  try {
-    const list = await invoke<MachineView[] | null>("list_machines");
+  void import("./machines.tsx").then(m => {
     if (!root || asked !== opening) return;
-    machines = list ?? [];
-  } catch (e) {
-    console.warn("machines for the WSL distributions:", e);
-    return;
-  }
-
-  draw(false);
+    unfollowMachines = m.followMachineList(list => {
+      machines = [...list];
+      if (root) draw(false);
+    });
+  }).catch((e: unknown) => console.warn("machines for the WSL distributions:", e));
 }
 
 /// Turns on Let Beep use this Mac.

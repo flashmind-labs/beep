@@ -207,6 +207,8 @@ function drawParts() {
 }
 
 export function openMachines() { void import("../machines/machines.tsx").then(m => m.renderMachines()); }
+/// Opens machine `id`'s page in Settings.
+export function openMachine(id: string) { void import("../settings/sheet.ts").then(m => m.openMachineSettings(id)); }
 export function openAgents() { void import("../center/views.tsx").then(v => v.go("providers")); }
 
 function drawPill(c: StartComposer, none: boolean) {

@@ -185,6 +185,14 @@ function follow(page: SettingsPage, sub: SettingsSub | null) {
   drawChrome();
 }
 
+/// Settings shows machine `id`'s page: at once when it is open, else when
+/// it opens next.
+export function showSettingsMachine(id: string) {
+  const path = openSub({ kind: "machine", id });
+  rememberPath(store(), path);
+  goTo(path);
+}
+
 /// The open sheet shows `page`, such as "machines".
 export function showSettingsPage(page: string) {
   if (isPage(page)) goTo(selectPage(page));

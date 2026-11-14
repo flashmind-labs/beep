@@ -8,7 +8,7 @@ import { onClosing, sessionVisible, shownStatus } from "../agents/closing.ts";
 import { invoke, indexedChannel, listen } from "../ui/tauri.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { makeProjectLive, type LiveRow } from "./projectlive.ts";
-import type { BarTarget, ReviewSession } from "./projectbar.ts";
+import type { BarTarget, BlockedHost, ReviewSession } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import type { AgentHost} from "../agents/agents.ts";
@@ -136,6 +136,8 @@ export const pc = {
   adding: null as AgentHost | null,
   checkout: DEFAULT_CHECKOUT,
   hosts: null as AgentHost[] | null,
+  /// The machines with a coding agent installed that Beep cannot run yet.
+  blocked: [] as BlockedHost[],
   branches: new Map<string, BaseBranches | null>(),
   starting: false,
   /// The harness, model and thinking picked, and the machine and harness

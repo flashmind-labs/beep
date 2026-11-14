@@ -102,3 +102,9 @@ export function NewAgentNotes({ waiting, none, noMachine, ...actions }: { waitin
 export function NoAgentHelp({ openAgents, openMachines }: NoAgentActions) {
   return <div className="agc-help"><b>No machine has a coding agent yet</b><ol><li>Install Claude Code, Codex or another agent on a machine from Coding agents.</li><li>Or add a machine that has one: install beep-node there and run the <code>beep-node mesh join</code> command from Add a machine.</li></ol><div className="dline wrap"><Button look="primary" onClick={openAgents}>Install a coding agent</Button><Button onClick={openMachines}>Machines settings</Button></div></div>;
 }
+
+/// The project is only on `host`, whose coding agents Beep cannot run yet:
+/// why, when known, and the machine's page.
+export function BlockedHelp({ host, open }: { host: { machine_name: string; problem: string | null }; open: () => void }) {
+  return <div className="agc-help"><b>No coding agent runs on {host.machine_name} yet</b>{host.problem && <p>{host.problem}</p>}<div className="dline wrap"><Button look="primary" onClick={open}>Open {host.machine_name}</Button></div></div>;
+}
