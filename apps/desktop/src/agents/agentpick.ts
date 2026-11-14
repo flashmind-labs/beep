@@ -114,6 +114,57 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   return { rows, note: rows.length ? "" : "No model matches." };
 }
 
+/// A picker search split into what it names, as in `opus 5.5 high` or
+/// `pi sonnet low`: a harness among those offered, a thinking level and the
+/// words a model must match.
+export interface ModelSearch {
+  agent: string | null;
+  effort: string | null;
+  words: string;
+}
+
+const EFFORT_WORDS = new Set(Object.values(EFFORTS).flatMap(levels => levels.map(e => e.value)));
+
+export function modelSearch(query: string, offered: readonly string[]): ModelSearch {
+  let agent: string | null = null, effort: string | null = null;
+  const words: string[] = [];
+
+  for (const word of query.trim().split(/\s+/).filter(Boolean)) {
+    const w = word.toLowerCase();
+    if (EFFORT_WORDS.has(w)) effort = w;
+    else if (!agent && offered.includes(w)) agent = w;
+    else words.push(word);
+  }
+
+  return { agent, effort, words: words.join(" ") };
+}
+
+/// A model row and the harness it runs under.
+export interface PickRow extends ModelRow {
+  agent: string;
+}
+
+/// The harnesses a search looks in: the one it names, else every harness
+/// offered once it names a model, in rail order so subscription harnesses
+/// come first, else the picked one.
+export function searchedHarnesses(search: ModelSearch, picked: string, offered: readonly string[]): string[] {
+  if (search.agent) return [search.agent];
+  return search.words && offered.length > 1 ? [...offered].sort(byOrder(RAIL)) : [picked];
+}
+
+/// The rows of several harnesses for a search, models named outright before
+/// a Default that happens to match, so Enter takes the model typed. A
+/// harness that lists no models only joins when the search names it.
+export function searchRows(lists: readonly { agent: string; list: AgentModels | null | undefined }[], search: ModelSearch): { rows: PickRow[]; note: string } {
+  const named = lists.length === 1 || !!search.agent;
+  const rows = lists
+    .filter(({ list }) => named || list?.pick === "listed")
+    .flatMap(({ agent, list }) => modelRows(list, search.words).rows.map(row => ({ ...row, agent })));
+  const sorted = search.words ? [...rows.filter(r => r.value), ...rows.filter(r => !r.value)] : rows;
+  const note = named ? modelRows(lists[0]?.list, search.words).note : sorted.length ? "" : "No model matches.";
+  return { rows: sorted, note };
+}
+
 /// Resolve a readable title at the boundary; IDs take precedence over titles.
 export function modelId(list: AgentModels | null | undefined, model: string): string {
   const value = model.trim();

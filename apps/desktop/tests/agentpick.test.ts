@@ -130,3 +130,25 @@ test("lookup failures differ from a harness with a fixed model", () => {
   assert.equal(modelRows(null, "").note, "Couldn't load models.");
   assert.equal(modelRows({ pick: "fixed", current: null, models: [] }, "").note, "It runs its own model here.");
 });
+
+test("a search names a model, a thinking level and a harness, subscription harnesses first", async () => {
+  const { modelSearch, searchedHarnesses, searchRows } = await import("../src/agents/agentpick.ts");
+  const offered = ["pi", "claude", "codex"];
+  const claude: AgentModels = { pick: "listed", current: "default", models: [
+    { id: "default", name: "Default", description: "Opus 5.5 · Most capable", provider: null },
+    { id: "opus", name: "Opus 5.5", description: null, provider: null },
+  ] };
+  const pi: AgentModels = { pick: "listed", current: null, models: [{ id: "anthropic/claude-opus-5-5", name: "Claude Opus 5.5", description: null, provider: "anthropic" }] };
+  const codex: AgentModels = { pick: "listed", current: null, models: [{ id: "gpt-6", name: "GPT-6", description: null, provider: null }] };
+  const lists = new Map([["claude", claude], ["codex", codex], ["pi", pi]]);
+  const rows = (q: string, picked = "codex") => {
+    const search = modelSearch(q, offered);
+    const harnesses = searchedHarnesses(search, picked, offered);
+    return { search, rows: searchRows(harnesses.map(agent => ({ agent, list: lists.get(agent) })), search).rows.map(r => `${r.agent}/${r.value}`) };
+  };
+
+  assert.deepEqual(modelSearch("Opus 5 HIGH", offered), { agent: null, effort: "high", words: "Opus 5" });
+  assert.deepEqual(rows("opus 5 high").rows, ["claude/opus", "pi/anthropic/claude-opus-5-5", "claude/"]);
+  assert.deepEqual(rows("pi opus max"), { search: { agent: "pi", effort: "max", words: "opus" }, rows: ["pi/anthropic/claude-opus-5-5"] });
+  assert.deepEqual(rows("high").rows, ["codex/", "codex/gpt-6"], "a level alone stays on the picked harness");
+});

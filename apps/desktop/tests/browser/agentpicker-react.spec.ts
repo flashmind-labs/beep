@@ -10,7 +10,8 @@ async function selectBeta(page: import("@playwright/test").Page) {
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
   const input = picker.locator(".agc-search");
-  await input.fill("beta");
+  // Both harnesses list Beta: naming one keeps the search on it.
+  await input.fill("codex beta");
   await expect(picker.locator('[data-agmo="beta"]')).toBeVisible();
   await input.press("ArrowDown");
   await expect(picker.locator('[data-agmo="beta"]')).toHaveClass(/hi/);
@@ -99,11 +100,11 @@ test("model results preserve a typed query, caret and input identity", async ({ 
   await pill.click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   const input = picker.locator(".agc-search");
-  await input.fill("beta");
+  await input.fill("codex beta");
   await input.evaluate(element => { if (element instanceof HTMLInputElement) { element.dataset.identity = "same"; element.setSelectionRange(2, 2); } });
   await page.evaluate(() => window.dispatchEvent(new Event("test-models-ready")));
   await expect(picker.locator('[data-agmo="beta"]')).toBeVisible();
-  await expect(input).toHaveValue("beta");
+  await expect(input).toHaveValue("codex beta");
   await expect(input).toHaveAttribute("data-identity", "same");
   await expect(input).toBeFocused();
   await expect(input).toHaveJSProperty("selectionStart", 2);
@@ -234,12 +235,12 @@ test("model search keeps its query, focus and highlight while lists stream in (#
     () => page.evaluate(() => { window.__navigation.release("project_branches"); window.__navigation.notify("projects"); }),
     () => page.evaluate(next => { window.__navigation.respond("agent_hosts", next); window.__navigation.notify("accounts"); }, hostsWith(["codex", "claude"])),
   ];
-  for (const [index, part] of ["op", "us", " 5", ".", "5"].entries()) {
+  for (const [index, part] of ["claude op", "us", " 5", ".", "5"].entries()) {
     await page.keyboard.type(part);
     await updates[index]();
   }
   await expect(picker.locator('[data-agmo="opus-5.5"]')).toBeVisible();
-  await expect(input).toHaveValue("opus 5.5");
+  await expect(input).toHaveValue("claude opus 5.5");
   await page.keyboard.press("ArrowDown");
   await expect(picker.locator('[data-agmo="opus-5.5"]')).toHaveClass(/hi/);
 
@@ -248,10 +249,10 @@ test("model search keeps its query, focus and highlight while lists stream in (#
   await expect(picker.locator('[data-agmo="opus-5.5-fast"]')).toBeVisible();
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
 
-  await expect(input).toHaveValue("opus 5.5");
+  await expect(input).toHaveValue("claude opus 5.5");
   await expect(input).toBeFocused();
   await expect(picker.locator('[data-agmo="opus-5.5"]')).toHaveClass(/hi/);
-  expect(await input.evaluate(el => el === Reflect.get(window, "modelSearch") && el instanceof HTMLInputElement && el.selectionStart === 8)).toBe(true);
+  expect(await input.evaluate(el => el === Reflect.get(window, "modelSearch") && el instanceof HTMLInputElement && el.selectionStart === 15)).toBe(true);
 });
 
 test("model rows are no Tab stops: Tab from the search leaves the list", async ({ page }) => {
@@ -267,4 +268,35 @@ test("model rows are no Tab stops: Tab from the search leaves the list", async (
   await input.focus();
   await input.press("ArrowDown");
   await expect(picker.locator(".agc-models .hi")).toHaveCount(1);
+});
+
+test("⇧⌘M then `opus 5 high` and Enter picks the model and thinking across harnesses", async ({ page }, info) => {
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: null });
+  await page.evaluate(() => {
+    const lists: Record<string, unknown> = {
+      codex: { pick: "listed", current: null, models: [{ id: "gpt-6", name: "GPT-6", description: null }] },
+      claude: { pick: "listed", current: null, models: [{ id: "opus", name: "Opus 5.5", description: null }, { id: "sonnet", name: "Sonnet 5.5", description: null }] },
+    };
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const agent = args?.agent;
+      if (command === "agent_models" && typeof agent === "string") return lists[agent] as T;
+      return invoke<T>(command, args);
+    };
+  });
+  const mod = info.project.name === "Windows" ? "Control" : "Meta";
+  await page.keyboard.press(`${mod}+n`);
+  const pill = page.locator("#agpillb");
+  await expect(pill).toBeEnabled();
+  await page.locator("#agprompt").press(`${mod}+Shift+m`);
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await expect(picker).toBeVisible();
+  await picker.locator('[data-agh="codex"]').click();
+  await page.keyboard.type("opus 5 high");
+  await expect(picker.locator('[data-agmo="opus"]')).toBeVisible();
+  await expect(picker.locator('[data-agmo="opus"] .cc-ag.claude')).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(picker).toHaveCount(0);
+  await expect(pill).toContainText("High Opus 5.5");
+  await expect(pill.locator(".cc-ag.claude")).toBeVisible();
 });

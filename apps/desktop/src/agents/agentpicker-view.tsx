@@ -2,25 +2,27 @@ import { Spinner } from "../ui/kit.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { agentKind } from "./agents.ts";
-import { effortNote, effortsOf, placePopover, railOf, type ModelRow } from "./agentpick.ts";
+import { effortNote, effortsOf, placePopover, railOf, type PickRow } from "./agentpick.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import type { Picked } from "./agentpicker.tsx";
 import { useDialogRef } from "../ui/parts.tsx";
 
 interface PickerProps {
   picked: Picked;
+  /// The thinking level the search names, taken with the model picked.
+  effort: string | null;
   offered: readonly string[];
   everywhere: readonly string[];
   machineName: string | null;
   machineId: string | null;
-  rows: readonly ModelRow[];
+  rows: readonly PickRow[];
   note: string;
   loading: boolean;
   failed: boolean;
   onRetry: () => void;
   onQuery: (query: string) => void;
   onAgent: (agent: string) => void;
-  onModel: (model: string) => void;
+  onModel: (row: PickRow) => void;
   onEffort: (effort: string | null) => void;
   /// The pill the picker opens from, and the area it stays inside.
   anchor: () => HTMLElement | null;
@@ -72,14 +74,14 @@ export function AgentPillContent({ agent, detail }: { agent: string; detail: str
   return <><HarnessIcon agent={agent}/>{detail}<Icon name="caretDown" size={12} /></>;
 }
 
-export function AgentPicker({ picked, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, anchor, bounds, search }: PickerProps) {
+export function AgentPicker({ picked, effort, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, anchor, bounds, search }: PickerProps) {
   const name = agentKind(picked.agent).name, levels = effortsOf(picked.agent);
   // The highlighted row is kept by its model, so a list that streams in
   // keeps it where it still shows; another harness or machine starts over.
   const [lit, setLit] = useState<string | null>(null);
-  const highlight = lit === null ? -1 : rows.findIndex(row => row.value === lit);
+  const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit);
   useLayoutEffect(() => { setLit(null); }, [machineId, picked.agent]);
-  const move = (to: number) => { const row = rows[to]; if (!row) return; setLit(row.value); };
+  const move = (to: number) => { const row = rows[to]; if (!row) return; setLit(rowKey(row)); };
   // The rows have one height, so only their number changes the picker's
   // size, and only up to the most its unplaced height shows: past that,
   // typing a search places it again for nothing.
@@ -95,7 +97,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
         title={title} disabled={!item.enabled} onClick={() => { setLit(null); onAgent(item.agent); }}><HarnessIcon agent={item.agent}/></button>;
     })}</div>
     <div className="agc-list" ref={list}><div className="agc-find"><input ref={search} className="agc-search" spellCheck={false} autoComplete="off"
-      placeholder={`Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
+      placeholder={offered.length > 1 ? "Search models…" : `Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
       onKeyDown={event => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
@@ -103,7 +105,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
         } else if (event.key === "Enter" && !event.metaKey) {
           event.preventDefault();
           const row = rows[highlight] ?? rows[0];
-          if (row) onModel(row.value);
+          if (row) onModel(row);
         }
       }}/></div>
       <div className="agc-models"><ModelRows rows={rows} picked={picked} highlight={highlight} lit={lit} list={list} onModel={onModel} />
@@ -113,11 +115,14 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
     </div>
     <div className="agc-think"><h5>Thinking</h5>{levels.length ? <>
       <button type="button" data-age="" className={picked.effort ? "" : "on"} onClick={() => onEffort(null)}>Default{!picked.effort && <Check/>}</button>
-      {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={picked.effort === level.value ? "on" : ""}
+      {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={picked.effort === level.value ? "on" : effort === level.value ? "hi" : ""}
         onClick={() => onEffort(level.value)}>{level.label}{picked.effort === level.value && <Check/>}</button>)}
     </> : <p className="none">{effortNote(name)}</p>}</div>
   </div>;
 }
+
+/// A row's identity: the same model can show under several harnesses.
+const rowKey = (row: PickRow) => `${row.agent}/${row.value}`;
 
 /// A model row's height and the picker's tallest before it is placed, as the
 /// stylesheet sets them.
@@ -128,18 +133,20 @@ const PICK_HEIGHT = 340;
 /// offer hundreds of models. The highlighted row scrolls into view as the
 /// arrow keys move it, below the search field that sticks on top.
 function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
-  rows: readonly ModelRow[];
+  rows: readonly PickRow[];
   picked: Picked;
   highlight: number;
   lit: string | null;
   list: RefObject<HTMLDivElement | null>;
-  onModel: (model: string) => void;
+  onModel: (row: PickRow) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   // How far down the list the rows start, under the search field.
   const [above, setAbove] = useState(0);
   useLayoutEffect(() => { setAbove((box.current?.offsetTop ?? 0) - (list.current?.offsetTop ?? 0)); }, [list]);
-  const getItemKey = useCallback((index: number) => rows[index]?.value ?? index, [rows]);
+  const getItemKey = useCallback((index: number) => { const row = rows[index]; return row ? rowKey(row) : index; }, [rows]);
+  // Rows of another harness than the picked one carry its badge.
+  const badged = rows.some(row => row.agent !== picked.agent);
   const virtual = useVirtualizer({
     count: rows.length, getScrollElement: () => list.current, estimateSize: () => MODEL_ROW, getItemKey, overscan: 8,
     scrollMargin: above, scrollPaddingStart: above, initialRect: { width: 0, height: PICK_HEIGHT },
@@ -154,9 +161,9 @@ function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
       const row = rows[item.index];
       // The search field is the list's one Tab stop: a focused row would unmount as it scrolls away.
       return <button key={item.key} ref={virtual.measureElement} data-index={item.index} type="button" tabIndex={-1} data-agmo={row.value}
-        className={`${row.value === picked.model ? "on" : ""}${row.value && picked.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
+        className={`${row.value === picked.model && row.agent === picked.agent ? "on" : ""}${row.value && row.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
         style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start - above}px)` }}
-        onClick={() => onModel(row.value)}>{row.label}{row.note && <small>{row.note}</small>}</button>;
+        onClick={() => onModel(row)}>{badged && <HarnessIcon agent={row.agent}/>}{row.label}{row.note && <small>{row.note}</small>}</button>;
     })}
   </div>;
 }

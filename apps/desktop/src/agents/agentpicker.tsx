@@ -5,7 +5,7 @@ import { AgentPicker, AgentPillContent } from "./agentpicker-view.tsx";
 // model column and thinking column, and where it goes on screen.
 
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
-import { modelLabel, modelRows, pillDetail } from "./agentpick.ts";
+import { keepEffort, modelLabel, modelSearch, pillDetail, searchedHarnesses, searchRows, type PickRow } from "./agentpick.ts";
 import { invoke, logError } from "../ui/tauri.ts";
 
 // ----- Models -----
@@ -141,20 +141,24 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   drawn.set(el, o);
   const p = o.picked;
   renderers.set(el, o.render);
-  let search = searches.get(el);
-  if (!search) searches.set(el, search = createRef<HTMLInputElement>());
-  const agent = p.agent;
-  const key = o.machine ? `${o.machine.id}/${agent}` : null;
-  const list = o.machine ? modelsOn(o.machine.id, agent, () => {
+  let field = searches.get(el);
+  if (!field) searches.set(el, field = createRef<HTMLInputElement>());
+  const search = modelSearch(p.query, o.offered);
+  const machine = o.machine;
+  const harnesses = machine ? searchedHarnesses(search, p.agent, o.offered) : [p.agent];
+  const lists = harnesses.map(agent => ({ agent, list: machine ? modelsOn(machine.id, agent, () => {
     const current = drawn.get(el);
-    if (!current || !el.isConnected || current.picked.agent !== agent) return;
+    if (!current || !el.isConnected) return;
     drawPicker(el, current);
     current.changed("models");
-  }) : null;
+  }) : null }));
+  // Loading and failure are told for one harness; across several, those
+  // still asked join as they answer.
+  const key = machine && harnesses.length === 1 ? `${machine.id}/${harnesses[0]}` : null;
   const entry = key ? MODELS.get(key) : undefined;
   const failed = entry?.status === "failed";
-  const loading = entry?.status === "loading" && !list;
-  const data = o.machine ? modelRows(list, p.query) : { rows: [{ value: "", label: "Default", note: "its own" }], note: o.noMachine };
+  const loading = entry?.status === "loading" && !lists[0]?.list;
+  const data = machine ? searchRows(lists, search) : { rows: [{ value: "", label: "Default", note: "its own", agent: p.agent }], note: o.noMachine };
   const note = failed ? "Couldn't load models." : loading ? "Asking the machine which models it has…" : data.note;
   const onRetry = () => {
     const current = key ? MODELS.get(key) : undefined;
@@ -163,14 +167,20 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   };
   o.render(
     <AgentPicker
-      picked={p} offered={o.offered} everywhere={o.everywhere} machineName={o.machine?.name ?? null} machineId={o.machine?.id ?? null}
+      picked={p} effort={keepEffort(p.agent, search.effort)} offered={o.offered} everywhere={o.everywhere} machineName={o.machine?.name ?? null} machineId={o.machine?.id ?? null}
       rows={data.rows} note={note} loading={loading} failed={failed}
       onRetry={onRetry}
       onQuery={(query: string) => { p.query = query; drawPicker(el, o); }}
       onAgent={(next: string) => { p.agent = next; p.query = ""; p.model = ""; o.changed("agent"); }}
-      onModel={(next: string) => { p.model = next; p.query = ""; o.changed("model"); }}
+      onModel={(row: PickRow) => {
+        const effort = keepEffort(row.agent, search.effort);
+        if (row.agent !== p.agent) p.effort = effort ?? keepEffort(row.agent, p.effort);
+        else if (effort) p.effort = effort;
+        p.agent = row.agent; p.model = row.value; p.query = "";
+        o.changed("model");
+      }}
       onEffort={(next: string | null) => { p.effort = next; o.changed("effort"); }}
-      anchor={o.anchor} bounds={o.bounds} search={search}
+      anchor={o.anchor} bounds={o.bounds} search={field}
     />,
   );
 }
