@@ -59,11 +59,11 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dlate { animation: dlate .15s ease-out .8s backwards }
 @keyframes dlate { from { opacity: 0 } }
 
-/* A spinner turns while the user waits on an action; work that runs on its own, such as an
-   agent's turn, shows the still running dot, since a turning ring repaints every frame. */
+/* Spinners show work in progress, so they turn: the ring for an action the user waits on, the
+   small one for work that runs on its own. A hidden window pauses them. */
 /* One turn takes SPIN_MS in ui/kit.tsx, whose Spinner starts each one at the page clock's point in the turn. */
 .dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); display: inline-block; animation: spin .8s linear infinite }
-.drun { width: 10px; height: 10px; border-radius: 50%; border: 2.5px solid color-mix(in srgb, var(--accent) 30%, transparent); background: var(--accent); background-clip: padding-box; box-sizing: border-box; display: inline-block; flex: none }
+.drun { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); border-top-color: var(--accent); box-sizing: border-box; display: inline-block; flex: none; animation: spin .8s linear infinite }
 .dspin.sw-spin, .drun.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none }
 .cc-running .dspin, .cc-running .drun { width: 10px; height: 10px; flex: none }
 .chip .dspin, .chip .drun { width: 9px; height: 9px }
@@ -71,7 +71,7 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .ag-tasks :is(.dspin, .drun), .ag-task .dspin { flex: none; width: 10px; height: 10px }
 @keyframes spin { to { transform: rotate(360deg) } }
 /* A hidden window keeps nothing moving (ui/active.ts sets data-hidden). */
-:root[data-hidden] :is(.dspin, .dthink.live .lb) { animation-play-state: paused }
+:root[data-hidden] :is(.dspin, .drun, .dthink.live .lb) { animation-play-state: paused }
 /* A Mermaid block not yet drawn announces itself to chat/diagrams.ts as it shows. */
 /* Found even with Reduce motion on, which removes every other animation. */
 pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms !important }

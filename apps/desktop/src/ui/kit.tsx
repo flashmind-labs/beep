@@ -85,13 +85,13 @@ export function Switch({ on, flip, label, disabled = false, id, contained = fals
     onClick={event => { if (contained) contain(event); flip(); }} onKeyDown={contained ? contain : undefined} />;
 }
 
-/// A spinner: the ring (`dspin`), or with `dot` the still running dot
-/// (`drun`) for work that goes on by itself. A `label` makes it an image
-/// screen readers announce. A ring starts at the page clock's point in the
-/// turn, so one drawn again goes on where the last left off.
+/// A spinner: the ring (`dspin`), or with `dot` the small one (`drun`) for
+/// work that goes on by itself. A `label` makes it an image screen readers
+/// announce. It starts at the page clock's point in the turn, so one drawn
+/// again goes on where the last left off instead of starting over.
 export function Spinner({ dot = false, className, label, title }: { dot?: boolean; className?: string; label?: string; title?: string }) {
   const [style] = useState(spinPhase);
-  return <span className={`${dot ? "drun" : "dspin"}${className ? ` ${className}` : ""}`} style={dot ? undefined : style} role={label ? "img" : undefined} aria-label={label} title={title} />;
+  return <span className={`${dot ? "drun" : "dspin"}${className ? ` ${className}` : ""}`} style={style} role={label ? "img" : undefined} aria-label={label} title={title} />;
 }
 
 /// One turn of `spin` in style.css.

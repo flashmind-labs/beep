@@ -31,7 +31,7 @@ async function setHidden(page: Page, hidden: boolean) {
   }, hidden);
 }
 
-test("an idle window with working agents runs no endless animation and few callbacks", async ({ page }) => {
+test("an idle window with working agents runs few callbacks, and nothing once hidden", async ({ page }) => {
   await page.addInitScript(countCallbacks);
   await openDesktop(page);
   await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
@@ -48,7 +48,6 @@ test("an idle window with working agents runs no endless animation and few callb
   test.info().annotations.push({ type: "idle", description: JSON.stringify({ home, project, hidden }) });
 
   for (const shown of [home, project]) {
-    expect(shown.infinite).toBe(0);
     expect(shown.frames).toBeLessThan(10);
     expect(shown.timers).toBeLessThan(15);
   }

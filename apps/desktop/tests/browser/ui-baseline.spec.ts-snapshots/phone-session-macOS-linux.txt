@@ -206,7 +206,7 @@ body.cbody.mb-full.mobile
                     div.ag-worklist
                       div#agtasks
                         button.ag-tasks [title="Show them in the Running tab" type="button"]
-                          span.drun
+                          span.drun style(animation-delay)
                           span "3 commands running"
                       div [data-agent-queue-slot="true"] style(display)
                         div#agqueue.ag-queue
