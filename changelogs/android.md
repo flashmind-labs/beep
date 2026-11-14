@@ -2,6 +2,167 @@
 
 Earlier releases predate this changelog.
 
+## [0.2.5] - 2026-11-14
+
+### Added
+
+- Android: Settings, Credentials has API keys for OpenRouter, Meshy, ElevenLabs
+  and other providers. Every desktop shares them, and each machine gives them
+  to flsh as env vars for its image, video, 3D and speech tools.
+- Android: Home and each project open on a board of what needs you, what is
+  working, what is ready to review and what finished today.
+- Android: choose Default, Recent activity or Last opened when sorting projects. The choice is remembered.
+- Android: rename projects from the project menu, with an option to rename their hosted repository while keeping local folder paths.
+- Android: select repository copies on GitHub and Forgejo separately when renaming a project, and retry failed hosts while keeping successful renames.
+- Android: subagent lists show the full model name from the chat model picker when it is known.
+- Android: sort Home projects by recent activity or last opened, with a separate preference from Projects.
+- Android: prompts, agent responses, and tools show discreet timestamps when available.
+- Android: open uploaded attachments from messages, and play video from the original local copy on the uploading device while that copy is available.
+- Android: an unfolded foldable (such as a Galaxy Z Fold) or a tablet
+  shows the desktop layout with the sidebar instead of the stretched phone
+  layout. Folding it switches back to the phone layout. A long press opens
+  an item's menu in this layout.
+- Android: a machine's page shows its graphics cards with their video memory.
+- Android: pages slide in from the right, Back slides them in from the left, and tabs fade. Reduce motion turns it off.
+
+### Changed
+
+- Android: terminals are drawn with Ghostty's engine on the GPU, so
+  full-screen programs such as btop, neovim and yazi look and respond as in
+  Ghostty, with Kitty images, Nerd Font icons, Powerline shapes and block
+  graphics that meet across cells.
+- Android: Agents and Home say "Connecting to your machines…" until a machine
+  answers, and "No machine is online." when none does, instead of "No
+  sessions running."
+- Android: Settings shows Agent accounts, where you set the Claude Code token
+  and the Codex API key your machines use.
+- Android: in landscape the tabs move to a rail on the left and the top bar and
+  session head are shorter, so pages keep the height instead of looking like a
+  small desktop. A session's Files and Changes stay full-screen tabs beside
+  Log instead of a panel on the right.
+- Android: a coding agent notification names its project first, such as
+  "org/web: Claude Code on build-box finished".
+- Phone: a picture attached to a coding agent message uploads in full, like other files,
+  and the agent gets a small preview with the message. It is no longer shrunk.
+- Android: a smaller project rename dialog shows repository settings only when selected.
+- Android: Home and Projects use a styled sort menu.
+- Android: child conversations stay in the parent agent's Subagents section and no longer appear in conversation lists or completion notifications.
+- Phone: the conversation tab of an agent session is named Chat instead of
+  Log.
+- Phone: the Machines tab and the lists under the projects use the same
+  new layout, in one column, with the actions always visible.
+- Phone: while you type in an agent conversation, the top bar, the session
+  details and the tab strip step aside, so more of the chat stays visible
+  above the keyboard.
+- Phone: the project page has no bottom task bar, so it uses the full
+  screen. A + button in the top bar opens a new agent for the project,
+  showing the same sunrise as desktop, and Work on it, Fix this, Continue
+  and Agent review open it with the task filled in.
+- Phone: on the project page, the GitHub and Forgejo links moved from the
+  top bar into the More menu, so the project name has more room.
+- Android: pairs with the new short QR code from the desktop. Scanning
+  uses a new camera screen that reads codes off a monitor.
+- Android: Add a project and New agent are a round button floating at the
+  bottom right of the page instead of a small button in the top bar.
+- Android: the model picker search matches the thinking level by its start, as
+  it matches models: `opus 5.5 h` or `deepseek v4 med` shows rows such as
+  `Opus 5.5 · High`. A version typed as `5.5` also finds ids written `5-5`.
+- Android: diagrams in chats use the chat's colors instead of a white card, show at full size, and say what kind of diagram they are. Copy image, PNG and SVG moved into an Export menu next to Source and Copy. Sequence diagrams show each participant once, at the top.
+- Android: the project menu (⋯) groups its sync settings under "Sync on all machines" as checkmarks instead of "On/Off (all machines)" labels. Choose ignored folders shows only while ignored folders sync, the Syncthing switch reads "Use Beep sync instead of Syncthing" (or back), and Remove project comes last after a line. All projects left the menu; Back goes there.
+- Phone: takes the desktop's new look. Labels, tabs, buttons and details
+  use the monospaced face, cards have no outlines, section labels are
+  small, and a faint painted dawn band runs across the top of Home and
+  Projects. The "Add a project" row at the end of Projects is gone. The +
+  button in the title still adds one.
+- Phone: in an agent conversation, the model button shows the agent's
+  mark next to the message field.
+
+### Fixed
+
+- Android: a single tap on Send or Start with the keyboard up sends, instead
+  of only hiding the keyboard.
+- Android: an offline machine shows when it was last connected, also after
+  the app restarts, instead of when it joined.
+- Android: after coming back from the background or moving to another network,
+  the app dials every machine again instead of sometimes never
+  reconnecting. A machine that does not answer keeps its sessions on the
+  list, marked connecting, and is asked again.
+- Phone: pinching a picture zooms the picture, and the app itself no longer
+  zooms. Drag to pan a zoomed picture and double tap to fit it again.
+- Android: each project remembers its selected coding agent, model and thinking level.
+- Android: tapping a file in a session opens it on screen instead of only adding
+  its tab beside Log.
+- Android: opening a session no longer focuses the message field, so the first tap
+  in the log is not lost to the keyboard layout.
+- Android: time filters keep their labels on one line, and the Files pane drops
+  the desktop keyboard hint.
+- Android: session message headers show the source project and session title instead of raw session tags or IDs.
+- Android: file and attachment uploads keep running while bytes transfer, and time out only after 30 seconds without progress.
+- Android: blocked conversations show the provider reason alongside any partial reply, including in saved history.
+- Android: Agent chat sends automatically after attachments and image previews finish uploading; failed uploads keep the draft for retry.
+- Android: View and remove attachments in a compact composer window with image previews; long sent file lists fold.
+- Android: automatic session titles are shorter and no longer show internal tags.
+- Android: attachments and media can be uploaded, opened and downloaded without the previous per-file size limits.
+- Android: submitted prompts remain visible and greyed out while attachments upload, then send automatically.
+- Android: switching conversations no longer stops uploads or sends files to the wrong chat.
+- Android: a submitted message sends to the conversation it was written in, even after its attachments finish uploading.
+- Android: conversations already at the bottom stay there when sending images.
+- Android: interruption notices appear as status instead of becoming part of the next user prompt.
+- Android: image prompts sent while a resumed agent starts no longer need to be retried.
+- Phone: in agent conversations, the model button always shows next to
+  the message field. A first tap opens the model picker, including while
+  typing. Before, the button showed only while typing, and a tap on it
+  missed.
+- Phone: an agent conversation with two or more pictures or files open
+  now opens on its chat. Before, it opened on the last picture every
+  time.
+- Phone: with the keyboard up, the model menu in a session opened near the
+  top of the screen, partly cut off. It now stays right above its button.
+- Phone: the project page left a blank band above the tab bar. It now
+  runs down to the tab bar.
+- Phone: an attached image opened full screen had its Close button
+  under the status bar, so it could not be closed. The header now sits
+  below the status bar.
+- Android: the app no longer opens to a blank white screen.
+- Android: the app no longer closes when Scan QR code opens the camera
+  to pair a phone.
+- Android: Open on a pull request or issue, and other web links in the app, open the browser instead of doing nothing.
+- Phone: Return in the new agent composer starts a new line instead of sending the task; the Send button sends.
+- Android: the back button goes back a page, or closes an open menu or dialog, instead of closing the app.
+- Android: the app could take very long to connect, or never connect, after the phone switched networks or woke up, because it could not see the phone's network state.
+- Android: the app no longer waits on every machine for project sync details at start.
+- Android: uploaded attachments in project folders no longer appear as files made by the agent.
+- Android: a refused pause, resolve or start-over of file sync shows its
+  error.
+- Android: Send in a review works again after a failed send.
+- Android: a failed command shows the same exit code in every row.
+- Android: Home shows Gemini CLI, pi and flsh by name.
+- Android: a session in a nested project is counted under the same project
+  everywhere.
+- Android: a node connection that goes silent is noticed and opened again.
+- Android: closed sessions appear in history as soon as the machine reports they ended.
+- Android: App labels and controls no longer select text accidentally; chat messages and editable fields remain selectable.
+- Android: Claude API errors in conversations appear in yellow again.
+- Android: the code block Copy button stays at the right edge while scrolling horizontally.
+- Android: a connection to a machine that stops answering is dropped and dialed again after about 15 seconds instead of 30.
+- Android: machines reconnect within seconds after the phone wakes instead of waiting out connections that died while it slept.
+- Android: the project page's ⋯ menu no longer closes the moment it opens.
+- Android: Projects no longer scrolls sideways when an open issue or pull request has many labels; the labels wrap under the title.
+- Android: the project page has no blank band above its task field.
+- Android: with more than 500 sessions in the lists, the app no longer asks every machine where each session works over and over.
+- Phone: tapping + in a session's message field opens the file picker instead of
+  hiding the field's buttons.
+
+### Performance
+
+- Android: opening a session from the board and going back start their move at
+  once instead of stalling first on a long session.
+- Android: a picture, video, 3D model or PDF opened from a chat downloads
+  once and opens from the local copy after that while it is unchanged.
+  Closing the session deletes the files only it opened, and files not opened
+  for eight hours are removed.
+- Android: reads asked for once no longer stay live on the machines, and live views no one reads again are dropped after half a minute.
+
 ## [0.2.4] - 2026-11-11
 
 ### Added
