@@ -203,6 +203,11 @@ impl Instances {
         self.live != before
     }
 
+    /// Whether the page shows any instance of `slot`.
+    pub(crate) fn has(&self, slot: Slot) -> bool {
+        self.live.keys().any(|(held, _)| *held == slot)
+    }
+
     pub(crate) fn list(&self) -> Arc<Vec<Instance>> {
         let list = self
             .live

@@ -463,6 +463,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .pluginslot { position: relative; flex: none; height: 0; z-index: 1; pointer-events: none; user-select: none }
 .pluginplace { position: absolute; bottom: 0; display: flex; line-height: 0 }
 .pluginplace img { display: block; flex: none }
+.pluginsprite { position: relative; display: block; flex: none }
+.pluginsprite img { position: absolute; inset: 0; visibility: hidden; image-rendering: inherit }
+.pluginsprite img[data-on] { visibility: visible }
 .pluginrow { display: flex; align-items: flex-end; line-height: normal }
 .pluginctl { pointer-events: auto }
 /* Slots in the page's flow draw nothing, and take no room, until a plugin fills them. */

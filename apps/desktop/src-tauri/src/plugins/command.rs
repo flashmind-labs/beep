@@ -1,4 +1,5 @@
-use tauri::AppHandle;
+use tauri::ipc::Response;
+use tauri::{AppHandle, WebviewWindow};
 
 /// What plugins placed, as the page reads it.
 #[cfg(desktop)]
@@ -23,6 +24,18 @@ type Update = serde_json::Value;
 type Instances = beep_plugins::InstanceBatch;
 #[cfg(mobile)]
 type Instances = serde_json::Value;
+
+/// Each plugin's status, as the page reads it.
+#[cfg(desktop)]
+type Statuses = Vec<beep_plugins::PluginStatus>;
+#[cfg(mobile)]
+type Statuses = Vec<serde_json::Value>;
+
+/// The name of an image placements use, a 64 digit hex hash.
+#[cfg(desktop)]
+type Hash = beep_plugins::AssetHash;
+#[cfg(mobile)]
+type Hash = String;
 
 /// What the user did to a control a plugin drew.
 #[cfg(desktop)]
@@ -125,5 +138,65 @@ pub(crate) fn plugins_event(app: AppHandle, event: Event) -> Result<(), String> 
     {
         let _ = (app, event);
         Ok(())
+    }
+}
+
+/// The bytes of an image a shown placement names, by hash. The page asks once per hash and
+/// keeps the answer. Fails when no placement uses the image now. A phone has none.
+#[tauri::command]
+pub(crate) fn plugins_asset(app: AppHandle, hash: Hash) -> Result<Response, String> {
+    #[cfg(desktop)]
+    {
+        use tauri::Manager;
+
+        let asset = app
+            .try_state::<beep_plugins::Host>()
+            .and_then(|host| host.asset(&hash));
+        match asset {
+            Some(asset) => Ok(Response::new(asset.bytes().to_vec())),
+            None => Err(format!("no plugin image {hash}")),
+        }
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        Err(format!("no plugin image {hash}"))
+    }
+}
+
+/// Says whether the calling window is visible. While no window is, plugins draw nothing:
+/// their timers and updates wait. A phone does nothing.
+#[tauri::command]
+pub(crate) fn plugins_visible(app: AppHandle, window: WebviewWindow, visible: bool) {
+    #[cfg(desktop)]
+    {
+        use tauri::Manager;
+
+        if let Some(host) = app.try_state::<beep_plugins::Host>() {
+            host.set_visible(window.label(), visible);
+        }
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (app, window, visible);
+    }
+}
+
+/// Each plugin's id, name, version, state (`waiting`, `running`, `paused` or `stopped` with
+/// a `reason`), script time over the last minute and pending timers. Empty on a phone.
+#[tauri::command]
+pub(crate) fn plugins_status(app: AppHandle) -> Statuses {
+    #[cfg(desktop)]
+    {
+        use tauri::Manager;
+
+        app.try_state::<beep_plugins::Host>()
+            .map(|host| host.status())
+            .unwrap_or_default()
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        Statuses::new()
     }
 }

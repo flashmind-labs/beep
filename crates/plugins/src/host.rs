@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Component, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -9,15 +10,22 @@ use log::{debug, warn};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use thiserror::Error;
 
+use crate::asset::{Asset, AssetHash};
 use crate::event::{EventError, Limiter, Mailbox, UiEvent};
 use crate::instance::{InstanceBatch, InstanceError, Instances};
-use crate::manifest::PluginId;
-use crate::sandbox::{Sandbox, locked};
+use crate::job::PluginJob;
+use crate::manifest::{Activation, Manifest, PluginId};
+use crate::meter::{BUDGET, Meter};
+use crate::sandbox::locked;
+use crate::status::{Lifecycle, PluginStatus, Registry};
 use crate::topic::{Delivery, Inbox, Publication, Topic, TopicError};
 use crate::ui::Placement;
 
 /// How long a plugin's files must stay quiet before it reloads.
 const RELOAD_QUIET: Duration = Duration::from_millis(200);
+
+/// How long a slot-activated plugin keeps running after its slots left the page.
+pub(crate) const IDLE_GRACE: Duration = Duration::from_secs(60);
 
 /// The most `ui.*` topics whose latest value the host keeps.
 const MAX_LOCAL_TOPICS: usize = 64;
@@ -46,24 +54,34 @@ pub enum HostError {
     Spawn(std::io::Error),
 }
 
+/// What the host publishes for readers on any thread.
+#[derive(Default)]
+pub(crate) struct Published {
+    shown: Mutex<Vec<Placement>>,
+    wanted: Mutex<Vec<Topic>>,
+    assets: Mutex<HashMap<AssetHash, Asset>>,
+    registry: Mutex<Registry>,
+}
+
 /// Runs every plugin in a folder and reloads them when their files change.
 /// Dropping it stops all of its threads.
 pub struct Host {
-    shown: Arc<Mutex<Vec<Placement>>>,
-    wanted: Arc<Mutex<Vec<Topic>>>,
+    published: Arc<Published>,
     events: Sender<Event>,
     supervisor: Option<JoinHandle<()>>,
     _watcher: RecommendedWatcher,
 }
 
-enum Event {
+pub(crate) enum Event {
     /// A path changed under the plugins folder.
     Fs(PathBuf),
-    /// A plugin's render result. Empty also means the plugin failed.
+    /// A plugin's render result.
     Shown {
         id: PluginId,
         generation: u64,
         placements: Vec<Placement>,
+        /// The images the placements use.
+        assets: Vec<Asset>,
     },
     /// The topics a plugin follows now.
     Wanted {
@@ -71,10 +89,21 @@ enum Event {
         generation: u64,
         topics: Vec<Topic>,
     },
+    /// A plugin failed or went over its budget, and its thread is done.
+    Stopped {
+        id: PluginId,
+        generation: u64,
+        reason: String,
+    },
     /// An update from the page.
     Publish(Delivery),
     /// What changed about the slots on the page.
     Instances(InstanceBatch),
+    /// A window showed or hid.
+    Visible {
+        window: String,
+        visible: bool,
+    },
     /// The user used a control a plugin drew.
     Ui(UiEvent),
     Stop,
@@ -82,7 +111,9 @@ enum Event {
 
 impl Host {
     /// Loads every plugin under `dir` (created if missing), watches it, and reports to
-    /// `handler` what is shown and which topics the plugins follow.
+    /// `handler` what is shown and which topics the plugins follow. Plugins that start
+    /// at launch are running when it returns; the others wait for their activation.
+    /// Plugins stay paused until a window reports that it is visible.
     pub fn start(dir: PathBuf, handler: impl Handler) -> Result<Host, HostError> {
         let folder = |source| HostError::Folder {
             path: dir.clone(),
@@ -106,30 +137,26 @@ impl Host {
         )?;
         watcher.watch(&dir, RecursiveMode::Recursive)?;
 
-        let shown = Arc::new(Mutex::new(Vec::new()));
-        let wanted = Arc::new(Mutex::new(Vec::new()));
-        let supervisor = Supervisor {
+        let published = Arc::new(Published::default());
+        let mut supervisor = Supervisor::new(
             dir,
-            events: events.clone(),
-            running: HashMap::new(),
-            shown: BTreeMap::new(),
-            reloads: HashMap::new(),
-            published: Arc::clone(&shown),
-            wanted: BTreeMap::new(),
-            reported: Arc::clone(&wanted),
-            local: HashMap::new(),
-            instances: Instances::default(),
-            handler: Arc::new(handler),
-            generation: 0,
-        };
+            events.clone(),
+            Arc::new(handler),
+            Arc::clone(&published),
+        );
+        let (ready, loaded) = mpsc::channel();
         let handle = thread::Builder::new()
             .name("plugins-supervisor".to_owned())
-            .spawn(move || supervisor.run(&inbox))
+            .spawn(move || {
+                supervisor.load_all(Instant::now());
+                let _ = ready.send(());
+                supervisor.run(&inbox);
+            })
             .map_err(HostError::Spawn)?;
+        let _ = loaded.recv();
 
         Ok(Host {
-            shown,
-            wanted,
+            published,
             events,
             supervisor: Some(handle),
             _watcher: watcher,
@@ -138,12 +165,22 @@ impl Host {
 
     /// What is shown now.
     pub fn placements(&self) -> Vec<Placement> {
-        locked(&self.shown).clone()
+        locked(&self.published.shown).clone()
     }
 
     /// The topics running plugins follow now.
     pub fn wanted(&self) -> Vec<Topic> {
-        locked(&self.wanted).clone()
+        locked(&self.published.wanted).clone()
+    }
+
+    /// The image a shown placement names, or none when no placement uses it now.
+    pub fn asset(&self, hash: &AssetHash) -> Option<Asset> {
+        locked(&self.published.assets).get(hash).cloned()
+    }
+
+    /// Every plugin's state, script time over the last minute and pending timers.
+    pub fn status(&self) -> Vec<PluginStatus> {
+        locked(&self.published.registry).list(Instant::now())
     }
 
     /// Hands an update to every plugin that follows its topic. The host keeps the
@@ -155,6 +192,16 @@ impl Host {
         let _ = self.events.send(Event::Publish(delivery));
 
         Ok(())
+    }
+
+    /// Says whether the window with this label is visible. While no window is,
+    /// plugins draw nothing: their timers wait and updates pile up, the newest
+    /// of each topic kept. When one shows, overdue timers fire once each.
+    pub fn set_visible(&self, window: &str, visible: bool) {
+        let _ = self.events.send(Event::Visible {
+            window: window.to_owned(),
+            visible,
+        });
     }
 }
 
@@ -197,6 +244,7 @@ struct Running {
     limiter: Limiter,
     thread: JoinHandle<()>,
     generation: u64,
+    hidden: Arc<AtomicBool>,
 }
 
 impl Running {
@@ -205,7 +253,14 @@ impl Running {
         self.wake();
     }
 
+    /// Wakes the thread for new work. A hidden plugin keeps it until it shows.
     fn wake(&self) {
+        if !self.hidden.load(Ordering::Acquire) {
+            self.resume();
+        }
+    }
+
+    fn resume(&self) {
         // A full channel means a wake is already waiting.
         let _ = self.wake.try_send(());
     }
@@ -217,31 +272,92 @@ struct Wanted {
     topics: Vec<Topic>,
 }
 
+/// What the supervisor knows of a plugin from its manifest.
+struct Plan {
+    activation: Vec<Activation>,
+    /// Since when a running plugin's slots have all been off the page.
+    idle_since: Option<Instant>,
+}
+
+impl Plan {
+    /// Whether something the plugin is activated by has happened.
+    fn triggered(&self, instances: &Instances, local: &HashMap<Topic, Delivery>) -> bool {
+        self.activation.iter().any(|activation| match activation {
+            Activation::Startup => true,
+            Activation::Slot(slot) => instances.has(*slot),
+            Activation::Topic(topic) => local.keys().any(|seen| seen.name == topic.name),
+        })
+    }
+
+    /// Whether the plugin stops when its slots are gone: only plugins activated
+    /// by slots alone do.
+    fn idles(&self) -> bool {
+        self.activation
+            .iter()
+            .all(|activation| matches!(activation, Activation::Slot(_)))
+    }
+
+    fn holds(&self, instances: &Instances) -> bool {
+        self.activation.iter().any(|activation| match activation {
+            Activation::Slot(slot) => instances.has(*slot),
+            Activation::Startup | Activation::Topic(_) => true,
+        })
+    }
+}
+
 /// Owns the running plugins. It is the only caller of the handler.
 struct Supervisor {
     dir: PathBuf,
     events: Sender<Event>,
     running: HashMap<PluginId, Running>,
+    plans: HashMap<PluginId, Plan>,
     shown: BTreeMap<PluginId, Vec<Placement>>,
+    assets: BTreeMap<PluginId, Vec<Asset>>,
     reloads: HashMap<PluginId, Instant>,
-    published: Arc<Mutex<Vec<Placement>>>,
+    published: Arc<Published>,
     wanted: BTreeMap<PluginId, Wanted>,
-    reported: Arc<Mutex<Vec<Topic>>>,
     /// The latest update of each `ui.*` topic.
     local: HashMap<Topic, Delivery>,
     /// The slots on the page now.
     instances: Instances,
+    /// The windows that are visible now.
+    windows: BTreeSet<String>,
     handler: Shared,
     generation: u64,
 }
 
 impl Supervisor {
-    fn run(mut self, inbox: &Receiver<Event>) {
-        self.load_all();
+    fn new(
+        dir: PathBuf,
+        events: Sender<Event>,
+        handler: Shared,
+        published: Arc<Published>,
+    ) -> Self {
+        Self {
+            dir,
+            events,
+            running: HashMap::new(),
+            plans: HashMap::new(),
+            shown: BTreeMap::new(),
+            assets: BTreeMap::new(),
+            reloads: HashMap::new(),
+            published,
+            wanted: BTreeMap::new(),
+            local: HashMap::new(),
+            instances: Instances::default(),
+            windows: BTreeSet::new(),
+            handler,
+            generation: 0,
+        }
+    }
 
+    fn run(mut self, inbox: &Receiver<Event>) {
         loop {
-            let next_reload = self.reloads.values().min().copied();
-            let event = match next_reload {
+            let deadline = [self.next_reload(), self.next_idle_stop()]
+                .into_iter()
+                .flatten()
+                .min();
+            let event = match deadline {
                 Some(due) => {
                     match inbox.recv_timeout(due.saturating_duration_since(Instant::now())) {
                         Ok(event) => Some(event),
@@ -255,26 +371,15 @@ impl Supervisor {
                 },
             };
 
-            match event {
-                Some(Event::Stop) => break,
-                Some(Event::Fs(path)) => self.note_change(&path),
-                Some(Event::Shown {
-                    id,
-                    generation,
-                    placements,
-                }) => self.note_shown(id, generation, placements),
-                Some(Event::Wanted {
-                    id,
-                    generation,
-                    topics,
-                }) => self.note_wanted(id, generation, topics),
-                Some(Event::Publish(delivery)) => self.route(delivery),
-                Some(Event::Instances(batch)) => self.note_instances(batch),
-                Some(Event::Ui(event)) => self.route_ui(event),
-                None => {}
+            let now = Instant::now();
+            if let Some(event) = event
+                && !self.handle(event)
+            {
+                break;
             }
 
-            self.reload_due();
+            self.reload_due(now);
+            self.reconcile(now);
         }
 
         let ids: Vec<PluginId> = self.running.keys().cloned().collect();
@@ -283,7 +388,50 @@ impl Supervisor {
         }
     }
 
-    fn load_all(&mut self) {
+    /// Applies one event. Returns false for `Stop`.
+    fn handle(&mut self, event: Event) -> bool {
+        match event {
+            Event::Stop => return false,
+            Event::Fs(path) => self.note_change(&path),
+            Event::Shown {
+                id,
+                generation,
+                placements,
+                assets,
+            } => self.note_shown(id, generation, placements, assets),
+            Event::Wanted {
+                id,
+                generation,
+                topics,
+            } => self.note_wanted(id, generation, topics),
+            Event::Stopped {
+                id,
+                generation,
+                reason,
+            } => self.note_stopped(&id, generation, reason),
+            Event::Publish(delivery) => self.route(delivery),
+            Event::Instances(batch) => self.note_instances(batch),
+            Event::Visible { window, visible } => self.note_visible(window, visible),
+            Event::Ui(event) => self.route_ui(event),
+        }
+
+        true
+    }
+
+    fn next_reload(&self) -> Option<Instant> {
+        self.reloads.values().min().copied()
+    }
+
+    /// When the first plugin that lost its slots is due to stop.
+    fn next_idle_stop(&self) -> Option<Instant> {
+        self.plans
+            .values()
+            .filter_map(|plan| plan.idle_since)
+            .min()
+            .map(|since| since + IDLE_GRACE)
+    }
+
+    fn load_all(&mut self, now: Instant) {
         let entries = match std::fs::read_dir(&self.dir) {
             Ok(entries) => entries,
             Err(error) => {
@@ -300,7 +448,7 @@ impl Supervisor {
             if let Some(id) = id
                 && entry.path().is_dir()
             {
-                self.start_plugin(id);
+                self.register(id, now);
             }
         }
     }
@@ -322,13 +470,20 @@ impl Supervisor {
         }
     }
 
-    fn note_shown(&mut self, id: PluginId, generation: u64, placements: Vec<Placement>) {
+    fn note_shown(
+        &mut self,
+        id: PluginId,
+        generation: u64,
+        placements: Vec<Placement>,
+        assets: Vec<Asset>,
+    ) {
         let current = self.running.get(&id).map(|running| running.generation);
         if current != Some(generation) {
             return;
         }
 
-        self.shown.insert(id, placements);
+        self.shown.insert(id.clone(), placements);
+        self.assets.insert(id, assets);
         self.publish();
     }
 
@@ -354,6 +509,28 @@ impl Supervisor {
 
         self.wanted.insert(id, Wanted { generation, topics });
         self.sync_wanted();
+    }
+
+    /// A plugin that failed or went over budget shows and follows nothing.
+    fn note_stopped(&mut self, id: &PluginId, generation: u64, reason: String) {
+        let current = self.running.get(id).map(|running| running.generation);
+        if current != Some(generation) {
+            return;
+        }
+
+        locked(&self.published.registry).move_to(id, Lifecycle::Stopped(reason));
+        self.clear(id);
+    }
+
+    /// Drops what a plugin showed and followed.
+    fn clear(&mut self, id: &PluginId) {
+        self.assets.remove(id);
+        if self.shown.remove(id).is_some() {
+            self.publish();
+        }
+        if self.wanted.remove(id).is_some() {
+            self.sync_wanted();
+        }
     }
 
     /// Gives an update to each running plugin that follows its topic.
@@ -390,6 +567,29 @@ impl Supervisor {
         }
     }
 
+    /// Pauses every plugin when the last visible window hides, and resumes them
+    /// when one shows.
+    fn note_visible(&mut self, window: String, visible: bool) {
+        let before = !self.windows.is_empty();
+        if visible {
+            self.windows.insert(window);
+        } else {
+            self.windows.remove(&window);
+        }
+        let now = !self.windows.is_empty();
+        if now == before {
+            return;
+        }
+
+        locked(&self.published.registry).set_visible(now);
+        for running in self.running.values() {
+            running.hidden.store(!now, Ordering::Release);
+            if now {
+                running.resume();
+            }
+        }
+    }
+
     /// Gives an event to the plugin that drew the control, within its rate limit.
     fn route_ui(&mut self, event: UiEvent) {
         let Some(running) = self.running.get_mut(&event.plugin) else {
@@ -413,7 +613,7 @@ impl Supervisor {
             .collect();
         let all: Vec<Topic> = all.into_iter().cloned().collect();
         {
-            let mut reported = locked(&self.reported);
+            let mut reported = locked(&self.published.wanted);
             if *reported == all {
                 return;
             }
@@ -423,8 +623,7 @@ impl Supervisor {
         self.handler.wanted(&all);
     }
 
-    fn reload_due(&mut self) {
-        let now = Instant::now();
+    fn reload_due(&mut self, now: Instant) {
         let due: Vec<PluginId> = self
             .reloads
             .iter()
@@ -434,28 +633,108 @@ impl Supervisor {
 
         for id in due {
             self.reloads.remove(&id);
-            self.stop_plugin(&id);
 
             if self.dir.join(id.to_string()).is_dir() {
-                self.start_plugin(id);
+                self.register(id, now);
             } else {
-                self.wanted.remove(&id);
-                self.sync_wanted();
-                if self.shown.remove(&id).is_some() {
-                    self.publish();
-                }
+                self.stop_plugin(&id);
+                self.plans.remove(&id);
+                locked(&self.published.registry).remove(&id);
+                self.clear(&id);
             }
         }
     }
 
-    fn start_plugin(&mut self, id: PluginId) {
+    /// Reads a plugin's manifest again, then starts it if it is activated.
+    /// What it showed stays until its new run replaces it.
+    fn register(&mut self, id: PluginId, now: Instant) {
         self.stop_plugin(&id);
+
+        match Manifest::read(&self.dir.join(id.to_string())) {
+            Ok(manifest) => {
+                self.plans.insert(
+                    id.clone(),
+                    Plan {
+                        activation: manifest.activation,
+                        idle_since: None,
+                    },
+                );
+                locked(&self.published.registry).set(
+                    id.clone(),
+                    manifest.name,
+                    manifest.version,
+                    Lifecycle::Waiting,
+                    None,
+                );
+                self.reconcile_one(&id, now);
+                if locked(&self.published.registry).lifecycle(&id) == Some(&Lifecycle::Waiting) {
+                    self.clear(&id);
+                }
+            }
+            Err(error) => {
+                warn!("plugin {id} stopped: {error}");
+                self.plans.remove(&id);
+                locked(&self.published.registry).set(
+                    id.clone(),
+                    id.to_string(),
+                    semver::Version::new(0, 0, 0),
+                    Lifecycle::Stopped(error.to_string()),
+                    None,
+                );
+                self.clear(&id);
+            }
+        }
+    }
+
+    /// Starts the waiting plugins whose activation holds, and stops the running
+    /// ones whose slots have been off the page for the grace period.
+    fn reconcile(&mut self, now: Instant) {
+        let ids: Vec<PluginId> = self.plans.keys().cloned().collect();
+        for id in ids {
+            self.reconcile_one(&id, now);
+        }
+    }
+
+    fn reconcile_one(&mut self, id: &PluginId, now: Instant) {
+        let Some(plan) = self.plans.get_mut(id) else {
+            return;
+        };
+        let lifecycle = locked(&self.published.registry).lifecycle(id).cloned();
+
+        match lifecycle {
+            Some(Lifecycle::Waiting) => {
+                if plan.triggered(&self.instances, &self.local) {
+                    self.start_plugin(id);
+                }
+            }
+            Some(Lifecycle::Running) if plan.idles() => {
+                if plan.holds(&self.instances) {
+                    plan.idle_since = None;
+                    return;
+                }
+
+                let since = *plan.idle_since.get_or_insert(now);
+                if now.saturating_duration_since(since) >= IDLE_GRACE {
+                    plan.idle_since = None;
+                    self.stop_plugin(id);
+                    locked(&self.published.registry).move_to(id, Lifecycle::Waiting);
+                    self.clear(id);
+                }
+            }
+            Some(Lifecycle::Running | Lifecycle::Stopped(_)) | None => {}
+        }
+    }
+
+    fn start_plugin(&mut self, id: &PluginId) {
+        self.stop_plugin(id);
         self.generation += 1;
         let generation = self.generation;
         let (wake, woken) = mpsc::sync_channel(1);
         let inbox = Arc::new(Inbox::default());
         let mailbox = Arc::new(Mailbox::default());
         mailbox.set_instances(self.instances.list());
+        let meter = Arc::new(Meter::new(BUDGET));
+        let hidden = Arc::new(AtomicBool::new(self.windows.is_empty()));
         let job = PluginJob {
             dir: self.dir.join(id.to_string()),
             id: id.clone(),
@@ -463,15 +742,20 @@ impl Supervisor {
             events: self.events.clone(),
             inbox: Arc::clone(&inbox),
             mailbox: Arc::clone(&mailbox),
+            meter: Arc::clone(&meter),
+            hidden: Arc::clone(&hidden),
         };
 
         let spawned = thread::Builder::new()
             .name(format!("plugin-{id}"))
             .spawn(move || job.run(&woken));
+        let mut registry = locked(&self.published.registry);
         match spawned {
             Ok(thread) => {
+                registry.move_to(id, Lifecycle::Running);
+                registry.attach(id, meter);
                 self.running.insert(
-                    id,
+                    id.clone(),
                     Running {
                         wake,
                         inbox,
@@ -479,13 +763,15 @@ impl Supervisor {
                         limiter: Limiter::default(),
                         thread,
                         generation,
+                        hidden,
                     },
                 );
             }
             Err(error) => {
                 warn!("cannot start plugin {id}: {error}");
-                self.wanted.remove(&id);
-                self.sync_wanted();
+                registry.move_to(id, Lifecycle::Stopped(format!("cannot start: {error}")));
+                drop(registry);
+                self.clear(id);
             }
         }
     }
@@ -500,8 +786,15 @@ impl Supervisor {
 
     fn publish(&self) {
         let all: Vec<Placement> = self.shown.values().flatten().cloned().collect();
+        // The page asks for an image as soon as it hears of a placement.
+        *locked(&self.published.assets) = self
+            .assets
+            .values()
+            .flatten()
+            .map(|asset| (asset.hash().clone(), asset.clone()))
+            .collect();
         {
-            let mut published = locked(&self.published);
+            let mut published = locked(&self.published.shown);
             if *published == all {
                 return;
             }
@@ -509,114 +802,6 @@ impl Supervisor {
         }
 
         self.handler.shown(&all);
-    }
-}
-
-/// One plugin's thread: render, wait for the next timer or a stop, fire.
-struct PluginJob {
-    dir: PathBuf,
-    id: PluginId,
-    generation: u64,
-    events: Sender<Event>,
-    inbox: Arc<Inbox>,
-    mailbox: Arc<Mailbox>,
-}
-
-impl PluginJob {
-    fn run(self, woken: &Receiver<()>) {
-        let mut sandbox = match Sandbox::load(&self.dir, Instant::now()) {
-            Ok(sandbox) => sandbox,
-            Err(error) => return self.fail(&error),
-        };
-
-        // The first batch of instances comes before the first render.
-        if let Err(error) = self.take_mail(&mut sandbox) {
-            return self.fail(&error);
-        }
-
-        loop {
-            match sandbox.render() {
-                Ok(Some(placements)) => {
-                    if !self.show(placements) {
-                        return;
-                    }
-                }
-                Ok(None) => {}
-                Err(error) => return self.fail(&error),
-            }
-
-            if let Some(topics) = sandbox.take_wanted()
-                && !self.report(topics)
-            {
-                return;
-            }
-
-            let woke = match sandbox.next_timer() {
-                Some(due) => woken.recv_timeout(due.saturating_duration_since(Instant::now())),
-                None => woken.recv().map_err(|_| RecvTimeoutError::Disconnected),
-            };
-            match woke {
-                Err(RecvTimeoutError::Timeout) => {
-                    if let Err(error) = sandbox.fire_due(Instant::now()) {
-                        return self.fail(&error);
-                    }
-                }
-                Ok(()) => {
-                    if let Err(error) = self.take_mail(&mut sandbox) {
-                        return self.fail(&error);
-                    }
-                    for delivery in self.inbox.take() {
-                        if let Err(error) = sandbox.deliver(&delivery) {
-                            return self.fail(&error);
-                        }
-                    }
-                }
-                Err(RecvTimeoutError::Disconnected) => return,
-            }
-        }
-    }
-
-    /// Runs the events and applies the instances that waited for the plugin.
-    fn take_mail(&self, sandbox: &mut Sandbox) -> Result<(), crate::sandbox::SandboxError> {
-        let mail = self.mailbox.take();
-
-        for event in &mail.events {
-            sandbox.handle(event)?;
-        }
-        if let Some(instances) = mail.instances {
-            sandbox.set_instances(&instances)?;
-        }
-
-        Ok(())
-    }
-
-    /// Logs the error once and shows nothing for this plugin.
-    fn fail(&self, error: &crate::sandbox::SandboxError) {
-        warn!("plugin {} failed: {error}", self.id);
-        self.show(Vec::new());
-        self.report(Vec::new());
-    }
-
-    /// Returns false when the supervisor is gone.
-    fn report(&self, topics: Vec<Topic>) -> bool {
-        self.events
-            .send(Event::Wanted {
-                id: self.id.clone(),
-                generation: self.generation,
-                topics,
-            })
-            .is_ok()
-    }
-
-    /// Returns false when the supervisor is gone.
-    fn show(&self, placements: Vec<Placement>) -> bool {
-        self.events
-            .send(Event::Shown {
-                id: self.id.clone(),
-                generation: self.generation,
-                placements,
-            })
-            .is_ok()
     }
 }
 

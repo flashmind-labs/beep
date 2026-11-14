@@ -152,6 +152,14 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
           }
         }
 
+        if (command === "plugins_asset") {
+          // The bytes of a plugin image, as the desktop sends them: `plugins_assets` maps a hash to base64.
+          const table = answers.plugins_assets;
+          const text = table !== null && typeof table === "object" && typeof args.hash === "string" ? Reflect.get(table, args.hash) : null;
+          if (typeof text !== "string") throw new Error("no plugin image");
+          return Uint8Array.from(atob(text), char => char.charCodeAt(0)).buffer;
+        }
+
         if (command === "agent_processes") { return { processes: structuredClone(processes), local: false }; }
 
         if (command === "work_diff") {

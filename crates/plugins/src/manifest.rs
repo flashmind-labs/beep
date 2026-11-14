@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString};
 use thiserror::Error;
 
+use crate::topic::{Topic, TopicError};
+use crate::ui::Slot;
+
 /// File name of the manifest inside a plugin folder.
 pub const MANIFEST_FILE: &str = "beep-plugin.json";
 
@@ -71,6 +74,68 @@ pub enum Permission {
     SessionsRead,
 }
 
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum InvalidActivation {
+    #[error("invalid activation {0:?}: use \"startup\", \"slot:<slot>\" or \"topic:ui.<name>\"")]
+    Unknown(String),
+    #[error("invalid activation topic: {0}")]
+    Topic(#[from] TopicError),
+}
+
+/// When a plugin starts. A plugin starts when any of its activations holds.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Activation {
+    /// As soon as the host starts, and always running.
+    Startup,
+    /// When the page reports the first instance of the slot. The plugin stops
+    /// after every slot it lists has been gone for a while.
+    Slot(Slot),
+    /// When the page first publishes the local topic (`ui.*`).
+    Topic(Topic),
+}
+
+const SLOT_PREFIX: &str = "slot:";
+const TOPIC_PREFIX: &str = "topic:";
+
+impl FromStr for Activation {
+    type Err = InvalidActivation;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text == "startup" {
+            return Ok(Self::Startup);
+        }
+        if let Some(slot) = text.strip_prefix(SLOT_PREFIX) {
+            return slot
+                .parse()
+                .map(Self::Slot)
+                .map_err(|_| InvalidActivation::Unknown(text.to_owned()));
+        }
+        if let Some(name) = text.strip_prefix(TOPIC_PREFIX) {
+            return Ok(Self::Topic(Topic::local(name)?));
+        }
+
+        Err(InvalidActivation::Unknown(text.to_owned()))
+    }
+}
+
+impl fmt::Display for Activation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Startup => f.write_str("startup"),
+            Self::Slot(slot) => write!(f, "{SLOT_PREFIX}{slot}"),
+            Self::Topic(topic) => write!(f, "{TOPIC_PREFIX}{}", topic.name),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Activation {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+
+        text.parse().map_err(serde::de::Error::custom)
+    }
+}
+
 /// The parsed `beep-plugin.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -85,6 +150,9 @@ pub struct Manifest {
     pub entry: PathBuf,
     #[serde(default)]
     pub permissions: Vec<Permission>,
+    /// When the plugin starts. Default: `["startup"]`.
+    #[serde(default = "default_activation")]
+    pub activation: Vec<Activation>,
 }
 
 #[derive(Debug, Error)]
@@ -100,6 +168,8 @@ pub enum ManifestError {
     IdMismatch { id: PluginId, folder: String },
     #[error("entry {} must be a relative path inside the plugin folder", .0.display())]
     Entry(PathBuf),
+    #[error("activation needs at least one entry")]
+    NoActivation,
 }
 
 impl Manifest {
@@ -138,12 +208,25 @@ impl Manifest {
             return Err(ManifestError::Entry(manifest.entry));
         }
 
+        if manifest.activation.is_empty() {
+            return Err(ManifestError::NoActivation);
+        }
+
         Ok(manifest)
+    }
+
+    /// Whether the plugin runs from the start and never idles out.
+    pub fn starts_at_launch(&self) -> bool {
+        self.activation.contains(&Activation::Startup)
     }
 
     pub fn allows(&self, permission: Permission) -> bool {
         self.permissions.contains(&permission)
     }
+}
+
+fn default_activation() -> Vec<Activation> {
+    vec![Activation::Startup]
 }
 
 fn default_entry() -> PathBuf {

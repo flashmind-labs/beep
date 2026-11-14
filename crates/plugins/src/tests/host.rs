@@ -8,6 +8,7 @@ use crate::instance::{
     ComposerContext, Instance, InstanceKey, InstanceRef, SessionHeaderContext, SessionRowContext,
     SlotContext,
 };
+use crate::status::{PluginState, PluginStatus};
 use crate::ui::{CallbackId, Node, Slot};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -102,6 +103,7 @@ fn start_reporting(
     let (shown, shown_rx) = mpsc::channel();
     let (wanted, wanted_rx) = mpsc::channel();
     let host = Host::start(dir.to_path_buf(), Reports { shown, wanted }).unwrap();
+    host.set_visible("test", true);
     host.set_instances(batch(vec![composer_instance()], vec![]))
         .unwrap();
 
@@ -590,4 +592,349 @@ fn a_plugin_gets_at_most_thirty_events_a_second() {
     }
 
     wait_for(&rx, |p| button_text(p) == "n:30");
+}
+
+struct Quiet;
+
+impl Handler for Quiet {
+    fn shown(&self, _placements: &[Placement]) {}
+
+    fn wanted(&self, _topics: &[Topic]) {}
+}
+
+fn write_lazy(dir: &std::path::Path, id: &str, activation: &str, main: &str) {
+    let folder = dir.join(id);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("beep-plugin.json"),
+        format!(
+            r#"{{ "id": "{id}", "name": "Lazy", "version": "0.3.0", "permissions": ["ui.add"], "activation": {activation} }}"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(folder.join("main.ts"), main).unwrap();
+}
+
+/// A supervisor driven by hand, with no loop and no file watcher. Plugin threads are real.
+fn driven(dir: &std::path::Path) -> (Supervisor, Arc<Published>, mpsc::Receiver<Event>) {
+    let (events, inbox) = mpsc::channel();
+    let published = Arc::new(Published::default());
+    let supervisor = Supervisor::new(
+        dir.canonicalize().unwrap(),
+        events,
+        Arc::new(Quiet),
+        Arc::clone(&published),
+    );
+
+    (supervisor, published, inbox)
+}
+
+fn state_of(published: &Published, id: &str) -> PluginState {
+    let id: PluginId = id.parse().unwrap();
+    let list = locked(&published.registry).list(Instant::now());
+
+    list.into_iter()
+        .find(|status| status.id == id)
+        .unwrap()
+        .state
+}
+
+fn show_composer(supervisor: &mut Supervisor) {
+    supervisor.handle(Event::Instances(batch(vec![composer_instance()], vec![])));
+}
+
+fn hide_composer(supervisor: &mut Supervisor) {
+    supervisor.handle(Event::Instances(batch(
+        vec![],
+        vec![gone(Slot::Composer, "composer")],
+    )));
+}
+
+const LAZY: &str = r#"beep.place({ slot: "composer" }, () => beep.text("hi"));"#;
+
+#[test]
+fn a_slot_activated_plugin_waits_until_its_slot_appears() {
+    let root = tempfile::tempdir().unwrap();
+    write_lazy(root.path(), "lazy-one", r#"["slot:composer"]"#, LAZY);
+    let (mut supervisor, published, _events) = driven(root.path());
+    let now = Instant::now();
+
+    supervisor.load_all(now);
+    supervisor.reconcile(now);
+    assert_eq!(state_of(&published, "lazy-one"), PluginState::Waiting);
+    assert!(supervisor.running.is_empty());
+
+    // A slot it does not list does not start it.
+    supervisor.handle(Event::Instances(batch(
+        vec![row_instance("s1", "T")],
+        vec![],
+    )));
+    supervisor.reconcile(now);
+    assert!(supervisor.running.is_empty());
+
+    show_composer(&mut supervisor);
+    supervisor.reconcile(now);
+    assert_eq!(supervisor.running.len(), 1);
+    assert_eq!(state_of(&published, "lazy-one"), PluginState::Paused);
+}
+
+#[test]
+fn a_plugin_without_activation_starts_at_launch() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "eager-one", "hi");
+    let (mut supervisor, published, _events) = driven(root.path());
+
+    supervisor.load_all(Instant::now());
+
+    assert_eq!(supervisor.running.len(), 1);
+    assert_ne!(state_of(&published, "eager-one"), PluginState::Waiting);
+}
+
+#[test]
+fn a_topic_activated_plugin_starts_on_the_first_publication_and_stays() {
+    let root = tempfile::tempdir().unwrap();
+    write_lazy(root.path(), "lazy-two", r#"["topic:ui.composer"]"#, LAZY);
+    let (mut supervisor, published, _events) = driven(root.path());
+    let now = Instant::now();
+    supervisor.load_all(now);
+    assert_eq!(state_of(&published, "lazy-two"), PluginState::Waiting);
+
+    let delivery = Delivery::new(&composer_update(json!(null))).unwrap();
+    supervisor.handle(Event::Publish(delivery));
+    supervisor.reconcile(now);
+    assert_eq!(supervisor.running.len(), 1);
+
+    // No slots to lose, so it never idles out.
+    supervisor.reconcile(now + Duration::from_secs(3600));
+    assert_eq!(supervisor.running.len(), 1);
+}
+
+#[test]
+fn a_plugin_stops_after_its_slots_were_gone_for_the_grace_period() {
+    let root = tempfile::tempdir().unwrap();
+    write_lazy(root.path(), "lazy-one", r#"["slot:composer"]"#, LAZY);
+    let (mut supervisor, published, _events) = driven(root.path());
+    let t0 = Instant::now();
+    supervisor.load_all(t0);
+    show_composer(&mut supervisor);
+    supervisor.reconcile(t0);
+    assert_eq!(supervisor.next_idle_stop(), None);
+
+    hide_composer(&mut supervisor);
+    supervisor.reconcile(t0);
+    assert_eq!(supervisor.next_idle_stop(), Some(t0 + IDLE_GRACE));
+    supervisor.reconcile(t0 + IDLE_GRACE - Duration::from_secs(1));
+    assert_eq!(supervisor.running.len(), 1);
+
+    supervisor.reconcile(t0 + IDLE_GRACE);
+    assert!(supervisor.running.is_empty());
+    assert_eq!(state_of(&published, "lazy-one"), PluginState::Waiting);
+    assert_eq!(supervisor.next_idle_stop(), None);
+
+    // The slot coming back starts it again.
+    show_composer(&mut supervisor);
+    supervisor.reconcile(t0 + IDLE_GRACE);
+    assert_eq!(supervisor.running.len(), 1);
+}
+
+#[test]
+fn a_slot_that_comes_back_in_time_restarts_the_grace_period() {
+    let root = tempfile::tempdir().unwrap();
+    write_lazy(root.path(), "lazy-one", r#"["slot:composer"]"#, LAZY);
+    let (mut supervisor, _published, _events) = driven(root.path());
+    let t0 = Instant::now();
+    supervisor.load_all(t0);
+    show_composer(&mut supervisor);
+    supervisor.reconcile(t0);
+
+    hide_composer(&mut supervisor);
+    supervisor.reconcile(t0);
+    show_composer(&mut supervisor);
+    supervisor.reconcile(t0 + Duration::from_secs(30));
+    assert_eq!(supervisor.next_idle_stop(), None);
+
+    hide_composer(&mut supervisor);
+    supervisor.reconcile(t0 + Duration::from_secs(40));
+    supervisor.reconcile(t0 + Duration::from_secs(70));
+
+    assert_eq!(
+        supervisor.running.len(),
+        1,
+        "60 s have not passed since it left"
+    );
+    assert_eq!(
+        supervisor.next_idle_stop(),
+        Some(t0 + Duration::from_secs(100))
+    );
+}
+
+#[test]
+fn a_startup_plugin_never_idles_out() {
+    let root = tempfile::tempdir().unwrap();
+    write_lazy(
+        root.path(),
+        "eager-two",
+        r#"["startup", "slot:composer"]"#,
+        LAZY,
+    );
+    let (mut supervisor, _published, _events) = driven(root.path());
+    let t0 = Instant::now();
+    supervisor.load_all(t0);
+
+    supervisor.reconcile(t0 + Duration::from_secs(3600));
+
+    assert_eq!(supervisor.running.len(), 1);
+    assert_eq!(supervisor.next_idle_stop(), None);
+}
+
+#[test]
+fn status_names_each_state_and_the_reason_a_plugin_stopped() {
+    let root = tempfile::tempdir().unwrap();
+    write_lazy(root.path(), "lazy-one", r#"["slot:composer"]"#, LAZY);
+    write_lazy(
+        root.path(),
+        "greedy-one",
+        r#"["startup"]"#,
+        "throw new Error(\"nope\");",
+    );
+    let folder = root.path().join("broken-one");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("beep-plugin.json"), "{ not json").unwrap();
+    let (mut supervisor, published, events) = driven(root.path());
+    supervisor.load_all(Instant::now());
+
+    // Wait for the failing plugin's stop, as the loop would hear it.
+    loop {
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let stopped = matches!(event, Event::Stopped { .. });
+        supervisor.handle(event);
+        if stopped {
+            break;
+        }
+    }
+    let list = locked(&published.registry).list(Instant::now());
+    let find = |id: &str| {
+        list.iter()
+            .find(|status| status.id.to_string() == id)
+            .unwrap()
+    };
+
+    assert_eq!(find("lazy-one").state, PluginState::Waiting);
+    assert_eq!(find("lazy-one").name, "Lazy");
+    assert_eq!(find("lazy-one").version, semver::Version::new(0, 3, 0));
+    assert_eq!(
+        (find("lazy-one").used_ms, find("lazy-one").pending_timers),
+        (0, 0)
+    );
+    let PluginState::Stopped { reason } = &find("greedy-one").state else {
+        panic!("expected a stopped plugin");
+    };
+    assert!(reason.contains("nope"), "{reason}");
+    let PluginState::Stopped { reason } = &find("broken-one").state else {
+        panic!("expected a stopped plugin");
+    };
+    assert!(reason.contains("invalid"), "{reason}");
+}
+
+#[test]
+fn status_serializes_the_state_and_reason_flat() {
+    let status = PluginStatus {
+        id: "lazy-one".parse().unwrap(),
+        name: "Lazy".to_owned(),
+        version: semver::Version::new(1, 0, 0),
+        state: PluginState::Stopped {
+            reason: "used 600 ms".to_owned(),
+        },
+        used_ms: 600,
+        pending_timers: 2,
+    };
+
+    assert_eq!(
+        serde_json::to_value(&status).unwrap(),
+        json!({ "id": "lazy-one", "name": "Lazy", "version": "1.0.0", "state": "stopped",
+                "reason": "used 600 ms", "usedMs": 600, "pendingTimers": 2 })
+    );
+    let running = PluginStatus {
+        state: PluginState::Paused,
+        ..status
+    };
+    assert_eq!(serde_json::to_value(&running).unwrap()["state"], "paused");
+}
+
+#[test]
+fn running_plugins_are_paused_while_no_window_is_visible() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "eager-one", "hi");
+    let (mut supervisor, published, _events) = driven(root.path());
+    supervisor.load_all(Instant::now());
+    assert_eq!(state_of(&published, "eager-one"), PluginState::Paused);
+
+    supervisor.handle(Event::Visible {
+        window: "bar".to_owned(),
+        visible: true,
+    });
+    supervisor.handle(Event::Visible {
+        window: "center".to_owned(),
+        visible: true,
+    });
+    assert_eq!(state_of(&published, "eager-one"), PluginState::Running);
+
+    // One window hiding is not enough, and the last one pauses.
+    supervisor.handle(Event::Visible {
+        window: "bar".to_owned(),
+        visible: false,
+    });
+    assert_eq!(state_of(&published, "eager-one"), PluginState::Running);
+    supervisor.handle(Event::Visible {
+        window: "center".to_owned(),
+        visible: false,
+    });
+    assert_eq!(state_of(&published, "eager-one"), PluginState::Paused);
+    let running = supervisor.running.values().next().unwrap();
+    assert!(running.hidden.load(Ordering::Acquire));
+}
+
+#[test]
+fn the_host_serves_the_images_that_placements_use_and_stops_when_they_go() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = root.path().join("pics-one");
+    std::fs::create_dir_all(folder.join("art")).unwrap();
+    std::fs::write(
+        folder.join("beep-plugin.json"),
+        r#"{ "id": "pics-one", "name": "P", "version": "0.1.0", "permissions": ["ui.add"] }"#,
+    )
+    .unwrap();
+    std::fs::write(folder.join("art/a.png"), b"\x89PNG\r\n\x1a\nbytes").unwrap();
+    std::fs::write(
+        folder.join("main.ts"),
+        r#"beep.place({ slot: "composer" }, () => beep.image({ src: "art/a.png", width: 1, height: 1 }));"#,
+    )
+    .unwrap();
+    let (host, rx) = start(root.path());
+
+    let placements = wait_for(&rx, |p| !p.is_empty());
+
+    let Node::Image { asset, .. } = &placements[0].node else {
+        panic!("expected an image");
+    };
+    let served = host.asset(&asset.hash).expect("the image is served");
+    assert_eq!(served.bytes(), b"\x89PNG\r\n\x1a\nbytes");
+    assert_eq!(served.hash(), &asset.hash);
+    assert!(host.asset(&"0".repeat(64).parse().unwrap()).is_none());
+
+    std::fs::remove_dir_all(&folder).unwrap();
+    wait_for(&rx, <[Placement]>::is_empty);
+    assert!(host.asset(&asset.hash).is_none());
+}
+
+#[test]
+fn a_started_host_lists_its_plugins_at_once() {
+    let root = tempfile::tempdir().unwrap();
+    write_lazy(root.path(), "lazy-one", r#"["slot:composer"]"#, LAZY);
+    let (host, _rx) = start(root.path());
+
+    let list = host.status();
+
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].state, PluginState::Waiting);
 }

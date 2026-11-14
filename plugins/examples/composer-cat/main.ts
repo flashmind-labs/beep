@@ -1,25 +1,9 @@
 /// <reference path="../../sdk/beep.d.ts" />
 
 // A cat sits on the message box. Now and then it blinks, flicks its tail or
-// twitches an ear, one motion at a time. Between motions nothing is redrawn.
-// When the turn of the session whose message box is open ends, it is happy
-// for a moment.
-
-type Frame = "idle" | "blink" | "tail-a" | "tail-b" | "ear";
-type Motion = "blink" | "tail" | "ear";
-
-/** One step of a motion: show `frame` for `ms` milliseconds. */
-interface Step {
-  readonly frame: Frame;
-  readonly ms: number;
-}
-
-/** A motion repeats after a random delay between `min` and `max` ms. */
-interface Schedule {
-  readonly steps: readonly Step[];
-  readonly min: number;
-  readonly max: number;
-}
+// twitches an ear, one motion at a time. The page plays these from a
+// declaration, so the plugin sleeps between events. When the turn of the
+// session whose message box is open ends, it is happy for a moment.
 
 /** The session whose message box is open, as `ui.composer` says. */
 interface Composer {
@@ -33,90 +17,44 @@ type Turn = "running" | "done" | "other";
 const WIDTH = 36;
 const HEIGHT = 28;
 const SCALE = 2;
-const RETRY_MS = 400;
 const HAPPY_MS = 1400;
 
-const SCHEDULES: Record<Motion, Schedule> = {
-  blink: {
-    steps: [
-      { frame: "blink", ms: 140 },
-      { frame: "idle", ms: 0 },
-    ],
-    min: 3000,
-    max: 7000,
-  },
-  tail: {
-    steps: [
-      { frame: "tail-a", ms: 200 },
-      { frame: "tail-b", ms: 200 },
-      { frame: "tail-a", ms: 200 },
-      { frame: "tail-b", ms: 200 },
-      { frame: "tail-a", ms: 200 },
-      { frame: "idle", ms: 0 },
-    ],
-    min: 5000,
-    max: 11000,
-  },
-  ear: {
-    steps: [
-      { frame: "ear", ms: 220 },
-      { frame: "idle", ms: 120 },
-      { frame: "ear", ms: 220 },
-      { frame: "idle", ms: 0 },
-    ],
-    min: 6000,
-    max: 13000,
-  },
-};
+const art = (name: string): string => `art/cat-${name}.png`;
 
-const MOTIONS: readonly Motion[] = ["blink", "tail", "ear"];
+/**
+ * The idle motions are declared, and the page plays them: each starts after a
+ * random delay in its range, one at a time, and the cat rests on its idle
+ * frame in between. Nothing here wakes the plugin.
+ */
+const MOTIONS: readonly SpriteMotion[] = [
+  {
+    steps: [{ frame: art("blink"), ms: 140 }],
+    repeat: { every: { min: 3000, max: 7000 } },
+  },
+  {
+    steps: [
+      { frame: art("tail-a"), ms: 200 },
+      { frame: art("tail-b"), ms: 200 },
+      { frame: art("tail-a"), ms: 200 },
+      { frame: art("tail-b"), ms: 200 },
+      { frame: art("tail-a"), ms: 200 },
+    ],
+    repeat: { every: { min: 5000, max: 11000 } },
+  },
+  {
+    steps: [
+      { frame: art("ear"), ms: 220 },
+      { frame: art("idle"), ms: 120 },
+      { frame: art("ear"), ms: 220 },
+    ],
+    repeat: { every: { min: 6000, max: 13000 } },
+  },
+];
 
-const frame = beep.state<Frame>("idle");
 const happy = beep.state(false);
-let playing = false;
 let stopHappy: (() => void) | null = null;
 
-function randomBetween(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
-/** Show each step in turn. Only one step timer is pending at a time. */
-function play(steps: readonly Step[], index: number, done: () => void): void {
-  const step = steps[index];
-  if (step === undefined) {
-    done();
-    return;
-  }
-
-  frame.set(step.frame);
-  if (index === steps.length - 1) {
-    done();
-    return;
-  }
-  beep.after(step.ms, () => play(steps, index + 1, done));
-}
-
-/** Wait a random time, then play the motion once nothing else is moving. */
-function schedule(motion: Motion): void {
-  const { steps, min, max } = SCHEDULES[motion];
-
-  const attempt = (): void => {
-    if (playing || happy.get()) {
-      beep.after(RETRY_MS, attempt);
-      return;
-    }
-
-    playing = true;
-    play(steps, 0, () => {
-      playing = false;
-      schedule(motion);
-    });
-  };
-
-  beep.after(randomBetween(min, max), attempt);
-}
-
-/** Show the happy frame for a moment. It hides the idle motions, which carry on after. */
+/** Show the happy frame for a moment. The one timer here ends it. */
 function cheer(): void {
   stopHappy?.();
   happy.set(true);
@@ -211,14 +149,18 @@ function follow(composer: Composer | null): void {
 beep.on({ name: "ui.composer" }, (event) => follow(readComposer(event.data)));
 
 beep.place({ slot: "composer", align: "end", offset: 84, sink: 3 }, () =>
-  beep.image({
-    src: `art/cat-${happy.get() ? "happy" : frame.get()}.png`,
-    width: WIDTH * SCALE,
-    height: HEIGHT * SCALE,
-    pixelated: true,
-  }),
+  happy.get()
+    ? beep.image({
+        src: art("happy"),
+        width: WIDTH * SCALE,
+        height: HEIGHT * SCALE,
+        pixelated: true,
+      })
+    : beep.sprite({
+        rest: art("idle"),
+        width: WIDTH * SCALE,
+        height: HEIGHT * SCALE,
+        pixelated: true,
+        motions: MOTIONS,
+      }),
 );
-
-for (const motion of MOTIONS) {
-  schedule(motion);
-}

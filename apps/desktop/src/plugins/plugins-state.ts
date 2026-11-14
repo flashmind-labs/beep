@@ -1,4 +1,6 @@
 import { createStore } from "zustand";
+import { browserBackend, createAssetCache, parseAssetRef, type AssetBackend, type AssetRef } from "./assets.ts";
+import { MAX_FRAMES, parseMotions, type SpriteMotion } from "./sprite.ts";
 
 /// A named place in the app. A slot can be on the page many times, each with its own context.
 export type PluginSlotName = "composer" | "session.row" | "session.header";
@@ -9,7 +11,8 @@ export type PluginTone = "normal" | "dim" | "accent";
 export type CallbackId = number;
 
 export type PluginNode =
-  | { kind: "image"; src: string; width: number; height: number; pixelated: boolean }
+  | { kind: "image"; asset: AssetRef; width: number; height: number; pixelated: boolean }
+  | { kind: "sprite"; frames: AssetRef[]; rest: number; width: number; height: number; pixelated: boolean; motions: SpriteMotion[] }
   | { kind: "text"; text: string; tone: PluginTone }
   | { kind: "row"; gap: number; children: PluginNode[] }
   | { kind: "button"; label: string; children: PluginNode[]; onPress: CallbackId }
@@ -29,8 +32,6 @@ export interface Placement {
   node: PluginNode;
 }
 
-/// Images arrive as data URLs; anything else is refused.
-const IMAGE_PREFIX = "data:image/";
 /// Rows nest no deeper than this.
 const MAX_DEPTH = 8;
 const MAX_KEY_BYTES = 128;
@@ -57,10 +58,21 @@ function parseNode(raw: unknown, depth: number): PluginNode | null {
   if (!isRecord(raw) || depth > MAX_DEPTH) return null;
 
   if (raw.kind === "image") {
-    const { src, width, height, pixelated } = raw;
-    if (typeof src !== "string" || !src.startsWith(IMAGE_PREFIX)) return null;
+    const { width, height, pixelated } = raw;
+    const asset = parseAssetRef(raw.asset);
+    if (asset === null || !isLength(width) || !isLength(height) || typeof pixelated !== "boolean") return null;
+    return { kind: "image", asset, width, height, pixelated };
+  }
+
+  if (raw.kind === "sprite") {
+    const { rest, width, height, pixelated } = raw;
+    if (!Array.isArray(raw.frames) || raw.frames.length === 0 || raw.frames.length > MAX_FRAMES) return null;
+    const frames = raw.frames.map(parseAssetRef);
+    if (!frames.every(frame => frame !== null)) return null;
+    const motions = parseMotions(raw.motions, frames.length);
+    if (motions === null || typeof rest !== "number" || !Number.isInteger(rest) || rest < 0 || rest >= frames.length) return null;
     if (!isLength(width) || !isLength(height) || typeof pixelated !== "boolean") return null;
-    return { kind: "image", src, width, height, pixelated };
+    return { kind: "sprite", frames, rest, width, height, pixelated, motions };
   }
 
   if (raw.kind === "text") {
@@ -154,21 +166,38 @@ interface PluginsState {
   placements: Placement[];
   /// The same placements by instance.
   index: ReadonlyMap<string, readonly Placement[]>;
+  /// Blob URLs of the images placements use, by hash, for the ones that have arrived.
+  assets: ReadonlyMap<string, string>;
 }
 
 /// What plugins have placed, shared by every slot.
-export const pluginsStore = createStore<PluginsState>(() => ({ placements: [], index: new Map() }));
+export const pluginsStore = createStore<PluginsState>(() => ({ placements: [], index: new Map(), assets: new Map() }));
+
+/// Every image the nodes use, the frames of sprites included.
+export function assetRefs(placements: readonly Placement[]): AssetRef[] {
+  const refs: AssetRef[] = [];
+  const visit = (node: PluginNode) => {
+    if (node.kind === "image") refs.push(node.asset);
+    else if (node.kind === "sprite") refs.push(...node.frames);
+    else if (node.kind === "row" || node.kind === "button") node.children.forEach(visit);
+  };
+  for (const placement of placements) visit(placement.node);
+  return refs;
+}
 
 /// The page's side of the desktop: reading placements and hearing changes.
 export interface PluginsBridge {
-  invoke(cmd: string): Promise<unknown>;
+  invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
   listen(event: string, handler: (event: { payload: unknown }) => void): Promise<unknown>;
 }
 
-/// Fills the store from the desktop now and on every `plugins-changed`.
-export function connectPlugins(bridge: PluginsBridge): Promise<void> {
+/// Fills the store from the desktop now and on every `plugins-changed`, and fetches the images
+/// placements use through `plugins_asset`, once each.
+export function connectPlugins(bridge: PluginsBridge, backend: AssetBackend = browserBackend(hash => bridge.invoke("plugins_asset", { hash }))): Promise<void> {
+  const cache = createAssetCache(backend, () => pluginsStore.setState({ assets: cache.urls() }));
   const show = (payload: unknown) => {
     const placements = parsePlacements(payload);
+    cache.use(assetRefs(placements));
     pluginsStore.setState(state => ({ placements, index: indexPlacements(placements, state.index) }));
   };
   const subscribed = bridge.listen("plugins-changed", event => show(event.payload)).then(() => undefined);
@@ -408,4 +437,20 @@ export interface SlotsBridge {
 export function connectPluginSlots(bridge: SlotsBridge): void {
   sendEvent = event => void bridge.invoke("plugins_event", { event }).catch(() => undefined);
   instanceBook.connect(batch => void bridge.invoke("plugins_instances", { batch }).catch(() => undefined));
+}
+
+/// What the page needs to tell the desktop whether it is visible.
+export interface VisibilityBridge {
+  invoke(cmd: string, args: Record<string, unknown>): Promise<unknown>;
+  /// Whether this window is on screen now.
+  shown(): boolean;
+  /// Calls `fn` each time that changes.
+  onChange(fn: (shown: boolean) => void): void;
+}
+
+/// Tells the desktop when this window shows or hides. While none shows, plugins stay quiet.
+export function connectPluginVisibility(bridge: VisibilityBridge): void {
+  const tell = (visible: boolean) => void bridge.invoke("plugins_visible", { visible }).catch(() => undefined);
+  tell(bridge.shown());
+  bridge.onChange(tell);
 }

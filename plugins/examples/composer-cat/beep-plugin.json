@@ -1,8 +1,9 @@
 {
   "id": "composer-cat",
   "name": "Composer cat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A cat sits on the message box.",
   "entry": "main.ts",
-  "permissions": ["ui.add", "sessions.read"]
+  "permissions": ["ui.add", "sessions.read"],
+  "activation": ["slot:composer"]
 }

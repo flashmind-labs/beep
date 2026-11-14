@@ -80,3 +80,54 @@ fn parses_the_sessions_permission() {
     assert!(manifest.allows(Permission::SessionsRead));
     assert_eq!(Permission::SessionsRead.to_string(), "sessions.read");
 }
+
+#[test]
+fn activation_defaults_to_startup() {
+    let manifest = Manifest::parse(VALID).unwrap();
+
+    assert_eq!(manifest.activation, [Activation::Startup]);
+    assert!(manifest.starts_at_launch());
+}
+
+#[test]
+fn activation_names_slots_and_local_topics() {
+    let text = VALID.replace(
+        "\"permissions\"",
+        "\"activation\": [\"slot:composer\", \"topic:ui.composer\"], \"permissions\"",
+    );
+
+    let manifest = Manifest::parse(&text).unwrap();
+
+    assert_eq!(
+        manifest.activation,
+        [
+            Activation::Slot(Slot::Composer),
+            Activation::Topic(Topic::local("ui.composer").unwrap())
+        ]
+    );
+    assert!(!manifest.starts_at_launch());
+    assert_eq!(manifest.activation[1].to_string(), "topic:ui.composer");
+}
+
+#[test]
+fn bad_activations_fail_the_manifest() {
+    for bad in [
+        "\"slot:sidebar\"",
+        "\"topic:agent\"",
+        "\"topic:\"",
+        "\"later\"",
+        "3",
+    ] {
+        let text = VALID.replace(
+            "\"permissions\"",
+            &format!("\"activation\": [{bad}], \"permissions\""),
+        );
+        assert!(Manifest::parse(&text).is_err(), "{bad}");
+    }
+
+    let empty = VALID.replace("\"permissions\"", "\"activation\": [], \"permissions\"");
+    assert!(matches!(
+        Manifest::parse(&empty),
+        Err(ManifestError::NoActivation)
+    ));
+}

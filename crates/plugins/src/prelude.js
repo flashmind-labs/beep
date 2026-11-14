@@ -118,6 +118,7 @@
   }
 
   const image = (props) => Object.assign({ kind: "image" }, props);
+  const sprite = (props) => Object.assign({ kind: "sprite" }, props);
   const text = (value, options) =>
     Object.assign({ kind: "text" }, options, { text: String(value) });
   const row = (options, children) =>
@@ -201,7 +202,7 @@
     return { version, json: instance.json, ids, text };
   }
 
-  const api = { place, state, after, on, image, text, row, button, toggle, input };
+  const api = { place, state, after, on, image, sprite, text, row, button, toggle, input };
   Object.defineProperty(globalThis, "beep", {
     value: Object.freeze(api),
     writable: false,

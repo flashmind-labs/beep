@@ -56,6 +56,21 @@ pub enum TopicError {
 }
 
 impl Topic {
+    /// A topic of the app's own, followed by every key and machine.
+    pub fn local(name: &str) -> Result<Self, TopicError> {
+        let topic = Self {
+            name: name.to_owned(),
+            key: None,
+            machine: None,
+        };
+        topic.check()?;
+        if !topic.is_local() {
+            return Err(TopicError::Unknown(name.to_owned()));
+        }
+
+        Ok(topic)
+    }
+
     /// Whether the page publishes this topic itself.
     pub fn is_local(&self) -> bool {
         self.name.starts_with(LOCAL_PREFIX)

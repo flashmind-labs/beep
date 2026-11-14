@@ -513,7 +513,7 @@ dependencies = [
 name = "beep-plugins"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
+ "blake3",
  "log",
  "mime_guess",
  "notify",

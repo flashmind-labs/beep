@@ -8,14 +8,17 @@ There are three slots and two permissions (`ui.add`, `sessions.read`).
 ## Manifest
 
 ```json
-{ "id": "composer-cat", "name": "Composer cat", "version": "0.1.0",
-  "description": "A cat sits on the message box.", "entry": "main.ts", "permissions": ["ui.add"] }
+{ "id": "composer-cat", "name": "Composer cat", "version": "0.2.0",
+  "description": "A cat sits on the message box.", "entry": "main.ts", "permissions": ["ui.add"],
+  "activation": ["slot:composer"] }
 ```
 
 - `id`: 2 to 40 chars, lowercase letters, digits and dashes, starts with a
   letter, equals the folder name.
 - `version`: semver. `description`: optional. `entry`: optional, default
   `main.ts`, a path inside the folder.
+- `activation`: optional, when the plugin starts, default `["startup"]`. See
+  Activation.
 - `permissions`: `ui.add` (place UI) and `sessions.read` (follow `agents` and
   `agent` topics). Unknown permissions or fields fail the load.
 
@@ -40,9 +43,10 @@ const stop = beep.on({ name: "ui.composer" }, event => { /* event.data */ });
   state change. Instances that did not change are not rendered again.
 - `state(initial)`: `get()` and `set(next)`.
 - `after(ms, callback)`: one-shot timer, at least 16 ms, returns a cancel function.
+  Timers wait while no window is visible.
 - `on(topic, callback)`: follow a topic, see below. Returns a function that stops it.
-- `image`, `text`, `row`, `button`, `toggle`, `input`: build nodes. Images are
-  paths inside the folder, at most 256 KB.
+- `image`, `sprite`, `text`, `row`, `button`, `toggle`, `input`: build nodes. Images
+  are paths inside the folder, at most 256 KB each and 4 MB per plugin.
 
 ## Slots
 
@@ -72,6 +76,7 @@ heights measured by hand, and its rows have no stable message id.
 - `text(text, { tone })`: `tone` is `"normal"`, `"dim"` or `"accent"`.
 - `row({ gap }, children)`: children left to right.
 - `image({ src, width, height, pixelated })`.
+- `sprite({ rest, width, height, pixelated, motions })`: see Animation.
 - `button({ label, onPress }, children?)`: `label` is the accessible name and the
   content when there are no children.
 - `toggle({ label, value, onChange })`: `onChange(value)` gets the new value.
@@ -84,6 +89,66 @@ and takes the plugin's `value` when that changes. A callback from an older draw
 is ignored. A plugin gets at most 30 events a second. Controls look like the app's
 own, are keyboard reachable, and take the pointer only where they are. Using
 them needs only `ui.add`.
+
+## Animation
+
+A plugin never animates by timers: that wakes its thread, runs its script and sends
+a new tree to the page for every frame. Declare the animation with `sprite` and the
+page plays it, with no wakeups of the plugin and no traffic.
+
+```ts
+beep.sprite({
+  rest: "art/cat-idle.png", width: 72, height: 56, pixelated: true,
+  motions: [
+    { steps: [{ frame: "art/cat-blink.png", ms: 140 }], repeat: { every: { min: 3000, max: 7000 } } },
+  ],
+});
+```
+
+The sprite shows `rest`. Each motion is a list of steps (a frame path and how long
+it shows, 16 to 60000 ms), and after the last step the sprite goes back to `rest`.
+`repeat` says when a motion plays:
+
+- `"once"` (default): once, when the sprite appears.
+- `{ every: { min, max } }`: after a random delay between `min` and `max` ms (100 to
+  3600000), and again after each play with a new delay.
+- `"loop"`: again and again with no rest. It must be the only motion.
+
+Motions play one at a time, in due order. A sprite has at most 8 motions, 64 steps
+in each and 32 distinct frames. To change what the sprite does, return another node
+after a state change (the cat returns a plain `image` while it is happy). The page
+draws only the rest frame while its window is hidden or the user asks for reduced
+motion, and starts the motions again when it can.
+
+Images are sent to the page once per content hash, not in every update, and the page
+drops one when no placement uses it.
+
+## Activation
+
+`activation` lists what starts the plugin, and any one is enough:
+
+- `"startup"`: when the app starts. The plugin runs until the app quits. Default.
+- `"slot:<slot>"`: when the page first shows an instance of that slot.
+- `"topic:ui.<name>"`: when the page first publishes that `ui.` topic.
+
+The host reads the manifest without running the plugin, so a plugin that waits costs
+nothing. A plugin whose activation is only slots stops when none of those slots has
+been on the page for 60 seconds, and starts again when one returns, with its state
+reset. List every slot the plugin draws in. A plugin that lists `startup` or a topic
+keeps running once started.
+
+## Hidden windows and cost
+
+The page tells the host when its windows are visible. While none is, plugins are
+paused: nothing is drawn, timers wait (overdue ones run once each when a window shows
+again), and topic updates pile up, only the newest per topic and machine kept, and
+arrive then. A plugin cannot run while hidden.
+
+The host adds up the time a plugin spends in its script. A plugin that uses more than
+500 ms in any 60 seconds is stopped, with the reason, and shows nothing until its files
+change. The `plugins_status` command lists each plugin's id, name, version, `state`
+(`waiting`, `running`, `paused` or `stopped` with a `reason`), `usedMs` over the last
+minute and `pendingTimers`.
 
 ## Topics
 
@@ -106,7 +171,7 @@ Updates queue per plugin and only the newest per topic and machine is delivered.
 Events over 256 KB are dropped.
 
 Limits: 16 MB memory, 50 ms of CPU per call (each delivery, event and render
-pass too), 64 pending timers, 16 subscriptions, 8 `place` calls, 200 instances
+pass too) and 500 ms per minute, 64 pending timers, 16 subscriptions, 8 `place` calls, 200 instances
 per slot, 64 nodes and 64 KB per drawn instance. Breaking one stops the plugin.
 
 ## Try the example

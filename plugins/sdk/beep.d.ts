@@ -53,6 +53,44 @@ interface ImageNode {
   readonly pixelated: boolean;
 }
 
+/** One step of a motion: show `frame` (a path inside the plugin folder) for `ms`. */
+interface SpriteStep {
+  readonly frame: string;
+  /** How long it shows, 16 to 60000 ms. */
+  readonly ms: number;
+}
+
+/**
+ * When a motion plays:
+ * - "once" (default): once, when the sprite appears.
+ * - "loop": again and again with no rest. It must be the sprite's only motion.
+ * - `{ every: { min, max } }`: after a random delay between `min` and `max`
+ *   ms (100 to 3600000), and again, with a new delay, after each play.
+ */
+type SpriteRepeat = "once" | "loop" | { readonly every: { readonly min: number; readonly max: number } };
+
+/** Frames shown in turn. When the steps are done the sprite goes back to its rest frame. */
+interface SpriteMotion {
+  /** At most 64 steps. */
+  readonly steps: readonly SpriteStep[];
+  readonly repeat?: SpriteRepeat;
+}
+
+/**
+ * A picture the page animates by itself: it shows `rest`, and plays the
+ * motions one at a time. The plugin is not woken for any frame. To change what
+ * it shows, return another node after a state change. Draws only the rest
+ * frame while the window is hidden or the user prefers reduced motion.
+ */
+interface SpriteNode {
+  readonly kind: "sprite";
+  readonly rest: string;
+  readonly width: number;
+  readonly height: number;
+  readonly pixelated: boolean;
+  readonly motions: readonly SpriteMotion[];
+}
+
 /** A line of plain text. */
 interface TextNode {
   readonly kind: "text";
@@ -97,7 +135,7 @@ interface InputNode {
 }
 
 /** Anything a plugin can draw. */
-type Node = ImageNode | TextNode | RowNode | ButtonNode | ToggleNode | InputNode;
+type Node = ImageNode | SpriteNode | TextNode | RowNode | ButtonNode | ToggleNode | InputNode;
 
 /** Options for `beep.image`. Sizes are CSS px. */
 interface ImageOptions {
@@ -107,6 +145,18 @@ interface ImageOptions {
   height: number;
   /** Scale without smoothing. Use it for pixel art. Default false. */
   pixelated?: boolean;
+}
+
+/** Options for `beep.sprite`. Sizes are CSS px. */
+interface SpriteOptions {
+  /** Path of the frame shown when no motion plays. Max 256 KB. */
+  rest: string;
+  width: number;
+  height: number;
+  /** Scale without smoothing. Use it for pixel art. Default false. */
+  pixelated?: boolean;
+  /** At most 8 motions and 32 distinct frames in all. Default none. */
+  motions?: readonly SpriteMotion[];
 }
 
 /** Options for `beep.row`. */
@@ -221,7 +271,8 @@ interface Beep {
   state<T>(initial: T): State<T>;
 
   /**
-   * Run `callback` once after `ms` milliseconds (at least 16).
+   * Run `callback` once after `ms` milliseconds (at least 16). Timers wait
+   * while no window is visible, then overdue ones run once each.
    * Returns a function that cancels it. At most 64 timers can be pending.
    */
   after(ms: number, callback: () => void): () => void;
@@ -238,6 +289,12 @@ interface Beep {
 
   /** Build an image node. */
   image(options: ImageOptions): Node;
+
+  /**
+   * Build a sprite node: a picture the page animates itself, with no timers or
+   * redraws in the plugin. A plugin's images may total 4 MB.
+   */
+  sprite(options: SpriteOptions): Node;
 
   /** Build a text node. */
   text(text: string, options?: TextOptions): Node;

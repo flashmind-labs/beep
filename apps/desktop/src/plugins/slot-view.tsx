@@ -1,8 +1,10 @@
-import { useEffect, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useStore } from "zustand";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { onShownChange, pageShown } from "../ui/active.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { clipBytes, connectPluginSlots, connectPluginTopics, connectPlugins, instanceBook, instanceId, placementsFor, pluginsStore, publishUi, sendPluginEvent } from "./plugins-state.ts";
+import { createSpriteDriver, createSpriteScript, type SpriteDriver } from "./sprite.ts";
+import { clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, instanceBook, instanceId, placementsFor, pluginsStore, publishUi, sendPluginEvent } from "./plugins-state.ts";
 import type { CallbackId, ComposerShown, Placement, PluginAction, PluginNode, PluginPosition, SlotInstance } from "./plugins-state.ts";
 
 const bridge = { invoke: (cmd: string, args?: Record<string, unknown>) => invoke(cmd, args), listen };
@@ -16,6 +18,15 @@ void connectPluginTopics({
   ),
 });
 connectPluginSlots({ invoke: (cmd, args) => invoke(cmd, args) });
+connectPluginVisibility({ invoke: (cmd, args) => invoke(cmd, args), shown: pageShown, onChange: onShownChange });
+
+/// The sprites on this page. They play only while the window shows and the user has not asked for less motion.
+const sprites = new Set<SpriteDriver>();
+const reducedMotion = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+const canAnimate = () => pageShown() && !(reducedMotion?.matches ?? false);
+const syncSprites = () => { const on = canAnimate(); for (const sprite of sprites) sprite.setActive(on); };
+onShownChange(syncSprites);
+reducedMotion?.addEventListener("change", syncSprites);
 
 /// The longest session title a row tells plugins, in bytes.
 const MAX_TITLE_BYTES = 256;
@@ -54,7 +65,9 @@ function send(plugin: string, id: CallbackId, action: PluginAction) {
 function NodeView({ node, plugin }: { node: PluginNode; plugin: string }) {
   switch (node.kind) {
     case "image":
-      return <img src={node.src} width={node.width} height={node.height} alt="" draggable={false} style={node.pixelated ? { imageRendering: "pixelated" } : undefined} />;
+      return <ImageView node={node} />;
+    case "sprite":
+      return <SpriteView node={node} />;
     case "text":
       return <span className={node.tone === "normal" ? undefined : `plugintext ${node.tone}`}>{node.text}</span>;
     case "row":
@@ -66,6 +79,48 @@ function NodeView({ node, plugin }: { node: PluginNode; plugin: string }) {
     case "input":
       return <PluginInput node={node} plugin={plugin} />;
   }
+}
+
+/// The URL of an image the page has fetched, or null while it is on its way.
+const useAssetUrl = (hash: string) => useStore(pluginsStore, state => state.assets.get(hash) ?? null);
+
+function ImageView({ node }: { node: Extract<PluginNode, { kind: "image" }> }) {
+  const url = useAssetUrl(node.asset.hash);
+  if (url === null) return null;
+  return <img src={url} width={node.width} height={node.height} alt="" draggable={false} style={node.pixelated ? { imageRendering: "pixelated" } : undefined} />;
+}
+
+/// A sprite stacks its frames and shows one. The driver changes which, from timers on this page, so the
+/// plugin is never woken for a frame. Until every frame has arrived nothing shows.
+function SpriteView({ node }: { node: Extract<PluginNode, { kind: "sprite" }> }) {
+  const urls = useStore(pluginsStore, state => state.assets);
+  const box = useRef<HTMLSpanElement>(null);
+  const ready = node.frames.every(frame => urls.has(frame.hash));
+  const script = JSON.stringify([node.rest, node.motions]);
+
+  useEffect(() => {
+    const element = box.current;
+    if (!ready || element === null) return;
+
+    const images = Array.from(element.children);
+    const show = (frame: number) => images.forEach((image, index) => image.toggleAttribute("data-on", index === frame));
+    const driver = createSpriteDriver(createSpriteScript(node.motions, node.rest, Math.random), node.rest, {
+      now: () => performance.now(),
+      setFrame: show,
+      setTimer: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimer: id => window.clearTimeout(id),
+    });
+    show(node.rest);
+    sprites.add(driver);
+    driver.setActive(canAnimate());
+    return () => { sprites.delete(driver); driver.stop(); };
+    // The script's text stands for its motions.
+  }, [ready, script]);
+
+  if (!ready) return null;
+  return <span ref={box} className="pluginsprite" style={{ width: node.width, height: node.height, imageRendering: node.pixelated ? "pixelated" : undefined }}>
+    {node.frames.map((frame, index) => <img key={index} src={urls.get(frame.hash)} width={node.width} height={node.height} alt="" draggable={false} data-frame={index} data-on={index === node.rest ? "" : undefined} />)}
+  </span>;
 }
 
 const children = (nodes: readonly PluginNode[], plugin: string) => nodes.map((child, index) => <NodeView key={index} node={child} plugin={plugin} />);
@@ -92,7 +147,7 @@ function PluginInput({ node, plugin }: { node: Extract<PluginNode, { kind: "inpu
 
 const hasControls = (node: PluginNode): boolean => {
   switch (node.kind) {
-    case "image": case "text": return false;
+    case "image": case "sprite": case "text": return false;
     case "row": return node.children.some(hasControls);
     case "button": case "toggle": case "input": return true;
   }

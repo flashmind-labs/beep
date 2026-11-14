@@ -1,20 +1,23 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use rquickjs::context::EvalOptions;
 use rquickjs::{CatchResultExt, Context, Ctx, Function, Object, Persistent, Runtime};
 use thiserror::Error;
 
+use crate::asset::{Asset, Assets, ImageError};
 use crate::event::UiEvent;
 use crate::instance::Instance;
 use crate::manifest::{Manifest, ManifestError, Permission, PluginId};
+use crate::meter::Meter;
 use crate::source::{SourceError, strip_types};
 use crate::topic::{Delivery, Subscriptions, Topic};
-use crate::ui::{Node, Placement, RawNode, RawPlace, RawPlacement, Slot};
+use crate::ui::{
+    MAX_FRAMES, Motion, Node, Placement, RawNode, RawPlace, RawPlacement, RawRepeat, Repeat, Slot,
+    SpriteError, Step, check_motions,
+};
 
 const PRELUDE: &str = include_str!("prelude.js");
 
@@ -32,7 +35,6 @@ const MAX_NODES: usize = 64;
 const MAX_RENDER_BYTES: usize = 64 * 1024;
 /// All placements of one render, as JSON.
 const MAX_TOTAL_BYTES: usize = 2 * 1024 * 1024;
-const MAX_IMAGE_BYTES: u64 = 256 * 1024;
 
 #[derive(Debug, Error)]
 pub(crate) enum SandboxError {
@@ -65,20 +67,10 @@ pub(crate) enum SandboxError {
     Tree(#[from] serde_json::Error),
     #[error("image {src:?}: {reason}")]
     Image { src: String, reason: ImageError },
-}
-
-#[derive(Debug, Error)]
-pub(crate) enum ImageError {
-    #[error("path must be relative")]
-    Absolute,
-    #[error("path leaves the plugin folder")]
-    Outside,
-    #[error("cannot read: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("not an image file")]
-    NotImage,
-    #[error("{0} bytes is over the {MAX_IMAGE_BYTES} byte limit")]
-    TooLarge(u64),
+    #[error("invalid sprite: {0}")]
+    Sprite(#[from] SpriteError),
+    #[error("used {used_ms} ms of script time in the last minute, the budget is {budget_ms} ms")]
+    OverBudget { used_ms: u64, budget_ms: u64 },
 }
 
 /// One plugin in its own QuickJS runtime. It has no threads or clocks of its
@@ -96,7 +88,10 @@ pub(crate) struct Sandbox {
     timers: Arc<Mutex<Timers>>,
     subscriptions: Arc<Mutex<Subscriptions>>,
     budget: Budget,
-    images: Images,
+    meter: Arc<Meter>,
+    images: Resolver,
+    /// The images the last render used.
+    shown_assets: Vec<Asset>,
 }
 
 struct Timers {
@@ -124,7 +119,17 @@ impl Budget {
 
 impl Sandbox {
     /// Reads the plugin folder, strips types from the entry file and runs it.
+    #[cfg(test)]
     pub(crate) fn load(dir: &Path, now: Instant) -> Result<Self, SandboxError> {
+        Self::load_metered(dir, now, Arc::new(Meter::new(crate::meter::BUDGET)))
+    }
+
+    /// Like `load`, counting the plugin's script time in `meter`.
+    pub(crate) fn load_metered(
+        dir: &Path,
+        now: Instant,
+        meter: Arc<Meter>,
+    ) -> Result<Self, SandboxError> {
         let manifest = Manifest::read(dir)?;
         let root = dir.canonicalize().map_err(|source| SandboxError::Io {
             path: dir.to_path_buf(),
@@ -160,6 +165,7 @@ impl Sandbox {
 
         let subscriptions = Arc::new(Mutex::new(Subscriptions::new(&manifest.permissions)));
 
+        let started = Instant::now();
         budget.start();
         let can_place = manifest.allows(Permission::UiAdd);
         let filename = manifest.entry.display().to_string();
@@ -192,8 +198,11 @@ impl Sandbox {
         });
         let drained = drain_jobs(&runtime);
         budget.stop();
+        meter.record(Instant::now(), started.elapsed());
         let (fire, emit, instances, invoke, render) = loaded?;
         drained?;
+        check_meter(&meter)?;
+        meter.set_timers(locked(&timers).pending.len());
 
         Ok(Self {
             fire,
@@ -207,7 +216,9 @@ impl Sandbox {
             timers,
             subscriptions,
             budget,
-            images: Images::new(root),
+            meter,
+            images: Resolver::new(Assets::new(root)),
+            shown_assets: Vec::new(),
         })
     }
 
@@ -303,6 +314,7 @@ impl Sandbox {
         }
 
         let mut placements = Vec::with_capacity(entries.len());
+        let mut used = Used::default();
         for json in &entries {
             if json.len() > MAX_RENDER_BYTES {
                 return Err(SandboxError::TooLarge(json.len()));
@@ -310,8 +322,8 @@ impl Sandbox {
 
             let raw: RawPlacement = serde_json::from_str(json)?;
             let slot = raw.place.slot();
-            let mut nodes = 0;
-            let node = self.images.resolve(raw.node, &mut nodes)?;
+            used.nodes = 0;
+            let node = self.images.resolve(raw.node, &mut used)?;
             if !slot.is_interactive() && node.is_interactive() {
                 return Err(SandboxError::NotInteractive(slot));
             }
@@ -325,7 +337,14 @@ impl Sandbox {
             });
         }
 
+        self.shown_assets = used.assets.into_values().collect();
+
         Ok(Some(placements))
+    }
+
+    /// The images the last render used, each once.
+    pub(crate) fn assets(&self) -> &[Asset] {
+        &self.shown_assets
     }
 
     /// Runs script code under the CPU budget, then drains promise jobs.
@@ -333,13 +352,17 @@ impl Sandbox {
         &self,
         work: impl for<'js> FnOnce(&Ctx<'js>) -> Result<R, SandboxError>,
     ) -> Result<R, SandboxError> {
+        let started = Instant::now();
         self.budget.start();
         let result = self.context.with(|ctx| work(&ctx));
         let drained = drain_jobs(&self.runtime);
         self.budget.stop();
+        self.meter.record(Instant::now(), started.elapsed());
+        self.meter.set_timers(locked(&self.timers).pending.len());
 
         let value = result?;
         drained?;
+        check_meter(&self.meter)?;
 
         Ok(value)
     }
@@ -402,6 +425,19 @@ fn subscribe_functions<'js>(
     ))
 }
 
+/// Fails when the plugin used more script time than its budget in the last minute.
+fn check_meter(meter: &Meter) -> Result<(), SandboxError> {
+    let used = meter.used(Instant::now());
+    if used > meter.budget() {
+        return Err(SandboxError::OverBudget {
+            used_ms: u64::try_from(used.as_millis()).unwrap_or(u64::MAX),
+            budget_ms: u64::try_from(meter.budget().as_millis()).unwrap_or(u64::MAX),
+        });
+    }
+
+    Ok(())
+}
+
 fn drain_jobs(runtime: &Runtime) -> Result<(), SandboxError> {
     while runtime.is_job_pending() {
         runtime
@@ -422,24 +458,27 @@ pub(crate) fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Turns image paths into `data:` URLs, caching each path.
-struct Images {
-    root: PathBuf,
-    cache: HashMap<String, String>,
+/// What a render has used so far: nodes, and the images they name.
+#[derive(Default)]
+struct Used {
+    nodes: usize,
+    assets: BTreeMap<crate::asset::AssetHash, Asset>,
 }
 
-impl Images {
-    fn new(root: PathBuf) -> Self {
-        Self {
-            root,
-            cache: HashMap::new(),
-        }
+/// Turns the raw tree a plugin drew into nodes, naming each image file by its hash.
+struct Resolver {
+    assets: Assets,
+}
+
+impl Resolver {
+    fn new(assets: Assets) -> Self {
+        Self { assets }
     }
 
-    fn resolve(&mut self, raw: RawNode, nodes: &mut usize) -> Result<Node, SandboxError> {
-        *nodes += 1;
-        if *nodes > MAX_NODES {
-            return Err(SandboxError::TooManyNodes(*nodes));
+    fn resolve(&mut self, raw: RawNode, used: &mut Used) -> Result<Node, SandboxError> {
+        used.nodes += 1;
+        if used.nodes > MAX_NODES {
+            return Err(SandboxError::TooManyNodes(used.nodes));
         }
 
         Ok(match raw {
@@ -449,17 +488,77 @@ impl Images {
                 height,
                 pixelated,
             } => Node::Image {
-                src: self
-                    .data_url(&src)
-                    .map_err(|reason| SandboxError::Image { src, reason })?,
+                asset: self.asset(&src, used)?.reference(),
                 width,
                 height,
                 pixelated,
             },
+            RawNode::Sprite {
+                rest,
+                width,
+                height,
+                pixelated,
+                motions,
+            } => {
+                check_motions(&motions)?;
+
+                let mut paths = vec![rest.as_str()];
+                for step in motions.iter().flat_map(|motion| &motion.steps) {
+                    if !paths.contains(&step.frame.as_str()) {
+                        paths.push(&step.frame);
+                    }
+                }
+                if paths.len() > MAX_FRAMES {
+                    return Err(SpriteError::TooManyFrames(paths.len()).into());
+                }
+
+                let mut frames = Vec::with_capacity(paths.len());
+                for path in &paths {
+                    frames.push(self.asset(path, used)?.reference());
+                }
+                // Every step's path is in `paths`, and there are at most `MAX_FRAMES`.
+                let index = |path: &str| {
+                    paths
+                        .iter()
+                        .position(|known| *known == path)
+                        .and_then(|at| u16::try_from(at).ok())
+                        .unwrap_or(0)
+                };
+                let motions = motions
+                    .iter()
+                    .map(|motion| Motion {
+                        steps: motion
+                            .steps
+                            .iter()
+                            .map(|step| Step {
+                                frame: index(&step.frame),
+                                ms: step.ms,
+                            })
+                            .collect(),
+                        repeat: match &motion.repeat {
+                            RawRepeat::Loop => Repeat::Loop,
+                            RawRepeat::Once => Repeat::Once,
+                            RawRepeat::Every(range) => Repeat::Every {
+                                min_ms: range.min,
+                                max_ms: range.max,
+                            },
+                        },
+                    })
+                    .collect();
+
+                Node::Sprite {
+                    frames,
+                    rest: 0,
+                    width,
+                    height,
+                    pixelated,
+                    motions,
+                }
+            }
             RawNode::Text { text, tone } => Node::Text { text, tone },
             RawNode::Row { gap, children } => Node::Row {
                 gap,
-                children: self.resolve_all(children, nodes)?,
+                children: self.resolve_all(children, used)?,
             },
             RawNode::Button {
                 label,
@@ -467,7 +566,7 @@ impl Images {
                 on_press,
             } => Node::Button {
                 label,
-                children: self.resolve_all(children, nodes)?,
+                children: self.resolve_all(children, used)?,
                 on_press,
             },
             RawNode::Toggle {
@@ -498,40 +597,28 @@ impl Images {
     fn resolve_all(
         &mut self,
         children: Vec<RawNode>,
-        nodes: &mut usize,
+        used: &mut Used,
     ) -> Result<Vec<Node>, SandboxError> {
         children
             .into_iter()
-            .map(|child| self.resolve(child, nodes))
+            .map(|child| self.resolve(child, used))
             .collect()
     }
 
-    fn data_url(&mut self, src: &str) -> Result<String, ImageError> {
-        if let Some(url) = self.cache.get(src) {
-            return Ok(url.clone());
-        }
-        if !Path::new(src).is_relative() {
-            return Err(ImageError::Absolute);
-        }
+    /// Loads an image, and counts it as used by this render.
+    fn asset(&mut self, src: &str, used: &mut Used) -> Result<Asset, SandboxError> {
+        let asset = self
+            .assets
+            .load(src)
+            .map_err(|reason| SandboxError::Image {
+                src: src.to_owned(),
+                reason,
+            })?;
+        used.assets
+            .entry(asset.hash().clone())
+            .or_insert_with(|| asset.clone());
 
-        let path = self.root.join(src).canonicalize()?;
-        if !path.starts_with(&self.root) {
-            return Err(ImageError::Outside);
-        }
-        let mime = mime_guess::from_path(&path)
-            .first()
-            .filter(|mime| mime.type_() == mime_guess::mime::IMAGE)
-            .ok_or(ImageError::NotImage)?;
-        let size = std::fs::metadata(&path)?.len();
-        if size > MAX_IMAGE_BYTES {
-            return Err(ImageError::TooLarge(size));
-        }
-
-        let bytes = std::fs::read(&path)?;
-        let url = format!("data:{mime};base64,{}", STANDARD.encode(bytes));
-        self.cache.insert(src.to_owned(), url.clone());
-
-        Ok(url)
+        Ok(asset)
     }
 }
 

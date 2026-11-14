@@ -1,9 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clipBytes, connectPluginSlots, connectPluginTopics, connectPlugins, createInstanceBook, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent } from "../src/plugins/plugins-state.ts";
+import { assetRefs, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent } from "../src/plugins/plugins-state.ts";
 import type { InstanceBatch, SlotInstance, WantedTopic } from "../src/plugins/plugins-state.ts";
 
-const image = { kind: "image", src: "data:image/png;base64,AAAA", width: 60, height: 48, pixelated: true };
+const ref = (digit: string, mime = "image/png") => ({ hash: digit.repeat(64), mime });
+const image = { kind: "image", asset: ref("a"), width: 60, height: 48, pixelated: true };
+const sprite = { kind: "sprite", frames: [ref("a"), ref("b"), ref("c")], rest: 0, width: 72, height: 56, pixelated: true, motions: [
+  { steps: [{ frame: 1, ms: 140 }], repeat: { kind: "every", minMs: 3000, maxMs: 7000 } },
+  { steps: [{ frame: 2, ms: 200 }, { frame: 1, ms: 200 }], repeat: { kind: "once" } },
+] };
 const placement = { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "end", offset: 84, sink: 3 }, node: image };
 const text = (value: string, tone = "normal") => ({ kind: "text", text: value, tone });
 const inline = (slot: string, instance: string, node: unknown) => ({ plugin: "session-notes", slot, instance, position: { kind: "inline" }, node });
@@ -31,8 +36,11 @@ test("invalid placements are dropped and the rest kept", () => {
     { ...placement, instance: "" },
     { ...placement, position: null },
     { ...placement, plugin: 4 },
-    { ...placement, node: { ...image, src: "https://example.com/cat.png" } },
-    { ...placement, node: { ...image, src: "javascript:alert(1)" } },
+    { ...placement, node: { ...image, asset: "https://example.com/cat.png" } },
+    { ...placement, node: { ...image, asset: ref("A") } },
+    { ...placement, node: { ...image, asset: ref("a", "text/html") } },
+    { ...placement, node: { ...image, asset: { hash: "abc", mime: "image/png" } } },
+    { ...placement, node: { ...image, asset: null } },
     { ...placement, node: { ...image, width: "60" } },
     { ...placement, node: { ...image, pixelated: 1 } },
     { ...placement, node: { kind: "script" } },
@@ -55,13 +63,55 @@ test("placements are picked by slot", () => {
   assert.equal(placementsFor(parsePlacements([placement]), "composer").length, 1);
 });
 
+test("sprites are read as sent", () => {
+  assert.deepEqual(parsePlacements([{ ...placement, node: sprite }]), [{ ...placement, node: sprite }]);
+  assert.deepEqual(parsePlacements([{ ...placement, node: { ...sprite, motions: [] } }]).length, 1);
+  const loop = { ...sprite, motions: [{ steps: [{ frame: 1, ms: 80 }, { frame: 2, ms: 80 }], repeat: { kind: "loop" } }] };
+  assert.deepEqual(parsePlacements([{ ...placement, node: loop }]), [{ ...placement, node: loop }]);
+});
+
+test("invalid sprites are dropped", () => {
+  const motion = (extra: object) => ({ steps: [{ frame: 1, ms: 100 }], repeat: { kind: "once" }, ...extra });
+  const steps = (count: number) => Array.from({ length: count }, () => ({ frame: 1, ms: 100 }));
+  const bad = [
+    { ...sprite, frames: [] },
+    { ...sprite, frames: Array.from({ length: 33 }, () => ref("a")) },
+    { ...sprite, frames: [ref("a"), "b"] },
+    { ...sprite, rest: 3 },
+    { ...sprite, rest: -1 },
+    { ...sprite, rest: 0.5 },
+    { ...sprite, width: -1 },
+    { ...sprite, pixelated: "yes" },
+    { ...sprite, motions: "none" },
+    { ...sprite, motions: Array.from({ length: 9 }, () => motion({})) },
+    { ...sprite, motions: [motion({ steps: [] })] },
+    { ...sprite, motions: [motion({ steps: steps(65) })] },
+    { ...sprite, motions: [motion({ steps: [{ frame: 3, ms: 100 }] })] },
+    { ...sprite, motions: [motion({ steps: [{ frame: 1, ms: 15 }] })] },
+    { ...sprite, motions: [motion({ steps: [{ frame: 1, ms: 60001 }] })] },
+    { ...sprite, motions: [motion({ repeat: { kind: "every", minMs: 99, maxMs: 500 } })] },
+    { ...sprite, motions: [motion({ repeat: { kind: "every", minMs: 600, maxMs: 500 } })] },
+    { ...sprite, motions: [motion({ repeat: { kind: "every", minMs: 500, maxMs: 3600001 } })] },
+    { ...sprite, motions: [motion({ repeat: { kind: "sometimes" } })] },
+    { ...sprite, motions: [motion({ repeat: { kind: "loop" } }), motion({})] },
+  ];
+  for (const node of bad) assert.deepEqual(parsePlacements([{ ...placement, node }]), [], JSON.stringify(node).slice(0, 120));
+});
+
+test("every image a placement uses is listed, frames included", () => {
+  const row = { kind: "row", gap: 0, children: [image, sprite] };
+  const refs = assetRefs(parsePlacements([{ ...placement, node: row }]));
+  assert.deepEqual(refs.map(item => item.hash[0]), ["a", "a", "b", "c"]);
+});
+
 test("the store reads the first answer and every change", async () => {
   let changed: (event: { payload: unknown }) => void = () => {};
   const listened: string[] = [];
+  const backend = { load: async () => new ArrayBuffer(1), create: () => "blob:x", revoke: () => {} };
   await connectPlugins({
     invoke: async cmd => { assert.equal(cmd, "plugins_placements"); return [placement]; },
     listen: async (event, handler) => { listened.push(event); changed = handler; return () => {}; },
-  });
+  }, backend);
   assert.deepEqual(listened, ["plugins-changed"]);
   assert.equal(pluginsStore.getState().placements.length, 1);
 
@@ -316,4 +366,18 @@ test("controls send their events through plugins_event once connected", async ()
   const batches = calls.filter(call => call.cmd === "plugins_instances");
   assert.equal(batches.length, 1);
   assert.equal((batches[0].args.batch as InstanceBatch).reset, true);
+});
+
+test("the page tells the desktop whether it is visible, now and on each change", () => {
+  const calls: unknown[] = [];
+  let change: (shown: boolean) => void = () => {};
+  connectPluginVisibility({
+    invoke: async (cmd, args) => { calls.push([cmd, args]); return null; },
+    shown: () => true,
+    onChange: fn => { change = fn; },
+  });
+  change(false);
+  change(true);
+
+  assert.deepEqual(calls, [["plugins_visible", { visible: true }], ["plugins_visible", { visible: false }], ["plugins_visible", { visible: true }]]);
 });

@@ -103,7 +103,7 @@ fn placed_image_becomes_a_data_url() {
     );
     assert_eq!(placement.instance.to_string(), "composer");
     let Node::Image {
-        src,
+        asset,
         width,
         height,
         pixelated,
@@ -111,7 +111,12 @@ fn placed_image_becomes_a_data_url() {
     else {
         panic!("expected an image");
     };
-    assert!(src.starts_with("data:image/png;base64,"));
+    assert_eq!(
+        asset.hash.to_string(),
+        blake3::hash(PNG).to_hex().to_string()
+    );
+    assert_eq!(asset.mime.to_string(), "image/png");
+    assert_eq!(sandbox.assets().len(), 1);
     assert_eq!((*width, *height, *pixelated), (56, 48, true));
     assert!(
         sandbox.render().unwrap().is_none(),
@@ -569,39 +574,52 @@ fn a_callback_that_throws_fails_the_delivery() {
     assert!(result.unwrap_err().to_string().contains("boom"));
 }
 
-fn image_src(node: &Node) -> &str {
-    match node {
-        Node::Image { src, .. } => src,
-        other => panic!("expected an image, got {other:?}"),
-    }
+fn cat_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat")
+}
+
+fn file_hash(dir: &Path, name: &str) -> String {
+    blake3::hash(&std::fs::read(dir.join(name)).unwrap())
+        .to_hex()
+        .to_string()
 }
 
 #[test]
-fn composer_cat_example_runs() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat");
+fn composer_cat_declares_its_motions_and_holds_no_timers() {
+    let dir = cat_dir();
     let start = Instant::now();
     let mut sandbox = with_composer(Sandbox::load(&dir, start).unwrap());
 
     let first = sandbox.render().unwrap().expect("a first render");
+
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].slot, Slot::Composer);
-    let idle = image_src(&first[0].node).to_owned();
-    assert!(idle.starts_with("data:image/png;base64,"));
+    let Node::Sprite {
+        frames,
+        rest,
+        motions,
+        ..
+    } = &first[0].node
+    else {
+        panic!("expected a sprite, got {:?}", first[0].node);
+    };
+    assert_eq!(frames.len(), 5);
+    assert_eq!(
+        frames[usize::from(*rest)].hash.to_string(),
+        file_hash(&dir, "art/cat-idle.png")
+    );
+    assert_eq!(motions.len(), 3);
+    assert!(
+        motions
+            .iter()
+            .all(|motion| matches!(motion.repeat, Repeat::Every { .. }))
+    );
+    assert_eq!(sandbox.assets().len(), 5);
 
-    let mut seen = vec![idle.clone()];
-    for tick in 1..=1200u64 {
-        sandbox
-            .fire_due(start + Duration::from_millis(tick * 50))
-            .unwrap();
-        if let Some(placements) = sandbox.render().unwrap() {
-            assert_eq!(placements.len(), 1);
-            let src = image_src(&placements[0].node);
-            assert!(src.starts_with("data:image/png;base64,"));
-            seen.push(src.to_owned());
-        }
-    }
-
-    assert!(seen.iter().any(|src| *src != idle), "a motion fired");
+    // Nothing is pending, so a quiet minute needs no wakeup and no redraw.
+    assert_eq!(sandbox.next_timer(), None);
+    sandbox.fire_due(start + Duration::from_secs(600)).unwrap();
+    assert!(sandbox.render().unwrap().is_none());
 }
 
 fn agent_state(session: &str, status: &str) -> serde_json::Value {
@@ -612,25 +630,26 @@ fn agent_state(session: &str, status: &str) -> serde_json::Value {
 
 #[test]
 fn composer_cat_is_happy_when_a_turn_ends() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat");
+    let dir = cat_dir();
     let start = Instant::now();
     let mut sandbox = with_composer(Sandbox::load(&dir, start).unwrap());
-    let happy = format!(
-        "data:image/png;base64,{}",
-        STANDARD.encode(std::fs::read(dir.join("art/cat-happy.png")).unwrap())
-    );
+    let happy = file_hash(&dir, "art/cat-happy.png");
     let composer = topic("ui.composer", None, None);
     let session = topic("agent", Some("s1"), Some("build-box"));
+    // The image shown now, or none when nothing was redrawn.
     let shown = |sandbox: &mut Sandbox| {
         sandbox
             .render()
             .unwrap()
-            .map(|placements| image_src(&placements[0].node).to_owned())
+            .map(|placements| match &placements[0].node {
+                Node::Image { asset, .. } => asset.hash.to_string(),
+                Node::Sprite { .. } => "sprite".to_owned(),
+                other => panic!("unexpected {other:?}"),
+            })
     };
 
     assert_eq!(sandbox.take_wanted(), Some(vec![composer.clone()]));
-    let idle = shown(&mut sandbox).expect("a first render");
-    assert_ne!(idle, happy);
+    assert_eq!(shown(&mut sandbox).as_deref(), Some("sprite"));
 
     // An update for a session nobody shows is not followed yet.
     let message = json!({ "machine": "build-box", "session": "s1" });
@@ -650,35 +669,26 @@ fn composer_cat_is_happy_when_a_turn_ends() {
 
     // The first update is only a baseline, even for a session that is idle.
     send(&mut sandbox, "Idle");
-    assert_ne!(shown(&mut sandbox), Some(happy.clone()));
+    assert_eq!(shown(&mut sandbox), None);
+    assert_eq!(sandbox.next_timer(), None);
 
     send(&mut sandbox, "Working");
-    assert_ne!(shown(&mut sandbox), Some(happy.clone()));
+    assert_eq!(shown(&mut sandbox), None);
 
     send(&mut sandbox, "Idle");
-    assert_eq!(shown(&mut sandbox), Some(happy.clone()));
+    assert_eq!(shown(&mut sandbox), Some(happy));
 
-    // It is happy for a moment, then the idle frames come back.
-    let mut tick = 1;
-    let back = loop {
-        sandbox
-            .fire_due(start + Duration::from_millis(tick * 50))
-            .unwrap();
-        if let Some(src) = shown(&mut sandbox)
-            && src != happy
-        {
-            break tick * 50;
-        }
-        tick += 1;
-        assert!(tick < 400, "the happy frame never left");
-    };
-    assert!(back >= 1000, "happy for {back} ms");
+    // One timer ends it, and the sprite comes back.
+    let due = sandbox.next_timer().expect("a timer for the happy frame");
+    assert!(due >= start + Duration::from_millis(1000));
+    sandbox.fire_due(due).unwrap();
+    assert_eq!(shown(&mut sandbox).as_deref(), Some("sprite"));
+    assert_eq!(sandbox.next_timer(), None);
 }
 
 #[test]
 fn composer_cat_ignores_what_it_does_not_expect() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat");
-    let mut sandbox = with_composer(Sandbox::load(&dir, Instant::now()).unwrap());
+    let mut sandbox = with_composer(Sandbox::load(&cat_dir(), Instant::now()).unwrap());
     let composer = topic("ui.composer", None, None);
     let session = topic("agent", Some("s1"), Some("m1"));
     sandbox.render().unwrap();
@@ -1358,4 +1368,264 @@ fn session_notes_draws_a_note_per_row_from_the_header() {
 
 fn sandbox_id() -> PluginId {
     "session-notes".parse().unwrap()
+}
+
+/// A fixture with two more frames, `art/a.png` and `art/b.png`, of other bytes than `art/cat.png`.
+fn sprite_fixture(main: &str) -> Fixture {
+    let fixture = Fixture::new(r#""ui.add""#, main);
+    std::fs::write(fixture.dir().join("art/a.png"), b"\x89PNG\r\n\x1a\nframe a").unwrap();
+    std::fs::write(fixture.dir().join("art/b.png"), b"\x89PNG\r\n\x1a\nframe b").unwrap();
+
+    fixture
+}
+
+fn sprite_error(motions: &str) -> SandboxError {
+    let fixture = sprite_fixture(&format!(
+        r#"beep.place({{ slot: "composer" }}, () =>
+          beep.sprite({{ rest: "art/cat.png", width: 8, height: 8, motions: {motions} }}));"#
+    ));
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    sandbox.render().unwrap_err()
+}
+
+#[test]
+fn a_sprite_lists_each_frame_once_and_steps_point_at_them() {
+    let fixture = sprite_fixture(
+        r#"beep.place({ slot: "composer" }, () => beep.sprite({
+          rest: "art/cat.png", width: 8, height: 6, pixelated: true,
+          motions: [
+            { steps: [{ frame: "art/a.png", ms: 100 }, { frame: "art/cat.png", ms: 50 }],
+              repeat: { every: { min: 1000, max: 2000 } } },
+            { steps: [{ frame: "art/b.png", ms: 70 }, { frame: "art/a.png", ms: 70 }] },
+          ] }));"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    let node = only_node(sandbox.render().unwrap());
+
+    let Node::Sprite {
+        frames,
+        rest,
+        width,
+        height,
+        pixelated,
+        motions,
+    } = node
+    else {
+        panic!("expected a sprite");
+    };
+    assert_eq!((rest, width, height, pixelated), (0, 8, 6, true));
+    assert_eq!(frames.len(), 3);
+    assert_eq!(
+        frames[0].hash.to_string(),
+        blake3::hash(PNG).to_hex().to_string()
+    );
+    assert_eq!(
+        motions,
+        vec![
+            Motion {
+                steps: vec![Step { frame: 1, ms: 100 }, Step { frame: 0, ms: 50 }],
+                repeat: Repeat::Every {
+                    min_ms: 1000,
+                    max_ms: 2000
+                },
+            },
+            Motion {
+                steps: vec![Step { frame: 2, ms: 70 }, Step { frame: 1, ms: 70 }],
+                repeat: Repeat::Once,
+            },
+        ]
+    );
+    assert_eq!(sandbox.assets().len(), 3);
+    assert_eq!(sandbox.next_timer(), None);
+}
+
+#[test]
+fn a_sprite_node_serializes_with_indexes_and_camel_case() {
+    let fixture = sprite_fixture(
+        r#"beep.place({ slot: "composer" }, () => beep.sprite({
+          rest: "art/cat.png", width: 8, height: 8,
+          motions: [{ steps: [{ frame: "art/a.png", ms: 100 }], repeat: { every: { min: 500, max: 900 } } }] }));"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    let node = only_node(sandbox.render().unwrap());
+    let json = serde_json::to_value(&node).unwrap();
+
+    assert_eq!(json["kind"], "sprite");
+    assert_eq!(json["rest"], 0);
+    assert_eq!(json["frames"][0]["mime"], "image/png");
+    assert_eq!(json["frames"][1]["hash"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        json["motions"][0],
+        json!({ "steps": [{ "frame": 1, "ms": 100 }], "repeat": { "kind": "every", "minMs": 500, "maxMs": 900 } })
+    );
+}
+
+#[test]
+fn an_image_used_twice_is_one_asset() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"beep.place({ slot: "composer" }, () => beep.row({ gap: 1 }, [
+          beep.image({ src: "art/cat.png", width: 1, height: 1 }),
+          beep.image({ src: "art/cat.png", width: 2, height: 2 }),
+        ]));"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    sandbox.render().unwrap();
+
+    assert_eq!(sandbox.assets().len(), 1);
+}
+
+#[test]
+fn sprite_frames_must_exist_and_be_images() {
+    let missing = sprite_error(r#"[{ steps: [{ frame: "art/none.png", ms: 100 }] }]"#);
+    assert!(matches!(
+        missing,
+        SandboxError::Image {
+            reason: ImageError::Io(_),
+            ..
+        }
+    ));
+
+    let text = sprite_error(r#"[{ steps: [{ frame: "main.ts", ms: 100 }] }]"#);
+    assert!(matches!(
+        text,
+        SandboxError::Image {
+            reason: ImageError::NotImage,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn sprite_durations_counts_and_ranges_are_bounded() {
+    let step = |ms: u32| format!(r#"{{ frame: "art/a.png", ms: {ms} }}"#);
+    let one = |ms: u32| format!("[{{ steps: [{}] }}]", step(ms));
+
+    for ms in [0, 15, 60_001] {
+        assert!(matches!(
+            sprite_error(&one(ms)),
+            SandboxError::Sprite(SpriteError::StepDuration(_))
+        ));
+    }
+    assert!(matches!(
+        sprite_error("[{ steps: [] }]"),
+        SandboxError::Sprite(SpriteError::NoSteps)
+    ));
+
+    let many = vec![step(20); 65].join(",");
+    assert!(matches!(
+        sprite_error(&format!("[{{ steps: [{many}] }}]")),
+        SandboxError::Sprite(SpriteError::TooManySteps(65))
+    ));
+
+    let motions = vec![format!("{{ steps: [{}] }}", step(20)); 9].join(",");
+    assert!(matches!(
+        sprite_error(&format!("[{motions}]")),
+        SandboxError::Sprite(SpriteError::TooManyMotions(9))
+    ));
+
+    for (min, max) in [(99, 500), (500, 400), (500, 3_600_001)] {
+        let every = format!(
+            "[{{ steps: [{}], repeat: {{ every: {{ min: {min}, max: {max} }} }} }}]",
+            step(20)
+        );
+        assert!(matches!(
+            sprite_error(&every),
+            SandboxError::Sprite(SpriteError::Range { .. })
+        ));
+    }
+
+    let two_loops = format!(
+        r#"[{{ steps: [{0}], repeat: "loop" }}, {{ steps: [{0}] }}]"#,
+        step(20)
+    );
+    assert!(matches!(
+        sprite_error(&two_loops),
+        SandboxError::Sprite(SpriteError::LoopAlone)
+    ));
+}
+
+#[test]
+fn a_sprite_has_at_most_thirty_two_frames() {
+    let fixture = sprite_fixture("");
+    for index in 0..33 {
+        std::fs::write(
+            fixture.dir().join(format!("art/f{index}.png")),
+            format!("PNG frame {index}"),
+        )
+        .unwrap();
+    }
+    let steps: Vec<String> = (0..33)
+        .map(|index| format!(r#"{{ frame: "art/f{index}.png", ms: 20 }}"#))
+        .collect();
+    std::fs::write(
+        fixture.dir().join("main.ts"),
+        format!(
+            r#"beep.place({{ slot: "composer" }}, () => beep.sprite({{ rest: "art/cat.png", width: 1, height: 1,
+              motions: [{{ steps: [{}] }}] }}));"#,
+            steps.join(",")
+        ),
+    )
+    .unwrap();
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    // 33 steps use 33 frames, and the rest frame makes 34.
+    assert!(matches!(
+        sandbox.render().unwrap_err(),
+        SandboxError::Sprite(SpriteError::TooManyFrames(34))
+    ));
+}
+
+#[test]
+fn a_plugin_over_its_script_time_budget_is_stopped() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"
+        const word = beep.state("a");
+        beep.place({ slot: "composer" }, () => beep.text(word.get()));
+        beep.after(20, () => { const end = Date.now() + 30; while (Date.now() < end) {} word.set("b"); });
+        "#,
+    );
+    let start = Instant::now();
+    let meter = Arc::new(Meter::new(Duration::from_millis(25)));
+    let mut sandbox =
+        with_composer(Sandbox::load_metered(&fixture.dir(), start, meter.clone()).unwrap());
+    assert_eq!(meter.timers(), 1);
+
+    let error = sandbox
+        .fire_due(start + Duration::from_millis(20))
+        .unwrap_err();
+
+    assert!(
+        matches!(error, SandboxError::OverBudget { budget_ms: 25, .. }),
+        "{error}"
+    );
+    assert!(error.to_string().contains("budget is 25 ms"), "{error}");
+    assert!(meter.used(Instant::now()) > Duration::from_millis(25));
+    assert_eq!(meter.timers(), 0);
+}
+
+#[test]
+fn a_cheap_plugin_stays_within_the_default_budget() {
+    let cat = cat_dir();
+    let meter = Arc::new(Meter::new(crate::meter::BUDGET));
+    let mut sandbox =
+        with_composer(Sandbox::load_metered(&cat, Instant::now(), meter.clone()).unwrap());
+
+    for _ in 0..200 {
+        sandbox.render().unwrap();
+        sandbox
+            .deliver(&update(
+                topic("ui.composer", None, None),
+                None,
+                json!({ "machine": "m", "session": "s" }),
+            ))
+            .unwrap();
+    }
+
+    assert!(meter.used(Instant::now()) < crate::meter::BUDGET);
 }

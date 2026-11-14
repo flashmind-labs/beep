@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
@@ -10,22 +11,36 @@ interface Box { x: number; y: number; width: number; height: number }
 const art = (name: string) => fileURLToPath(new URL(`../../../../plugins/examples/composer-cat/art/${name}`, import.meta.url));
 const docs = (name: string) => fileURLToPath(new URL(`../../../../docs/${name}`, import.meta.url));
 
-/// A sprite from disk as a data URL, with its pixel size read from the PNG header.
+/// A frame from disk: its hash (any hex name does for the mock desktop), its bytes and its pixel size read from the PNG header.
 function sprite(name: string) {
   const bytes = readFileSync(art(name));
-  return { src: `data:image/png;base64,${bytes.toString("base64")}`, width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  return { asset: { hash, mime: "image/png" }, base64: bytes.toString("base64"), width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
 
+/// What the mock desktop serves for `plugins_asset`: every frame of the cat, by hash.
+const assets = Object.fromEntries(readdirSync(art("")).map(name => { const { asset, base64 } = sprite(name); return [asset.hash, base64]; }));
+
+const edge = { kind: "edge", align: "end", offset: 84, sink: 3 };
+
 function placement(name: string) {
-  const { src, width, height } = sprite(name);
-  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "end", offset: 84, sink: 3 }, node: { kind: "image", src, width: width * 2, height: height * 2, pixelated: true } };
+  const { asset, width, height } = sprite(name);
+  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: edge, node: { kind: "image", asset, width: width * 2, height: height * 2, pixelated: true } };
+}
+
+type Repeat = { kind: "once" } | { kind: "every"; minMs: number; maxMs: number };
+
+/// The cat as a sprite: the idle frame at rest (frame 0) and one motion to the blink frame (frame 1).
+function catSprite(repeat: Repeat, ms = 5000) {
+  const idle = sprite("cat-idle.png");
+  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: edge, node: { kind: "sprite", frames: [idle.asset, sprite("cat-blink.png").asset], rest: 0, width: idle.width * 2, height: idle.height * 2, pixelated: true, motions: [{ steps: [{ frame: 1, ms }], repeat }] } };
 }
 
 const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
 const commands = [{ name: "review", description: "Review work", hint: "[path]" }, { name: "run", description: "Run checks", hint: "" }];
 
 async function openSession(page: Page, placements: unknown[]): Promise<void> {
-  await openDesktop(page, true, { agent_commands: commands, plugins_placements: placements });
+  await openDesktop(page, true, { agent_commands: commands, plugins_placements: placements, plugins_assets: assets });
   await page.evaluate(session => window.__navigation.open({ agent: session }), agent);
   await expect(page.locator("#agfield")).toBeVisible();
 }
@@ -58,6 +73,7 @@ test("a composer plugin placement stands on the message box without changing lay
   const image = page.locator(".pluginslot img");
   await expect(image).toBeVisible();
   await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(natural.width);
+  expect(await image.getAttribute("src")).toMatch(/^blob:/);
 
   const field = await box(page.locator("#agfield"));
   const slot = await box(page.locator(".pluginslot"));
@@ -106,8 +122,7 @@ test("a composer plugin placement stands on the message box without changing lay
   const blink = placement("cat-blink.png");
   const before = await image.getAttribute("src");
   await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [blink]);
-  await expect.poll(() => image.getAttribute("src")).toBe(blink.node.src);
-  expect(blink.node.src).not.toBe(before);
+  await expect.poll(async () => { const now = await image.getAttribute("src"); return now !== null && now.startsWith("blob:") && now !== before; }).toBe(true);
   await page.evaluate(() => window.__navigation.emit("plugins-changed", []));
   await expect(page.locator(".pluginslot")).toHaveCount(0);
   expect(await box(page.locator("#agfield"))).toEqual(field);
@@ -252,6 +267,98 @@ test("a composer slot with a control takes the pointer there only, and the cat s
 
   await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [cat]);
   await expect(slot).toHaveAttribute("aria-hidden", "true");
+});
+
+/// The calls to plugin commands that carry placements, events and instances, which a sprite must not add to.
+const traffic = (page: Page) => page.evaluate(() => window.__navigation.calls().filter(call => call.command.startsWith("plugins_") && call.command !== "plugins_asset" && call.command !== "plugins_visible").map(call => call.command));
+
+/// Which frames of the sprite are visible, by index.
+const visibleFrames = (page: Page) => page.locator(".pluginsprite img[data-on]").evaluateAll(images => images.map(image => Number(image.getAttribute("data-frame"))));
+
+test("a sprite stacks its frames, shows the rest frame and takes no pointer", async ({ page }) => {
+  await openSession(page, [catSprite({ kind: "every", minMs: 3_600_000, maxMs: 3_600_000 })]);
+
+  const frames = page.locator(".pluginsprite img");
+  await expect(frames).toHaveCount(2);
+  await expect.poll(() => visibleFrames(page)).toEqual([0]);
+  const natural = sprite("cat-idle.png");
+  const cell = await box(page.locator(".pluginsprite"));
+  expect([cell.width, cell.height]).toEqual([natural.width * 2, natural.height * 2]);
+  await expect(frames.first()).toBeVisible();
+  await expect(frames.nth(1)).toBeHidden();
+  await expect.poll(() => frames.first().evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(natural.width);
+
+  const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".pluginslot") !== null, { x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 });
+  expect(hit).toBe(false);
+});
+
+test("a repeating motion changes the visible frame with no plugin traffic", async ({ page }) => {
+  await openSession(page, [catSprite({ kind: "every", minMs: 100, maxMs: 100 }, 300)]);
+  await expect.poll(() => visibleFrames(page)).toEqual([0]);
+  const before = await traffic(page);
+
+  // The page plays the motion by itself, then rests, then plays it again.
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+  await expect.poll(() => visibleFrames(page)).toEqual([0]);
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+
+  expect(await traffic(page)).toEqual(before);
+  expect(before.filter(command => command === "plugins_event")).toEqual([]);
+});
+
+test("a motion that plays once starts at once and holds the rest frame after it", async ({ page }) => {
+  await openSession(page, [catSprite({ kind: "once" }, 200)]);
+
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+  await expect.poll(() => visibleFrames(page)).toEqual([0]);
+});
+
+test("reduced motion holds the rest frame", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  // A motion that plays at once would show frame 1 as soon as the sprite is drawn.
+  await openSession(page, [catSprite({ kind: "once" })]);
+
+  await expect(page.locator(".pluginsprite img")).toHaveCount(2);
+  expect(await visibleFrames(page)).toEqual([0]);
+
+  // Allowing motion again starts it.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+});
+
+test("nothing animates while the window is hidden, and the desktop is told", async ({ page }) => {
+  await openSession(page, [catSprite({ kind: "once" })]);
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+
+  await page.evaluate(() => window.__navigation.emit("center-hidden", null));
+  expect(await visibleFrames(page)).toEqual([0]);
+  const told = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "plugins_visible").map(call => call.args.visible));
+  await expect.poll(told).toEqual([true, false]);
+
+  await page.evaluate(() => window.__navigation.emit("center-shown", null));
+  await expect.poll(() => visibleFrames(page)).toEqual([1]);
+  await expect.poll(told).toEqual([true, false, true]);
+});
+
+test("an image used twice is requested once, and its URL is revoked when no placement uses it", async ({ page }) => {
+  await page.addInitScript(() => {
+    const revoked: string[] = [];
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = (url: string) => { revoked.push(url); revoke(url); };
+    Object.defineProperty(window, "revokedUrls", { value: revoked });
+  });
+  const idle = placement("cat-idle.png");
+  // The sprite's rest frame is the same image as the placement before it.
+  await openSession(page, [idle, catSprite({ kind: "every", minMs: 3_600_000, maxMs: 3_600_000 })]);
+  await expect(page.locator(".pluginsprite img")).toHaveCount(2);
+
+  const asked = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "plugins_asset").map(call => String(call.args.hash)));
+  const hashes = await asked();
+  expect(hashes.sort()).toEqual([sprite("cat-blink.png").asset.hash, sprite("cat-idle.png").asset.hash].sort());
+
+  await page.evaluate(() => window.__navigation.emit("plugins-changed", []));
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "revokedUrls").length)).toBe(2);
+  expect(await asked()).toHaveLength(2);
 });
 
 for (const scheme of ["dark", "light"] as const) {
