@@ -7,6 +7,18 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.5] - 2026-11-14
+
+### Added
+
+- Desktop: a notification says when a phone connects to a machine over adb,
+  naming the phone and the machine. Phones already connected when the app
+  opens do not notify.
+
+### Fixed
+
+- Desktop: Shift+Cmd+M opens the model picker in an agent conversation, not only on the start form.
+
 ## [0.9.4] - 2026-11-14
 
 ### Fixed

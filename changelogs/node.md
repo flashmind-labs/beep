@@ -2,6 +2,17 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.3] - 2026-11-14
+
+### Added
+
+- Node: desktops can follow the machine's phones and hear when one connects.
+
+### Fixed
+
+- Node: a foldable's view switches screens on the next frame after it opens
+  or closes.
+
 ## [0.7.2] - 2026-11-14
 
 ### Fixed
