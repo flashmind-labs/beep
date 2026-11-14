@@ -5,7 +5,7 @@ body
         span.tt
           b "Sessions"
           small "2 waiting for you"
-        button#wtNew.dbtn "New"
+        button#wtNew.dbtn [type="button"] "New"
           kbd "⌘N"
       div#wtlist.dlist.top [aria-activedescendant="wt-0" aria-label="Sessions" role="listbox" tabindex="0"] (focused)
         button#wt-0.dchat [aria-selected="true" data-wti="0" role="option" tabindex="-1"]

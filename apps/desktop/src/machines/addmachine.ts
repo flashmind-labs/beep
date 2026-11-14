@@ -131,7 +131,7 @@ async function loadMac() {
     return;
   }
 
-  drawMac();
+  draw(false);
 }
 
 /// Turns on Let Beep use this Mac.
@@ -148,10 +148,8 @@ async function useThisMac() {
     mac = { ...mac, enabled: true, status: "failed", error: String(e) };
   }
 
-  if (root) drawMac();
+  if (root) draw(false);
 }
-
-function drawMac() { draw(false); }
 
 function update(event: AddEvent) {
   const previous = state;

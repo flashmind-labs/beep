@@ -15,6 +15,7 @@ use beep_proto::node::{
     process::TaskId,
     terminal::{MAX_INPUT, Reply, Request},
 };
+use beep_proto::watched;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 #[cfg(not(all(unix, feature = "cli")))]
@@ -145,7 +146,7 @@ async fn attach(live: Arc<Live>, from: u64, peer: &mut impl Peer) -> Result<()> 
     loop {
         // Marked seen before reading, so output that lands after the read
         // still wakes the wait below.
-        changed.borrow_and_update();
+        watched::read_and_update(&mut changed, |_| ());
         let (chunk, state) = {
             let screen = lock(&live.screen);
             (screen.read_from(next), screen.state)

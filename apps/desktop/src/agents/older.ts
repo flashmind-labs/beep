@@ -5,7 +5,7 @@
 import { S } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AG, where } from "./agents.ts";
-import { drawAgentBody, jumpToLatest, rowInView, syncJump } from "./logview.ts";
+import { drawAgentBody, rowInView, syncJump } from "./logview.ts";
 import { OLDER_MAX, OLDER_PAGE, PROMPT_READS, type Reading, type Run, drawsEachPage, lacksPrompt, olderBefore, takeOlder } from "./older-state.ts";
 import { sessionBody } from "./session-frame.tsx";
 
@@ -82,9 +82,6 @@ export async function jumpToStart() {
   b.scrollTop = 0;
   syncJump(b);
 }
-
-/// End or ⌘↓: the log shows its last entry, and follows new ones.
-export const jumpToEnd = jumpToLatest;
 
 /// Which end of the log a key goes to: Home and ⌘↑ the start, End and ⌘↓
 /// the end. Not while the field has text, which they move through.

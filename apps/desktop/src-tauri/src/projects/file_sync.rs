@@ -167,38 +167,13 @@ pub struct MachineDetailRow {
     /// What raises the file watch limit, while the folder is rescanned.
     hint: Option<String>,
     paused: bool,
-    progress: Option<ProgressRow>,
+    progress: Option<SyncProgress>,
     waiting: Vec<String>,
     git_only: bool,
     can_resolve: bool,
     /// The folder at its path is not the one synced before, as when it was
     /// replaced, and its beep-node can start over with it.
     can_start_over: bool,
-}
-
-/// How far a machine is through what it brings in line now.
-#[derive(Debug, Serialize, PartialEq)]
-pub struct ProgressRow {
-    files_done: u64,
-    files_total: u64,
-    bytes_done: u64,
-    bytes_total: u64,
-    /// Bytes a second; 0 before it can tell.
-    rate: u64,
-    eta_secs: Option<u32>,
-}
-
-impl From<SyncProgress> for ProgressRow {
-    fn from(p: SyncProgress) -> Self {
-        Self {
-            files_done: p.files_done,
-            files_total: p.files_total,
-            bytes_done: p.bytes_done,
-            bytes_total: p.bytes_total,
-            rate: p.rate,
-            eta_secs: p.eta_secs,
-        }
-    }
 }
 
 impl From<MachineSyncDetail> for MachineDetailRow {
@@ -221,7 +196,7 @@ impl From<MachineSyncDetail> for MachineDetailRow {
             error: m.error,
             hint: m.hint,
             paused: d.paused,
-            progress: d.progress.map(Into::into),
+            progress: d.progress,
             waiting: d.waiting,
             can_resolve: d.can_resolve,
             can_start_over,

@@ -1,6 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -84,7 +85,7 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
-    div#main.cc-main
+    div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -116,6 +117,11 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-rows
               div.bd-lane.hd
@@ -240,58 +246,57 @@ body.cbody
                   span.m
                     span.cc-ag.codex.mark [title="Codex"]
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "ended"
+                    span [data-st="ended"] "ended"
                     span "build-box"
                     span "project"
-                    span "1 h"
+                  span.ago "1 h"
                 button.pv-row [data-key="build-box:past-1"]
                   span.t "Past session 2"
                   span.m
                     span.cc-ag.codex.mark [title="Codex"]
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "ended"
+                    span [data-st="ended"] "ended"
                     span "build-box"
                     span "project"
-                    span "2 h"
+                  span.ago "2 h"
                 button.pv-row [data-key="build-box:past-2"]
                   span.t "Past session 3"
                   span.m
                     span.cc-ag.codex.mark [title="Codex"]
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "ended"
+                    span [data-st="ended"] "ended"
                     span "build-box"
                     span "project"
-                    span "3 h"
+                  span.ago "3 h"
                 button.pv-row [data-key="build-box:past-3"]
                   span.t "Past session 4"
                   span.m
                     span.cc-ag.codex.mark [title="Codex"]
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "ended"
+                    span [data-st="ended"] "ended"
                     span "build-box"
                     span "project"
-                    span "4 h"
+                  span.ago "4 h"
                 button.pv-row [data-key="build-box:past-4"]
                   span.t "Past session 5"
                   span.m
                     span.cc-ag.codex.mark [title="Codex"]
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "ended"
+                    span [data-st="ended"] "ended"
                     span "build-box"
                     span "project"
-                    span "5 h"
+                  span.ago "5 h"
                 button.pv-row [data-key="build-box:past-5"]
                   span.t "Past session 6"
                   span.m
                     span.cc-ag.codex.mark [title="Codex"]
                       svg [aria-hidden="true" viewBox="0 0 24 24"]
-                    span "ended"
+                    span [data-st="ended"] "ended"
                     span "build-box"
                     span "project"
-                    span "6 h"
+                  span.ago "6 h"
         form.cc-pjc
           div.box
-            div.ag-att [hidden]
             div.cx-layer [aria-hidden="true" hidden]
             textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Add example/widget to a machine to start an agent" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
             div.row
@@ -307,6 +312,7 @@ body.cbody
               button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
               input [hidden multiple type="file"] value=""
+              div.ag-att [hidden]
               button.dbtn.pri [disabled type="submit"] "Start"
                 kbd "⏎"
             div.pick
@@ -327,7 +333,6 @@ body.cbody
                     kbd "Ctrl S"
                   button [data-stash-action="pop" type="button"] "Pop latest"
                     kbd "Ctrl P"
-      div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

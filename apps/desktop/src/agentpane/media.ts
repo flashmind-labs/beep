@@ -317,10 +317,7 @@ export function openWorkFile(rel: string) {
 
 /// Opens an HTML file directly in its preview.
 export function previewWorkFile(rel: string) {
-  const root = paneRoot();
-  openIn(root, rel);
-  const id = root === P.session?.cwd ? `text:${rel}` : `text:${root}\n${rel}`;
-  const tab = P.tabs.find(t => t.id === id);
+  const tab = openIn(paneRoot(), rel);
   if (tab) previewTab(tab);
 }
 
@@ -380,7 +377,13 @@ export function saveWorkFile(rel: string, note: (text: string) => void, root = p
   const s = P.session;
   if (!s) return;
   note(`Saving ${baseName(rel)}…`);
-  invoke<string>("agent_tree_save", { machineId: s.machine_id, root, path: rel })
+  saveFile("agent_tree_save", { machineId: s.machine_id, root, path: rel }, note);
+}
+
+/// Runs the save `command`, which gives where the file went, tells `note`
+/// and reveals it.
+export function saveFile(command: string, args: Record<string, unknown>, note: (text: string) => void) {
+  void invoke<string>(command, args)
     .then(to => { note(`Saved to ${savedIn(to)} as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
     .catch(e => note(readError(e)));
 }
@@ -524,17 +527,22 @@ export function showArtifact(path?: string) {
 }
 
 /// View diff: the Changes tab zoomed over the conversation, the keyboard in the diff.
-/// A folded dock opens; the layout is otherwise as it was.
-export function showChanges() {
+/// Not `zoomed`, it shows beside the conversation. A folded dock opens; the
+/// layout is otherwise as it was.
+export function showChanges(zoomed = true) {
   if (!shell()) return;
   const d = dockOf(CHANGES);
   P.on[d] = CHANGES;
   P.layout.hidden[d] = false;
   setPaneModel({ log: false });
   draw();
-  P.zoom = d;
-  place();
-  focusChanges();
+
+  if (zoomed) {
+    P.zoom = d;
+    place();
+    focusChanges();
+  }
+
   rememberPane();
 }
 

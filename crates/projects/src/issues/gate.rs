@@ -4,6 +4,7 @@
 use super::{HostExit, HostTimeout, IssueSource, run_rendered};
 use crate::{Shell, model::IssueHost};
 use anyhow::{Result, anyhow};
+use beep_proto::watched;
 use futures::{
     FutureExt,
     future::{BoxFuture, Shared, WeakShared},
@@ -120,9 +121,12 @@ impl HostGates {
             host: host.clone(),
         };
         let known = self.lock();
-        known.gates.get(&key).is_some_and(
-            |gate| matches!(&*gate.borrow(), Gate::Paused(paused) if Instant::now() < paused.until),
-        )
+        known.gates.get(&key).is_some_and(|gate| {
+            watched::read_sent(
+                gate,
+                |gate| matches!(gate, Gate::Paused(paused) if Instant::now() < paused.until),
+            )
+        })
     }
 
     /// The read of `rendered` on the key's machine under way, else a new one.
@@ -179,7 +183,7 @@ async fn gated(
             Enter::Wait => {
                 let mut changed = gate.subscribe();
                 // The sender is held here, so the channel stays open.
-                let _ = changed.wait_for(|gate| !gate.is_probing()).await;
+                let _ = watched::wait_for(&mut changed, |gate| !gate.is_probing()).await;
                 continue;
             }
         };

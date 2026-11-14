@@ -1,6 +1,6 @@
 //! Topic streams own the sources they keep running. Registries hold weak references only.
 
-use super::{FileWatcher, MAX_FILE_ROOTS, Offers, broad_files, has_git, watch};
+use super::{FileWatcher, MAX_FILE_ROOTS, Offers, TOO_MANY_ROOTS, broad_files, has_git, watch};
 use crate::{AsyncMutex, events::Change};
 use anyhow::{Result, ensure};
 use beep_proto::node::events::Topic;
@@ -84,7 +84,7 @@ impl Source {
 
     /// Whether one of the `changed` roots was bound without Git metadata and
     /// should ask Git again; at most once per `GIT_RETRY`.
-    pub(super) fn retry_git<'a>(&self, mut changed: impl Iterator<Item = &'a Topic>) -> bool {
+    fn retry_git<'a>(&self, mut changed: impl Iterator<Item = &'a Topic>) -> bool {
         let mut bare = crate::lock(&self.bare);
 
         if !changed.any(|topic| bare.topics.contains(topic))
@@ -161,7 +161,7 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
         subscriptions.insert(topic.clone(), Subscription { stream, source });
         ensure!(
             roots(&subscriptions).len() <= MAX_FILE_ROOTS,
-            "too many watched directories; subscribe to specific file roots"
+            TOO_MANY_ROOTS
         );
     }
 
@@ -182,7 +182,23 @@ pub(super) async fn reconcile(offers: &Offers, subscriptions: &Subscriptions) ->
 
     ensure!(
         roots(subscriptions).len() <= MAX_FILE_ROOTS,
-        "too many watched directories; subscribe to specific file roots"
+        TOO_MANY_ROOTS
     );
+    Ok(())
+}
+
+/// Asks Git again for every changed root a source bound without Git
+/// metadata: it may have become a repository.
+pub(super) async fn retry_git<'a>(
+    offers: &Offers,
+    subscriptions: &Subscriptions,
+    changed: impl Iterator<Item = &'a Topic> + Clone,
+) -> Result<()> {
+    for subscription in subscriptions.values() {
+        if subscription.source.retry_git(changed.clone()) {
+            subscription.source.reconcile(offers).await?;
+        }
+    }
+
     Ok(())
 }

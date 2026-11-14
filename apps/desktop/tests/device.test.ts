@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, keyInput, maxSide, missingLine, pickValue, queueInput,
-  readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint, commandName, deviceCall, followedDevice, targetPick,
+  keptPick, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint, commandName, deviceCall, followedDevice, targetPick,
 } from "../src/agentpane/device-state.ts";
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null });
@@ -161,4 +161,22 @@ test("a device call's target is found by machine name and device id or name", ()
   assert.deepEqual(targetPick(listed, { machine: "mac-box", device: "iphone 17" }), { machine: "k1", device: "UDID-2" });
   assert.equal(targetPick(listed, { machine: "gpu-box", device: "UDID-1" }), null);
   assert.equal(targetPick(listed, { machine: "mac-box", device: "Pixel" }), null);
+});
+
+test("a session's kept device shows while it runs and is forgotten once off or gone", () => {
+  const listed: DeviceMachine[] = [
+    ...machines,
+    { machine_id: "d", machine_name: "old-box", devices: [], error: "beep-node there is too old for devices." },
+  ];
+  assert.deepEqual(keptPick(listed, { machine: "b", device: "tablet" }), { pick: { machine: "b", device: "tablet" }, forget: false });
+  assert.deepEqual(keptPick(listed, { machine: "b", device: "pixel" }), { pick: null, forget: true });
+  assert.deepEqual(keptPick(listed, { machine: "b", device: "gone" }), { pick: null, forget: true });
+  // An offline machine, or one that could not list, leaves it be.
+  assert.deepEqual(keptPick(listed, { machine: "z", device: "pixel" }), { pick: null, forget: false });
+  assert.deepEqual(keptPick(listed, { machine: "d", device: "pixel" }), { pick: null, forget: false });
+  assert.deepEqual(keptPick(listed, null), { pick: null, forget: false });
+  assert.deepEqual(readKeptDevice({ kind: "kept", pick: { machine: "b", device: "tablet" } }), { kind: "kept", pick: { machine: "b", device: "tablet" } });
+  assert.deepEqual(readKeptDevice({ kind: "kept", pick: null }), { kind: "kept", pick: null });
+  assert.deepEqual(readKeptDevice({ kind: "unsupported" }), { kind: "unsupported" });
+  assert.equal(readKeptDevice({ kind: "kept", pick: { machine: 1 } }), null);
 });

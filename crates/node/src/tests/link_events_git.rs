@@ -255,3 +255,117 @@ async fn git_reads_validate_revisions_authorize_roots_and_leave_refs_unchanged()
     );
     assert!(!root.path().join(".git/FETCH_HEAD").exists());
 }
+
+mod current {
+    use super::*;
+    use beep_proto::node::subscriptions::{Reply, Request};
+
+    async fn projection(rx: &mut LinkRx) -> GitOutput {
+        timeout(Duration::from_secs(10), async {
+            loop {
+                match rx.recv::<Reply>().await.unwrap().unwrap() {
+                    Reply::Snapshot(snapshot) if snapshot.query == Some(7) => {
+                        let Snapshot {
+                            value: Value::Git(value),
+                            ..
+                        } = *snapshot
+                        else {
+                            panic!("expected Git state")
+                        };
+                        return value;
+                    }
+                    Reply::SnapshotError {
+                        query: Some(7),
+                        reason,
+                        ..
+                    } => panic!("{reason}"),
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn commits(rx: &mut LinkRx, wanted: usize) {
+        loop {
+            let next = projection(rx).await;
+            if history::parse_history(history::run(&Recorded(next), "").await.unwrap(), 0)
+                .is_ok_and(|history| history.commits.len() == wanted)
+            {
+                return;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_folder_that_becomes_a_repository_pushes_its_later_commits() {
+        let root = tempfile::tempdir().unwrap();
+        let offers = Offers::default();
+        offers.agents.share_folders(vec![root.path().to_owned()]);
+        let link = local_link();
+        let _task = AbortOnDropHandle::new(tokio::spawn(super::super::super::subscriptions::serve(
+            link.node.0,
+            link.node.1,
+            offers,
+            iroh::SecretKey::generate().public(),
+        )));
+        let (mut tx, mut rx) = link.caller;
+        assert_eq!(rx.recv::<Reply>().await.unwrap(), Some(Reply::Ready));
+        let root_name = root.path().to_str().unwrap().to_owned();
+        let topic = Topic::keyed("files", &root_name);
+        tx.send(&Request::Watch {
+            id: 1,
+            topic: topic.clone(),
+            queries: vec![Query {
+                id: 7,
+                topic,
+                read: Read::Git {
+                    root: root_name,
+                    query: GitRead::History {
+                        revision: None,
+                        offset: 0,
+                        search: String::new(),
+                    },
+                },
+            }],
+        })
+        .await
+        .unwrap();
+        projection(&mut rx).await;
+
+        git(root.path(), &["init", "--initial-branch=main"]).await;
+        git(root.path(), &["commit", "--allow-empty", "-m", "first"]).await;
+        // A work tree change has the folder ask Git again.
+        std::fs::write(root.path().join("example.txt"), "first file").unwrap();
+        commits(&mut rx, 1).await;
+
+        // Only Git metadata changes now.
+        git(root.path(), &["commit", "--allow-empty", "-m", "second"]).await;
+        commits(&mut rx, 2).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_heartbeat_keeps_going_while_slow_work_runs() {
+        let link = local_link();
+        let (mut tx, _rx) = link.node;
+        let (_caller_tx, mut caller_rx) = link.caller;
+        let mut heartbeat = tokio::time::interval_at(
+            tokio::time::Instant::now() + crate::link::events::HEARTBEAT,
+            crate::link::events::HEARTBEAT,
+        );
+        let slow = tokio::time::sleep(Duration::from_secs(100));
+        let done = crate::link::events::subscriptions::with_heartbeat(&mut tx, &mut heartbeat, slow);
+        let pongs = async {
+            let mut seen = 0;
+
+            while seen < 3 {
+                if let Some(Reply::Pong { id: 0 }) = caller_rx.recv::<Reply>().await.unwrap() {
+                    seen += 1;
+                }
+            }
+        };
+        let (finished, ()) = tokio::join!(done, pongs);
+        finished.unwrap();
+    }
+}

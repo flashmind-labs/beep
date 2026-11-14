@@ -53,7 +53,7 @@ pub(super) fn diff_text(cwd: &Path, path: &Path, old: Option<&str>, new: &str) -
     for (mark, line) in lines.take(MAX_LINES) {
         text.push('\n');
         text.push(mark);
-        text.push_str(cut_line(line));
+        text.push_str(super::text::cut_str(line, MAX_LINE));
     }
 
     if total > MAX_LINES {
@@ -61,19 +61,6 @@ pub(super) fn diff_text(cwd: &Path, path: &Path, old: Option<&str>, new: &str) -
     }
 
     text
-}
-
-fn cut_line(line: &str) -> &str {
-    if line.len() <= MAX_LINE {
-        return line;
-    }
-
-    let mut end = MAX_LINE;
-
-    while !line.is_char_boundary(end) {
-        end -= 1;
-    }
-    &line[..end]
 }
 
 #[cfg(test)]

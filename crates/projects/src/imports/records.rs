@@ -26,27 +26,6 @@ pub struct NewImport<'a> {
     pub url: &'a str,
 }
 
-/// One machine that syncs a project.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyncRow {
-    pub project: String,
-    /// The node's key, as the store keeps it.
-    pub endpoint: String,
-    pub folder: String,
-}
-
-/// The innermost imported project holding `cwd` on `endpoint`, else the folder's own name.
-pub fn project_of(endpoint: &EndpointId, cwd: &str, imports: &[ImportRow]) -> String {
-    imported_project_of(endpoint, cwd, imports).unwrap_or_else(|| {
-        let cwd = cwd.trim_end_matches(is_separator);
-
-        match cwd.rsplit(is_separator).next() {
-            Some(name) if !name.is_empty() => name.to_owned(),
-            _ => cwd.to_owned(),
-        }
-    })
-}
-
 /// The innermost imported project holding `cwd` on `endpoint`, if any.
 pub fn imported_project_of(
     endpoint: &EndpointId,

@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import { FlshView } from "../src/settings/flsh-view.tsx";
 import { EMPTY, type FlshSettings } from "../src/settings/flsh-state.ts";
 
 test("flsh routing preserves edits and focus during save and reuses the panel on remount", async () => {
@@ -19,6 +18,7 @@ test("flsh routing preserves edits and focus during save and reuses the panel on
     return null;
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
+  const { FlshView } = await import("../src/settings/flsh-view.tsx");
   const { invoke } = await import("../src/ui/tauri.ts");
   const { flshPanel } = await import("../src/settings/flsh.ts");
   const panel = flshPanel(invoke);

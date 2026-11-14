@@ -1,8 +1,11 @@
 //! A project's branches with work, and giving one a worktree.
 
 use crate::{
-    NO_GIT_SH, Shell, ShellOutput, commands::exclude_project_dirs, github_owner_var,
-    model::MachinePath, quote,
+    NO_GIT_SH, Shell, ShellOutput,
+    commands::{exclude_project_dirs, gh_account},
+    model::MachinePath,
+    quote,
+    shell::tail_bytes,
 };
 use anyhow::{Result, bail};
 use beep_proto::{ProjectBranch, WorkBranch, node::agent};
@@ -27,7 +30,7 @@ pub fn worktree_path(branch: &str) -> String {
 
 /// Gives `branch` a worktree in `folder`, from the local branch or the first remote that has it.
 /// Exits 3 no folder, 4 git failed, 5 worktree exists, 6 path taken, 7 no remote has it.
-pub fn add_worktree_script(folder: &str, branch: &str) -> String {
+fn add_worktree_script(folder: &str, branch: &str) -> String {
     let exclude = MachinePath::from_str(folder)
         .map(|path| format!("{{ {}; }} >/dev/null 2>&1; ", exclude_project_dirs(&path)))
         .unwrap_or_default();
@@ -64,13 +67,7 @@ fn add_failure(code: Option<i32>, branch: &str, out: &str) -> String {
 
 /// The end of `text`, cut on a character boundary.
 pub fn tail(text: &str) -> &str {
-    let text = text.trim();
-    let mut start = text.len().saturating_sub(300);
-
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
+    tail_bytes(text, 300)
 }
 
 /// Adds `branch`'s worktree on `node` and gives the branch as git lists it after.
@@ -144,11 +141,11 @@ fn ok(ran: &ShellOutput) -> Result<()> {
 }
 
 /// The most branches listed.
-pub const MAX_BRANCHES: usize = 100;
+const MAX_BRANCHES: usize = 100;
 /// The most refs read for a list.
 const MAX_REFS: u32 = 300;
 /// Sets `$d` to the default branch (`origin`'s HEAD, else `fallback`) and `$base` to its commit.
-pub fn base_lines(fallback: &str) -> String {
+fn base_lines(fallback: &str) -> String {
     format!(
         "d=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##'); \
          [ -n \"$d\" ] || d={fallback}; \
@@ -184,7 +181,7 @@ struct Ref {
     subject: String,
 }
 
-pub fn at(secs: u64) -> SystemTime {
+fn at(secs: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(secs)
 }
 
@@ -300,18 +297,14 @@ pub struct OpenPr {
 
 /// Lists the user's open pull requests on GitHub `repo` with `gh`, as the owner's account.
 pub fn my_prs_command(repo: &str) -> String {
-    let account = repo
-        .split_once('/')
-        .and_then(|(owner, _)| github_owner_var(owner))
-        .map(|var| format!("GH_TOKEN=\"${{{var}:-$GH_TOKEN}}\" "))
-        .unwrap_or_default();
+    let account = gh_account(repo);
     format!(
         "{account}gh pr list -R {repo} --author @me --state open --limit {MAX_PRS} --json number,title,headRefName",
         repo = quote(repo),
     )
 }
 
-pub fn parse_prs(out: &str) -> Result<Vec<OpenPr>> {
+fn parse_prs(out: &str) -> Result<Vec<OpenPr>> {
     Ok(serde_json::from_str(out.trim())?)
 }
 

@@ -1,5 +1,5 @@
 // The touch key bar above the soft keyboard, for termview.ts. Drawn as in the
-// phone mock (mockups/ios/index.html).
+// phone layout.
 import { createElement, createRef } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { TermKeyState, type TermKey, type TermMod } from "./touchkeys-state.ts";

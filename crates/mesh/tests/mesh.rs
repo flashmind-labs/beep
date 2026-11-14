@@ -7,6 +7,7 @@ use beep_mesh::{
     with_deadline,
 };
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
+use beep_proto::watched;
 use futures::StreamExt;
 use iroh::endpoint::{Connection, presets};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
@@ -121,7 +122,7 @@ async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     let mut updates = mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if ok(mesh) {
                 return;
@@ -1479,4 +1480,18 @@ async fn a_quiet_link_stays_up_with_older_and_newer_peers() {
         stays_up(transport_config(), older_transport()),
         stays_up(older_transport(), transport_config()),
     );
+}
+
+#[tokio::test]
+async fn two_set_if_new_at_once_write_only_the_first() {
+    let dev = create("desktop").await;
+    let key = project("acme/once");
+    let (a, b) = tokio::join!(
+        dev.mesh.set_if_new(key.clone(), b"first".to_vec()),
+        dev.mesh.set_if_new(key.clone(), b"second".to_vec()),
+    );
+    let wrote = [a.expect("first call"), b.expect("second call")];
+
+    assert_eq!(wrote.iter().filter(|w| **w).count(), 1);
+    assert_eq!(dev.mesh.get(&key), Some(b"first".to_vec()));
 }

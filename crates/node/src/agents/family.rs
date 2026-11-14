@@ -12,6 +12,7 @@ use super::{Agents, Begin, Command, Session, known, live::Live, mcp::children};
 use crate::{AsyncMutex, link::Membership};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{Effort, ParentLink, SessionInfo, Status};
+use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
     collections::HashMap,
@@ -105,9 +106,7 @@ impl Agents {
     /// The id a session goes by in links: the agent's own when it has one,
     /// which outlives a restart.
     pub(super) fn name_of(session: &Session) -> String {
-        let live = session.live.borrow();
-        live.agent_session
-            .clone()
+        watched::read(&session.live, |live| live.agent_session.clone())
             .unwrap_or_else(|| session.id.clone())
     }
 
@@ -115,10 +114,7 @@ impl Agents {
     /// children.
     pub(super) fn caller(&self, session: &str) -> Option<(Arc<Session>, Who)> {
         let found = self.get(session)?;
-        let who = Who {
-            machine: self.me(),
-            session: Self::name_of(&found),
-        };
+        let who = self.who_of(&found);
         Some((found, who))
     }
 
@@ -186,13 +182,12 @@ impl Agents {
         self.lock()
             .values()
             .filter(|session| {
-                let live = session.live.borrow();
-                live.status() != Status::Ended
-                    && live
-                        .info
-                        .parent
-                        .as_ref()
-                        .is_some_and(|link| link.root == root && link.root_machine == root_machine)
+                watched::read(&session.live, |live| {
+                    live.status() != Status::Ended
+                        && live.info.parent.as_ref().is_some_and(|link| {
+                            link.root == root && link.root_machine == root_machine
+                        })
+                })
             })
             .count()
     }
@@ -202,10 +197,10 @@ impl Agents {
         let mut kids: Vec<Arc<Session>> = self
             .lock()
             .values()
-            .filter(|session| is_child_of(&session.live.borrow(), who))
+            .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
             .cloned()
             .collect();
-        kids.sort_by_key(|session| session.live.borrow().info.started_at);
+        kids.sort_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
         kids
     }
 
@@ -213,7 +208,7 @@ impl Agents {
         let local = self
             .children_of(who)
             .iter()
-            .filter(|session| session.live.borrow().status() != Status::Ended)
+            .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
             .count();
         let remote = self
             .remote_kids(&who.session)
@@ -228,8 +223,40 @@ impl Agents {
     /// learns nothing of the others.
     pub(super) fn child_of(&self, who: &Who, id: &str) -> Result<Arc<Session>, String> {
         self.get(id)
-            .filter(|session| is_child_of(&session.live.borrow(), who))
+            .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
             .ok_or_else(|| format!("{NO_AGENT} {id}."))
+    }
+
+    /// The live sessions here that other agents may list and message: every
+    /// one the user sees, oldest first.
+    pub(super) fn peers(&self) -> Vec<Arc<Session>> {
+        let mut peers: Vec<Arc<Session>> = self
+            .lock()
+            .values()
+            .filter(|session| {
+                !session.reviewer
+                    && watched::read(&session.live, |live| {
+                        live.agent_session.is_some() && live.status() != Status::Ended
+                    })
+            })
+            .cloned()
+            .collect();
+        peers.sort_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
+        peers
+    }
+
+    /// Hands `text`, from the agent `from`, to the live session `id` here,
+    /// which counts it against `PEER_MESSAGES`.
+    pub(super) async fn message(&self, from: &str, id: &str, text: String) -> Result<(), String> {
+        let session = self
+            .peers()
+            .into_iter()
+            .find(|session| session.id == id || Self::name_of(session) == id)
+            .filter(|session| Self::name_of(session) != from)
+            .ok_or_else(|| format!("No agent {id} runs there. Use agent list to find one."))?;
+
+        session.take_peer_message()?;
+        session.order(Command::Prompt(text.into())).await
     }
 
     /// Starts the child `link` describes, here. The node that starts it
@@ -243,19 +270,7 @@ impl Agents {
             return Err(too_deep());
         }
 
-        let kinds = self.kinds();
-        let kind = kinds
-            .iter()
-            .find(|kind| kind.name == start.harness)
-            .ok_or_else(|| {
-                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
-                format!(
-                    "This machine has no {} agent. It has: {}.",
-                    start.harness,
-                    have.join(", ")
-                )
-            })?
-            .clone();
+        let kind = self.kind_or_refusal(&start.harness)?;
         let mode = match &start.review {
             Some(_) => review_mode(&link, &kind.name)?,
             None => child_mode(&link, &kind.name)?,
@@ -317,7 +332,7 @@ impl Agents {
             let who = self.who_of(&next);
 
             for kid in self.children_of(&who) {
-                if kid.live.borrow().status() != Status::Ended {
+                if watched::read(&kid.live, |live| live.status() != Status::Ended) {
                     queue.push(kid.clone());
                     local.push(kid);
                 }
@@ -349,11 +364,6 @@ impl Agents {
             futures::future::join_all(local),
         )
         .await;
-    }
-
-    /// Starts children first on a restart: a parent before its children.
-    pub(super) fn parents_first(sessions: &mut [super::OpenSession]) {
-        sessions.sort_by_key(|open| open.depth());
     }
 }
 
@@ -420,8 +430,8 @@ fn ended_for_good(live: &Live) -> bool {
 /// Waits until the parent session ends for good; false when it ends with
 /// the node.
 pub(super) async fn parent_gone(parent: &mut watch::Receiver<Live>) -> bool {
-    match parent.wait_for(|live| live.status() == Status::Ended).await {
-        Ok(live) => ended_for_good(&live),
+    match watched::wait_for(parent, |live| live.status() == Status::Ended).await {
+        Ok(()) => watched::read(parent, ended_for_good),
         // The session was dropped.
         Err(_) => true,
     }

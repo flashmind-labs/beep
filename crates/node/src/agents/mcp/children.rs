@@ -4,10 +4,11 @@
 //! The child is a normal session linked to the caller (see
 //! `agents::family`). On this machine the node starts it itself; on another
 //! it sends the order over `tools/1`, with the link, and the other node
-//! starts it and checks the limits. An agent reaches only its own children.
+//! starts it and checks the limits. An agent stops and checks only its own
+//! children; it lists and messages any agent the user runs.
 
-use super::machines::{Machine, command_name, machines};
-use super::reply::{fail, ok};
+use super::machines::{Machine, command_name, find, machines};
+use super::reply::{fail, json_of, ok, parse};
 use crate::agents::{
     Agents, Command, Session,
     family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, WAIT_POLL, Who},
@@ -20,10 +21,11 @@ use beep_proto::node::{
     mesh_state::{StateValue, SyncSpec},
     tools::{Reply, Request, Tool},
 };
+use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use std::{path::Path, sync::Arc};
+use serde_json::json;
+use std::{path::Path, sync::Arc, time::Duration};
 use tokio::time::{Instant, sleep};
 
 mod peer;
@@ -35,21 +37,11 @@ pub(crate) use peer::{
 
 /// The longest title or message the agent reads back.
 const MAX_TEXT: usize = 2000;
-
-/// Whether `tool` is one of the agent tools this module answers.
-pub(crate) fn handles(tool: Tool) -> bool {
-    matches!(
-        tool,
-        Tool::StartAgent
-            | Tool::AgentStatus
-            | Tool::SendToAgent
-            | Tool::StopAgent
-            | Tool::ListAgents
-    )
-}
+/// How long a machine has to list its agents.
+const LIST_LIMIT: Duration = Duration::from_secs(5);
 
 /// What an agent reads of one child.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ChildView {
     /// The id the other tools take: `<session>@<machine>`.
     pub(crate) id: String,
@@ -74,6 +66,9 @@ pub(crate) struct ChildView {
     /// Said when `wait` ran out of time.
     #[serde(default)]
     pub(crate) note: Option<String>,
+    /// The project whose checkout holds its folder, in a list of every agent.
+    #[serde(default)]
+    pub(crate) project: Option<String>,
 }
 
 impl ChildView {
@@ -104,6 +99,7 @@ impl ChildView {
             cost_usd: info.cost_usd,
             error: info.state.error.clone(),
             note: None,
+            project: None,
         }
     }
 
@@ -135,6 +131,14 @@ struct StartArgs {
 #[serde(deny_unknown_fields)]
 struct IdArgs {
     id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListArgs {
+    project: Option<String>,
+    #[serde(default)]
+    all: bool,
 }
 
 #[derive(Deserialize)]
@@ -177,7 +181,7 @@ pub(crate) struct PeerStart {
 }
 
 /// What a call to a child on another machine carries besides its id.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct PeerCall {
     pub(crate) id: String,
     #[serde(default)]
@@ -192,17 +196,6 @@ pub(crate) struct PeerCall {
     pub(crate) stop_all: bool,
 }
 
-fn json_of<T: Serialize>(value: &T) -> Reply {
-    match serde_json::to_string(value) {
-        Ok(text) => ok(text),
-        Err(e) => fail(format!("Could not write the answer: {e}")),
-    }
-}
-
-fn parse<T: for<'de> Deserialize<'de>>(args: &str) -> Result<T, String> {
-    serde_json::from_str(args).map_err(|e| format!("The arguments do not fit: {e}"))
-}
-
 /// Answers one agent tool for the session that called it.
 pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     let agents = &offers.agents;
@@ -215,26 +208,10 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
         who: &who,
     };
 
-    match request.tool {
-        Tool::StartAgent => match parse::<StartArgs>(&request.args) {
-            Ok(args) => reach.start(&session, args).await,
-            Err(e) => fail(e),
-        },
-        Tool::AgentStatus => match parse::<IdArgs>(&request.args) {
-            Ok(args) => reach.status(&args.id).await,
-            Err(e) => fail(e),
-        },
-        Tool::SendToAgent => match parse::<SendArgs>(&request.args) {
-            Ok(args) => reach.send(&session, &args.id, args.text).await,
-            Err(e) => fail(e),
-        },
-        Tool::StopAgent => match parse::<IdArgs>(&request.args) {
-            Ok(args) => reach.stop(&args.id).await,
-            Err(e) => fail(e),
-        },
-        Tool::ListAgents => reach.list().await,
-        other => fail(format!("{other} is not an agent tool.")),
-    }
+    reach
+        .dispatch(&session, request)
+        .await
+        .unwrap_or_else(fail)
 }
 
 /// The caller, and the ways it has to its children.
@@ -271,12 +248,37 @@ impl Reach<'_> {
         machine_name(self.mesh.as_ref())
     }
 
-    /// `text` as the caller `parent` sends it to a child, tagged with who
-    /// sent it so the child's log tells it from the user's words.
-    fn tagged_as_mine(&self, parent: &Session, text: &str) -> String {
-        let info = parent.info();
+    /// `text` as the caller `sender` sends it, tagged with `id`, the id
+    /// the receiver answers to, so its log tells it from the user's words.
+    fn tagged(sender: &Session, id: &str, text: &str) -> String {
+        let info = sender.info();
         let name = info.title.unwrap_or(info.agent);
-        crate::agents::tags::from_session(&self.who.session, &name, text)
+        crate::agents::tags::from_session(id, &name, text)
+    }
+
+    /// `child` as it stands on this machine.
+    fn view_here(&self, child: &Session) -> ChildView {
+        ChildView::of(&child.info(), &Agents::name_of(child)).named(&self.my_name())
+    }
+
+    async fn dispatch(&self, session: &Arc<Session>, request: &Request) -> Result<Reply, String> {
+        Ok(match request.tool {
+            Tool::StartAgent => self.start(session, parse(&request.args)?).await,
+            Tool::AgentStatus => self.status(&parse::<IdArgs>(&request.args)?.id).await,
+            Tool::SendToAgent => {
+                let SendArgs { id, text } = parse(&request.args)?;
+                self.send(session, &id, text).await
+            }
+            Tool::StopAgent => self.stop(&parse::<IdArgs>(&request.args)?.id).await,
+            Tool::ListAgents => match parse::<ListArgs>(&request.args)? {
+                ListArgs {
+                    project: None,
+                    all: false,
+                } => self.list().await,
+                ListArgs { project, .. } => self.everyone(project).await,
+            },
+            other => fail(format!("{other} is not an agent tool.")),
+        })
     }
 
     /// The machine `name` names: `None` is this one.
@@ -285,23 +287,16 @@ impl Reach<'_> {
             return Ok(None);
         };
         let Some(mesh) = &self.mesh else {
-            return if name == self.my_name() {
-                Ok(None)
-            } else {
-                Err(format!(
-                    "This machine is in no mesh, so it reaches no machine called {name}."
-                ))
-            };
+            return Err(format!(
+                "This machine is in no mesh, so it reaches no machine called {name}."
+            ));
         };
-        let all = machines(mesh);
 
-        match all.iter().find(|machine| machine.name == name) {
+        match find(mesh, &name) {
             Some(machine) if machine.id == mesh.me() => Ok(None),
-            Some(machine) => Ok(Some(Machine {
-                id: machine.id,
-                name: machine.name.clone(),
-            })),
+            Some(machine) => Ok(Some(machine)),
             None => {
+                let all = machines(mesh);
                 let names: Vec<&str> = all.iter().map(|machine| machine.name.as_str()).collect();
                 Err(format!(
                     "No machine called {name}. Machines: {}.",
@@ -326,7 +321,7 @@ impl Reach<'_> {
             return fail("Give a `prompt`.");
         }
 
-        let prompt = self.tagged_as_mine(parent, &prompt);
+        let prompt = Self::tagged(parent, &self.who.session, &prompt);
 
         if let Some(model) = &model
             && !beep_proto::node::agent::valid_model(model)
@@ -400,8 +395,7 @@ impl Reach<'_> {
                 },
             )
             .await?;
-        let id = Agents::name_of(&child);
-        Ok(ChildView::of(&child.info(), &id).named(&self.my_name()))
+        Ok(self.view_here(&child))
     }
 
     /// Sends the start to `machine`, which starts the child and checks the
@@ -432,12 +426,7 @@ impl Reach<'_> {
         let me = &self.who.session;
         self.agents
             .adopt_remote(parent, RemoteKid::expected(me, machine.id, &machine.name));
-        let sent = Call {
-            mesh,
-            session: me,
-            machine: machine.id,
-            name: &machine.name,
-        };
+        let sent = Call::to_machine(mesh, me, machine);
         let text = match sent
             .ask(Tool::StartAgent, &json!(order), REMOTE_LIMIT)
             .await
@@ -460,27 +449,6 @@ impl Reach<'_> {
         self.agents
             .settle_remote(me, machine.id, ChildId::from(view.id.as_str()).session);
         Ok(view)
-    }
-
-    /// One call to a child on `machine`: the text it answers, or why not.
-    async fn peer(
-        &self,
-        mesh: &Mesh,
-        machine: &Machine,
-        tool: Tool,
-        args: &Value,
-    ) -> Result<String, String> {
-        let sent = Call {
-            mesh,
-            session: &self.who.session,
-            machine: machine.id,
-            name: &machine.name,
-        };
-
-        match sent.ask(tool, args, REMOTE_LIMIT).await {
-            Answer::Text(text) => Ok(text),
-            Answer::Refused(why) | Answer::Silent(why) => Err(why),
-        }
     }
 
     /// Where a child named by `id` is, and the child itself on this machine.
@@ -516,10 +484,7 @@ impl Reach<'_> {
     /// How a child stands now.
     async fn view_of(&self, id: &str) -> Result<ChildView, String> {
         match self.find(id)? {
-            Found::Here(child) => {
-                let name = Agents::name_of(&child);
-                Ok(ChildView::of(&child.info(), &name).named(&self.my_name()))
-            }
+            Found::Here(child) => Ok(self.view_here(&child)),
             Found::There(kid) => self.view_there(&kid).await,
         }
     }
@@ -528,10 +493,7 @@ impl Reach<'_> {
     /// node says when it runs here, else what was last read of it.
     fn known_view(&self, id: &str) -> Option<ChildView> {
         match self.find(id).ok()? {
-            Found::Here(child) => {
-                let name = Agents::name_of(&child);
-                Some(ChildView::of(&child.info(), &name).named(&self.my_name()))
-            }
+            Found::Here(child) => Some(self.view_here(&child)),
             Found::There(kid) => {
                 let mesh = self.mesh.as_ref()?;
                 let view = self.agents.family.views.of(mesh, &self.who.session, &kid)?;
@@ -558,35 +520,121 @@ impl Reach<'_> {
             return fail("Give the `text` to send.");
         }
 
-        let text = self.tagged_as_mine(parent, &text);
+        let Ok(found) = self.find(id) else {
+            return self.message(parent, id, &text).await;
+        };
+        let text = Self::tagged(parent, &self.who.session, &text);
 
-        match self.find(id) {
-            Err(e) => fail(e),
-            Ok(Found::Here(child)) => match child.order(Command::Prompt(text.into())).await {
+        match found {
+            Found::Here(child) => match child.order(Command::Prompt(text.into())).await {
                 Ok(()) => ok("Sent. It reads it after its current turn."),
                 Err(e) => fail(e),
             },
-            Ok(Found::There(kid)) => {
+            Found::There(kid) => {
                 let Some(mesh) = &self.mesh else {
                     return fail("This machine is in no mesh.");
                 };
-                let machine = Machine {
-                    id: kid.machine,
-                    name: kid.name.clone(),
-                };
+                let sent = Call::to_kid(mesh, &self.who.session, &kid);
                 let args = json!(PeerCall {
                     id: kid.id.clone(),
                     text: Some(text),
-                    turn_only: false,
-                    stop_all: false,
+                    ..Default::default()
                 });
 
-                match self.peer(mesh, &machine, Tool::SendToAgent, &args).await {
-                    Ok(text) => ok(text),
-                    Err(e) => fail(e),
+                match sent.ask(Tool::SendToAgent, &args, REMOTE_LIMIT).await {
+                    Answer::Text(text) => ok(text),
+                    Answer::Refused(why) | Answer::Silent(why) => fail(why),
                 }
             }
         }
+    }
+
+    /// `text` to an agent the caller did not start, here or on its machine,
+    /// tagged with the caller's full id so the agent can answer.
+    async fn message(&self, sender: &Session, id: &str, text: &str) -> Reply {
+        let text = Self::tagged(sender, &full_id(&self.who.session, &self.my_name()), text);
+        let id = ChildId::from(id);
+        let sent = match (self.target(id.machine), &self.mesh) {
+            (Err(e), _) => Err(e),
+            (Ok(None), _) => {
+                self.agents
+                    .message(&self.who.session, id.session, text)
+                    .await
+            }
+            (Ok(Some(machine)), Some(mesh)) => {
+                let args = json!(PeerCall {
+                    id: id.session.to_owned(),
+                    text: Some(text),
+                    ..Default::default()
+                });
+                let call = Call::to_machine(mesh, &self.who.session, &machine);
+
+                match call.ask(Tool::SendToAgent, &args, REMOTE_LIMIT).await {
+                    Answer::Text(_) => Ok(()),
+                    Answer::Refused(why) | Answer::Silent(why) => Err(why),
+                }
+            }
+            (Ok(Some(_)), None) => Err("This machine is in no mesh.".to_owned()),
+        };
+
+        match sent {
+            Ok(()) => ok("Sent. It reads it after its current turn and answers only if it \
+                 sends one back."),
+            Err(e) => fail(e),
+        }
+    }
+
+    /// Every live agent but the caller, on every machine that answers in
+    /// time, only those in `project` when given.
+    async fn everyone(&self, project: Option<String>) -> Reply {
+        let project = match (project, &self.mesh) {
+            (None, _) => None,
+            (Some(name), Some(mesh)) => match super::projects::project_name(mesh, &name) {
+                Ok(name) => Some(name),
+                Err(e) => return fail(e),
+            },
+            (Some(_), None) => {
+                return fail("This machine is in no mesh, so it has no registered projects.");
+            }
+        };
+        let here = self.my_name();
+        let mut views: Vec<ChildView> = agents_here(self.agents)
+            .into_iter()
+            .filter(|view| view.id != self.who.session)
+            .map(|view| view.named(&here))
+            .collect();
+
+        if let Some(mesh) = &self.mesh {
+            let others: Vec<Machine> = mesh
+                .code_hosts()
+                .into_iter()
+                .filter(|status| status.online && status.device.id != mesh.me())
+                .map(Machine::from)
+                .collect();
+            let none = json!({});
+            let lists = futures::future::join_all(others.iter().map(|machine| async {
+                Call::to_machine(mesh, &self.who.session, machine)
+                    .ask(Tool::ListAgents, &none, LIST_LIMIT)
+                    .await
+            }))
+            .await;
+
+            // A machine that does not answer, or an older one that lists
+            // no agents for others, adds none.
+            for (machine, answer) in others.iter().zip(lists) {
+                let Answer::Text(text) = answer else { continue };
+                let Ok(there) = serde_json::from_str::<Vec<ChildView>>(&text) else {
+                    continue;
+                };
+                views.extend(there.into_iter().map(|view| view.named(&machine.name)));
+            }
+        }
+
+        if let Some(project) = project {
+            views.retain(|view| view.project.as_ref() == Some(&project));
+        }
+
+        json_of(&views)
     }
 
     async fn stop(&self, id: &str) -> Reply {
@@ -622,9 +670,10 @@ impl Reach<'_> {
             .children_of(self.who)
             .iter()
             .filter_map(|child| {
-                let live = child.live.borrow();
-                let id = live.agent_session.as_deref()?;
-                Some(ChildView::of(&live.info, id).named(&here))
+                watched::read(&child.live, |live| {
+                    let id = live.agent_session.as_deref()?;
+                    Some(ChildView::of(&live.info, id).named(&here))
+                })
             })
             .collect();
         // One whose start got no answer has no id to ask for yet.
@@ -635,19 +684,10 @@ impl Reach<'_> {
         for (kid, view) in kids.iter().zip(there) {
             views.push(view.unwrap_or_else(|e| ChildView {
                 id: format!("{}@{}", kid.id, kid.name),
-                key: String::new(),
-                harness: String::new(),
                 machine: kid.name.clone(),
                 state: "unreachable".to_owned(),
-                title: None,
-                last_message: String::new(),
-                files_changed: 0,
-                question: None,
-                turns: 0,
-                tokens: 0,
-                cost_usd: None,
                 error: Some(e),
-                note: None,
+                ..Default::default()
             }));
         }
 
@@ -685,6 +725,24 @@ impl Reach<'_> {
 
         view
     }
+}
+
+/// The agents this node runs that others may list, each with its project.
+fn agents_here(agents: &Agents) -> Vec<ChildView> {
+    let mesh = agents.mesh();
+
+    agents
+        .peers()
+        .iter()
+        .map(|session| {
+            let info = session.info();
+            let mut view = ChildView::of(&info, &Agents::name_of(session));
+            view.project = mesh
+                .as_ref()
+                .and_then(|mesh| super::projects::of_folder(mesh, &info.cwd, mesh.me()));
+            view
+        })
+        .collect()
 }
 
 enum Found {
@@ -801,82 +859,96 @@ fn child_entry(call: &str, view: &ChildView) -> String {
 /// caller's own node checked its side; the limits are checked here, from the
 /// link the call carries.
 pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Request) -> Reply {
+    serve_peer(agents, peer, &request)
+        .await
+        .unwrap_or_else(fail)
+}
+
+async fn serve_peer(
+    agents: &Agents,
+    peer: EndpointId,
+    request: &Request,
+) -> Result<Reply, String> {
     let who = Who {
         machine: Some(peer),
         session: request.session.clone(),
     };
 
     match request.tool {
-        Tool::StartAgent => match parse::<PeerStart>(&request.args) {
-            Ok(order) if order.parent.machine != Some(peer) => {
-                fail("The link names another machine than the one calling.")
-            }
-            Ok(order) if order.parent.session != who.session => {
-                fail("The link names another session than the one calling.")
-            }
-            Ok(order) => {
-                let start = ChildStart {
-                    harness: order.harness,
-                    prompt: order.prompt,
-                    cwd: order.cwd,
-                    model: order.model.map(ModelId::new),
-                    review: None,
-                };
+        Tool::StartAgent => {
+            let order: PeerStart = parse(&request.args)?;
 
-                match agents.start_child(order.parent, start).await {
-                    Ok(child) => json_of(&ChildView::of(&child.info(), &Agents::name_of(&child))),
-                    Err(e) => fail(e),
-                }
+            if order.parent.machine != Some(peer) {
+                return Err("The link names another machine than the one calling.".to_owned());
             }
-            Err(e) => fail(e),
-        },
+
+            if order.parent.session != who.session {
+                return Err("The link names another session than the one calling.".to_owned());
+            }
+
+            let start = ChildStart {
+                harness: order.harness,
+                prompt: order.prompt,
+                cwd: order.cwd,
+                model: order.model.map(ModelId::new),
+                review: None,
+            };
+            let child = agents.start_child(order.parent, start).await?;
+
+            Ok(json_of(&ChildView::of(
+                &child.info(),
+                &Agents::name_of(&child),
+            )))
+        }
         // A child's node asks the node of its parent whether it is kept: the
         // call's session is the parent here, and `peer` the machine of the child.
-        Tool::AgentParent => match parse::<PeerCall>(&request.args) {
-            Ok(call) => {
-                let key = call.text.unwrap_or_default();
-                let keeps = agents.keeps_child(peer, &request.session, &call.id, &key);
-                ok(if keeps { KEPT } else { GONE })
-            }
-            Err(e) => fail(e),
-        },
+        Tool::AgentParent => {
+            let call: PeerCall = parse(&request.args)?;
+            let key = call.text.unwrap_or_default();
+            let keeps = agents.keeps_child(peer, &request.session, &call.id, &key);
+
+            Ok(ok(if keeps { KEPT } else { GONE }))
+        }
         // A child on `peer` finished a turn or asks the user: the call's
         // session is its parent here.
-        Tool::AgentNote => match parse::<ChildNote>(&request.args) {
-            Ok(note) => match agents.note_from(peer, &request.session, &note).await {
-                Ok(()) => ok("Told."),
-                Err(e) => fail(e),
-            },
-            Err(e) => fail(e),
-        },
+        Tool::AgentNote => {
+            let note: ChildNote = parse(&request.args)?;
+            agents.note_from(peer, &request.session, &note).await?;
+
+            Ok(ok("Told."))
+        }
         // How many live agents under a root run here.
-        Tool::AgentCount => match parse::<CountCall>(&request.args) {
-            Ok(call) => ok(agents
+        Tool::AgentCount => {
+            let call: CountCall = parse(&request.args)?;
+
+            Ok(ok(agents
                 .live_descendants(call.root_machine, &call.root)
-                .to_string()),
-            Err(e) => fail(e),
-        },
-        Tool::AgentStatus | Tool::SendToAgent | Tool::StopAgent => {
-            let call = match parse::<PeerCall>(&request.args) {
-                Ok(call) => call,
-                Err(e) => return fail(e),
-            };
-            let child = match agents.child_of(&who, &call.id) {
-                Ok(child) => child,
-                Err(e) => return fail(e),
+                .to_string()))
+        }
+        // Another machine's agent lists the agents here.
+        Tool::ListAgents => Ok(json_of(&agents_here(agents))),
+        // To its own child, or to any agent here as a message from another.
+        Tool::SendToAgent => {
+            let call: PeerCall = parse(&request.args)?;
+            let Some(text) = call.text.filter(|text| !text.trim().is_empty()) else {
+                return Ok(fail("Give the `text` to send."));
             };
 
-            match request.tool {
+            match agents.child_of(&who, &call.id) {
+                Ok(child) => child.order(Command::Prompt(text.into())).await?,
+                Err(_) => agents.message(&who.session, &call.id, text).await?,
+            }
+
+            Ok(ok("Sent. It reads it after its current turn."))
+        }
+        Tool::AgentStatus | Tool::StopAgent => {
+            let call: PeerCall = parse(&request.args)?;
+            let child = agents.child_of(&who, &call.id)?;
+
+            Ok(match request.tool {
                 Tool::AgentStatus => {
                     json_of(&ChildView::of(&child.info(), &Agents::name_of(&child)))
                 }
-                Tool::SendToAgent => match call.text.filter(|text| !text.trim().is_empty()) {
-                    Some(text) => match child.order(Command::Prompt(text.into())).await {
-                        Ok(()) => ok("Sent. It reads it after its current turn."),
-                        Err(e) => fail(e),
-                    },
-                    None => fail("Give the `text` to send."),
-                },
                 _ if call.turn_only => {
                     // Refused when no turn runs. A parent's node from 0.5.0
                     // and before asks without `stop_all`.
@@ -893,9 +965,9 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
                     child.close().await;
                     ok("Stopped.")
                 }
-            }
+            })
         }
-        other => fail(format!("A node does not serve {other} for another node.")),
+        other => Err(format!("A node does not serve {other} for another node.")),
     }
 }
 

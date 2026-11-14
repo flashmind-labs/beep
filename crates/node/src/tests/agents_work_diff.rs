@@ -241,3 +241,13 @@ fn requested_context_reveals_surrounding_lines() {
     assert_eq!(file(&narrow, "context.txt").hunks[0].new_start, 17);
     assert_eq!(file(&wide, "context.txt").hunks[0].new_start, 7);
 }
+
+#[test]
+fn git_runs_with_its_messages_in_english() {
+    let command = git_command(Path::new("."), &["status"]);
+    let lang = command
+        .get_envs()
+        .find(|(name, _)| *name == "LC_ALL")
+        .and_then(|(_, value)| value);
+    assert_eq!(lang, Some(std::ffi::OsStr::new("C")));
+}

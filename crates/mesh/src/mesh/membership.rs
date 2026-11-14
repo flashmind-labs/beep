@@ -2,6 +2,7 @@
 
 use super::{DeviceStatus, Mesh};
 use crate::machine::Device as InventoryDevice;
+use crate::store::TicketPurpose;
 use crate::{DeviceKind, JoinTicket, Key, MeshError};
 use iroh::EndpointId;
 use std::collections::BTreeSet;
@@ -27,7 +28,7 @@ impl Mesh {
         let addr = self.inner.endpoint.addr();
         self.inner
             .store
-            .run(move |core| core.invite(addr, kind, ttl, false))
+            .run(move |core| core.invite(addr, kind, ttl, TicketPurpose::Member))
             .await
     }
 
@@ -37,7 +38,7 @@ impl Mesh {
         let addr = self.inner.endpoint.addr();
         self.inner
             .store
-            .run(move |core| core.invite(addr, DeviceKind::Node, ttl, true))
+            .run(move |core| core.invite(addr, DeviceKind::Node, ttl, TicketPurpose::Temporary))
             .await
     }
 
@@ -46,7 +47,7 @@ impl Mesh {
         let addr = self.inner.endpoint.addr();
         self.inner
             .store
-            .run(move |core| core.invite_observer(addr, ttl))
+            .run(move |core| core.invite(addr, DeviceKind::Desktop, ttl, TicketPurpose::Observer))
             .await
     }
 

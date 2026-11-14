@@ -27,13 +27,13 @@ import { stuck, draw } from "./home.ts";
 import { allTerms } from "../terminals/view.ts";
 import { currentLocation, go, drawTop } from "./views.ts";
 import { groupMenu } from "../project/groups.ts";
-import { redrawProjects, redrawProjectsPage } from "../project/sections.ts";
+import { fsync, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
+import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, sessionsDue } from "../project/loads.ts";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
 import { IC } from "../ui/icons.tsx";
-import { syncProjects, syncConflicts } from "../project/syncpage.ts";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { createElement, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
@@ -87,7 +87,6 @@ export function drawSide() {
   if (home?.running && frontLayout("home") === "list") links.push({ svg: IC.run, label: "Running", count: visibleRunning(home.running).length, current: paneOn().view === "agents", open: () => go("pane", "agents") });
   const terms = allTerms.list(ALL);
   if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });
-  if (syncProjects().length) links.push({ svg: IC.sync, label: "Sync", count: syncConflicts(), current: location === "sync", hot: true, open: () => go("sync") });
   const side: ReactNode[] = [];
 
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
@@ -197,7 +196,7 @@ export function removeProject(name: string) {
 }
 
 function projectReact(project: Placed<Project>, label: string, pinned: boolean, indented: boolean) {
-  return createElement(SidebarProjectRow, { project, label, pinned, indented,
+  return createElement(SidebarProjectRow, { project, label, pinned, indented, conflicts: conflictList(fsync.detail(project.name)).length,
     current: currentLocation()?.view === "projects" && state.picked === project.name,
     open: () => openProjects(project.name), pin: () => { void setProjectOnTop(project.name, !pinned); },
     windowProps: projectWindowProps(project.name) });
@@ -273,7 +272,7 @@ function landed(p: { name: string }) {
 /// Opens the Import a project sheet; the project is selected once it is in.
 export function importSheet(repo: string | null = null, machine: string | null = null) {
   openImportProject({
-    machines: (state.home?.machines || []).filter(m => m.can_host !== false),
+    machines: state.home?.machines || [],
     macId: state.mac?.id || null,
     repo,
     machine,
@@ -287,14 +286,14 @@ export function addProject() {
     machines: (state.home?.machines || []).filter(m => m.can_host !== false),
     onImported: landed,
     onChoose: () => openAddFolder({
-      machines: (state.home?.machines || []).filter(m => m.can_host !== false),
+      machines: state.home?.machines || [],
       macId: state.mac?.id || null,
       onDone: landed,
       onBack: addProject,
     }),
     onClone: repo => importSheet(repo ?? null),
     onNew: () => openNewProject({
-      machines: (state.home?.machines || []).filter(m => m.can_host !== false),
+      machines: state.home?.machines || [],
       onDone: landed,
       onBack: addProject,
       onClone: repo => importSheet(repo),

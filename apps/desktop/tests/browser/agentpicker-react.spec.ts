@@ -32,6 +32,21 @@ test("project composer picker filters and selects a model", async ({ page }) => 
   expect(errors.filter(message => message.includes("flushSync") || message.includes("unmount"))).toEqual([]);
 });
 
+test("the picker opens beside its pill, inside the window", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const pill = page.locator(".cc-pjc:visible").getByTitle("Harness, model and thinking");
+  await pill.click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await expect(picker).toBeVisible();
+  const box = await picker.boundingBox(), anchor = await pill.boundingBox(), view = page.viewportSize();
+  if (!box || !anchor || !view) throw new Error("the picker and its pill are laid out");
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(view.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(view.height);
+  expect(Math.min(Math.abs(box.y - (anchor.y + anchor.height)), Math.abs(box.y + box.height - anchor.y))).toBeLessThan(16);
+});
+
 test("session model picker filters and closes after selection", async ({ page }) => {
   await openDesktop(page, true, { agent_hosts: hosts, agent_models: models });
   await page.evaluate(() => window.__navigation.open({ agent: {

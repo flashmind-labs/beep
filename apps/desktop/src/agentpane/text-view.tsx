@@ -8,6 +8,7 @@ import { noteTab, touchTab } from "./media-draw.ts";
 import { fileError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
+import { Button } from "../ui/kit.tsx";
 
 /// Shows an HTML file's preview in its tab, reading it the first time, or its source again.
 export async function togglePreview(tab: MediaTab) {
@@ -76,8 +77,8 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText; rev: nu
     : text.binary ? <div className="agpmsg">{tab.name} is not text ({shortSize(text.size)}). Save it to open it on this computer.</div>
     : <div className="agcode" style={style} ref={code} onScroll={scrolled}><pre dangerouslySetInnerHTML={{ __html: html }} /></div>}
     <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? about}</span><span className="sp" />
-      {!text.binary && isHtmlFile(rel) && <button className="dbtn" data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</button>}
-      <button className="dbtn" data-tment="1" onClick={() => addMention(mentioned(tab.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel))}>Mention</button>
-      <button className="dbtn" data-tsave="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root)}>Save</button>
+      {!text.binary && isHtmlFile(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
+      <Button data-tment="1" onClick={() => addMention(mentioned(tab.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel))}>Mention</Button>
+      <Button data-tsave="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root)}>Save</Button>
     </div></>;
 }

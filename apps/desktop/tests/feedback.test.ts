@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { type DiffFile, type ReviewComment, parseDraft, placeComments } from "../src/review/diff-state.ts";
 import {
-  type SubmittedReview, doneNote, findingsOf, mergeComments, reviewBase, reviewTarget, runState, toComments, whyNot,
+  type SubmittedReview, doneNote, findingsOf, hostsAfterRead, mergeComments, reviewBase, runState, toComments, whyNot,
 } from "../src/review/feedback-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
@@ -60,9 +60,9 @@ test("html and control characters stay text, and a long finding is cut", () => {
 
 test("the base is HEAD for the uncommitted changes, else the merge base", () => {
   const view = { base: "origin/main", merge_base: "3f2c1a0e9" };
-  assert.equal(reviewBase(reviewTarget(view, true)), "HEAD");
-  assert.equal(reviewBase(reviewTarget(view, false)), "3f2c1a0e9");
-  assert.equal(reviewBase(reviewTarget({ ...view, merge_base: "" }, false)), "HEAD");
+  assert.equal(reviewBase(view, true), "HEAD");
+  assert.equal(reviewBase(view, false), "3f2c1a0e9");
+  assert.equal(reviewBase({ ...view, merge_base: "" }, false), "HEAD");
 });
 
 test("a review runs until it is handed in or fails", () => {
@@ -137,7 +137,7 @@ test("what an agent wrote is kept as stored, with a harness id and nothing else"
 
 test("a button is disabled with a plain reason until a review can start", () => {
   const machine = { id: "m1", name: "build-box" };
-  const ok = { machine, root: "/srv/project", hosts: [{ machine_id: "m1", agents: ["claude"] }], changes: true };
+  const ok = { machine, root: "/srv/project", hosts: [{ machine_id: "m1", agents: ["claude"] }], hostsFailed: false, changes: true };
   assert.equal(whyNot(ok), "");
   assert.equal(whyNot({ ...ok, machine: null }), "This diff has no checkout on a machine to review");
   assert.equal(whyNot({ ...ok, root: null }), "Reading the changes");
@@ -145,5 +145,14 @@ test("a button is disabled with a plain reason until a review can start", () => 
   assert.equal(whyNot({ ...ok, hosts: null }), "Looking for coding agents");
   assert.equal(whyNot({ ...ok, hosts: [{ machine_id: "m2", agents: ["claude"] }] }), "build-box is offline, so the checkout cannot be read");
   assert.equal(whyNot({ ...ok, hosts: [{ machine_id: "m1", agents: [] }] }), "build-box has no coding agent");
+  assert.equal(whyNot({ ...ok, hosts: [], hostsFailed: true }), "The machines' coding agents could not be read");
 });
 
+
+test("a failed refresh keeps using the list already read", () => {
+  const list = [{ machine_id: "m1", agents: ["claude"] }];
+  assert.deepEqual(hostsAfterRead(list, null), { hosts: list, failed: false });
+  assert.deepEqual(hostsAfterRead(null, null), { hosts: [], failed: true });
+  assert.deepEqual(hostsAfterRead(null, list), { hosts: list, failed: false });
+  assert.deepEqual(hostsAfterRead([], list), { hosts: list, failed: false });
+});

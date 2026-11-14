@@ -173,6 +173,7 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
         &offers,
         &mesh,
         &screens,
+        "s1",
         json!({ "action": "boot", "machine": "nowhere", "device": "Pixel 9" }),
     )
     .await;
@@ -183,6 +184,7 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
         &offers,
         &mesh,
         &screens,
+        "s1",
         json!({ "action": "screenshot", "machine": "build-box", "device": "no-such-device" }),
     )
     .await;
@@ -193,7 +195,82 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
         called.text
     );
 
-    let called = call(&offers, &mesh, &screens, json!({ "action": "list" })).await;
+    let called = call(&offers, &mesh, &screens, "s1", json!({ "action": "list" })).await;
     assert!(!called.failed);
     assert!(called.text.starts_with("- build-box (this machine)"), "{}", called.text);
+}
+
+fn attached(machine: EndpointId, id: &str, called: &str) -> (Attached, mpsc::Receiver<Ask>) {
+    let (asks, taken) = mpsc::channel(1);
+    let task = tokio::spawn(async {});
+    let viewer = Viewer {
+        asks,
+        _task: std::sync::Arc::new(AbortOnDropHandle::new(task)),
+    };
+    let attached = Attached {
+        machine,
+        id: id.to_owned(),
+        called: called.to_owned(),
+        viewer,
+    };
+    (attached, taken)
+}
+
+fn machine_id() -> EndpointId {
+    iroh::SecretKey::from_bytes(&[7; 32]).public()
+}
+
+#[tokio::test]
+async fn a_fifth_device_detaches_the_least_recently_used_one() {
+    let screens = Screens::default();
+    let machine = machine_id();
+    let mut keep = Vec::new();
+
+    for n in 0..MAX_ATTACHED {
+        let (a, rx) = attached(machine, &format!("id{n}"), &format!("d{n}"));
+        keep.push(rx);
+        screens.attach(a);
+    }
+
+    // d0 is used again, so d1 is now the least recently used.
+    assert!(screens.touch(machine, "d0").is_some());
+    let (a, rx) = attached(machine, "id9", "d9");
+    keep.push(rx);
+    screens.attach(a);
+
+    assert!(screens.touch(machine, "d1").is_none());
+    assert!(screens.touch(machine, "d0").is_some());
+    assert!(screens.touch(machine, "d9").is_some());
+}
+
+#[tokio::test]
+async fn shutting_down_by_id_or_name_detaches_the_device() {
+    let screens = Screens::default();
+    let machine = machine_id();
+    let (a, _rx) = attached(machine, "emulator-5554", "Pixel 9");
+    screens.attach(a);
+
+    screens.close(machine, "emulator-5554", "emulator-5554");
+    assert!(screens.touch(machine, "Pixel 9").is_none());
+
+    let (a, _rx2) = attached(machine, "emulator-5554", "emulator-5554");
+    screens.attach(a);
+    screens.close(machine, "emulator-5554", "Pixel 9");
+    assert!(screens.touch(machine, "emulator-5554").is_none());
+}
+
+#[tokio::test]
+async fn a_device_attached_by_name_is_found_again_by_its_id() {
+    let screens = Screens::default();
+    let machine = machine_id();
+    let (a, _rx) = attached(machine, "emulator-5554", "emulator-5554");
+    screens.attach(a);
+
+    // A call by name misses, and the lookup then resolves the id and finds it.
+    assert!(screens.touch(machine, "Pixel 9").is_none());
+    assert!(screens.touch(machine, "emulator-5554").is_some());
+
+    let (a, _rx2) = attached(machine, "emulator-5554", "Pixel 9");
+    screens.attach(a);
+    assert_eq!(crate::lock(&screens.open).len(), 1);
 }

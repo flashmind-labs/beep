@@ -85,10 +85,13 @@ export function tailLines(output: string, keep = TAIL_LINES) {
 }
 
 /// The exit code a failed command's output names (`exit code: 101`,
-/// `Exit status 2`, `exited with 1`), or null.
-export function exitCode(output: string) {
-  const all = [...output.matchAll(/\bexit(?:ed with|\s+code|\s+status)?\s*:?\s*(-?\d+)\b/gi)];
-  return all.length ? Number(all[all.length - 1][1]) : null;
+/// `exited with code 2`, `Exit status 2`, `status 3`, `exit 1`), or null. The
+/// last one wins by default, as a command's own code ends its output; `first`
+/// takes the first, for a row that shows the code the failure began with.
+export function exitCode(output: string, first = false) {
+  const all = [...output.matchAll(/\b(?:exit(?:ed with)?(?:\s+(?:code|status))?|status)\s*:?\s*(-?\d+)\b/gi)];
+  const hit = first ? all[0] : all[all.length - 1];
+  return hit ? Number(hit[1]) : null;
 }
 
 /// A step of a subagent, as the node writes it on the call that started it.
@@ -102,9 +105,9 @@ interface SubStep {
 /// `[agent] <name>` when it knows its type or custom agent's name, then
 /// `[session] <id>` for a native conversation, or, for
 /// an agent another agent started, `[child] <id>@<machine> <state> <key>`
-/// (the session to open), before what the subagent answered. Null for any
-/// other call.
-export function subagent(output: string): { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild; session?: string } | null {
+/// (the session to open), then `[model] <model>` when known, before the
+/// answer. Null for any other call.
+export function subagent(output: string): { count: number; steps: SubStep[]; result: string; model: string | null; agent?: string; child?: SubChild; session?: string } | null {
   const lines = output.split("\n");
   const head = /^\[steps\] (\d+)$/.exec(lines[0] ?? "");
   if (!head) return null;
@@ -126,8 +129,10 @@ export function subagent(output: string): { count: number; steps: SubStep[]; res
   // What the child's own session spent: shown on the card, never added to the parent's.
   const spend = kid ? /^\[spend\] (\d+) (\S+)$/.exec(lines[i] ?? "") : null;
   if (spend) i++;
+  const model = /^\[model\] (.+)$/.exec(lines[i] ?? "");
+  if (model) i++;
   const result = lines.slice(i).join("\n").trim();
-  const out: { count: number; steps: SubStep[]; result: string; agent?: string; child?: SubChild; session?: string } = { count: Number(head[1]), steps, result };
+  const out: { count: number; steps: SubStep[]; result: string; model: string | null; agent?: string; child?: SubChild; session?: string } = { count: Number(head[1]), steps, result, model: model?.[1].trim() || null };
   if (session) out.session = session[1];
   if (named) out.agent = named[1].trim();
   if (kid) out.child = { id: kid[1], state: kid[2], key: kid[3] ?? "" };

@@ -1,6 +1,6 @@
 //! One snapshot worker per demanded topic, independent of action delivery.
 
-use super::{Events, Fleet, Snapshots, Update, controller_topic, invalidate};
+use super::{Events, Fleet, Snapshots, Update, commands::retrying, controller_topic, invalidate};
 use crate::error::{DesktopError, Result};
 use beep_proto::node::{
     events::{self, Topic},
@@ -9,56 +9,55 @@ use beep_proto::node::{
 use iroh::EndpointId;
 use std::{
     collections::HashSet,
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
-use tokio::time::{sleep, timeout};
+use tokio::time::{Sleep, sleep, timeout};
 use uuid::Uuid;
 
+/// A silent stream is lost after this long without a message.
+const IDLE: Duration = Duration::from_secs(35);
+
+/// The deadline for the next message. It lives across loop turns and
+/// restarts only when a message arrives.
+struct Idle(Pin<Box<Sleep>>);
+
+impl Idle {
+    fn new() -> Self {
+        Self(Box::pin(sleep(IDLE)))
+    }
+
+    fn reset(&mut self) {
+        self.0.as_mut().reset(tokio::time::Instant::now() + IDLE);
+    }
+
+    async fn expired(&mut self) {
+        self.0.as_mut().await;
+    }
+}
+
 pub(super) struct SubscriptionWorker {
-    app: AppHandle,
-    fleet: Arc<Fleet>,
-    machine: EndpointId,
-    topic: Topic,
+    pub(super) app: AppHandle,
+    pub(super) fleet: Arc<Fleet>,
+    pub(super) machine: EndpointId,
+    pub(super) topic: Topic,
 }
 
 impl SubscriptionWorker {
-    pub(super) fn new(
-        app: AppHandle,
-        fleet: Arc<Fleet>,
-        machine: EndpointId,
-        topic: Topic,
-    ) -> Self {
-        Self {
-            app,
-            fleet,
-            machine,
-            topic,
-        }
-    }
-
     pub(super) async fn run(self) {
-        let mut pause = Duration::from_secs(1);
-
-        loop {
-            let started = Instant::now();
-            if let Err(error) = self.connect().await {
+        retrying(
+            || self.connect(),
+            |error, elapsed_ms| {
                 log::warn!(
-                    "subscription stream ended machine={} topic={} elapsed_ms={}: {error}",
+                    "subscription stream ended machine={} topic={} elapsed_ms={elapsed_ms}: {error}",
                     self.machine,
-                    self.topic,
-                    started.elapsed().as_millis()
+                    self.topic
                 );
-            }
-
-            if started.elapsed() >= Duration::from_secs(10) {
-                pause = Duration::from_secs(1);
-            }
-
-            sleep(pause).await;
-            pause = (pause * 2).min(Duration::from_secs(30));
-        }
+            },
+        )
+        .await;
     }
 
     async fn connect(&self) -> Result<()> {
@@ -108,6 +107,7 @@ impl SubscriptionWorker {
         let mut next = 1_u64;
         let mut dirty = false;
         let mut revision = 0;
+        let mut idle = Idle::new();
 
         loop {
             if dirty && watches.is_empty() {
@@ -157,9 +157,12 @@ impl SubscriptionWorker {
                     timeout(Duration::from_secs(15), tx.send( &Request::Refresh { id: next }))
                         .await.map_err(|_| DesktopError::Lost("the machine".into()))??;
                 },
-                reply = timeout(Duration::from_secs(35), rx.recv::<Reply>()) => {
-                    let reply = reply.map_err(|_| DesktopError::Lost("the machine".into()))??
-                        .ok_or_else(|| DesktopError::Lost("the machine".into()))?;
+                () = idle.expired() => {
+                    return Err(DesktopError::Lost("the machine".into()));
+                },
+                reply = rx.recv::<Reply>() => {
+                    let reply = reply?.ok_or_else(|| DesktopError::Lost("the machine".into()))?;
+                    idle.reset();
 
                     match reply {
                         Reply::Watching { id } => {
@@ -224,3 +227,7 @@ impl Drop for SnapshotConnection<'_> {
         self.snapshots.end(self.machine, self.generation);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/fleet_events_subscriptions.rs"]
+mod tests;

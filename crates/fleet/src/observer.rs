@@ -36,6 +36,7 @@ pub async fn observe(mesh: &Mesh, endpoint: &Endpoint) -> Result<Router> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beep_proto::watched;
     use iroh::{SecretKey, endpoint::presets};
     use iroh_tickets::Ticket;
     use std::time::Duration;
@@ -79,7 +80,7 @@ mod tests {
             let mut updates = desktop.updates();
 
             loop {
-                updates.borrow_and_update();
+                watched::read_and_update(&mut updates, |_| ());
 
                 if desktop.is_observer(phone_id) {
                     return;

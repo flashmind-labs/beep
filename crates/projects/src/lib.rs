@@ -10,7 +10,6 @@ pub mod git_items;
 pub mod history;
 pub mod imports;
 pub mod issues;
-pub mod leak;
 pub mod model;
 mod owner_var;
 pub mod repo_watch;

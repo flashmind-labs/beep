@@ -1,6 +1,7 @@
 // One coding agent session in the bar: opening it, drawing its frame and
 // reading it while it shows. Following it is in session-follow.ts, its head
 // in session-head.ts and what a click in it does in session-click.ts.
+import { showUploadPending } from "./composer-ui.tsx";
 import { SessionPicks } from "./agentmodels.ts";
 import { createElement } from "react";
 import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
@@ -9,17 +10,17 @@ import { bindSessionStash } from "./stash.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.ts";
 import { fileLinkMenu } from "./filelinks.ts";
-import { conversationHistory, retitle, type Retitled } from "./conversation-state.ts";
+import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, type Retitled } from "./conversation-state.ts";
 import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { composeField } from "../chat/compose.ts";
 import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { readRunning } from "../agentpane/running.ts";
 import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
-import { followsAfterScroll, returnScroll } from "./logscroll.ts";
+import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
-import { MN, resetMentions } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, where } from "./agents.ts";
+import { MN, activateMentions, currentMentions, rememberMentionImages } from "./workdrop.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.ts";
 import { removeLastAttachment } from "./attachments-view.tsx";
 import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
@@ -39,7 +40,7 @@ import { readError } from "../agentpane/read.ts";
 import { loadOlder, nearTop } from "./older.ts";
 import { joinRuns, lacksPrompt, newestRead } from "./older-state.ts";
 import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay } from "./reconnect-state.ts";
-import { drawMove, moveKey } from "./move.ts";
+import { drawMove } from "./move.ts";
 import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
@@ -47,14 +48,14 @@ import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
 import { feed, flushDraw, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
 import { drawAgentHeading, headText, readUsage, redrawAgentHints, agentHints, shownUsage } from "./session-head.ts";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
-import { askContinueHere, continueAfterTurn, continueKey, keepContinuing } from "./continue-here.ts";
+import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
 
 /// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
 /// the empty view that started it becomes the session in place: its pane, terminal
 /// tabs included, stays as it is.
 export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
   conversationHistory.visit(s);
-  traceSession("opening", { machine_id: s.machine_id, agent: s.agent, session: s.id }, { status: s.status, adopt });
+  traceSession("opening", openOf(s), { status: s.status, adopt });
 
   // Already open: keep its log, draft, queue and scroll, and only ask for news.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
@@ -93,18 +94,19 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   const inPlace = adopt && !!AG.draft && S.view === "agent" && !!$("#agshell");
   if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
+  rememberMentionImages();
   leaveLog();
   S.view = "agent";
   AG.draft = null;
-  const open: OpenAgent = { machine_id: s.machine_id, agent: s.agent, session: s.id };
+  const open: OpenAgent = openOf(s);
   const log = inPlace ? null : keptLogs.get(sessionKey(s)) ?? null;
   const held = keptPage(log, transcripts.get(transcriptKey(open))?.page ?? null);
   Object.assign(AG, {
     open,
     page: held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
-    att: [], attError: "", opened: new Set(), steps: new Map(), all: new Set(),
-    queue: steerQueues.get(transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id })) ?? [],
+    attError: "", opened: new Set(), steps: new Map(), all: new Set(),
+    queue: steerQueues.get(transcriptKey(open)) ?? [],
     outbox: [], stopping: null, modelOpen: false, modes: null,
     older: { stop: "", loading: false, gaveUp: false },
   });
@@ -151,17 +153,17 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const mode = isNativeSession(s.id) ? "native" : followsOnly(s) ? "readonly" : "writable";
   const takeover = canTakeOver(s.agent) && !isNativeSession(s.id);
   const banner = takeover ? "Running outside Beep. Beep follows it here." : "Started outside Beep. Beep follows it here.";
-  const continueHere = takeover ? { target: continueKey(s), start: () => askContinueHere(s) } : null;
+  const continueHere = takeover ? { target: agentKey(s), start: () => askContinueHere(s) } : null;
   keepContinuing(s);
   // The saved title shows at once; `agent-title-changed` brings it to the lists.
   const saveTitle = async (title: string) => {
-    await invoke("agent_title_save", { machineId: s.machine_id, agent: s.agent, session: s.id, title });
-    await retitleOpen({ machine_id: s.machine_id, agent: s.agent, session: s.id, title: title || null });
+    await invoke("agent_title_save", { ...where(openOf(s)), title });
+    await retitleOpen({ ...openOf(s), title: title || null });
   };
-  const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, machineId: s.machine_id, session: s.id, usage: shownUsage(s), moveKey: moveKey(s), saveTitle });
-  const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: moveKey(s), machine: s.machine_id, session: s.id, continueHere, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
+  const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, machineId: s.machine_id, session: s.id, usage: shownUsage(s), moveKey: agentKey(s), saveTitle });
+  const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: agentKey(s), machine: s.machine_id, session: s.id, continueHere, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
-  if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
+  activateMentions(s);
   drawAgentHeading();
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;
@@ -171,9 +173,10 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const msg = agentMessage.current;
 
   if (msg) {
-    composeField(msg, { images: agentDrop, removeLast: removeLastAttachment, grow: 156, draft: JSON.stringify([s.machine_id, s.agent, s.id]) });
+    composeField(msg, { images: agentDrop, removeLast: removeLastAttachment, grow: 156, draft: conversationKey(s) });
     bindMentionMenu(msg);
     bindSessionStash(msg);
+    showUploadPending(currentMentions().sending);
   }
 
   drawAgentAttached();
@@ -187,16 +190,22 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     b.stuck = true;
     // Release the end immediately; redraw visible turns once per frame.
     // Wheel and touch gestures hold off pins to the end (`pinEnd`).
-    let frame = 0, top = b.scrollTop;
+    let frame = 0, top = b.scrollTop, height = b.clientHeight, total = b.scrollHeight;
     b.onscroll = () => {
-      if (!b.isConnected || !agentOnScreen()) return;
-      b.stuck = followsAfterScroll(b.stuck !== false, top, b);
+      if (!b.isConnected || !paneShown()) return;
+      const layoutChanged = height !== b.clientHeight || total !== b.scrollHeight;
+      const readerScrolling = b.touching || pinWait(performance.now(), b.wheel) > 0;
+      b.stuck = followsAfterScroll(b.stuck !== false, top, b, layoutChanged && !readerScrolling);
+      height = b.clientHeight;
+      total = b.scrollHeight;
       top = b.top = b.scrollTop;
       frame ||= requestAnimationFrame(() => {
         frame = 0;
-        if (!b.isConnected || !agentOnScreen()) return;
+        if (!b.isConnected || !paneShown()) return;
         scrolledLog(b);
         top = b.top = b.scrollTop;
+        height = b.clientHeight;
+        total = b.scrollHeight;
         syncJump(b);
         if (nearTop(b)) void loadOlder("near");
       });
@@ -228,7 +237,7 @@ export async function pollAgent(readNow = false) {
   const o = AG.open;
   if (!o) { feed.leave(); return; }
   const trace = readNow || !AG.sig;
-  const skip = !isOpen(o) ? "different-view" : AG.inflight === o || readingKept === o ? "in-flight" : !readNow && !agentOnScreen() ? "hidden" : null;
+  const skip = !isOpen(o) ? "different-view" : AG.inflight === o || readingKept === o ? "in-flight" : !readNow && !paneShown() ? "hidden" : null;
 
   if (skip) {
     if (skip !== "in-flight") feed.leave();
@@ -236,7 +245,7 @@ export async function pollAgent(readNow = false) {
     return;
   }
 
-  if (agentOnScreen()) feed.follow(o);
+  if (paneShown()) feed.follow(o);
   else feed.leave();
 
   // Followed all along: what came while it was away is drawn once from its model.
@@ -279,7 +288,7 @@ export async function pollAgent(readNow = false) {
   } catch (e) {
     if (trace) traceSession("read-failed", o, { pending: [...current.pending], ms: Date.now() - current.at });
 
-    if (isOpen(o) && feed.version(o) === version) {
+    if (still()) {
       // A dropped link is read again with backoff; a session its machine
       // came back without has ended, and no turn runs on.
       const failed = readFailed(AG.link, e, AG.page?.session.machine_name || "the machine");
@@ -297,7 +306,7 @@ export async function pollAgent(readNow = false) {
   // Another session opened while this one was asked: follow that one.
   if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
 
-  if (!isOpen(o) || !agentOnScreen()) {
+  if (!isOpen(o) || !paneShown()) {
     if (trace) traceSession("polling-stopped", o, { reason: !isOpen(o) ? "different-view" : "hidden" });
     return;
   }
@@ -387,8 +396,6 @@ export function forgetLog(s: { machine_id: string; id: string }) {
   disposeLogShell(log.body);
 }
 
-const sessionKey = (s: { machine_id: string; id: string }) => `${s.machine_id}\n${s.id}`;
-
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
 /// A `pushed` update always holds something new; a polled one is compared
@@ -435,17 +442,13 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
 /// Draws the log again when the page `moved` or what shows with it changed; nothing the log
 /// shows changed: no draw.
 function drawRest(moved = false, placed = false) {
-  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, AG.log != null, stoppingNow(), AG.queue.map(q => q.state), placed]);
+  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, stoppingNow(), AG.queue.map(q => q.state), placed]);
   if (!moved && rest === AG.rest) return;
   // Only the page moved: the turns it left as they were keep their rows.
   const news = rest === AG.rest;
   AG.rest = rest;
   drawAgentBody(undefined, true, false, news);
 }
-
-/// Whether the session view can be seen: the window shows, and in the
-/// command center the pane is mounted.
-export const agentOnScreen = paneShown;
 
 /// How long until an older node is asked again. Quiet sessions keep following.
 function agentDelay() {
@@ -559,9 +562,6 @@ export const SWITCHES = new Set(["claude", "codex", "opencode", "flsh", "hermes"
 /// The model and thinking switched to in each session from here, by session.
 export const sessionPicks = new SessionPicks();
 
-/// The session the mentions waiting above the field belong to.
-let paneSessionKey = "";
-
 /// Closes the open session, preserving its conversation for later.
 export async function closeOpenSession() {
   const s = AG.page?.session, o = AG.open;
@@ -573,7 +573,7 @@ export async function closeOpenSession() {
   try {
     await closing;
   } catch (e) {
-    if (isOpen(o) && agentOnScreen()) {
+    if (isOpen(o) && paneShown()) {
       AG.note = readError(e);
       drawAgentBody();
     } else {

@@ -7,6 +7,224 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.33] - 2026-11-14
+
+### Added
+
+- Desktop: sign in to Claude on individual online machines from Agent accounts.
+- Desktop: a review agent that hands in its review sends a notification.
+  Opening it, or the running review from the diff, shows the reviewer's
+  conversation with the Changes tab beside it.
+
+### Changed
+
+- Desktop: a working agent, a running command, a CI run and research show
+  a turning spinner again instead of a still dot. It pauses while the
+  window is hidden.
+- Desktop: the first-run screens have a new look, with a painted sunrise
+  above the choices. "Link another desktop" is now "Join my other
+  computer" and says what it does.
+- Desktop: in Set up this computer, each row has its own Install or Sign
+  in button, so one agent can be signed in without setting up the rest.
+- Desktop: the start screen shows a painted sunrise behind the headline
+  instead of the dotted one; the sun rises once after the app opens and
+  then stays still.
+- Desktop: the sidebar has a painted dawn haze down it, strongest at the
+  top, instead of the dots in its corner.
+- Desktop: an empty Home and an empty Projects page show the sunrise with
+  the next step on a card. The sun rises once and stays risen from screen
+  to screen.
+- Desktop: Add a project shows its three ways as tiles, and each found
+  folder as a plain row whose Import button appears when pointed at.
+- Desktop: each project card has a small painted swatch in its colour.
+
+### Fixed
+
+- Desktop: moving a coding agent session to another machine no longer
+  refuses with "the session works outside the project's checkout" when the
+  session started in the project's checkout and later worked in one of its
+  worktrees.
+- Desktop: Claude sign-in detection on macOS now follows Claude's auth status instead of treating leftover Keychain entries as a sign-in.
+
+### Performance
+
+- Desktop: while a project syncs, its sync details are read at most
+  every ten seconds instead of on every change, which uses less battery.
+- Desktop: the app log no longer fills with network warnings after
+  waking from sleep, and writes one line per request to another machine
+  instead of three.
+
+## [0.8.32] - 2026-11-14
+
+### Fixed
+
+- Desktop: model settings hide unavailable context limits and their explanation while keeping supported compaction controls.
+- Desktop: a picture opened from the attachments window fills the app
+  instead of showing as small as the window.
+- Desktop: an agent's message is no longer cut in two when a background
+  subagent calls a tool while the message is being written (needs the updated
+  node).
+
+## [0.8.31] - 2026-11-13
+
+### Changed
+
+- Desktop: the app has a new look. Labels, tabs, buttons and numbers use a
+  monospaced face on a dark background. Menus, dialogs, the palette, the
+  message field and Settings sit on frosted glass. The start screen keeps
+  its dot art. Settings opens as a glass sheet.
+- Desktop: pane tabs and the Device toolbar are smaller.
+- Desktop: running commands and queued messages sit in a compact tray
+  attached to the top of the message field.
+- Desktop: attached files show on their own line above the message, with a
+  file count.
+- Desktop: context use shows as a small meter beside the percentage.
+- Desktop: project cards show what runs, when it last ran and where, in two
+  lines.
+- Desktop: a project's Machines section shows one compact card per machine.
+  Folder and Remove appear on hover. The Terminals row shows only when a
+  terminal runs.
+- Desktop: a message's send time shows in its corner on hover instead of on
+  its own line. A sent picture no longer repeats its file name.
+- Desktop: the Sync page and its sidebar link are gone. Each project's
+  Machines section now shows its sync state and any conflicts. Conflict
+  cards on Home and on a project's board, and conflict notifications, open
+  that section, and a project with conflicts shows their count on its
+  sidebar row.
+
+### Fixed
+
+- Desktop: a message of several lines stays inside its field.
+- Desktop: a failed upload's message goes away after a few seconds and when
+  the next upload starts.
+- Desktop: when a resumed session refuses a model switch, the reason shows
+  instead of "[object Object]".
+
+## [0.8.30] - 2026-11-13
+
+### Fixed
+
+- Desktop: Claude Code and Codex chats start again. The ACP v2 support added
+  in the previous release made them fail with "data did not match any
+  variant of untagged enum McpServer", so it was rolled back to ACP v1.
+
+### Performance
+
+- Desktop: reduced background work for macOS notifications and agent session updates.
+
+## [0.8.29] - 2026-11-13
+
+### Added
+
+- Desktop: prefer ACP v2 for agents, fall back to v1 when an agent selects it, and allow `BEEP_ACP_VERSION=1` in the harness environment to select v1.
+- Desktop: open uploaded attachments from messages, and play video from the original local copy on the uploading device while that copy is available.
+
+### Fixed
+
+- Desktop: avoid duplicate ACP v2 subagent steps, keep idle sessions inactive after failed compaction, and retain model, effort and mode controls after incomplete configuration replies.
+- Desktop: switching conversations no longer stops uploads or sends files to the wrong chat.
+- Desktop: a submitted message sends to the conversation it was written in, even after its attachments finish uploading.
+- Desktop: conversations already at the bottom stay there when sending images.
+- Desktop: interruption notices appear as status instead of becoming part of the next user prompt.
+
+## [0.8.28] - 2026-11-13
+
+### Added
+
+- Desktop: prompts, agent responses, and tools show discreet timestamps when available.
+
+### Changed
+
+- Desktop: child conversations stay in the parent agent's Subagents section and no longer appear in conversation lists or completion notifications.
+
+### Fixed
+
+- Desktop: submitted prompts remain visible and greyed out while attachments upload, then send automatically.
+- Desktop: image prompts sent while a resumed agent starts no longer need to be retried.
+- Desktop: a node connection that goes silent is noticed and opened again
+  instead of waiting forever.
+- Desktop: messages kept for an agent on another machine are sent after the
+  app restarts.
+- Desktop: on Linux, logs are written under the XDG state folder instead of
+  ~/Library/Logs/Beep.
+- Desktop: one terminal that cannot be cleaned up no longer empties the whole
+  terminal list.
+- Desktop: a refused pause, resolve or start-over of file sync shows its
+  error.
+- Desktop: Send in a review works again after a failed send, and "Try again"
+  in a problem report works more than once.
+- Desktop: Preview in the Files menu opens the preview instead of the source.
+- Desktop: a failed command shows the same exit code in every row.
+- Desktop: Home shows Gemini CLI, pi and flsh by name.
+- Desktop: a session in a nested project is counted under the same project
+  everywhere.
+- Desktop: one machine on an older version no longer stops agent modes from
+  loading for other machines.
+- Desktop: terminal text with both strikethrough and overline shows both.
+- Desktop: saving two agent settings at once keeps both, and a newly added
+  token with push access is used at once.
+- Desktop: a refused clone from GitLab, Bitbucket or another Git host is
+  reported as not found or no access.
+
+## [0.8.27] - 2026-11-13
+
+### Fixed
+
+- Desktop: App labels and controls no longer select text accidentally; chat messages and editable fields remain selectable.
+- Desktop: Clicking the emulator no longer shows a blue focus border.
+
+## [0.8.26] - 2026-11-13
+
+### Fixed
+
+- Desktop: Agent chat sends automatically after attachments and image previews finish uploading; failed uploads keep the draft for retry.
+- Desktop: View and remove attachments in a compact composer window with image previews; long sent file lists fold.
+- Desktop: automatic session titles are shorter and no longer show internal tags.
+- Desktop: attachments and media can be uploaded, opened and downloaded without the previous per-file size limits.
+
+## [0.8.25] - 2026-11-13
+
+### Added
+
+- Desktop: Settings > Skills lists skill libraries, packs of agent skills kept
+  in a Git repository. Add one from its Git URL, Update every machine to the
+  newest commit, or remove it.
+- Desktop: install a whole library or single skills on every machine, or for
+  one project from the project's Skills… menu. Keep out of Git is on by
+  default for project skills.
+- Desktop: Find existing libraries adopts skills already in the agents' global
+  skills folders that came from a Git repository. Name clashes and failed
+  clones show under the library.
+- Desktop: rename projects from the project menu, with an option to rename their hosted repository while keeping local folder paths.
+- Desktop: select repository copies on GitHub and Forgejo separately when renaming a project, and retry failed hosts while keeping successful renames.
+- Desktop: subagent lists show the full model name from the chat model picker when it is known.
+- Desktop: sort Home projects by recent activity or last opened, with a separate preference from Projects.
+
+### Changed
+
+- Desktop: the log records how long each stage of a launch took, from the
+  process starting to Home being drawn, in lines that start with `startup:`.
+- Desktop: a smaller project rename dialog shows repository settings only when selected.
+- Desktop: every checkbox uses the same style, including issue picking, ignored-folder
+  sync, confirm dialogs, Show ignored in Files and Include binary path.
+- Desktop: Home and Projects use a styled sort menu.
+
+### Fixed
+
+- Desktop: blocked conversations show the provider reason alongside any partial reply, including in saved history.
+- Desktop: uploaded attachments in project folders no longer appear as files made by the agent.
+- Desktop: closed sessions appear in history as soon as the machine reports they ended.
+- Desktop: Claude API errors in conversations appear in yellow again.
+- Desktop: flsh installs and updates on Windows x86_64 using the published Windows executable and checksum.
+
+### Performance
+
+- Desktop: Beep opens about a third faster. The window shows before the rest
+  of the app is set up, and the metrics clock no longer holds the launch for
+  200 ms on Apple silicon.
+- Desktop: Home appears before the window's scripts have loaded, showing what it
+  last showed.
+
 ## [0.8.24] - 2026-11-13
 
 ### Added

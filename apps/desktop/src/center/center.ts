@@ -17,7 +17,6 @@ import { initPalette, openPalette } from "./palette.ts";
 import { pane } from "../bar/pane.ts";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import type { HomeView } from "./home-state.ts";
 import { startView, windowTitle, type CenterTarget } from "../project/projectwindow.ts";
 import { newChatTarget } from "../project/agent.ts";
 import { mountUsage, type UsageView } from "./usage.ts";
@@ -46,8 +45,12 @@ import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { followToolUpdates } from "../machines/machines.ts";
 import { dialogOpen } from "../ui/parts.ts";
+import { startupDrawn, startupStage } from "../ui/perf.ts";
+import { dropKeptFrame, followHomeFrame } from "./home-frame.ts";
 
+startupStage("scripts run");
 followSkin();
+followHomeFrame();
 guardClicks();
 followToolUpdates();
 initConversationSwitcher({
@@ -67,6 +70,11 @@ mountNotices();
 initPalette({ go, jump, scope: () => windowProject, settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
 
 // Capture before the terminal handles the key, so Shift+Esc never reaches the shell.
+// A development build reloads the window on Cmd+R, as a browser does.
+if (process.env.NODE_ENV === "development") document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === "r") { e.preventDefault(); location.reload(); }
+});
+
 document.addEventListener("keydown", e => {
   if (currentLocation()?.view !== "terminals" || !isZoomKey(e) || e.isComposing || e.defaultPrevented || dialogOpen()) return;
   if (!allTerms.focusOpen()) return;
@@ -122,11 +130,6 @@ document.addEventListener("keydown", e => {
   }
 });
 
-/// The machines online in `home`, as a key that changes when one connects.
-export function onlineMachines(home: HomeView | null) {
-  return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
-}
-
 /// The project on screen, its page or a session of it, and the machine
 /// its start input opens on; null elsewhere.
 function projectHere() {
@@ -150,14 +153,6 @@ function newAgentHere() {
 }
 pane.connect({
   openSettings,
-  openInstructions() {
-    closeSettings();
-    go("instructions");
-  },
-  openProviders() {
-    closeSettings();
-    go("providers");
-  },
   openShortcuts() {
     closeSettings();
     toggleShortcuts();
@@ -165,10 +160,6 @@ pane.connect({
   openReport() {
     closeSettings();
     openReport(document.body, debugWithAgent);
-  },
-  settingsAway(view) {
-    closeSettings();
-    if (view) go("pane", view);
   },
   embedView,
   newAgent: newAgentHere,
@@ -206,6 +197,7 @@ async function readOpening(): Promise<Opening> {
 
 /// The first view.
 function start({ project, pending }: Opening) {
+  dropKeptFrame();
   document.title = windowTitle(project);
   const first = startView(project);
   if (!first) return showPending(pending, "home");
@@ -223,6 +215,7 @@ async function showCached() {
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
     invoke<MacControl>("mac_control").catch(() => null),
   ]);
+  startupStage("kept views read");
   const home = seed(state, cached);
   state.mac ??= mac;
   keepPagesFile(cached?.pages);
@@ -234,6 +227,7 @@ async function showCached() {
   reloadGroup("projects");
   reloadGroup("pinned");
   reloadGroup("machines");
+  startupStage("home drawn");
 }
 
 // Home's reads start with the window; the first view waits only for the kept views.
@@ -243,4 +237,8 @@ void pairing().then(async () => {
   const [, open] = await Promise.all([showCached(), opening]);
   if (!onPhone()) void firstRun();
   start(open);
+  startupDrawn();
+}).catch(e => {
+  dropKeptFrame();
+  throw e;
 });

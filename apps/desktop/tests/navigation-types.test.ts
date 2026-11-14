@@ -37,5 +37,4 @@ test("typed locations preserve the native window targets", () => {
   assert.deepEqual(mainTarget({ view: "projects", arg: { project: "acme/widget", run: { id: 42, host: "forge" } } }), { projects: { project: "acme/widget", run: { id: 42, host: "forge" } } });
   assert.equal(mainTarget({ view: "pane", arg: "settings" }), "settings");
   assert.equal(mainTarget({ view: "pane", arg: "agents" }), "home");
-  assert.equal(mainTarget({ view: "sync", arg: null }), "home");
 });

@@ -36,3 +36,20 @@ fn refuses_relative_paths() {
     let e = read_chunk("out/clip.mp4", 0, None).unwrap_err();
     assert!(e.to_string().contains("not an absolute path"), "{e:#}");
 }
+
+#[test]
+fn large_media_is_read_from_disk_in_bounded_chunks() {
+    let (dir, path) = folder_with("large.mp4", b"x");
+    let size = 6 * 1024 * 1024 * 1024;
+    fs::OpenOptions::new()
+        .write(true)
+        .open(dir.path().join("large.mp4"))
+        .unwrap()
+        .set_len(size)
+        .unwrap();
+    let chunk = read_chunk(&path, size - 1, None).unwrap().unwrap();
+    assert_eq!(chunk.size, size);
+    assert_eq!(chunk.data, [0]);
+    let first = read_chunk(&path, 0, None).unwrap().unwrap();
+    assert_eq!(first.data.len(), AGENT_FILE_CHUNK);
+}

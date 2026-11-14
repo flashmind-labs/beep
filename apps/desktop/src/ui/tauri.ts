@@ -40,6 +40,8 @@ declare global {
   interface Window {
     __TAURI__: TauriGlobal;
     __TAURI_INTERNALS__: TauriInternals;
+    /// When the app put the kept Home frame on the page, in milliseconds since the Unix epoch.
+    __BEEP_KEPT_FRAME_AT__?: number;
   }
 }
 

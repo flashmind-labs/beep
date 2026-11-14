@@ -7,10 +7,12 @@ use crate::error::{DesktopError, Result};
 use beep_mesh::{
     Key, MeshError, PeerClient,
     machine::{
-        self, Host, Makes, Opened as Attached, StartOn,
+        self, Host, Makes, Opened as Attached,
         auto::AutoHost,
-        codex_login, ended, listing, open_agent, order,
-        sessions::{self, NodeFile, NodeWork},
+        codex_login, ended,
+        listing::{self, Linked},
+        open_agent, order,
+        sessions::{self, NodeFile, NodeImage, NodeWork},
     },
 };
 use beep_proto::{
@@ -18,9 +20,8 @@ use beep_proto::{
     AgentModels, AgentSessionModes, AgentSessionTasks, AgentSessionUsage, AgentSessionView,
     ApiError, CodexLogin, CodexLoginState, CustomAgent, GetAgentFile, GetAgentImage,
     GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage, HarnessEnv,
-    HarnessSettings, HarnessSignIn, ListAgentModels, MachinePick, MachineSession,
-    PreviewAgentMachine, ResumeAgentSession, StartAgentSession, StartedAgent, SteerAgentSession,
-    Upload, agent_name, image_key, media_mime,
+    HarnessSettings, HarnessSignIn, ListAgentModels, MachineSession, ResumeAgentSession,
+    StartAgentSession, StartedAgent, SteerAgentSession, Upload, agent_name, image_key, media_mime,
     node::{
         agent::{self, AgentCommand, Request, WorkPlace, Worktree},
         harness::{HarnessConfig, HarnessInfo, harness},
@@ -197,24 +198,22 @@ pub(crate) async fn sessions_of(fleet: &Fleet, machine: EndpointId) -> Option<Ve
     )
     .await
     .ok()??;
-    fleet.parents.note(&host.id, &linked);
-    Some(
-        linked
-            .into_iter()
-            .filter(|linked| !linked.reviewer)
-            .map(|linked| linked.session)
-            .collect(),
-    )
+    Some(noted(fleet, &host, linked))
 }
 
 /// Beep's sessions on one machine, noting which an agent started. Its
-/// reviewers are only noted: they list under their parent, not as running.
+/// children are only noted: they open from the parent agent panel.
 async fn listed(fleet: &Fleet, client: &PeerClient, host: &Host) -> Vec<MachineSession> {
     let linked = listing::linked_sessions(client, host, true).await;
+    noted(fleet, host, linked)
+}
+
+/// Top-level sessions, after keeping children for the parent agent panel.
+fn noted(fleet: &Fleet, host: &Host, linked: Vec<Linked>) -> Vec<MachineSession> {
     fleet.parents.note(&host.id, &linked);
     linked
         .into_iter()
-        .filter(|linked| !linked.reviewer)
+        .filter(|linked| linked.parent.is_none() && !linked.reviewer)
         .map(|linked| linked.session)
         .collect()
 }
@@ -331,6 +330,17 @@ async fn info(client: &PeerClient, agent: &str, session: &str) -> Result<agent::
         .ok_or_else(not_found)
 }
 
+/// The device session `session` of `agent` uses, as its node keeps it.
+pub(crate) async fn device(
+    fleet: &Fleet,
+    machine: EndpointId,
+    agent: &str,
+    session: &str,
+) -> Result<Option<agent::SessionDevice>> {
+    let client = fleet.client(machine).await?;
+    Ok(info(&client, agent, session).await?.device)
+}
+
 pub(crate) async fn usage(
     fleet: &Fleet,
     machine: EndpointId,
@@ -427,17 +437,12 @@ pub(crate) async fn start(
         .cwd
         .map(|cwd| cwd.trim().to_owned())
         .filter(|cwd| !cwd.is_empty());
-    let on = StartOn {
-        model,
-        effort,
-        checkout,
-    };
     let first = Request::Start {
         cwd,
         prompt,
-        model: on.model,
-        effort: on.effort,
-        checkout: on.checkout,
+        model,
+        effort,
+        checkout,
         images,
     };
     let client = fleet.client(machine).await?;
@@ -470,36 +475,6 @@ async fn pick(
         .ok_or(ApiError::Internal {})?
         .host;
     Ok((host, choice.why))
-}
-
-/// Where Auto would start `preview` now, without starting it.
-pub(crate) async fn preview_machine(
-    fleet: &Fleet,
-    preview: PreviewAgentMachine,
-) -> Result<MachinePick> {
-    let PreviewAgentMachine {
-        agent,
-        cwd,
-        prompt,
-        needs,
-    } = preview;
-    let prompt = prompt.trim().to_owned();
-    let start = StartAgentSession {
-        machine_id: None,
-        agent,
-        cwd,
-        prompt: prompt.clone(),
-        needs,
-        model: None,
-        effort: None,
-        checkout: None,
-    };
-    let (host, why) = pick(fleet, &start, &prompt).await?;
-    Ok(MachinePick {
-        machine_id: host.machine_id,
-        machine_name: host.machine_name,
-        why,
-    })
 }
 
 /// Takes over a session started outside Beep; the node refuses one still in
@@ -698,11 +673,15 @@ pub(crate) async fn image(
         return Err(not_found());
     }
 
-    Ok(AgentImageData {
+    Ok(picture(get, found))
+}
+
+fn picture(get: &GetAgentImage, found: NodeImage) -> AgentImageData {
+    AgentImageData {
         key: get.key.clone(),
         mime: found.mime,
         data: found.data,
-    })
+    }
 }
 
 /// The picture a session's log shows by `key`, made small on its machine.
@@ -718,11 +697,7 @@ pub(crate) async fn thumb(
         Err(MeshError::Link(e)) if e.downcast_ref::<Elapsed>().is_none() => return Ok(None),
         other => other?.ok_or_else(not_found)?,
     };
-    Ok(Some(AgentImageData {
-        key: get.key.clone(),
-        mime: found.mime,
-        data: found.data,
-    }))
+    Ok(Some(picture(get, found)))
 }
 
 /// The custom agents the harnesses define for `folder` on a machine.

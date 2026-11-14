@@ -31,7 +31,7 @@ export function ProjectBoard({ project, running, past, openTile }: {
 
   for (const conflict of conflictList(detail)) {
     cards.push({ key: `sync:${conflict.path}`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync"/></span>, title: conflict.path,
-      sub: conflictSub(null, conflict, detail?.machines ?? []), foot: null, action: { kind: "run", label: "Resolve", primary: false, run: () => go("sync") }, dim: false, hint: conflict.path, open: () => go("sync"), menu: null });
+      sub: conflictSub(null, conflict, detail?.machines ?? []), foot: null, action: { kind: "run", label: "Resolve", primary: false, run: () => openTile("machines") }, dim: false, hint: conflict.path, open: () => openTile("machines"), menu: null });
   }
 
   for (const session of endedToday(past, Date.now())) {

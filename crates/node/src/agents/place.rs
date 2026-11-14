@@ -9,7 +9,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::{LazyLock, Mutex, MutexGuard},
+    sync::{LazyLock, Mutex},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -38,7 +38,7 @@ static CACHE: LazyLock<Mutex<HashMap<PathBuf, Answer>>> = LazyLock::new(Mutex::d
 pub(crate) fn of_folder(dir: &Path) -> Option<WorkPlace> {
     let dir = existing(dir)?;
     let now = Instant::now();
-    let kept = lock().get(&dir).and_then(|answer| {
+    let kept = crate::lock(&CACHE).get(&dir).and_then(|answer| {
         let age = now.duration_since(answer.at);
         let fresh = match &answer.place {
             Some(place) => age < KEPT && stamp(place) == answer.stamp,
@@ -53,7 +53,7 @@ pub(crate) fn of_folder(dir: &Path) -> Option<WorkPlace> {
 
     let found = place(&dir);
     let stamp = found.as_ref().map(stamp).unwrap_or_default();
-    let mut cache = lock();
+    let mut cache = crate::lock(&CACHE);
 
     if cache.len() >= MAX_KEPT {
         cache.clear();
@@ -88,13 +88,6 @@ fn stamp(place: &WorkPlace) -> Vec<Option<SystemTime>> {
         .iter()
         .map(|file| fs::metadata(file).and_then(|meta| meta.modified()).ok())
         .collect()
-}
-
-fn lock() -> MutexGuard<'static, HashMap<PathBuf, Answer>> {
-    // The map holds plain values, so a panic elsewhere leaves it usable.
-    CACHE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// `path` when it is a folder, else its nearest folder above that exists.

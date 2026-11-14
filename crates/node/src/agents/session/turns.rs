@@ -2,7 +2,7 @@
 
 use super::{
     MAX_RUNNING_TOOLS,
-    actor::{Actor, PendingSteer, Reply, Stopping},
+    actor::{Actor, PendingSteer, Reply, Stopping, stop_reason},
 };
 use crate::agents::{
     acp::{self, Prompt},
@@ -12,13 +12,13 @@ use crate::agents::{
     made_files,
 };
 use agent_client_protocol::{
-    Agent,
-    v1::ConnectionTo,
+    Agent, ConnectionTo,
     v1::schema::{CancelNotification, PromptResponse, SessionId, SessionUpdate, ToolCallStatus},
 };
 use anyhow::Result;
 use beep_proto::node::agent::{AlertKind, EntryKind, State, Status, StopReason};
 use beep_proto::node::usage::{MAX_MODEL_NAME, MAX_TURN_MODELS, ModelTokens};
+use beep_proto::watched;
 use beep_proto::{MAX_AGENT_IMAGES, MAX_AGENT_IMAGES_TOTAL, ModelId};
 use futures::FutureExt;
 use serde_json::Value;
@@ -197,13 +197,13 @@ impl Actor {
         self.show_queued();
         if self.turn.is_none() {
             if self.waiting() == 0 {
-                let live = self.live.borrow();
-                let ended = live.last_stop.map(|stop_reason| AlertKind::TurnEnded {
-                    stop_reason,
-                    last_message: live.info.last_message.clone(),
-                    error: live.info.state.error.clone(),
+                let ended = watched::read_sent(&self.live, |live| {
+                    live.last_stop.map(|stop_reason| AlertKind::TurnEnded {
+                        stop_reason,
+                        last_message: live.info.last_message.clone(),
+                        error: live.info.state.error.clone(),
+                    })
                 });
-                drop(live);
 
                 if let Some(ended) = ended {
                     self.turn_ended(ended);
@@ -221,7 +221,7 @@ impl Actor {
     /// Alerts that the turn ended, or holds the alert while subagents it
     /// started still run.
     fn turn_ended(&mut self, ended: AlertKind) {
-        if self.live.borrow().info.state.subagents == 0 {
+        if watched::read_sent(&self.live, |live| live.info.state.subagents) == 0 {
             self.held_end = None;
             self.alert(ended);
             return;
@@ -240,7 +240,7 @@ impl Actor {
             return;
         };
 
-        if self.live.borrow().info.state.subagents > 0 {
+        if watched::read_sent(&self.live, |live| live.info.state.subagents) > 0 {
             held.due = tokio::time::Instant::now() + SUBAGENTS_QUIET;
             return;
         }
@@ -312,10 +312,12 @@ impl Actor {
         self.live.send_if_modified(|live| {
             let before = live.info.state.subagents;
 
-            if stop == StopReason::Cancelled {
-                live.close_interrupted_subagents();
-            } else {
-                live.end_background_subagents();
+            if self.protocol == acp::Protocol::V1 {
+                if stop == StopReason::Cancelled {
+                    live.close_interrupted_subagents();
+                } else {
+                    live.end_background_subagents();
+                }
             }
 
             live.info.state.subagents != before
@@ -323,7 +325,8 @@ impl Actor {
 
         // Prompts queued behind the turn run first: one alert for the lot.
         if self.waiting() == 0 {
-            let last_message = self.live.borrow().info.last_message.clone();
+            let last_message =
+                watched::read_sent(&self.live, |live| live.info.last_message.clone());
             self.turn_ended(AlertKind::TurnEnded {
                 stop_reason: stop,
                 last_message,
@@ -357,12 +360,13 @@ impl Actor {
             self.find_made(made);
         }
 
-        let live = self.live.borrow();
-        self.compactor.turn_ended(TurnEnd {
-            usage: live.info.context,
-            commands: &live.commands,
+        let (usage, commands) = watched::read_sent(&self.live, |live| {
+            (live.info.context, live.commands.clone())
         });
-        drop(live);
+        self.compactor.turn_ended(TurnEnd {
+            usage,
+            commands: &commands,
+        });
         self.next_prompt(cx);
     }
 
@@ -417,7 +421,7 @@ impl Actor {
     /// Sends `/compact` ahead of the waiting prompts.
     fn compact(&mut self, cx: &ConnectionTo<Agent>, session: &SessionId) {
         let prompt = Prompt::from(COMPACT_PROMPT.to_owned());
-        self.send(cx, acp::prompt(session, &prompt, None), Reply::Compacted);
+        self.send_prompt(cx, acp::prompt(session, &prompt, None), true);
         self.live.send_modify(|live| {
             // What it said before no longer holds once compacted.
             live.info.context = None;
@@ -441,9 +445,7 @@ impl Actor {
         self.live.send_modify(|live| live.spent(tokens));
         let entry = match result {
             Ok(done) => {
-                let stop = acp::wire_name(&done.stop_reason)
-                    .parse()
-                    .unwrap_or(StopReason::Other);
+                let stop = stop_reason(&done);
                 if stop == StopReason::EndTurn {
                     self.restate();
                 }
@@ -482,6 +484,10 @@ impl Actor {
 
     /// Sends the next waiting prompt, if any.
     pub(super) fn next_prompt(&mut self, cx: &ConnectionTo<Agent>) {
+        if !self.ready_for_prompts {
+            return;
+        }
+
         let Some(session) = self.acp_session.clone() else {
             return;
         };
@@ -500,7 +506,7 @@ impl Actor {
             return;
         }
         // A steer goes ahead of the prompts queued for after the turn.
-        let Some(prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
+        let Some(mut prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
             return;
         };
 
@@ -517,14 +523,15 @@ impl Actor {
             }
         }
 
+        if self.takes_images == Some(false) {
+            prompt.images.clear();
+        }
+
+        self.context_turn = crate::agents::tags::said(&prompt.text).is_empty();
         let brief = self.brief.take();
-        self.send(
-            cx,
-            acp::prompt(&session, &prompt, brief.as_deref()),
-            Reply::Prompt,
-        );
         self.sent += 1;
         self.turn = Some(self.sent);
+        self.send_prompt(cx, acp::prompt(&session, &prompt, brief.as_deref()), false);
         // The new turn tells its own end.
         self.held_end = None;
         let queued = self.waiting();
@@ -535,6 +542,9 @@ impl Actor {
             }
 
             live.prompted(&prompt.shown());
+            if self.protocol == acp::Protocol::V2 {
+                live.v2_submitted();
+            }
             live.info.state.queued = queued;
             live.info.state.queued_messages = messages;
         });
@@ -546,8 +556,18 @@ impl Actor {
 /// model, else the response's own `usage`, which any agent may send.
 /// Nothing from an agent that says neither.
 pub(super) fn turn_tokens(done: &PromptResponse) -> TurnTokens {
+    reported_tokens(
+        done.meta.as_ref(),
+        done.usage.as_ref().map(|usage| usage.total_tokens),
+    )
+}
+
+pub(super) fn reported_tokens(
+    meta: Option<&serde_json::Map<String, Value>>,
+    usage: Option<u64>,
+) -> TurnTokens {
     let total = |count: &Value| count.get("totalTokens").and_then(Value::as_u64);
-    let quota = done.meta.as_ref().and_then(|meta| meta.get("quota"));
+    let quota = meta.and_then(|meta| meta.get("quota"));
     let models = quota
         .and_then(|quota| quota.get("model_usage"))
         .and_then(Value::as_array)
@@ -565,7 +585,7 @@ pub(super) fn turn_tokens(done: &PromptResponse) -> TurnTokens {
     let total = quota
         .and_then(|quota| quota.get("token_count"))
         .and_then(total)
-        .or_else(|| done.usage.as_ref().map(|usage| usage.total_tokens))
+        .or(usage)
         .unwrap_or(0);
     TurnTokens { total, models }
 }

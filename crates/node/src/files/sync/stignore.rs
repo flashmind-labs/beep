@@ -53,6 +53,15 @@ pub(crate) fn project_ignored(project: &Path, share: &Path) -> Result<bool> {
 }
 
 pub(super) const STIGNORE: &str = ".stignore";
+
+/// The ignore pattern for the project at `relative` inside its share.
+pub(crate) fn project_pattern(relative: &str) -> String {
+    if relative.is_empty() {
+        "/**".to_owned()
+    } else {
+        format!("/{relative}")
+    }
+}
 /// How deep `#include`s may nest.
 const MAX_INCLUDES: usize = 16;
 
@@ -145,11 +154,7 @@ fn read_lines_for_project(
                 return false;
             };
             let relative = relative.to_string_lossy().replace('\\', "/");
-            let pattern = if relative.is_empty() {
-                "/**".to_owned()
-            } else {
-                format!("/{relative}")
-            };
+            let pattern = project_pattern(&relative);
             (*line == pattern || *line == "/**" || pattern.starts_with(&format!("{line}/")))
                 && at > 0
                 && lines[at - 1] == PROJECT_IGNORE_BEGIN

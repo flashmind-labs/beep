@@ -290,7 +290,7 @@ impl Watched {
     fn outcome(self) -> Option<Result<bool>> {
         match (self.last, self.error) {
             (Some(RunState::Passed {}), _) => Some(Ok(true)),
-            (Some(state), _) if ended(state) => Some(Ok(false)),
+            (Some(state), _) if state.finished() => Some(Ok(false)),
             (_, Some(error)) if error.code == Self::FINISHED => Some(Ok(false)),
             (_, Some(error)) => Some(Err(anyhow::anyhow!(
                 "teacli failed: {}",
@@ -338,14 +338,6 @@ async fn read_watch(output: impl AsyncRead + Unpin) -> Watched {
     }
 
     watched
-}
-
-/// Whether a run in `state` has ended.
-fn ended(state: RunState) -> bool {
-    matches!(
-        state,
-        RunState::Passed {} | RunState::Failed {} | RunState::Cancelled {} | RunState::Skipped {}
-    )
 }
 
 /// `program` with `args`, the tools' folders on `PATH` and the GitHub token,

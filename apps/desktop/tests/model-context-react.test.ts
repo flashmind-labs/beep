@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
 import { modelContextPanel } from "../src/settings/model-context.ts";
-import { ModelContextView } from "../src/settings/model-context-view.tsx";
 
 test("model context keeps focus and drafts through updates and saves overrides", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", { url: "https://app.test" });
@@ -13,16 +12,18 @@ test("model context keeps focus and drafts through updates and saves overrides",
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
   let resolveStale: (value: unknown) => void = () => {};
+  let contextWindow: number | null = 1000, maxContextWindow: number | null = 2000;
   const calls: { cmd: string; args: Record<string, unknown> | undefined }[] = [];
   Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string, args: Record<string, unknown> | undefined) => {
     calls.push({ cmd, args });
     if (cmd === "agent_models" && args?.machineId === "stale") return new Promise(resolve => { resolveStale = resolve; });
-    if (cmd === "agent_models") return { pick: "listed", current: null, models: [{ id: "alpha", name: "Alpha", description: null, context_window: 1000, max_context_window: 2000 }] };
+    if (cmd === "agent_models") return { pick: "listed", current: null, models: [{ id: "alpha", name: "Alpha", description: null, context_window: contextWindow, max_context_window: maxContextWindow }, { id: "beta", name: "Beta", description: null }] };
     if (cmd === "harness_model_compacts") return [];
     return null;
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { invoke } = await import("../src/ui/tauri.ts");
   const { render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
+  const { ModelContextView } = await import("../src/settings/model-context-view.tsx");
   const panel = modelContextPanel(invoke);
   try {
     const view = render(createElement(ModelContextView, { panel, machine: "one", agent: "codex" }));
@@ -64,6 +65,29 @@ test("model context keeps focus and drafts through updates and saves overrides",
     resolveStale({ pick: "listed", current: null, models: [] });
     await staleLoad;
     assert.equal(panel.snapshot("stale", "codex").loaded, false);
+
+    for (const [defaultLimit, maxLimit] of [[null, null], [1000, null], [null, 2000], [1000, 2000]] as const) {
+      contextWindow = defaultLimit;
+      maxContextWindow = maxLimit;
+      const limitsView = render(createElement(ModelContextView, { panel: modelContextPanel(invoke), machine: "one", agent: "claude" }));
+      await limitsView.findByLabelText("Compact at for alpha");
+      assert.equal(!!limitsView.queryByRole("columnheader", { name: "Default usable" }), defaultLimit !== null);
+      assert.equal(!!limitsView.queryByRole("columnheader", { name: "Maximum usable" }), maxLimit !== null);
+      assert.equal(!!limitsView.queryByText(/Limits from this machine's harness/), defaultLimit !== null || maxLimit !== null);
+      for (const row of limitsView.container.querySelectorAll("tbody tr")) {
+        assert.equal(row.children.length, limitsView.getAllByRole("columnheader").length);
+      }
+      limitsView.unmount();
+    }
+
+    contextWindow = null;
+    maxContextWindow = null;
+    const unsupported = render(createElement(ModelContextView, { panel: modelContextPanel(invoke), machine: "one", agent: "gemini" }));
+    await unsupported.findByLabelText("Default model");
+    assert.equal(unsupported.queryAllByRole("columnheader").length, 1);
+    assert.equal(unsupported.queryByText("Compact at"), null);
+    assert.equal(unsupported.queryByText("Save model overrides"), null);
+    assert.equal(unsupported.queryByText(/Overrides apply/), null);
   } finally {
     cleanup(); dom.window.close();
     for (const [key, descriptor] of previous) {

@@ -28,7 +28,7 @@ const PHONE = { width: 375, height: 812 };
 test.describe.configure({ mode: "parallel" });
 test.use({ timezoneId: "UTC", locale: "en-US" });
 test.beforeEach(async ({ page, browserName }, info) => {
-  test.skip(browserName !== "chromium" || info.project.name !== "macOS", "The baseline is recorded once, on Chromium");
+  test.skip(!process.env.WK && (browserName !== "chromium" || info.project.name !== "macOS"), "The baseline is recorded once, on Chromium");
   await page.clock.setFixedTime(NOW);
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
 });
@@ -137,7 +137,7 @@ async function baseline(page: Page, name: string, root = "body") {
 }
 
 async function openAgent(page: Page, responses: Record<string, unknown> = {}) {
-  await openDesktop(page, false, { agent_view: agentView, agent_tree: listing, ...responses });
+  await openDesktop(page, false, { agent_view: agentView, agent_tree: listing, agent_usage: { context: { used: 250_000, size: 1_000_000 }, tokens: 54_200_000, cost_usd: 34.9 }, ...responses });
   await page.evaluate(target => window.__navigation.open({ agent: target }), session);
   await expect(page.getByText("The query string now survives the redirect.")).toBeVisible();
 }
@@ -154,6 +154,29 @@ test("home overview", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "home-overview");
+});
+
+test("search palette", async ({ page }) => {
+  const hit = (kind: string, id: string, title: string, detail: string) => ({ kind, id, title, detail, keys: [title.toLowerCase()] });
+  const index = {
+    actions: [hit("action", "new", "New example session", "")], settings: [hit("setting", "look", "Example look", "Settings")], code: [],
+    projects: [hit("project", "one", "Example one", "Project"), hit("project", "two", "Example two", "Project")],
+    sessions: [hit("session", "s1", "Fix the example redirect", "example/widget @ build-box")], machines: [hit("machine", "m1", "example-box", "online")],
+  };
+  await openDesktop(page, false, { center_home: home, center_palette_index: index, center_find_prompts: [] });
+  await page.getByRole("button", { name: /^Search/ }).click();
+  await page.getByRole("dialog", { name: "Search" }).getByRole("combobox").fill("example");
+  await expect(page.locator(".cc-pal .it").first()).toBeVisible();
+  await baseline(page, "palette");
+});
+
+test("start screen", async ({ page }, info) => {
+  await openDesktop(page, false, { center_home: home });
+  // The headline is drawn by lot when the screen opens; the screenshot needs the same one each run.
+  await page.evaluate(() => { Math.random = () => 0; });
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await expect(page.locator(".cc-pjc.centered .agc-intro h3")).toBeVisible();
+  await baseline(page, "start");
 });
 
 test("home machines", async ({ page }) => {
@@ -221,13 +244,13 @@ test("project git history", async ({ page }) => {
   await baseline(page, "project-git");
 });
 
-test("sync page", async ({ page }) => {
+test("project machines", async ({ page }) => {
   const box = { machine_id: machineId, machine_name: machineId, folder, status: "in_sync", files: 18, bytes: 1024, pending: 0, conflicts: ["notes (conflict 12345678).txt"], error: null, hint: null, paused: false, progress: null, waiting: [], can_resolve: true, can_start_over: false, git_only: false };
   const detail = { project: projectName, pinned: false, paused: false, machines: [box] };
-  await openDesktop(page, false, { center_home: home, project_sync: [{ project: projectName, machine_id: machineId, status: "in_sync", files: 18, pending: 0, error: null }], project_sync_detail: detail });
-  await page.getByRole("button", { name: "Sync", exact: true }).click();
+  await openProject(page, { project_sync: [{ project: projectName, machine_id: machineId, status: "in_sync", files: 18, pending: 0, error: null }], project_sync_detail: detail });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
   await expect(page.locator(".fs-conflict")).toBeVisible();
-  await baseline(page, "sync");
+  await baseline(page, "project-machines");
 });
 
 test("terminals", async ({ page }) => {
@@ -238,11 +261,34 @@ test("terminals", async ({ page }) => {
   await baseline(page, "terminals");
 });
 
-const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [] };
+const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true, beep_sync_over_syncthing_get: false };
+test("settings machines", async ({ page }) => {
+  const tool = (name: string, version: string) => ({ name, version, path: `/usr/bin/${name}` });
+  const env = (os_version: string, tools: string[]) => ({ os: "linux", os_version, arch: "x86_64", cpus: 16, memory_mb: 65536, tools: [tool("claude", "2.1.0"), tool("codex", "0.60.0"), ...tools.map(name => tool(name, "1.0.0"))], logins: [{ tool: "claude", signed_in: true, account: null }, { tool: "codex", signed_in: false, account: null }] });
+  const machines = [{ ...machine("build-box", "build-box", true, 2), env: env("Ubuntu 26.04", ["git", "docker", "cargo", "node"]) }, { ...machine("test-box", "test-box", false, 0), version: "0.8.0", env: env("Debian 14", ["git"]) }, { ...machine("phone", "Phone", true, 0), can_host: false }];
+  await openDesktop(page, false, { ...settingsResponses, list_machines: machines });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: /^Machines/ }).click();
+  await expect(page.locator(".dmach").first()).toBeVisible();
+  await baseline(page, "settings-machines");
+});
+
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {
-    await openDesktop(page, false, settingsResponses);
+    await openDesktop(page, false, section === "Agent accounts" ? {
+      ...settingsResponses,
+      agent_accounts: { claude: null, codex_key: null, machines: [
+        { id: "build-box", name: "build-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+        { id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+        { id: "offline-box", name: "offline-box", online: false, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
+      ] },
+      list_machines: [
+        { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
+        { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } },
+      ],
+    } : settingsResponses);
     await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
     const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
     await expect(nav).toBeVisible();
@@ -280,6 +326,42 @@ test("agent changes", async ({ page }) => {
   await page.getByRole("tab", { name: "Changes", exact: true }).click();
   await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
   await baseline(page, "agent-changes");
+});
+
+test("another screen keeps its title after a session was open", async ({ page }) => {
+  await openAgent(page, { center_home: home });
+  await expect(page.locator("#title")).toBeHidden();
+  await page.evaluate(() => window.__navigation.open("home"));
+  await expect(page.locator("#title")).toBeVisible();
+  await expect(page.locator("#title")).toHaveText("Home");
+});
+
+test("agent question", async ({ page }) => {
+  const question = { id: 1, text: "Run cargo test?", detail: "cargo test --workspace", options: [{ id: "allow", name: "Allow", allow: true }, { id: "always", name: "Always allow", allow: true }, { id: "deny", name: "Deny", allow: false }] };
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "asking", question } } });
+  await expect(page.locator(".dcoder .q")).toBeVisible();
+  await baseline(page, "agent-question");
+});
+
+test("agent with commands running and messages queued", async ({ page }) => {
+  const steers = ["Also log each retry", "Then run clippy"];
+  const tasks = ["cargo test -p sync", "npm run dev"].map((name, i) => ({ id: `task-${i}`, name, description: name, state: "running", can_stop: true, output_file: null, summary: null, entry: null }));
+  await openAgent(page, { agent_view: { ...agentView, queued: steers.length, queued_messages: steers }, agent_tasks: tasks, agent_steer: [] });
+  await expect(page.locator(".ag-tasks")).toHaveText("2 commands running");
+  await baseline(page, "agent-work");
+});
+
+test("agent message of several lines stays inside its field", async ({ page }) => {
+  await openAgent(page);
+  const area = page.locator("#agfield textarea");
+  await area.fill("the first line of a longer message that goes on\nsecond line\nthird line\nfourth line");
+  const box = await page.locator("#agfield").boundingBox(), text = await area.boundingBox();
+  if (!box || !text) throw new Error("no field");
+  console.log(JSON.stringify({ box, text, sh: await area.evaluate(el => [el.scrollHeight, el.clientHeight, el.style.height]) }));
+  expect(text.y).toBeGreaterThanOrEqual(box.y);
+  expect(text.y + text.height).toBeLessThanOrEqual(box.y + box.height);
+  expect(await area.evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true);
+  await baseline(page, "agent-multiline");
 });
 
 test("agent running", async ({ page }) => {
@@ -412,3 +494,49 @@ test("phone projects overflow", async ({ page }) => {
   await baseline(page, "phone-projects-overflow");
 });
 
+
+/// The first launch on a computer that is alone in its mesh.
+async function openFirstRun(page: Page) {
+  const env = { os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "build-box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], tools: [{ name: "git", version: "2.50.1" }, { name: "node", version: "25.9.0" }, { name: "claude", version: "2.1.0" }], logins: [] };
+  await openDesktop(page, false, { center_home: home, list_machines: [{ ...machine(machineId, machineId, true, 0), env }] });
+  await page.addInitScript(() => localStorage.removeItem("beep.firstRunDone"));
+  await page.reload();
+  await page.waitForFunction(() => window.__navigation.ready());
+  await expect(page.getByRole("dialog", { name: "First run" })).toBeVisible();
+}
+
+test("first run", async ({ page }) => {
+  await openFirstRun(page);
+  await baseline(page, "first-run");
+});
+
+test("first run set up", async ({ page }) => {
+  await openFirstRun(page);
+  await page.getByRole("button", { name: /^Start here/ }).click();
+  const setup = page.getByRole("dialog", { name: "Set up this computer" });
+  await expect(setup.getByRole("button", { name: "Sign in: Claude Code" })).toBeVisible();
+  await expect(setup.getByRole("button", { name: "Install: Codex" })).toBeVisible();
+  await baseline(page, "first-run-setup");
+});
+
+test("home with nothing running", async ({ page }) => {
+  await openDesktop(page, false, { center_home: { ...home, running: [], needs_you: [] }, agent_sessions: [], project_sessions: [], projects_sessions: [] });
+  await expect(page.locator(".painted-empty")).toBeVisible();
+  await baseline(page, "home-empty");
+});
+
+test("add a project", async ({ page }) => {
+  const place = (folder: string) => ({ machine_id: machineId, machine_name: machineId, folder });
+  const found = [
+    { name: "example/atlas", remote: "https://example.test/example/atlas", places: [place("/srv/atlas")], agents: [{ agent: "codex", sessions: 4 }], last_activity: NOW - 3_600_000 },
+    { name: "example/harbor", remote: "https://example.test/example/harbor", places: [place("/srv/harbor"), place("/srv/harbor-next")], agents: [], last_activity: 0 },
+    { name: "tools/ledger", remote: "https://example.test/tools/ledger", places: [place("/srv/ledger")], agents: [{ agent: "claude", sessions: 12 }], last_activity: NOW - 86_400_000 },
+  ];
+  const hosts = [{ host: "example.test", github: false, error: null, repos: [{ name: "example/quill", url: "https://example.test/example/quill", updated_at: NOW - 7_200_000 }] }];
+  await openDesktop(page, false, { center_home: home, found_projects: found, host_repos: hosts, found_machines: [] });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a project" });
+  await expect(sheet.getByText("example/atlas")).toBeVisible();
+  await sheet.getByText("Browse repositories on connected hosts").click();
+  await baseline(page, "add-project");
+});

@@ -4,7 +4,7 @@
 
 use crate::{
     agents::{
-        steer::{PastedImage, uploads},
+        steer::{self, DevicePick, PastedImage, uploads},
         work_copy,
     },
     beep::epoch_ms,
@@ -24,8 +24,7 @@ use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask, AgentToolCall,
     ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage,
-    ListAgentModels, MachinePick, MachineSession, PreviewAgentMachine, ResumeAgentSession,
-    StartAgentSession,
+    ListAgentModels, MachineSession, ResumeAgentSession, StartAgentSession,
     node::{
         agent::{CheckoutPlan, Effort},
         harness::HarnessConfig,
@@ -150,6 +149,7 @@ struct EntryRow {
     ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool: Option<AgentToolCall>,
+    sent_at: Option<u64>,
 }
 
 impl From<AgentEntry> for EntryRow {
@@ -181,6 +181,7 @@ impl From<AgentEntry> for EntryRow {
             child_html,
             ms,
             tool: entry.tool,
+            sent_at: entry.sent_at,
         }
     }
 }
@@ -264,11 +265,14 @@ pub async fn agent_sessions(
     held: State<'_, MachineLists>,
 ) -> Result<Vec<SessionRow>> {
     let sessions = machine_sessions(&app, &fleet, &held).await;
-    let reviewers = fleet.reviewers().into_iter().map(|session| (session, true));
+    let children = fleet
+        .children()
+        .into_iter()
+        .map(|linked| (linked.session, linked.reviewer));
     Ok(sessions
         .into_iter()
         .map(|session| (session, false))
-        .chain(reviewers)
+        .chain(children)
         .map(|(session, reviewer)| {
             let parent = fleet.parent_of(&session.machine_id, &session.id);
             SessionRow {
@@ -523,8 +527,8 @@ pub async fn agent_start(
         prompt,
         needs: Vec::new(),
         model,
-        effort: effort.map(Into::into),
-        checkout: checkout.map(Into::into),
+        effort,
+        checkout,
     };
     let started = direct::start(&fleet, request, images).await?;
     crate::palette::prompts::sent(&app, started.session.clone(), &indexed_prompt).await;
@@ -534,43 +538,6 @@ pub async fn agent_start(
     })
 }
 
-/// The machine Auto would pick, as the start form shows it.
-#[derive(Debug, Serialize)]
-pub struct PickView {
-    machine_id: String,
-    machine_name: String,
-    why: String,
-}
-
-impl From<MachinePick> for PickView {
-    fn from(pick: MachinePick) -> Self {
-        Self {
-            machine_id: pick.machine_id,
-            machine_name: pick.machine_name,
-            why: pick.why,
-        }
-    }
-}
-
-/// Where Auto would start the form's session now. A start no machine fits
-/// is an error saying why.
-#[tauri::command]
-pub async fn agent_preview(
-    fleet: Machines<'_>,
-    agent: Option<String>,
-    cwd: Option<String>,
-    prompt: String,
-) -> Result<Option<PickView>> {
-    let request = PreviewAgentMachine {
-        agent,
-        cwd,
-        prompt,
-        needs: Vec::new(),
-    };
-    let pick = direct::preview_machine(&fleet, request).await?;
-    Ok(Some(pick.into()))
-}
-
 /// The models an agent can run on a machine, as the start form's Model
 /// field lists them.
 #[derive(Debug, Serialize)]
@@ -578,17 +545,7 @@ pub struct ModelsView {
     /// "listed", "named" or "fixed".
     pick: &'static str,
     current: Option<String>,
-    models: Vec<ModelView>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ModelView {
-    id: String,
-    name: String,
-    description: Option<String>,
-    context_window: Option<u64>,
-    max_context_window: Option<u64>,
-    provider: Option<String>,
+    models: Vec<AgentModel>,
 }
 
 impl From<AgentModels> for ModelsView {
@@ -596,20 +553,7 @@ impl From<AgentModels> for ModelsView {
         Self {
             pick: list.pick.into(),
             current: list.current,
-            models: list.models.into_iter().map(ModelView::from).collect(),
-        }
-    }
-}
-
-impl From<AgentModel> for ModelView {
-    fn from(model: AgentModel) -> Self {
-        Self {
-            id: model.id,
-            name: model.name,
-            description: model.description,
-            context_window: model.context_window,
-            max_context_window: model.max_context_window,
-            provider: model.provider,
+            models: list.models,
         }
     }
 }
@@ -871,30 +815,57 @@ pub async fn agent_usage(
     }
 }
 
+/// The device a session uses, as its machine keeps it.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum KeptDevice {
+    Kept {
+        pick: Option<DevicePick>,
+    },
+    /// The machine's beep-node is too old to keep one.
+    Unsupported,
+}
+
+#[tauri::command]
+pub async fn agent_device(
+    fleet: Machines<'_>,
+    machine_id: String,
+    agent: String,
+    session: String,
+) -> Result<KeptDevice> {
+    let machine = fleet.machine(&machine_id)?;
+    let version = fleet.status().version(machine);
+
+    if !steer::newer_than(version.as_deref(), &steer::BEFORE_SET_DEVICE) {
+        return Ok(KeptDevice::Unsupported);
+    }
+
+    let read = direct::device(&fleet, machine, &agent, &session);
+    let step = "reading the session's device";
+    let device = fleet
+        .asked(machine, &session, step, SMALL_LIMIT, read)
+        .await?;
+    let pick = device.map(|used| DevicePick {
+        machine: used.machine.to_string(),
+        device: used.device.0,
+    });
+    Ok(KeptDevice::Kept { pick })
+}
+
 /// A session's modes for the page.
 #[derive(Debug, Serialize)]
 pub struct ModesRow {
     current: Option<String>,
-    modes: Vec<ModeRow>,
+    modes: Vec<AgentMode>,
     /// The plan waiting for approval, as cleaned HTML.
     plan: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct ModeRow {
-    id: String,
-    name: String,
 }
 
 impl From<AgentSessionModes> for ModesRow {
     fn from(modes: AgentSessionModes) -> Self {
         Self {
             current: modes.current,
-            modes: modes
-                .modes
-                .into_iter()
-                .map(|AgentMode { id, name }| ModeRow { id, name })
-                .collect(),
+            modes: modes.modes,
             plan: modes.plan.as_deref().map(markdown::to_html),
         }
     }
@@ -927,36 +898,6 @@ pub async fn agent_modes(
     Ok(modes.map(Into::into))
 }
 
-/// A background command of a session for the page.
-#[derive(Debug, Serialize)]
-pub struct TaskRow {
-    id: String,
-    name: String,
-    description: String,
-    /// `running`, `paused`, `completed`, `failed` or `stopped`.
-    state: String,
-    can_stop: bool,
-    output_file: Option<String>,
-    summary: Option<String>,
-    /// The log entry of the call that started it.
-    entry: Option<u64>,
-}
-
-impl From<AgentTask> for TaskRow {
-    fn from(task: AgentTask) -> Self {
-        Self {
-            id: task.id,
-            name: task.name,
-            description: task.description,
-            state: task.state,
-            can_stop: task.can_stop,
-            output_file: task.output_file,
-            summary: task.summary,
-            entry: task.entry,
-        }
-    }
-}
-
 /// The commands a Beep session's agent has in the background, oldest
 /// first; none from a node too old to say.
 #[tauri::command]
@@ -965,7 +906,7 @@ pub async fn agent_tasks(
     machine_id: String,
     agent: String,
     session: String,
-) -> Result<Vec<TaskRow>> {
+) -> Result<Vec<AgentTask>> {
     let request = GetAgentSessionTasks {
         machine_id,
         agent,
@@ -981,9 +922,7 @@ pub async fn agent_tasks(
                 .await,
         )
     }?;
-    Ok(tasks
-        .map(|tasks| tasks.tasks.into_iter().map(TaskRow::from).collect())
-        .unwrap_or_default())
+    Ok(tasks.map(|tasks| tasks.tasks).unwrap_or_default())
 }
 
 #[cfg(test)]

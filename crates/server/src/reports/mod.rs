@@ -7,4 +7,3 @@ mod route;
 mod store;
 
 pub use route::{Reports, routes};
-pub use store::{R2, ReportStore};

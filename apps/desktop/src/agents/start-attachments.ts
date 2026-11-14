@@ -37,7 +37,7 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     reading++;
     changed();
     serial = serial.then(async () => {
-      files.add(dropped, error);
+      files.add(dropped);
       for (const file of dropped) if (file.type.startsWith("image/") && files.pending.some(entry => entry.file === file)) await attachPreview(images, file, file);
       draw();
     }).catch(e => error(String(e))).finally(() => { reading--; changed(); });

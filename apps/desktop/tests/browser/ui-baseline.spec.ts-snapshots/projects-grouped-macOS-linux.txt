@@ -1,6 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -84,7 +85,7 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
-    div#main.cc-main
+    div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -120,6 +121,11 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-rows
               div.bd-lane.hd
@@ -173,8 +179,13 @@ body.cbody
       div.cc-box
         div.cc-view [data-project]
           div style(display)
-            div.pj-find [data-empty="true" data-rac]
-              input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value] value=""
+            div.pj-toolbar
+              div.pj-find [data-empty="true" data-rac]
+                input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value] value=""
+              button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                span "Default"
+                svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3.gp
                 button.pj-fold [aria-expanded="true" type="button"]
@@ -197,24 +208,28 @@ body.cbody
                   span.nm [title="example/"] "example/"
                   small "2 repos"
               div.pj-grid
-                div.pj-card [role="button" tabindex="0" title="example/widget"]
+                div.pj-card [data-live role="button" tabindex="0" title="example/widget"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="example/widget"] "widget"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-                    small "1 agent"
-                  span.line "Last activity just now"
-                  span.line.sync "on build-box"
-                div.pj-card [role="button" tabindex="0" title="example/gadget"]
+                    small.run "1 agent"
+                      i
+                  div.f
+                    span.ago "just now"
+                    span.at [title="build-box"] "build-box"
+                div.pj-card [data-live role="button" tabindex="0" title="example/gadget"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="example/gadget"] "gadget"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-                    small "1 agent"
-                  span.line "Last activity 10 min ago"
-                  span.line.sync "on build-box"
+                    small.run "1 agent"
+                      i
+                  div.f
+                    span.ago "10 min ago"
+                    span.at [title="build-box"] "build-box"
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3
                 button.pj-fold [aria-expanded="true" type="button"]
@@ -225,19 +240,18 @@ body.cbody
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="tools/delta"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="tools/delta"] "delta"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-                    small "idle"
-                  span.line "No recent activity"
-                  span.line.sync "on build-box"
+                  div.f
+                    span.ago.never "No activity"
+                    span.at [title="build-box"] "build-box"
             div.cc-panel.cc-row.pj-add style(flex-basis,flex-grow,flex-shrink)
               span.t
                 b "Add a project"
                 span "A folder or a repository to clone."
               button.dbtn [type="button"] "Add"
-      div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

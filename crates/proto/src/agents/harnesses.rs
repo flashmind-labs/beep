@@ -274,41 +274,6 @@ wire_enum! {
     }
 }
 
-wire_enum! {
-    /// What a coding agent starts on, as `StartAgentSession::checkout`
-    /// asks: a new `beep/<slug>` branch in the checkout itself, or one in a
-    /// new worktree at `.worktrees/beep-<slug>`, made from `base` (the
-    /// checkout's `HEAD` when `None`). `NamedWorktree` is `NewWorktree` on
-    /// a branch named `branch` rather than from the prompt.
-    /// `BranchWorktree` starts on the existing branch `branch`: in the
-    /// worktree that has it checked out, else in a new one at
-    /// `.worktrees/<branch>` after fetching it from `origin`. A node from
-    /// before them refuses both. See `node::agent::CheckoutPlan`.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum AgentCheckoutPlan {
-        0 NewBranch { base: Option<String> }
-        1 NewWorktree { base: Option<String> }
-        2 NamedWorktree { base: Option<String>, branch: String }
-        3 BranchWorktree { branch: String }
-    }
-}
-
-wire_enum! {
-    /// How hard a coding agent thinks, as `StartAgentSession::effort`
-    /// asks. Which levels an agent takes is `node::agent::efforts`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
-    #[strum(serialize_all = "snake_case")]
-    pub enum AgentEffort {
-        0 Off {}
-        1 Minimal {}
-        2 Low {}
-        3 Medium {}
-        4 High {}
-        5 Xhigh {}
-        6 Max {}
-    }
-}
-
 wire_structs! {
     /// One model a coding agent offers.
     #[derive(Eq)]

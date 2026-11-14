@@ -5,7 +5,6 @@ import { UsageWidget } from "./usage-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import type { WrittenCredits } from "../ui/credits.ts";
-export { creditAmount, creditScope, type ProviderCredits } from "../ui/credits.ts";
 // The pill at the right end of every command center header: how much of each
 // coding agent's plan is used and what the agents cost today.
 
@@ -86,12 +85,6 @@ const WEEK = 7 * DAY;
 export function windowUsed(w: Pick<UsageWindow, "used_percent">) {
   const used = Number.isFinite(w.used_percent) ? w.used_percent : 0;
   return Math.round(Math.min(100, Math.max(0, used)));
-}
-
-/// How much of a plan is used: its tightest window, or null without any.
-export function planUsed(plan: { windows: Pick<UsageWindow, "used_percent">[] }): number | null {
-  if (!plan.windows.length) return null;
-  return Math.max(...plan.windows.map(windowUsed));
 }
 
 /// One item in the pill: a harness's binding window, the one most used, or

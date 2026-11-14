@@ -122,14 +122,14 @@ pub(crate) struct Inner {
     view: SharedView,
     pub rev: Arc<watch::Sender<u64>>,
     pub changes: broadcast::Sender<Key>,
-    pub conns: Mutex<BTreeMap<EndpointId, Live>>,
+    conns: Mutex<BTreeMap<EndpointId, Live>>,
     channels: channels::Channels,
     /// Connections that left the mesh link and stay for their open streams,
     /// by stable id. A removal cuts these too.
     retired: Mutex<BTreeMap<usize, Retired>>,
-    pub addrs: Mutex<BTreeMap<EndpointId, AddrNote>>,
+    addrs: Mutex<BTreeMap<EndpointId, AddrNote>>,
     /// When each peer's link last ended, since the mesh opened.
-    pub last_seen: Mutex<BTreeMap<EndpointId, SystemTime>>,
+    last_seen: Mutex<BTreeMap<EndpointId, SystemTime>>,
     /// Our own address and its counter.
     own_addr: Mutex<AddrNote>,
     /// Rung when any address changes, for dialers waiting out a backoff.

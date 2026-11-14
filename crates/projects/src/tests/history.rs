@@ -44,7 +44,12 @@ fn history_includes_root_merges_other_branches_and_worktrees() {
     git(dir, &["add", "."]);
     git(dir, &["commit", "-m", "Initial"]);
     let initial = CommitId::from_str(git(dir, &["rev-parse", "HEAD"]).trim()).expect("SHA");
-    let root_patch = script(&patch_script(dir.to_str().expect("path"), &initial, &[]));
+    let root_patch = script(&patch_context_script(
+        dir.to_str().expect("path"),
+        &initial,
+        &[],
+        3,
+    ));
     assert!(root_patch["patch"].contains("+first"));
     git(dir, &["checkout", "-b", "feature"]);
     std::fs::write(dir.join("feature.txt"), "feature\n").expect("file");
@@ -69,7 +74,7 @@ fn history_includes_root_merges_other_branches_and_worktrees() {
     assert_eq!(history.refs.len(), 3);
     assert!(history.next.is_none());
     let merge = &history.commits[0].id;
-    assert!(script(&patch_script(ask.folder, merge, &[]))["patch"].contains("+feature"));
+    assert!(script(&patch_context_script(ask.folder, merge, &[], 3))["patch"].contains("+feature"));
     let files = parse_files(&script(&files_script(ask.folder, merge))["files"]).expect("files");
     assert_eq!(files[0].path, "feature.txt");
     assert_eq!(files[0].status, "added");
@@ -135,7 +140,13 @@ fn empty_repositories_and_unusual_filenames_are_read() {
     let files = parse_files(&script(&files_script(ask.folder, &id))["files"]).expect("files");
     assert_eq!(files[0].path, name);
     assert!(
-        script(&patch_script(ask.folder, &id, &[name.to_owned()]))["patch"].contains("+content")
+        script(&patch_context_script(
+            ask.folder,
+            &id,
+            &[name.to_owned()],
+            3
+        ))["patch"]
+            .contains("+content")
     );
 }
 #[test]

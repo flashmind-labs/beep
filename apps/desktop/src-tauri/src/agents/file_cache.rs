@@ -7,7 +7,6 @@
 use crate::{chat::files::GONE, error::DesktopError, fleet::Fleet};
 use anyhow::{Context, Result};
 use beep_mesh::machine::{NodeShare, sessions};
-use beep_proto::MAX_AGENT_FILE;
 use futures::StreamExt;
 use iroh::EndpointId;
 use iroh_blobs::{
@@ -129,10 +128,6 @@ impl FileCache {
                 return Ok(None);
             }
         };
-
-        if shared.size > MAX_AGENT_FILE {
-            return Err(DesktopError::BadRequest("file too large".into()));
-        }
 
         match self
             .store(fleet, machine, shared, session, &mut progress)

@@ -18,6 +18,7 @@ use beep_proto::node::{
     setup::{Need, Reply as SetupReply, Request as SetupRequest},
     tool_update::{Available, Check, Reply, Request, Tool},
 };
+use beep_proto::watched;
 use std::{
     env,
     ffi::OsString,
@@ -152,7 +153,7 @@ impl Provision {
             let mut updates = self.updates.subscribe();
             let available = tokio::time::timeout(Duration::from_secs(55), async {
                 loop {
-                    if let Some(available) = updates.borrow_and_update().clone() {
+                    if let Some(available) = watched::read_and_update(&mut updates, Clone::clone) {
                         break available;
                     }
 

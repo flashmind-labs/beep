@@ -82,7 +82,6 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
 
   return {
     update,
-    state: () => state,
     setPresentation,
     setBusy: (busy: boolean) => update({ busy }),
     setChoices: view("choiceView"),

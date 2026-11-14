@@ -9,7 +9,7 @@ use super::{
     fork::UsedFork,
     repo::{Host, RepoRef},
 };
-use crate::{Shell, quote};
+use crate::{Shell, quote, shell::tail_bytes};
 use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
@@ -235,13 +235,7 @@ pub fn outcome(output: &str, exit_code: Option<i32>, timed_out: bool) -> Outcome
 
 /// The end of `output`, up to `KEEP` bytes.
 pub fn tail(output: &str) -> String {
-    let output = output.trim();
-    let mut start = output.len().saturating_sub(KEEP);
-
-    while !output.is_char_boundary(start) {
-        start += 1;
-    }
-    output[start..].to_owned()
+    tail_bytes(output, KEEP).to_owned()
 }
 
 /// What went wrong, for a clone git refused.
@@ -253,20 +247,30 @@ pub struct Failure<'a> {
     pub had_token: bool,
 }
 
+/// Git's own HTTP 404 line: `fatal: repository 'https://host/o/r/' not found`.
+fn quoted_repository_missing(text: &str) -> bool {
+    text.lines().any(|line| {
+        line.split_once("repository '")
+            .is_some_and(|(_, rest)| rest.contains("' not found"))
+    })
+}
+
 /// The plain sentence for a failed clone.
 pub fn explain(failure: Failure<'_>) -> ImportError {
     let text = failure.output.to_ascii_lowercase();
     let has = |needles: &[&str]| needles.iter().any(|needle| text.contains(needle));
     if has(&[
         "repository not found",
-        "not found",
+        "remote: not found",
         "could not read username",
         "authentication failed",
         "terminal prompts disabled",
-        "403",
-        "401",
+        "returned error: 401",
+        "returned error: 403",
+        "returned error: 404",
         "does not appear to be a git repository",
-    ]) {
+    ]) || quoted_repository_missing(&text)
+    {
         return if failure.had_token {
             ImportError::NoAccess {
                 repo: failure.project,

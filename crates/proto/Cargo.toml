@@ -12,13 +12,13 @@ https = ["dep:reqwest", "dep:rustls", "dep:webpki-roots"]
 # HTTP/2 for the HTTPS client; a phone speaks HTTP/1.1.
 http2 = ["https", "reqwest/http2"]
 # Logging setup for the node and server binaries.
-logging = ["dep:tracing", "dep:tracing-log", "dep:tracing-subscriber"]
+logging = ["dep:tracing", "dep:tracing-log", "dep:tracing-subscriber", "uuid/v4"]
 
 [dependencies]
 anyhow = "1"
 blake3 = "1"
 bytes = "1"
-flashmind-types = "0.3.1"
+flashmind-types = "0.3.2"
 futures = "0.3"
 # Lean for the phone; a node and the server turn on the defaults.
 iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
@@ -37,7 +37,7 @@ tracing = { version = "0.1", default-features = false, features = ["std"], optio
 tracing-log = { version = "0.2", default-features = false, features = ["std", "log-tracer"], optional = true }
 url = "2"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std", "tracing-log"], optional = true }
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["serde"] }
 webpki-roots = { version = "1", optional = true }
 
 [dev-dependencies]

@@ -1,11 +1,14 @@
+import { useState } from "react";
+import { Dropdown } from "../ui/dropdown.tsx";
+import { PROJECT_SORTS, projectSortTime, type ProjectSort } from "../project/overview-state.ts";
+import { lastProjectVisit, readProjectSort, saveProjectSort } from "../project/project-preferences.ts";
 import { visibleRunning } from "../agents/closing.ts";
-import { closingNote } from "../agents/closing.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { runningLineAt } from "../agents/place.ts";
-import { byRecent, projectOf, runningKey, runningLine, runningWhen, type RunningAgent } from "../agents/running-state.ts";
+import { byRecent, projectOf, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { Board, CardRow, type BoardCard } from "./lanes-view.tsx";
-import { endedToday, laneOf } from "./lanes-state.ts";
+import { byProject, endedToday, laneOf } from "./lanes-state.ts";
 import { frontLayout } from "../ui/skin.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { conflictList, conflictSub } from "../project/filesync.ts";
@@ -22,17 +25,16 @@ import { go } from "./views.ts";
 import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { isMobile } from "../ui/platform.ts";
-import { Section } from "../ui/kit.tsx";
+import { Button, Section } from "../ui/kit.tsx";
+import { PaintedEmpty } from "../ui/painted-art.tsx";
+import { RunningStatus } from "../project/split-view.tsx";
 
 /// What a running row says at its end: a move or a close, that it asks, or since when.
 function runningStatus(row: RunningAgent, home: HomeView) {
   const moving = moveLabel(row);
-  const closing = closingNote(row);
-  const working = ["working", "running", "starting"].includes(row.status);
   // Shown as last seen until its machine answers.
   const waiting = !!home.machines?.some(m => m.id === row.machine_id && m.connecting);
-  const status = moving ? <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span> : closing || (row.status === "asking" ? <span className="chip wait">needs you</span> : working ? <span className="cc-running"><span className="drun" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"} />{runningWhen(row)}</span> : runningWhen(row));
-  return { foot: waiting ? <span className="cc-wait">connecting</span> : status, waiting, why: moving?.why ?? null };
+  return { foot: waiting ? <span className="cc-wait">connecting</span> : <RunningStatus row={row} />, waiting, why: moving?.why ?? null };
 }
 
 /// The project a session works in: the imported one that holds its folder.
@@ -66,14 +68,14 @@ function needsCards(home: HomeView): BoardCard[] {
       action: item.review_requested ? { kind: "menu", label: "Review", items: [{ label: "Open", on: open }, { label: "Review with agent", on: review }] } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
   }
 
-  // A project's conflicts share one card: the Sync page lists them.
+  // A project's conflicts share one card: its Machines section lists them.
   for (const project of syncProjects()) {
     const detail = fsync.detail(project), conflicts = conflictList(detail), first = conflicts[0];
     if (!first) continue;
-    const one = conflicts.length === 1;
+    const one = conflicts.length === 1, open = () => go("projects", { project, tile: "machines" });
     cards.push({ key: `${project}:conflicts`, lane: "needs", project, session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
       title: one ? first.path : `${conflicts.length} files have two copies`, sub: one ? conflictSub(project, first, detail?.machines ?? []) : project, foot: null,
-      action: { kind: "run", label: "Resolve", primary: false, run: () => go("sync") }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open: () => go("sync"), menu: null });
+      action: { kind: "run", label: "Resolve", primary: false, run: open }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open, menu: null });
   }
 
   return cards;
@@ -119,20 +121,43 @@ function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[]): B
 const DONE_SHOWN = 8;
 
 export function HomeOverview({ home }: { home: HomeView }) {
+  const [sort, setSort] = useState(() => readProjectSort("home"));
+  const changeSort = (value: ProjectSort) => {
+    saveProjectSort("home", value);
+    setSort(value);
+  };
+
   const list = frontLayout("home") === "list";
   const needs = needsCards(home), running = runningCards(home);
   const cards = list ? [...needs, ...running] : boardCards(home, needs, running);
   const empty = !cards.length;
   // A row's dot matches the project's in the sidebar.
   const listed = projectRows() || [];
+  const activity = new Map<string, number>();
+
+  for (const session of [...(home.running ?? []), ...homeSessions()]) {
+    const name = sessionProject(session, home);
+    if (name !== null) activity.set(name, Math.max(activity.get(name) ?? 0, session.last_activity ?? session.started_at ?? 0));
+  }
+
+  for (const repo of projectsWithOpen(state.git, listed)) {
+    const name = repo.project?.name ?? repo.repo;
+    activity.set(name, Math.max(activity.get(name) ?? 0, repo.last));
+  }
+
+  const names = new Set(cards.flatMap(card => card.project === null ? [] : [card.project]));
+  const recency = sort === "default" ? null : new Map([...names].map(name => [name, projectSortTime(sort, { last: activity.get(name) ?? null }, null, lastProjectVisit(name))]));
+  const ordered = (rows: BoardCard[]) => recency === null ? rows : byProject(rows, recency).flatMap(row => row.cards);
   const rows = (project: string) => {
     const at = listed.findIndex(row => row.name === project);
     return { color: at < 0 ? null : PROJECT_COLORS[at % PROJECT_COLORS.length], open: listed[at]?.imported ? () => { go("projects", { project }); } : null };
   };
+
   return <>
-    {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{needs.map(card => <CardRow key={card.key} card={card}/>)}</Section>
-      : !!cards.length && <div id="sec-needs"><Board cards={cards} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows}/></div>}
-    {list && !!running.length && <Section id="sec-running" title={<button className="dbtn lk" type="button" onClick={() => go("pane", "agents")}>Running</button>} count={running.length}>{running.map(card => <CardRow key={card.key} card={card}/>)}</Section>}
+    {!empty && <div className="home-sort"><Dropdown label="Sort projects" options={PROJECT_SORTS} value={sort} onChange={changeSort} icon={<Icon name="sort"/>}/></div>}
+    {list ? !!needs.length && <Section id="sec-needs" title="Needs you" count={needs.length}>{ordered(needs).map(card => <CardRow key={card.key} card={card}/>)}</Section>
+      : !!cards.length && <div id="sec-needs"><Board cards={ordered(cards)} more={{ working: () => go("pane", "agents"), done: () => go("pane", "agents") }} rows={isMobile() ? null : rows} recency={recency}/></div>}
+    {list && !!running.length && <Section id="sec-running" title={<Button className="lk" onClick={() => go("pane", "agents")}>Running</Button>} count={running.length}>{ordered(running).map(card => <CardRow key={card.key} card={card}/>)}</Section>}
     {empty && <Empty home={home} />}
   </>;
 }
@@ -141,5 +166,5 @@ export function HomeOverview({ home }: { home: HomeView }) {
 function Empty({ home }: { home: HomeView }) {
   const reach = machinesReach(home.machines ?? []);
   if (reach !== "reached") return <div className="cc-panel cc-empty"><span>{reach === "connecting" ? "Connecting to your machines…" : "No machine is online."}</span></div>;
-  return <div className="cc-panel cc-empty"><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><button type="button" className="dbtn small" onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</button></div>;
+  return <PaintedEmpty><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button look="primary" small onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</Button></PaintedEmpty>;
 }

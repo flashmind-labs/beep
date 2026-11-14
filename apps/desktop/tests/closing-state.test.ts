@@ -32,3 +32,12 @@ test("a mark gives way to the lists after a while", () => {
   assert.equal(c.stateOf(s, 10 + MARK_MS), "ended");
   assert.equal(c.stateOf(s, 11 + MARK_MS), null);
 });
+
+test("an ended event for a plain id leaves a colon id that ends with it alone", () => {
+  const c = new Closings();
+  const sub = { machine_id: "build-box", id: "subagent:codex:x" };
+  c.start(sub, 0);
+  assert.ok(!c.ended("x", 1));
+  assert.equal(c.stateOf(sub, 2), "closing");
+  assert.ok(c.ended(sub.id, 3));
+});

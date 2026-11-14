@@ -26,7 +26,6 @@ export interface ViewArgs {
   pane: PaneTarget;
   projects: ProjectsArg | null;
   providers: ProvidersArg | null;
-  sync: null;
   instructions: InstructionsArg | null;
   terminals: null;
 }

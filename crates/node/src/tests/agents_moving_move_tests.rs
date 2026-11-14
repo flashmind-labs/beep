@@ -11,6 +11,7 @@ use super::{
 };
 use crate::agents::{AgentKind, Agents, Begin, session::Command};
 use beep_mesh::{Key, Mesh, transport_config};
+use beep_proto::watched;
 use beep_proto::{
     AgentSlug,
     node::{
@@ -135,7 +136,7 @@ async fn asking(source: &Source) -> Arc<crate::agents::Session> {
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(20),
-        live.wait_for(|live| live.status() == Status::Asking),
+        watched::wait_for(&mut live, |live| live.status() == Status::Asking),
     )
     .await
     .expect("the turn asks in time")
@@ -152,7 +153,7 @@ async fn idle(session: &crate::agents::Session) {
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(30),
-        live.wait_for(|live| live.status() == Status::Idle),
+        watched::wait_for(&mut live, |live| live.status() == Status::Idle),
     )
     .await
     .expect("the turn ends in time")
@@ -163,7 +164,7 @@ async fn ended(session: &crate::agents::Session) {
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(30),
-        live.wait_for(|live| live.status() == Status::Ended),
+        watched::wait_for(&mut live, |live| live.status() == Status::Ended),
     )
     .await
     .expect("the session ends in time")
@@ -206,12 +207,7 @@ async fn the_source_waits_for_the_turn_and_runs_what_was_queued_before_the_move(
         futures::poll!(&mut waiting).is_pending(),
         "a turn waiting for an answer holds the move"
     );
-    let question = session
-        .live
-        .borrow()
-        .info
-        .question
-        .as_ref()
+    let question = watched::read(&session.live, |live| live.info.question.clone())
         .expect("the turn asks")
         .id;
     session
@@ -283,7 +279,8 @@ async fn the_source_keeps_the_session_until_the_target_can_take_it() {
         () = idle(&session) => {}
     }
     assert!(
-        futures::poll!(&mut moving).is_pending() && session.live.borrow().status() == Status::Idle,
+        futures::poll!(&mut moving).is_pending()
+            && watched::read(&session.live, |live| live.status()) == Status::Idle,
         "a target that has not answered costs the session nothing"
     );
     said.send(Target::Taken).expect("the source listens");
@@ -314,7 +311,10 @@ async fn a_target_that_gives_up_leaves_the_session_running_here() {
         .await
         .expect("it ends in time");
     assert!(ended.is_err(), "the move did not happen");
-    assert_ne!(session.live.borrow().status(), Status::Ended);
+    assert_ne!(
+        watched::read(&session.live, |live| live.status()),
+        Status::Ended
+    );
     session
         .order(Command::Prompt("still here".to_owned().into()))
         .await
@@ -383,7 +383,7 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(30),
-        live.wait_for(|live| live.status() == Status::Asking),
+        watched::wait_for(&mut live, |live| live.status() == Status::Asking),
     )
     .await
     .expect("asking")

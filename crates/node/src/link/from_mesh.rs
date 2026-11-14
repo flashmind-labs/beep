@@ -12,6 +12,7 @@ use crate::{
     link::watchdog::{self, Step},
 };
 use beep_mesh::{Key, Mesh};
+use beep_proto::watched;
 use beep_proto::{
     FlshSettings,
     node::{
@@ -65,7 +66,7 @@ impl Membership {
     }
 
     pub(crate) fn get(&self) -> Option<Mesh> {
-        self.mesh.borrow().clone()
+        watched::read_sent(&self.mesh, Clone::clone)
     }
 }
 
@@ -119,6 +120,22 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
     }
 }
 
+/// The projects in the mesh that `me` has a checkout of, with where it is.
+pub(super) fn placed_projects(
+    mesh: &Mesh,
+    me: EndpointId,
+) -> impl Iterator<Item = (String, ProjectRecord, Place)> {
+    mesh.scan("project/").into_iter().filter_map(move |(key, bytes)| {
+        let Key::Project(name) = key else {
+            return None;
+        };
+        let record = ProjectRecord::from_bytes(&bytes).ok()?;
+        let place = mesh.get(&Key::Project(format!("{name}/{me}")))?;
+        let place = Place::from_bytes(&place).ok()?;
+        Some((name, record, place))
+    })
+}
+
 /// Each machine applies the replicated preference to its own local share.
 async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
     let Some(transfers) = offers.transfers.get() else {
@@ -126,20 +143,8 @@ async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
     };
     let syncs = transfers.syncs();
 
-    for (key, bytes) in mesh.scan("project/") {
-        let Key::Project(name) = key else {
-            continue;
-        };
-        let Ok(record) = ProjectRecord::from_bytes(&bytes) else {
-            continue;
-        };
+    for (_, record, place) in placed_projects(mesh, me) {
         let Some(enabled) = record.syncthing_files else {
-            continue;
-        };
-        let Some(bytes) = mesh.get(&Key::Project(format!("{name}/{me}"))) else {
-            continue;
-        };
-        let Ok(place) = Place::from_bytes(&bytes) else {
             continue;
         };
 

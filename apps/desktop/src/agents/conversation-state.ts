@@ -1,7 +1,16 @@
 import type { AgentRow } from "./agents.ts";
 import { isNativeSession } from "./native-session-state.ts";
 
-export const conversationKey = (s: Pick<AgentRow, "machine_id" | "agent" | "id">) => JSON.stringify([s.machine_id, s.agent, s.id]);
+type SessionId = Pick<AgentRow, "machine_id" | "agent" | "id">;
+
+/// A session as a conversation: the key of the picker and of a field's draft.
+export const conversationKey = (s: SessionId) => JSON.stringify([s.machine_id, s.agent, s.id]);
+
+/// A session of a harness, as the maps of moves, usage and continuing key it.
+export const agentKey = (s: SessionId) => `${s.machine_id}\n${s.agent}\n${s.id}`;
+
+/// A session by machine and id alone, for what is kept per session.
+export const sessionKey = (s: Pick<AgentRow, "machine_id" | "id">) => `${s.machine_id}\n${s.id}`;
 
 /// Visits change when a conversation opens, never while the picker cycles.
 export class ConversationHistory {
@@ -23,7 +32,7 @@ export class ConversationHistory {
       const i = this.visits.indexOf(key);
       return i < 0 ? Infinity : i;
     };
-    return [...unique.values()].filter(row => row.status !== "ended" && row.status !== "closing").sort((a, b) => rank(a) - rank(b) || (b.last_activity ?? b.started_at ?? 0) - (a.last_activity ?? a.started_at ?? 0));
+    return [...unique.values()].filter(row => !row.parent && !isNativeSession(row.id) && row.status !== "ended" && row.status !== "closing").sort((a, b) => rank(a) - rank(b) || (b.last_activity ?? b.started_at ?? 0) - (a.last_activity ?? a.started_at ?? 0));
   }
 }
 export const conversationHistory = new ConversationHistory();

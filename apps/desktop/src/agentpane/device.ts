@@ -8,10 +8,11 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { paneSession, showDevice } from "./media.ts";
 import { draw } from "./media-draw.ts";
+import { sessionKey } from "./running.ts";
 import { paneRoot } from "./worktree.ts";
 import {
-  type DeviceFollow, type DeviceHost, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
-  defaultPick, deviceError, followedDevice, pickedDevice, queueInput, readHosts, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
+  type DeviceFollow, type DeviceHost, type KeptDevice, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
+  defaultPick, deviceError, followedDevice, keptPick, pickedDevice, queueInput, readHosts, readKeptDevice, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
 } from "./device-state.ts";
 
 /// How often the list is read again while the tab shows: a booting device
@@ -21,7 +22,7 @@ const IDLE_POLL_MS = 10_000;
 /// How long a platform check that could not reach its machine waits to go again.
 const PLATFORMS_RETRY_MS = 60_000;
 
-export interface DeviceModel {
+interface DeviceModel {
   machines: readonly DeviceMachine[];
   /// The list was read at least once.
   listed: boolean;
@@ -45,7 +46,7 @@ let hosts: DeviceHost[] = [];
 /// Whether the pane has a Device tab: a machine that is on serves
 /// `device/1`, and the session's checkout builds for a mobile platform or
 /// its agent used a device.
-export const hasDeviceTab = () => hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey()) || showsDeviceTab(sessionPlatforms(), hosts));
+export const hasDeviceTab = () => hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey(paneSession())) || showsDeviceTab(sessionPlatforms(), hosts));
 
 async function readDeviceHosts() {
   const had = hasDeviceTab();
@@ -118,15 +119,10 @@ let followed: { session: string; follow: DeviceFollow | null } | null = null;
 /// The device the agent last pointed at, until the list has it.
 let wanted: DeviceTarget | null = null;
 
-function sessionKey() {
-  const session = paneSession();
-  return session ? `${session.machine_id}\n${session.id}` : null;
-}
-
 /// The conversation as drawn, from place `earlier`: a device call of the
 /// agent that finished since the view opened turns the tab to its device.
 export function followDeviceCalls(entries: readonly { kind: string; text: string }[], earlier: number) {
-  const session = sessionKey();
+  const session = sessionKey(paneSession());
   if (!session) return;
   const { follow, target } = followedDevice(entries, earlier, followed?.session === session ? followed.follow : null);
   followed = { session, follow };
@@ -161,21 +157,66 @@ function shownChanged() {
     return;
   }
 
-  // Shown again, a view that ended is tried again.
+  // Shown again, a view that ended is tried again, and the session's
+  // device is read again: another device may have changed it.
   if (deviceModel.getState().screen.kind === "ended") set({ screen: { kind: "off" } });
+  kept = null;
   void readDevices();
 }
 
-/// The checkout the pick was made for; another one starts over.
+/// The session the pick was made for; another one starts over.
 let pickedFor: string | null = null;
 
-/// Shows device `pick`.
+/// Shows device `pick`; the session keeps it once it runs.
 export function pickDevice(pick: DevicePick) {
-  pickedFor = paneCheckout()?.key ?? null;
+  pickedFor = sessionKey(paneSession());
   wanted = null;
+  if (pickedDevice(deviceModel.getState().machines, pick)?.state === "On") keep(pick);
   set({ pick, screen: { kind: "off" }, error: "" });
   follow();
 }
+
+// ----- The session's device -----
+
+/// The device the pane's session keeps on its machine (`SessionInfo::device`),
+/// as last read: the last one the tab showed running, or the agent used.
+/// One its machine lists off or gone is forgotten.
+/// Unknown until read; a read that failed is tried on the next pass.
+let kept: { session: string; device: KeptDevice } | null = null;
+/// A write is on its way, so the passes meanwhile send no other.
+let keeping = false;
+
+async function readKept(): Promise<DevicePick | null> {
+  const session = paneSession(), key = sessionKey(session);
+  if (!session) return null;
+  if (kept?.session === key) return kept.device.kind === "kept" ? kept.device.pick : null;
+
+  try {
+    const device = readKeptDevice(await invoke("agent_device", { machineId: session.machine_id, agent: session.agent, session: session.id }));
+    if (!device || sessionKey(paneSession()) !== key) return null;
+    kept = { session: key, device };
+    return device.kind === "kept" ? device.pick : null;
+  } catch {
+    return null;
+  }
+}
+
+/// Has the pane's session keep `pick` as its device, or forget it. Nothing
+/// goes until its device was read, nor to a machine too old to keep one;
+/// the cache changes once the machine took it, so a failed write goes again
+/// on the next pass.
+function keep(pick: DevicePick | null) {
+  const session = paneSession(), key = sessionKey(session);
+  const known = kept?.session === key ? kept.device : null;
+  if (!session || keeping || known?.kind !== "kept" || samePickOrNull(known.pick, pick)) return;
+  keeping = true;
+  invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { device: { device: pick } } })
+    .then(() => { if (kept?.session === key) kept = { session: key, device: { kind: "kept", pick } }; })
+    .catch(() => { /* Tried again on the next pass. */ })
+    .finally(() => { keeping = false; });
+}
+
+const samePickOrNull = (a: DevicePick | null, b: DevicePick | null) => a === b || (a !== null && b !== null && samePick(a, b));
 
 /// The view of the device ended: it is tried again.
 export function showAgain() {
@@ -193,18 +234,24 @@ async function readDevices() {
   if (!visible()) return;
 
   try {
-    const value = await reads.run(invoke<unknown>("device_list", { machineId: null }));
+    const value = await reads.run(Promise.all([invoke<unknown>("device_list", { machineId: null }), readKept()]));
     if (value === STALE) return;
-    const machines = readMachines(value);
-    const at = paneCheckout(), platforms = sessionPlatforms();
-    const last = at?.key === pickedFor ? deviceModel.getState().pick : null;
+    const [listed, stored] = value;
+    const machines = readMachines(listed);
+    const at = paneCheckout(), platforms = sessionPlatforms(), session = sessionKey(paneSession());
+    const last = session === pickedFor ? deviceModel.getState().pick : null;
     const asked = wanted ? targetPick(machines, wanted) : null;
-    const pick = asked ?? defaultPick(machines, at?.machine ?? null, last, platforms);
-    pickedFor = at?.key ?? null;
+    const known = keptPick(machines, stored);
+    // The agent's node already keeps the device its calls used.
+    if (asked && kept?.session === session && kept.device.kind === "kept") kept = { session, device: { kind: "kept", pick: asked } };
+    const pick = asked ?? defaultPick(machines, at?.machine ?? null, last ?? known.pick, platforms);
+    pickedFor = session;
     if (asked) wanted = null;
     // The agent's device shows again even when its view had ended.
     const screen = asked && deviceModel.getState().screen.kind === "ended" ? { screen: { kind: "off" } as const } : {};
     set({ machines, pick, platforms, listed: true, error: "", ...screen });
+    if (pick && pickedDevice(machines, pick)?.state === "On") keep(pick);
+    else if (known.forget) keep(null);
   } catch (e) {
     set({ listed: true, error: deviceError(e) });
   }
@@ -238,7 +285,7 @@ export async function power(on: boolean) {
 // ----- The live screen -----
 
 /// Draws a frame; it owns the bitmap from then on.
-export type Painter = (frame: ImageBitmap) => void;
+type Painter = (frame: ImageBitmap) => void;
 
 let painter: Painter | null = null;
 /// The size of the box the screen draws in, for the frame size asked.

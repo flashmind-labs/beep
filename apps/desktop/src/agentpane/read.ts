@@ -3,19 +3,25 @@ import { togglePreview } from "./text-view.tsx";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { viewKey } from "./view-memory.ts";
-import { fileSize } from "../chat/media.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
 import { draw, touchTab } from "./media-draw.ts";
+import { bytesOf } from "./media-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 
-/// The most the pane reads of one file, as the node allows.
-const MAX_FILE = 128 * 1024 * 1024;
+// Keep the original File on the device that uploaded it. A browser File can
+// read its local bytes without downloading the attachment from the node.
+const localUploads = new Map<string, File>();
+const localUploadKey = (machine: string, path: string) => JSON.stringify([machine, path]);
 
-function bytesOf(b64: string) {
-  const s = atob(b64), out = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
-  return out;
+export function rememberLocalUpload(machine: string, path: string, file: File) {
+  const key = localUploadKey(machine, path);
+  localUploads.delete(key);
+  localUploads.set(key, file);
+  if (localUploads.size > 64) {
+    const oldest = localUploads.keys().next();
+    if (!oldest.done) localUploads.delete(oldest.value);
+  }
 }
 
 /// How far fetching a file from another machine has come.
@@ -25,6 +31,17 @@ type FileProgress = { machine_id: string; path: string; done: number; size: numb
 /// conversation `session`; `progress` hears how far it got. The first part
 /// fetches a file from another machine whole, telling its progress.
 export async function readFile(machine: string, path: string, session: string | null, progress: (done: number, size: number) => void) {
+  const key = localUploadKey(machine, path), local = localUploads.get(key);
+  if (local) {
+    try {
+      const bytes = new Uint8Array(await local.arrayBuffer());
+      progress(bytes.length, bytes.length);
+      return { bytes, mime: local.type };
+    } catch {
+      localUploads.delete(key);
+    }
+  }
+
   const parts: Uint8Array[] = [];
   let done = 0, size = 0, mime = "";
   const unlisten = await listen<FileProgress>("agent-file-progress", e => {
@@ -36,7 +53,6 @@ export async function readFile(machine: string, path: string, session: string | 
       const part = await invoke<FilePart>("agent_file", { machineId: machine, path, offset: done, session });
       size = part.size;
       mime = part.mime;
-      if (size > MAX_FILE) throw new Error(`It is ${fileSize(size)}; the pane opens files up to ${fileSize(MAX_FILE)}.`);
       const bytes = bytesOf(part.data);
       if (!bytes.length) break;
       parts.push(bytes);

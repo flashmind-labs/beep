@@ -21,15 +21,16 @@ export interface RunningAgent {
   subagents?: number;
 }
 
-/// What a coding agent asks (AgentQuestion).
+/// A question a session waits on, such as whether to run a command.
 export interface AgentQuestion {
   id: number;
   text: string;
+  /// The command, path or other input it would act on, cut short.
   detail: string | null;
   options: { id: string; name: string; allow: boolean }[];
 }
 
-const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", hermes: "Hermes" };
+const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", pi: "pi", flsh: "flsh", opencode: "OpenCode", hermes: "Hermes" };
 
 export function agentName(name: string | null | undefined) {
   return AGENTS[name ?? ""] || name || "Agent";

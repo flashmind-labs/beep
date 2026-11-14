@@ -51,21 +51,19 @@ pub async fn center_project_lists(
     refresh: bool,
 ) -> Result<Option<ListsRow>> {
     let name = named(&fleet, project_id).await?;
-    let found = Some(fleet.lists(&name, refresh).await?);
-    Ok(
-        found.map(|LabeledProjectLists { lists, pr_labels }| ListsRow {
-            prs: lists
-                .pull_requests
-                .into_iter()
-                .zip(pr_labels)
-                .map(|(pr, labels)| PullRequestRow::labeled(pr, labels))
-                .collect(),
-            prs_error: lists.prs_error,
-            issues: lists.issues.into_iter().map(Into::into).collect(),
-            issues_error: lists.issues_error,
-            synced_at: ms(lists.synced_at),
-        }),
-    )
+    let LabeledProjectLists { lists, pr_labels } = fleet.lists(&name, refresh).await?;
+    Ok(Some(ListsRow {
+        prs: lists
+            .pull_requests
+            .into_iter()
+            .zip(pr_labels)
+            .map(|(pr, labels)| PullRequestRow::labeled(pr, labels))
+            .collect(),
+        prs_error: lists.prs_error,
+        issues: lists.issues.into_iter().map(Into::into).collect(),
+        issues_error: lists.issues_error,
+        synced_at: ms(lists.synced_at),
+    }))
 }
 
 #[derive(Debug, Serialize)]

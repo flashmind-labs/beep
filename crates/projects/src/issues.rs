@@ -4,10 +4,9 @@
 mod gate;
 mod host;
 
-pub use gate::{FIRST_PAUSE, HostGates, LONGEST_PAUSE, Unreachable, is_unreachable};
-pub use host::{
-    clipped, head, host_failed, read_any, read_first, run_host, run_rendered, run_source,
-};
+pub use gate::{HostGates, Unreachable};
+pub(crate) use host::read_first;
+pub use host::{clipped, head, host_failed, read_any, run_rendered, run_source};
 use host::{failed_everywhere, is_not_found, read_sources, set_up_on};
 
 use crate::{
@@ -107,14 +106,14 @@ pub fn host_of_url(url: &str) -> Option<IssueHost> {
 }
 
 /// A project's issues host and the machines that can reach it.
-pub struct HostAndMachines {
+struct HostAndMachines {
     pub host: IssueHost,
     /// The machines it was imported on.
     pub machines: Vec<EndpointId>,
 }
 
 /// From the imported web page's host and machines. `None` without a GitHub or Forgejo host.
-pub async fn host_and_machines(store: &dyn ProjectStore) -> Result<Option<HostAndMachines>> {
+async fn host_and_machines(store: &dyn ProjectStore) -> Result<Option<HostAndMachines>> {
     let imports = store.imports().await?;
     Ok(imports
         .iter()
@@ -123,11 +122,6 @@ pub async fn host_and_machines(store: &dyn ProjectStore) -> Result<Option<HostAn
             host,
             machines: imports.iter().filter_map(|import| import.machine).collect(),
         }))
-}
-
-/// The project's issues host, if it has one.
-pub async fn issue_host(store: &dyn ProjectStore) -> Result<Option<IssueHost>> {
-    Ok(host_and_machines(store).await?.map(|found| found.host))
 }
 
 /// The first online place to read the project's issues (see [`issue_sources`]).
@@ -185,22 +179,15 @@ pub async fn issue_sources(
     Ok(Some(sources))
 }
 
-/// Every open issue on a project's host, as it was read.
-#[derive(Debug, Clone)]
-pub struct HostIssues {
-    pub host: IssueHost,
-    pub open: Vec<OpenIssue>,
-}
-
-/// Every open issue on the project's host; `None` without a host.
-pub async fn read_open(
+/// Open issues on the project's host, newest first; empty without a host.
+pub async fn list_open(
     store: &dyn ProjectStore,
     machines: &dyn Machines,
-) -> Result<Option<HostIssues>, SourceError> {
+) -> Result<Vec<OpenIssue>, SourceError> {
     let Some(sources) = issue_sources(store, machines).await? else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
-    let (source, open) = read_any(
+    let (_, mut open) = read_any(
         machines,
         &sources,
         store.name(),
@@ -208,21 +195,6 @@ pub async fn read_open(
         parse_open_issues,
     )
     .await?;
-    Ok(Some(HostIssues {
-        host: source.host.clone(),
-        open,
-    }))
-}
-
-/// Open issues on the project's host, newest first; empty without a host.
-pub async fn list_open(
-    store: &dyn ProjectStore,
-    machines: &dyn Machines,
-) -> Result<Vec<OpenIssue>, SourceError> {
-    let Some(read) = read_open(store, machines).await? else {
-        return Ok(Vec::new());
-    };
-    let mut open = read.open;
     open.sort_by(|a, b| {
         b.opened_at
             .cmp(&a.opened_at)

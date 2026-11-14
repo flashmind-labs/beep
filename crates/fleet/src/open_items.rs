@@ -18,7 +18,7 @@ use beep_proto::{
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{Mutex, PoisonError},
     time::{Duration, Instant, UNIX_EPOCH},
 };
@@ -62,29 +62,26 @@ impl Desk {
             .filter(|repo| !answers.contains_key(*repo))
             .cloned()
             .collect();
-        if asked.is_empty() {
-            return Learned {
-                answers,
-                asked,
-                view: None,
-            };
-        }
+        let view = if asked.is_empty() {
+            None
+        } else {
+            match kept_view(project) {
+                Some(view) => Some(view),
+                None => {
+                    // The semaphore is never closed, so waiting for it cannot fail.
+                    let _turn = limit.acquire().await;
+                    let asked = timeout(PER_PROJECT, self.machine_view(project)).await;
+                    let view = asked.ok().flatten();
 
-        let view = match kept_view(project) {
-            Some(view) => Some(view),
-            None => {
-                // The semaphore is never closed, so waiting for it cannot fail.
-                let _turn = limit.acquire().await;
-                let asked = timeout(PER_PROJECT, self.machine_view(project)).await;
-                let view = asked.ok().flatten();
+                    if let Some(view) = &view {
+                        keep_view(project, view);
+                    }
 
-                if let Some(view) = &view {
-                    keep_view(project, view);
+                    view
                 }
-
-                view
             }
         };
+
         Learned {
             answers,
             asked,
@@ -185,11 +182,11 @@ impl Access {
 const KEEP_VIEW: Duration = Duration::from_secs(3600);
 
 /// What machines said, by project. Only answers that included whether the account can push.
-static VIEWS: Mutex<Option<HashMap<String, (Instant, MachineView)>>> = Mutex::new(None);
+static VIEWS: Mutex<BTreeMap<String, (Instant, MachineView)>> = Mutex::new(BTreeMap::new());
 
 fn kept_view(project: &str) -> Option<MachineView> {
     let views = VIEWS.lock().unwrap_or_else(PoisonError::into_inner);
-    let (at, view) = views.as_ref()?.get(project)?;
+    let (at, view) = views.get(project)?;
     (at.elapsed() < KEEP_VIEW).then(|| view.clone())
 }
 
@@ -201,7 +198,6 @@ fn keep_view(project: &str, view: &MachineView) {
     VIEWS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .get_or_insert_with(HashMap::new)
         .insert(project.to_owned(), (Instant::now(), view.clone()));
 }
 

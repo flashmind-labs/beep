@@ -14,18 +14,18 @@ use anyhow::{Context, Result, bail};
 use beep_mesh::Mesh;
 use beep_proto::node::{
     LinkRx, LinkTx,
+    agent::SessionDevice,
     device::{
-        Button, Device, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, Reply, Request,
-        TouchPhase,
+        Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, Reply,
+        Request, TouchPhase,
     },
 };
 use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
-    collections::HashMap,
     fmt::Write,
-    sync::{Mutex, PoisonError},
+    sync::Mutex,
     time::Duration,
 };
 use tokio::{
@@ -34,6 +34,8 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+/// Why a call to an attached device fails once its view is gone.
+const VIEW_STOPPED: &str = "the device's view stopped";
 /// How long a machine has to list its devices.
 const LIST_LIMIT: Duration = Duration::from_secs(15);
 /// How long a machine has to start or stop a device.
@@ -152,51 +154,69 @@ impl TryFrom<Value> for Action {
     }
 }
 
-/// Runs one `device` call.
-pub(super) async fn call(offers: &Offers, mesh: &Mesh, screens: &Screens, args: Value) -> Called {
+/// Runs one `device` call for `session`, which keeps the device the call used.
+pub(super) async fn call(
+    offers: &Offers,
+    mesh: &Mesh,
+    screens: &Screens,
+    session: &str,
+    args: Value,
+) -> Called {
     let action = match Action::try_from(args) {
         Ok(action) => action,
         Err(e) => return Called::failed(e),
     };
 
-    match run(offers, mesh, screens, action).await {
-        Ok(called) => called,
-        Err(e) => Called::failed(format!("{e:#}")),
+    let (called, used) = match run(offers, mesh, screens, action).await {
+        Ok(ran) => ran,
+        Err(e) => return Called::failed(format!("{e:#}")),
+    };
+
+    if let Some(device) = used
+        && let Err(e) = offers.agents.set_device(session, Some(device)).await
+    {
+        log::debug!("the session did not keep its device: {e:#}");
     }
+
+    called
 }
 
-async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) -> Result<Called> {
+/// What a call answers, and the device it used, if it used one that runs.
+type Ran = (Called, Option<SessionDevice>);
+
+async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) -> Result<Ran> {
     match action {
-        Action::List {} => Ok(Called::ok(list(offers, mesh).await)),
+        Action::List {} => Ok((Called::ok(list(offers, mesh).await), None)),
         Action::Boot(at) => {
             let (machine, device) = find(offers, mesh, &at).await?;
+            let used = used(&machine, &device);
             let shown = "It shows in the user's Device tab.";
 
             if device.state != DeviceState::Off {
-                return Ok(Called::ok(format!(
+                let called = Called::ok(format!(
                     "{} on {} is already on. {shown}",
                     device.name, machine.name
-                )));
+                ));
+                return Ok((called, Some(used)));
             }
 
             let boot = Request::Boot { id: device.id };
             done(ask(offers, mesh, &machine, &boot, POWER_LIMIT).await?)?;
-            Ok(Called::ok(format!(
+            let called = Called::ok(format!(
                 "Booting {} on {}; it can take a minute to start. {shown}",
                 device.name, machine.name
-            )))
+            ));
+            Ok((called, Some(used)))
         }
         Action::Shutdown(at) => {
             let (machine, device) = find(offers, mesh, &at).await?;
-            screens.close(machine.id, &at.device);
+            screens.close(machine.id, &device.id.0, &at.device);
             let shutdown = Request::Shutdown {
                 id: device.id.clone(),
             };
             done(ask(offers, mesh, &machine, &shutdown, POWER_LIMIT).await?)?;
-            Ok(Called::ok(format!(
-                "Shut down {} on {}.",
-                device.name, machine.name
-            )))
+            let called = Called::ok(format!("Shut down {} on {}.", device.name, machine.name));
+            Ok((called, None))
         }
         Action::Show(at) => {
             let (machine, device) = find(offers, mesh, &at).await?;
@@ -205,24 +225,25 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
                 bail!("{} on {} is off: boot it.", device.name, machine.name);
             }
 
-            Ok(Called::ok(format!(
+            let called = Called::ok(format!(
                 "{} on {} shows in the user's Device tab.",
                 device.name, machine.name
-            )))
+            ));
+            Ok((called, Some(used(&machine, &device))))
         }
         Action::Screenshot(at) => {
-            let viewer = screens.viewer(offers, mesh, &at).await?;
-            shown(&at, viewer.shot().await?)
+            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
+            Ok((shown(&at, viewer.shot().await?)?, Some(used)))
         }
         Action::Tap { at, x, y } => {
-            let viewer = screens.viewer(offers, mesh, &at).await?;
+            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
             let last = viewer.shot().await?;
             let (x, y) = fraction(x, y, &last)?;
             let inputs = vec![
                 (touch(TouchPhase::Down, x, y), Duration::from_millis(50)),
                 (touch(TouchPhase::Up, x, y), Duration::ZERO),
             ];
-            drive(&viewer, &at, inputs).await
+            Ok((drive(&viewer, &at, inputs).await?, Some(used)))
         }
         Action::Swipe {
             at,
@@ -232,27 +253,37 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
             y2,
             duration_ms,
         } => {
-            let viewer = screens.viewer(offers, mesh, &at).await?;
+            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
             let last = viewer.shot().await?;
             let from = fraction(x, y, &last)?;
             let to = fraction(x2, y2, &last)?;
             let length = duration_ms
                 .map_or(SWIPE_DEFAULT, Duration::from_millis)
                 .min(SWIPE_MAX);
-            drive(&viewer, &at, swipe(from, to, length)).await
+            Ok((drive(&viewer, &at, swipe(from, to, length)).await?, Some(used)))
         }
         Action::Type { at, text } => {
             if text.is_empty() || text.len() > MAX_TEXT {
                 bail!("Give text of 1 to {} bytes.", MAX_TEXT);
             }
 
-            let viewer = screens.viewer(offers, mesh, &at).await?;
-            drive(&viewer, &at, vec![(Input::Text { text }, Duration::ZERO)]).await
+            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
+            let inputs = vec![(Input::Text { text }, Duration::ZERO)];
+            Ok((drive(&viewer, &at, inputs).await?, Some(used)))
         }
         Action::Press { at, key } => {
-            let viewer = screens.viewer(offers, mesh, &at).await?;
-            drive(&viewer, &at, vec![(key.into(), Duration::ZERO)]).await
+            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
+            let inputs = vec![(key.into(), Duration::ZERO)];
+            Ok((drive(&viewer, &at, inputs).await?, Some(used)))
         }
+    }
+}
+
+/// `device` on `machine`, as a session keeps it.
+fn used(machine: &Machine, device: &Device) -> SessionDevice {
+    SessionDevice {
+        machine: machine.id,
+        device: device.id.clone(),
     }
 }
 
@@ -332,10 +363,7 @@ async fn list(offers: &Offers, mesh: &Mesh) -> String {
         .code_hosts()
         .into_iter()
         .filter(|status| status.online || status.device.id == me)
-        .map(|status| Machine {
-            id: status.device.id,
-            name: command_name(&status.device.name),
-        })
+        .map(Machine::from)
         .collect();
     let listed = futures::future::join_all(online.iter().map(|machine| async move {
         (machine, devices_on(offers, mesh, machine).await)
@@ -393,16 +421,12 @@ async fn find(offers: &Offers, mesh: &Mesh, at: &Target) -> Result<(Machine, Dev
 }
 
 fn machine(mesh: &Mesh, name: &str) -> Result<Machine> {
-    let all = machines::machines(mesh);
-    let wanted = command_name(name);
-    let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
-    let Some(found) = all.iter().find(|m| m.name == wanted || m.id.to_string() == name) else {
+    let Some(found) = machines::find_or_id(mesh, name) else {
+        let all = machines::machines(mesh);
+        let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
         bail!("No machine called {name}. Machines: {}.", names.join(", "));
     };
-    Ok(Machine {
-        id: found.id,
-        name: found.name.clone(),
-    })
+    Ok(found)
 }
 
 /// The device `named` by id, else by name; a name several devices share
@@ -509,11 +533,20 @@ async fn open(offers: &Offers, mesh: &Mesh, machine: &Machine) -> Result<Link> {
 
 // ----- Attached devices -----
 
-/// The devices the agents look at and drive, each by its machine and the
-/// name or id it was called by, attached until they idle.
+/// The devices the agents look at and drive, attached until they idle,
+/// the least recently used first.
 #[derive(Default)]
 pub(crate) struct Screens {
-    open: Mutex<HashMap<(EndpointId, String), Viewer>>,
+    open: Mutex<Vec<Attached>>,
+}
+
+/// An attached device: its machine, the id of the device and the name or id
+/// it was called by.
+struct Attached {
+    machine: EndpointId,
+    id: String,
+    called: String,
+    viewer: Viewer,
 }
 
 /// One attached device: where its calls go, and the task that holds its
@@ -532,16 +565,27 @@ enum Ask {
 }
 
 impl Screens {
-    /// The attached device `at` names, attached now when it is not.
-    async fn viewer(&self, offers: &Offers, mesh: &Mesh, at: &Target) -> Result<Viewer> {
+    /// The attached device `at` names, attached now when it is not, and
+    /// the device it is.
+    async fn viewer(
+        &self,
+        offers: &Offers,
+        mesh: &Mesh,
+        at: &Target,
+    ) -> Result<(Viewer, SessionDevice)> {
         let machine = machine(mesh, &at.machine)?;
-        let key = (machine.id, at.device.trim().to_owned());
+        let called = at.device.trim();
 
-        if let Some(viewer) = self.lock().get(&key).filter(|v| !v.asks.is_closed()) {
-            return Ok(viewer.clone());
+        if let Some(seen) = self.touch(machine.id, called) {
+            return Ok(seen);
         }
 
         let (machine, device) = find(offers, mesh, at).await?;
+
+        // Attached by id earlier and called by name now: reuse that viewer.
+        if let Some(seen) = self.touch(machine.id, &device.id.0) {
+            return Ok(seen);
+        }
 
         if device.state == DeviceState::Off {
             bail!("{} on {} is off: boot it.", device.name, machine.name);
@@ -550,31 +594,61 @@ impl Screens {
         let mut link = open(offers, mesh, &machine).await?;
         link.tx
             .send(&Request::Attach {
-                id: device.id,
+                id: device.id.clone(),
                 max_side: SHOT_SIDE,
             })
             .await?;
         let viewer = Viewer::start(link, IDLE);
-        let mut open = self.lock();
-        open.retain(|_, v| !v.asks.is_closed());
+        let used = used(&machine, &device);
+        self.attach(Attached {
+            machine: machine.id,
+            id: device.id.0,
+            called: called.to_owned(),
+            viewer: viewer.clone(),
+        });
+        Ok((viewer, used))
+    }
 
-        if open.len() >= MAX_ATTACHED
-            && let Some(oldest) = open.keys().next().cloned()
-        {
-            open.remove(&oldest);
+    /// The live viewer of the device called `called`, now the most recently
+    /// used, and the device it is.
+    fn touch(&self, machine: EndpointId, called: &str) -> Option<(Viewer, SessionDevice)> {
+        let mut open = crate::lock(&self.open);
+        open.retain(|a| !a.viewer.asks.is_closed());
+        let at = open
+            .iter()
+            .position(|a| a.machine == machine && (a.called == called || a.id == called))?;
+        let attached = open.remove(at);
+        let seen = (
+            attached.viewer.clone(),
+            SessionDevice {
+                machine,
+                device: DeviceId(attached.id.clone()),
+            },
+        );
+        open.push(attached);
+        Some(seen)
+    }
+
+    /// Keeps `attached` as the most recently used, detaching the least
+    /// recently used ones beyond `MAX_ATTACHED`.
+    fn attach(&self, attached: Attached) {
+        let mut open = crate::lock(&self.open);
+        open.retain(|a| {
+            !a.viewer.asks.is_closed() && (a.machine != attached.machine || a.id != attached.id)
+        });
+        open.push(attached);
+
+        while open.len() > MAX_ATTACHED {
+            open.remove(0);
         }
-
-        open.insert(key, viewer.clone());
-        Ok(viewer)
     }
 
-    /// Detaches from the device `named` on `machine`.
-    fn close(&self, machine: EndpointId, named: &str) {
-        self.lock().remove(&(machine, named.trim().to_owned()));
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<(EndpointId, String), Viewer>> {
-        self.open.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Detaches from the device with `id` on `machine`, and from any device
+    /// called `called`.
+    fn close(&self, machine: EndpointId, id: &str, called: &str) {
+        let called = called.trim();
+        crate::lock(&self.open)
+            .retain(|a| a.machine != machine || (a.id != id && a.called != called));
     }
 }
 
@@ -595,12 +669,12 @@ impl Viewer {
         self.asks
             .send(Ask::Shot(reply))
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))?;
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))?;
 
         match timeout(SHOT_LIMIT, answer).await {
             Ok(Ok(Ok(frame))) => Ok(frame),
             Ok(Ok(Err(reason))) => bail!(reason),
-            Ok(Err(_)) => bail!("the device's view stopped"),
+            Ok(Err(_)) => bail!(VIEW_STOPPED),
             Err(_) => bail!("the device showed no screen in time"),
         }
     }
@@ -610,10 +684,10 @@ impl Viewer {
         self.asks
             .send(Ask::Input(inputs, sent))
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))?;
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))?;
         answer
             .await
-            .map_err(|_| anyhow::anyhow!("the device's view stopped"))
+            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))
     }
 }
 
@@ -660,7 +734,7 @@ async fn view(mut link: Link, mut asks: mpsc::Receiver<Ask>, idle: Duration) {
                 }
                 Ok(Some(Reply::Ended { reason } | Reply::Failed { reason })) => break reason,
                 Ok(Some(_)) => {}
-                Ok(None) => break "the device's view stopped".to_owned(),
+                Ok(None) => break VIEW_STOPPED.to_owned(),
                 Err(e) => break format!("{e:#}"),
             },
         }

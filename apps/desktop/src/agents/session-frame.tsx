@@ -2,7 +2,7 @@ import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { SHORTCUTS } from "../ui/shortcuts.ts";
-import { cloneElement, createRef, isValidElement, memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { cloneElement, createRef, isValidElement, memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { fixedTitle } from "../project/projectbar.ts";
@@ -12,12 +12,14 @@ import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-view.tsx";
 import { MoveBox, MoveHere } from "./move-view.tsx";
-import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, WorkLine } from "./composer-ui.tsx";
+import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, useUploadPending, WorkLine } from "./composer-ui.tsx";
 import { cancelContinue, continuing } from "./continue-here.ts";
 import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.ts";
 import { conversationAppearance } from "../ui/conversation-appearance.ts";
 import { syncJump } from "./logview.ts";
 import { ComposerPresence, PluginSlot, SessionHeaderSlot } from "../plugins/slot-view.tsx";
+import { Button } from "../ui/kit.tsx";
+import type { SessionUsage } from "./agents.ts";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
@@ -90,7 +92,7 @@ export function DraftHead({ project, openProject, machine }: { project: string; 
 }
 
 interface SessionHeadProps {
-  agent: string; title: string; folder: string; branch: string; cwd: string; machine: string; usage: string;
+  agent: string; title: string; folder: string; branch: string; cwd: string; machine: string; usage: SessionUsage | null;
   /// The session's machine id and its id, for plugins.
   machineId: string; session: string;
   /// The session's machine, harness and id, which the move views follow.
@@ -101,7 +103,14 @@ interface SessionHeadProps {
 }
 
 export function SessionHead({ agent, title, folder, branch, openProject, cwd, machine, usage, moveKey, saveTitle, machineId, session }: SessionHeadProps) {
-  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><SessionHeaderSlot machine={machineId} session={session} /><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <button className="agproj" id="agproj" onClick={openProject}>{folder}</button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><SessionHeaderSlot machine={machineId} session={session} /><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage && <UsageBits usage={usage} />}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+}
+
+/// A session's usage in its header: a meter of the context, then the tokens and the spend.
+function UsageBits({ usage }: { usage: SessionUsage }) {
+  const { context, tokens, spend } = usage;
+  const fill: CSSProperties & { "--pct": string } = { "--pct": `${Math.min(100, context?.percent ?? 0)}%` };
+  return <>{context && <span className="ctx" data-level={context.percent >= 90 ? "full" : context.percent >= 70 ? "high" : undefined}><i style={fill} /><b>{context.percent}%</b><em>of {context.size}</em></span>}{tokens && <span><b>{tokens}</b><em>tokens</em></span>}{spend && <span><b>{spend}</b></span>}</>;
 }
 
 /// Redraws the session head with `change`; false when the frame shows no session head.
@@ -155,16 +164,46 @@ export const shownMessage = () => [agentMessage.current, draftMessage.current].f
 function ContinueHere({ target, start }: ContinueHereProps) {
   const state = useStore(continuing);
   const shown = state.kind !== "none" && state.key === target ? state : null;
-  if (shown?.kind === "waiting") return <><button className="dbtn" id="agcontinue" disabled><span className="dspin" />Waiting for the turn to end</button><button className="dbtn quiet" onClick={cancelContinue}>Cancel</button></>;
-  if (shown?.kind === "closing") return <button className="dbtn" id="agcontinue" disabled><span className="dspin" />Closing it there</button>;
-  return <>{shown?.kind === "failed" && <span className="derr">{shown.message}</span>}<button className="dbtn" id="agcontinue" onClick={start}>Continue here</button></>;
+  if (shown?.kind === "waiting") return <><Button id="agcontinue" disabled><span className="dspin" />Waiting for the turn to end</Button><Button look="quiet" onClick={cancelContinue}>Cancel</Button></>;
+  if (shown?.kind === "closing") return <Button id="agcontinue" disabled><span className="dspin" />Closing it there</Button>;
+  return <>{shown?.kind === "failed" && <span className="derr">{shown.message}</span>}<Button id="agcontinue" onClick={start}>Continue here</Button></>;
+}
+
+const FIELD_HEIGHT = "beep.fieldHeight";
+const keptFieldHeight = (): number => { try { return Math.max(0, Number(localStorage.getItem(FIELD_HEIGHT)) || 0); } catch { return 0; } };
+
+/// The top edge of the message field: dragging it makes the field taller, up to
+/// half the conversation, and a double-click returns it to one line. The height
+/// is kept for this window.
+function FieldGrip() {
+  const grip = useRef<HTMLSpanElement>(null), [height, setHeight] = useState(keptFieldHeight);
+
+  useLayoutEffect(() => { grip.current?.parentElement?.style.setProperty("--field-h", `${height}px`); }, [height]);
+
+  const keep = (next: number) => {
+    setHeight(next);
+    try { localStorage.setItem(FIELD_HEIGHT, String(next)); } catch { /* kept for this launch only */ }
+  };
+  const drag = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const field = event.currentTarget.parentElement, area = field?.querySelector("textarea");
+    if (!field || !area) return;
+
+    event.preventDefault();
+    const from = event.clientY, start = area.offsetHeight, limit = Math.round((field.parentElement?.clientHeight ?? window.innerHeight) / 2);
+    const move = (e: PointerEvent) => keep(Math.max(0, Math.min(limit, start + from - e.clientY)));
+    const done = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", done); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", done);
+  };
+
+  return <span ref={grip} className="agfield-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the message field" title="Drag to resize, double-click to reset" onPointerDown={drag} onDoubleClick={() => keep(0)} />;
 }
 
 export function SessionField({ mode, name, banner, moveKey, machine, session, continueHere, attach, send, stop, openParent }: SessionFieldProps) {
-  const input = agentMessage, dropping = useFieldDrop();
-  if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><button className="dbtn" id="agnativeparent" onClick={openParent}>Open parent</button></div>;
+  const input = agentMessage, dropping = useFieldDrop(), uploading = useUploadPending();
+  if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><Button id="agnativeparent" onClick={openParent}>Open parent</Button></div>;
   if (mode === "readonly") return continueHere ? <div className="dmuted dbanner dtakeover"><span>{banner}</span><ContinueHere {...continueHere} /></div> : <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FilePicker attach={attach} /><textarea ref={input} id="agmsg" rows={1} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><button className="dbtn" id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
+  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FieldGrip /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><textarea ref={input} id="agmsg" rows={1} readOnly={uploading} aria-busy={uploading} style={uploading ? { opacity: 0.5, cursor: "wait" } : undefined} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" disabled={uploading} onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals
@@ -284,5 +323,5 @@ const AgentHints = memo(function AgentHints({ value }: { value: AgentHintsModel 
 });
 
 const FrameView = memo(function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
-  return <><div className="dhead ag-head" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
+  return <><div className="dhead ag-head" data-tauri-drag-region="" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
 });

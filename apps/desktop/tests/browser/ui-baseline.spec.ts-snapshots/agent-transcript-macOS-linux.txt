@@ -1,6 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -62,7 +63,7 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
-    div#main.cc-main
+    div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -88,6 +89,11 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-rows
               div.bd-lane.hd
@@ -148,6 +154,15 @@ body.cbody
                     button#agmoveb.mvb [aria-expanded="false" aria-haspopup="menu" title="Move this session to another machine"] "build-box"
                       svg [fill="none" height="10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               small#aguse.aguse [title="Context used / capacity · session tokens · session spend / remaining credits"]
+                span.ctx
+                  i style(--pct)
+                  b "25 %"
+                  em "of 1M"
+                span
+                  b "54.2M"
+                  em "tokens"
+                span
+                  b "$34.90"
               span#agstate
                 span.dstate.run "Working"
               span#agedit.agedit
@@ -201,22 +216,23 @@ body.cbody
                       div#agtasks
                       div [data-agent-queue-slot="true"] style(display)
                     div [data-agent-work-line="true"] style(display)
-                  div [data-agent-attachment-slot="true"] style(display)
-                  div#agfield.dinput.small style(position)
+                  div#agfield.dinput.small style(--field-h)
+                    span.agfield-grip [aria-label="Resize the message field" aria-orientation="horizontal" role="separator" title="Drag to resize, double-click to reset"]
                     button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
                       svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     input [hidden multiple type="file"] value=""
+                    div [data-agent-attachment-slot="true"] style(display)
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="" (focused)
+                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="" (focused)
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"] "Model unknown"
                         span.cc-ag.codex.mark
                           svg [aria-hidden="true" viewBox="0 0 24 24"]
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                    button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)"] "Stop"
+                    button#agstop.dbtn [aria-label="Stop the turn" title="Stop main turn (subagents keep running)" type="button"] "Stop"
                       span.dstopico
-                    button#agsend.dbtn [aria-label="Send"]
+                    button#agsend.dbtn [aria-label="Send" type="button"]
                       svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
                     div [data-agent-menu-slot="true"] style(display)
                   div#agpickm
@@ -353,7 +369,7 @@ body.cbody
                       div.agfbar
                         input.agffind [aria-label="Filter files" placeholder="Filter files" spellcheck="false" value] value=""
                         label.agfign "Show ignored"
-                          input [type="checkbox"] value="on" unchecked
+                          input.dcheck [type="checkbox"] value="on" unchecked
                         button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
                       div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
                         div.agtrows style(height)
@@ -387,7 +403,6 @@ body.cbody
                 span "Files"
                 small "2"
               div#agdropzone.agdropzone [hidden]
-      div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

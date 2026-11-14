@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::watched;
 
 fn reader(id: Uuid, session: &str) -> (Reader, watch::Receiver<bool>) {
     reader_on(id, session, "build-box", false)
@@ -12,7 +13,7 @@ fn reader_on(
 ) -> (Reader, watch::Receiver<bool>) {
     let (stop, cancelled) = watch::channel(false);
     let (shown, _) = watch::channel(false);
-    let followed = Followed {
+    let followed = SessionKey {
         machine_id: machine_id.into(),
         agent: "codex".into(),
         session: session.into(),
@@ -57,13 +58,16 @@ fn only_the_reader_shown_counts_as_read() {
     let shown = readers.show("window", Some(second));
     assert!(shown.is_none(), "not registered yet");
     readers.register("window", b);
-    assert!(*b_shown.borrow(), "shown before it registered");
+    assert!(
+        watched::read(&b_shown, |shown| *shown),
+        "shown before it registered"
+    );
     let shown = readers.show("window", Some(first));
     assert_eq!(shown.map(|followed| followed.session), Some("one".into()));
-    assert!(*a_shown.borrow());
-    assert!(!*b_shown.borrow());
+    assert!(watched::read(&a_shown, |shown| *shown));
+    assert!(!watched::read(&b_shown, |shown| *shown));
     assert!(readers.show("window", None).is_none());
-    assert!(!*a_shown.borrow());
+    assert!(!watched::read(&a_shown, |shown| *shown));
 }
 
 #[test]

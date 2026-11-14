@@ -204,7 +204,7 @@ impl Mesh {
             .await
     }
 
-    async fn protocol_connection(
+    pub(crate) async fn protocol_connection(
         &self,
         peer: EndpointId,
         alpn: &'static [u8],

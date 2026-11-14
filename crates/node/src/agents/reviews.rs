@@ -12,7 +12,8 @@ use super::{
     unix_now,
 };
 use beep_proto::ModelId;
-use beep_proto::node::agent::{ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview};
+use beep_proto::node::agent::{Alert, AlertKind, ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview};
+use beep_proto::watched;
 use house::HouseRules;
 use std::{
     collections::VecDeque,
@@ -101,14 +102,7 @@ impl Agents {
         self: &Arc<Self>,
         order: ReviewOrder,
     ) -> Result<ReviewRun, String> {
-        if self.kinds().iter().all(|kind| kind.name != order.agent) {
-            let have: Vec<String> = self.kinds().iter().map(|kind| kind.name.clone()).collect();
-            return Err(format!(
-                "This machine has no {} agent. It has: {}.",
-                order.agent,
-                have.join(", ")
-            ));
-        }
+        self.kind_or_refusal(&order.agent)?;
 
         let (cwd, base, harness) = (order.cwd.clone(), order.base.clone(), order.agent.clone());
         let house = tokio::task::spawn_blocking(move || {
@@ -314,7 +308,8 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
     let mut nudged = false;
 
     loop {
-        let next = step(&live.borrow_and_update(), agents.submitted(&id), nudged);
+        let submitted = agents.submitted(&id);
+        let next = watched::read_and_update(&mut live, |live| step(live, submitted, nudged));
 
         match next {
             Step::Wait => {
@@ -334,7 +329,10 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
                     break;
                 }
             }
-            Step::Done => break,
+            Step::Done => {
+                review_done(&agents, &session);
+                break;
+            }
             Step::Fail(why) => {
                 agents.fail_review(&id, why);
                 break;
@@ -345,6 +343,23 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
     session.close().await;
     agents.lock().remove(&id);
     crate::link::restart::changed();
+}
+
+/// Tells the user the review is in. A child's turn ends tell nothing
+/// (`Actor::alert`), so the reviewer's end is told here, once.
+fn review_done(agents: &Agents, session: &Session) {
+    let alert = watched::read(&session.live, |live: &Live| Alert {
+        session: live.info.id.clone(),
+        agent: session.agent.clone(),
+        title: live.info.title.clone(),
+        cwd: live.info.cwd.clone(),
+        kind: AlertKind::TurnEnded {
+            stop_reason: live.last_stop.unwrap_or(StopReason::EndTurn),
+            last_message: live.info.last_message.clone(),
+            error: None,
+        },
+    });
+    agents.alerts.record(alert);
 }
 
 /// A ref as git names it, kept short enough for a prompt.

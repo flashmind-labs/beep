@@ -6,9 +6,9 @@ mod ignored;
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
-    records::{WRITES, find_project, project_key, read, scan, write},
+    records::{WRITES, find_project, project_key, projects, read, scan, write},
 };
-use beep_mesh::Key;
+use beep_mesh::{Key, PeerClient};
 use beep_projects::model::plain_path;
 use beep_proto::{
     ConflictKeep, MachineSync, MachineSyncDetail, ProjectMachine, ProjectSync, ProjectSyncDetail,
@@ -30,6 +30,14 @@ const NOT_LISTED: &str =
     "Its beep-node does not sync this project. Update beep-node there to see why.";
 /// Why an online machine says nothing of its sync.
 const NO_ANSWER: &str = "It did not say how its sync stands.";
+
+/// `request` to `client`, a refusal from the node as an error.
+async fn sync_call(client: &PeerClient, request: &Request) -> Result<Reply> {
+    match client.call(PROTOCOL, request).await? {
+        Reply::Error { message } => Err(FleetError::Refused(message)),
+        reply => Ok(reply),
+    }
+}
 
 fn status_of(state: State, error: bool) -> SyncStatus {
     match state {
@@ -94,6 +102,36 @@ impl Desk {
         Ok(())
     }
 
+    pub fn beep_sync_over_syncthing(&self) -> bool {
+        read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync)
+            .unwrap_or_default()
+            .beep_sync_over_syncthing
+    }
+
+    /// Turning it on excludes every project from Syncthing; turning it off
+    /// leaves each project's choice as it is.
+    pub async fn set_beep_sync_over_syncthing(&self, enabled: bool) -> Result<()> {
+        let _write = WRITES.lock().await;
+        let mut settings =
+            read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync).unwrap_or_default();
+
+        if enabled {
+            for mut stored in projects(&self.mesh) {
+                if stored.record.syncthing_files != Some(false) {
+                    stored.record.syncthing_files = Some(false);
+                    write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await?;
+                }
+            }
+        }
+
+        if settings.beep_sync_over_syncthing != enabled {
+            settings.beep_sync_over_syncthing = enabled;
+            write(&self.mesh, Key::ProjectSync, Some(&settings)).await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn project_git_auto_recovery(
         &self,
         project: &str,
@@ -143,17 +181,15 @@ impl Desk {
         }
 
         let source = self.peers.client(from).await?;
-        let reply: Reply = source
-            .call(
-                PROTOCOL,
-                &Request::HandoffSnapshot {
-                    project: stored.name.clone(),
-                },
-            )
-            .await?;
+        let reply = sync_call(
+            &source,
+            &Request::HandoffSnapshot {
+                project: stored.name.clone(),
+            },
+        )
+        .await?;
         let snapshot = match reply {
             Reply::HandoffSnapshot { snapshot } => snapshot,
-            Reply::Error { message } => return Err(FleetError::Refused(message)),
             _ => {
                 return Err(FleetError::refused(
                     "Update the source machine to hand off work.",
@@ -161,18 +197,16 @@ impl Desk {
             }
         };
         let target = self.peers.client(to).await?;
-        let reply: Reply = target
-            .call(
-                PROTOCOL,
-                &Request::HandoffApply {
-                    project: stored.name,
-                    snapshot,
-                },
-            )
-            .await?;
+        let reply = sync_call(
+            &target,
+            &Request::HandoffApply {
+                project: stored.name,
+                snapshot,
+            },
+        )
+        .await?;
         match reply {
             Reply::HandoffApplied {} => Ok(()),
-            Reply::Error { message } => Err(FleetError::Refused(message)),
             _ => Err(FleetError::refused(
                 "Update the destination machine to hand off work.",
             )),
@@ -194,18 +228,16 @@ impl Desk {
                     .map_err(|_| FleetError::refused("Invalid machine ID"))?,
             )
             .await?;
-        let reply: Reply = client
-            .call(
-                PROTOCOL,
-                &Request::SyncthingFiles {
-                    folder: folder.to_owned(),
-                    enabled,
-                },
-            )
-            .await?;
+        let reply = sync_call(
+            &client,
+            &Request::SyncthingFiles {
+                folder: folder.to_owned(),
+                enabled,
+            },
+        )
+        .await?;
         match reply {
             Reply::SyncthingFiles { files } => Ok(files),
-            Reply::Error { message } => Err(FleetError::Refused(message)),
             _ => Err(FleetError::refused(
                 "Update this machine to change Syncthing project file sync.",
             )),
@@ -268,48 +300,44 @@ impl Desk {
                 .find(|status| status.name == project)
                 .map(|main| ignored.status(main, all))
         });
-        let sync = match &seen {
-            Some(status) => MachineSync {
-                git_only: status.git_only,
-                machine_id: machine.to_string(),
-                machine_name: self.name_of(machine),
-                folder: folder.to_owned(),
-                status: status_of(status.state, status.error.is_some()),
-                files: status.files,
-                bytes: status.bytes,
-                pending: status.pending,
-                conflicts: status.conflicts.clone(),
-                rescan_secs: status.rescan_secs,
-                hint: status.hint.clone(),
-                error: status.error.clone(),
-            },
-            None => MachineSync {
-                git_only: false,
-                machine_id: machine.to_string(),
-                machine_name: self.name_of(machine),
-                folder: folder.to_owned(),
-                // Offline only when it is: a machine that answered without the project, or that
-                // the mesh sees but did not answer, does not sync it and says why.
-                status: if said.contains_key(&machine) || self.is_online(machine) {
-                    SyncStatus::Failed {}
-                } else {
-                    SyncStatus::Offline {}
-                },
-                files: 0,
-                bytes: 0,
-                pending: 0,
-                conflicts: Vec::new(),
-                rescan_secs: None,
-                hint: None,
-                error: if said.contains_key(&machine) {
-                    Some(NOT_LISTED.to_owned())
-                } else if self.is_online(machine) {
-                    Some(NO_ANSWER.to_owned())
-                } else {
-                    None
-                },
-            },
+        let listed = said.contains_key(&machine);
+        let online = self.is_online(machine);
+        let (status, error) = match &seen {
+            Some(status) => (
+                status_of(status.state, status.error.is_some()),
+                status.error.clone(),
+            ),
+            // Offline only when it is: a machine that answered without the project, or that
+            // the mesh sees but did not answer, does not sync it and says why.
+            None if listed => (SyncStatus::Failed {}, Some(NOT_LISTED.to_owned())),
+            None if online => (SyncStatus::Failed {}, Some(NO_ANSWER.to_owned())),
+            None => (SyncStatus::Offline {}, None),
         };
+        let mut sync = MachineSync {
+            git_only: false,
+            machine_id: machine.to_string(),
+            machine_name: self.name_of(machine),
+            folder: folder.to_owned(),
+            status,
+            files: 0,
+            bytes: 0,
+            pending: 0,
+            conflicts: Vec::new(),
+            rescan_secs: None,
+            hint: None,
+            error,
+        };
+
+        if let Some(status) = &seen {
+            sync.git_only = status.git_only;
+            sync.files = status.files;
+            sync.bytes = status.bytes;
+            sync.pending = status.pending;
+            sync.conflicts = status.conflicts.clone();
+            sync.rescan_secs = status.rescan_secs;
+            sync.hint = status.hint.clone();
+        }
+
         (sync, seen)
     }
 
@@ -445,19 +473,17 @@ impl Desk {
         });
         let (dataset, relative) = selection.unwrap_or_else(|| (project.to_owned(), path));
         let client = self.peers.client(machine).await?;
-        let reply: Reply = client
-            .call(
-                PROTOCOL,
-                &Request::Resolve {
-                    project: dataset,
-                    path: relative.to_owned(),
-                    keep,
-                },
-            )
-            .await?;
+        let reply = sync_call(
+            &client,
+            &Request::Resolve {
+                project: dataset,
+                path: relative.to_owned(),
+                keep,
+            },
+        )
+        .await?;
         match reply {
             Reply::Resolved {} => Ok(()),
-            Reply::Error { message } => Err(FleetError::Refused(message)),
             _ => Err(FleetError::refused("The machine answered something else.")),
         }
     }
@@ -469,18 +495,16 @@ impl Desk {
             .parse()
             .map_err(|_| FleetError::refused("That machine is not known."))?;
         let client = self.peers.client(machine).await?;
-        let reply: Reply = client
-            .call(
-                PROTOCOL,
-                &Request::StartOver {
-                    project: project.to_owned(),
-                },
-            )
-            .await?;
+        let reply = sync_call(
+            &client,
+            &Request::StartOver {
+                project: project.to_owned(),
+            },
+        )
+        .await?;
 
         match reply {
             Reply::StartedOver {} => Ok(()),
-            Reply::Error { message } => Err(FleetError::Refused(message)),
             _ => Err(FleetError::refused("The machine answered something else.")),
         }
     }

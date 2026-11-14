@@ -79,7 +79,7 @@ struct Summary {
 }
 
 /// The skills folders under `home` that `scan` reads.
-pub(super) fn roots(home: &Path) -> Vec<PathBuf> {
+pub(crate) fn roots(home: &Path) -> Vec<PathBuf> {
     READ.iter().map(|rel| home.join(rel)).collect()
 }
 
@@ -223,7 +223,7 @@ struct Entry {
 
 /// A skill's files; `None` when the folder is no skill the user made: no
 /// `SKILL.md`, Beep's own, or too big to sync.
-fn read(dir: &Path) -> Result<Option<Vec<SkillFile>>> {
+pub(crate) fn read(dir: &Path) -> Result<Option<Vec<SkillFile>>> {
     match list(dir)? {
         Some(listing) => load(&listing),
         None => Ok(None),
@@ -328,7 +328,7 @@ fn walk(dir: &Path, prefix: &str, depth: usize, found: &mut Listing) -> Result<b
 }
 
 /// SHA-256 over each file's path, length and bytes, in path order.
-pub(super) fn hash(files: &[SkillFile]) -> String {
+pub(crate) fn hash(files: &[SkillFile]) -> String {
     let mut sorted: Vec<&SkillFile> = files.iter().collect();
     sorted.sort_by(|a, b| a.path.cmp(&b.path));
     let mut digest = Sha256::new();
@@ -345,7 +345,7 @@ pub(super) fn hash(files: &[SkillFile]) -> String {
 
 /// Whether `part` is a plain file or folder name, safe on every system: no
 /// separators, no `..`, nothing hidden.
-fn valid_part(part: &str) -> bool {
+pub(crate) fn valid_part(part: &str) -> bool {
     !part.is_empty()
         && part.len() <= 255
         && !part.starts_with('.')
@@ -357,7 +357,7 @@ fn valid_part(part: &str) -> bool {
 /// The skills folders a skill from another machine goes into: Claude Code's
 /// when `~/.claude` exists, `~/.agents/skills` when an agent that reads it is
 /// there.
-fn targets(home: &Path) -> Vec<PathBuf> {
+pub(crate) fn targets(home: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if home.join(".claude").is_dir() {
         out.push(home.join(".claude/skills"));
@@ -372,7 +372,7 @@ fn targets(home: &Path) -> Vec<PathBuf> {
 }
 
 /// Whether `files` are a skill's files Beep may write: plain names only.
-fn check(name: &str, files: &[SkillFile]) -> Result<()> {
+pub(crate) fn check(name: &str, files: &[SkillFile]) -> Result<()> {
     if !valid_part(name) {
         bail!("{name:?} is not a skill name");
     }
@@ -388,7 +388,7 @@ fn check(name: &str, files: &[SkillFile]) -> Result<()> {
 
 /// Writes `files` into `.<name>.beep` in `dir`, in place of any left there,
 /// and returns that folder.
-fn stage(dir: &Path, name: &str, files: &[SkillFile]) -> Result<PathBuf> {
+pub(crate) fn stage(dir: &Path, name: &str, files: &[SkillFile]) -> Result<PathBuf> {
     let partial = dir.join(format!(".{name}.beep"));
     remove(&partial)?;
 
@@ -408,7 +408,7 @@ fn stage(dir: &Path, name: &str, files: &[SkillFile]) -> Result<PathBuf> {
 }
 
 /// Removes the folder `path`; nothing when there is none.
-fn remove(path: &Path) -> Result<()> {
+pub(crate) fn remove(path: &Path) -> Result<()> {
     match fs::remove_dir_all(path) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => {
             Err(e).with_context(|| format!("removing {}", path.display()))
@@ -463,24 +463,50 @@ pub(super) fn replace(
         }
 
         let partial = stage(&dir, name, files)?;
-        let aside = dir.join(format!(".{name}.beep-old"));
-        remove(&aside)?;
-        fs::rename(&place, &aside).with_context(|| format!("moving {}", place.display()))?;
-
-        if let Err(e) = fs::rename(&partial, &place) {
-            // The old copy goes back rather than leave no skill.
-            if let Err(back) = fs::rename(&aside, &place) {
-                log::warn!("{} not put back: {back}", place.display());
-            }
-
-            return Err(e).with_context(|| format!("writing {}", place.display()));
-        }
-
-        remove(&aside)?;
+        swap(&partial, &dir, name)?;
         replaced += 1;
     }
 
     Ok(replaced)
+}
+
+/// Puts the staged folder `partial` in place of `<dir>/<name>`, folder or link: the old one is
+/// moved aside first and put back if the new one cannot go in, so an agent reads the old skill
+/// or the new one, never half.
+pub(crate) fn swap(partial: &Path, dir: &Path, name: &str) -> Result<()> {
+    let place = dir.join(name);
+    let aside = dir.join(format!(".{name}.beep-old"));
+    remove_entry(&aside)?;
+    fs::rename(&place, &aside).with_context(|| format!("moving {}", place.display()))?;
+
+    if let Err(e) = fs::rename(partial, &place) {
+        // The old copy goes back rather than leave no skill.
+        if let Err(back) = fs::rename(&aside, &place) {
+            log::warn!("{} not put back: {back}", place.display());
+        }
+
+        return Err(e).with_context(|| format!("writing {}", place.display()));
+    }
+
+    remove_entry(&aside)
+}
+
+/// Removes `path`, a folder or a link to one, never what a link points at; nothing when there is
+/// none.
+pub(crate) fn remove_entry(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => remove(path),
+        Ok(_) => remove_link(path),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+/// Removes the link or file `path`. A link to a folder on Windows is a folder entry.
+fn remove_link(path: &Path) -> Result<()> {
+    fs::remove_file(path)
+        .or_else(|e| if cfg!(windows) { fs::remove_dir(path) } else { Err(e) })
+        .with_context(|| format!("removing {}", path.display()))
 }
 
 /// Puts the copy of `name` that hashes to `hash` in place of each of `old`,

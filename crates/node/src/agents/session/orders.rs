@@ -6,15 +6,11 @@ use super::{
 };
 use crate::agents::{
     acp::{self, Prompt},
-    live::cut,
+    live::{Live, cut},
 };
 use agent_client_protocol::{
-    Agent,
-    v1::{ConnectionTo, Responder},
-    v1::schema::{
-        CancelNotification, RequestPermissionRequest, RequestPermissionResponse,
-        SetSessionModeRequest,
-    },
+    Agent, ConnectionTo, Responder,
+    v1::schema::{CancelNotification, RequestPermissionResponse},
 };
 use anyhow::Result;
 use beep_proto::ModelId;
@@ -22,6 +18,7 @@ use beep_proto::node::agent::{
     Alert, AlertKind, AnswerOption, Effort, EntryKind, MAX_QUESTION_LINE, OptionKind, Question,
     Status,
 };
+use beep_proto::watched;
 
 /// What a prompt hears while its session moves.
 const MOVING_REFUSAL: &str =
@@ -41,63 +38,8 @@ impl Actor {
                 Ok(Ok(()))
             }
 
-            Command::Prompt(prompt) => {
-                if self.moving {
-                    return Ok(Err(MOVING_REFUSAL.to_owned()));
-                }
-
-                let prompt = match self.fitted(prompt) {
-                    Ok(prompt) => prompt,
-                    Err(refused) => return Ok(Err(refused)),
-                };
-
-                if let Err(full) = queue_room(
-                    self.queued
-                        .iter()
-                        .chain(&self.steers)
-                        .chain(self.steering.iter().map(|steer| &steer.prompt)),
-                    &prompt,
-                ) {
-                    return Ok(Err(full));
-                }
-                self.queued.push_back(prompt);
-                self.show_queued();
-
-                if self.live.borrow().status() == Status::Idle {
-                    self.next_prompt(cx);
-                }
-
-                Ok(Ok(()))
-            }
-            Command::Steer(prompt) => {
-                if self.moving {
-                    return Ok(Err(MOVING_REFUSAL.to_owned()));
-                }
-
-                let prompt = match self.fitted(prompt) {
-                    Ok(prompt) => prompt,
-                    Err(refused) => return Ok(Err(refused)),
-                };
-
-                if let Err(full) = queue_room(
-                    self.queued
-                        .iter()
-                        .chain(&self.steers)
-                        .chain(self.steering.iter().map(|steer| &steer.prompt)),
-                    &prompt,
-                ) {
-                    return Ok(Err(full));
-                }
-                self.steers.push_back(prompt);
-                self.show_queued();
-                if self.live.borrow().status() == Status::Idle {
-                    self.next_prompt(cx);
-                } else if self.takes_steering {
-                    self.steer_now(cx)?;
-                }
-
-                Ok(Ok(()))
-            }
+            Command::Prompt(prompt) => self.enqueue(cx, prompt, false),
+            Command::Steer(prompt) => self.enqueue(cx, prompt, true),
             Command::Answer { question, reply } => self.answer(question, &reply),
             Command::DropSteers => {
                 self.steers.clear();
@@ -127,7 +69,7 @@ impl Actor {
             Command::NotMoving => {
                 self.moving = false;
 
-                if self.live.borrow().status() == Status::Idle {
+                if watched::read_sent(&self.live, Live::status) == Status::Idle {
                     self.next_prompt(cx);
                 }
 
@@ -164,7 +106,59 @@ impl Actor {
             Command::Configure { model, effort } => Ok(self.configure(cx, model, effort)),
             Command::SetMode(mode) => Ok(self.set_mode(cx, mode)),
             Command::StopTask(task) => Ok(self.stop_task(cx, task)),
+            Command::SetDevice(device) => {
+                self.live.send_if_modified(|live| {
+                    let changed = live.info.device != device;
+                    live.info.device = device;
+                    changed
+                });
+                Ok(Ok(()))
+            }
         }
+    }
+
+    /// Whether `prompt` fits beside the queued prompts and the steers.
+    fn room_for(&self, prompt: &Prompt) -> Result<(), String> {
+        queue_room(
+            self.queued
+                .iter()
+                .chain(&self.steers)
+                .chain(self.steering.iter().map(|steer| &steer.prompt)),
+            prompt,
+        )
+    }
+
+    /// Queues a prompt, or a steer, and starts it when the agent is idle.
+    fn enqueue(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        prompt: Prompt,
+        steer: bool,
+    ) -> Result<Result<(), String>> {
+        if self.moving {
+            return Ok(Err(MOVING_REFUSAL.to_owned()));
+        }
+
+        let prompt = self.fitted(prompt);
+
+        if let Err(full) = self.room_for(&prompt) {
+            return Ok(Err(full));
+        }
+
+        if steer {
+            self.steers.push_back(prompt);
+        } else {
+            self.queued.push_back(prompt);
+        }
+        self.show_queued();
+
+        if watched::read_sent(&self.live, Live::status) == Status::Idle {
+            self.next_prompt(cx);
+        } else if steer && self.takes_steering {
+            self.steer_now(cx)?;
+        }
+
+        Ok(Ok(()))
     }
 
     /// Stops the main agent's turn (`session/cancel`) and drops the prompts
@@ -188,7 +182,7 @@ impl Actor {
         }
 
         if let Some(session) = &self.acp_session
-            && self.live.borrow().status() != Status::Idle
+            && watched::read_sent(&self.live, Live::status) != Status::Idle
         {
             cx.send_notification(CancelNotification::new(session.clone()))?;
         }
@@ -201,16 +195,15 @@ impl Actor {
     /// Asks the agent to stop each of its background tasks that still runs
     /// and can be stopped, for Stop all.
     fn stop_tasks(&mut self, cx: &ConnectionTo<Agent>) {
-        let running: Vec<String> = self
-            .live
-            .borrow()
-            .info
-            .state
-            .tasks
-            .iter()
-            .filter(|task| task.can_stop && !task.state.ended())
-            .map(|task| task.id.clone())
-            .collect();
+        let running: Vec<String> = watched::read_sent(&self.live, |live| {
+            live.info
+                .state
+                .tasks
+                .iter()
+                .filter(|task| task.can_stop && !task.state.ended())
+                .map(|task| task.id.clone())
+                .collect()
+        });
 
         for task in running {
             if let Err(e) = self.stop_task(cx, task) {
@@ -225,20 +218,26 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return Err("the agent is still starting".into());
         };
-        let live = self.live.borrow();
-        let Some(known) = live.info.state.tasks.iter().find(|known| known.id == task) else {
+        let known = watched::read_sent(&self.live, |live| {
+            live.info
+                .state
+                .tasks
+                .iter()
+                .find(|known| known.id == task)
+                .map(|known| (known.state.ended(), known.can_stop))
+        });
+        let Some((ended, can_stop)) = known else {
             return Err(format!("no task {task} here"));
         };
 
-        if known.state.ended() {
+        if ended {
             return Err(format!("the task {task} has ended"));
         }
 
-        if !known.can_stop {
+        if !can_stop {
             return Err(format!("the task {task} cannot be stopped"));
         }
 
-        drop(live);
         let request = acp::stop_task(&session, &task).map_err(|e| e.to_string())?;
         self.send(cx, request, move |result| Reply::TaskStopped {
             task,
@@ -253,18 +252,23 @@ impl Actor {
         let Some(session) = self.acp_session.clone() else {
             return Err("the agent is still starting; switch once it is ready".into());
         };
-        let live = self.live.borrow();
+        let (offered, was) = watched::read_sent(&self.live, |live| {
+            (
+                live.info.modes.iter().any(|offered| offered.id == mode),
+                live.info.mode.clone(),
+            )
+        });
 
-        if !live.info.modes.iter().any(|offered| offered.id == mode) {
+        if !offered {
             return Err(format!(
                 "{} here has no mode {mode}",
                 agent_title(&self.agent)
             ));
         }
 
-        let was = live.info.mode.clone();
-        drop(live);
-        let request = SetSessionModeRequest::new(session, mode.clone());
+        let request = self
+            .mode_request(session, &mode)
+            .map_err(|error| error.to_string())?;
         self.send(cx, request, move |result| Reply::ModeSet {
             was,
             result: result.map(drop),
@@ -299,19 +303,21 @@ impl Actor {
     /// plan mode. Gives the responder back for any other request.
     pub(super) fn plan_ready(
         &mut self,
-        request: &RequestPermissionRequest,
+        plan: Option<String>,
+        asked: &Question,
         responder: Responder<RequestPermissionResponse>,
     ) -> Option<Responder<RequestPermissionResponse>> {
-        if self.live.borrow().info.mode.as_deref() != Some(acp::PLAN_MODE) {
+        if watched::read_sent(&self.live, |live| {
+            live.info.mode.as_deref() != Some(acp::PLAN_MODE)
+        }) {
             return Some(responder);
         }
 
-        let Some(plan) = acp::plan_of(request) else {
+        let Some(plan) = plan else {
             return Some(responder);
         };
-        let question = self.live.borrow().question(0, request);
-        let answers = acp::allow_option(&question.options)
-            .zip(question.options.iter().find(|option| option.kind.rejects()));
+        let answers = acp::allow_option(&asked.options)
+            .zip(asked.options.iter().find(|option| option.kind.rejects()));
         let Some((allow, reject)) = answers else {
             return Some(responder);
         };
@@ -388,24 +394,13 @@ impl Actor {
         Ok(())
     }
 
-    /// The prompt as the agent takes it: without its images for an agent that
-    /// takes none, as each is a preview of a file the text mentions. Refused
-    /// while the agent has yet to say.
-    fn fitted(&self, mut prompt: Prompt) -> Result<Prompt, String> {
-        if prompt.images.is_empty() {
-            return Ok(prompt);
+    /// Keep images until initialization tells us whether the agent takes them.
+    fn fitted(&self, mut prompt: Prompt) -> Prompt {
+        if self.takes_images == Some(false) {
+            prompt.images.clear();
         }
 
-        match self.takes_images {
-            Some(true) => Ok(prompt),
-            Some(false) => {
-                prompt.images.clear();
-                Ok(prompt)
-            }
-            None => {
-                Err("the agent is still starting; send the images again once it is ready".into())
-            }
-        }
+        prompt
     }
 
     /// Allows a permission request the agent sent despite running without
@@ -414,10 +409,9 @@ impl Actor {
     /// request that offers no way to allow.
     pub(super) fn allow(
         &mut self,
-        request: &RequestPermissionRequest,
+        question: &Question,
         responder: Responder<RequestPermissionResponse>,
     ) -> Result<Option<Responder<RequestPermissionResponse>>> {
-        let question = self.live.borrow().question(0, request);
         let Some(option) = acp::allow_option(&question.options) else {
             return Ok(Some(responder));
         };
@@ -430,10 +424,9 @@ impl Actor {
 
     pub(super) fn ask(
         &mut self,
-        request: &RequestPermissionRequest,
+        question: Question,
         responder: Responder<RequestPermissionResponse>,
     ) {
-        let question = self.live.borrow().question(0, request);
         self.put(question, Waiting::Agent(Box::new(responder)), None);
     }
 
@@ -492,10 +485,7 @@ impl Actor {
                 // The call that asked may have given up; the answer stands.
                 let _ = sender.send(answered);
             }
-            self.live.send_modify(|live| {
-                live.push(EntryKind::Question, &format!("Answered: {name}"));
-            });
-            self.show_question();
+            self.answered(&name);
             return Ok(Ok(()));
         }
 
@@ -514,7 +504,7 @@ impl Actor {
         let follow_up = follow_up.map(Prompt::from);
 
         if let Some(prompt) = &follow_up
-            && let Err(full) = queue_room(&self.queued, prompt)
+            && let Err(full) = self.room_for(prompt)
         {
             return Ok(Err(full));
         }
@@ -545,18 +535,23 @@ impl Actor {
             self.show_queued();
         }
 
+        self.answered(&name);
+        Ok(Ok(()))
+    }
+
+    fn answered(&mut self, name: &str) {
         self.live.send_modify(|live| {
             live.push(EntryKind::Question, &format!("Answered: {name}"));
         });
         self.show_question();
-        Ok(Ok(()))
     }
 
     /// Shows the first waiting question, or none, in the state.
     fn show_question(&mut self) {
         let question = self.asked.front().map(|asked| asked.question.clone());
         let plan = self.asked.front().and_then(|asked| asked.plan.clone());
-        let shown = self.live.borrow().info.question.as_ref().map(|q| q.id);
+        let shown =
+            watched::read_sent(&self.live, |live| live.info.question.as_ref().map(|q| q.id));
 
         if let Some(asks) = question.as_ref().filter(|q| Some(q.id) != shown) {
             self.alert(AlertKind::Asks {
@@ -580,21 +575,34 @@ impl Actor {
 
     /// Has `kind` wait for the server, about this session as it stands.
     pub(super) fn alert(&self, kind: AlertKind) {
-        let live = self.live.borrow();
-        // Startup failures are returned to the caller, without publishing an unnamed session.
-        if live.agent_session.is_none() {
+        // Child results reach the parent through family updates.
+        if matches!(kind, AlertKind::TurnEnded { .. })
+            && watched::read_sent(&self.live, |live| live.info.parent.is_some())
+        {
             return;
         }
 
-        let alert = Alert {
-            session: live.info.id.clone(),
-            agent: self.agent.clone(),
-            title: live.info.title.clone(),
-            cwd: live.info.cwd.clone(),
-            kind,
+        let named = watched::read_sent(&self.live, |live| {
+            live.agent_session.is_some().then(|| {
+                (
+                    live.info.id.clone(),
+                    live.info.title.clone(),
+                    live.info.cwd.clone(),
+                )
+            })
+        });
+        // Startup failures are returned to the caller, without publishing an unnamed session.
+        let Some((session, title, cwd)) = named else {
+            return;
         };
-        drop(live);
-        self.alerts.record(alert);
+
+        self.alerts.record(Alert {
+            session,
+            agent: self.agent.clone(),
+            title,
+            cwd,
+            kind,
+        });
     }
 }
 

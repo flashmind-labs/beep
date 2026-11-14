@@ -20,12 +20,18 @@ impl Mesh {
     /// Writes `value` only if this mesh never held `key`: a key it holds, or held and deleted,
     /// keeps its state. Returns whether it wrote. Desktops only.
     pub async fn set_if_new(&self, key: Key, value: Vec<u8>) -> Result<bool, MeshError> {
-        if self.inner.view().held.contains(&key) {
-            return Ok(false);
+        let touched = key.clone();
+        let wrote = self
+            .inner
+            .store
+            .run(move |core| core.set_if_new(key, value))
+            .await?;
+
+        if wrote {
+            self.inner.changes.send(touched).ok();
         }
 
-        self.set(key, Some(value)).await?;
-        Ok(true)
+        Ok(wrote)
     }
 
     pub fn get(&self, key: &Key) -> Option<Vec<u8>> {

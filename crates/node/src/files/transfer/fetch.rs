@@ -7,7 +7,7 @@ use super::{
 };
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::transfer::{
-    ContentKind, MANIFEST_NAME, MAX_BYTES, MAX_FILES, MAX_MANIFEST, Manifest, Stage,
+    Content, ContentKind, MANIFEST_NAME, MAX_BYTES, MAX_FILES, MAX_MANIFEST, Manifest, Stage,
 };
 use futures::StreamExt;
 use iroh::{Endpoint, EndpointAddr, endpoint::Connection};
@@ -58,6 +58,30 @@ pub(super) struct Job {
     pub(super) folder: Arc<Folder>,
     /// Whether a file lands executable.
     pub(super) executable: bool,
+}
+
+impl Job {
+    pub(super) fn new(
+        from: EndpointAddr,
+        content: &Content,
+        name: String,
+        folder: Arc<Folder>,
+        executable: bool,
+    ) -> Self {
+        let hash = Hash::from_bytes(content.hash);
+
+        Self {
+            from,
+            content: match content.kind {
+                ContentKind::File => HashAndFormat::raw(hash),
+                ContentKind::Folder => HashAndFormat::hash_seq(hash),
+            },
+            kind: content.kind,
+            name,
+            folder,
+            executable,
+        }
+    }
 }
 
 /// Where a fetch landed.

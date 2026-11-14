@@ -30,8 +30,8 @@ export function byLane<T extends { lane: Lane }>(cards: readonly T[]): Record<La
 }
 
 /// Home's rows: the cards of each project together, a project that waits on
-/// the user first, and the cards of no project last.
-export function byProject<T extends { lane: Lane; project: string | null }>(cards: readonly T[]): { project: string | null; cards: T[] }[] {
+/// the user first by default, or by recency when supplied. Cards of no project stay last.
+export function byProject<T extends { lane: Lane; project: string | null }>(cards: readonly T[], recency: ReadonlyMap<string, number> | null = null): { project: string | null; cards: T[] }[] {
   const rows = new Map<string | null, T[]>();
 
   for (const card of cards) {
@@ -41,7 +41,12 @@ export function byProject<T extends { lane: Lane; project: string | null }>(card
   }
 
   const rank = (row: { project: string | null; cards: T[] }) => row.project === null ? 2 : row.cards.some(card => card.lane === "needs") ? 0 : 1;
-  return [...rows].map(([project, own]) => ({ project, cards: own })).sort((a, b) => rank(a) - rank(b));
+  return [...rows].map(([project, own]) => ({ project, cards: own })).sort((a, b) => {
+    if (!recency) return rank(a) - rank(b);
+    if (a.project === null) return b.project === null ? 0 : 1;
+    if (b.project === null) return -1;
+    return (recency.get(b.project) ?? 0) - (recency.get(a.project) ?? 0);
+  });
 }
 
 /// A card's muted line under its project's heading, without the project's name.

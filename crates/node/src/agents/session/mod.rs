@@ -22,15 +22,19 @@ use agent_client_protocol::v1::schema::McpServer;
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionInfo, Status,
+    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionDevice, SessionInfo, Status,
 };
+use beep_proto::watched;
 use futures::stream::FuturesUnordered;
 use std::{
     borrow::Cow,
     collections::{HashSet, VecDeque},
     path::Path,
     process::Stdio,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    },
     time::Duration,
 };
 use tokio::sync::{mpsc, oneshot, watch};
@@ -40,6 +44,7 @@ mod actor;
 mod orders;
 mod sccache;
 mod turns;
+mod v2;
 
 use actor::Actor;
 
@@ -62,11 +67,11 @@ const EVENTS: usize = 64;
 const MAX_ASKED: usize = 2000;
 /// The longest plan shown for approval.
 const MAX_PLAN: usize = 32 * 1024;
+/// Why a session ended with the node.
+pub(super) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
 /// How long an agent has to end its turn after Stop before the node stops
 /// the agent itself. Agents answer `session/cancel` within a second or two;
 /// one that has not after this is not going to.
-/// Why a session ended with the node.
-pub(super) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
 const STOP_WITHIN: Duration = Duration::from_secs(10);
 /// The most tool calls followed at once, to know when none runs.
 const MAX_RUNNING_TOOLS: usize = 256;
@@ -113,6 +118,8 @@ pub(super) enum Command {
     /// Stops one of the agent's background tasks, by the agent's id, without
     /// ending the turn.
     StopTask(String),
+    /// Keeps the device the session uses, or forgets it.
+    SetDevice(Option<SessionDevice>),
     /// Puts a question of the node's own to the user, as the agent's are:
     /// `ask_user` or an approval for the Beep MCP server. The answer goes
     /// to `reply`; it is dropped when the session ends or the turn is
@@ -171,7 +178,14 @@ pub(super) struct Session {
     _task: AbortOnDropHandle<()>,
     /// What watches over its children, which stops with it.
     guards: Mutex<Vec<AbortOnDropHandle<()>>>,
+    /// Messages from agents that are not its parent since the user last
+    /// wrote, so two agents cannot keep each other talking.
+    peer_messages: AtomicU32,
 }
+
+/// The most messages a session takes from other agents between two of the
+/// user's.
+pub(super) const PEER_MESSAGES: u32 = 5;
 
 impl std::fmt::Debug for Session {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -193,6 +207,7 @@ pub(super) struct Start<'a> {
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
+    pub(super) title: Option<String>,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -221,8 +236,9 @@ pub(super) struct Start<'a> {
     pub(super) usage: Arc<UsageHub>,
     /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
-    /// What the node as a whole asks of its sessions.
-    pub(super) node: NodeMode,
+    /// Set once the node is stopping: an agent that ends then ended with
+    /// the node, whatever its exit says.
+    pub(super) stopping: Arc<AtomicBool>,
 }
 
 /// Closes a child session once its parent ends for good.
@@ -236,23 +252,6 @@ async fn follow_parent(mut parent: watch::Receiver<Live>, orders: mpsc::Sender<O
                 done,
             })
             .await;
-    }
-}
-
-/// What the node as a whole asks of its sessions.
-#[derive(Clone)]
-pub(super) struct NodeMode {
-    /// Set once the node is stopping: an agent that ends then ended with
-    /// the node, whatever its exit says.
-    pub(super) stopping: Arc<AtomicBool>,
-}
-
-impl Default for NodeMode {
-    /// A node that is not stopping.
-    fn default() -> Self {
-        Self {
-            stopping: Arc::default(),
-        }
     }
 }
 
@@ -271,6 +270,7 @@ impl Session {
             resume,
             earlier,
             timestamps,
+            title,
             model,
             effort,
             mode,
@@ -283,8 +283,10 @@ impl Session {
             images,
             usage,
             alerts,
-            node,
+            stopping,
         } = start;
+        let protocol = super::acp::Protocol::from_env(&kind.env)?;
+
         // Only a new session takes the default model and a thinking level. A
         // resumed one takes the model it ran on, when the caller kept it.
         let model = model.or_else(|| kind.default_model.clone().filter(|_| resume.is_none()));
@@ -342,6 +344,7 @@ impl Session {
             .with_context(|| format!("starting {}", kind.program))?;
         let processes = Processes::new(child.id().context("the agent has no pid")?);
         let info = SessionInfo {
+            title,
             id: resume.clone().unwrap_or_default(),
             agent: kind.name.clone(),
             cwd: cwd.display().to_string(),
@@ -365,11 +368,18 @@ impl Session {
         let actor = Actor {
             live: live_tx,
             alerts,
-            node_stopping: node.stopping,
+            node_stopping: stopping,
             moving: false,
             agent: kind.name.clone(),
             cwd: cwd.to_path_buf(),
             acp_session: None,
+            protocol,
+            foreground: false,
+            ready_for_prompts: false,
+            initial_v2_state: None,
+            compacting_v2: false,
+            accepting_v2: false,
+            idle_v2: None,
             takes_images: None,
             takes_steering: false,
             steering: None,
@@ -377,6 +387,7 @@ impl Session {
             queued: prompt.into_iter().collect(),
             steers: VecDeque::new(),
             sent: 0,
+            context_turn: false,
             turn: None,
             held_end: None,
             stopping: None,
@@ -394,6 +405,7 @@ impl Session {
             model,
             effort,
             thinking: None,
+            mode_config: None,
             switch: None,
             bypass_mode: known.and_then(|known| known.bypass_mode),
             first_mode: mode,
@@ -419,6 +431,7 @@ impl Session {
             processes,
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),
+            peer_messages: AtomicU32::new(0),
         })
     }
 
@@ -428,8 +441,29 @@ impl Session {
         crate::lock(&self.guards).push(AbortOnDropHandle::new(task));
     }
 
+    /// Counts one more message from another agent, or refuses it once
+    /// `PEER_MESSAGES` came since the user last wrote.
+    pub(super) fn take_peer_message(&self) -> Result<(), String> {
+        self.peer_messages
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                (count < PEER_MESSAGES).then_some(count + 1)
+            })
+            .map(drop)
+            .map_err(|_| {
+                format!(
+                    "It took {PEER_MESSAGES} messages from agents since the user last wrote. \
+                     Stop and let the user decide."
+                )
+            })
+    }
+
+    /// The user wrote: other agents may message the session again.
+    pub(super) fn user_wrote(&self) {
+        self.peer_messages.store(0, Ordering::Relaxed);
+    }
+
     pub(super) fn info(&self) -> SessionInfo {
-        let mut info = self.live.borrow().info.clone();
+        let mut info = watched::read(&self.live, |live| live.info.clone());
         if let Some(folder) = crate::lock(&self.moved_cwd).as_ref() {
             info.cwd.clone_from(folder);
         }
@@ -447,7 +481,7 @@ impl Session {
 
     /// The commands and skills the agent last reported.
     pub(super) fn commands(&self) -> Vec<AgentCommand> {
-        self.live.borrow().commands.clone()
+        watched::read(&self.live, |live| live.commands.clone())
     }
 
     /// Hands `command` to the session and waits until it is done or refused.
@@ -484,25 +518,29 @@ impl Session {
         let _ = self.order(Command::Close { by_user: false }).await;
         let mut live = self.live.clone();
         // An error means the task is gone, which also ends the wait.
-        let _ = live.wait_for(|live| live.status() == Status::Ended).await;
+        let _ = watched::wait_for(&mut live, |live| live.status() == Status::Ended).await;
     }
 }
 
 async fn named_info(live: &mut watch::Receiver<Live>) -> Result<SessionInfo, String> {
-    let named = live
-        .wait_for(|live| live.agent_session.is_some() || live.status() == Status::Ended)
-        .await
-        .map_err(|_| "the agent stopped before giving a session id".to_owned())?;
-    if named.agent_session.is_some() {
-        Ok(named.info.clone())
-    } else {
-        Err(named
-            .info
-            .state
-            .error
-            .clone()
-            .unwrap_or_else(|| "the agent stopped before giving a session id".to_owned()))
-    }
+    watched::wait_for(live, |live| {
+        live.agent_session.is_some() || live.status() == Status::Ended
+    })
+    .await
+    .map_err(|_| "the agent stopped before giving a session id".to_owned())?;
+
+    watched::read(live, |named| {
+        if named.agent_session.is_some() {
+            Ok(named.info.clone())
+        } else {
+            Err(named
+                .info
+                .state
+                .error
+                .clone()
+                .unwrap_or_else(|| "the agent stopped before giving a session id".to_owned()))
+        }
+    })
 }
 
 #[cfg(test)]

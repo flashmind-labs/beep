@@ -16,13 +16,12 @@ use crate::agents::{
 };
 use crate::run::process::{GroupLeader, STOP_GRACE};
 use agent_client_protocol::{
-    Agent, Client, Handled, JsonRpcRequest, on_receive_dispatch, on_receive_notification,
-    on_receive_request,
-    v1::{ConnectionTo, Dispatch, Responder},
+    Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage, JsonRpcRequest,
+    JsonRpcResponse, Responder, UntypedMessage, on_receive_dispatch,
     v1::schema::{
-        ContentBlock, InitializeResponse, McpServer, PromptResponse, RequestPermissionRequest,
+        ContentBlock, McpServer, PromptResponse, RequestPermissionRequest,
         RequestPermissionResponse, SessionConfigId, SessionId, SessionNotification, SessionUpdate,
-        SetSessionModeRequest, ToolCallId,
+        ToolCallId,
     },
 };
 use anyhow::{Context, Result};
@@ -30,6 +29,7 @@ use beep_proto::ModelId;
 use beep_proto::node::agent::{
     AlertKind, Effort, Entry, EntryKind, ModeOption, Question, Status, StopReason, WorkPlace,
 };
+use beep_proto::watched;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use std::{
     collections::{HashSet, VecDeque},
@@ -49,19 +49,27 @@ use tokio::{
 
 /// What the agent sent the session's task.
 pub(super) enum Event {
-    Update(SessionUpdate),
+    Update(Box<SessionUpdate>),
+    Notification(UntypedMessage),
+    PermissionRequest(UntypedMessage, Box<Responder<RequestPermissionResponse>>),
     /// A command the agent runs in the background started, moved or ended.
     Task(AsyncTask),
-    Permission(
-        RequestPermissionRequest,
-        Box<Responder<RequestPermissionResponse>>,
-    ),
 }
 
 /// The answer to a request the session sent, with what it was for.
 pub(super) enum Reply {
-    /// Boxed: the answer to `initialize` is far larger than the others.
-    Initialized(Result<Box<InitializeResponse>, agent_client_protocol::Error>),
+    /// Capabilities for the protocol selected by the agent.
+    Initialized(Result<acp::Capabilities, agent_client_protocol::Error>),
+    Accepted {
+        turn: u64,
+        compact: bool,
+        result:
+            Result<agent_client_protocol::v2::schema::PromptResponse, agent_client_protocol::Error>,
+    },
+    Configured {
+        answer: serde_json::Value,
+        reply: Box<Reply>,
+    },
     /// The answer to `session/new`, untyped to keep the models it offers.
     NewSession(Result<serde_json::Value, agent_client_protocol::Error>),
     /// The answer to switching the new session to `model`.
@@ -169,6 +177,13 @@ pub(super) struct Actor {
     pub(super) cwd: PathBuf,
     /// The agent's id for the session, once it made one.
     pub(super) acp_session: Option<SessionId>,
+    pub(super) protocol: acp::Protocol,
+    pub(super) foreground: bool,
+    pub(super) ready_for_prompts: bool,
+    pub(super) initial_v2_state: Option<agent_client_protocol::v2::schema::StateUpdate>,
+    pub(super) compacting_v2: bool,
+    pub(super) accepting_v2: bool,
+    pub(super) idle_v2: Option<agent_client_protocol::v2::schema::IdleStateUpdate>,
     /// Whether the agent takes image blocks, once `initialize` said.
     pub(super) takes_images: Option<bool>,
     pub(super) takes_steering: bool,
@@ -187,6 +202,7 @@ pub(super) struct Actor {
     pub(super) effort: Option<Effort>,
     /// The session's option that sets how hard it thinks, once it said.
     pub(super) thinking: Option<SessionConfigId>,
+    pub(super) mode_config: Option<SessionConfigId>,
     /// How the session switches models, once it said; `None` when it
     /// cannot.
     pub(super) switch: Option<ModelSwitch>,
@@ -210,6 +226,7 @@ pub(super) struct Actor {
     pub(super) steers: VecDeque<Prompt>,
     /// The prompts sent so far, which numbers each turn.
     pub(super) sent: u64,
+    pub(super) context_turn: bool,
     /// The turn running, by its number, while its prompt is unanswered.
     pub(super) turn: Option<u64>,
     /// The end of the last turn, held while its subagents run.
@@ -308,11 +325,14 @@ impl Actor {
         // What still waits goes with the session when the node resumes it.
         let waiting: Vec<Prompt> = if matches!(end, Ok(End::NodeStopped)) {
             let interrupted = matches!(
-                self.live.borrow().status(),
+                watched::read_sent(&self.live, Live::status),
                 Status::Working | Status::Asking
             );
-            let continuation =
-                interrupted.then(|| Prompt::from(super::super::restart::CONTINUE.to_owned()));
+            let continuation = interrupted.then(|| {
+                Prompt::from(crate::agents::tags::context(
+                    super::super::restart::CONTINUE,
+                ))
+            });
             continuation
                 .into_iter()
                 .chain(self.steers.drain(..))
@@ -348,7 +368,7 @@ impl Actor {
         drop(held);
 
         if closed && by_user {
-            let info = self.live.borrow().info.clone();
+            let info = watched::read_sent(&self.live, |live| live.info.clone());
             let removed =
                 spawn_blocking(move || crate::agents::uploads::remove(&info.agent, &info.id)).await;
             if let Err(e) = removed.unwrap_or_else(|e| Err(e.into())) {
@@ -396,57 +416,33 @@ impl Actor {
             oversized,
             stderr: LineReader::new(BufReader::new(stderr), MAX_STDERR_LINE),
         };
-        let updates = events_tx.clone();
-        let tasks = events_tx.clone();
-        let questions = events_tx;
-        // The handlers run in the crate's dispatch loop, which reads apart
-        // from writing; each only hands the message to this task.
-        let ended = Client
-            .v1()
+        // Keep dispatch version-neutral: a draft v2 opt-in can negotiate
+        // down to v1 before any session traffic. Each payload is validated
+        // against the selected version in the session's ordered event loop.
+        let ended = Builder::new(Client)
             .name("beep-node")
-            // Before the typed handler below, which refuses the updates the
-            // crate does not know.
             .on_receive_dispatch(
                 async move |dispatch: Dispatch, _cx| {
-                    let Dispatch::Notification(message) = &dispatch else {
-                        return Ok(Handled::No {
-                            message: dispatch,
-                            retry: false,
-                        });
+                    let event = match dispatch {
+                        Dispatch::Notification(message) if message.method() == "session/update" => {
+                            Event::Notification(message)
+                        }
+                        Dispatch::Request(message, responder)
+                            if message.method() == "session/request_permission" =>
+                        {
+                            Event::PermissionRequest(message, Box::new(responder.cast()))
+                        }
+                        dispatch => {
+                            return Ok(Handled::No {
+                                message: dispatch,
+                                retry: false,
+                            });
+                        }
                     };
-                    let Some(task) = acp::async_task(message) else {
-                        return Ok(Handled::No {
-                            message: dispatch,
-                            retry: false,
-                        });
-                    };
-                    // Fails only once the session ended, when it no longer matters.
-                    let _ = tasks.send(Event::Task(task)).await;
+                    let _ = events_tx.send(event).await;
                     Ok(Handled::Yes)
                 },
                 on_receive_dispatch!(),
-            )
-            .on_receive_notification(
-                async move |notification: SessionNotification, _cx| {
-                    // Fails only once the session ended, when it no longer matters.
-                    let _ = updates.send(Event::Update(notification.update)).await;
-                    Ok(())
-                },
-                on_receive_notification!(),
-            )
-            .on_receive_request(
-                async move |request: RequestPermissionRequest, responder, _cx| {
-                    let event = Event::Permission(request, Box::new(responder));
-
-                    if let Err(mpsc::error::SendError(Event::Permission(_, responder))) =
-                        questions.send(event).await
-                    {
-                        (*responder).respond(acp::cancelled())?;
-                    }
-
-                    Ok(())
-                },
-                on_receive_request!(),
             )
             .connect_with(
                 acp::transport(stdin, stdout, oversized_tx),
@@ -463,8 +459,10 @@ impl Actor {
         orders: &mut mpsc::Receiver<Order>,
     ) -> Result<End> {
         let async_tasks = known(&self.agent).is_some_and(|known| known.async_tasks);
-        self.send(cx, acp::initialize(async_tasks), |result| {
-            Reply::Initialized(result.map(Box::new))
+        let protocol = self.protocol;
+        let request = acp::initialize(async_tasks).to_untyped_message()?;
+        self.send(cx, request, move |result| {
+            Reply::Initialized(result.and_then(|answer| protocol.initialized(answer)))
         });
         let mut stderr_open = true;
         self.look_for_place();
@@ -514,7 +512,7 @@ impl Actor {
                     }
 
                     if let Command::StopAll { by_user } = command
-                        && self.live.borrow().info.state.subagents > 0
+                        && watched::read_sent(&self.live, |live| live.info.state.subagents) > 0
                     {
                         self.by_user = by_user;
                         let _ = done.send(Ok(()));
@@ -544,17 +542,101 @@ impl Actor {
     {
         let mut trace = beep_proto::logging::RequestTrace::new(std::any::type_name::<Req>());
         trace.phase("waiting for agent");
-        let answer = cx.send_request(request).block_task();
-        self.replies.push(async move {
-            let answer = answer.await;
-            trace.finish(answer.is_ok());
-            reply(answer)
-        }.boxed());
+        let protocol = self.protocol;
+        let method = request.method().to_owned();
+        let request = request
+            .to_untyped_message()
+            .and_then(|request| protocol.request(request));
+        let answer = request.map(|request| cx.send_request(request).block_task());
+        self.replies.push(
+            async move {
+                let answer = match answer {
+                    Ok(answer) => answer.await,
+                    Err(error) => Err(error),
+                };
+                trace.finish(answer.is_ok());
+                let configured = (protocol == acp::Protocol::V2
+                    && method == "session/set_config_option")
+                    .then(|| answer.as_ref().ok().cloned())
+                    .flatten();
+                let reply =
+                    reply(answer.and_then(|value| Req::Response::from_json(&method, value)));
+                match configured {
+                    Some(answer) => Reply::Configured {
+                        answer,
+                        reply: Box::new(reply),
+                    },
+                    None => reply,
+                }
+            }
+            .boxed(),
+        );
     }
 
     fn event(&mut self, cx: &ConnectionTo<Agent>, event: Event) -> Result<()> {
         match event {
+            Event::Notification(message) => {
+                if let Some(task) = acp::async_task(&message) {
+                    return self.event(cx, Event::Task(task));
+                }
+                if self.protocol == acp::Protocol::V2 {
+                    let notification = agent_client_protocol::v2::schema::UpdateSessionNotification::parse_message(message.method(), message.params())?;
+                    if self
+                        .acp_session
+                        .as_ref()
+                        .is_some_and(|session| session.0 != notification.session_id.0)
+                    {
+                        return Ok(());
+                    }
+                    self.v2_update(cx, notification.update)?;
+                } else if let Ok(notification) =
+                    SessionNotification::parse_message(message.method(), message.params())
+                {
+                    self.event(cx, Event::Update(Box::new(notification.update)))?;
+                }
+            }
+            Event::PermissionRequest(message, responder) => {
+                if self.protocol == acp::Protocol::V2
+                    && *responder.raw_id() == agent_client_protocol::RawJsonRpcId::Null
+                {
+                    responder.respond_with_error(agent_client_protocol::Error::invalid_request())?;
+                    return Ok(());
+                }
+                let request = if self.protocol == acp::Protocol::V2 {
+                    acp::permission_v2(message.params())
+                } else {
+                    RequestPermissionRequest::parse_message(message.method(), message.params()).map(
+                        |request| acp::Permission {
+                            question: watched::read_sent(&self.live, |live| {
+                                live.question(&request)
+                            }),
+                            plan: acp::plan_of(&request),
+                        },
+                    )
+                };
+                let permission = match request {
+                    Ok(permission) => permission,
+                    Err(error) => {
+                        responder.respond_with_error(error)?;
+                        return Ok(());
+                    }
+                };
+                let Some(responder) =
+                    self.plan_ready(permission.plan, &permission.question, *responder)
+                else {
+                    return Ok(());
+                };
+                if let Some(responder) = self.allow(&permission.question, responder)? {
+                    self.ask(permission.question, responder);
+                }
+            }
             Event::Update(update) => {
+                let update = *update;
+                // Automatic recovery context must not replace the user's title.
+                if self.context_turn && matches!(update, SessionUpdate::SessionInfoUpdate(_)) {
+                    return Ok(());
+                }
+
                 // The adapter echoes an injected message before continuing.
                 // Show it there so its answer follows it in the transcript.
                 if let SessionUpdate::UserMessageChunk(chunk) = &update
@@ -603,15 +685,6 @@ impl Actor {
                 self.live.send_if_modified(|live| live.apply_task(task));
                 self.subagents_moved();
             }
-            Event::Permission(request, responder) => {
-                let Some(responder) = self.plan_ready(&request, *responder) else {
-                    return Ok(());
-                };
-
-                if let Some(responder) = self.allow(&request, responder)? {
-                    self.ask(&request, responder);
-                }
-            }
         }
 
         Ok(())
@@ -620,7 +693,7 @@ impl Actor {
     /// Asks the checkout the session works in now when its folder changed
     /// since the last time, off the async workers. The answer comes back as
     /// `Reply::Placed`.
-    fn look_for_place(&mut self) {
+    pub(super) fn look_for_place(&mut self) {
         let mut wanted = None;
         self.live.send_if_modified(|live| {
             wanted = live.place_wanted.take();
@@ -655,16 +728,55 @@ impl Actor {
 
     fn reply(&mut self, cx: &ConnectionTo<Agent>, reply: Reply) -> Result<Option<End>> {
         match reply {
+            Reply::Configured { answer, reply } => {
+                self.v2_options(cx, &answer);
+                return self.reply(cx, *reply);
+            }
+            Reply::Accepted {
+                turn,
+                compact,
+                result,
+            } => {
+                if self.sent != turn {
+                    return Ok(None);
+                }
+                self.accepting_v2 = false;
+                match result {
+                    Ok(accepted) => {
+                        if !compact {
+                            self.live
+                                .send_modify(|live| live.v2_accepted(accepted.message_id));
+                        }
+                        if let Some(idle) = self.idle_v2.take() {
+                            self.v2_idle(cx, idle);
+                        }
+                    }
+                    Err(error) => {
+                        self.live.send_modify(|live| live.v2_rejected());
+                        self.idle_v2 = None;
+                        if compact {
+                            self.turn = None;
+                            self.compacting_v2 = false;
+                            self.compacted(cx, Err(error));
+                        } else {
+                            return self.reply(cx, Reply::Prompt(Err(error)));
+                        }
+                    }
+                }
+            }
             Reply::Initialized(Ok(initialized)) => {
-                self.takes_images = Some(acp::takes_images(&initialized));
-                self.takes_steering = acp::takes_steering(&initialized);
+                self.protocol = initialized.protocol;
+                self.takes_images = Some(initialized.images);
+                self.takes_steering = initialized.steering;
 
                 if let Some(end) = self.initialized(cx, &initialized) {
                     return Ok(Some(end));
                 }
             }
-            Reply::NewSession(Ok(answer)) => match acp::session_created(answer) {
-                Ok((created, offered)) => return Ok(self.ready(cx, created.session_id, offered)),
+            Reply::NewSession(Ok(answer)) => match acp::session_created(answer.clone()) {
+                Ok((created, _)) => {
+                    return Ok(self.ready(cx, created.session_id, self.protocol.offers(&answer)));
+                }
                 Err(e) => {
                     return Ok(Some(End::Failed(format!(
                         "the agent did not start: it answered session/new with {e}"
@@ -672,7 +784,7 @@ impl Actor {
                 }
             },
             Reply::Resumed(session, Ok(answer)) => {
-                return Ok(self.ready(cx, session, acp::offers(&answer)));
+                return Ok(self.ready(cx, session, self.protocol.offers(&answer)));
             }
             Reply::ModelSet {
                 model,
@@ -755,12 +867,7 @@ impl Actor {
                 let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
                 self.live.send_modify(|live| live.spent(tokens));
                 let (stop, error) = match result {
-                    Ok(done) => (
-                        acp::wire_name(&done.stop_reason)
-                            .parse()
-                            .unwrap_or(StopReason::Other),
-                        None,
-                    ),
+                    Ok(done) => (stop_reason(&done), None),
                     Err(e) => (StopReason::Failed, Some(e.to_string())),
                 };
                 self.turn_done(cx, stop, error);
@@ -803,19 +910,19 @@ impl Actor {
     fn initialized(
         &mut self,
         cx: &ConnectionTo<Agent>,
-        initialized: &InitializeResponse,
+        initialized: &acp::Capabilities,
     ) -> Option<End> {
         // The standing rules hold for the whole session; the caller's brief
         // is said once, where the session starts or resumes. An agent with
         // no system prompt gets both in its first prompt and the rules again
         // after each compaction, which can summarize them away.
-        let takes_system = acp::takes_system_prompt(initialized);
+        let takes_system = initialized.system_prompt;
         let standing = if takes_system {
             self.standing.take()
         } else {
             self.standing.clone()
         };
-        let method = acp::resume_method(initialized);
+        let method = initialized.resume;
         self.live.send_modify(|live| {
             live.replays = method == Some(acp::ResumeMethod::Load);
         });
@@ -848,9 +955,8 @@ impl Actor {
         let Some(method) = method else {
             return Some(End::Failed("the agent cannot resume a session".into()));
         };
-        let earlier = std::mem::take(&mut self.earlier);
-
-        if method == acp::ResumeMethod::Resume && !earlier.is_empty() {
+        if method == acp::ResumeMethod::Resume && !self.earlier.is_empty() {
+            let earlier = std::mem::take(&mut self.earlier);
             self.live.send_modify(|live| live.restore(earlier));
         }
 
@@ -880,9 +986,15 @@ impl Actor {
         session: SessionId,
         offered: Offered,
     ) -> Option<End> {
+        let earlier = std::mem::take(&mut self.earlier);
+        self.live.send_modify(|live| live.restore_times(&earlier));
         self.acp_session = Some(session.clone());
+        if let Some(state) = self.initial_v2_state.take() {
+            self.v2_state(cx, state);
+        }
         self.model_is(offered.current.as_deref());
         self.thinking = offered.thinking;
+        self.mode_config = offered.mode_config;
         self.switch = offered.switch.clone();
 
         if let Some(modes) = offered.modes {
@@ -928,7 +1040,7 @@ impl Actor {
     }
 
     /// A model switch while idle can make the existing context due for compaction.
-    fn model_is(&mut self, model: Option<&str>) {
+    pub(super) fn model_is(&mut self, model: Option<&str>) {
         if let Some(model) = model {
             let model = ModelId::new(model);
             self.live.send_if_modified(|live| {
@@ -941,12 +1053,15 @@ impl Actor {
         }
 
         if self.compactor.set_model(model) {
-            let live = self.live.borrow();
+            let idle = watched::read_sent(&self.live, |live| {
+                (live.info.state.status == Status::Idle)
+                    .then(|| (live.info.context, live.commands.clone()))
+            });
 
-            if live.info.state.status == Status::Idle {
+            if let Some((usage, commands)) = idle {
                 self.compactor.turn_ended(TurnEnd {
-                    usage: live.info.context,
-                    commands: &live.commands,
+                    usage,
+                    commands: &commands,
                 });
             }
         }
@@ -1004,7 +1119,14 @@ impl Actor {
 
         if let Some(mode) = first.or_else(|| self.bypass_mode.map(str::to_owned)) {
             // The first prompt waits for the mode, so it never asks.
-            let request = SetSessionModeRequest::new(session, mode.clone());
+            let request = match self.mode_request(session, &mode) {
+                Ok(request) => request,
+                Err(error) => {
+                    self.note(&error.to_string());
+                    self.idle(cx);
+                    return;
+                }
+            };
             self.send(cx, request, |result| Reply::FirstMode {
                 mode,
                 result: result.map(drop),
@@ -1017,6 +1139,12 @@ impl Actor {
 
     /// The session takes prompts: sends the first one waiting.
     fn idle(&mut self, cx: &ConnectionTo<Agent>) {
+        self.ready_for_prompts = true;
+        if self.foreground {
+            self.show_queued();
+            return;
+        }
+
         // A prompt that goes out at once leaves no moment of Idle to read:
         // only a session with nothing to do waits for a prompt.
         let goes_now = !(self.queued.is_empty() && self.steers.is_empty());
@@ -1051,6 +1179,13 @@ pub(super) fn agent_title(name: &str) -> &str {
     known(name).map_or(name, |known| known.title)
 }
 
+/// How a turn ended, with a stop reason this node does not know as `Other`.
+pub(super) fn stop_reason(done: &PromptResponse) -> StopReason {
+    acp::wire_name(&done.stop_reason)
+        .parse()
+        .unwrap_or(StopReason::Other)
+}
+
 /// `first`, then `then`.
 pub(in crate::agents) fn joined(first: Option<String>, then: Option<&str>) -> Option<String> {
     match (first, then) {
@@ -1058,3 +1193,7 @@ pub(in crate::agents) fn joined(first: Option<String>, then: Option<&str>) -> Op
         (first, then) => first.or(then.map(str::to_owned)),
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/agents_session_actor_v2.rs"]
+mod tests;

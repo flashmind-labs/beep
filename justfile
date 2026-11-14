@@ -2,10 +2,6 @@ set dotenv-load
 
 server_config := ".dev/android-server.toml"
 
-# Serve the platform mockups on localhost
-mockups port="8000":
-    python3 -m http.server {{port}} --bind 127.0.0.1 --directory mockups
-
 # Build the server
 build-server:
     cargo build --package beep-server
@@ -54,75 +50,6 @@ server-release version:
     git tag -a "server-v{{version}}" -m "Beep server {{version}}"
     git push origin "server-v{{version}}"
     git push forgejo "server-v{{version}}"
-
-# Set the desktop app's version, commit it and tag desktop-v<version>.
-# Pushing the tag makes the desktop workflow build, sign, notarize and publish it.
-desktop-release version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
-    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
-    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
-    ! git rev-parse -q --verify "refs/tags/desktop-v{{version}}" > /dev/null || { echo "desktop-v{{version}} already exists" >&2; exit 1; }
-    python3 scripts/changelog.py freeze {{version}}
-    sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' apps/desktop/src-tauri/Cargo.toml && rm apps/desktop/src-tauri/Cargo.toml.bak
-    (cd apps/desktop/src-tauri && cargo update --workspace --offline --quiet)
-    git commit --quiet -m "Release Beep desktop {{version}}" changelogs/desktop.md changelogs/unreleased/desktop apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock
-    git tag -a "desktop-v{{version}}" -m "Beep desktop {{version}}"
-    echo "Tagged desktop-v{{version}}. Publish it with: git push forgejo main desktop-v{{version}}"
-
-# Set the Android version, commit it and tag android-v<version>; the tag uploads to Play's beta track
-android-release version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
-    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
-    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
-    ! git rev-parse -q --verify "refs/tags/android-v{{version}}" > /dev/null || { echo "android-v{{version}} already exists" >&2; exit 1; }
-    python3 scripts/changelog.py freeze {{version}} --path changelogs/android.md
-    cfg=apps/desktop/src-tauri/tauri.android.conf.json
-    sed -i.bak 's/^\( *"version": \)".*"/\1"{{version}}"/' "$cfg" && rm "$cfg.bak"
-    # The version may already be set, as in a first release.
-    git commit --quiet -m "Release Beep for Android {{version}}" changelogs/android.md changelogs/unreleased/android "$cfg"
-    git tag -a "android-v{{version}}" -m "Beep for Android {{version}}"
-    echo "Tagged android-v{{version}}. Publish it with: git push origin main android-v{{version}}"
-
-# Set the iOS version, commit it and tag ios-v<version>; the tag uploads to TestFlight
-ios-release version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
-    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
-    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
-    ! git rev-parse -q --verify "refs/tags/ios-v{{version}}" > /dev/null || { echo "ios-v{{version}} already exists" >&2; exit 1; }
-    python3 scripts/changelog.py freeze {{version}} --path changelogs/ios.md
-    cfg=apps/desktop/src-tauri/tauri.ios.conf.json
-    sed -i.bak 's/^\( *"version": \)".*"/\1"{{version}}"/' "$cfg" && rm "$cfg.bak"
-    # The version may already be set, as in a first release.
-    git commit --quiet -m "Release Beep for iOS {{version}}" changelogs/ios.md changelogs/unreleased/ios "$cfg"
-    git tag -a "ios-v{{version}}" -m "Beep for iOS {{version}}"
-    echo "Tagged ios-v{{version}}. Publish it with: git push origin main ios-v{{version}}"
-
-# Set beep-node's version, commit it and tag node-v<version>. Pushing the tag
-# makes the node workflow build the Linux and macOS binaries and publish them
-# with install.sh at https://releases.flashmind.com/beep/node/.
-node-release version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ "{{version}}" =~ ^0\.[0-9]+\.[0-9]+$ ]] || { echo "version must be like 0.2.3: every app stays on 0.x until production is ready" >&2; exit 1; }
-    [[ $(git branch --show-current) == main ]] || { echo "release from main" >&2; exit 1; }
-    [[ -z $(git status --porcelain) ]] || { echo "commit or stash your changes first" >&2; exit 1; }
-    ! git rev-parse -q --verify "refs/tags/node-v{{version}}" > /dev/null || { echo "node-v{{version}} already exists" >&2; exit 1; }
-    python3 scripts/changelog.py freeze {{version}} --path changelogs/node.md
-    sed -i.bak '1,/^version = /s/^version = ".*"$/version = "{{version}}"/' crates/node/Cargo.toml && rm crates/node/Cargo.toml.bak
-    cargo update --workspace --offline --quiet
-    # The desktop app embeds the node, so its lockfile names the version too.
-    # Resolving the lockfile records just that; `cargo update -p beep-node`
-    # would also move the node's git dependencies.
-    (cd apps/desktop/src-tauri && cargo metadata --offline --format-version 1 > /dev/null)
-    git commit --quiet -m "Release beep-node {{version}}" changelogs/node.md changelogs/unreleased/node crates/node/Cargo.toml Cargo.lock apps/desktop/src-tauri/Cargo.lock
-    git tag -a "node-v{{version}}" -m "beep-node {{version}}"
-    echo "Tagged node-v{{version}}. Publish it with: git push origin main node-v{{version}}"
 
 # Bump selected apps, commit together and publish main plus their release tags.
 # Examples: just patch desktop; just patch desktop beep-node android ios; just patch all.

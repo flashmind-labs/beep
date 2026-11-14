@@ -4,6 +4,7 @@ use crate::{
     link::restart::{self, Reopen},
 };
 use beep_proto::node::agent::EntryKind;
+use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tokio::sync::watch;
 
@@ -65,7 +66,7 @@ fn begin(prompt: &str) -> Begin {
 }
 
 async fn until(live: &mut watch::Receiver<Live>, done: impl FnMut(&Live) -> bool) {
-    timeout(Duration::from_secs(20), live.wait_for(done))
+    timeout(Duration::from_secs(20), watched::wait_for(live, done))
         .await
         .expect("the session got there in time")
         .expect("the session is kept");
@@ -96,11 +97,7 @@ async fn an_update_waits_for_the_turn_and_the_next_prompt_goes_after() {
     let idle = agents.until_idle();
     tokio::pin!(idle);
     assert!(futures::poll!(&mut idle).is_pending());
-    let question = live
-        .borrow()
-        .info
-        .question
-        .as_ref()
+    let question = watched::read(&live, |live| live.info.question.clone())
         .expect("the turn asks")
         .id;
     session
@@ -158,16 +155,16 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
         .order(Command::Prompt("after".to_owned().into()))
         .await
         .expect("queued");
-    assert_eq!(before.open_sessions()[0].held[0].text, CONTINUE);
+    assert_eq!(before.open_sessions()[0].held[0].text, crate::agents::tags::context(CONTINUE));
     before.shutdown().await;
     let stopped = before.open_sessions();
     assert_eq!(
         stopped[0]
             .held
             .iter()
-            .map(|p| p.text.as_str())
+            .map(|p| p.text.clone())
             .collect::<Vec<_>>(),
-        vec![CONTINUE, "after"]
+        vec![crate::agents::tags::context(CONTINUE), "after".to_owned()]
     );
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
@@ -194,10 +191,11 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     let stopped = before.open_sessions();
     assert_eq!(stopped.len(), 1);
     assert_eq!(stopped[0].session, "held-1");
+    assert_eq!(stopped[0].title.as_deref(), Some("first"));
     assert_eq!(
         stopped[0].held,
         [
-            Prompt::from(CONTINUE.to_owned()),
+            Prompt::from(crate::agents::tags::context(CONTINUE)),
             Prompt::from("after".to_owned())
         ]
     );
@@ -239,13 +237,11 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     let resumed = after.get("held-1").expect("resumed under the agent's id");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.status() == Status::Idle).await;
-    assert_eq!(live.borrow().info.started_at, 100);
-    assert_eq!(live.borrow().info.last_activity, 200);
+    assert_eq!(watched::read(&live, |live| live.info.started_at), 100);
+    assert_eq!(watched::read(&live, |live| live.info.last_activity), 200);
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
     assert!(read.contains("session/resume"), "{read}");
-    let shown: Vec<(EntryKind, String)> = live
-        .borrow()
-        .transcript(100)
+    let shown: Vec<(EntryKind, String)> = watched::read(&live, |live| live.transcript(100))
         .0
         .into_iter()
         .map(|entry| (entry.kind, entry.text))
@@ -261,7 +257,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
 }
 
 #[tokio::test]
-async fn a_session_the_agent_replays_keeps_no_transcript() {
+async fn a_session_the_agent_replays_keeps_a_timestamp_snapshot() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
@@ -274,7 +270,7 @@ async fn a_session_the_agent_replays_keeps_no_transcript() {
     before.shutdown().await;
     let stopped = before.open_sessions();
     assert_eq!(stopped.len(), 1);
-    assert!(stopped[0].transcript.is_empty(), "{stopped:?}");
+    assert!(!stopped[0].transcript.is_empty(), "{stopped:?}");
 }
 
 /// The note of the first session, once `ready` holds for what it keeps.
@@ -424,5 +420,35 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
     let loaded = read.find("session/load").expect("the session loads");
     assert!(read[loaded..].contains("session/set_model"), "{read}");
+    after.shutdown().await;
+}
+
+#[tokio::test]
+async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
+    let dir = tempfile::tempdir().expect("temporary folder");
+    let mut kind = adapter(&dir.path().join("log"));
+    kind.args[1] = ADAPTER.replace(
+        r#"*'"session/prompt"'*) reply '{"stopReason":"end_turn"}'"#,
+        r#"*'"session/prompt"'*)
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Continue after node restart"}}}'
+          reply '{"stopReason":"end_turn"}'"#,
+    );
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before.start(&kind, Some(&dir.path().to_string_lossy()), begin("first")).expect("starts");
+    until(&mut session.live.clone(), |live| live.status() == Status::Asking).await;
+    before.shutdown().await;
+    let stopped = before.open_sessions();
+    let after = Agents::new(vec![kind]);
+    after.settings_arrived();
+    after.reopen(stopped).await;
+    let resumed = after.get("held-1").expect("resumed");
+    let mut live = resumed.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+    watched::read(&live, |live| {
+        assert_eq!(live.info.title.as_deref(), Some("first"));
+        let entries = live.transcript(100).0;
+        let context = entries.iter().find(|entry| entry.text.contains(CONTINUE)).expect("recovery context");
+        assert!(crate::agents::tags::own_words(&context.text).is_empty());
+    });
     after.shutdown().await;
 }

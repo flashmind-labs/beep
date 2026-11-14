@@ -111,7 +111,7 @@ export function AgentPicker({ picked, offered, everywhere, machineName, machineI
         {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
       </div>
     </div>
-    <div className="agc-think"><h5><span>Thinking</span><span>{name}</span></h5>{levels.length ? <>
+    <div className="agc-think"><h5>Thinking</h5>{levels.length ? <>
       <button type="button" data-age="" className={picked.effort ? "" : "on"} onClick={() => onEffort(null)}>Default{!picked.effort && <Check/>}</button>
       {levels.map(level => <button key={level.value} type="button" data-age={level.value} className={picked.effort === level.value ? "on" : ""}
         onClick={() => onEffort(level.value)}>{level.label}{picked.effort === level.value && <Check/>}</button>)}

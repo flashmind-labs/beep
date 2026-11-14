@@ -22,24 +22,19 @@ fn sessions_go_to_the_imported_project_that_holds_them() {
         import("/srv/work/widget", "acme/widget"),
         import("/srv/work/widget/vendor/relay", "acme/relay"),
     ];
+    let project = |endpoint, cwd| imported_project_of(&machine(endpoint), cwd, &imports);
     assert_eq!(
-        project_of(&machine(1), "/srv/work/widget", &imports),
-        "acme/widget"
+        project(1, "/srv/work/widget").as_deref(),
+        Some("acme/widget")
     );
     assert_eq!(
-        project_of(&machine(1), "/srv/work/widget/.worktrees/fix", &imports),
-        "acme/widget"
+        project(1, "/srv/work/widget/.worktrees/fix").as_deref(),
+        Some("acme/widget")
     );
     assert_eq!(
-        project_of(&machine(1), "/srv/work/widget/vendor/relay/src", &imports),
-        "acme/relay"
+        project(1, "/srv/work/widget/vendor/relay/src").as_deref(),
+        Some("acme/relay")
     );
-    assert_eq!(
-        project_of(&machine(1), "/srv/work/widgets", &imports),
-        "widgets"
-    );
-    assert_eq!(
-        project_of(&machine(2), "/srv/work/widget", &imports),
-        "widget"
-    );
+    assert_eq!(project(1, "/srv/work/widgets"), None);
+    assert_eq!(project(2, "/srv/work/widget"), None);
 }

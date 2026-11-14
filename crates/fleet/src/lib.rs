@@ -19,6 +19,7 @@ mod runs;
 mod session;
 pub mod session_titles;
 mod settings;
+mod skill_libraries;
 mod sync;
 pub mod temporary;
 mod usage;
@@ -35,5 +36,6 @@ pub use observer::{observe, phone_ticket};
 pub use peer::Peers;
 pub use projects::{ImportJob, RenameRepositoryTarget, RepositoryRename, RepositoryRenameResult};
 pub use session::{Changed, Options, Session};
+pub use skill_libraries::library_name;
 
 pub(crate) type AsyncMutex<T> = tokio::sync::Mutex<T>;

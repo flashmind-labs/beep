@@ -6,7 +6,7 @@
 .am-head kbd { font-size: 11px; opacity: .7 }
 .am-label { font-size: 13px; color: var(--muted); margin-bottom: 8px }
 .am-line { display: flex; gap: 8px; align-items: center; margin-bottom: 14px }
-.am-code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--deep); border: 1px solid var(--border); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text }
+.am-code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--deep); border: 1px solid var(--border); overflow-wrap: anywhere }
 .am-wait { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted) }
 .am-wait .left { font-variant-numeric: tabular-nums }
 .am-wait .end { margin-left: auto }
@@ -23,7 +23,7 @@
 .am-search-label { margin-bottom: 0; white-space: nowrap }
 .am-search { color: var(--fg); outline: none; padding: 6px 10px }
 /* Fields shared by the sheets. */
-.ip-field, .ip-path, .gp-field { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent); user-select: text }
+.ip-field, .ip-path, .gp-field { flex: 1; min-width: 0; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent); -webkit-user-select: text; user-select: text }
 .ip-path, .gp-field { font-family: var(--mono); font-size: 12.5px }
 .ip-field:focus, .ip-dir:focus, .gp-field:focus { border-color: var(--accent) }
 .gp-field::placeholder { color: var(--dim) }
@@ -55,7 +55,7 @@
 .ap-q[hidden], .ap-bar[hidden], .ap-look[hidden] { display: none }
 .ap-look { margin-bottom: 8px }
 .ap-bar { display: flex; flex: none; align-items: center; gap: 10px; min-height: 30px; margin: 10px 0; font-size: 12.5px; color: var(--muted) }
-.ap-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer }
+.ap-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: default }
 .ap-bar .dbtn { margin-left: auto; flex: none; white-space: nowrap }
 .ap-bar .dbtn kbd { margin-left: 6px; padding: 0 4px; font-size: 10.5px; line-height: 15px; border: 0; background: none; opacity: .7 }
 .ap-st { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center }
@@ -64,6 +64,9 @@
 .ap-rm .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .ap-rm .m { font-size: 12px; color: var(--muted) }
 .ap-ways { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 }
+/* The line under a way's name shows on the desktop, where the ways are tiles (native.css). */
+.ap-ways .dbtn b { font-weight: inherit }
+.ap-ways .dbtn span { display: none }
 /* Import a project: the folder field and its browser, the branches. */
 .ip-sheet { max-height: calc(100vh - 48px); overflow: auto }
 .ip-path { padding: 7px 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
@@ -73,14 +76,14 @@
 .ip-dir:disabled { opacity: 1 }
 .ip-folder { position: relative; flex: 1; min-width: 0; display: flex }
 .ip-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 3; max-height: 264px; overflow: auto; padding: 4px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--deep); box-shadow: 0 10px 30px color-mix(in srgb, var(--shade) 45%, transparent) }
-.ip-menu div { padding: 4px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer }
+.ip-menu div { padding: 4px 11px; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default }
 .ip-menu div:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .ip-menu div.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .ip-browse { border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); overflow: hidden }
 .ip-browse .at { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12.5px }
 .ip-browse .at span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .ip-browse .dirs { max-height: 168px; overflow: auto; padding: 4px 0; display: flex; flex-direction: column }
-.ip-browse .dirs button { all: unset; box-sizing: border-box; width: 100%; padding: 5px 12px; font-size: 13px; cursor: pointer }
+.ip-browse .dirs button { all: unset; box-sizing: border-box; width: 100%; padding: 5px 12px; font-size: 13px; cursor: default }
 .ip-browse .dirs button:hover, .ip-browse .dirs button:focus-visible { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .ip-browse .dirs .none { padding: 5px 12px; font-size: 12.5px; color: var(--muted) }
 .ip-browse .foot { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted) }
@@ -101,34 +104,43 @@
 .am-kind span { font-size: 12px; color: var(--muted); font-weight: 400 }
 .am-kind[aria-checked="true"] { border-color: var(--accent) }
 .am-sheet input.am-code { width: 100%; box-sizing: border-box; margin-bottom: 12px; color: inherit }
-.fr-scrim { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--ink) }
-.fr-card { width: min(420px, 90%); padding: 20px 22px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); display: grid; gap: 12px }
-.fr-card b { font-size: 16px; font-weight: 600 }
-.fr-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px }
-.fr-head { display: grid; gap: 10px }
-.fr-sub { line-height: 1.45 }
-.fr-btn { display: block; width: 100%; height: auto; padding: 13px 15px; text-align: left; white-space: normal }
-.fr-big { display: grid; gap: 3px }
-.fr-big b { font-size: 14px; font-weight: 600 }
-.fr-big span { font-size: 12.5px; font-weight: 400; line-height: 1.4; opacity: .8 }
-.fr-card .am-line, .fr-card .am-msg { margin-bottom: 0 }
+/* First run: the painted sunrise fills the window; the words sit on a glass card beside the sun,
+   whose blur is on a layer behind it. */
+.fr-scrim { position: fixed; inset: 0; z-index: 40; display: grid; align-items: center; justify-items: start; padding: 0 max(6vw, 40px); background: var(--ink); overflow: hidden }
 .fr-scrim.under { z-index: 30 }
-.fr-setup { width: min(460px, 90%) }
-.fr-items { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden }
-.fr-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px 12px }
-.fr-item + .fr-item { border-top: 1px solid var(--border) }
+.fr-scrim.fr-scrim > .painted-art { display: block; position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; opacity: 1; transform: none; -webkit-mask-image: none; mask-image: none }
+.fr-card { position: relative; isolation: isolate; width: min(440px, 100%); padding: 24px 26px; border-radius: var(--radius); display: grid; gap: 16px }
+.fr-card::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) 80%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade, #000) 60%, transparent) }
+.fr-setup { width: min(480px, 100%) }
+.fr-head { display: grid; gap: 12px }
+.fr-head svg { width: 26px; height: 26px }
+.fr-head b { font-size: 21px; font-weight: 600; letter-spacing: -.01em }
+.fr-sub { margin-top: 4px; font-size: 13px; line-height: 1.5; color: var(--muted) }
+.fr-ways { display: grid; gap: 6px }
+.fr-card .dbtn.fr-way { display: flex; align-items: center; gap: 14px; width: 100%; height: auto; min-height: 0; padding: 11px 14px; border: 0; border-radius: var(--radius-sm); text-align: left; white-space: normal; background: var(--lit, none), color-mix(in srgb, var(--fg) 5%, transparent) }
+.fr-card .dbtn.fr-way:hover:not(:disabled), .fr-card .dbtn.fr-way:focus-visible { background: var(--lit, none), color-mix(in srgb, var(--fg) 10%, transparent) }
+.fr-card .dbtn.fr-way.first { box-shadow: inset 2px 0 0 var(--accent) }
+.fr-big { flex: 1; min-width: 0; display: grid; gap: 3px }
+.fr-big b { font-family: var(--body); font-size: 14px; font-weight: 600 }
+.fr-big span { font-family: var(--mono); font-size: 11.5px; font-weight: 400; line-height: 1.5; color: var(--muted) }
+.fr-way kbd { flex: none; color: var(--dim) }
+.fr-card .am-line, .fr-card .am-msg { margin-bottom: 0 }
+.fr-items { display: grid; gap: 2px }
+.fr-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; min-height: 44px; padding: 6px 8px 6px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 4%, transparent) }
+.fr-item:first-child { background: var(--lit, none), color-mix(in srgb, var(--fg) 4%, transparent) }
 .fr-item-name { display: grid; min-width: 0 }
-.fr-card .fr-item-name b { font-size: 13px }
-.fr-item-name span { font-size: 12px; color: var(--muted) }
-.fr-item-state { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--muted); white-space: nowrap }
+.fr-item-name b { font-size: 13px; font-weight: 600 }
+.fr-item-name span { font-family: var(--mono); font-size: 11px; color: var(--dim) }
+.fr-item-state { display: flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap }
+.fr-item-state > span:not(.dspin) { margin-right: 4px }
 .fr-item-state.ok { color: var(--ok) }
-.fr-item-state.bad { color: var(--err); white-space: normal; max-width: 240px }
+.fr-item-state.bad { color: var(--err); white-space: normal; max-width: 260px }
 .fr-foot { display: flex; gap: 10px; align-items: center }
 .fr-foot .dbtn { flex: none }
-.fr-note { font-size: 12px; color: var(--muted) }
+.fr-note { font-family: var(--mono); font-size: 11.5px; color: var(--muted) }
 .fr-end { margin-left: auto }
 /* Report a problem. */
-.rp-ta { display: block; box-sizing: border-box; width: 100%; min-height: 84px; margin-bottom: 14px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; line-height: 18px; outline: 0; resize: vertical; caret-color: var(--accent); user-select: text }
+.rp-ta { display: block; box-sizing: border-box; width: 100%; min-height: 84px; margin-bottom: 14px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font: inherit; font-size: 13px; line-height: 18px; outline: 0; resize: vertical; caret-color: var(--accent); -webkit-user-select: text; user-select: text }
 .rp-ta:focus { border-color: var(--accent) }
 .rp-ta::placeholder { color: var(--dim) }
 .rp-periods { margin-bottom: 16px }
@@ -136,22 +148,22 @@
 .rp-box { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--deep); margin-bottom: 14px; overflow: hidden }
 .rp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 0; background: none; color: var(--fg); font: inherit; font-size: 13px; text-align: left }
 .rp-row + .rp-row { border-top: 1px solid var(--border) }
-button.rp-row { cursor: pointer }
+button.rp-row { cursor: default }
 button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .rp-row .m { color: var(--muted); font-size: 12px; white-space: nowrap }
 .rp-row .m.bad { color: var(--err) }
 .rp-row code, .rp-pane, .rp-ref, .rp-issue { font-family: var(--mono) }
 .rp-row code { font-size: 12.5px; overflow-wrap: anywhere }
 .rp-link { padding: 0 0 14px }
-.rp-pane { margin: 0 0 14px; max-height: 190px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--muted); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
+.rp-pane { margin: 0 0 14px; max-height: 190px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--muted); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere }
 .rp-pane .r { color: var(--fg); background: color-mix(in srgb, var(--fg) 12%, transparent); border-radius: 3px; padding: 0 3px }
 .rp-pane-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px }
 .rp-pane-head small { color: var(--muted); font-size: 12px }
 .rp-total { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 12.5px; color: var(--muted) }
-.rp-ref { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; margin-bottom: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); font-size: 15px; letter-spacing: .04em; user-select: text }
-.rp-issue { margin: 0 0 14px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text }
+.rp-ref { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; margin-bottom: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); font-size: 15px; letter-spacing: .04em }
+.rp-issue { margin: 0 0 14px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--deep); color: var(--fg); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere }
 .rp-foot { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
-.rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--err); user-select: text }
+.rp-err { font-size: 13px; line-height: 19px; margin-bottom: 14px; color: var(--err) }
 .rp-hint { font-size: 12px; line-height: 17px; margin: -8px 0 14px; color: var(--muted) }
 /* Keyboard shortcuts: a filter, then sections of a description and its key caps. */
 .ks-sheet { max-height: calc(100vh - 120px); display: flex; flex-direction: column }
@@ -165,7 +177,7 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .am-phone-qr { width: 220px; height: 220px; padding: 16px; margin: 12px auto; box-sizing: content-box; background: #F4F8F5 }
 .am-phone-qr svg { display: block; width: 100%; height: 100% }
 .am-phone-manual { margin: 10px 0; font-size: 12px }
-.am-phone-manual summary { cursor: pointer; margin-bottom: 8px }
+.am-phone-manual summary { cursor: default; margin-bottom: 8px }
 
 /* Active conversations, held open by Option. */
 .am-scrim.conversation-scrim { align-content: center; padding: 24px; }
@@ -173,7 +185,7 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .conversation-switcher header { display: flex; justify-content: space-between; gap: 16px; padding: 4px 8px 12px; font-size: 12px; }
 .conversation-switcher small, .conversation-switcher footer { color: var(--muted); font-size: 12px; line-height: 16px; }
 .conversation-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; min-height: 0; overflow-y: auto; outline: none; }
-.conversation-choice { flex: none; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 2px solid transparent; border-radius: 8px; color: var(--fg); background: transparent; text-align: left; cursor: pointer; }
+.conversation-choice { flex: none; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; border: 2px solid transparent; border-radius: 8px; color: var(--fg); background: transparent; text-align: left; cursor: default; }
 .conversation-choice[aria-selected="true"] { border-color: var(--accent); background: var(--deep); }
 .conversation-choice:hover { background: var(--deep); }
 .conversation-choice:active { transform: scale(.98); }
@@ -205,11 +217,21 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .ap-sheet .ap-row .m { gap: 4px 12px }
 .ap-sheet .ap-ag { padding: 0; border: 0; border-radius: 0; color: var(--muted) }
 .ap-sheet .ap-row:focus-visible { outline-offset: -1px; border-radius: 0 }
-.ap-sheet .ap-remote summary { padding: 8px 12px; cursor: pointer; font-size: 12px; color: var(--muted) }
+.ap-sheet .ap-remote summary { padding: 8px 12px; cursor: default; font-size: 12px; color: var(--muted) }
 .ap-sync { margin-top: 12px; font-size: 12px; color: var(--muted) }
-.ap-sync summary { cursor: pointer; padding: 4px 0 }
+.ap-sync summary { cursor: default; padding: 4px 0 }
 .ap-sync .am-line { margin: 8px 0; color: var(--fg) }
 .ap-sync .am-sub { font-size: 12px; line-height: 16px }
+/* A project's Skills sheet. */
+.ps-lib, .ps-skill { margin-bottom: 8px }
+.ps-lib, .ps-skill, .ps-git { font-size: 13px }
+.ps-lib b { font-weight: 600 }
+.ps-skill { padding-left: 24px }
+.ps-skill code { font-size: 11.5px }
+.ps-sub { font-size: 12px; color: var(--muted) }
+.ps-choose { margin-left: auto }
+.ps-git { margin: 14px 0 0 }
+.ps-manage { margin-right: auto }
 
 /* Project rename: show repository settings only when requested. */
 .project-rename-sheet { width: min(440px, calc(100vw - 32px)); max-width: none; min-width: 0; padding: 22px; overflow-wrap: anywhere }
@@ -220,8 +242,8 @@ button.rp-row:hover, button.rp-row[aria-current="true"] { background: color-mix(
 .pr-form .pr-name { font-family: var(--body); font-size: 14px }
 .pr-repositories { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border) }
 .pr-repository + .pr-repository { margin-top: 16px }
-.pr-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 18px; cursor: pointer }
-.pr-option input { flex: none; margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--accent) }
+.pr-option { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 18px; cursor: default }
+.pr-option .dcheck { margin: 2px 0 0 }
 .pr-option span { min-width: 0 }
 .pr-option small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere }
 .pr-repository-fields { margin-top: 16px }

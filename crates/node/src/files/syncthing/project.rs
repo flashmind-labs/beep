@@ -107,11 +107,7 @@ fn pattern(root: &Path, folder: &Path) -> Result<String> {
         );
     }
 
-    Ok(if relative.is_empty() {
-        "/**".into()
-    } else {
-        format!("/{relative}")
-    })
+    Ok(crate::files::sync::stignore::project_pattern(&relative))
 }
 
 fn update(lines: &[String], pattern: &str, enabled: bool) -> Vec<String> {

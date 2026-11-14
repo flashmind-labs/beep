@@ -1,9 +1,14 @@
 //! Event sources for sessions on this machine.
 
-use super::{recent_deadline, source_summary};
+use super::{STORED_AGENTS, SummaryCache, recent_deadline};
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result};
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::{
     sync::mpsc,
     task::spawn_blocking,
@@ -13,7 +18,26 @@ use tokio::{
 pub(crate) struct Sources {
     paths: crate::events::paths::Paths,
     processes: std::sync::Mutex<std::collections::HashMap<(String, String), ProcessWatch>>,
+    pending: Arc<Mutex<Pending>>,
+    dirty: mpsc::Sender<()>,
     _summary: tokio_util::task::AbortOnDropHandle<()>,
+}
+
+#[derive(Default)]
+struct Pending {
+    agents: BTreeSet<Agent>,
+    structural: bool,
+}
+
+impl Pending {
+    fn record(&mut self, roots: &[(Agent, PathBuf)], changed: &[PathBuf], structural: bool) {
+        self.structural |= structural;
+        self.agents.extend(
+            roots
+                .iter()
+                .filter_map(|(agent, path)| changed.contains(path).then_some(*agent)),
+        );
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -58,7 +82,8 @@ impl Agents {
 
         for session in sessions {
             let key = (session.agent.clone(), session.id.clone());
-            let revision = match (session.pid, recent_deadline(session)) {
+            let deadline = recent_deadline(session);
+            let revision = match (session.pid, deadline) {
                 (Some(pid), _) => Observation::Process(pid),
                 (_, Some(_)) => Observation::Recent(session.last_activity),
                 _ => {
@@ -95,9 +120,11 @@ impl Agents {
                 },
                 Observation::Recent(_) => None,
             };
-            let deadline = recent_deadline(session);
             let hub = self.events.clone();
             let id = session.id.clone();
+            let agent = session.agent.parse::<Agent>().ok();
+            let pending = source.pending.clone();
+            let dirty = source.dirty.clone();
             let task = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 match exit {
                     Some(exit) => exit.wait().await,
@@ -106,6 +133,13 @@ impl Agents {
                             tokio::time::sleep_until(deadline).await;
                         }
                     }
+                }
+
+                // Presence can change without a transcript write. Invalidate the
+                // matching listing before another harness's write reuses it.
+                if let Some(agent) = agent {
+                    crate::lock(&pending).agents.insert(agent);
+                    let _ = dirty.try_send(());
                 }
 
                 hub.changed(beep_proto::node::events::Topic::keyed("agent", &id));
@@ -163,20 +197,36 @@ impl Agents {
             return Ok(held);
         }
 
-        let roots: Vec<_> = [Agent::Codex, Agent::Pi, Agent::Flsh, Agent::OpenCode]
+        let roots: Vec<_> = STORED_AGENTS
             .into_iter()
-            .flat_map(|agent| self.stores.follow_paths(Some(agent)))
-            .chain(self.external.follow_paths())
+            .flat_map(|agent| {
+                self.stores
+                    .follow_paths(Some(agent))
+                    .into_iter()
+                    .map(move |path| (agent, path))
+            })
+            .chain(
+                self.external
+                    .follow_paths()
+                    .into_iter()
+                    .map(|path| (Agent::Claude, path)),
+            )
             .collect();
         let hub = self.events.clone();
         let agents = Arc::downgrade(self);
         let source = spawn_blocking(move || {
+            let roots = roots
+                .into_iter()
+                .map(|(agent, path)| crate::agents::reach::real(&path).map(|path| (agent, path)))
+                .collect::<Result<Vec<_>>>()?;
+            let watched: Vec<_> = roots.iter().map(|(_, path)| path.clone()).collect();
             let (dirty, mut summaries) = mpsc::channel(1);
-            let structure = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let summary_structure = structure.clone();
+            let pending = Arc::new(Mutex::new(Pending::default()));
+            let summary_pending = pending.clone();
             let summary_hub = hub.clone();
             let summary = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 let mut previous = None;
+                let mut cache = SummaryCache::default();
 
                 while summaries.recv().await.is_some() {
                     sleep(Duration::from_millis(400)).await;
@@ -185,11 +235,13 @@ impl Agents {
                         return;
                     };
 
-                    if summary_structure.swap(false, std::sync::atomic::Ordering::AcqRel) {
+                    let pending = std::mem::take(&mut *crate::lock(&summary_pending));
+
+                    if pending.structural {
                         *agents.sighted.lock().await = None;
                     }
 
-                    match source_summary(&agents).await {
+                    match cache.read(&agents, &pending.agents).await {
                         Ok(summary) if previous.as_ref() != Some(&summary) => {
                             previous = Some(summary);
                             summary_hub.changed(beep_proto::node::events::Topic::new("agents"));
@@ -202,22 +254,31 @@ impl Agents {
                     }
                 }
             }));
-            let paths = crate::events::paths::Paths::with_structure(move |_, structural| {
-                if structural {
-                    structure.store(true, std::sync::atomic::Ordering::Release);
-                }
+            let changed = pending.clone();
+            let notify = dirty.clone();
+            let paths =
+                crate::events::paths::Paths::with_structure(move |changed_roots, structural| {
+                    let mut pending = crate::lock(&changed);
+                    pending.record(&roots, &changed_roots, structural);
+                    drop(pending);
 
-                hub.changed(beep_proto::node::events::Topic::new("agent"));
-                let _ = dirty.try_send(());
-            })?;
-            Ok::<_, anyhow::Error>(Arc::new(Sources {
-                paths,
-                processes: std::sync::Mutex::default(),
-                _summary: summary,
-            }))
+                    hub.changed(beep_proto::node::events::Topic::new("agent"));
+                    let _ = notify.try_send(());
+                })?;
+            Ok::<_, anyhow::Error>((
+                Arc::new(Sources {
+                    paths,
+                    processes: std::sync::Mutex::default(),
+                    pending,
+                    dirty,
+                    _summary: summary,
+                }),
+                watched,
+            ))
         })
         .await
         .context("starting session notifications")??;
+        let (source, roots) = source;
         source.paths.replace(roots).await?;
         let mut held = crate::lock(&self.event_watcher);
 
@@ -228,3 +289,7 @@ impl Agents {
         Ok(source)
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/agents_follow_sources.rs"]
+mod tests;

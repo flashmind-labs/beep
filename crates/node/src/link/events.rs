@@ -7,6 +7,7 @@ use beep_proto::node::{
     agent::{SessionsReply, SessionsRequest},
     events::{self, CallReply, Incoming, Operation, Reply, Request, Topic},
 };
+use beep_proto::watched;
 use futures::{FutureExt, StreamExt, stream};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -28,6 +29,7 @@ const WRITE_WAIT: Duration = Duration::from_secs(15);
 pub(crate) const HEARTBEAT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
 const MAX_FILE_ROOTS: usize = 512;
+const TOO_MANY_ROOTS: &str = "too many watched directories; subscribe to specific file roots";
 
 mod git;
 mod snapshots;
@@ -56,10 +58,9 @@ pub(crate) async fn serve(
     static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(256);
     let _reader = READERS.try_acquire().context("too many topic readers")?;
     let mut membership = offers.mesh.subscribe();
-    let mut project_changes = membership
-        .borrow_and_update()
-        .as_ref()
-        .map(beep_mesh::Mesh::changes);
+    let mut project_changes = watched::read_and_update(&mut membership, |mesh| {
+        mesh.as_ref().map(beep_mesh::Mesh::changes)
+    });
     offers.agents.start_event_bridge();
     let mut topics = Vec::new();
     let mut queries = Vec::new();
@@ -206,12 +207,7 @@ pub(crate) async fn serve(
                     snapshots.reset();
                 }
 
-                // A root bound without Git metadata may have become a repository.
-                for subscription in subscriptions.values() {
-                    if subscription.source.retry_git(changed.keys()) {
-                        subscription.source.reconcile(&offers).await?;
-                    }
-                }
+                sources::retry_git(&offers, &subscriptions, changed.keys()).await?;
 
                 for (topic, kind) in changed {
                     snapshots.changed(&topic, kind);
@@ -219,7 +215,7 @@ pub(crate) async fn serve(
             },
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
                 if changed.is_err() { return Ok(()); }
-                project_changes = membership.borrow_and_update().as_ref().map(beep_mesh::Mesh::changes);
+                project_changes = watched::read_and_update(&mut membership, |mesh| mesh.as_ref().map(beep_mesh::Mesh::changes));
                 sources::reconcile(&offers, &subscriptions).await?;
                 roots = sources::roots(&subscriptions);
                 snapshots.replace(&offers, &topics, &queries, &roots);
@@ -344,7 +340,7 @@ async fn watch(
     }
 
     if wanted.len() > MAX_FILE_ROOTS {
-        bail!("too many watched directories; subscribe to specific file roots");
+        bail!(TOO_MANY_ROOTS);
     }
 
     let same_roots = *crate::lock(roots) == wanted;
@@ -442,7 +438,7 @@ fn has_git(dependencies: &[PathBuf]) -> bool {
 /// Resolve public project aliases through this node's signed mesh placement records.
 fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
     use beep_mesh::Key;
-    use beep_proto::node::mesh_state::{Place, ProjectRecord, StateValue, SyncSpec};
+    use beep_proto::node::mesh_state::{StateValue, SyncSpec};
     let Some(mesh) = offers.mesh.get() else {
         return BTreeMap::new();
     };
@@ -460,16 +456,10 @@ fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
         }
     }
 
-    for (key, bytes) in mesh.scan("project/") {
-        if let Key::Project(name) = key
-            && ProjectRecord::from_bytes(&bytes).is_ok()
-            && let Some(bytes) = mesh.get(&Key::Project(format!("{name}/{}", mesh.me())))
-            && let Ok(place) = Place::from_bytes(&bytes)
-        {
-            let topic = Topic::scoped("files", name.split('/'));
-            if topic.valid() {
-                projects.insert(topic, place.folder);
-            }
+    for (name, _, place) in super::from_mesh::placed_projects(&mesh, mesh.me()) {
+        let topic = Topic::scoped("files", name.split('/'));
+        if topic.valid() {
+            projects.insert(topic, place.folder);
         }
     }
 
@@ -510,24 +500,29 @@ pub(super) async fn execute(
             ) {
                 bail!("use a topic subscription for a following request");
             }
-            let link = beep_proto::node::local_link();
-            let task = AbortOnDropHandle::new(tokio::spawn(crate::agents::serve_sessions(
-                link.node.0,
-                link.node.1,
-                agents,
-                caller,
-                None,
-            )));
-            let (mut tx, mut rx) = link.caller;
-            tx.send(&request).await?;
-            let reply = rx
-                .recv::<SessionsReply>()
-                .await?
-                .context("session request closed without a reply")?;
-            drop(task);
+            let reply = ask(&request, |tx, rx| {
+                crate::agents::serve_sessions(tx, rx, agents, caller, None)
+            })
+            .await?
+            .context("session request closed without a reply")?;
             Ok(CallReply::Sessions(Box::new(reply)))
         }
     }
+}
+
+/// Sends one `request` to `serve` on an in-memory link and reads its first
+/// reply; `None` when the stream ends without one.
+async fn ask<Req, Rep, F>(request: &Req, serve: impl FnOnce(LinkTx, LinkRx) -> F) -> Result<Option<Rep>>
+where
+    Req: serde::Serialize,
+    Rep: serde::de::DeserializeOwned,
+    F: Future<Output = Result<()>> + Send + 'static,
+{
+    let link = beep_proto::node::local_link();
+    let _task = AbortOnDropHandle::new(tokio::spawn(serve(link.node.0, link.node.1)));
+    let (mut tx, mut rx) = link.caller;
+    tx.send(request).await?;
+    rx.recv().await
 }
 
 #[cfg(test)]

@@ -21,8 +21,7 @@ import { issueMeta, prMeta, sortedPrs } from "./threads.ts";
 import { arranged, issueSelection, setIssueSelection } from "./openlist.ts";
 import type { StartEntry } from "./openlist-state.ts";
 import { pages, state } from "../center/state.ts";
-import { projectBranch } from "./projectlist-state.ts";
-import type { GitRow } from "./gitsync-state.ts";
+import { projectBranch, type GitRow } from "./gitsync-state.ts";
 import { boxOf, go } from "../center/views.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.ts";
@@ -144,7 +143,6 @@ function hostNote(list: unknown[] | null | undefined, error: string, none: strin
 /// The project page: everything going on in one list at the left, the
 /// picked row's detail and actions at the right.
 export function projectSplit(p: Project, rows: WhereRow[], known: boolean, running: RunningAgent[]): PagePart[] {
-  if (pa.tile === "sync" || pa.tile === "terminals") pa.tile = "machines";
   const agent = projectRef(p.name);
   const pid = agent.project_id;
   const asked = pa.run;

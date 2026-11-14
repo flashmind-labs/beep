@@ -9,6 +9,7 @@ use crate::agents::{
 use agent_client_protocol::v1::schema::SessionUpdate;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::node::agent::{EntryKind, Status};
+use beep_proto::watched;
 use beep_proto::{AgentContext, image_key};
 use serde_json::Value;
 use serde_json::json;
@@ -158,6 +159,29 @@ fn a_loaded_session_replays_its_prompts_and_answers() {
     live.prompted("again");
     live.apply(&chunk("user_message_chunk", "again"));
     assert_eq!(live.transcript(10).0.len(), 3);
+}
+
+#[test]
+fn interruption_replay_stays_apart_from_the_next_user_prompt() {
+    let chunk = |kind: &str, text: &str| update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}));
+    for notice in ["[Request interrupted by user]", "[Request interrupted by user for tool use]"] {
+        for joined in [false, true] {
+            let mut live = live_titled("A conversation");
+            live.info.state.status = Status::Starting;
+            if joined {
+                live.apply(&chunk("user_message_chunk", &format!("{notice}Use the other machine")));
+            } else {
+                live.apply(&chunk("user_message_chunk", notice));
+                live.apply(&chunk("user_message_chunk", "Use the other machine"));
+            }
+            let (entries, _) = live.transcript(10);
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0].kind, EntryKind::Other);
+            assert_eq!(entries[0].text, "Interrupted");
+            assert_eq!(entries[1].kind, EntryKind::User);
+            assert_eq!(entries[1].text, "Use the other machine");
+        }
+    }
 }
 
 #[test]
@@ -581,6 +605,28 @@ fn a_subagents_calls_go_on_the_call_that_started_it() {
     );
 }
 
+/// A background subagent keeps calling tools while the agent writes; its
+/// calls add no entry, so the message stays one entry.
+#[test]
+fn a_subagents_call_does_not_split_the_message_being_written() {
+    let mut live = live();
+    live.prompted("look around");
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "task", "title": "Explore the code",
+        "status": "in_progress", "_meta": {"claudeCode": {"toolName": "Agent"}}
+    })));
+    live.apply(&said("**Renderers,\n"));
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "r1", "title": "Read src/main.rs",
+        "status": "in_progress",
+        "_meta": {"claudeCode": {"toolName": "Read", "parentToolUseId": "task"}}
+    })));
+    live.apply(&said("not arbitrary elements**"));
+    let (entries, _) = live.transcript(10);
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[2].text, "**Renderers,\nnot arbitrary elements**");
+}
+
 /// Claude Code stamps no parent on the calls after an inline skill, only on
 /// those of a skill that forks (`context: fork`), which runs as a subagent
 /// and is titled as one.
@@ -636,7 +682,9 @@ fn only_a_forked_skill_takes_the_calls_after_it() {
     })));
     let (entries, _) = background.transcript(10);
     assert!(
-        entries[1].text.starts_with("Skill: demo (subagent) [completed]"),
+        entries[1]
+            .text
+            .starts_with("Skill: demo (subagent) [completed]"),
         "{}",
         entries[1].text
     );
@@ -681,13 +729,14 @@ fn a_codex_subagent_shows_on_its_spawn_and_takes_its_rollouts_steps() {
         result: Some("Slept for a minute.".into()),
         working: false,
         name: Some("Kepler".into()),
+        model: Some("child-model".into()),
         task: Some("sleep_test".into()),
     };
     let (at, text) = live.with_run(&children[0].call, &run).expect("its entry");
     assert_eq!(at, 1);
     assert_eq!(
         text,
-        "sleep_test [completed]\n[steps] 1\n[step completed] sleep\n[agent] Kepler\nSlept for a minute."
+        "sleep_test [completed]\n[steps] 1\n[step completed] sleep\n[agent] Kepler\n[model] child-model\nSlept for a minute."
     );
 
     live.apply(&update(json!({
@@ -919,19 +968,28 @@ fn flsh_credit_snapshots_preserve_context_and_do_not_count_as_session_cost() {
     assert_eq!(live.unbilled, None);
     let plans = usage.plans();
     assert_eq!(
-        plans.borrow()["flsh"].credits[0].remaining.as_deref(),
+        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()).as_deref(),
         Some("7.25")
     );
     live.apply(&balance(Some("0")));
-    assert_eq!(plans.borrow()["flsh"].credits.len(), 1);
     assert_eq!(
-        plans.borrow()["flsh"].credits[0].remaining.as_deref(),
+        watched::read(&plans, |plans| plans["flsh"].credits.len()),
+        1
+    );
+    assert_eq!(
+        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()).as_deref(),
         Some("0")
     );
     live.apply(&balance(None));
-    assert_eq!(plans.borrow()["flsh"].credits[0].remaining, None);
+    assert_eq!(
+        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()),
+        None
+    );
     live.apply(&balance(Some("NaN")));
-    assert_eq!(plans.borrow()["flsh"].credits[0].remaining, None);
+    assert_eq!(
+        watched::read(&plans, |plans| plans["flsh"].credits[0].remaining.clone()),
+        None
+    );
 }
 
 #[tokio::test]
@@ -1243,7 +1301,10 @@ fn a_claude_subagent_launched_in_the_background_counts_until_its_turn_ends() {
         })));
     };
     launched(&mut live, "agent1");
-    assert_eq!(live.info.state.subagents, 1, "its call returned, it runs on");
+    assert_eq!(
+        live.info.state.subagents, 1,
+        "its call returned, it runs on"
+    );
 
     // A stop spares it.
     live.close_interrupted_subagents();
@@ -1276,4 +1337,91 @@ fn a_claude_subagent_launched_in_the_background_counts_until_its_turn_ends() {
     assert_eq!(live.info.state.subagents, 1);
     live.end_background_subagents();
     assert_eq!(live.info.state.subagents, 0);
+}
+
+#[test]
+fn a_live_claude_spawn_shows_its_requested_model() {
+    let mut live = live();
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "spawn", "title": "Agent",
+        "kind": "other", "status": "in_progress",
+        "rawInput": {"subagent_type": "general-purpose", "model": "sonnet"}
+    })));
+    let (entries, _) = live.transcript(10);
+    assert!(entries.iter().any(|entry| {
+        entry
+            .text
+            .contains("[agent] general-purpose\n[model] sonnet")
+    }));
+}
+
+#[test]
+fn automatic_titles_are_cleaned_on_updates_and_restore() {
+    let tagged = crate::agents::tags::from_session("parent", "Parent task", "Fix the upload queue.\nDetails");
+    let mut session = live_titled(&tagged);
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": tagged})));
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": "<from-session id=\"parent\""})));
+    assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": "task ".repeat(40)})));
+    assert!(session.info.title.as_ref().unwrap().chars().count() <= 80);
+}
+
+#[test]
+fn streamed_prompt_titles_wait_for_complete_headers() {
+    let mut session = live();
+
+    for chunk in ["<from-", "session id=\"parent\" name=\"Parent", " task\">\n", "Fix the upload queue.", "\n</from-session>"] {
+        session.apply(&update(json!({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": chunk}})));
+        if chunk.contains("queue") || chunk.contains("</from-session>") {
+            assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
+        } else {
+            assert_eq!(session.info.title, None);
+        }
+    }
+}
+
+#[test]
+fn recorded_times_survive_streaming_and_replay() {
+    let mut live = live();
+    live.prompted("fix it");
+    live.apply_at(&said("Fixed"), Instant::now());
+    let before = live.transcript(10).0;
+    assert!(before.iter().all(|entry| entry.sent_at.is_some()));
+    live.apply_at(&said("."), Instant::now());
+    assert_eq!(live.transcript(10).0[1].sent_at, before[1].sent_at);
+
+    let saved = live.transcript(10).0;
+    let mut replay = live_titled("fix it");
+    replay.info.state.status = Status::Starting;
+    replay.apply_at(&update(json!({"sessionUpdate":"user_message_chunk", "content":{"type":"text","text":"fix it"}})), Instant::now());
+    replay.apply_at(&said("Fixed."), Instant::now());
+    assert!(replay.transcript(10).0.iter().all(|entry| entry.sent_at.is_none()));
+    replay.restore_times(&saved);
+    assert_eq!(replay.transcript(10).0, saved);
+}
+
+#[test]
+fn recovery_context_does_not_name_a_conversation() {
+    let mut live = live();
+    live.prompted(&crate::agents::tags::context(crate::agents::restart::CONTINUE));
+    assert!(live.info.title.is_none());
+    assert!(crate::agents::tags::own_words(&live.transcript(10).0[0].text).is_empty());
+}
+
+#[test]
+fn replay_dates_match_the_saved_tail_when_prompts_repeat() {
+    let mut replay = live();
+    replay.info.state.status = Status::Starting;
+    replay.push(EntryKind::User, "yes");
+    replay.push(EntryKind::Agent, "Done.");
+    replay.push(EntryKind::User, "yes");
+    replay.push(EntryKind::Agent, "Done.");
+    let mut saved = beep_proto::node::agent::Entry::new(EntryKind::User, "yes".into());
+    saved.sent_at = Some(123);
+    replay.restore_times(&[saved]);
+    let entries = replay.transcript(10).0;
+    assert_eq!(entries[0].sent_at, None);
+    assert_eq!(entries[2].sent_at, Some(123));
 }

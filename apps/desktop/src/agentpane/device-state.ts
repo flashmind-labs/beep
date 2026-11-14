@@ -5,7 +5,7 @@
 import { parseTool } from "../agents/agentlog.ts";
 
 export type DevicePlatform = "Android" | "Ios";
-export type DevicePower = "Off" | "Booting" | "On";
+type DevicePower = "Off" | "Booting" | "On";
 
 /// An emulator or simulator, as `device_list` gives it.
 export interface Device {
@@ -37,7 +37,7 @@ export interface DevicePick {
 }
 
 export type TouchPhase = "Down" | "Move" | "Up";
-export type DeviceKey = "Return" | "Delete" | "Tab" | "Escape" | "Left" | "Right" | "Up" | "Down";
+type DeviceKey = "Return" | "Delete" | "Tab" | "Escape" | "Left" | "Right" | "Up" | "Down";
 export type DeviceButton = "Home" | "Back" | "AppSwitch" | "Power" | "VolumeUp" | "VolumeDown" | "Rotate";
 
 /// Input as the node's `Input` reads in JSON.
@@ -55,7 +55,7 @@ export type ScreenState =
   | { kind: "ended"; reason: string };
 
 /// A message on `device_attach`'s channel.
-export type ScreenMessage =
+type ScreenMessage =
   | { kind: "attached" }
   | { kind: "frame"; width: number; height: number; jpeg: Uint8Array<ArrayBuffer> }
   | { kind: "ended"; reason: string };
@@ -88,6 +88,30 @@ export function defaultPick(machines: readonly DeviceMachine[], session: string 
   const found = pool.flatMap(m => fits(m).map(device => ({ machine: m.machine_id, device })));
   const pick = found.find(f => f.device.state === "On") ?? found[0];
   return pick ? { machine: pick.machine, device: pick.device.id } : null;
+}
+
+/// The device a session keeps among `machines`: shown while it is on or
+/// booting, forgotten once its machine lists it off or no longer has it. A
+/// machine that is not listed, or did not list its devices, leaves it be.
+export function keptPick(machines: readonly DeviceMachine[], kept: DevicePick | null): { pick: DevicePick | null; forget: boolean } {
+  const machine = kept ? machines.find(m => m.machine_id === kept.machine) : null;
+  if (!kept || !machine || machine.error !== null) return { pick: null, forget: false };
+  const state = machine.devices.find(d => d.id === kept.device)?.state ?? "Off";
+  return state === "Off" ? { pick: null, forget: true } : { pick: kept, forget: false };
+}
+
+/// The device a session keeps on its machine, or that its machine's
+/// beep-node is too old to keep one.
+export type KeptDevice = { kind: "kept"; pick: DevicePick | null } | { kind: "unsupported" };
+
+/// `agent_device`'s answer, checked; null when it does not read.
+export function readKeptDevice(value: unknown): KeptDevice | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "unsupported") return { kind: "unsupported" };
+  if (value.kind !== "kept") return null;
+  const pick = value.pick;
+  if (pick === null) return { kind: "kept", pick: null };
+  return isRecord(pick) && typeof pick.machine === "string" && typeof pick.device === "string" ? { kind: "kept", pick: { machine: pick.machine, device: pick.device } } : null;
 }
 
 /// Whether a session has the Device tab: its checkout builds for a mobile
@@ -130,7 +154,7 @@ export type DeviceVerb = typeof DEVICE_VERBS[number];
 /// A `device` call on one device: the machine by its name in the agent's
 /// list, the device by the name or id the agent gave, and what the title
 /// adds (the point, the text or the key).
-export interface DeviceCall {
+interface DeviceCall {
   verb: DeviceVerb;
   machine: string;
   device: string;

@@ -77,11 +77,6 @@ pub(crate) struct Stored {
     pub(crate) places: BTreeMap<EndpointId, Place>,
 }
 
-/// How many `/` a key's name holds: one for a project, two for a place of it.
-fn slashes(name: &str) -> usize {
-    name.matches('/').count()
-}
-
 /// Every project, with its places.
 pub(crate) fn projects(mesh: &Mesh) -> Vec<Stored> {
     let mut found: BTreeMap<String, Stored> = BTreeMap::new();
@@ -90,7 +85,8 @@ pub(crate) fn projects(mesh: &Mesh) -> Vec<Stored> {
     for (key, bytes) in mesh.scan("project/") {
         let Key::Project(name) = &key else { continue };
 
-        match slashes(name) {
+        // One `/` in a key's name is a project, two a place of it.
+        match name.matches('/').count() {
             1 => {
                 if let Some(record) = decode::<ProjectRecord>(&key, &bytes) {
                     found.insert(
@@ -228,7 +224,13 @@ pub(crate) async fn write<T: StateValue>(mesh: &Mesh, key: Key, value: Option<&T
 }
 
 pub(crate) fn now_ms() -> u64 {
-    time_ms(SystemTime::now())
+    u64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+    )
+    .unwrap_or(u64::MAX)
 }
 
 pub(crate) fn at(ms: u64) -> DateTime<Utc> {
@@ -236,16 +238,6 @@ pub(crate) fn at(ms: u64) -> DateTime<Utc> {
         .ok()
         .and_then(DateTime::from_timestamp_millis)
         .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
-}
-
-/// `time` the other way, a time before the epoch reading as the epoch.
-pub(crate) fn time_ms(time: SystemTime) -> u64 {
-    u64::try_from(
-        time.duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis(),
-    )
-    .unwrap_or(u64::MAX)
 }
 
 pub(crate) fn time(ms: u64) -> SystemTime {

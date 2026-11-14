@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::watched;
 
 #[test]
 fn dotted_topics_cross_ipc_and_prefixes_compact_without_widening() {
@@ -64,13 +65,13 @@ fn windows_share_demand_and_unused_nodes_are_not_dialed() {
         Arc::new(|_| true),
     );
     events.changed();
-    assert_eq!(*events.demand.borrow(), topics);
+    assert_eq!(watched::read_sent(&events.demand, Clone::clone), topics);
     assert_eq!(topics_for(&topics, remote, local), [Topic::new("files")]);
     assert!(topics_for(&topics, local, local).is_empty());
     events.remove("one", first);
-    assert_eq!(*events.demand.borrow(), topics);
+    assert_eq!(watched::read_sent(&events.demand, Clone::clone), topics);
     events.clear("two");
-    assert!(events.demand.borrow().is_empty());
+    assert!(watched::read_sent(&events.demand, |demand| demand.is_empty()));
     assert!(topics_for(&[interest("telemetry", None)], remote, local).is_empty());
 }
 
@@ -221,7 +222,7 @@ fn an_attaching_window_is_primed_when_shared_demand_does_not_change() {
         .unwrap()
         .unwrap();
     events.dispatch(update(machine, 7, "reviews"));
-    let demand = events.demand.borrow().clone();
+    let demand = watched::read_sent(&events.demand, Clone::clone);
     let heard = Arc::new(Mutex::new(Vec::new()));
     let output = heard.clone();
     let _second = events
@@ -238,7 +239,7 @@ fn an_attaching_window_is_primed_when_shared_demand_does_not_change() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(*events.demand.borrow(), demand);
+    assert_eq!(watched::read_sent(&events.demand, Clone::clone), demand);
     events.dispatch(update(machine, 8, "reviews"));
     let heard = heard.lock().unwrap();
     assert_eq!(heard.len(), 2);
@@ -280,7 +281,7 @@ fn a_destroyed_window_cannot_register_or_retain_demand() {
             .is_none()
     );
     assert!(events.registry.lock().unwrap().windows.is_empty());
-    assert!(events.demand.borrow().is_empty());
+    assert!(watched::read_sent(&events.demand, |demand| demand.is_empty()));
 }
 
 #[test]
@@ -311,7 +312,7 @@ fn an_overflowing_window_does_not_disrupt_existing_subscriptions() {
         None,
     );
     assert!(matches!(overflow, Err(DesktopError::BadRequest(_))));
-    assert_eq!(*events.demand.borrow(), topics);
+    assert_eq!(watched::read_sent(&events.demand, Clone::clone), topics);
     assert!(!events.registry.lock().unwrap().windows.contains_key("two"));
 }
 
@@ -391,7 +392,7 @@ fn broad_namespace_subscriptions_compact_redundant_resource_topics() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        topics_for(&events.demand.borrow(), local, local),
+        watched::read_sent(&events.demand, |demand| topics_for(demand, local, local)),
         [Topic::new("reviews")]
     );
 }
@@ -567,7 +568,7 @@ fn new_windows_request_fresh_snapshots_and_retired_query_states_are_not_primed()
         .unwrap()
         .unwrap();
     assert!(refresh.has_changed().unwrap());
-    refresh.borrow_and_update();
+    watched::read_and_update(&mut refresh, |_| ());
     events.dispatch(Update {
         query: Some(1),
         ..update(machine, 1, "processes")
@@ -760,9 +761,9 @@ fn a_window_shown_again_within_grace_gets_only_what_changed_without_a_refresh() 
     }
 
     assert_eq!(heard.lock().unwrap().len(), 3);
-    let demand = events.demand.borrow().clone();
+    let demand = watched::read_sent(&events.demand, Clone::clone);
     let mut refresh = events.refresh.subscribe();
-    refresh.borrow_and_update();
+    watched::read_and_update(&mut refresh, |_| ());
 
     assert!(events.pause("one", id, None).unwrap());
     assert!(!events.pause("one", id, None).unwrap());
@@ -774,7 +775,7 @@ fn a_window_shown_again_within_grace_gets_only_what_changed_without_a_refresh() 
         "a hidden window is sent nothing"
     );
     assert_eq!(
-        *events.demand.borrow(),
+        watched::read_sent(&events.demand, Clone::clone),
         demand,
         "node streams stay open while hidden"
     );
@@ -795,7 +796,7 @@ fn a_window_shown_again_within_grace_gets_only_what_changed_without_a_refresh() 
         !refresh.has_changed().unwrap(),
         "showing asks no node to resend"
     );
-    assert_eq!(*events.demand.borrow(), demand);
+    assert_eq!(watched::read_sent(&events.demand, Clone::clone), demand);
 
     // The old hide and show ended the reader and attached a new one, which was sent every held
     // update and made every node stream resend its state.
@@ -815,7 +816,7 @@ fn a_window_hidden_past_grace_releases_its_streams_and_restarts_them_when_shown(
 
     assert!(events.pause("one", id, None).unwrap());
     events.changed();
-    assert!(events.demand.borrow().is_empty());
+    assert!(watched::read_sent(&events.demand, |demand| demand.is_empty()));
     assert_eq!(events.registry.lock().unwrap().latest.values().count(), 0);
     events.dispatch(update(machine, 2, "reviews"));
     assert_eq!(events.registry.lock().unwrap().latest.values().count(), 0);
@@ -824,7 +825,7 @@ fn a_window_hidden_past_grace_releases_its_streams_and_restarts_them_when_shown(
         events.resume("one", id, None).unwrap(),
         Some(Primed::Expired)
     );
-    assert_eq!(events.demand.borrow().len(), 1);
+    assert_eq!(watched::read_sent(&events.demand, |demand| demand.len()), 1);
     events.dispatch(update(machine, 3, "reviews"));
     let heard = heard.lock().unwrap();
     assert_eq!(
@@ -844,7 +845,7 @@ fn a_hidden_window_that_missed_a_dropped_update_is_primed_in_full() {
     let heard = heard_window(&events, "one", id, vec![interest("files", Some(machine))]);
     events.dispatch(update(machine, 1, "files"));
     let mut refresh = events.refresh.subscribe();
-    refresh.borrow_and_update();
+    watched::read_and_update(&mut refresh, |_| ());
 
     events.pause("one", id, None).unwrap();
     events.dispatch(Update {
@@ -904,7 +905,7 @@ fn a_reader_that_attaches_again_with_a_sequence_gets_only_newer_updates() {
         ..update(machine, 3, "files")
     });
     let mut refresh = events.refresh.subscribe();
-    refresh.borrow_and_update();
+    watched::read_and_update(&mut refresh, |_| ());
     let heard = Arc::new(Mutex::new(Vec::new()));
     let output = heard.clone();
 

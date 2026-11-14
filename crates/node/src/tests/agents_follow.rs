@@ -71,6 +71,122 @@ async fn an_external_process_exit_publishes_agent_and_summary_events() {
 }
 
 #[tokio::test]
+async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() {
+    let root = tempfile::tempdir().unwrap();
+    let codex = root.path().join("codex");
+    let sessions = codex.join("sessions/2026/11/01");
+    let flsh = root.path().join("flsh");
+    let project = flsh.join("project");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    let codex_file = sessions.join("rollout-example.jsonl");
+    std::fs::write(&codex_file, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"codex-example\",\"cwd\":\"/srv/project\",\"source\":\"cli\"}}\n").unwrap();
+    let flsh_file = project.join("example.jsonl");
+    let flsh_session = |id: &str, title: &str| {
+        format!(
+            "{{\"subtype\":\"session_metadata\",\"sessionId\":\"{id}\",\"metadata\":{{\"working_dir\":\"/srv/project\",\"title\":\"{title}\"}}}}\n{{\"type\":\"user\",\"timestamp\":\"2026-11-01T00:00:00Z\",\"message\":{{\"content\":\"Hello\"}}}}\n"
+        )
+    };
+    std::fs::write(&flsh_file, flsh_session("flsh-example", "Original")).unwrap();
+    let agents = Agents {
+        stores: super::super::found::Stores::at(Some(&codex), None, Some(&flsh)),
+        ..Agents::default()
+    };
+    let mut cache = SummaryCache::default();
+    let initial = cache.read(&agents, &BTreeSet::new()).await.unwrap();
+    assert_eq!(initial.len(), 2);
+
+    // An unrelated harness write must not walk the flsh store again.
+    std::fs::remove_file(&flsh_file).unwrap();
+    std::fs::write(
+        project.join("new.jsonl"),
+        flsh_session("flsh-new", "New session"),
+    )
+    .unwrap();
+    std::fs::write(
+        codex.join("session_index.jsonl"),
+        "{\"id\":\"codex-example\",\"thread_name\":\"Renamed session\"}\n",
+    )
+    .unwrap();
+    let summary = cache
+        .read(&agents, &BTreeSet::from([Agent::Codex]))
+        .await
+        .unwrap();
+    assert_eq!(
+        summary
+            .iter()
+            .find(|session| session.id == "codex-example")
+            .unwrap()
+            .title
+            .as_deref(),
+        Some("Renamed session")
+    );
+    assert!(summary.iter().any(|session| session.id == "flsh-example"));
+    assert!(!summary.iter().any(|session| session.id == "flsh-new"));
+
+    let summary = cache
+        .read(&agents, &BTreeSet::from([Agent::Flsh]))
+        .await
+        .unwrap();
+    assert!(!summary.iter().any(|session| session.id == "flsh-example"));
+    assert!(summary.iter().any(|session| session.id == "flsh-new"));
+
+    let renamed = sessions.join("rollout-renamed.jsonl");
+    std::fs::rename(&codex_file, &renamed).unwrap();
+    assert_eq!(
+        cache
+            .read(&agents, &BTreeSet::from([Agent::Codex]))
+            .await
+            .unwrap(),
+        summary
+    );
+    std::fs::remove_file(&renamed).unwrap();
+    let summary = cache
+        .read(&agents, &BTreeSet::from([Agent::Codex]))
+        .await
+        .unwrap();
+    assert_eq!(summary.len(), 1);
+    assert_eq!(summary[0].id, "flsh-new");
+}
+
+#[tokio::test]
+async fn cached_source_notifications_follow_file_creation_title_changes_and_removal() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions/2026/11/01");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let agents = Arc::new(Agents {
+        stores: super::super::found::Stores::at(Some(root.path()), None, None),
+        ..Agents::default()
+    });
+    let mut changes = agents.events.subscribe();
+    let _source = agents.watch_event_sources().await.unwrap();
+    async fn changed(changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>) {
+        timeout(Duration::from_secs(5), async {
+            loop {
+                if changes.recv().await.unwrap().topic.name() == "agents" {
+                    return;
+                }
+            }
+        })
+        .await
+        .unwrap();
+    }
+    changed(&mut changes).await;
+
+    let file = sessions.join("rollout-example.jsonl");
+    std::fs::write(&file, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"example\",\"cwd\":\"/srv/project\",\"source\":\"cli\"}}\n").unwrap();
+    changed(&mut changes).await;
+    std::fs::write(
+        root.path().join("session_index.jsonl"),
+        "{\"id\":\"example\",\"thread_name\":\"Renamed session\"}\n",
+    )
+    .unwrap();
+    changed(&mut changes).await;
+    std::fs::remove_file(&file).unwrap();
+    changed(&mut changes).await;
+}
+
+#[tokio::test]
 async fn source_summaries_ignore_transcript_appends_but_notice_title_changes() {
     use std::{fs::OpenOptions, io::Write};
     let root = tempfile::tempdir().unwrap();

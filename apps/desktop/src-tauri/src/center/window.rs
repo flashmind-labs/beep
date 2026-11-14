@@ -3,10 +3,13 @@
 //! `open_project`, `hide_on_close`, `is_center`.
 
 use crate::{bar, error::Result};
+use beep_proto::watched;
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
 };
+#[cfg(target_os = "macos")]
+use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, Window, WindowEvent,
@@ -33,14 +36,12 @@ const HIDDEN_EVENT: &str = "center-hidden";
 const SHOWN_EVENT: &str = "center-shown";
 
 /// Where a window opens: `share` of the screen under the mouse, at least
-/// `min` where the screen allows, centered, then moved down and right by
-/// `step` as far as the screen allows.
+/// `min` where the screen allows, centered.
 #[cfg_attr(mobile, allow(dead_code))]
 pub(crate) fn frame<R: Runtime>(
     app: &AppHandle<R>,
     share: f64,
     min: LogicalSize<f64>,
-    step: f64,
 ) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
     let cursor = app.cursor_position().ok()?;
     let monitor = app
@@ -56,11 +57,8 @@ pub(crate) fn frame<R: Runtime>(
     let full_h = f64::from(area.size.height) / scale;
     let width = (full_w * share).max(min.width.min(full_w));
     let height = (full_h * share).max(min.height.min(full_h));
-    let x = left + ((full_w - width) / 2.0 + step).min(full_w - width).max(0.0);
-    let y = top
-        + ((full_h - height) / 2.0 + step)
-            .min(full_h - height)
-            .max(0.0);
+    let x = left + ((full_w - width) / 2.0).min(full_w - width).max(0.0);
+    let y = top + ((full_h - height) / 2.0).min(full_h - height).max(0.0);
     Some((LogicalPosition::new(x, y), LogicalSize::new(width, height)))
 }
 
@@ -113,15 +111,32 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     {
         builder = builder.initialization_script("window.__BEEP_PHONE__ = true;");
     }
+    // The last Home is on the page before its scripts run.
+    #[cfg(desktop)]
+    if label == LABEL
+        && let Some(frame) = super::home_frame::load(app)
+    {
+        builder = builder.initialization_script(super::home_frame::script(&frame));
+    }
     #[cfg(target_os = "macos")]
     {
+        // The window is the system's sidebar material; the page tells its styles so
+        // before they load, and draws the sidebar straight on it (dist/native.css).
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true);
+            .hidden_title(true)
+            .transparent(true)
+            .effects(
+                EffectsBuilder::new()
+                    .effect(Effect::Sidebar)
+                    .state(EffectState::FollowsWindowActiveState)
+                    .build(),
+            )
+            .initialization_script("document.documentElement.dataset.material = 'vibrant';");
     }
     #[cfg(desktop)]
     {
-        builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT), 0.0) {
+        builder = match frame(app, SHARE, LogicalSize::new(MIN_WIDTH, MIN_HEIGHT)) {
             Some((position, size)) => builder
                 .position(position.x + offset, position.y + offset)
                 .inner_size(size.width, size.height),
@@ -185,11 +200,6 @@ pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
 #[tauri::command]
 pub fn center_close_window(window: Window) -> Result<()> {
     Ok(window.close()?)
-}
-
-#[tauri::command]
-pub fn open_center(app: AppHandle) -> Result<()> {
-    open(&app)
 }
 
 /// Whether a command center window, the main one or a project's, is on
@@ -344,7 +354,7 @@ impl OnScreen {
 /// Whether a window `OnScreen::watch` follows is hidden. One never told is
 /// taken as shown.
 pub(crate) fn hidden(shown: &watch::Receiver<Option<bool>>) -> bool {
-    *shown.borrow() == Some(false)
+    watched::read(shown, |shown| *shown == Some(false))
 }
 
 /// Whether a page hears its window's state again when nothing changed.

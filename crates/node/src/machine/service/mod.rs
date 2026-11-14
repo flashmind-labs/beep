@@ -411,49 +411,37 @@ pub fn restart(exe: &Path) -> Result<Restart> {
     restart_plan(exe)?.run()
 }
 
-/// What `restart` does for `exe`, done later with `Plan::run`. Only an
+/// What `restart` does for `exe`, done later with `Restart::run`. Only an
 /// older unit or plist is written again.
-pub fn restart_plan(exe: &Path) -> Result<Plan> {
-    let plain = |restart| Plan { restart };
-
+pub fn restart_plan(exe: &Path) -> Result<Restart> {
     match present()? {
-        Some(Manager::Systemd) => systemd::plan(exe, systemd::Scope::User).map(plain),
-        Some(Manager::SystemdSystem) => systemd::plan(exe, systemd::Scope::System).map(plain),
-        Some(Manager::OpenRc) => initd::plan(exe, initd::Init::OpenRc).map(plain),
-        Some(Manager::SysVInit) => initd::plan(exe, initd::Init::SysV).map(plain),
-        Some(Manager::Launchd) => launchd::plan(exe).map(plain),
-        Some(Manager::TaskScheduler) => windows::plan(exe).map(plain),
-        None => Ok(plain(Restart::NotInstalled)),
+        Some(Manager::Systemd) => systemd::plan(exe, systemd::Scope::User),
+        Some(Manager::SystemdSystem) => systemd::plan(exe, systemd::Scope::System),
+        Some(Manager::OpenRc) => initd::plan(exe, initd::Init::OpenRc),
+        Some(Manager::SysVInit) => initd::plan(exe, initd::Init::SysV),
+        Some(Manager::Launchd) => launchd::plan(exe),
+        Some(Manager::TaskScheduler) => windows::plan(exe),
+        None => Ok(Restart::NotInstalled),
     }
 }
 
-/// A restart planned by `restart_plan`.
-#[derive(Debug)]
-pub struct Plan {
-    pub restart: Restart,
-}
-
-impl Plan {
-    #[cfg(test)]
-    pub(crate) fn new(restart: Restart) -> Self {
-        Self { restart }
-    }
-
-    /// Restarts the service when planned, saying what it did.
-    pub fn run(self) -> Result<Restart> {
-        match self.restart {
-            Restart::Restarted(Manager::Systemd) => systemd::restart(systemd::Scope::User)?,
-            Restart::Restarted(Manager::SystemdSystem) => {
+impl Restart {
+    /// Restarts the service when planned by `restart_plan`, saying what it
+    /// did.
+    pub fn run(self) -> Result<Self> {
+        match &self {
+            Self::Restarted(Manager::Systemd) => systemd::restart(systemd::Scope::User)?,
+            Self::Restarted(Manager::SystemdSystem) => {
                 systemd::restart(systemd::Scope::System)?;
             }
-            Restart::Restarted(Manager::OpenRc) => initd::restart(initd::Init::OpenRc)?,
-            Restart::Restarted(Manager::SysVInit) => initd::restart(initd::Init::SysV)?,
-            Restart::Restarted(Manager::Launchd) => launchd::restart()?,
-            Restart::Restarted(Manager::TaskScheduler) => windows::restart()?,
+            Self::Restarted(Manager::OpenRc) => initd::restart(initd::Init::OpenRc)?,
+            Self::Restarted(Manager::SysVInit) => initd::restart(initd::Init::SysV)?,
+            Self::Restarted(Manager::Launchd) => launchd::restart()?,
+            Self::Restarted(Manager::TaskScheduler) => windows::restart()?,
             _ => {}
         }
 
-        Ok(self.restart)
+        Ok(self)
     }
 }
 

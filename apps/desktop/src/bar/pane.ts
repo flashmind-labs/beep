@@ -2,13 +2,14 @@
 // drives them through `pane`.
 import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
-import { AG, type AgentRow, hostChanges, loadAgentHosts, renderAgents } from "../agents/agents.ts";
+import { type AgentRow, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.ts";
-import { closePaneTabs, newTerminal, openTerminal } from "../agentpane/media.ts";
+import { closePaneTabs, newTerminal, openTerminal, showChanges } from "../agentpane/media.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { sessions } from "../agents/sessions.ts";
 import { type BackTo, changeListeners, connectWindow, current, type PaneNow } from "./core.ts";
 import { mountPane } from "./keys.ts";
+import { loadHosts } from "./views.ts";
 import { renderMachines } from "../machines/machines.ts";
 import { renderSettings, settingsBack } from "../settings/settings.ts";
 import { setPaneShown } from "../ui/active.ts";
@@ -23,11 +24,6 @@ export type PaneTarget =
   | { agent: AgentRow & { kind?: string }; from?: BackTo; adopt?: boolean }
   | { draft: { project: string; machine: string | null; terminal?: true | TerminalRow } }
   | { agentnew: { prompt?: string; at?: AgentPlace | null }; from?: BackTo };
-
-/// Hosts stand until machines or accounts change.
-function loadHosts() {
-  if (!AG.hosts || hostChanges.dirty("")) loadAgentHosts();
-}
 
 export const pane = {
   /// Hands the pane what the window does for it.
@@ -51,7 +47,10 @@ export const pane = {
       if ("agent" in target) {
         const { machine_id, agent, id } = target.agent;
         const row = sessions.find(s => s.machine_id === machine_id && s.agent === agent && s.id === id);
-        return openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
+        openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
+        // A reviewer opens beside the changes it reviewed.
+        if (target.agent.reviewer) showChanges(false);
+        return;
       }
 
       if ("draft" in target) {
@@ -73,11 +72,6 @@ export const pane = {
   /// The pane goes off screen.
   leave() {
     closePaneTabs();
-  },
-  /// Opens the agent's start form with `text` in its prompt.
-  compose(text: string) {
-    loadHosts();
-    return renderAgentNew(text, "agents");
   },
   current,
   onChange(fn: (now: PaneNow) => void) { changeListeners.push(fn); },

@@ -199,28 +199,27 @@ struct Node {
 
 impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
-        if request.tool == Tool::ListProjects {
-            return Ok(projects::call(
-                self.offers.agents.mesh().as_ref(),
-                &request.args,
-            ));
+        match request.tool {
+            Tool::ListProjects => {
+                return Ok(projects::call(
+                    self.offers.agents.mesh().as_ref(),
+                    &request.args,
+                ));
+            }
+            Tool::HarnessInfo => return Ok(harness::call(&self.offers, request).await),
+            Tool::Review => return Ok(review::review(&self.offers, request).await),
+            Tool::SubmitReview => return Ok(review::submit(&self.offers, request)),
+            Tool::StartAgent
+            | Tool::AgentStatus
+            | Tool::SendToAgent
+            | Tool::StopAgent
+            | Tool::ListAgents => return Ok(children::call(&self.offers, request).await),
+            Tool::BeepStatus | Tool::BeepLogs | Tool::BeepMetrics | Tool::FileReport => {
+                return Ok(debug::call(&self.offers, request).await);
+            }
+            _ => {}
         }
 
-        if request.tool == Tool::HarnessInfo {
-            return Ok(harness::call(&self.offers, request).await);
-        }
-
-        if review::handles(request.tool) {
-            return Ok(review::call(&self.offers, request).await);
-        }
-
-        if children::handles(request.tool) {
-            return Ok(children::call(&self.offers, request).await);
-        }
-
-        if debug::handles(request.tool) {
-            return Ok(debug::call(&self.offers, request).await);
-        }
         // The machines of the mesh answer for themselves.
         let Some(mesh) = self.offers.mesh.get() else {
             return Ok(Reply::Done {
@@ -236,9 +235,9 @@ impl Backend for Node {
         Ok(machines::call(&self.offers, &mesh, request).await)
     }
 
-    async fn device(&self, args: Value) -> Called {
+    async fn device(&self, session: &str, args: Value) -> Called {
         match self.offers.mesh.get() {
-            Some(mesh) => devices::call(&self.offers, &mesh, &self.screens, args).await,
+            Some(mesh) => devices::call(&self.offers, &mesh, &self.screens, session, args).await,
             None => Called::failed(NO_MESH),
         }
     }

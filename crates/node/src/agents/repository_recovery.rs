@@ -3,6 +3,7 @@
 use super::{Agents, MAX_IN_FOLDERS};
 use anyhow::{Result, ensure};
 use beep_proto::node::agent::{Presence, Status};
+use beep_proto::watched;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -39,8 +40,9 @@ impl Agents {
                 .lock()
                 .values()
                 .filter_map(|session| {
-                    let live = session.live.borrow();
-                    (live.status() != Status::Ended).then(|| PathBuf::from(&live.info.cwd))
+                    watched::read(&session.live, |live| {
+                        (live.status() != Status::Ended).then(|| PathBuf::from(&live.info.cwd))
+                    })
                 })
                 .collect::<Vec<_>>();
             recovering.insert(folder.clone());

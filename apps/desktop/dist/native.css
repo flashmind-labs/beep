@@ -1,0 +1,417 @@
+/* The desktop window's native feel (#690): the sidebar on the window's material with the
+   page as a card set into it, controls that answer on mousedown, and the arrow cursor.
+   Loaded before mobile.css, and scoped away from the phone layout. */
+
+/* ----- Window ----- */
+body:not(.mobile) .cwin { background: var(--deep) }
+body:not(.mobile) .cc-side { background: transparent; border-right: 0 }
+body:not(.mobile) .cc-main { margin: 6px 6px 6px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+/* On macOS the window is the system's sidebar material (src-tauri center/window.rs); the page stays opaque. */
+html[data-material="vibrant"], html[data-material="vibrant"] body.cbody, html[data-material="vibrant"] body:not(.mobile) .cwin { background: transparent }
+html[data-material="vibrant"] body:not(.mobile) .cc-si:hover { background: color-mix(in srgb, var(--fg) 8%, transparent) }
+
+/* ----- Pressed: a control answers on mousedown, at once; the release eases out ----- */
+:is(button, [role="button"], [role="tab"], [role="menuitem"], [role="option"], summary, .cc-si, .dbtn) { transition: box-shadow .12s ease-out }
+:is(button, [role="button"], [role="tab"], [role="menuitem"], [role="option"], summary, .cc-si, .dbtn):active:not(:disabled) { box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--fg) 10%, transparent); transition: none }
+
+/* ----- The arrow everywhere, as in a Mac app; only a link keeps the hand ----- */
+a[href] { cursor: pointer }
+
+/* ----- Conversation ----- */
+/* Your message is a rounded block across the column, without the "You" over it. */
+body:not(.mobile) .dcoderen.user { padding: 9px 12px; border-radius: 10px; background: color-mix(in srgb, var(--fg) 7%, transparent) }
+/* The "You" goes; the time it was sent stays, at the block's end. */
+/* The send time takes no line of its own: it sits in the top right corner over the block, shown on hover. */
+body:not(.mobile) .dcoderen.user { position: relative }
+body:not(.mobile) .dcoderen.user > b { position: absolute; top: 4px; right: 8px; font-size: 0; line-height: 0; opacity: 0; transition: opacity .12s; pointer-events: none }
+body:not(.mobile) .dcoderen.user:hover > b { opacity: 1 }
+body:not(.mobile) .dcoderen.user > b time { padding: 1px 5px; border-radius: 4px; background: var(--elev); line-height: 14px }
+/* Words the agent said on the way read quieter than its answer. */
+body:not(.mobile) .dcoderen.agent:has(+ .dcoderturn) { color: var(--muted) }
+
+/* ----- Message field: one line in a box set into the column, dragged taller from its top edge -----
+   The doubled id outranks the pane's own field rule in center.css. */
+body:not(.mobile) #agfield#agfield.dinput.small { position: relative; align-items: flex-end; margin: 0 14px 6px; padding: 5px 6px; gap: 4px; border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, var(--ink)); font-size: 13.5px }
+body:not(.mobile) #agfield#agfield.dinput.small:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+/* No padding above or below the words: the field's height is measured from them, and engines disagree on whether that counts padding. */
+body:not(.mobile) #agfield.dinput.small > textarea { align-self: stretch; min-height: max(20px, var(--field-h, 0px)); margin-block: 3px; padding: 0 4px; line-height: 20px }
+body:not(.mobile) #agfield button[aria-label="Attach files"] { width: 26px; height: 26px; min-height: 0; margin: 0; color: var(--muted) }
+body:not(.mobile) #agfield :is(#agstop, #agnativeparent) { min-height: 26px; padding: 0 10px; font-size: 12px }
+body:not(.mobile) #agmodel .agc-pill { font-size: 12px; padding: 3px 6px; gap: 6px }
+body:not(.mobile) #agmodel .cc-ag { width: 16px; height: 16px; border: 0; background: none }
+.agfield-grip { display: none }
+body:not(.mobile) .agfield-grip { display: block; position: absolute; inset: -4px 0 auto; height: 8px; cursor: row-resize; z-index: 1 }
+body:not(.mobile) .agfield-grip::after { content: ""; position: absolute; left: 50%; top: 3px; width: 28px; height: 2px; margin-left: -14px; border-radius: 1px; background: var(--muted); opacity: 0; transition: opacity .12s }
+body:not(.mobile) .agfield-grip:hover::after, body:not(.mobile) .agfield-grip:active::after { opacity: 1 }
+
+/* ----- Changes: flat files between hairlines, square tags, quiet hunks ----- */
+body:not(.mobile) .dv-files { padding: 0; gap: 0 }
+body:not(.mobile) .dv-file { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none }
+body:not(.mobile) .dv-file:first-child { margin-top: 0 }
+body:not(.mobile) .dv-fh, body:not(.mobile) .dv-file.closed .dv-fh { border-radius: 0 }
+body:not(.mobile) .dv-chip { padding: 0 5px; border: 0; border-radius: 3px; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; background: color-mix(in srgb, currentColor 14%, transparent) }
+body:not(.mobile) .dv-l.hunk { background: none; border-block: 1px solid color-mix(in srgb, var(--border) 60%, transparent) }
+body:not(.mobile) .dv-l.hunk .dv-c { color: var(--dim) }
+body:not(.mobile) .dv-g { border-right: 0 }
+body:not(.mobile) .dv-l.add { box-shadow: inset 2px 0 0 var(--dv-add-fg) }
+body:not(.mobile) .dv-l.del { box-shadow: inset 2px 0 0 var(--dv-del-fg) }
+
+/* ----- Start composer (a project's and a new session's): the same box as the message field,
+   the words on one line that grows, then one quiet line of choices. Enter starts. ----- */
+body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { padding: 8px 8px 5px 12px; gap: 4px; border: 1px solid color-mix(in srgb, var(--fg) 10%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, var(--ink)) }
+body:not(.mobile) .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+body:not(.mobile) .cc-pjc .box.err { border-color: var(--err) }
+body:not(.mobile) .cc-pjc textarea, body:not(.mobile) .cc-pjc.centered textarea { min-height: 21px; font-size: 13.5px }
+body:not(.mobile) .cc-pjc .row { gap: 2px; margin-left: -6px }
+body:not(.mobile) .cc-pjc .pill, body:not(.mobile) .cc-pjc.centered .pill { height: 26px; padding: 0 6px; gap: 6px; border: 0; font-size: 12px; color: var(--muted) }
+body:not(.mobile) .cc-pjc .pill small { font-size: 12px; color: var(--dim) }
+body:not(.mobile) .cc-pjc .pill .cc-ag, body:not(.mobile) .cc-pjc.centered .pill .cc-ag { width: 16px; height: 16px; border: 0; background: none }
+body:not(.mobile) .cc-pjc .row > .dbtn.quiet { width: 26px; height: 26px; min-height: 0; padding: 0; justify-content: center; color: var(--muted) }
+body:not(.mobile) .cc-pjc :is(.agc-send, .row > button[type="submit"]) { display: none }
+
+/* ----- Sidebar: quiet section names, and the open row filled in the text's own colour ----- */
+body:not(.mobile) .cc-grp h3 { font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--dim) }
+body:not(.mobile) :is(.cc-si[aria-current="true"], .cc-org[aria-current="true"], .cc-chat:has(.open[aria-current="true"])) { background: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .cc-si .n { color: var(--dim) }
+
+/* ----- Session rows: the title, when it last moved on the right, then one quiet line ----- */
+body:not(.mobile) button.pv-row { padding: 7px 10px; border-radius: var(--radius-sm) }
+body:not(.mobile) button.pv-row + button.pv-row { border-top: 0 }
+body:not(.mobile) button.pv-row .m { gap: 3px 8px; color: var(--dim) }
+
+/* ----- Search palette: one line a row with its detail at the end, the selection and the match in the text's own colour ----- */
+body:not(.mobile) .cc-pal .q { padding: 14px 16px }
+body:not(.mobile) .cc-pal .q input { font-size: 15px }
+body:not(.mobile) .cc-pal h5 { margin: 8px 10px 3px; font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--dim) }
+body:not(.mobile) .cc-pal .it { min-height: 32px; padding: 0 10px }
+body:not(.mobile) .cc-pal .it[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .cc-pal .it .t { display: flex; align-items: baseline; gap: 12px }
+body:not(.mobile) .cc-pal .it .t span { flex: 0 1 auto; min-width: 0 }
+body:not(.mobile) .cc-pal .it .t small { flex: 1 1 0; min-width: 0; text-align: right; color: var(--dim) }
+body:not(.mobile) .cc-pal mark { padding: 0; border-radius: 0; background: none; color: var(--fg); font-weight: 650 }
+body:not(.mobile) .cc-pal small mark { color: var(--muted); font-weight: 500 }
+body:not(.mobile) .cc-pal .it:not([aria-selected="true"]) .t > span { color: color-mix(in srgb, var(--fg) 82%, transparent) }
+
+/* ----- A question from the agent: one card, the command in a block, each answer a row with its key at the end ----- */
+body:not(.mobile) .dcard.dcoder { background: color-mix(in srgb, var(--fg) 4%, var(--ink)); border-color: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .dcoder .q { margin: 0; padding: 12px; gap: 8px; border: 0; border-radius: 0; background: none }
+body:not(.mobile) .dcoder .q code { padding: 6px 8px; border-radius: var(--radius-sm); background: var(--ink); color: var(--muted) }
+body:not(.mobile) .dcoder .q .dups { display: grid; gap: 3px; margin-top: 2px }
+body:not(.mobile) .dcoder .q .dups .dbtn { justify-content: space-between; min-height: 30px; padding: 0 10px; border: 0; background: color-mix(in srgb, var(--fg) 5%, transparent); color: var(--fg); font-size: 13px; font-weight: 400 }
+body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .dcoder .q .dups .dbtn.warn { color: var(--err) }
+body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--muted) }
+
+/* ----- Session screen: one slim title row. A session's parts stay in the page while another
+   screen shows, so the rules ask for the open pane in its agent view, not for the parts.
+   The window's top bar gives up its title here and
+   lays its tools over the row's end; the session's own head is the row, and drags the window. ----- */
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > * { pointer-events: auto }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell, #pw-back) { display: none }
+/* A project window's Back stays, at the row's start: the bar ends at the window's edge, so its
+   start is the bar's own width short of the window's (cqw is of .cc-main). */
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > #pw-back:not([hidden]) { position: absolute; top: 6px; left: calc(var(--top-w, 0px) - 100cqw + 6px) }
+body:not(.mobile) .cc-main:has(#pw-back:not([hidden])) .dhead.ag-head { padding-left: 64px }
+body:not(.mobile) .nt-bell { border: 0 }
+body:not(.mobile) .dhead.ag-head { height: 40px; padding: 0 112px 0 14px; gap: 8px; border-bottom: 0 }
+body:not(.mobile) .ag-head .dcoderav { width: 18px; height: 18px; border: 0; background: none }
+/* The title, with where the session runs on a line of its own under it, so neither is cut short. */
+body:not(.mobile) .ag-head .tt { display: grid; line-height: 16px }
+body:not(.mobile) .ag-head .tt b { font-size: 13px }
+body:not(.mobile) .ag-head .tt small { min-width: 0; line-height: 14px }
+body:not(.mobile) .ag-head .dstate { padding: 0; border: 0; background: none; font-size: 12px; font-weight: 500 }
+body:not(.mobile) .ag-head .dstate::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px }
+
+/* ----- Session screen: no rules between the parts, a narrower column, one text size ----- */
+body:not(.mobile) .dcoderturn { padding-bottom: 0; border-bottom: 0 }
+body:not(.mobile) .agphead, body:not(.mobile) .agfbar { border-bottom: 0 }
+body:not(.mobile) .agpacts { border-top: 0 }
+body:not(.mobile) .dagmain { gap: 14px; padding-top: 10px }
+body:not(.mobile) .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { max-width: 720px }
+body:not(.mobile) #agfield#agfield.dinput.small { width: calc(100% - 28px); max-width: 720px; margin-inline: auto }
+body:not(.mobile) .dcoderen:is(.agent, .other) { font-size: 13.5px; line-height: 21px; color: var(--fg) }
+body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
+
+/* ----- Session screen: the title row lies on the window, and the conversation and the side pane
+   are two cards set into it with the divider in the gap between them ----- */
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) { border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .dhead.ag-head { height: 42px; padding-left: 6px }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { height: 34px; padding-right: 4px }
+body:not(.mobile) .agshell > :is(.agmain, .agpane) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+body:not(.mobile) .agshell > .agdiv { width: 6px; margin: 0 }
+body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px; background: transparent }
+
+/* ----- The message field floats ----- */
+body:not(.mobile) #agfield#agfield.dinput.small { background: var(--elev); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
+
+/* ----- Every screen: the title row lies on the window and the screen below it is a card ----- */
+body:not(.mobile) .cc-main { border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .cc-top { min-height: 34px; padding: 0 4px 0 6px; border-bottom: 0 }
+body:not(.mobile) .cc-top h2 { font-size: 14px; font-weight: 600; letter-spacing: -.01em }
+body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { background: var(--elev); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
+
+/* ----- Terminals: the list and the terminal are two cards, as a session's conversation and pane are ----- */
+body:not(.mobile) .cc-box:has(> .tl-view), body:not(.mobile) .cc-box:has(.tl-view > .tl) { border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .tl-view > .tl { gap: 6px; overflow: visible }
+body:not(.mobile) .tl-view > .tl > * { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
+body:not(.mobile) .tl-view > .tl > .tl-list { overflow-y: auto }
+
+/* ----- Controls: one family. A button is a quiet fill with no border, in one height and one
+   text size; the main action alone takes the accent; a chosen state is a stronger fill. ----- */
+body:not(.mobile) { --ctl-h: 26px; --ctl-fill: color-mix(in srgb, var(--fg) 7%, transparent); --ctl-fill-hi: color-mix(in srgb, var(--fg) 13%, transparent) }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin) { min-height: var(--ctl-h); padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--ctl-fill); color: var(--fg); font-size: 12.5px; font-weight: 500 }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin):hover:not(:disabled) { border-color: transparent; background: var(--ctl-fill-hi) }
+body:not(.mobile) .dbtn.small { min-height: 22px; padding: 0 8px; font-size: 12px }
+body:not(.mobile) .dbtn.pri { background: var(--accent); color: var(--on-accent); font-weight: 600 }
+body:not(.mobile) .dbtn.pri:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--fg)) }
+body:not(.mobile) .dbtn.warn { color: var(--err) }
+body:not(.mobile) :is(.dbtn.ibtn, .dbtn.dico) { width: var(--ctl-h); padding: 0 }
+/* A quiet control has no fill until the pointer is on it. */
+body:not(.mobile) :is(.dbtn.quiet, .agpbtn, .nt-bell, .mvb, .cc-side-toggle) { border-color: transparent; background: none; color: var(--muted) }
+body:not(.mobile) :is(.dbtn.quiet, .agpbtn, .nt-bell, .mvb, .cc-side-toggle):hover:not(:disabled) { border-color: transparent; background: var(--ctl-fill); color: var(--fg) }
+body:not(.mobile) .dbtn.quiet.warn { color: var(--err) }
+/* Chosen. */
+body:not(.mobile) :is(.dchip, .dskin)[aria-pressed="true"], body:not(.mobile) .dbtn.on { border-color: transparent; background: var(--ctl-fill-hi); color: var(--fg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
+body:not(.mobile) .dchip { border-radius: var(--radius-sm) }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin, .agpbtn, .nt-bell, .mvb, .agtab):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px }
+
+/* Tabs: words in a row, the open one filled, wherever they are. */
+body:not(.mobile) .cc-tabs { gap: 2px; padding-block: 6px; border-bottom: 0 }
+body:not(.mobile) .cc-tabs button { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); font-weight: 500 }
+body:not(.mobile) .cc-tabs button:hover { background: var(--ctl-fill) }
+body:not(.mobile) .cc-tabs button[aria-selected="true"] { background: var(--ctl-fill-hi); font-weight: 500 }
+body:not(.mobile) .agtab { height: var(--ctl-h); padding-block: 0; box-sizing: border-box }
+body:not(.mobile) .agtab.on { background: var(--ctl-fill-hi) }
+body:not(.mobile) .hv-seg { padding: 0; gap: 0; border: 0; background: var(--ctl-fill) }
+body:not(.mobile) .hv-seg button { height: var(--ctl-h); line-height: var(--ctl-h) }
+body:not(.mobile) .hv-seg button:is([aria-pressed="true"], [data-selected]) { background: var(--ctl-fill-hi); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
+
+/* Fields: a quiet fill too, with the accent only while typing. */
+body:not(.mobile) .dfield :is(input, select, textarea, .f) { min-height: 28px; border-color: transparent; background: color-mix(in srgb, var(--fg) 5%, transparent); font-size: 13px }
+body:not(.mobile) .dfield :is(input, select, textarea):focus, body:not(.mobile) .dfield.on .f { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+body:not(.mobile) .dfield.err :is(input, textarea, .f) { border-color: var(--err) }
+
+/* Keys: one small tile. */
+body:not(.mobile) kbd { padding: 0 4px; border: 0; border-radius: 4px; background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--muted); font: 500 10.5px/16px var(--body) }
+body:not(.mobile) .dbtn.pri kbd { background: color-mix(in srgb, var(--on-accent) 18%, transparent); color: var(--on-accent) }
+/* An icon alone is a quiet control, and keeps its own width. */
+body:not(.mobile) .dv-btn.icon { width: var(--ctl-h); padding: 0; background: none; color: var(--muted) }
+body:not(.mobile) .dv-btn.icon:hover:not(:disabled) { background: var(--ctl-fill); color: var(--fg) }
+body:not(.mobile) .dv-btn.icon[aria-pressed="true"] { background: var(--ctl-fill-hi); color: var(--fg) }
+body:not(.mobile) .dv-facts .dv-btn.icon { width: 24px }
+body:not(.mobile) .cc-foot > button { padding: 0 5px }
+
+/* ----- On the macOS material the window is dark tinted glass: the desktop shows through only
+   faintly, so the sidebar keeps the skin's own colour and its words stay readable. ----- */
+html[data-material="vibrant"] body:not(.mobile) .cwin { background: color-mix(in srgb, var(--deep) 78%, transparent) }
+html[data-material="vibrant"] body:not(.mobile) .cc-grp h3 { color: var(--muted) }
+html[data-material="vibrant"] body:not(.mobile) .cc-si { color: var(--fg) }
+
+/* ===== The look (#690): a dark, nearly one-colour window in the Linear manner. The chrome (labels,
+   tabs, buttons, statuses, numbers) is set in the mono face and the reading text in the sans;
+   corners are nearly square; glass is kept for layers that float; one soft glow of the accent
+   marks what matters now. ===== */
+body:not(.mobile) { --radius: 4px; --radius-sm: 3px; --label-size: 10.5px; --label-track: .08em; --label-case: uppercase;
+  --lit: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 16%, transparent) 30%, color-mix(in srgb, var(--accent) 60%, var(--fg)) 50%, color-mix(in srgb, var(--fg) 16%, transparent) 70%, transparent) top / 100% 1px no-repeat }
+
+/* A glow behind the title row, the one light in the window. */
+body:not(.mobile) .cwin { isolation: isolate }
+body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; left: 32%; top: -300px; width: 760px; height: 440px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent), transparent); filter: blur(30px) }
+
+/* Mono chrome. */
+body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th, .dcoder .sec, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
+body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) .agtab span { font: inherit }
+body:not(.mobile) :is(.cc-si .n, .pv-row .m, .pv-row .ago, .dcoderturn .hd, .dcoderturn .when, .aglocation, .cc-top small, .cc-pal .it .t small, .cc-pal .foot, .dhints, .agkeys, .cc-foot, .bd-card small, .mac-state) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) kbd { font-family: var(--mono) }
+body:not(.mobile) .cc-brand b { font-family: var(--mono); font-weight: 600; font-size: 16px; letter-spacing: -.02em }
+
+/* A status is a dot and a word; the running one glows. */
+body:not(.mobile) .dstate { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) .ag-head .dstate { font-size: 10.5px }
+body:not(.mobile) .ag-head .dstate.run::before { box-shadow: 0 0 10px 1px currentColor }
+
+/* The open row in the sidebar carries the accent on its edge. */
+body:not(.mobile) :is(.cc-si[aria-current="true"], .cc-org[aria-current="true"], .cc-chat:has(.open[aria-current="true"])) { box-shadow: inset 2px 0 0 var(--accent) }
+
+/* Cards have a lit top edge. */
+body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])):not(:has(.tl-view)), body:not(.mobile) .agshell > :is(.agmain, .agpane), body:not(.mobile) .tl-view > .tl > * { background: var(--lit), var(--ink) }
+
+
+/* Glass: only layers that float. */
+body:not(.mobile) :is(.cc-pal, .agctx, .agc-pick, .agc-menu, .us-pop, .nt-pop) { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+/* The two composers hold the model picker, which is placed against the window. A blur on the
+   composer itself would become what the picker is placed against, so the glass is a layer behind it. */
+body:not(.mobile) #agfield#agfield.dinput.small, body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit) }
+body:not(.mobile) #agfield#agfield.dinput.small::before, body:not(.mobile) .cc-pjc .box::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--elev) 72%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+/* While you type, the field glows. */
+body:not(.mobile) #agfield#agfield.dinput.small:focus-within, body:not(.mobile) .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 40px -6px color-mix(in srgb, var(--accent) 50%, transparent) }
+/* The main action glows too. */
+body:not(.mobile) .dbtn.pri:not(:disabled) { box-shadow: 0 0 20px -5px var(--accent) }
+
+/* A question's answers are rows joined by hairlines. */
+body:not(.mobile) .dcard.dcoder:has(> .q) { border-color: color-mix(in srgb, var(--warn) 35%, transparent); background: color-mix(in srgb, var(--warn) 4%, var(--ink)) }
+body:not(.mobile) .dcoder .q .dups { gap: 1px; margin: 4px -12px -12px; border-top: 1px solid var(--border); background: var(--border) }
+body:not(.mobile) .dcoder .q .dups .dbtn { min-height: 32px; padding: 0 12px; border-radius: 0; background: var(--ink); font-size: 12px }
+body:not(.mobile) .dcoder .q .dups .dbtn:hover:not(:disabled) { background: var(--elev) }
+body:not(.mobile) .dcoder .q .dups .dbtn.pri { box-shadow: none }
+
+/* The sidebar's backdrop: the dawn haze painted down it (src/ui/painted-art.tsx), strongest at
+   the top and gone by the foot, faint enough for the rows over it to read. */
+body:not(.mobile) .cc-side { position: relative; isolation: isolate }
+body:not(.mobile) .cc-side > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; opacity: .5; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent 82%); mask-image: linear-gradient(#000, transparent 82%) }
+
+/* ----- The start screen: a painted sunrise behind the headline (src/ui/painted-art.tsx), with the
+   composer as frosted glass over its water ----- */
+.painted-art { display: none; image-rendering: pixelated }
+body:not(.mobile) .cc-pjc.centered { position: relative; isolation: isolate }
+body:not(.mobile) .agc-intro > .painted-art { display: block; position: absolute; z-index: -1; left: 50%; top: -96px; width: min(1180px, 160%); height: 600px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
+body:not(.mobile) .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
+body:not(.mobile) .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; text-shadow: 0 1px 12px var(--ink) }
+/* Frosted glass: a light tint, a strong blur, a bright rim. */
+body:not(.mobile) .cc-pjc.centered .box { border-color: color-mix(in srgb, var(--fg) 22%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 22%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--fg) 5%, transparent), 0 20px 50px -16px color-mix(in srgb, var(--shade) 80%, transparent) }
+/* The tint alone keeps the words readable: WebKit does not always blur what lies behind this layer. */
+body:not(.mobile) .cc-pjc.centered .box::before { background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--ink) 86%, transparent)); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8) }
+/* The start screen fills its card on any window: the old 960px box cut the picture on a large one.
+   The doubled id outranks the pane's own rule in center.css. */
+body:not(.mobile) #pane-box#pane-box > .dbar:has(.cc-pjc.centered) { width: 100%; max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none }
+body:not(.mobile) .agc-intro > .painted-art { width: 1500px; height: 640px; top: -290px }
+/* The words stand on a soft patch of the card's own colour, so the strokes never run through them. */
+body:not(.mobile) .cc-pjc.centered .agc-intro { position: relative }
+body:not(.mobile) .cc-pjc.centered .agc-intro::after { content: ""; position: absolute; z-index: -1; inset: -34px 2% -6px; pointer-events: none; background: radial-gradient(closest-side, color-mix(in srgb, var(--ink) 92%, transparent) 55%, transparent) }
+body:not(.mobile) .cc-pjc.centered .agc-intro p { color: color-mix(in srgb, var(--fg) 78%, transparent) }
+
+/* The session row keeps clear of the tools laid over its end, whatever their width (--top-w is
+   kept by src/center/window-shell.tsx), and the bar's words are not selectable. */
+body:not(.mobile) .dhead.ag-head { padding-right: calc(var(--top-w, 104px) + 8px) }
+body:not(.mobile) .cc-top { user-select: none; -webkit-user-select: none }
+
+/* ----- Pane headers: the tab row and a tab's own toolbar are compact, 22px controls ----- */
+body:not(.mobile) :is(.agphead, .agdevhead) { --ctl-h: 22px }
+body:not(.mobile) .agphead { padding: 4px 6px }
+body:not(.mobile) .agtab { gap: 5px; padding-inline: 7px 6px; font-size: 10px; letter-spacing: .06em }
+body:not(.mobile) .agtab > svg { width: 13px; height: 13px }
+body:not(.mobile) .agpbtn { height: var(--ctl-h) }
+body:not(.mobile) .agpbtn:not(.agaddterm, .agwt) { width: var(--ctl-h) }
+body:not(.mobile) .agaddterm { font: 10.5px var(--mono) }
+body:not(.mobile) .agdevhead { padding: 4px 8px; border-bottom: 0 }
+body:not(.mobile) .agdevhead .dbtn { min-height: var(--ctl-h); padding: 0 8px; font-size: 11.5px }
+body:not(.mobile) .agdevpick { height: var(--ctl-h); padding: 0 6px; border-color: transparent; background-color: var(--ctl-fill); font: 11.5px var(--mono) }
+
+/* ----- Work above the message field (running commands, queued messages): one quiet tray the field's width, resting on it ----- */
+body:not(.mobile) .ag-worklist:has(.ag-tasks, .ag-queue .it) { box-sizing: border-box; width: calc(100% - 44px); max-width: 704px; margin-inline: auto; padding: 2px 0; border: 1px solid color-mix(in srgb, var(--fg) 8%, transparent); border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; background: color-mix(in srgb, var(--fg) 3%, transparent) }
+body:not(.mobile) .ag-tasks { display: flex; box-sizing: border-box; width: 100%; height: 24px; margin: 0; padding: 0 10px; border: 0; border-radius: 0; background: none; font: 11px var(--mono); color: var(--muted) }
+body:not(.mobile) .ag-queue .it { height: 24px; padding: 0 10px; border-top: 0; font-size: 12px }
+body:not(.mobile) .ag-queue :is(.lbl, .it > span:not(.t), button) { font: 11px var(--mono) }
+
+/* ----- Attached files in the message field: a quiet count on its own line above the words ----- */
+body:not(.mobile) #agfield#agfield.dinput.small { flex-wrap: wrap }
+body:not(.mobile) #agfield #agatt { order: -1; flex: 0 0 100%; gap: 0; padding: 1px 0 3px }
+body:not(.mobile) #agfield .attachment-count { height: 22px; min-height: 0; padding: 0 8px; border-color: transparent; background: var(--ctl-fill); font: 11.5px var(--mono); color: var(--fg) }
+
+/* ----- Settings: a glass sheet like the palette, the app's own navigation rows, lists as lit cards.
+   It takes the main cards' colour, so the window reads as one surface. -----
+   The blur sits on a layer behind, so menus opened inside stay placed against the window. */
+body:not(.mobile) .cc-set { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: none; box-shadow: 0 30px 80px -10px color-mix(in srgb, var(--shade) 80%, transparent), 0 0 60px -20px color-mix(in srgb, var(--accent) 45%, transparent) }
+body:not(.mobile) .cc-set::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--lit), color-mix(in srgb, var(--ink) 92%, transparent); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5) }
+body:not(.mobile) .cc-set .dset-nav { border-right: 0; background: color-mix(in srgb, var(--deep) 60%, transparent) }
+body:not(.mobile) .cc-set .dset-nav > b, body:not(.mobile) .cc-set .dset-top b { font-size: 14px }
+body:not(.mobile) .cc-set .dset-pages .cc-si { padding: 5px 10px }
+body:not(.mobile) .cc-set .dset-pages .cc-si.sub { font-family: var(--mono); font-size: 11.5px }
+body:not(.mobile) .cc-set .dset-top { border-bottom: 0; padding-bottom: 6px }
+body:not(.mobile) .cc-set :is(.dset-ver, .dset-top kbd, .dmc-head .dmuted, .dmt .l1 .spec, .dmt .l1 .seen, .dsec) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .cc-set :is(.dsec, .dskins > small) { font-family: var(--mono); color: var(--dim); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) .cc-set .dset-box { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 3.5%, transparent) }
+body:not(.mobile) .dmach + .dmach { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
+body:not(.mobile) .dmt > .dmach:hover { background: color-mix(in srgb, var(--fg) 3%, transparent) }
+body:not(.mobile) :is(.dmnv, .dmag) { border-color: transparent; background: var(--ctl-fill) }
+body:not(.mobile) .dmt-t { border-radius: var(--radius-sm); background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 9%, transparent) }
+
+/* ----- Session usage in the header: a context meter, then tokens and spend as number and unit ----- */
+body:not(.mobile) .dhead .aguse { display: flex; align-items: center; justify-content: flex-end; gap: 12px; max-width: none; font-family: var(--mono); font-size: 11px; white-space: nowrap }
+.aguse > span { display: inline-flex; align-items: baseline; gap: 5px }
+body.mobile .aguse > span + span { margin-left: 10px }
+.aguse b { font-weight: 500; color: var(--fg) }
+.aguse em { font-style: normal; color: var(--dim) }
+.aguse .ctx { align-items: center }
+.aguse .ctx i { width: 36px; height: 4px; margin-right: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--accent) var(--pct), color-mix(in srgb, var(--fg) 12%, transparent) 0) }
+.aguse .ctx[data-level="high"] i { background: linear-gradient(90deg, var(--warn) var(--pct), color-mix(in srgb, var(--fg) 12%, transparent) 0) }
+.aguse .ctx[data-level="full"] i { background: linear-gradient(90deg, var(--err) var(--pct), color-mix(in srgb, var(--fg) 12%, transparent) 0) }
+
+/* Pane tabs, a step smaller. */
+body:not(.mobile) :is(.agphead, .agdevhead) { --ctl-h: 20px }
+body:not(.mobile) .agtab { gap: 4px; padding-inline: 6px 5px; font-size: 9.5px; letter-spacing: .05em }
+body:not(.mobile) .agtab > svg { width: 12px; height: 12px }
+
+/* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
+body:not(.mobile) .cc-mstrip { gap: 4px; border: 0; background: none; overflow: visible }
+body:not(.mobile) .cc-mstrip > .m { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); background: var(--ctl-fill) }
+body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .bd-empty, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
+body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
+body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.bd-card, .pj-card):hover, body:not(.mobile) .bd-card:focus-visible { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 7%, transparent) }
+body:not(.mobile) .bd-empty { padding: 4px 2px; border: 0; color: var(--dim) }
+body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
+body:not(.mobile) .pj-list hr { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
+body:not(.mobile) :is(.pj-li[aria-current="true"], .tl-it[aria-current="true"]) { border-color: transparent; background: var(--ctl-fill-hi) }
+body:not(.mobile) .tl-it[aria-current="true"] { box-shadow: inset 2px 0 var(--accent) }
+
+/* ----- A project's machines: a lit card for each machine that has it, a plain line for one that does not;
+   folder and remove wait for the pointer, and words about sync are mono details ----- */
+body:not(.mobile) .pm-list { gap: 6px }
+body:not(.mobile) .pm-machine { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) .pm-machine:not(:has(> .pm-body)) { background: none }
+body:not(.mobile) .pm-machine:not(:has(> .pm-body)) .pm-head { min-height: 30px; padding-block: 2px }
+body:not(.mobile) .pm-machine:not(:has(> .pm-body)) .pm-head > b { font-weight: 500; color: var(--muted) }
+body:not(.mobile) .pm-head { gap: 10px; min-height: 36px; padding: 6px 10px 6px 12px; font-size: 13.5px }
+body:not(.mobile) :is(.pm-folder, .pm-head .nm, .pm-body, .pm-terminal-head, .fs-m, .fs-tools small, .fs-note, .fs-conflict .t span, .pm-git .gs, .pm-sync .fs-h) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .pm-head > .pm-actions .dbtn:not(.pri) { border-color: transparent; background: none; color: var(--muted) }
+body:not(.mobile) .pm-machine:has(> .pm-body) .pm-head > .pm-actions { opacity: 0; transition: opacity .12s }
+body:not(.mobile) .pm-machine:is(:hover, :focus-within) .pm-head > .pm-actions { opacity: 1 }
+body:not(.mobile) .pm-head > .pm-actions .dbtn:not(.pri):hover:not(:disabled) { background: var(--ctl-fill); color: var(--fg) }
+body:not(.mobile) .pm-head > .pm-actions .dbtn.danger:hover:not(:disabled) { color: var(--err) }
+body:not(.mobile) .pm-body { padding: 0 12px 10px 30px }
+body:not(.mobile) .pm-body .pm-sync { gap: 5px }
+body:not(.mobile) .pm-body hr { margin: 8px 0; background: color-mix(in srgb, var(--fg) 6%, transparent) }
+body:not(.mobile) .cc-panel.fs-list { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.fs-row + .fs-row, .fs-conflict + .fs-conflict, .fs-wait + .fs-wait) { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
+body:not(.mobile) .fs-note { color: var(--dim) }
+
+/* ----- An empty Home or Projects: the sunrise across the page, with what to do next on a glass
+   card beside the sun (src/ui/painted-art.tsx) ----- */
+body:not(.mobile) .painted-empty { position: relative; isolation: isolate; display: grid; align-items: center; justify-items: start; min-height: min(520px, 64vh); padding: 0 7%; overflow: hidden }
+body:not(.mobile) .painted-empty > .painted-art { display: block; position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent), linear-gradient(transparent, #000 16%, #000 78%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect }
+body:not(.mobile) .painted-empty > .cc-empty { position: relative; isolation: isolate; width: min(340px, 100%); justify-items: start; gap: 8px; padding: 20px 22px; border: 0; border-radius: var(--radius); background: none; text-align: left }
+body:not(.mobile) .painted-empty > .cc-empty::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) 80%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade) 60%, transparent) }
+body:not(.mobile) .painted-empty > .cc-empty b { font-size: 16px; font-weight: 600 }
+body:not(.mobile) .painted-empty > .cc-empty span { font-family: var(--mono); font-size: 11.5px; line-height: 1.5 }
+body:not(.mobile) .painted-empty > .cc-empty :is(.dbtn, .pri) { margin-top: 6px }
+
+/* ----- Add a project: the three ways as tiles, then what the machines found as plain rows whose
+   action shows when pointed at ----- */
+body:not(.mobile) .ap-ways { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px }
+body:not(.mobile) .ap-ways .dbtn { display: grid; justify-items: start; gap: 2px; height: auto; min-height: 0; padding: 10px 12px; border: 0; text-align: left; white-space: normal; background: var(--lit), var(--ctl-fill) }
+body:not(.mobile) .ap-ways .dbtn:hover { background: var(--lit), var(--ctl-fill-hi) }
+body:not(.mobile) .ap-ways .dbtn b { font-family: var(--body); font-size: 13px; font-weight: 600 }
+body:not(.mobile) .ap-ways .dbtn span { display: block; font-size: 11px; font-weight: 400; color: var(--dim) }
+body:not(.mobile) .ap-sheet .am-label { margin: 18px 0 6px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) .ap-sheet .ap-remote .am-label { padding: 12px 10px 4px; background: none }
+body:not(.mobile) .ap-q { height: 30px; padding: 0 10px; border: 0; background: var(--ctl-fill); font-size: 12.5px }
+body:not(.mobile) .ap-q::placeholder { font-family: var(--mono); font-size: 11.5px }
+body:not(.mobile) .ap-bar { font-family: var(--mono); font-size: 11.5px }
+body:not(.mobile) .ap-results { border: 0; background: none }
+body:not(.mobile) .ap-sheet .ap-list { padding: 0; background: none }
+body:not(.mobile) .ap-sheet :is(.ap-row, .ap-rm) { padding: 7px 10px; border-top: 0; border-radius: var(--radius-sm) }
+body:not(.mobile) .ap-sheet :is(.ap-row, .ap-rm):is(:hover, :focus-within, :focus-visible, [aria-selected="true"]) { background: var(--ctl-fill) }
+body:not(.mobile) .ap-sheet .ap-row .m, body:not(.mobile) .ap-rm .m { font-family: var(--mono); font-size: 11px; color: var(--dim) }
+body:not(.mobile) .ap-sheet .ap-row .m b { color: var(--muted) }
+body:not(.mobile) .ap-sheet :is(.ap-row .acts, .ap-rm) .dbtn { opacity: 0 }
+body:not(.mobile) .ap-sheet :is(.ap-row, .ap-rm):is(:hover, :focus-within, :focus-visible) .dbtn { opacity: 1 }
+body:not(.mobile) .ap-results .am-sub, body:not(.mobile) .ap-results .am-wait { padding: 2px 0; font-family: var(--mono); font-size: 11.5px; color: var(--dim) }
+body:not(.mobile) .ap-sheet .ap-remote summary, body:not(.mobile) .ap-sync summary { padding: 6px 0; font-family: var(--mono); font-size: 11px; color: var(--dim) }
+body:not(.mobile) .ap-sheet .ap-remote summary:hover, body:not(.mobile) .ap-sync summary:hover { color: var(--fg) }

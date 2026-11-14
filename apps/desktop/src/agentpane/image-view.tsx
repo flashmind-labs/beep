@@ -3,6 +3,7 @@ import { fileSize, openViewer } from "../chat/media.ts";
 import { actualView, fitView, pinchStep, zoomAt, type Touches } from "./media-state.ts";
 import { FileActions } from "./media-view.tsx";
 import type { MediaTab } from "./media.ts";
+import { Button } from "../ui/kit.tsx";
 
 interface ImageControls { loaded(): void; fit(): void; actual(): void }
 
@@ -115,5 +116,5 @@ export function ImageView({ tab, machine }: { tab: MediaTab; machine: string | n
   }, [tab]);
 
   return <><div className={`agpstage img${moving.drag ? " drag" : ""}${moving.zooming ? " zooming" : ""}`} ref={stage}><img ref={image} alt={tab.name} draggable={false} src={tab.url ?? undefined} onLoad={() => controls.current?.loaded()} /></div>
-    <div className="agpacts"><button className={`dbtn${display.fit ? " on" : ""}`} data-fit="1" onClick={() => controls.current?.fit()}>Fit</button><button className={`dbtn${display.actual ? " on" : ""}`} data-fit="0" onClick={() => controls.current?.actual()}>Actual size</button><span className="zoom">{display.zoom}</span><span className="meta">{tab.note ?? meta}</span><span className="sp" /><span className="hint">Pinch or Ctrl + scroll to zoom, swipe with two fingers or drag to pan</span>{tab.path ? <FileActions tab={tab} machine={machine} label="Open in Preview" /> : <button className="dbtn" data-full="1" title="Full size, to save or copy" onClick={() => { if (tab.url) openViewer([{ url: tab.url, name: tab.name, caption: "", saves: tab.url.startsWith("data:") }], 0); }}>Open full size</button>}</div></>;
+    <div className="agpacts"><Button className={display.fit ? "on" : ""} data-fit="1" onClick={() => controls.current?.fit()}>Fit</Button><Button className={display.actual ? "on" : ""} data-fit="0" onClick={() => controls.current?.actual()}>Actual size</Button><span className="zoom">{display.zoom}</span><span className="meta">{tab.note ?? meta}</span><span className="sp" /><span className="hint">Pinch or Ctrl + scroll to zoom, swipe with two fingers or drag to pan</span>{tab.path ? <FileActions tab={tab} machine={machine} label="Open in Preview" /> : <Button data-full="1" title="Full size, to save or copy" onClick={() => { if (tab.url) openViewer([{ url: tab.url, name: tab.name, caption: "", saves: tab.url.startsWith("data:") }], 0); }}>Open full size</Button>}</div></>;
 }

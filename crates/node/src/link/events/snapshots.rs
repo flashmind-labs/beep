@@ -1,7 +1,7 @@
 use super::*;
+use crate::events::ChangeKind;
 use beep_proto::node::events::{Query, Read, Snapshot, Value};
 use beep_proto::node::subscriptions::Reply;
-use crate::events::ChangeKind;
 
 const MAX_READS: usize = 4;
 const MAX_VALUE_BYTES: usize = 4 * 1024 * 1024;
@@ -24,9 +24,10 @@ const FOLDERS_GAP: Duration = Duration::from_secs(60);
 /// lookup live for every session row they drew, and the node looked again
 /// after every line any agent wrote; where a session works rarely changes.
 const SESSION_GAP: Duration = Duration::from_secs(30);
-/// A desktop's file read that came back unchanged waits twice as long before
-/// the next, up to this many times: desktops up to 0.8.4 kept one-off reads
-/// live, and nothing tells the node whether anyone still reads them.
+/// A desktop's file read that came back unchanged or failed waits twice as
+/// long before the next, up to this many times: desktops up to 0.8.4 kept
+/// one-off reads live, and nothing tells the node whether anyone still reads
+/// them.
 const MAX_IDLE_DOUBLINGS: u32 = 3;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,15 +100,29 @@ struct Projection {
     dirty: bool,
     running: bool,
     not_before: Instant,
-    /// Reads in a row that gave the value before.
+    /// Reads in a row that gave the value before or failed.
     idle: u32,
 }
 
 impl Projection {
+    fn new(topic: Topic, query: Option<u64>, source: Source) -> Self {
+        Self {
+            topic,
+            query,
+            source,
+            previous: None,
+            bytes: 0,
+            dirty: true,
+            running: false,
+            not_before: Instant::now(),
+            idle: 0,
+        }
+    }
+
     /// The least time to the next read. A file read, a desktop's or the
     /// listing behind a folder's `files` topic, backs off while it comes back
-    /// unchanged: an agent writing in a checkout would otherwise run git
-    /// status there four times a second.
+    /// unchanged or fails: an agent writing in a checkout would otherwise run
+    /// git status there four times a second.
     fn gap(&self) -> Duration {
         let gap = self.source.gap();
 
@@ -130,7 +145,7 @@ pub(super) struct Snapshots {
     stream: uuid::Uuid,
     generation: u64,
     revision: u64,
-    entries: BTreeMap<(Topic, Option<u64>), Projection>,
+    entries: BTreeMap<Key, Projection>,
     reads: JoinSet<Completed>,
     next_key: Option<Key>,
 }
@@ -357,17 +372,7 @@ impl Snapshots {
                     old.running = false;
                     old
                 }
-                None => Projection {
-                    topic,
-                    query,
-                    source,
-                    previous: None,
-                    bytes: 0,
-                    dirty: true,
-                    running: false,
-                    not_before: Instant::now(),
-                    idle: 0,
-                },
+                None => Projection::new(topic, query, source),
             };
             next.insert(key, entry);
         }
@@ -380,17 +385,7 @@ impl Snapshots {
             {
                 next.insert(
                     key.clone(),
-                    Projection {
-                        topic: previous.topic.clone(),
-                        query: None,
-                        source: Source::Missing,
-                        previous: None,
-                        bytes: 0,
-                        dirty: true,
-                        running: false,
-                        not_before: Instant::now(),
-                        idle: 0,
-                    },
+                    Projection::new(previous.topic.clone(), None, Source::Missing),
                 );
             }
         }
@@ -573,6 +568,7 @@ impl Snapshots {
             Err(error) => {
                 entry.previous = None;
                 entry.bytes = 0;
+                entry.idle = entry.idle.saturating_add(1);
                 Reply::SnapshotError {
                     query: entry.query,
                     topic: entry.topic.clone(),
@@ -606,36 +602,26 @@ async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Res
             }
         }
         Read::SignIn { tool } => {
-            let link = beep_proto::node::local_link();
-            let _task = AbortOnDropHandle::new(tokio::spawn(crate::machine::sign_in::serve(
-                link.node.0,
-                link.node.1,
-            )));
-            let (mut tx, mut rx) = link.caller;
-            tx.send(&beep_proto::node::sign_in::Request::State { tool })
-                .await?;
+            let state = super::ask(
+                &beep_proto::node::sign_in::Request::State { tool },
+                crate::machine::sign_in::serve,
+            )
+            .await?;
             Ok(Value::SignIn(
-                rx.recv()
-                    .await?
-                    .context("sign-in state closed without a reply")?,
+                state.context("sign-in state closed without a reply")?,
             ))
         }
         Read::Process(request) => Ok(Value::Process(
             crate::run::tasks::answer(crate::run::tasks::Table::Shared, request).await,
         )),
         Read::TerminalList => {
-            let link = beep_proto::node::local_link();
-            let _task = AbortOnDropHandle::new(tokio::spawn(crate::run::terminal::serve(
-                link.node.0,
-                link.node.1,
-            )));
-            let (mut tx, mut rx) = link.caller;
-            tx.send(&beep_proto::node::terminal::Request::List {})
-                .await?;
+            let list = super::ask(
+                &beep_proto::node::terminal::Request::List {},
+                crate::run::terminal::serve,
+            )
+            .await?;
             Ok(Value::Terminals(
-                rx.recv()
-                    .await?
-                    .context("terminal list closed without state")?,
+                list.context("terminal list closed without state")?,
             ))
         }
         Read::SyncList => Ok(Value::Sync(Box::new(

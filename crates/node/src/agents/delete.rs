@@ -3,6 +3,7 @@
 use super::{Agents, found::Agent};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::Status;
+use beep_proto::watched;
 use tokio::task::spawn_blocking;
 
 /// The longest session id accepted.
@@ -10,7 +11,7 @@ const MAX_ID: usize = 128;
 
 /// An id that cannot name anything outside a store: letters, digits, `-`
 /// and `_`, so no separator, no dot and no `..`.
-fn valid_id(id: &str) -> bool {
+pub(super) fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_ID
         && id
@@ -38,7 +39,7 @@ impl Agents {
         let agent_id = match self.get(id) {
             Some(ours) => {
                 ensure!(ours.agent == agent, "session {id} runs {}", ours.agent);
-                ours.live.borrow().agent_session.clone()
+                watched::read(&ours.live, |live| live.agent_session.clone())
             }
             None => Some(id.to_owned()),
         };
@@ -53,10 +54,11 @@ impl Agents {
             .filter(|(key, session)| {
                 session.agent == agent
                     && (key.as_str() == id
-                        || agent_id.is_some() && session.live.borrow().agent_session == agent_id)
+                        || agent_id.is_some()
+                            && watched::read(&session.live, |live| live.agent_session == agent_id))
             })
             .map(|(key, session)| {
-                let ended = session.live.borrow().status() == Status::Ended;
+                let ended = watched::read(&session.live, |live| live.status() == Status::Ended);
                 (key.clone(), ended)
             })
             .collect();
@@ -87,30 +89,18 @@ impl Agents {
         Ok(())
     }
 
-    /// Deletes `agent`'s files of its session `id` unless a process has
-    /// them open; `false` when it has none. `ours` says this node ran the
-    /// session and it ended, so a recent write is not a sign of life.
+    /// Checks that no process has `agent`'s files of its session `id` open.
+    /// `ours` says this node ran the session and it ended, so a recent write
+    /// is not a sign of life.
     pub(super) async fn check_closed_files(
         &self,
         agent: Agent,
         id: &str,
         ours: bool,
     ) -> Result<()> {
-        let mut found = match agent {
-            Agent::Claude => {
-                let mut owned = self.owned();
-                owned.remove(id);
-                self.external
-                    .list(1, Some(id.to_owned()), owned)
-                    .await?
-                    .pop()
-            }
-            other => {
-                let stores = self.stores.clone();
-                let find = id.to_owned();
-                spawn_blocking(move || stores.find(other, &find)).await?
-            }
-        };
+        let mut owned = self.owned();
+        owned.remove(id);
+        let mut found = self.find_external(agent, id, owned).await?;
 
         if let Some(found) = &mut found {
             // Deleting cannot be undone: for Claude Code a recent write still

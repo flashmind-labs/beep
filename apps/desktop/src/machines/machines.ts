@@ -20,42 +20,22 @@ import { loadClocks } from "./clock.ts";
 import { openSignIn } from "./signin.ts";
 import { type AdapterInstall } from "./adapters-state.ts";
 import { savedIn } from "../ui/platform.ts";
+import type { MachineView } from "./machine-state.ts";
 
 // ---------- Machines ----------
 
-/// What a machine reported about itself (MachineEnv).
-export interface MachineEnv {
-  /// `linux` or `macos`.
-  os: string;
-  /// Such as "Ubuntu 24.04" or "macOS 26.3".
-  os_version: string;
-  arch: string;
-  hostname: string;
-  cpus: number;
-  memory_mb: number;
-  home: string;
-  tools: { name: string; version: string | null }[];
-  /// Whether a CLI is signed in, such as gh.
-  logins: { tool: string; signed_in: boolean; account: string | null }[];
-  avds: string[];
-}
+export type { MachineEnv } from "./machine-state.ts";
 
 /// A machine or phone in the mesh (MachineView).
-export interface Machine {
-  id: string;
-  name: string;
-  online: boolean;
-  can_host?: boolean;
-  /// When it last connected or reported, in milliseconds since the Unix epoch.
-  seen_at: number;
-  version: string;
-  /// Null until its first report.
-  env: MachineEnv | null;
-  /// Removed after a day offline, such as a container.
-  temporary?: boolean;
+export interface Machine extends MachineView {
   /// The agents whose ACP adapter it is installing or could not install.
   adapters?: AdapterInstall[];
 }
+
+/// The machine whose Remove waits for an answer.
+export interface Asking { id: string; busy: boolean; error: string }
+
+export interface MachineSearch { id: string; folder: string | null; draft: string | null; busy: boolean; error: string }
 
 // The machines running beep-node (ListMachines), from Settings. `mac` is
 // this Mac's own id, which unlinks from Settings rather than here; `asking`
@@ -64,7 +44,7 @@ export const MC: {
   list: Machine[] | null;
   error: string;
   mac: string | null;
-  asking: { id: string; busy: boolean; error: string } | null;
+  asking: Asking | null;
   /// The machines Update works on.
   updatable: Set<string>;
   /// The newest beep-node release, null until read or while offline.
@@ -86,14 +66,14 @@ export const MC: {
 /// Where the open machine looks for projects (GetMachineSearch): null until
 /// read, or when its beep-node cannot say; `draft` is the field while
 /// changing it.
-let search: { id: string; folder: string | null; draft: string | null; busy: boolean; error: string } | null = null;
+let search: MachineSearch | null = null;
 let searchEditGeneration = 0;
 
 /// The open machine's log (GetMachineLog): `text` is null until read.
 let log: MachineLog | null = null;
 
 /// A tool on a machine with a newer release (ToolUpdate).
-interface ToolUpdate {
+export interface ToolUpdate {
   machine_id: string;
   tool: string;
   version: string;

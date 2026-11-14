@@ -10,6 +10,7 @@ use beep_fleet::{
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
 };
+use beep_proto::watched;
 use beep_proto::{
     ApiKey, SecretText, Service, SyncStatus, WorkDiff,
     node::{
@@ -105,7 +106,7 @@ async fn until(mesh: &Mesh, ok: impl Fn(&Mesh) -> bool) {
     let mut updates = mesh.updates();
     timeout(LIMIT, async {
         loop {
-            updates.borrow_and_update();
+            watched::read_and_update(&mut updates, |_| ());
 
             if ok(mesh) {
                 return;
@@ -262,6 +263,15 @@ impl FakeNode {
                     && let Ok(Some(SessionsRequest::MoveProgress { .. })) = first
                 {
                     tx.send(&SessionsReply::Moving { progress: None })
+                        .await
+                        .ok();
+                    return;
+                }
+
+                if self.moves
+                    && let Ok(Some(SessionsRequest::MoveCheck { .. })) = first
+                {
+                    tx.send(&SessionsReply::MoveChecked { ignored: false })
                         .await
                         .ok();
                     return;
@@ -2694,6 +2704,68 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
 }
 
 #[tokio::test]
+async fn a_session_that_entered_a_worktree_from_the_checkout_moves() {
+    use beep_fleet::{AskedWorktree, MoveAsk};
+    use beep_proto::node::mesh_state::{StateValue, SyncSpec};
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    let node = Arc::new(FakeNode {
+        moves: true,
+        ..FakeNode::default()
+    });
+    let desk = desk(&f.studio, &[(&f.build, &node), (&second, &node)]).await;
+    let spec = SyncSpec {
+        ignored: Default::default(),
+        folders: [
+            (f.build.id, "/srv/build/app".to_owned()),
+            (second.id, "/Users/me/app".to_owned()),
+        ]
+        .into(),
+        paused: false,
+    };
+    f.studio
+        .mesh
+        .set(
+            Key::Sync("acme/app".to_owned()),
+            Some(spec.to_bytes().expect("a spec encodes")),
+        )
+        .await
+        .expect("the spec is written");
+    let ask = |cwd: &'static str| MoveAsk {
+        agent: "claude",
+        id: "s1",
+        from: f.build.id,
+        to: second.id,
+        project: "acme/app",
+        cwd,
+        worktree: Some(AskedWorktree {
+            folder: "/srv/build/app/.worktrees/x",
+            branch: "x",
+        }),
+        mode: None,
+        stop: false,
+    };
+
+    let started_outside = desk
+        .move_session(ask("/srv/build/app/crates/a"))
+        .await
+        .expect("the move is asked for");
+    assert_eq!(started_outside.path, "crates/a");
+
+    let started_inside = desk
+        .move_session(ask("/srv/build/app/.worktrees/x/crates/b"))
+        .await
+        .expect("the move is asked for");
+    assert_eq!(started_inside.path, "crates/b");
+
+    match desk.move_session(ask("/elsewhere")).await {
+        Err(FleetError::Refused(why)) => assert!(why.contains("outside"), "{why}"),
+        other => panic!("not refused: {:?}", other.map(|_| ())),
+    }
+}
+
+#[tokio::test]
 async fn a_move_takes_folders_from_place_records_when_there_is_no_sync_record() {
     use beep_fleet::MoveAsk;
     use beep_proto::node::mesh_state::{Place, StateValue};
@@ -3615,4 +3687,33 @@ async fn repository_copies_rename_independently_and_retries_keep_successful_host
     );
     assert_eq!(requests.lock().unwrap().len(), calls.len());
     server.abort();
+}
+
+#[tokio::test]
+async fn beep_sync_over_syncthing_excludes_existing_projects() {
+    use beep_proto::node::mesh_state::ProjectRecord;
+    let studio = create("studio").await;
+    let desk = desk(&studio, &[]).await;
+    let key = Key::Project("example/repo".to_owned());
+    let record = ProjectRecord {
+        url: "https://example.com/example/repo".into(),
+        syncthing_files: Some(true),
+        ..ProjectRecord::default()
+    };
+    studio
+        .mesh
+        .set(key.clone(), Some(record.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    assert!(!desk.beep_sync_over_syncthing());
+
+    desk.set_beep_sync_over_syncthing(true).await.unwrap();
+
+    assert!(desk.beep_sync_over_syncthing());
+    assert_eq!(
+        desk.project_syncthing_mode("example/repo", None)
+            .await
+            .unwrap(),
+        Some(false)
+    );
 }

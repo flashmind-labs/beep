@@ -1,20 +1,28 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
+use super::{
+    Agents, MAX_TRANSCRIPT,
+    claude::Followed,
+    found::{Agent, Seen},
+    transcript_stage,
+};
 use crate::link::HEARTBEAT;
-use super::{Agents, MAX_TRANSCRIPT, claude::Followed, found::Agent, transcript_stage};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        Entry, FOLLOW_READERS_FULL, FollowSession, SessionCursor, SessionSnapshot, SessionSource, SessionUpdate},
+        Entry, ExternalSession, FOLLOW_READERS_FULL, FollowSession, SessionCursor, SessionSnapshot,
+        SessionSource, SessionUpdate,
+    },
 };
+use beep_proto::watched;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, BTreeSet, HashMap},
     future::pending,
     ops::Range,
     path::PathBuf,
     sync::{
-        Arc, LazyLock, Mutex, PoisonError,
+        Arc, LazyLock, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -56,36 +64,91 @@ struct Summary {
     pid: Option<u32>,
 }
 
+const STORED_AGENTS: [Agent; 4] = [Agent::Codex, Agent::Pi, Agent::Flsh, Agent::OpenCode];
+
+/// Directory listings belong to the notification lease. Other harnesses' writes
+/// do not invalidate them; descriptions still apply current presence and folders.
+#[derive(Default)]
+struct SummaryCache {
+    stores: BTreeMap<Agent, Vec<Seen>>,
+    claude: Option<Vec<ExternalSession>>,
+}
+
+impl SummaryCache {
+    async fn read(&mut self, agents: &Agents, changed: &BTreeSet<Agent>) -> Result<Vec<Summary>> {
+        let stores = agents.stores.clone();
+        let mut listings = std::mem::take(&mut self.stores);
+        let changed = changed.clone();
+        let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);
+        let described = spawn_blocking(move || {
+            for agent in STORED_AGENTS {
+                if changed.contains(&agent) || !listings.contains_key(&agent) {
+                    listings.insert(agent, stores.sessions(Some(agent)));
+                }
+            }
+
+            // Preserve the stores' order when activity times tie.
+            let mut seen: Vec<_> = STORED_AGENTS
+                .into_iter()
+                .flat_map(|agent| listings[&agent].iter().cloned())
+                .collect();
+            seen.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
+            seen.truncate(512);
+            let now = std::time::SystemTime::now();
+            let sessions = seen
+                .into_iter()
+                .map(|session| stores.describe(session, now))
+                .collect::<Vec<_>>();
+            (listings, sessions)
+        });
+        let claude = async {
+            if refresh_claude {
+                agents
+                    .external
+                    .list(512, None, agents.owned())
+                    .await
+                    .map(Some)
+            } else {
+                Ok(None)
+            }
+        };
+        let (claude, others) = tokio::join!(claude, described);
+        let (listings, others) = others.context("reading agent summary")?;
+        self.stores = listings;
+
+        match claude {
+            Ok(Some(claude)) => self.claude = Some(claude),
+            Ok(None) => {}
+            Err(error) => {
+                self.claude = None;
+                return Err(error);
+            }
+        }
+
+        let mut sessions = self.claude.clone().unwrap_or_default();
+        agents.observe_external(&sessions);
+        sessions.extend(others);
+        agents.presence.merge(&mut sessions);
+        agents.settle_closed(&mut sessions);
+        let mut summary: Vec<_> = sessions
+            .into_iter()
+            .map(|session| Summary {
+                id: session.id,
+                agent: session.agent,
+                title: session.title,
+                cwd: session.cwd,
+                presence: session.presence,
+                pid: session.pid,
+            })
+            .collect();
+        summary.sort_by(|a, b| (&a.agent, &a.id).cmp(&(&b.agent, &b.id)));
+        Ok(summary)
+    }
+}
+
+#[cfg(test)]
 async fn source_summary(agents: &Agents) -> Result<Vec<Summary>> {
-    let stores = agents.stores.clone();
-    let described = spawn_blocking(move || {
-        let mut seen = stores.sessions(None);
-        seen.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
-        seen.truncate(512);
-        let now = std::time::SystemTime::now();
-        seen.into_iter()
-            .map(|session| stores.describe(session, now))
-            .collect::<Vec<_>>()
-    });
-    let (claude, others) = tokio::join!(agents.external.list(512, None, agents.owned()), described);
-    let mut sessions = claude?;
-    agents.observe_external(&sessions);
-    sessions.extend(others.context("reading agent summary")?);
-    agents.presence.merge(&mut sessions);
-    agents.settle_closed(&mut sessions);
-    let mut summary: Vec<_> = sessions
-        .into_iter()
-        .map(|session| Summary {
-            id: session.id,
-            agent: session.agent,
-            title: session.title,
-            cwd: session.cwd,
-            presence: session.presence,
-            pid: session.pid,
-        })
-        .collect();
-    summary.sort_by(|a, b| (&a.agent, &a.id).cmp(&(&b.agent, &b.id)));
-    Ok(summary)
+    SummaryCache::default().read(agents, &BTreeSet::new()).await
 }
 
 pub async fn serve_follow(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
@@ -140,7 +203,10 @@ async fn follow(
         let presence_path = agents.external.presence_path();
         let presence_changed = stale.clone();
         let watcher = crate::events::paths::Paths::new(move |roots| {
-            if presence_path.as_ref().is_some_and(|path| roots.contains(path)) {
+            if presence_path
+                .as_ref()
+                .is_some_and(|path| roots.contains(path))
+            {
                 presence_changed.store(true, Ordering::Release);
             }
             let _ = dirty.try_send(());
@@ -162,10 +228,10 @@ async fn follow(
     };
 
     loop {
-        presence.borrow_and_update();
+        watched::read_and_update(&mut presence, |_| ());
 
         if let Some(live) = &mut live {
-            live.borrow_and_update();
+            watched::read_and_update(live, |_| ());
         }
 
         let read = Read {
@@ -211,9 +277,8 @@ async fn follow(
                 .as_ref()
                 .map(|prior| (prior.cursor.clone(), prior.source.clone()));
             let (window, update) = next_update(snapshot, prior, &requested)?;
-            let changed = held.is_none_or(|(cursor, source)| {
-                cursor != window.cursor || source != window.source
-            });
+            let changed = held
+                .is_none_or(|(cursor, source)| cursor != window.cursor || source != window.source);
             Ok::<_, anyhow::Error>((window, update, changed))
         })
         .await
@@ -273,7 +338,12 @@ async fn follow(
         }
         // Coalesce token bursts; the watch channel and file queue retain a dirty bit.
         // A session Beep runs is a live view; one read from its file can wait longer.
-        sleep(if live.is_some() { COALESCE_LIVE } else { COALESCE_FILE }).await;
+        sleep(if live.is_some() {
+            COALESCE_LIVE
+        } else {
+            COALESCE_FILE
+        })
+        .await;
 
         if live.is_none() {
             live = agents
@@ -305,7 +375,7 @@ struct Reader {
 
 impl Reader {
     fn new(permit: SemaphorePermit<'static>) -> Self {
-        let mut windows = WINDOWS.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut windows = crate::lock(&WINDOWS);
         windows.next_id += 1;
         Self {
             id: windows.next_id,
@@ -314,17 +384,11 @@ impl Reader {
     }
 
     fn take(&self) -> Option<Window> {
-        WINDOWS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take(self.id)
+        crate::lock(&WINDOWS).take(self.id)
     }
 
     fn keep(&self, window: Window) {
-        WINDOWS
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .keep(self.id, window, CACHED_BYTES);
+        crate::lock(&WINDOWS).keep(self.id, window, CACHED_BYTES);
     }
 }
 
@@ -520,9 +584,7 @@ fn retain(snapshot: SessionSnapshot, previous: Option<Window>) -> Result<(Window
             .and_then(|previous| previous.held(position, entry))
         {
             Some(range) => Encoded::Held(range),
-            None => Encoded::Fresh(
-                rmp_serde::to_vec(entry).context("measuring transcript entry")?,
-            ),
+            None => Encoded::Fresh(rmp_serde::to_vec(entry).context("measuring transcript entry")?),
         };
         let next = bytes
             .checked_add(entry.len())

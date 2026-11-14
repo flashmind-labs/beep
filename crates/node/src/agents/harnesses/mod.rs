@@ -345,12 +345,16 @@ fn update_steps(found: &Found, npm: &install::Npm) -> Vec<install::Step> {
 
 /// Refreshes the versions of installed harnesses without probing sign-ins.
 pub(super) async fn refresh_versions(kinds: &[AgentKind], latest: &Latest) {
-    let packages: Vec<_> = found(kinds)
+    latest.versions(&npm_packages(&found(kinds)), false).await;
+}
+
+/// The npm packages of the installed harnesses that have one.
+fn npm_packages(found: &[Found]) -> Vec<&'static str> {
+    found
         .iter()
         .filter(|found| found.cli.is_some())
         .filter_map(|found| harness(&found.agent)?.npm)
-        .collect();
-    latest.versions(&packages, false).await;
+        .collect()
 }
 
 /// What the node finds of every harness, with the newest versions looked
@@ -363,14 +367,10 @@ pub(super) async fn report(
 ) -> HarnessReport {
     let found = found(kinds);
     let npm = latest.npm().await;
-    let packages: Vec<&'static str> = found
-        .iter()
-        .filter(|found| found.cli.is_some())
-        .filter_map(|found| harness(&found.agent)?.npm)
-        .collect();
+    let packages = npm_packages(&found);
     let flsh_installed = found
         .iter()
-        .any(|item| item.agent == "flsh" && item.cli.is_some());
+        .any(|item| AgentSlug::FLSH == item.agent.as_str() && item.cli.is_some());
     let ((newest, checked_at), flsh, harnesses) = tokio::join!(
         latest.versions(&packages, refresh),
         async {
@@ -392,7 +392,7 @@ pub(super) async fn report(
     let harnesses = harnesses
         .into_iter()
         .map(|mut info| {
-            info.latest = if info.agent == "flsh" {
+            info.latest = if AgentSlug::FLSH == info.agent.as_str() {
                 flsh.clone()
             } else {
                 harness(&info.agent)
@@ -485,16 +485,7 @@ async fn sign_in(agent: &str, cli: &std::path::Path, kind: &AgentKind) -> SignIn
     };
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&out.stderr));
-    let mut read = read_sign_in(agent, out.status.success(), &text);
-
-    if agent == "claude"
-        && read.signed_in == Some(false)
-        && crate::machine::env::claude_in_keychain().await
-    {
-        read.signed_in = Some(true);
-    }
-
-    read
+    read_sign_in(agent, out.status.success(), &text)
 }
 
 /// What a status command's exit and output say of the sign-in.

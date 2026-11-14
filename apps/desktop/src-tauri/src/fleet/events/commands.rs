@@ -6,6 +6,7 @@ use beep_proto::node::commands::{Reply, Request};
 use iroh::EndpointId;
 use std::{
     collections::HashMap,
+    future::Future,
     sync::{Arc, PoisonError},
     time::{Duration, Instant},
 };
@@ -16,40 +17,48 @@ use tokio::{
 use uuid::Uuid;
 
 pub(super) struct CommandWorker {
-    fleet: Arc<Fleet>,
-    machine: EndpointId,
-    commands: Commands,
+    pub(super) fleet: Arc<Fleet>,
+    pub(super) machine: EndpointId,
+    pub(super) commands: Commands,
+}
+
+/// Runs `connect` again after every end, pausing 1 s doubling to 30 s, and
+/// from 1 s again after a connection that lasted 10 s.
+/// `ended` logs an end with the error and the connection's milliseconds.
+pub(super) async fn retrying<F, Fut>(connect: F, ended: impl Fn(&DesktopError, u128))
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    let mut pause = Duration::from_secs(1);
+
+    loop {
+        let started = Instant::now();
+        if let Err(error) = connect().await {
+            ended(&error, started.elapsed().as_millis());
+        }
+
+        if started.elapsed() >= Duration::from_secs(10) {
+            pause = Duration::from_secs(1);
+        }
+
+        sleep(pause).await;
+        pause = (pause * 2).min(Duration::from_secs(30));
+    }
 }
 
 impl CommandWorker {
-    pub(super) fn new(fleet: Arc<Fleet>, machine: EndpointId, commands: Commands) -> Self {
-        Self {
-            fleet,
-            machine,
-            commands,
-        }
-    }
-
     pub(super) async fn run(self) {
-        let mut pause = Duration::from_secs(1);
-
-        loop {
-            let started = Instant::now();
-            if let Err(error) = self.connect().await {
+        retrying(
+            || self.connect(),
+            |error, elapsed_ms| {
                 log::warn!(
-                    "command stream ended machine={} elapsed_ms={}: {error}",
-                    self.machine,
-                    started.elapsed().as_millis()
+                    "command stream ended machine={} elapsed_ms={elapsed_ms}: {error}",
+                    self.machine
                 );
-            }
-
-            if started.elapsed() >= Duration::from_secs(10) {
-                pause = Duration::from_secs(1);
-            }
-
-            sleep(pause).await;
-            pause = (pause * 2).min(Duration::from_secs(30));
-        }
+            },
+        )
+        .await;
     }
 
     async fn connect(&self) -> Result<()> {

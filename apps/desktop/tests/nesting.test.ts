@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { childRow, nest, parentRow, splitEnded } from "../src/agents/nesting-state.ts";
+import { waitingSessions, sessionKey } from "../src/bar/waiting-state.ts";
 import { subagent } from "../src/agents/agentlog.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 
@@ -49,14 +50,14 @@ test("an id on a card finds the row of the machine it names", () => {
 
 test("an agent another agent started reads as a card that links to its session", () => {
   const sub = subagent("[steps] 1\n[agent] codex on mac-box\n[child] a3f9c1@mac-box idle k1\nBuilt it.");
-  assert.deepEqual(sub, { count: 1, steps: [], result: "Built it.", agent: "codex on mac-box", child: { id: "a3f9c1@mac-box", state: "idle", key: "k1" } });
+  assert.deepEqual(sub, { count: 1, steps: [], result: "Built it.", model: null, agent: "codex on mac-box", child: { id: "a3f9c1@mac-box", state: "idle", key: "k1" } });
   // What the child spent rides on its card, and an unpriced child says so.
   const spent = subagent("[steps] 1\n[agent] codex on mac-box\n[child] a3f9c1@mac-box idle k1\n[spend] 18400 0.0412\nBuilt it.");
   assert.deepEqual(spent?.child, { id: "a3f9c1@mac-box", state: "idle", key: "k1", tokens: 18400, cost: 0.0412 });
   assert.equal(spent?.result, "Built it.");
   assert.equal(subagent("[steps] 1\n[child] a@b idle k1\n[spend] 5 -\nok")?.child?.cost, null);
   // A plain subagent is as before.
-  assert.deepEqual(subagent("[steps] 0\n[agent] Explore\nDone"), { count: 0, steps: [], result: "Done", agent: "Explore" });
+  assert.deepEqual(subagent("[steps] 0\n[agent] Explore\nDone"), { count: 0, steps: [], result: "Done", model: null, agent: "Explore" });
 });
 
 test("ended trees fold apart, and a tree with a live session stays live whole", () => {
@@ -69,4 +70,14 @@ test("ended trees fold apart, and a tree with a live session stays live whole", 
   const split = splitEnded(nest(rows), r => r.status === "ended");
   assert.deepEqual(split.live.map(n => n.row.id), ["live", "parent", "kid"]);
   assert.deepEqual(split.ended.map(n => n.row.id), ["done"]);
+});
+
+test("Waiting hides child conversations in every state, including unread and asking", () => {
+  const parent = row("parent", { status: "idle" });
+  const children = ["working", "idle", "asking", "ended"].map(status => row(status, {
+    status, parent: under("remote", "missing"),
+  }));
+  const unread = new Set(children.map(sessionKey));
+  assert.deepEqual(waitingSessions([parent, ...children], unread, "", () => "project").map(item => item.session.id), ["parent"]);
+  assert.deepEqual(waitingSessions(children, unread, "asking", () => "project"), []);
 });

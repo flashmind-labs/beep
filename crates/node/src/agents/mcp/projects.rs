@@ -1,8 +1,8 @@
 //! Project discovery and checkout selection from replicated mesh records.
 
 use super::{
-    machines::machines,
-    reply::{fail, ok},
+    machines::{find, machines},
+    reply::{fail, json_of, parse},
 };
 use crate::agents::moving::project_folder;
 use beep_mesh::{Key, Mesh};
@@ -12,7 +12,7 @@ use beep_proto::node::{
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 
 #[derive(Serialize)]
 struct Project {
@@ -62,7 +62,7 @@ fn names(mesh: &Mesh) -> BTreeMap<String, Option<String>> {
     names
 }
 
-fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
+pub(super) fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
     names(mesh)
         .into_keys()
         .find(|known| {
@@ -87,20 +87,31 @@ pub(super) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<Str
         })
 }
 
+/// The project whose checkout on `machine` holds `cwd`, the innermost when
+/// checkouts nest.
+pub(super) fn of_folder(mesh: &Mesh, cwd: &str, machine: EndpointId) -> Option<String> {
+    names(mesh)
+        .into_keys()
+        .filter_map(|name| {
+            let folder = project_folder(mesh, &name, &machine)?;
+            let inside = !folder.trim().is_empty() && Path::new(cwd).starts_with(&folder);
+            inside.then_some((folder.len(), name))
+        })
+        .max()
+        .map(|(_, name)| name)
+}
+
 pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
-    let args: Args = match serde_json::from_str(args) {
+    let args: Args = match parse(args) {
         Ok(args) => args,
-        Err(e) => return fail(format!("The arguments do not fit: {e}")),
+        Err(e) => return fail(e),
     };
     let Some(mesh) = mesh else {
         return fail("This machine is in no mesh, so it has no registered projects.");
     };
     let machines = machines(mesh);
     let machine = match args.machine {
-        Some(name) => match machines
-            .iter()
-            .find(|machine| machine.name == super::machines::command_name(&name))
-        {
+        Some(name) => match find(mesh, &name) {
             Some(machine) => Some(machine.id),
             None => {
                 return fail(format!(
@@ -153,10 +164,7 @@ pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
         }
     }
 
-    match serde_json::to_string(&projects) {
-        Ok(text) => ok(text),
-        Err(e) => fail(format!("Could not write the answer: {e}")),
-    }
+    json_of(&projects)
 }
 
 #[cfg(test)]

@@ -1,7 +1,9 @@
 //! One agent session's stream: what the caller asks and what the node sends.
 
 use super::{CheckoutPlan, Effort};
-use crate::{AgentContext, AgentToolCall, ModelId, ProviderCredits, Upload};
+use crate::{
+    AgentContext, AgentToolCall, ModelId, ProviderCredits, Upload, node::device::DeviceId,
+};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -81,6 +83,9 @@ pub enum Request {
     /// subagents one by one, the node stops the agent: the session ends and
     /// the next message resumes it. A node older than this refuses it.
     StopAll {},
+    /// Keeps `device` as the session's `SessionInfo::device`, or forgets it.
+    /// A node older than this refuses it.
+    SetDevice { device: Option<SessionDevice> },
 }
 
 /// What the node sends on an agent stream.
@@ -161,6 +166,17 @@ pub struct SessionInfo {
     /// The model this session reports, when known.
     #[serde(default)]
     pub model: Option<ModelId>,
+    /// The emulator or simulator the session last used, which its Device
+    /// tab shows while it runs.
+    #[serde(default)]
+    pub device: Option<SessionDevice>,
+}
+
+/// An emulator or simulator a session uses: the machine it runs on and its id there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionDevice {
+    pub machine: EndpointId,
+    pub device: DeviceId,
 }
 
 /// Who started a session and how deep the chain goes, as the node that
@@ -435,6 +451,9 @@ pub struct Entry {
     pub ms: Option<u64>,
     #[serde(default)]
     pub tool: Option<AgentToolCall>,
+    /// Unix seconds when this entry began; absent for undated history.
+    #[serde(default)]
+    pub sent_at: Option<u64>,
 }
 
 impl Entry {
@@ -444,6 +463,7 @@ impl Entry {
             text,
             ms: None,
             tool: None,
+            sent_at: None,
         }
     }
 }

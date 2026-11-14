@@ -6,6 +6,7 @@ use beep_proto::node::{
     agent::{self, CheckoutPlan, SessionsReply, Status},
     harness::AgentSettings,
 };
+use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path};
 
 /// A Claude Code session id, as its transcript file is named.
@@ -137,7 +138,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| {
+        watched::wait_for(&mut live, |live| {
             live.status() == Status::Idle
                 && live
                     .transcript(10)
@@ -221,13 +222,15 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| matches!(live.status(), Status::Idle | Status::Ended)),
+        watched::wait_for(&mut live, |live| {
+            matches!(live.status(), Status::Idle | Status::Ended)
+        }),
     )
     .await
     .expect("the session loads")
     .unwrap();
     let key = image_key(&shot);
-    let (entries, _) = session.live.borrow().transcript(10);
+    let (entries, _) = watched::read(&session.live, |live| live.transcript(10));
     assert_eq!(
         entries[0].text,
         format!("what is this\n[image: image-{key}]\n")
@@ -426,7 +429,9 @@ done
     let mut live = first.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| live.status() == Status::Idle || live.status() == Status::Ended),
+        watched::wait_for(&mut live, |live| {
+            live.status() == Status::Idle || live.status() == Status::Ended
+        }),
     )
     .await
     .unwrap()
@@ -439,7 +444,9 @@ done
     let mut live = resumed.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| live.info.turns == 1 || live.status() == Status::Ended),
+        watched::wait_for(&mut live, |live| {
+            live.info.turns == 1 || live.status() == Status::Ended
+        }),
     )
     .await
     .unwrap()
@@ -448,10 +455,7 @@ done
     assert_eq!(resumed.info().cwd, first.info().cwd);
     assert_eq!(resumed.info().mode.as_deref(), Some("accept_edits"));
     assert!(
-        resumed
-            .live
-            .borrow()
-            .transcript(10)
+        watched::read(&resumed.live, |live| live.transcript(10))
             .0
             .iter()
             .any(|entry| entry.text == "Resumed.")
@@ -492,7 +496,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| live.agent_session.is_some()),
+        watched::wait_for(&mut live, |live| live.agent_session.is_some()),
     )
     .await
     .expect("the agent gives its id")
@@ -544,7 +548,7 @@ done"#,
     let mut live = resumed.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| live.status() == Status::Idle),
+        watched::wait_for(&mut live, |live| live.status() == Status::Idle),
     )
     .await
     .expect("the resumed session loads")
@@ -566,14 +570,21 @@ done"#,
         .unwrap();
     tokio::time::timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| live.info.turns == 1 && live.status() == Status::Idle),
+        watched::wait_for(&mut live, |live| {
+            live.info.turns == 1 && live.status() == Status::Idle
+        }),
     )
     .await
     .expect("the prompt reaches the resumed run")
     .unwrap();
-    assert!(resumed.live.borrow().transcript(10).0.iter().any(|entry| {
-        entry.kind == agent::EntryKind::User && entry.text == "Continue the work"
-    }));
+    assert!(
+        watched::read(&resumed.live, |live| live.transcript(10))
+            .0
+            .iter()
+            .any(|entry| {
+                entry.kind == agent::EntryKind::User && entry.text == "Continue the work"
+            })
+    );
     resumed.close().await;
 }
 
@@ -664,7 +675,7 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| live.status() == Status::Idle),
+        watched::wait_for(&mut live, |live| live.status() == Status::Idle),
     )
     .await
     .unwrap()
@@ -723,7 +734,7 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
         .unwrap();
     timeout(
         Duration::from_secs(10),
-        live.wait_for(|live| live.info.turns >= 2),
+        watched::wait_for(&mut live, |live| live.info.turns >= 2),
     )
     .await
     .unwrap()
@@ -771,7 +782,7 @@ mod actor_tests {
         let mut live = session.live.clone();
         timeout(
             Duration::from_secs(5),
-            live.wait_for(|live| live.status() == agent::Status::Idle),
+            watched::wait_for(&mut live, |live| live.status() == agent::Status::Idle),
         )
         .await
         .unwrap()
@@ -831,7 +842,7 @@ mod actor_tests {
                 }
             }
 
-            live.wait_for(|live| {
+            watched::wait_for(&mut live, |live| {
                 live.status() == agent::Status::Idle
                     && live
                         .transcript(20)
@@ -845,8 +856,7 @@ mod actor_tests {
         .await
         .unwrap();
         assert_eq!(
-            live.borrow()
-                .transcript(20)
+            watched::read(&live, |live| live.transcript(20))
                 .0
                 .iter()
                 .filter(|entry| entry.text == "received once")

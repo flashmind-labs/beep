@@ -152,4 +152,13 @@ test("a 600 file diff keeps drafts, selections and filters while drawing only ne
   await page.locator(".dv").focus();
   await page.keyboard.press("j");
   await expect(page.locator(".dv-tree .dv-tr.on")).toHaveAttribute("data-path", /module-59\d?\.ts$/);
+
+  await page.keyboard.press("ControlOrMeta+f");
+  await expect(page.locator(".dv-find")).toBeFocused();
+  await page.keyboard.type("compute(477, 2)");
+  const match = page.locator(".dv-tree .dv-match").first();
+  await expect(match).toContainText("compute(477, 2)");
+  await match.click();
+  await expect(page.locator(".dv-l.dv-hit")).toContainText("compute(477, 2)");
+  await expect(page.locator(".dv-l.dv-hit")).toBeInViewport();
 });

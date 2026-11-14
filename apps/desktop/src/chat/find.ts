@@ -4,8 +4,8 @@ import { createDocumentView } from "../ui/document-root.tsx";
 import { FindView } from "./find-view.tsx";
 import { nextMatch, searchPattern, textMatches } from "./find-state.ts";
 
-export interface SearchSource { key: string; root: HTMLElement }
-export interface ChatSearch {
+interface SearchSource { key: string; root: HTMLElement }
+interface ChatSearch {
   body: HTMLElement & { stuck?: boolean };
   sources: () => SearchSource[];
   reveal: (key: string) => HTMLElement | null;
@@ -174,7 +174,7 @@ export function openChatFind(chat: ChatSearch) {
 const BLOCK = "p,pre,li,h1,h2,h3,h4,h5,h6,td,th,blockquote,summary,.dcoderen,.duser,.danswer,.dask,.dmsg";
 
 /** Match across inline markup, but never across separate messages or paragraphs. */
-export function matchingRanges(root: HTMLElement, pattern: RegExp | null): Range[][] {
+function matchingRanges(root: HTMLElement, pattern: RegExp | null): Range[][] {
   if (!pattern) return [];
   const groups: { block: Element | null; nodes: Text[]; text: string }[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);

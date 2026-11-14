@@ -1,6 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -62,7 +63,7 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
-    div#main.cc-main
+    div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -88,6 +89,11 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-rows
               div.bd-lane.hd
@@ -137,7 +143,6 @@ body.cbody
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
-      div.cc-box [hidden]
     nav#mb-tabs.mb-tabs [aria-label="Sections"]
       button [type="button"] "Home"
         span.ic
@@ -173,6 +178,8 @@ body.cbody
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]
             span.tt "Instructions"
+          button.cc-si [data-goto="skills"]
+            span.tt "Skills"
         small.dset-ver "Beep desktop 0.9.0"
       div.dset-body
         div.dset-top
@@ -196,26 +203,31 @@ body.cbody
               div#skillSyncSetting.dtoggle
                 span
                   b "Sync coding agent skills"
-                  small "Loading skill sync setting..."
-                button.dswitch [aria-checked="false" aria-label="Sync coding agent skills" disabled role="switch" type="button"]
+                  small "Keep your coding agent skills in sync across your machines."
+                button.dswitch [aria-checked="true" aria-label="Sync coding agent skills" role="switch" type="button"]
               div#projectSyncSetting.dtoggle
                 span
                   b "Project sync"
-                  small "Loading project sync setting..."
-                button.dswitch [aria-checked="false" aria-label="Project sync" disabled role="switch" type="button"]
+                  small "Sync projects across all your machines. Turning off keeps existing files in place."
+                button.dswitch [aria-checked="true" aria-label="Project sync" role="switch" type="button"]
+              div#beepSyncOverSyncthingSetting.dtoggle
+                span
+                  b "Always use Beep sync over Syncthing"
+                  small "Each project keeps its own Syncthing setting."
+                button.dswitch [aria-checked="false" aria-label="Always use Beep sync over Syncthing" role="switch" type="button"]
               div.dtoggle
                 span
                   b "Save files to"
                   small "No folder"
                 span
-                  button#chooseSaves.dbtn "Choose…"
+                  button#chooseSaves.dbtn [type="button"] "Choose…"
               div.dtoggle
                 span
                   b "Keyboard shortcuts"
                   small "Every shortcut, by where it works"
-                button#openShortcuts.dbtn "Show…"
+                button#openShortcuts.dbtn [type="button"] "Show…"
               div.dtoggle
                 span
                   b "Report a problem"
                   small "Collect logs from your machines and send them to us"
-                button#openReport.dbtn "Report…"
+                button#openReport.dbtn [type="button"] "Report…"

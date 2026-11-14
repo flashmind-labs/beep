@@ -101,16 +101,6 @@ pub(super) struct Attached {
     pub(super) applied: String,
 }
 
-/// What the folder for the worktree allows.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Spot {
-    Free,
-    /// A clean detached worktree of this checkout is there, at `prior`.
-    Detached {
-        prior: String,
-    },
-}
-
 /// Git's diff options that do not depend on the user's configuration.
 const DIFF_OPTIONS: [&str; 6] = [
     "--binary",
@@ -292,13 +282,6 @@ fn same_folder(a: &Path, b: &Path) -> bool {
 /// commit the branch contains, with no session running in it
 /// (`running_here`). Done before the source ends anything.
 pub(super) fn check(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Placed> {
-    Ok(match spot(main, path, branch, running_here)? {
-        Spot::Free => Placed::Made,
-        Spot::Detached { prior } => Placed::Reused { prior },
-    })
-}
-
-fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Spot> {
     if branch.starts_with('-') {
         bail!("{branch} is not a branch name");
     }
@@ -327,7 +310,7 @@ fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Sp
             );
         }
 
-        return Ok(Spot::Free);
+        return Ok(Placed::Made);
     }
 
     let detached = worktrees
@@ -360,7 +343,7 @@ fn spot(main: &Path, path: &Path, branch: &str, running_here: bool) -> Result<Sp
         );
     }
 
-    Ok(Spot::Detached { prior })
+    Ok(Placed::Reused { prior })
 }
 
 /// Whether commit `tip` has `ancestor` in its history.
@@ -385,7 +368,7 @@ pub(super) fn attach(
     work: &Work,
     running_here: bool,
 ) -> Result<Attached> {
-    let spot = spot(main, path, branch, running_here)?;
+    let spot = check(main, path, branch, running_here)?;
     let head = work.head.as_str();
 
     if head.is_empty() || !head.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -399,7 +382,7 @@ pub(super) fn attach(
     )
     .context("the worktree's commit has not come here yet")?;
 
-    if let Spot::Detached { prior } = &spot
+    if let Placed::Reused { prior } = &spot
         && !contains(main, head, prior)
     {
         bail!(
@@ -427,7 +410,7 @@ pub(super) fn attach(
     }
 
     let placed = match spot {
-        Spot::Free => {
+        Placed::Made => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).context("making the worktree's folder")?;
             }
@@ -437,7 +420,7 @@ pub(super) fn attach(
                 .context("adding the worktree")?;
             Placed::Made
         }
-        Spot::Detached { prior } => {
+        Placed::Reused { prior } => {
             run(path, &["checkout", "--quiet", branch], None)
                 .context("putting the worktree on the branch")?;
             Placed::Reused { prior }

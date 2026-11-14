@@ -21,6 +21,8 @@ Object.assign(globalThis, {
   navigationTest: { state, view },
   window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, Node: dom.window.Node,
   requestAnimationFrame: () => 0,
+  // jsdom lays nothing out, so nothing is ever resized.
+  ResizeObserver: class { observe() {} disconnect() {} },
 });
 const page = (exports: string) => `const v = globalThis.navigationTest.view; ${exports}`;
 const stubs = new Map(Object.entries({
@@ -35,7 +37,6 @@ const stubs = new Map(Object.entries({
   "center/pane.ts": page("export const paneView = v('pane');"),
   "center/home.ts": page("export const homeView = v('home');"),
   "project/page.ts": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
-  "project/syncpage.ts": page("export const syncView = v('sync'); export const SyncRoute = () => null;"),
   "terminals/view.ts": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
   "bar/core.ts": "export const S = { view: null };",
   "center/mobile.ts": "export const syncMobile = () => {}; export const canGoBack = () => false;",

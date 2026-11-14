@@ -29,3 +29,17 @@ pub async fn project_sync_set(fleet: FleetState<'_>, enabled: bool) -> Result<()
         .await?;
     Ok(())
 }
+
+#[tauri::command]
+pub async fn beep_sync_over_syncthing_get(fleet: FleetState<'_>) -> Result<bool> {
+    Ok(desk(&fleet).await?.beep_sync_over_syncthing())
+}
+
+#[tauri::command]
+pub async fn beep_sync_over_syncthing_set(fleet: FleetState<'_>, enabled: bool) -> Result<()> {
+    desk(&fleet)
+        .await?
+        .set_beep_sync_over_syncthing(enabled)
+        .await?;
+    Ok(())
+}

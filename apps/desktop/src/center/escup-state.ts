@@ -16,7 +16,7 @@ export interface EscAt {
   homeTab?: boolean;
 }
 
-export type EscUp = { to: "overview" } | { to: "tile" } | { to: "projects"; project: null } | { to: "home" } | null;
+export type EscUp = { to: "overview" } | { to: "tile" } | { to: "projects" } | { to: "home" } | null;
 
 /// Where Esc goes from `at`; null for nowhere.
 export function escUp(at: EscAt): EscUp {
@@ -24,5 +24,5 @@ export function escUp(at: EscAt): EscUp {
   if (at.page !== "projects") return null;
   if (at.tile) return { to: "tile" };
   if (at.alone) return null;
-  return at.picked ? { to: "projects", project: null } : { to: "home" };
+  return at.picked ? { to: "projects" } : { to: "home" };
 }

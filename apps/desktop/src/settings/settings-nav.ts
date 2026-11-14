@@ -10,6 +10,7 @@ const SETTINGS_PAGES = [
   ["agents", "Agent accounts"],
   ["creds", "Credentials"],
   ["instr", "Instructions"],
+  ["skills", "Skills"],
   ["plugins", "Plugins"],
 ] as const;
 
@@ -121,13 +122,6 @@ export function rememberPath(store: Store | null | undefined, path: SettingsPath
   } catch {
     // Nothing kept: the next open starts on General.
   }
-}
-
-/// The breadcrumb atop the right pane: the page, then the subpage when one
-/// is open. `subLabel` names a subpage, such as a machine's name.
-export function crumbs(path: SettingsPath, subLabel: (sub: SettingsSub) => string): string[] {
-  const page = pageLabel(path.page);
-  return path.sub ? [page, subLabel(path.sub)] : [page];
 }
 
 /// One entry of the left pane: a page, or a subpage nested under it.

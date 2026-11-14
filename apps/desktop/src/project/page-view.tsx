@@ -1,5 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, type ReactElement } from "react";
 import { Icon } from "../ui/icons.tsx";
+import { PaintedEmpty } from "../ui/painted-art.tsx";
 import type { Freshness } from "../ui/pagecache.ts";
 
 /// One child of a Projects page container: an element React renders, or a
@@ -57,11 +58,11 @@ function placeParts(box: HTMLElement, parts: readonly PagePart[], before: readon
 }
 
 export function NoProjects({ add }: { add: () => void }) {
-  return <div className="cc-panel cc-empty">
+  return <PaintedEmpty>
     <b>No projects yet</b>
-    <span>A folder or a repository to clone.</span>
+    <span>Choose a folder, clone a repository or start a new one.</span>
     <button type="button" className="pri" onClick={add}><Icon name="plus"/> Add a project</button>
-  </div>;
+  </PaintedEmpty>;
 }
 
 /// The note on a list being read again: a still dot, else how old it is.

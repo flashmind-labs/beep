@@ -49,13 +49,20 @@ pub(crate) fn checkout(dir: &Path) -> Option<Checkout> {
 }
 
 fn ask_checkout(dir: &Path) -> Option<Checkout> {
+    let (_, root) = folders(dir)?;
+    let origin = origin(&root);
+    Some(Checkout { root, origin })
+}
+
+/// The top folder of the work tree `dir` is in, and of the repository's main
+/// checkout.
+fn folders(dir: &Path) -> Option<(PathBuf, PathBuf)> {
     let said = git(dir, &["rev-parse", "--show-toplevel", "--git-common-dir"])?;
     let mut lines = said.lines();
     let top = PathBuf::from(lines.next()?.trim());
     let common = PathBuf::from(lines.next()?.trim());
-    let root = main_folder(dir, &top, &common);
-    let origin = origin(&root);
-    Some(Checkout { root, origin })
+    let main = main_folder(dir, &top, &common);
+    Some((top, main))
 }
 
 /// The checkout `dir` is in, as a session's place: whether it is a linked
@@ -64,11 +71,7 @@ fn ask_checkout(dir: &Path) -> Option<Checkout> {
 /// task, and not for every update.
 pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
     GitFiles::above(dir)?;
-    let said = git(dir, &["rev-parse", "--show-toplevel", "--git-common-dir"])?;
-    let mut lines = said.lines();
-    let top = PathBuf::from(lines.next()?.trim());
-    let common = PathBuf::from(lines.next()?.trim());
-    let main = main_folder(dir, &top, &common);
+    let (top, main) = folders(dir)?;
     let real_top = paths::canonicalize(&top).unwrap_or_else(|_| top.clone());
     let branch = git(dir, &["symbolic-ref", "--short", "-q", "HEAD"])
         .map(|name| name.trim().to_owned())
@@ -136,6 +139,12 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
     }
 }
 
+
+/// The git folder the worktrees of the repository holding `dir` share,
+/// found without running git; `None` when `dir` is in no checkout.
+pub(crate) fn common_dir(dir: &Path) -> Option<PathBuf> {
+    GitFiles::above(dir).map(|files| files.common)
+}
 
 /// Where git keeps a checkout's files, found without running git.
 #[derive(Debug)]

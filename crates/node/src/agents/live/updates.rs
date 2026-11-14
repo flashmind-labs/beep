@@ -106,9 +106,11 @@ impl Live {
                     .collect();
             }
             SessionUpdate::SessionInfoUpdate(info) => {
-                if let MaybeUndefined::Value(new) = &info.title {
+                if let MaybeUndefined::Value(new) = &info.title
+                    && let Some(title) = crate::agents::tags::title(new)
+                {
                     self.naming = false;
-                    self.info.title = Some(cut(new, MAX_LINE));
+                    self.info.title = Some(title);
                 }
             }
             SessionUpdate::UsageUpdate(usage) => {
@@ -194,6 +196,15 @@ impl Live {
     }
 
     fn user_chunk(&mut self, text: &str) {
+        if let Some(rest) = crate::agents::tags::after_interruption(text) {
+            self.push_entry(EntryKind::Other, "Interrupted".into());
+            self.in_message = false;
+            if !rest.trim().is_empty() {
+                self.user_chunk(rest);
+            }
+            return;
+        }
+
         if self.in_message
             && let Some(last) = self.transcript.back_mut()
             && last.kind == EntryKind::User
@@ -210,19 +221,16 @@ impl Live {
 
         if self.naming
             && let Some(prompt) = self.transcript.back()
-            && let Some(line) = crate::agents::tags::said(&prompt.text)
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
+            && let Some(title) = crate::agents::tags::title(&prompt.text)
         {
             // Claude replays compaction summaries as user messages on restore.
             // Also defer partial prefixes while the message is streaming.
             const CONTINUATION: &str =
                 "This session is being continued from a previous conversation";
-            self.info.title = if CONTINUATION.starts_with(line) || line.starts_with(CONTINUATION) {
+            self.info.title = if CONTINUATION.starts_with(&title) || title.starts_with(CONTINUATION) {
                 None
             } else {
-                Some(cut(line, MAX_LINE))
+                Some(title)
             };
         }
     }
@@ -444,8 +452,7 @@ impl Live {
     /// a line to show, then that line. The thought is a transcript entry of
     /// its own once it has text, so a redacted one shows nothing.
     fn thought_chunk(&mut self, content: &ContentBlock, now: Instant) {
-        if !self.in_thought {
-            self.in_thought = true;
+        if self.open_thought.is_none() {
             self.thought.clear();
             self.info.state.summary = "Thinking".into();
             // A loaded session replays its thoughts all at once.
@@ -495,7 +502,6 @@ impl Live {
 
     /// The thought arriving ended at `now`: its entry says how long it took.
     pub(crate) fn end_thought(&mut self, now: Instant) {
-        self.in_thought = false;
         let Some(open) = self.open_thought.take() else {
             return;
         };

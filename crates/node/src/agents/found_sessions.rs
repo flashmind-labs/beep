@@ -17,6 +17,7 @@ use beep_proto::node::{
     },
     events::Topic,
 };
+use beep_proto::watched;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -45,6 +46,13 @@ pub(super) struct Listed {
 pub(super) struct Held {
     pub(super) parent: Option<ParentLink>,
     pub(super) mode: Option<String>,
+}
+
+/// How many of a store's sessions one listing keeps.
+fn store_limit(limit: u32) -> usize {
+    usize::try_from(limit)
+        .unwrap_or(MAX_IN_FOLDERS)
+        .clamp(1, MAX_IN_FOLDERS)
 }
 
 impl Agents {
@@ -288,6 +296,44 @@ impl Agents {
         Ok(sessions)
     }
 
+    /// Sessions of `agent` started outside Beep, newest first: at most
+    /// `limit`, or only `session` when given.
+    pub(super) async fn external_of(
+        &self,
+        agent: &str,
+        limit: u32,
+        session: Option<String>,
+    ) -> Result<Vec<ExternalSession>> {
+        if agent == Agent::Claude.as_ref() {
+            self.external.list(limit, session, self.owned()).await
+        } else {
+            self.stores_external(agent, limit, session).await
+        }
+    }
+
+    /// The session `id` of `agent` started outside Beep, when this node
+    /// finds it; `owned` names the sessions this node runs.
+    pub(super) async fn find_external(
+        &self,
+        agent: Agent,
+        id: &str,
+        owned: HashMap<String, String>,
+    ) -> Result<Option<ExternalSession>> {
+        Ok(match agent {
+            Agent::Claude => self
+                .external
+                .list(1, Some(id.to_owned()), owned)
+                .await?
+                .into_iter()
+                .next(),
+            other => {
+                let stores = self.stores.clone();
+                let id = id.to_owned();
+                spawn_blocking(move || stores.find(other, &id)).await?
+            }
+        })
+    }
+
     /// Sessions of `agent`, one other than Claude Code, started outside
     /// Beep, newest first: at most `limit`, or only `session` when given.
     pub(super) async fn stores_external(
@@ -314,11 +360,7 @@ impl Agents {
 
             match session {
                 Some(id) => seen.retain(|seen| seen.id == id),
-                None => seen.truncate(
-                    usize::try_from(limit)
-                        .unwrap_or(MAX_IN_FOLDERS)
-                        .clamp(1, MAX_IN_FOLDERS),
-                ),
+                None => seen.truncate(store_limit(limit)),
             }
 
             seen.into_iter()
@@ -350,11 +392,7 @@ impl Agents {
         sessions.sort_by_key(|session| Reverse(session.last_activity));
 
         if only.is_none() {
-            sessions.truncate(
-                usize::try_from(limit)
-                    .unwrap_or(MAX_IN_FOLDERS)
-                    .clamp(1, MAX_IN_FOLDERS),
-            );
+            sessions.truncate(store_limit(limit));
         }
 
         for found in &mut sessions {
@@ -371,14 +409,9 @@ impl Agents {
         let mut found = Vec::new();
 
         for ask in asks.into_iter().take(MAX_EXTERNAL_NAMED) {
-            let one = if ask.agent == Agent::Claude.as_ref() {
-                self.external
-                    .list(1, Some(ask.session.clone()), self.owned())
-                    .await
-            } else {
-                self.stores_external(&ask.agent, 1, Some(ask.session.clone()))
-                    .await
-            };
+            let one = self
+                .external_of(&ask.agent, 1, Some(ask.session.clone()))
+                .await;
 
             match one {
                 Ok(sessions) => found.extend(sessions),
@@ -398,8 +431,9 @@ impl Agents {
         self.lock()
             .values()
             .filter_map(|session| {
-                let live = session.live.borrow();
-                Some((live.agent_session.clone()?, live.info.id.clone()))
+                watched::read(&session.live, |live| {
+                    Some((live.agent_session.clone()?, live.info.id.clone()))
+                })
             })
             .collect()
     }
@@ -409,17 +443,16 @@ impl Agents {
     /// that session now, never one a caller names.
     pub(super) async fn close_external(&self, agent: &str, id: &str) -> Result<()> {
         anyhow::ensure!(self.get(id).is_none(), "the session already runs in Beep");
-        let found = if agent == Agent::Claude.as_ref() {
-            self.external.list(1, Some(id.to_owned()), self.owned()).await?
-        } else {
-            self.stores_external(agent, 1, Some(id.to_owned())).await?
-        };
+        let found = self.external_of(agent, 1, Some(id.to_owned())).await?;
         let session = found
             .into_iter()
             .find(|found| found.agent == agent && found.id == id)
             .with_context(|| format!("there is no {agent} session {id} on this machine"))?;
 
-        anyhow::ensure!(session.taken_over.is_none(), "the session already runs in Beep");
+        anyhow::ensure!(
+            session.taken_over.is_none(),
+            "the session already runs in Beep"
+        );
         anyhow::ensure!(
             session.presence != Presence::Working,
             "the session is running a turn"
@@ -498,7 +531,7 @@ impl Agents {
         });
         let ended = ours
             .as_ref()
-            .map(|session| session.live.borrow().agent_session.clone());
+            .map(|session| watched::read(&session.live, |live| live.agent_session.clone()));
         let id = match ended {
             Some(Some(agent_session)) => agent_session,
             Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
@@ -509,7 +542,7 @@ impl Agents {
 
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
             && session.agent == kind.name
-            && session.live.borrow().status() != Status::Ended
+            && watched::read(&session.live, |live| live.status() != Status::Ended)
         {
             if let Some(text) = prompt {
                 session
@@ -522,44 +555,33 @@ impl Agents {
         }
         // ACP can reload a session this node ran without a reader for the
         // harness's private store. Outside sessions still need that reader.
-        let Some(agent) = kind.name.parse::<Agent>().ok() else {
+        let cwd = if let Ok(agent) = kind.name.parse::<Agent>() {
+            let mut found = self
+                .find_external(agent, id, owned)
+                .await?
+                .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
+            found.presence = self.presence(agent, &found).await;
+            self.settle_closed(std::slice::from_mut(&mut found));
+
+            if let Some(reason) = claude::refuse_takeover(&found) {
+                anyhow::bail!("{reason}");
+            }
+
+            found.cwd
+        } else {
             let previous = ours.with_context(|| {
                 format!(
                     "{} sessions started outside Beep cannot be taken over",
                     kind.name
                 )
             })?;
-            self.prepare(kind).await?;
-            let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
-            let session = self.start(kind, Some(&previous.info().cwd), begin)?;
-            self.watch_parent(&session);
-            return Ok(session);
-        };
-        let found = match agent {
-            Agent::Claude => self
-                .external
-                .list(1, Some(id.to_owned()), owned)
-                .await?
-                .into_iter()
-                .next(),
-            other => {
-                let stores = self.stores.clone();
-                let id = id.to_owned();
-                spawn_blocking(move || stores.find(other, &id)).await?
-            }
-        }
-        .with_context(|| format!("there is no {} session {id} on this machine", kind.name))?;
-        let mut found = found;
-        found.presence = self.presence(agent, &found).await;
-        self.settle_closed(std::slice::from_mut(&mut found));
 
-        if let Some(reason) = claude::refuse_takeover(&found) {
-            anyhow::bail!("{reason}");
-        }
+            previous.info().cwd
+        };
 
         self.prepare(kind).await?;
         let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
-        let session = self.start(kind, Some(&found.cwd), begin)?;
+        let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
         Ok(session)
     }
@@ -630,7 +652,10 @@ impl Agents {
             log::warn!("could not find the sessions' files: {e}");
             HashMap::new()
         });
-        let open = self.holders.held_open(files.keys().cloned().collect()).await;
+        let open = self
+            .holders
+            .held_open(files.keys().cloned().collect())
+            .await;
         files
             .into_iter()
             .map(|(file, id)| {
@@ -667,7 +692,8 @@ impl Agents {
     pub(super) async fn session_file(&self, session: &str) -> Result<Option<PathBuf>> {
         let (agent, id) = match self.get(session) {
             Some(running) => {
-                let Some(id) = running.live.borrow().agent_session.clone() else {
+                let Some(id) = watched::read(&running.live, |live| live.agent_session.clone())
+                else {
                     return Ok(None);
                 };
                 (running.agent.parse::<Agent>().ok(), id)

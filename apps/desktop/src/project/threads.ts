@@ -4,7 +4,6 @@ import type { Ago } from "../ui/format.ts";
 import { plural, reason } from "../ui/format.ts";
 import { openMenu, type MenuItem } from "../ui/menu.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
-import type { ChecksRow } from "./runs.ts";
 import type { ThreadActions } from "./threaddetail-view.tsx";
 import type { ReviewSession } from "./projectbar.ts";
 import type { ProjectRef } from "./localid.ts";
@@ -96,12 +95,9 @@ interface ListsRow {
   issues_error: string | null;
 }
 
-/// What the project page hands the Pull requests and Issues sections: each
-/// PR's checks from its workflow runs, and what Work on it, Continue, Agent
-/// review and a checks link do.
+/// What the project page hands the Pull requests and Issues sections: what
+/// Work on it, Continue, Agent review and Open review do.
 export interface RepoActs {
-  checks?: readonly ChecksRow[] | null;
-  showRun?: (run: number, host?: string | null) => void;
   workOn: (issue: IssueRow) => void;
   continuePr: (pr: PullRequestRow) => Promise<void>;
   reviewPr: (pr: PullRequestRow) => Promise<void>;
@@ -113,7 +109,6 @@ export interface RepoActs {
 /// What the window hands `makeThreads`.
 export interface ThreadDeps {
   invoke: typeof Invoke;
-  ago: Ago;
   redraw: () => void;
   openUrl: (url: string) => unknown;
   /// Where the lists are kept between windows; in memory only without it.
@@ -260,7 +255,6 @@ export function makeThreads(deps: ThreadDeps) {
   return {
     load,
     ensure,
-    loading: (id: string) => reading.has(id),
     issues: (id: string) => of(id).issues,
     issuesError: (id: string) => of(id).issuesError,
     prs: (id: string) => of(id).prs,

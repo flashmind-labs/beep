@@ -5,12 +5,14 @@ use crate::agents::{
     Agents, claude,
     found::{self, Agent},
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
+use beep_proto::watched;
 use std::{
-    env, fs,
+    fs,
     io::Write,
     path::{Path, PathBuf},
 };
+use beep_proto::node::agent::Status;
 use tokio::task::spawn_blocking;
 
 impl Agents {
@@ -63,21 +65,9 @@ impl StoreRoots {
     /// As the harnesses find them: their environment variables, else the
     /// home folder. `None` without a home folder to fall back on.
     pub(crate) fn locate() -> Option<Self> {
-        let home = dirs::home_dir();
-        let var = |name: &str| env::var_os(name).filter(|value| !value.is_empty());
         let claude = claude::config_dir()?.join("projects");
-        let codex = match var("CODEX_HOME") {
-            Some(dir) => PathBuf::from(dir),
-            None => home.as_ref()?.join(".codex"),
-        };
-        let pi = match (
-            var("PI_CODING_AGENT_SESSION_DIR"),
-            var("PI_CODING_AGENT_DIR"),
-        ) {
-            (Some(dir), _) => PathBuf::from(dir),
-            (None, Some(dir)) => PathBuf::from(dir).join("sessions"),
-            (None, None) => home?.join(".pi/agent/sessions"),
-        };
+        let codex = found::codex_home()?;
+        let pi = found::pi_sessions()?;
         let flsh = found::flsh_sessions_dir()?;
         Some(Self {
             claude,
@@ -166,10 +156,6 @@ impl Agents {
         id: &str,
         destination: &str,
     ) -> anyhow::Result<()> {
-        use anyhow::{Context, ensure};
-        use beep_proto::node::agent::Status;
-        use tokio::task::spawn_blocking;
-
         let _store = self.session_store.lock().await;
         let which: Agent = agent.parse().ok().context("unknown agent")?;
         ensure!(
@@ -191,11 +177,7 @@ impl Agents {
                     session.agent == agent && session.info().state.status == Status::Ended,
                     "close the session before moving it"
                 );
-                session
-                    .live
-                    .borrow()
-                    .agent_session
-                    .clone()
+                watched::read(&session.live, |live| live.agent_session.clone())
                     .context("session has no agent id")?
             }
             None => id.to_owned(),
@@ -204,7 +186,9 @@ impl Agents {
             self.lock()
                 .values()
                 .filter(|session| session.agent == agent
-                    && session.live.borrow().agent_session.as_deref() == Some(agent_id.as_str()))
+                    && watched::read(&session.live, |live| {
+                        live.agent_session.as_deref() == Some(agent_id.as_str())
+                    }))
                 .all(|session| session.info().state.status == Status::Ended),
             "close the session before moving it"
         );
@@ -304,8 +288,9 @@ impl Agents {
         for (key, session) in self.lock().iter() {
             if session.agent == agent
                 && (key == id
-                    || session.live.borrow().agent_session.as_deref()
-                        == Some(agent_id_for_record.as_str()))
+                    || watched::read(&session.live, |live| {
+                        live.agent_session.as_deref() == Some(agent_id_for_record.as_str())
+                    }))
             {
                 session.moved_to(&moved_cwd);
             }

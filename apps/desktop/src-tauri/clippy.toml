@@ -1,0 +1,8 @@
+# Watch reads go through `beep_proto::watched`, which never holds the lock
+# across other work (#686).
+disallowed-methods = [
+    { path = "tokio::sync::watch::Receiver::borrow", reason = "use beep_proto::watched::read (#686)" },
+    { path = "tokio::sync::watch::Receiver::borrow_and_update", reason = "use beep_proto::watched::read_and_update (#686)" },
+    { path = "tokio::sync::watch::Receiver::wait_for", reason = "use beep_proto::watched::wait_for (#686)" },
+    { path = "tokio::sync::watch::Sender::borrow", reason = "use beep_proto::watched::read_sent (#686)" },
+]

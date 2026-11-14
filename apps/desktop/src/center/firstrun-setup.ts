@@ -11,6 +11,8 @@ export interface SetupRun {
   get: () => Setup;
   subscribe: (listener: () => void) => () => void;
   start: () => void;
+  /// Installs `item` when it is missing, then signs in to it when it is an agent.
+  act: (item: Item) => void;
   skip: (item: Item) => void;
   dispose: () => void;
 }
@@ -89,10 +91,22 @@ export function setupRun(machine: Machine): SetupRun {
     update({ running: false });
   }
 
+  async function one(item: Item) {
+    if (state.running) return;
+    update({ running: true });
+
+    const now = row(state, item).kind;
+    if (now === "missing" || now === "failed") await install(item);
+    if (!disposed && isAgent(item) && row(state, item).kind === "signed_out") await signIn(item);
+
+    update({ running: false });
+  }
+
   return {
     get: () => state,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
     start: () => { void start(); },
+    act: item => { void one(item); },
     skip: item => update({ skipped: new Set([...state.skipped, item]) }),
     dispose: () => { disposed = true; unfollow(); },
   };

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Note, type NoteKind, asks, badge, bellLabel, doneLabel, find, fromNote, markRead, opens, copies, copyLine, skillName, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
+import { type Note, type NoteKind, asks, badge, bellLabel, conflictProject, doneLabel, find, fromNote, markRead, opens, copies, copyLine, skillName, subLine, unreadCount, unreadIds, without } from "../src/center/notices-state.ts";
 
 const note = (id: string, kind: NoteKind, over: Partial<Note> = {}): Note => ({ id, kind, title: `Title ${id}`, text: "", source: "build-box", at: 1_760_000_000_000, read: false, done: false, target: null, ...over });
 const items = (...ids: string[]) => ids.map(id => fromNote(note(id, "finished", { text: `Text ${id}` })));
@@ -54,7 +54,10 @@ test("a row opens what it is about", () => {
   const session = { agent: { machine_id: "m1", id: "s1" } } as unknown as Note["target"];
   assert.equal(opens(fromNote(note("f", "finished", { target: session }))), "session");
   assert.equal(opens(fromNote(note("v", "move_failed", { target: session }))), "session");
-  assert.equal(opens(fromNote(note("c", "conflict"))), "sync");
+  // A sync conflict opens its project, named in the note's id.
+  assert.equal(opens(fromNote(note("c", "conflict"))), "conflict");
+  assert.equal(conflictProject(fromNote(note("conflict:acme/widget:build-box", "conflict"))), "acme/widget");
+  assert.equal(conflictProject(fromNote(note("c", "conflict"))), null);
   assert.equal(opens(fromNote(note("m", "offline"))), "machines");
   // A temporary machine removed after it was gone a while.
   assert.equal(opens(fromNote(note("r", "removed"))), "machines");

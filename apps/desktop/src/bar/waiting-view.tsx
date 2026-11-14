@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import { HintView, type HintViewModel } from "./hints-view.tsx";
 import type { WaitingKind } from "./waiting-state.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
+import { Button } from "../ui/kit.tsx";
 
 export interface WaitingRow { key: string; agent: string; title: string; sub: string; kind: WaitingKind; doing: string }
 
@@ -9,7 +10,7 @@ export function WaitingList(p: { rows: WaitingRow[]; selected: number; summary: 
   const active = p.rows[p.selected] ? `wt-${p.selected}` : undefined;
   const selected = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { selected.current?.scrollIntoView({ block: "nearest" }); }, [p.selected, p.rows.length]);
-  return <><div className="dhead"><span className="tt"><b>Sessions</b><small>{p.query ? `Filter: ${p.query}` : p.summary}</small></span><button className="dbtn" id="wtNew" onClick={p.newAgent}>New<kbd>⌘N</kbd></button></div>
+  return <><div className="dhead"><span className="tt"><b>Sessions</b><small>{p.query ? `Filter: ${p.query}` : p.summary}</small></span><Button id="wtNew" onClick={p.newAgent}>New<kbd>⌘N</kbd></Button></div>
     <div className="dlist top" id="wtlist" role="listbox" aria-label="Sessions" tabIndex={0} aria-activedescendant={active}>
       {p.rows.map((row, index) => <button key={row.key} id={`wt-${index}`} className="dchat" role="option" tabIndex={-1} aria-selected={index === p.selected} data-wti={index} ref={index === p.selected ? selected : undefined} onClick={() => p.open(index)}>
         <span style={{ display: "contents" }}><HarnessIcon agent={row.agent} className="dapp dcoderav" /></span>

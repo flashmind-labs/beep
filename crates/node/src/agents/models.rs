@@ -14,7 +14,7 @@ use crate::{
     machine::provision::spawn_env::{self, Scope},
     run::process::{GroupLeader, STOP_GRACE, command, own_group},
 };
-use agent_client_protocol::{Client, v1::ConnectionTo};
+use agent_client_protocol::{Builder, Client, ConnectionTo, JsonRpcMessage};
 use anyhow::{Context, Result};
 use beep_proto::node::agent::{ModelList, ModelOption, ModelPick};
 use std::{
@@ -112,17 +112,18 @@ pub(super) async fn find(kind: AgentKind) -> ModelList {
     let Some(home) = dirs::home_dir() else {
         return listed(Offered::default(), flag);
     };
-    let mut list = match tokio::time::timeout(PROBE_TIMEOUT, probe(&kind, &home)).await {
-        Ok(Ok(offered)) => listed(offered, flag),
+    let offered = match tokio::time::timeout(PROBE_TIMEOUT, probe(&kind, &home)).await {
+        Ok(Ok(offered)) => offered,
         Ok(Err(e)) => {
             log::info!("{} did not list its models: {e:#}", kind.name);
-            listed(Offered::default(), flag)
+            Offered::default()
         }
         Err(_) => {
             log::info!("{} did not list its models in time", kind.name);
-            listed(Offered::default(), flag)
+            Offered::default()
         }
     };
+    let mut list = listed(offered, flag);
     context::enrich(&kind, &mut list).await;
     list
 }
@@ -151,6 +152,7 @@ fn listed(offered: Offered, flag: bool) -> ModelList {
 /// Starts `kind` in `cwd`, makes a session to read the models it offers,
 /// and stops it.
 async fn probe(kind: &AgentKind, cwd: &Path) -> Result<Offered> {
+    let protocol = acp::Protocol::from_env(&kind.env)?;
     let mut process = command(&kind.program);
     spawn_env::apply(&mut process, Scope::for_agent(&kind.name));
     process
@@ -166,7 +168,7 @@ async fn probe(kind: &AgentKind, cwd: &Path) -> Result<Offered> {
         .with_context(|| format!("starting {}", kind.program))?;
     let mut child = GroupLeader::new(child);
     let held = child.hold_output();
-    let asked = ask(child.child_mut(), cwd).await;
+    let asked = ask(child.child_mut(), cwd, protocol).await;
     child.stop(STOP_GRACE).await;
     drop(held);
     asked
@@ -174,25 +176,31 @@ async fn probe(kind: &AgentKind, cwd: &Path) -> Result<Offered> {
 
 /// Asks the agent on `child`'s stdio for a session in `cwd` and reads the
 /// models its answer offers.
-async fn ask(child: &mut tokio::process::Child, cwd: &Path) -> Result<Offered> {
+async fn ask(
+    child: &mut tokio::process::Child,
+    cwd: &Path,
+    protocol: acp::Protocol,
+) -> Result<Offered> {
     let stdin = child.stdin.take().context("the agent has no stdin")?;
     let stdout = child.stdout.take().context("the agent has no stdout")?;
     // An oversized answer is dropped, and the request then fails.
     let (oversized, _reports) = mpsc::channel(1);
-    let answer = Client
-        .v1()
+    let (protocol, answer) = Builder::new(Client)
         .name("beep-node")
         .connect_with(
             acp::transport(stdin, stdout, oversized),
             async |cx: ConnectionTo<agent_client_protocol::Agent>| {
-                cx.send_request(acp::initialize(false)).block_task().await?;
-                let request = acp::new_session(cwd, Vec::new(), None)?;
-                cx.send_request(request).block_task().await
+                let request = protocol.request(acp::initialize(false).to_untyped_message()?)?;
+                let answer = cx.send_request(request).block_task().await?;
+                let protocol = protocol.initialized(answer)?.protocol;
+                let request = protocol.request(acp::new_session(cwd, Vec::new(), None)?)?;
+                let answer = cx.send_request(request).block_task().await?;
+                Ok((protocol, answer))
             },
         )
         .await
         .context("the agent did not make a session")?;
-    Ok(acp::offered_models(&answer))
+    Ok(protocol.offers(&answer))
 }
 
 /// flsh's models: `flsh models` lists every configured provider's, and its

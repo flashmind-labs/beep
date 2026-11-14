@@ -249,6 +249,7 @@ impl Syncthing {
                 return None;
             }
         };
+
         let home = self.inner.home.clone();
 
         match spawn_blocking(move || resolve(raw, home.as_deref())).await {
@@ -491,7 +492,7 @@ fn real(path: &Path) -> PathBuf {
 }
 
 /// `path` with a leading `~` as `home`.
-fn expand(path: &str, home: Option<&Path>) -> PathBuf {
+pub(crate) fn expand(path: &str, home: Option<&Path>) -> PathBuf {
     let rest = path
         .strip_prefix("~/")
         .or_else(|| path.strip_prefix("~\\"))

@@ -8,9 +8,10 @@ import { SubagentsView, type SubagentRow } from "../agentpane/subagents-view.tsx
 import type { MadeFile, MadeFiles } from "../agentpane/artifacts-state.ts";
 import type { Answered } from "./agentlog.ts";
 import type { ToolDetails } from "./tool-details.ts";
-import { Since, StepMarkView, type StepMark } from "./turn-heading-view.tsx";
+import { EntryTime, Since, StepMarkView, type StepMark } from "./turn-heading-view.tsx";
 import { waitedFor, type WaitLine } from "./waiting-state.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
+import { Button } from "../ui/kit.tsx";
 
 /// What an opened tool call shows under its row.
 export type ToolBody =
@@ -22,10 +23,11 @@ export type ToolBody =
 
 /// The head of a call to the session's Beep tools: what it did, the machine,
 /// the first line of its command or prompt, and how it stands.
-export interface BeepHead { tip: string; label: string; machine: string; line: string | null; status: string; since: number | null }
+interface BeepHead { tip: string; label: string; machine: string; line: string | null; status: string; since: number | null }
 
 export interface ToolActivity {
   kind: "tool"; id: string; at: number; failed: boolean; open: boolean; artifact: string | null;
+  sentAt?: number | null;
   toggle: boolean; keyboard: boolean; mark: StepMark;
   /// Media files the call names, which open in the media pane.
   media: string[];
@@ -52,7 +54,7 @@ export type ActivityRow =
 export function ActivityView({ row }: { row: ActivityRow }) {
   switch (row.kind) {
     case "note": return <Note row={row} />;
-    case "crumb": return <div className="dcrumb"><button id="agup">{row.parent}</button><span>/</span><b>{row.title}</b><span className="sp" /><button className="dbtn" id="agup2">Open parent<kbd>esc</kbd></button></div>;
+    case "crumb": return <div className="dcrumb"><button id="agup">{row.parent}</button><span>/</span><b>{row.title}</b><span className="sp" /><Button id="agup2">Open parent<kbd>esc</kbd></Button></div>;
     case "older": return <div className="dmuted">{row.text}</div>;
     case "pictures": return row.folded
       ? <div className="dcoderen dfoldpics" data-row={row.at ?? undefined}><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>
@@ -119,6 +121,7 @@ function Tool({ row }: { row: ToolActivity }) {
   const mark = <span className="mk"><StepMarkView mark={row.mark} /></span>;
   return <div className={cls} data-row={row.at} data-at={row.toggle ? row.at : undefined} tabIndex={row.keyboard ? 0 : undefined} role={row.keyboard ? "button" : undefined} aria-expanded={row.keyboard ? row.open : undefined} data-artifact={row.artifact ?? undefined} title={row.artifact ? "Open in the Artifacts tab" : undefined}>
     {row.layout.kind === "beep" ? <>{mark}<BeepHeadView head={row.layout.head} /></> : <ToolHead parts={row.layout.parts} tip={row.layout.tip} since={row.layout.since} mark={mark} />}
+    <EntryTime at={row.sentAt ?? null} />
     <span data-tool-content style={{ display: "contents" }}>
       {row.media.length > 0 && <span className="dmedia">{row.media.map(path => <button key={path} data-media={path} title={`Open ${path}`}><Icon name="image" />{path.slice(path.lastIndexOf("/") + 1)}</button>)}</span>}
       {row.body && <ToolBodyView body={row.body} at={row.at} />}

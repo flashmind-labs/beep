@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.6.20"
+version = "0.6.28"
 edition = "2024"
 license = "MPL-2.0"
 rust-version = "1.99"
@@ -37,6 +37,7 @@ host = [
     "dep:iroh-blobs",
     "dep:iroh-tickets",
     "dep:iroh-metrics",
+    "dep:jsonschema",
     "dep:metrics",
     "dep:metrics-exporter-prometheus",
     "dep:log",
@@ -80,9 +81,7 @@ host = [
 # `beep-node update` comes with it, with what it downloads and unpacks with.
 cli = [
     "host",
-    "dep:chrono",
     "dep:clap",
-    "beep-proto/logging",
     "dep:flate2",
     "dep:tar",
     "dep:thiserror",
@@ -95,7 +94,7 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
-agent-client-protocol = { version = "5.2", features = ["unstable_end_turn_token_usage"], optional = true }
+agent-client-protocol = { version = "5.2", features = ["unstable_end_turn_token_usage", "unstable_protocol_v2"], optional = true }
 anyhow = "1"
 bao-tree = { version = "0.17", optional = true }
 base64 = { version = "0.23", optional = true }
@@ -123,6 +122,7 @@ iroh = { version = "1.4.1", optional = true }
 iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"], optional = true }
 iroh-tickets = { version = "1", optional = true }
 iroh-metrics = { version = "1", optional = true }
+jsonschema = { version = "0.61.2", default-features = false, optional = true }
 metrics = { version = "0.24", optional = true }
 metrics-exporter-prometheus = { version = "0.18", default-features = false, optional = true }
 log = { version = "0.4", optional = true }
@@ -168,8 +168,8 @@ which = { version = "8", optional = true }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 # The media and decision tools the MCP server offers from the saved API keys.
-flashmind-tools = { version = "0.3.3", default-features = false, features = ["http"], optional = true }
-flashmind-types = { version = "0.3.1", optional = true }
+flashmind-tools = { version = "0.3.6", default-features = false, features = ["http"], optional = true }
+flashmind-types = { version = "0.3.2", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
@@ -203,4 +203,4 @@ rustls = { version = "0.23", default-features = false }
 async-trait = "0.1"
 tokio = { version = "1", features = ["test-util"] }
 # Reads what Beep writes to flsh's config with flsh's own types.
-flashmind-types = "0.3.1"
+flashmind-types = "0.3.2"

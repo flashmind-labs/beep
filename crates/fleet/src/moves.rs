@@ -48,41 +48,40 @@ impl Desk {
     /// words for the user, when the session is one that cannot move yet.
     pub async fn move_session(&self, ask: MoveAsk<'_>) -> Result<SessionMove> {
         if !matches!(ask.agent, "claude" | "codex" | "pi") {
-            return Err(refused(format!(
+            return Err(FleetError::refused(format!(
                 "{} sessions cannot move between machines yet",
                 ask.agent
             )));
         }
 
         if ask.from == ask.to {
-            return Err(refused("the session is on that machine already".to_owned()));
+            return Err(FleetError::refused(
+                "the session is on that machine already",
+            ));
         }
 
         let theirs = self
             .project_folder(ask.project, ask.from)
-            .ok_or_else(|| refused("the source has no checkout of the project".to_owned()))?;
+            .ok_or_else(|| FleetError::refused("the source has no checkout of the project"))?;
         if let Some(worktree) = &ask.worktree {
             self.check_worktree_move(&ask, worktree).await?;
         }
-        // A worktree session's folder is below the worktree, else below the
-        // checkout.
-        let base = ask.worktree.as_ref().map_or(theirs.as_str(), |w| w.folder);
 
         if self.project_folder(ask.project, ask.to).is_none() {
-            return Err(refused(
-                "that machine has no checkout of the project: import it first".to_owned(),
+            return Err(FleetError::refused(
+                "that machine has no checkout of the project: import it first",
             ));
         }
 
-        let path = Path::new(ask.cwd)
-            .strip_prefix(base)
-            .ok()
-            .filter(|rest| {
-                rest.components()
-                    .all(|part| matches!(part, Component::Normal(_)))
-            })
-            .and_then(Path::to_str)
-            .ok_or_else(|| refused("the session works outside the project's checkout".to_owned()))?
+        // A worktree session's folder is below the worktree, or below the
+        // checkout when it started there and entered the worktree later: the
+        // target takes the checkout's paths into the worktree it makes.
+        let path = ask
+            .worktree
+            .as_ref()
+            .and_then(|w| inside(ask.cwd, w.folder))
+            .or_else(|| inside(ask.cwd, &theirs))
+            .ok_or_else(|| FleetError::refused("the session works outside the project's checkout"))?
             .to_owned();
         let record = SessionMove {
             agent: AgentSlug::from(ask.agent),
@@ -165,8 +164,8 @@ impl Desk {
         worktree: &AskedWorktree<'_>,
     ) -> Result<()> {
         if worktree.branch.is_empty() {
-            return Err(refused(
-                "a session in a worktree with no branch cannot move".to_owned(),
+            return Err(FleetError::refused(
+                "a session in a worktree with no branch cannot move",
             ));
         }
 
@@ -183,14 +182,13 @@ impl Desk {
             match answer {
                 WorktreeMove::Takes => {}
                 WorktreeMove::NeedsUpdate => {
-                    return Err(refused(
-                        "update the machines first: one cannot move worktree sessions".to_owned(),
+                    return Err(FleetError::refused(
+                        "update the machines first: one cannot move worktree sessions",
                     ));
                 }
                 WorktreeMove::Ignored if machine == ask.to => {
-                    return Err(refused(
-                        "Syncthing is set not to sync this worktree, so it cannot move to that machine"
-                            .to_owned(),
+                    return Err(FleetError::refused(
+                        "Syncthing is set not to sync this worktree, so it cannot move to that machine",
                     ));
                 }
                 WorktreeMove::Ignored => {}
@@ -233,6 +231,14 @@ const KEEP_MOVES_MS: u64 = 30 * 24 * 3600 * 1000;
 /// A session id no move has, to ask a node whether it knows moves at all.
 const PROBE: &str = "probe";
 
-fn refused(message: String) -> FleetError {
-    FleetError::Refused(message)
+/// `cwd` relative to `base`, when it is `base` or a folder below it.
+fn inside<'a>(cwd: &'a str, base: &str) -> Option<&'a str> {
+    Path::new(cwd)
+        .strip_prefix(base)
+        .ok()
+        .filter(|rest| {
+            rest.components()
+                .all(|part| matches!(part, Component::Normal(_)))
+        })
+        .and_then(Path::to_str)
 }

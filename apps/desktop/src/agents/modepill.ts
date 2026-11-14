@@ -3,23 +3,23 @@
 import { createElement } from "react";
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentMode, AgentPlan } from "./mode-view.tsx";
-import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, where } from "./agents.ts";
+import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, openOf, where } from "./agents.ts";
 import { questionKey, steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 
-/// The server did not know the request, so it is not asked again.
-let oldServer = false;
+/// Machines too old to know the request, so they are not asked again.
+const oldMachines = new Set<string>();
 /// A switch on its way; a press meanwhile is dropped.
 let switching = false;
 
 /// The modes of the open session; null when it has none to switch between.
 export async function readModes(o: OpenAgent) {
   const s = AG.page?.session;
-  if (oldServer || !s || s.external || s.status === "ended") return null;
+  if (oldMachines.has(o.machine_id) || !s || s.external || s.status === "ended") return null;
 
   try {
     const modes = await invoke<AgentModes | null>("agent_modes", where(o), AGENT_READ_WAIT_MS);
-    if (!modes) oldServer = true;
+    if (!modes) oldMachines.add(o.machine_id);
     return modes;
   } catch (e) {
     console.warn("agent modes not read", e);
@@ -55,5 +55,5 @@ export function drawModes() {
   const m = AG.modes, s = AG.page?.session, q = s?.question;
   const name = m?.modes.find(x => x.id === m.current)?.name ?? m?.current ?? "";
   showAgentControl("mode", hasModes() && !FULL_MODES.has(m?.current ?? "") ? createElement(AgentMode, { name, plan: m?.current === "plan" }) : null);
-  showAgentControl("plan", s && q && m?.plan != null ? createElement(AgentPlan, { harness: agentKind(s.agent).name, plan: m.plan, question: q, approvalKey: questionKey(q, { machine_id: s.machine_id, agent: s.agent, session: s.id }), answering: AG.answering }) : null);
+  showAgentControl("plan", s && q && m?.plan != null ? createElement(AgentPlan, { harness: agentKind(s.agent).name, plan: m.plan, question: q, approvalKey: questionKey(q, openOf(s)), answering: AG.answering }) : null);
 }

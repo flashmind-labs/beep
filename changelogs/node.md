@@ -2,6 +2,126 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.28] - 2026-11-14
+
+### Added
+
+- Node: tells the desktops when a review agent has handed in its review.
+
+### Fixed
+
+- Node: Claude sign-in detection on macOS now follows Claude's auth status instead of treating leftover Keychain entries as a sign-in.
+
+## [0.6.27] - 2026-11-14
+
+### Added
+
+- Node: ACP v2 support is back but off by default; set BEEP_ACP_VERSION=2 in
+  an agent's environment to try it (it falls back to v1 when the agent only
+  speaks v1). Agents with v2 now accept the Beep MCP server instead of failing
+  to start.
+
+### Fixed
+
+- Node: an agent's message is no longer cut in two when a background
+  subagent calls a tool while the message is being written.
+
+## [0.6.26] - 2026-11-13
+
+### Fixed
+
+- Node: Claude Code and Codex chats start again. The ACP v2 support added
+  in the previous release made them fail with "data did not match any
+  variant of untagged enum McpServer", so it was rolled back to ACP v1.
+
+### Performance
+
+- Node: reduced background work when agent sessions update.
+
+## [0.6.25] - 2026-11-13
+
+### Added
+
+- Node: prefer ACP v2 for agents, fall back to v1 when an agent selects it, and allow `BEEP_ACP_VERSION=1` in the harness environment to select v1.
+
+### Fixed
+
+- Node: avoid duplicate ACP v2 subagent steps, keep idle sessions inactive after failed compaction, and retain model, effort and mode controls after incomplete configuration replies.
+- Node: interruption notices appear as status instead of becoming part of the next user prompt.
+
+## [0.6.24] - 2026-11-13
+
+### Changed
+
+- Node: child agent completions no longer send notifications; results still reach the parent agent.
+
+### Fixed
+
+- Node: recovery instructions appear as Beep context, and session titles survive a node restart.
+- Node: image prompts sent while a resumed agent starts no longer need to be retried.
+- Node: When an API key is saved or removed while a coding agent runs, the agent now sees the image, video, speech, model_3d and decision tools appear or go away without starting a new session.
+- Node: a folder that becomes a Git repository while it is being watched shows
+  its Git state and later commits.
+- Node: a project whose handover to Syncthing fails is retried instead of
+  disappearing from sync.
+- Node: after a project is handed to Syncthing, files Syncthing changed are
+  not treated as local edits or deletions when Beep sync resumes.
+- Node: with four devices attached, a fifth detaches the least recently used
+  one, and shutting a device down by name or id detaches its viewer.
+- Node: prompts sent while answering an agent's question count against the
+  queue limit.
+- Node: an alert is no longer skipped when many arrive at once.
+- Node: a change in flsh credits is announced to connected apps.
+- Node: worktrees are listed correctly when Git runs in another language.
+- Node: the flsh update notice names version 0.2.9.
+- Node: on Windows, the machine reports its real memory.
+- Node: a host name longer than 64 bytes is shortened instead of shown as
+  "Machine".
+- Node: watching many folders no longer interrupts the connection to the
+  desktop.
+
+## [0.6.23] - 2026-11-13
+
+### Added
+
+- Node: The `model_3d` generate action takes `polycount`, the most faces the model may have, for Meshy and Tripo. A lower count gives a smaller file that loads faster. Credits charged stay the same. Other provider options pass through to Meshy or Tripo.
+
+### Fixed
+
+- Node: The media tools (image, video, speech, model_3d, decision) now send every argument they accept to the provider. An unknown argument, a wrong type, or an argument that belongs to another action is refused with a message naming it. Before, asking Meshy for a low-poly model returned a full-detail one.
+- Node: Background commands honor their timeout, file sync rejects unsupported paths and destinations, and MCP tools reject invalid or irrelevant arguments.
+
+## [0.6.22] - 2026-11-13
+
+### Fixed
+
+- Node: automatic session titles are shorter and no longer show internal tags.
+- Node: attachments no longer have per-file or total size quotas.
+
+## [0.6.21] - 2026-11-13
+
+### Added
+
+- Node: skill libraries. A node clones each library at the commit the desktop
+  picked, then installs the chosen skills into the agents' skills folders and
+  into project checkouts. Project skills kept out of Git are listed in
+  .git/info/exclude. Unpicked skills are removed. A skill you edited, or one of
+  the same name you made, is never overwritten or deleted, and skill sync
+  leaves library skills out.
+- Node: update matching Git fetch and push URLs after a repository is renamed, including when reconnecting.
+- Node: subagent lists show the model when it is known.
+
+### Changed
+
+- Node: Agents see the media tools grouped by kind (`image`, `video`, `speech`, `model_3d`) instead of one tool per operation. Each group has a `models` action that lists the models your providers offer right now, optionally filtered by provider or name. `decision` is unchanged.
+
+### Fixed
+
+- Node: `beep-node update` and `update --now` restart the node on the installed version when it is already the newest release but the running node is older, instead of reporting it as up to date. `--now` restarts at once; otherwise the restart waits until agent sessions finish their turns. `update --check` reports that the node still runs the older version.
+- Node: uploaded attachments in project folders no longer appear as files made by the agent.
+- Node: listing sessions while a session updated could stop the node, so desktops and phones could no longer reach it.
+- Node: flsh installs and updates on Windows x86_64 using the published Windows executable and checksum.
+
 ## [0.6.20] - 2026-11-13
 
 ### Added

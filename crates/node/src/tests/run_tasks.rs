@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::watched;
 
 fn started(reply: Reply) -> TaskId {
     match reply {
@@ -18,10 +19,13 @@ async fn wait_done(tasks: &Tasks, id: TaskId) -> Reply {
             .done
             .clone()
     };
-    timeout(Duration::from_secs(20), done.wait_for(|done| *done))
-        .await
-        .expect("the task ends")
-        .expect("the task reports its end");
+    timeout(
+        Duration::from_secs(20),
+        watched::wait_for(&mut done, |done| *done),
+    )
+    .await
+    .expect("the task ends")
+    .expect("the task reports its end");
     tasks.status(id)
 }
 
@@ -124,4 +128,19 @@ async fn stopping_a_task_stops_its_whole_group() {
         "the background sleep was stopped with its group: {stat}"
     );
     std::fs::remove_dir_all(dir).expect("the test folder is removed");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn background_timeout_still_applies_after_stdout_closes() {
+    let tasks = Tasks::default();
+    let id = started(tasks.start_limited(
+        "exec >/dev/null 2>&1; sleep 300".to_owned(),
+        None,
+        Some(Duration::from_millis(100)),
+    ));
+    let Reply::Status { task, .. } = wait_done(&tasks, id).await else {
+        panic!("no status");
+    };
+    assert_eq!(task.state, TaskState::Stopped);
 }

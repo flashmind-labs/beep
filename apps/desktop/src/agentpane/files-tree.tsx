@@ -1,4 +1,4 @@
-import { Spinner } from "../ui/kit.tsx";
+import { Checkbox, Spinner } from "../ui/kit.tsx";
 import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { observeElementRect, useVirtualizer, type Rect, type Virtualizer } from "@tanstack/react-virtual";
 import { useStore } from "zustand";
@@ -22,7 +22,7 @@ export const FilesView = memo(function FilesView({ hidden }: { hidden: boolean }
     <div className="agfbar"><input className="agffind" value={m.filter} placeholder="Filter files" aria-label="Filter files" spellCheck={false}
       onChange={event => setFilter(event.currentTarget.value)}
       onKeyDown={event => { if (event.key === "Escape" && event.currentTarget.value) { event.stopPropagation(); event.preventDefault(); setFilter(""); } }} />
-      <label className="agfign"><input type="checkbox" checked={m.ignored} onChange={event => setIgnored(event.currentTarget.checked)} /> Show ignored</label>
+      <label className="agfign"><Checkbox checked={m.ignored} change={setIgnored} /> Show ignored</label>
       <button className="agpbtn" data-frefresh="1" title="Read the folders again" onClick={refreshFiles}>↻</button></div>
     <div ref={treeRef} className={`agtree${m.drop === "" ? " dropping" : ""}`} role="tree" aria-label="Working files" aria-multiselectable="true" aria-busy={m.busy} aria-activedescendant={m.active ?? undefined} tabIndex={0}
       onScroll={keepScroll} onWheel={scrolledHere} onPointerDown={scrolledHere} onKeyDownCapture={scrolledHere} onClick={treeActions.click} onContextMenu={treeActions.contextMenu} onKeyDown={treeActions.keyDown}

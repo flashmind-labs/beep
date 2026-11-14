@@ -13,7 +13,6 @@ thumbs = ["dep:image"]
 
 [dependencies]
 anyhow = "1"
-base64 = "0.23"
 beep-proto = { path = "../proto", features = ["https"] }
 bytes = "1"
 crc32fast = "1"

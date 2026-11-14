@@ -4,6 +4,8 @@ use crate::{
     machine::provision::Provision,
 };
 use beep_proto::node::agent::{Question, State};
+use serde_json::Value;
+use beep_proto::watched;
 use std::{collections::BTreeMap, time::Duration};
 
 fn endpoint() -> EndpointId {
@@ -108,20 +110,6 @@ fn a_childs_id_names_its_machine() {
 }
 
 #[test]
-fn the_agent_tools_are_the_ones_this_module_answers() {
-    for tool in [
-        Tool::StartAgent,
-        Tool::AgentStatus,
-        Tool::SendToAgent,
-        Tool::StopAgent,
-        Tool::ListAgents,
-    ] {
-        assert!(handles(tool));
-    }
-    assert!(!handles(Tool::RunOn));
-}
-
-#[test]
 fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
     let view = ChildView {
         id: "a3f9c1@mac-box".into(),
@@ -138,6 +126,7 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
         cost_usd: None,
         error: None,
         note: None,
+        project: None,
     };
     let call = format!(
         "Beep: Start codex agent on mac-box: Build the iOS app [completed]\n{}",
@@ -289,7 +278,9 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
-        live.wait_for(|live| live.agent_session.is_some() && live.info.turns == 1),
+        watched::wait_for(&mut live, |live| {
+            live.agent_session.is_some() && live.info.turns == 1
+        }),
     )
     .await
     .unwrap()
@@ -330,7 +321,9 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     assert!(!failed, "{text}");
     tokio::time::timeout(
         Duration::from_secs(20),
-        child_live.wait_for(|live| live.info.turns == 2 && live.info.state.status == Status::Idle),
+        watched::wait_for(&mut child_live, |live| {
+            live.info.turns == 2 && live.info.state.status == Status::Idle
+        }),
     )
     .await
     .unwrap()
@@ -374,7 +367,9 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         let mut live = session.live.clone();
         tokio::time::timeout(
             Duration::from_secs(20),
-            live.wait_for(|live| live.agent_session.is_some() && live.info.turns == 1),
+            watched::wait_for(&mut live, |live| {
+                live.agent_session.is_some() && live.info.turns == 1
+            }),
         )
         .await
         .expect("the session settles")
@@ -432,22 +427,27 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     assert_eq!(listed.len(), 2, "{text}");
     unnamed.close().await;
 
-    // Another agent reaches none of them, and learns nothing of them.
+    // Another agent neither checks nor stops them, and lists none as its own.
     for tool_name in [Tool::AgentStatus, Tool::StopAgent] {
         let (failed, text) = tool(&offers, &theirs, tool_name, json!({ "id": done.id })).await;
         assert!(failed && text.starts_with("You have no agent"), "{text}");
     }
 
-    let (failed, _) = tool(
+    let (_, text) = tool(&offers, &theirs, Tool::ListAgents, json!({})).await;
+    assert_eq!(text, "[]");
+
+    // It finds them among every agent and messages one.
+    let (_, text) = tool(&offers, &theirs, Tool::ListAgents, json!({ "all": true })).await;
+    let everyone: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
+    assert!(everyone.iter().any(|view| view.id == done.id), "{text}");
+    let (failed, text) = tool(
         &offers,
         &theirs,
         Tool::SendToAgent,
         json!({ "id": done.id, "text": "hi" }),
     )
     .await;
-    assert!(failed);
-    let (_, text) = tool(&offers, &theirs, Tool::ListAgents, json!({})).await;
-    assert_eq!(text, "[]");
+    assert!(!failed, "{text}");
 
     // Its own agent takes a message and reads its answer.
     let (failed, text) = tool(
@@ -494,7 +494,9 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
-        live.wait_for(|live| live.agent_session.is_some() && live.info.turns == 1),
+        watched::wait_for(&mut live, |live| {
+            live.agent_session.is_some() && live.info.turns == 1
+        }),
     )
     .await
     .expect("the session settles")

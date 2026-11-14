@@ -18,7 +18,7 @@ pub(super) struct Arrival<'a> {
     pub(super) from: EndpointId,
 }
 
-pub(super) use super::folder::{Folders, Workspace};
+use super::folder::Folders;
 
 /// Writes `copy` (a transcript the other machine named `file_name`) into the
 /// store and starts the session in `folders.new`.

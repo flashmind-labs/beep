@@ -1,6 +1,7 @@
 body.cbody.mobile
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -72,7 +73,7 @@ body.cbody.mobile
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
-    div#main.cc-main
+    div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -108,17 +109,24 @@ body.cbody.mobile
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-          div.cc-empty.cc-panel
-            b "Nothing running"
-            span "Start an agent on this computer, or add a machine to run it there."
-            button.dbtn.small [type="button"] "Start an agent"
+          div.painted-empty
+            canvas.painted-art.sunrise [aria-hidden="true"]
+            div.cc-empty.cc-panel
+              b "Nothing running"
+              span "Start an agent on this computer, or add a machine to run it there."
+              button.dbtn.pri.small [type="button"] "Start an agent"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box
         div.cc-view [data-project]
           div style(display)
-            div.pj-find [data-empty="true" data-rac]
-              input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value] value=""
+            div.pj-toolbar
+              div.pj-find [data-empty="true" data-rac]
+                input#<id>.react-aria-Input [aria-label="Search projects" autocomplete="off" data-rac placeholder="Search projects" spellcheck="false" tabindex="0" title type="search" value] value=""
+              button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+                span "Default"
+                svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3.gp
                 button.pj-fold [aria-expanded="true" type="button"]
@@ -143,13 +151,13 @@ body.cbody.mobile
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="example/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="example/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"] "a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-                    small "idle"
-                  span.line "No recent activity"
-                  span.line.sync "on build-box-with-a-long-name-0, build-box-with-a-long-name-1, build-box-with-a-long-name-2, build-box-with-a-long-name-3"
+                  div.f
+                    span.ago.never "No activity"
+                    span.at [title="build-box-with-a-long-name-0, build-box-with-a-long-name-1, build-box-with-a-long-name-2, build-box-with-a-long-name-3"] "build-box-with-a-long-name-0 +3"
             section.pj-org style(flex-basis,flex-grow,flex-shrink)
               h3
                 button.pj-fold [aria-expanded="true" type="button"]
@@ -160,13 +168,13 @@ body.cbody.mobile
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="plain-folder-without-an-org-and-a-long-name-too"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="plain-folder-without-an-org-and-a-long-name-too"] "plain-folder-without-an-org-and-a-long-name-too"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
-                    small "idle"
-                  span.line "No recent activity"
-                  span.line.sync "on build-box-with-a-long-name-1"
+                  div.f
+                    span.ago.never "No activity"
+                    span.at [title="build-box-with-a-long-name-1"] "build-box-with-a-long-name-1"
             div.cc-panel.cc-row.pj-add style(flex-basis,flex-grow,flex-shrink)
               span.t
                 b "Add a project"
@@ -199,7 +207,6 @@ body.cbody.mobile
                   span "1 h ago"
                 span.acts
                   button.dbtn.small [title="Import found-org/a-very-long-repository-name-that-keeps-going-without-any-break-at-all with 2 sessions" type="button"] "Import"
-      div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

@@ -85,21 +85,26 @@ impl Logs {
         Ok(files.into_iter().map(|(_, path)| path).collect())
     }
 
-    pub(crate) async fn serve_query(&self, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
-        let Some(query) = rx.recv::<beep_proto::node::logs::Query>().await? else {
-            return Ok(());
-        };
+    /// `read` of the log files, with nothing to read in an empty directory.
+    fn read(&self, read: impl FnOnce(&[PathBuf]) -> Result<String>) -> Result<String> {
+        let files = self.files()?;
+
+        if files.is_empty() && matches!(self.source, Source::Directory(_)) {
+            return Ok(String::new());
+        }
+
+        read(&files)
+    }
+
+    /// Reads on a blocking thread and answers the caller with the text or
+    /// why it could not be read.
+    async fn answer(
+        &self,
+        mut tx: LinkTx,
+        read: impl FnOnce(&[PathBuf]) -> Result<String> + Send + 'static,
+    ) -> Result<()> {
         let logs = self.clone();
-        let read = spawn_blocking(move || {
-            let files = logs.files()?;
-
-            if files.is_empty() && matches!(logs.source, Source::Directory(_)) {
-                return Ok(String::new());
-            }
-
-            super::query(&files, &query)
-        })
-        .await?;
+        let read = spawn_blocking(move || logs.read(read)).await?;
         let reply = match read {
             Ok(text) => Reply::Log { text },
             Err(e) => Reply::Failed {
@@ -110,15 +115,18 @@ impl Logs {
         tx.finish().await
     }
 
+    pub(crate) async fn serve_query(&self, tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+        let Some(query) = rx.recv::<beep_proto::node::logs::Query>().await? else {
+            return Ok(());
+        };
+
+        self.answer(tx, move |files| super::query(files, &query))
+            .await
+    }
+
     /// The log from Unix second `since` on, the newest `max_bytes` of it.
     pub fn window(&self, since: i64, max_bytes: usize) -> Result<String> {
-        let files = self.files()?;
-
-        if files.is_empty() && matches!(self.source, Source::Directory(_)) {
-            return Ok(String::new());
-        }
-
-        window(&files, since, max_bytes)
+        self.read(|files| window(files, since, max_bytes))
     }
 }
 
@@ -127,30 +135,14 @@ impl Protocol for Logs {
         PROTOCOL
     }
 
-    fn serve(&self, mut tx: LinkTx, mut rx: LinkRx) -> Session {
+    fn serve(&self, tx: LinkTx, mut rx: LinkRx) -> Session {
         let logs = self.clone();
         Box::pin(async move {
             let Some(Request { lines }) = rx.recv().await? else {
                 return Ok(());
             };
-            let read = spawn_blocking(move || {
-                let files = logs.files()?;
 
-                if files.is_empty() && matches!(logs.source, Source::Directory(_)) {
-                    return Ok(String::new());
-                }
-
-                recent(&files, lines)
-            })
-            .await?;
-            let reply = match read {
-                Ok(text) => Reply::Log { text },
-                Err(e) => Reply::Failed {
-                    reason: format!("{e:#}"),
-                },
-            };
-            tx.send(&reply).await?;
-            tx.finish().await
+            logs.answer(tx, move |files| recent(files, lines)).await
         })
     }
 }

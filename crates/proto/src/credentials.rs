@@ -131,16 +131,6 @@ impl AsRef<str> for ForgejoUrl {
 }
 
 impl ForgejoUrl {
-    /// The parsed URL.
-    pub fn url(&self) -> &Url {
-        &self.0
-    }
-
-    /// Its host name alone, without the port.
-    pub fn hostname(&self) -> &str {
-        self.0.host_str().unwrap_or_default()
-    }
-
     /// Its host, with the port when it has one, such as `git.example.com`.
     pub fn host(&self) -> String {
         let host = self.0.host_str().unwrap_or_default();

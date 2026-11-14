@@ -111,9 +111,9 @@ async fn serve(
         let restarted = agents
             .restart_when_idle(limit, async {
                 match next {
-                    Next::Service(plan) => {
+                    Next::Service(restart) => {
                         log::info!("restarting the service on the new binary");
-                        spawn_blocking(move || plan.run().map(drop)).await
+                        spawn_blocking(move || restart.run().map(drop)).await
                     }
                     Next::Itself(exe) => {
                         log::info!("restarting on the new binary");
@@ -145,7 +145,7 @@ struct Remote {
 #[derive(Debug)]
 enum Next {
     /// The service that runs this node.
-    Service(service::Plan),
+    Service(Restart),
     /// This node, in place, having no service: a container, or a node run
     /// in the foreground.
     Itself(PathBuf),
@@ -154,9 +154,9 @@ enum Next {
 /// Whether the service restarts the node, or it starts the new binary
 /// itself. `None` leaves it on the old one: on Windows a node with no
 /// service of its own keeps running until it is restarted.
-fn next(plan: service::Plan, exe: PathBuf, unix: bool) -> Option<Next> {
-    match plan.restart {
-        Restart::Restarted(_) => Some(Next::Service(plan)),
+fn next(restart: Restart, exe: PathBuf, unix: bool) -> Option<Next> {
+    match restart {
+        Restart::Restarted(_) => Some(Next::Service(restart)),
         // The service is stopped, runs another binary or is not there, so
         // this node is not its: it runs `exe` and restarts itself.
         _ if unix => Some(Next::Itself(exe)),
@@ -180,7 +180,7 @@ async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
 
     log::info!("updating beep-node {current} to {latest}");
     let exe = download(&client, &base, &latest).await?.install().await?;
-    let plan = {
+    let restart = {
         let exe = exe.clone();
         spawn_blocking(move || service::restart_plan(&exe)).await?
     }
@@ -188,8 +188,8 @@ async fn remote(agents: &Agents, now: bool) -> Result<Remote, Error> {
         version: latest.clone(),
         source,
     })?;
-    let not_restarting = said(&plan.restart, &latest);
-    let next = next(plan, exe, cfg!(unix));
+    let not_restarting = said(&restart, &latest);
+    let next = next(restart, exe, cfg!(unix));
     let note = if next.is_none() {
         not_restarting
     } else if !now && agents.until_idle().now_or_never().is_none() {

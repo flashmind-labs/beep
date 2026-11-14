@@ -79,6 +79,19 @@ export function nodeBehind(version: string, newest: string | null) {
   return !!newest && /^\d/.test(version) && isNewer(newest, version);
 }
 
+/// A node's version as the machine's rows show it: "beep-node 1.2", or the
+/// text as reported when it does not start with a digit.
+export function nodeVersion(version: string) {
+  return /^\d/.test(version) ? `beep-node ${version}` : version;
+}
+
+/// What removing a machine does, by whether it can host and is online.
+export function removalNote(machine: { can_host?: boolean; online: boolean }) {
+  if (machine.can_host === false) return "It disconnects from your mesh.";
+
+  return machine.online ? "It stops taking work; its sessions and projects go with it." : "Its sessions and projects go with it. If it comes back online, it is turned away.";
+}
+
 /// Where Update on a machine's page stands: installing, waiting for the
 /// node to come back on `to` (`note` when it waits for its sessions
 /// first), or stopped with what went wrong. `note` is why an installed

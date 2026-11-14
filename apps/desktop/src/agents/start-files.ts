@@ -1,4 +1,4 @@
-import { joinPath, uploadParts, uploadRefusal, withMentions } from "../agentpane/files-state.ts";
+import { joinPath, uploadParts, withMentions } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/attach.ts";
 import { invoke } from "../ui/tauri.ts";
 
@@ -12,12 +12,8 @@ interface PendingFile {
 export class StartFiles {
   readonly pending: PendingFile[] = [];
 
-  add(files: Iterable<File>, error: (text: string) => void) {
-    for (const file of files) {
-      const refusal = uploadRefusal(file);
-      if (refusal) error(refusal);
-      else this.pending.push({ file });
-    }
+  add(files: Iterable<File>) {
+    for (const file of files) this.pending.push({ file });
   }
 
   async prompt(text: string, machine: string, root: string, progress: (text: string) => void) {

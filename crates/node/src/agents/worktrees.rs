@@ -3,18 +3,29 @@
 //! session's repository lists (`listed_in`), which opens it to reads like a
 //! session's own folder. Read-only: nothing here changes a checkout.
 
+use super::found::{Memo, common_dir};
 use super::work_diff::git;
 use crate::files::paths;
 use anyhow::Result;
 use beep_proto::node::agent::Worktree;
-use std::path::{Path, PathBuf};
+use std::{
+    convert::Infallible,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 /// Characters of a commit hash shown.
 const SHORT_HEAD: usize = 7;
+/// The most repositories whose worktrees are kept for [`listed_in`].
+const MAX_REPOSITORIES: usize = 256;
+
+/// The worktree folders git listed, by the repository file whose stamp
+/// they were listed with. See [`listed_paths`].
+static LISTED: LazyLock<Memo<Vec<PathBuf>>> = LazyLock::new(|| Memo::new(MAX_REPOSITORIES));
 
 /// The worktrees in the output of `git worktree list --porcelain`, the
 /// main checkout first. A bare repository is not one.
-fn parse(text: &str) -> Vec<Worktree> {
+pub(super) fn parse(text: &str) -> Vec<Worktree> {
     let mut found = Vec::new();
 
     for block in text.split("\n\n") {
@@ -108,8 +119,9 @@ pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
 }
 
 /// Whether `real`, already resolved, lies in a worktree that git lists for
-/// the repository of one of `folders`, asked of git now. Blocks on git and
-/// the file system.
+/// the repository of one of `folders`. Every path check outside the
+/// sessions' folders asks this, so git is asked again only once a
+/// repository's worktrees change. Blocks on git and the file system.
 pub(super) fn listed_in(folders: &[PathBuf], real: &Path) -> bool {
     let mut asked: Vec<PathBuf> = Vec::new();
 
@@ -122,23 +134,47 @@ pub(super) fn listed_in(folders: &[PathBuf], real: &Path) -> bool {
             continue;
         }
 
-        let Ok(trees) = list(&folder) else {
-            asked.push(folder);
-            continue;
-        };
-        asked.push(folder);
-        let held = trees
+        // A synced `.git` lists the worktrees of other machines too.
+        let held = listed_paths(&folder)
             .iter()
-            .filter_map(|tree| paths::canonicalize(&tree.path).ok())
+            .filter(|path| path.is_dir())
+            .filter_map(|path| paths::canonicalize(path).ok())
             // A worktree at `/` would open the whole disk.
             .filter(|path| path.parent().is_some())
             .any(|path| real.starts_with(path));
+        asked.push(folder);
+
         if held {
             return true;
         }
     }
 
     false
+}
+
+/// The folders git lists as worktrees of the repository holding `folder`,
+/// kept while its `worktrees` folder, or its git folder before it has one,
+/// keeps its stamp: adding or removing a worktree changes it. A worktree
+/// moved in place is seen once another one is added or removed. Empty, and
+/// git is not run, when no `.git` is at or above `folder`; a repository
+/// git cannot read lists nothing until its files change.
+fn listed_paths(folder: &Path) -> Vec<PathBuf> {
+    let Some(common) = common_dir(folder) else {
+        return Vec::new();
+    };
+    // A worktree's `commondir` climbs with `..`; resolved, every worktree
+    // of a repository keys the same entry.
+    let common = paths::canonicalize(&common).unwrap_or(common);
+    let trees = common.join("worktrees");
+    let stamped = if trees.is_dir() { trees } else { common };
+
+    let Ok(paths) = LISTED.read(&stamped, || {
+        let listed = git(folder, &["worktree", "list", "--porcelain"])
+            .map(|text| parse(&text))
+            .unwrap_or_default();
+        Ok::<_, Infallible>(listed.into_iter().map(|tree| tree.path.into()).collect())
+    });
+    paths
 }
 
 #[cfg(test)]
@@ -278,5 +314,25 @@ pub(in crate::agents) mod tests {
         assert!(!listed_in(&session, Path::new("/etc")));
         // A folder beside the worktree, not in it.
         assert!(!listed_in(&session, other.parent().unwrap()));
+    }
+
+    #[test]
+    fn git_is_asked_again_only_once_the_worktrees_change() {
+        let (dir, main, other) = repo_with_worktree();
+        let session = [main.clone()];
+        assert!(listed_in(&session, &other));
+
+        // Git cannot read the repository now, but nothing it lists changed:
+        // rewritten in place, `HEAD` leaves both folders' stamps alone.
+        let head = main.join(".git/HEAD");
+        let saved = fs::read(&head).unwrap();
+        fs::write(&head, "broken").unwrap();
+        assert!(listed_in(&session, &other));
+
+        fs::write(&head, saved).unwrap();
+        let third = paths::canonicalize(dir.path()).unwrap().join("third");
+        let at = third.to_str().unwrap();
+        git_in(&main, &["worktree", "add", "-q", "-b", "third", at]);
+        assert!(listed_in(&session, &third));
     }
 }

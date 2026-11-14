@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { checkoutLabel, formProjects, harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, projectAt, startPlace } from "../src/agents/agentpick.ts";
+import { formProjects, harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, projectAt, startPlace } from "../src/agents/agentpick.ts";
 
 const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
 
@@ -38,7 +38,6 @@ test("a checkout's worktrees come from where sessions ran, newest first", () => 
 
 test("New branch and New worktree send a plan; the checkout and a worktree send a folder", () => {
   const cwd = "/srv/project/widget";
-  assert.equal(checkoutLabel("branch"), "New branch");
   assert.equal(makesBranch("branch"), true);
   assert.equal(makesBranch("new"), true);
   assert.equal(makesBranch({ worktree: `${cwd}/.worktrees/fix-it` }), false);
@@ -69,7 +68,7 @@ test("the harness's own default entry folds into one Default row", () => {
     { id: "sonnet", name: "Sonnet", description: null, provider: null },
   ] };
   assert.deepEqual(modelRows(claude, "").rows.map(r => [r.value, r.label, r.note]),
-    [["", "Default", "Opus 4.6"], ["sonnet", "Sonnet", "sonnet"]]);
+    [["", "Default", "Opus 4.6"], ["sonnet", "Sonnet", ""]]);
 });
 
 test("a model matches when every word of the query is in it, in any order", () => {
@@ -113,8 +112,8 @@ test("a name under several providers shows its provider and resolves with it", a
     { id: "mistral:deepseek-v4-1-flash", name: "DeepSeek V4.1 Flash", description: null, provider: "mistral" },
   ] };
   assert.deepEqual(modelRows(list, "").rows.slice(1).map(r => [r.label, r.note]), [
-    ["DeepSeek V4.1 Flash", "openrouter · openrouter:deepseek/deepseek-v4.1-flash"],
-    ["DeepSeek V4.1 Flash", "mistral · mistral:deepseek-v4-1-flash"],
+    ["DeepSeek V4.1 Flash", "openrouter"],
+    ["DeepSeek V4.1 Flash", "mistral"],
   ]);
   const ids = (q: string) => modelRows(list, q).rows.map(r => r.value).filter(Boolean);
   assert.deepEqual(ids("flash mistral"), ["mistral:deepseek-v4-1-flash"], "the provider is searched");

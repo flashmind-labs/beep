@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { useStore } from "zustand";
-import { Spinner } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { AGENT_ICON, agentsList, listedMenu, newFromList, openListed, toggleEnded, type ListedSession } from "./agents.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
@@ -19,7 +19,7 @@ export function AgentsList({ hints }: { hints: HintViewModel }) {
   const any = list.live.length + list.ended.length > 0;
   const row = (entry: ListedSession, index: number, gone: boolean) => <SessionRow key={entry.row.key} index={index} entry={entry} gone={gone} picked={index === list.selected} pickedRef={index === list.selected ? selected : null} />;
 
-  return <><div className="dhead"><span className="tt"><b>Coding agents</b><small>{list.summary}</small></span><button className="dbtn" id="agNew" onClick={newFromList}><Icon />New<kbd>⌘⇧A</kbd></button></div>
+  return <><div className="dhead"><span className="tt"><b>Coding agents</b><small>{list.summary}</small></span><Button id="agNew" onClick={newFromList}><Icon />New<kbd>⌘⇧A</kbd></Button></div>
     {list.error && <div className="derr dpadx">{list.error}</div>}
     <div className="dagscroll">
       {any && <div className="dlist top" role="listbox" aria-label="Coding agents">

@@ -9,12 +9,10 @@ use crate::{
         projects::{FleetState, desk},
     },
 };
-use beep_fleet::project_id;
-use beep_proto::{AgentStatus, ProjectAgent, ProjectMachine, SyncthingPlace};
+use beep_proto::{AgentStatus, ProjectMachine, SyncthingPlace};
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
-use uuid::Uuid;
 
 /// The sessions coding agents ran in `project`'s folders, newest first.
 #[tauri::command]
@@ -186,18 +184,4 @@ pub async fn project_syncthing(
     project: String,
 ) -> Result<Vec<SyncthingPlace>> {
     Ok(desk(&fleet).await?.syncthing(&project).await)
-}
-
-/// The page of the mesh project `name` (`org/repo`), on the id its name
-/// makes. There is no project agent, so it has no chat.
-#[tauri::command]
-pub async fn center_open_project(fleet: FleetState<'_>, name: String) -> Result<ProjectAgent> {
-    desk(&fleet).await?.project_machines(&name).await?;
-    Ok(ProjectAgent {
-        project_id: project_id(&name),
-        name,
-        chat_id: Uuid::nil(),
-        open_tasks: 0,
-        open_workers: 0,
-    })
 }

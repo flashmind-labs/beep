@@ -25,11 +25,12 @@ use crate::{
     run::tasks,
     run::terminal,
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, agent, desktop, sign_in, setup, tool_update, version,
+    LinkRx, LinkTx, Open, Opened, agent, desktop, setup, sign_in, tool_update, version,
 };
+use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, endpoint::presets, protocol::Router};
 use std::{
     future::Future,
@@ -85,7 +86,10 @@ pub async fn serve(
     };
     let endpoint = beep_proto::port::bind_on(builder, state.port).await?;
     traffic.measure_endpoint(endpoint.metrics().clone());
-    let _diagnostics = match super::diagnostics::start(&endpoint, &state.dir.join("metrics.log")) {
+    let diagnostics = super::diagnostics::install().and_then(|recorder| {
+        super::diagnostics::start(recorder, &endpoint, &state.dir.join("metrics.log"))
+    });
+    let _diagnostics = match diagnostics {
         Ok(task) => Some(task),
         Err(e) => {
             log::warn!("metrics unavailable: {e:#}");
@@ -317,7 +321,7 @@ impl Default for Sharing {
 
 impl Sharing {
     pub(crate) fn get(&self) -> Option<Transfers> {
-        self.0.borrow().clone()
+        watched::read_sent(&self.0, Clone::clone)
     }
 
     pub(crate) fn set(&self, transfers: Transfers) {
@@ -399,15 +403,6 @@ impl Offers {
     pub fn offer_searches(&mut self, dir: &Path, search: &Search) {
         let searches = Searches::start(dir.to_owned(), self.agents.clone(), search);
         self.extra.push(Arc::new(searches));
-    }
-
-    /// Only `extra`, no agents or provisioning: a host that serves its own
-    /// protocols, as tests do.
-    pub fn with_protocols(extra: Vec<Arc<dyn Protocol>>) -> Self {
-        Self {
-            extra,
-            ..Self::default()
-        }
     }
 
     pub(crate) fn names(&self) -> Vec<String> {
@@ -526,6 +521,7 @@ fn node_may_open(protocol: &SessionProtocol) -> bool {
         SessionProtocol::Status
             | SessionProtocol::Tools
             | SessionProtocol::Skills
+            | SessionProtocol::SkillLibrary
             | SessionProtocol::Transcripts
             | SessionProtocol::Device
     )
@@ -544,118 +540,128 @@ pub(super) async fn serve_open(
         return tx.send(&Opened::Refused { reason }).await;
     }
 
-    match protocol {
-        SessionProtocol::Status => {
-            tx.send(&Opened::Ready {}).await?;
-            peers::status(tx, rx, offers).await
-        }
-        SessionProtocol::Version => {
-            tx.send(&Opened::Ready {}).await?;
-            tx.send(&version::Version {
-                version: env!("CARGO_PKG_VERSION").to_owned(),
-                // A clock before 1970 is left unsaid: the desktop warns of nothing.
-                now_ms: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .ok()
-                    .and_then(|since| u64::try_from(since.as_millis()).ok()),
-            })
-            .await
-        }
-        SessionProtocol::Tools => {
-            tx.send(&Opened::Ready {}).await?;
-            let caller = match who {
-                Who::Everything(_) => Caller::local(&offers),
-                Who::Node { peer, desktop_here } => Caller {
-                    table: tasks::Table::Peer(peer),
-                    desktop_here,
-                    commands_off: commands_off(&offers),
-                    transfers: offers.transfers.get(),
-                    agents: Some(offers.agents.clone()),
-                },
-            };
-            peer_tools::serve(tx, rx, caller).await
-        }
-        SessionProtocol::Shell => {
-            tx.send(&Opened::Ready {}).await?;
-            shell::serve(tx, rx).await
-        }
-        SessionProtocol::Skills if offers.skills.home().is_some() => {
-            tx.send(&Opened::Ready {}).await?;
-            let desktop = !matches!(who, Who::Node { .. });
-            let mesh = offers.mesh.get().context("this node is not in a mesh")?;
-            crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
-        }
-        SessionProtocol::Tasks => {
-            tx.send(&Opened::Ready {}).await?;
-            tasks::serve(tx, rx).await
-        }
-        SessionProtocol::Terminal => {
-            tx.send(&Opened::Ready {}).await?;
-            terminal::serve(tx, rx).await
-        }
-        SessionProtocol::Device => {
-            tx.send(&Opened::Ready {}).await?;
-            device::serve(tx, rx, offers.agents.clone()).await
-        }
-        SessionProtocol::SignIn => {
-            tx.send(&Opened::Ready {}).await?;
-            crate::machine::sign_in::serve(tx, rx).await
-        }
-        SessionProtocol::ToolCheck if let Some(provision) = &offers.provision => {
-            tx.send(&Opened::Ready {}).await?;
-            provision.serve_tool_checks(tx, rx).await
-        }
-        SessionProtocol::ToolUpdate | SessionProtocol::FlshUpdate
-            if let Some(provision) = &offers.provision =>
-        {
-            tx.send(&Opened::Ready {}).await?;
-            provision.serve_updates(tx, rx).await
-        }
-        SessionProtocol::Setup if let Some(provision) = &offers.provision => {
-            tx.send(&Opened::Ready {}).await?;
-            provision.serve_setup(tx, rx).await
-        }
-        SessionProtocol::Commands => {
-            tx.send(&Opened::Ready {}).await?;
-            super::commands::serve_open(tx, rx, offers, who.id()).await
-        }
-        SessionProtocol::Subscriptions => {
-            tx.send(&Opened::Ready {}).await?;
-            super::subscriptions::serve_open(tx, rx, offers, who.id()).await
-        }
-        SessionProtocol::Events => {
-            tx.send(&Opened::Ready {}).await?;
-            super::events::serve(tx, rx, offers, who.id()).await
-        }
-        SessionProtocol::AgentFollow => {
-            tx.send(&Opened::Ready {}).await?;
-            crate::agents::serve_follow(tx, rx, offers.agents).await
-        }
-        SessionProtocol::Transcripts => {
-            tx.send(&Opened::Ready {}).await?;
-            crate::agents::serve_transcripts(tx, rx, offers.agents).await
-        }
-        SessionProtocol::Agents => {
-            tx.send(&Opened::Ready {}).await?;
-            let transfers = offers.transfers.get();
-            crate::agents::serve_sessions(tx, rx, offers.agents, who.id(), transfers).await
-        }
-        other => match offers.agents.kind(other.as_ref()) {
-            Some(kind) => {
-                tx.send(&Opened::Ready {}).await?;
-                crate::agents::serve_session(tx, rx, offers.agents, kind).await
-            }
-            None => {
-                if let Some(protocol) = offers.extra.iter().find(|p| p.name() == other.as_ref()) {
-                    tx.send(&Opened::Ready {}).await?;
-                    return protocol.serve(tx, rx).await;
-                }
+    let Some(route) = route(&protocol, &offers) else {
+        let reason = format!("this node does not offer {protocol}");
+        return tx.send(&Opened::Refused { reason }).await;
+    };
+    tx.send(&Opened::Ready {}).await?;
 
-                let reason = format!("this node does not offer {other}");
-                tx.send(&Opened::Refused { reason }).await
+    match route {
+        Route::Agent(kind) => crate::agents::serve_session(tx, rx, offers.agents, kind).await,
+        Route::Extra(extra) => extra.serve(tx, rx).await,
+        Route::Provision(provision) => match protocol {
+            SessionProtocol::ToolCheck => provision.serve_tool_checks(tx, rx).await,
+            SessionProtocol::Setup => provision.serve_setup(tx, rx).await,
+            _ => provision.serve_updates(tx, rx).await,
+        },
+        Route::BuiltIn => match protocol {
+            SessionProtocol::Status => peers::status(tx, rx, offers).await,
+            SessionProtocol::Version => {
+                tx.send(&version::Version {
+                    version: env!("CARGO_PKG_VERSION").to_owned(),
+                    // A clock before 1970 is left unsaid: the desktop warns of nothing.
+                    now_ms: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .ok()
+                        .and_then(|since| u64::try_from(since.as_millis()).ok()),
+                })
+                .await
             }
+            SessionProtocol::Tools => {
+                let caller = match who {
+                    Who::Everything(_) => Caller::local(&offers),
+                    Who::Node { peer, desktop_here } => Caller {
+                        table: tasks::Table::Peer(peer),
+                        desktop_here,
+                        commands_off: commands_off(&offers),
+                        transfers: offers.transfers.get(),
+                        agents: Some(offers.agents.clone()),
+                    },
+                };
+                peer_tools::serve(tx, rx, caller).await
+            }
+            SessionProtocol::Shell => shell::serve(tx, rx).await,
+            SessionProtocol::Skills => {
+                let desktop = !matches!(who, Who::Node { .. });
+                let mesh = offers.mesh.get().context("this node is not in a mesh")?;
+                crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
+            }
+            SessionProtocol::SkillLibrary => {
+                crate::agents::skill_library::serve(tx, rx, offers.skills).await
+            }
+            SessionProtocol::Tasks => tasks::serve(tx, rx).await,
+            SessionProtocol::Terminal => terminal::serve(tx, rx).await,
+            SessionProtocol::Device => device::serve(tx, rx, offers.agents.clone()).await,
+            SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
+            SessionProtocol::Commands => {
+                super::commands::serve_open(tx, rx, offers, who.id()).await
+            }
+            SessionProtocol::Subscriptions => {
+                super::subscriptions::serve_open(tx, rx, offers, who.id()).await
+            }
+            SessionProtocol::Events => super::events::serve(tx, rx, offers, who.id()).await,
+            SessionProtocol::AgentFollow => {
+                crate::agents::serve_follow(tx, rx, offers.agents).await
+            }
+            SessionProtocol::Transcripts => {
+                crate::agents::serve_transcripts(tx, rx, offers.agents).await
+            }
+            SessionProtocol::Agents => {
+                let transfers = offers.transfers.get();
+                crate::agents::serve_sessions(tx, rx, offers.agents, who.id(), transfers).await
+            }
+            _ => bail!("this node does not offer {protocol}"),
         },
     }
+}
+
+enum Route {
+    BuiltIn,
+    Provision(Arc<Provision>),
+    Agent(AgentKind),
+    Extra(Arc<dyn Protocol>),
+}
+
+/// How the node serves `protocol`, if it offers it: itself, with what it
+/// needs, else an agent or an extra protocol.
+fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
+    match protocol {
+        SessionProtocol::Skills if offers.skills.home().is_some() => return Some(Route::BuiltIn),
+        SessionProtocol::ToolCheck
+        | SessionProtocol::ToolUpdate
+        | SessionProtocol::FlshUpdate
+        | SessionProtocol::Setup
+            if let Some(provision) = &offers.provision =>
+        {
+            return Some(Route::Provision(provision.clone()));
+        }
+        SessionProtocol::Status
+        | SessionProtocol::Version
+        | SessionProtocol::Tools
+        | SessionProtocol::Shell
+        | SessionProtocol::SkillLibrary
+        | SessionProtocol::Tasks
+        | SessionProtocol::Terminal
+        | SessionProtocol::Device
+        | SessionProtocol::SignIn
+        | SessionProtocol::Commands
+        | SessionProtocol::Subscriptions
+        | SessionProtocol::Events
+        | SessionProtocol::AgentFollow
+        | SessionProtocol::Transcripts
+        | SessionProtocol::Agents => return Some(Route::BuiltIn),
+        _ => {}
+    }
+
+    if let Some(kind) = offers.agents.kind(protocol.as_ref()) {
+        return Some(Route::Agent(kind));
+    }
+
+    offers
+        .extra
+        .iter()
+        .find(|p| p.name() == protocol.as_ref())
+        .map(|extra| Route::Extra(extra.clone()))
 }
 
 /// Takes Claude Code's hook events on a socket in `dir` until the node

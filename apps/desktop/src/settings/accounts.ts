@@ -2,22 +2,21 @@ import { CredentialsView, type CredentialActions } from "./credentials-view.tsx"
 import { createElement } from "react";
 import { AgentAccountsView, type AgentAccountActions } from "./agentaccounts-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import type * as AgentAccountsModule from "./agentaccounts.ts";
+import { tokenDraft } from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
-import type * as CredentialsModule from "./credentials.ts";
+import { cliHost, draft as credentialDraft, editFor } from "./credentials.ts";
 import type { ApiProvider, CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
 import { copy } from "../ui/parts.ts";
 import type { Machine } from "../machines/machines.ts";
+import { openSignIn } from "../machines/signin.ts";
 import { redrawSettings, SET, setShown } from "./settings.ts";
 import { Mounted } from "./settings-shell-view.tsx";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 import { formatAgo } from "../ui/format.ts";
 
-/// Settings, Credentials (`credentials.ts` draws it, loaded on first use into
-/// `mod`).
-export const CRED: CredState & { mod: typeof CredentialsModule | null } = { mod: null, list: undefined, github: undefined, edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false, checks: {} };
-const credModule = () => import("./credentials.ts").then(m => (CRED.mod = m));
+/// Settings, Credentials (`credentials.ts` holds its logic).
+export const CRED: CredState = { list: undefined, github: undefined, edit: null, busy: false, error: "", cli: undefined, cliBusy: "", cliError: null, ghFlow: null, ghAdd: false, checks: {} };
 
 const redrawCreds = () => { if (setShown()) renderCreds(); };
 
@@ -57,7 +56,7 @@ export async function loadCreds() {
     // GitHub token.
     const accounts = invoke<GitHubAccount[]>("list_github_accounts").catch(e => { console.warn(e); return undefined; });
     const providers = CRED.providers ? Promise.resolve(CRED.providers) : invoke<ApiProvider[]>("api_providers");
-    const [, list, github, known] = await Promise.all([credModule(), invoke<Credential[]>("list_credentials"), accounts, providers]);
+    const [list, github, known] = await Promise.all([invoke<Credential[]>("list_credentials"), accounts, providers]);
     CRED.list = list;
     CRED.github = github;
     CRED.providers = known;
@@ -125,12 +124,12 @@ async function credentialCommand(command: string, args: Record<string, unknown>)
   await loadCreds();
 }
 const credActions: CredentialActions = {
-  edit(key) { credEditVersion++; CRED.edit = CRED.mod?.editFor(key, CRED.list) ?? null; CRED.error = ""; redrawCreds(); },
+  edit(key) { credEditVersion++; CRED.edit = editFor(key, CRED.list); CRED.error = ""; redrawCreds(); },
   cancel() { credEditVersion++; CRED.edit = null; CRED.error = ""; redrawCreds(); },
   async save(url, secret, clear) {
-    if (CRED.busy || !CRED.mod) return;
+    if (CRED.busy) return;
     if (CRED.edit?.kind === "forgejo" && !CRED.edit.id) CRED.edit.url = url;
-    const draft = CRED.mod.draft(CRED.edit, url, secret);
+    const draft = credentialDraft(CRED.edit, url, secret);
     if (draft.error) { CRED.error = draft.error; redrawCreds(); return; }
     const version = credEditVersion, kind = CRED.edit?.kind;
     CRED.busy = true; CRED.error = ""; redrawCreds();
@@ -143,7 +142,7 @@ const credActions: CredentialActions = {
     await loadCreds();
   },
   remove(id) { return credentialCommand("remove_credential", { id }); },
-  useCli(key) { const host = CRED.mod?.cliHost(key); if (host) void useLogin(key, key, () => invoke("use_cli_login", { host })); },
+  useCli(key) { const host = cliHost(key); if (host) void useLogin(key, key, () => invoke("use_cli_login", { host })); },
   signIn() { void signInGh(redrawCreds); },
   cancelSignIn() { invoke("cancel_gh_sign_in").catch(console.warn); },
   addAccount(open) { CRED.ghAdd = open; CRED.cliError = null; redrawCreds(); },
@@ -152,15 +151,12 @@ const credActions: CredentialActions = {
   open(url) { invoke("open_url", { url }).catch(console.warn); },
 };
 
-/// Settings, Agent accounts (`agentaccounts.ts` draws it, loaded on first use
-/// into `mod`).
+/// Settings, Agent accounts (`agentaccounts.ts` holds its logic).
 const ACC: AgentAccountsState & {
-  mod: typeof AgentAccountsModule | null;
   busy: string;
   codex: Record<string, CodexFlow>;
   poll: { stop: () => void; check: () => Promise<void> } | null;
-} = { mod: null, data: undefined, edit: null, busy: "", error: "", claudeFlow: false, claudeError: "", codex: {}, poll: null };
-const agModule = () => import("./agentaccounts.ts").then(m => (ACC.mod = m));
+} = { data: undefined, edit: null, busy: "", error: "", claudeFlow: false, claudeError: "", codex: {}, poll: null };
 
 /// Redraws Agent accounts, unless a token is being typed there.
 function redrawAgents() {
@@ -169,8 +165,7 @@ function redrawAgents() {
 
 export async function loadAgentAccounts() {
   try {
-    const [, data, machines] = await Promise.all([
-      agModule(),
+    const [data, machines] = await Promise.all([
       invoke<AgentAccounts>("agent_accounts"),
       invoke<Machine[]>("list_machines").catch((): Machine[] => []),
     ]);
@@ -249,8 +244,8 @@ const agentActions: AgentAccountActions = {
   edit(agent) { agentEditVersion++; ACC.edit = agent; ACC.error = ""; renderAgents(); },
   cancel() { agentEditVersion++; ACC.edit = null; ACC.error = ""; renderAgents(); },
   async save(secret, clear) {
-    if (ACC.busy || !ACC.mod) return;
-    const draft = ACC.mod.tokenDraft(ACC.edit, secret);
+    if (ACC.busy) return;
+    const draft = tokenDraft(ACC.edit, secret);
     if (!draft.agent) { ACC.error = draft.error; renderAgents(); return; }
     const version = agentEditVersion;
     ACC.busy = draft.agent; ACC.error = ""; renderAgents();
@@ -273,6 +268,12 @@ const agentActions: AgentAccountActions = {
     ACC.claudeFlow = false; await loadAgentAccounts();
   },
   claudeCancel() { invoke("cancel_claude_sign_in").catch(console.warn); },
+  claudeMachineSign(id) {
+    const machine = ACC.data?.machines.find(machine => machine.id === id);
+    if (!machine?.online) return;
+
+    openSignIn(machine, "claude", () => { void loadAgentAccounts(); });
+  },
   async codexSign(id) {
     if (ACC.codex[id]?.starting || ACC.codex[id]?.task !== undefined) return;
     ACC.codex[id] = { starting: true }; redrawAgents();

@@ -9,6 +9,7 @@ use crate::error::Result;
 use beep_fleet::alerts::{self as shared, Heard as Told};
 use beep_mesh::MeshError;
 use beep_node::link::reconnect::Backoff;
+use beep_proto::watched;
 use beep_proto::{
     AgentNoticeKey, Notice,
     node::agent::{ExternalSession, RunNews, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
@@ -54,7 +55,7 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
     let mut opened = fleet.mesh.subscribe();
 
     loop {
-        let current = opened.borrow_and_update().clone();
+        let current = watched::read_and_update(&mut opened, Clone::clone);
         let Opened::Open(mesh) = current else {
             // No mesh to follow: the streams let go of it, so it can close.
             if opened.changed().await.is_err() {

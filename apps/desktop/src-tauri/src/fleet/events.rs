@@ -3,6 +3,7 @@
 use super::{Fleet, Machines, Opened};
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
+use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -1100,22 +1101,6 @@ pub async fn mesh_topics(
 }
 
 #[tauri::command]
-pub async fn mesh_command(
-    window: WebviewWindow,
-    events: State<'_, Events>,
-    machine: String,
-    operation: Operation,
-) -> Result<CallReply> {
-    let machine = machine
-        .parse()
-        .map_err(|_| DesktopError::BadRequest("invalid machine".into()))?;
-    events
-        .call(window.label(), machine, operation)
-        .await?
-        .ok_or_else(|| DesktopError::Lost("the machine".into()))
-}
-
-#[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri passes each command argument separately.
 pub async fn mesh_watch(
     app: AppHandle,
@@ -1256,7 +1241,7 @@ fn home_sources() -> [Topic; 3] {
 }
 
 fn mesh_is_open(mesh: &watch::Receiver<Opened>) -> bool {
-    matches!(*mesh.borrow(), Opened::Open(_))
+    watched::read(mesh, |opened| matches!(opened, Opened::Open(_)))
 }
 
 async fn run(
@@ -1269,7 +1254,7 @@ async fn run(
     let mut members = fleet.mesh().map(|mesh| mesh.updates());
     let mut status = fleet.status.changes();
     let mut local = beep_node::events::system().subscribe();
-    let mut revision = *status.borrow_and_update();
+    let mut revision = watched::read_and_update(&mut status, |status| *status);
     let mut materialized = Vec::new();
     let mut workers = JoinSet::new();
     let mut command_workers: BTreeMap<EndpointId, tokio::task::AbortHandle> = BTreeMap::new();
@@ -1278,7 +1263,7 @@ async fn run(
 
     loop {
         while workers.try_join_next().is_some() {}
-        let interests = demand.borrow_and_update().clone();
+        let interests = watched::read_and_update(&mut demand, Clone::clone);
 
         if interests.is_empty() {
             command_workers.clear();
@@ -1287,14 +1272,13 @@ async fn run(
             fleet.snapshots.reconcile(&BTreeMap::new());
             materialized.clear();
 
-            if demand
-                .wait_for(|interests| !interests.is_empty())
+            if watched::wait_for(&mut demand, |interests| !interests.is_empty())
                 .await
                 .is_err()
             {
                 return;
             }
-            revision = *status.borrow_and_update();
+            revision = watched::read_and_update(&mut status, |status| *status);
             continue;
         }
 
@@ -1337,7 +1321,14 @@ async fn run(
         for (machine, topics) in wanted {
             command_workers.entry(machine).or_insert_with(|| {
                 app.state::<Events>().clear_node(machine);
-                workers.spawn(CommandWorker::new(fleet.clone(), machine, commands.clone()).run())
+                workers.spawn(
+                    CommandWorker {
+                        fleet: fleet.clone(),
+                        machine,
+                        commands: commands.clone(),
+                    }
+                    .run(),
+                )
             });
 
             for topic in topics {
@@ -1345,8 +1336,13 @@ async fn run(
                     .entry((machine, topic.clone()))
                     .or_insert_with(|| {
                         workers.spawn(
-                            SubscriptionWorker::new(app.clone(), fleet.clone(), machine, topic)
-                                .run(),
+                            SubscriptionWorker {
+                                app: app.clone(),
+                                fleet: fleet.clone(),
+                                machine,
+                                topic,
+                            }
+                            .run(),
                         )
                     });
             }
@@ -1366,7 +1362,7 @@ async fn run(
             changed = demand.changed() => if changed.is_err() { return; },
             changed = mesh.changed() => {
                 if changed.is_err() { return; }
-                mesh.borrow_and_update();
+                watched::read_and_update(&mut mesh, |_| ());
                 command_workers.clear(); subscriptions.clear(); workers.abort_all();
                 app.state::<Events>().registry.lock().unwrap_or_else(PoisonError::into_inner).latest.retain(|(machine, _, _), _| machine == &fleet.me.to_string());
                 fleet.snapshots.reconcile(&BTreeMap::new());
@@ -1381,7 +1377,7 @@ async fn run(
             },
             changed = status.changed() => {
                 if changed.is_err() { return; }
-                let current = *status.borrow_and_update();
+                let current = watched::read_and_update(&mut status, |status| *status);
 
                 if current.machines != revision.machines {
                     beep_node::events::system().changed(Topic::new("machines"));
@@ -1463,7 +1459,10 @@ fn lists_sessions_again(name: &str) -> bool {
 /// Hosts without a push feed are read once for all windows. Results arrive as IPC events.
 async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
     loop {
-        if active.wait_for(|active| *active).await.is_err() {
+        if watched::wait_for(&mut active, |active| *active)
+            .await
+            .is_err()
+        {
             return;
         }
 
@@ -1475,7 +1474,7 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
             tokio::select! {
                 changed = active.changed() => {
                     if changed.is_err() { return; }
-                    if !*active.borrow_and_update() { break; }
+                    if !watched::read_and_update(&mut active, |active| *active) { break; }
                 },
                 _ = ticks.tick() => {
                     let read = crate::projects::git_items::git_items(
@@ -1483,7 +1482,7 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
                         app.state::<Arc<crate::center::view_cache::ViewCache>>());
                     let result = tokio::select! {
                         result = read => result,
-                        _ = active.wait_for(|active| !*active) => break,
+                        _ = watched::wait_for(&mut active, |active| !*active) => break,
                     };
 
                     match result {

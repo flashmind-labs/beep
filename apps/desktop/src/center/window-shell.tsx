@@ -1,9 +1,10 @@
 // The command center window as one React tree: the sidebar, the header, Home,
 // the pane and the pages. Modules draw into named places of it and reach its
 // elements through `windowHost`.
-import type { ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 import { createStore, useStore } from "zustand";
 import { SideGrip } from "./sidewidth.tsx";
+import { HazeArt } from "../ui/painted-art.tsx";
 import type { ViewName } from "./state.ts";
 
 /// The places of the window that modules fill.
@@ -43,8 +44,18 @@ export function windowHost(name: Host): HTMLElement {
 
 export function CenterWindow() {
   const { view, parts } = useStore(shell);
+  // The top bar's own width, which a session's title row keeps clear of (native.css).
+  useLayoutEffect(() => {
+    const top = hosts.get("top"), main = hosts.get("main");
+    if (!top || !main) return;
+
+    const measured = new ResizeObserver(() => main.style.setProperty("--top-w", `${top.offsetWidth}px`));
+    measured.observe(top);
+    return () => measured.disconnect();
+  }, []);
+
   return <>
-    <aside className="cc-side" id="side" ref={refs.side}>{parts.sidebar}</aside>
+    <aside className="cc-side" id="side" ref={refs.side}><HazeArt />{parts.sidebar}</aside>
     <SideGrip />
     <div className="cc-main" id="main" ref={refs.main}>
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>

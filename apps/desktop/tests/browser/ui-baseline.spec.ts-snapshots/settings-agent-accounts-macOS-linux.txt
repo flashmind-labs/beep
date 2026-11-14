@@ -1,6 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -62,7 +63,7 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
-    div#main.cc-main
+    div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -88,6 +89,11 @@ body.cbody
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.home-sort
+            button#<id>.dbtn.dropdown-trigger.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Sort projects" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              span "Default"
+              svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
           div#sec-needs
             div.bd-rows
               div.bd-lane.hd
@@ -137,7 +143,6 @@ body.cbody
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
-      div.cc-box [hidden]
     nav#mb-tabs.mb-tabs [aria-label="Sections"]
       button [type="button"] "Home"
         span.ic
@@ -167,6 +172,7 @@ body.cbody
             span.tt "This computer"
           button.cc-si [data-goto="machines"]
             span.tt "Machines"
+            span.n "2"
           button.cc-si [aria-current="true" data-goto="agents"] (focused)
             span.tt "Agent accounts"
           button.cc-si.sub [data-sub="agent:claude"]
@@ -185,6 +191,8 @@ body.cbody
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]
             span.tt "Instructions"
+          button.cc-si [data-goto="skills"]
+            span.tt "Skills"
         small.dset-ver "Beep desktop 0.9.0"
       div.dset-body
         div.dset-top
@@ -195,7 +203,43 @@ body.cbody
           section#set-agents-sec [data-sec="agents"]
             div.dsec.flat.top "Agent accounts"
             div#set-agents
-              div.dmuted "Could not load your agent accounts."
+              div.dlead "How your coding agents sign in on your machines."
+              div.dbox
+                div.dline
+                  span.cc-ag.claude.mark
+                    svg [aria-hidden="true" viewBox="0 0 24 24"]
+                  span.dstack
+                    b.dtitle "Claude Code"
+                    span.dsub "signs in on each machine"
+                  span.dacts
+                    button.dbtn [type="button"] "Sign in for all"
+                    button.dbtn.quiet [type="button"] "Paste a token"
+                div.dmt6
+                  div.dline.dpy.dsm
+                    span.ddot
+                    span "build-box"
+                    span.dacts.dmut "signed in as you@example.com"
+                  div.dline.dpy.dsm
+                    span.ddot
+                    span "test-box"
+                    span.dacts.dmut "not signed in"
+                      button.dbtn.small [type="button"] "Sign in"
+                  div.dline.dpy.dsm
+                    span.ddot.off
+                    span "offline-box"
+                    span.dacts.dmut "not checked"
+                div.dfine.dmt6 "Sign in for all to give every machine one token. Beep keeps it encrypted and never writes it to their disks."
+              div.dbox
+                div.dline
+                  span.cc-ag.codex.mark
+                    svg [aria-hidden="true" viewBox="0 0 24 24"]
+                  span.dstack
+                    b.dtitle "Codex"
+                    span.dsub "signs in on each machine"
+                  span.dacts
+                    button.dbtn [type="button"] "Use an API key"
+                div.dmt6
+                  div.dfine.dpy "No machine has Codex yet."
             div#set-agent-overview style(display)
               div.dset-h "Coding agents"
               div.dset-box

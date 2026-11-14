@@ -1,5 +1,6 @@
 use super::*;
 use beep_proto::node::agent::Presence;
+use beep_proto::watched;
 
 #[test]
 fn an_old_listener_leaves_a_replacement_locator_alone() {
@@ -50,7 +51,7 @@ async fn an_idle_connection_stays_present_until_eof_or_cancellation() {
             true
         );
         assert_eq!(agents.presence.snapshot()[0].presence, Presence::Running);
-        changes.borrow_and_update();
+        watched::read_and_update(&mut changes, |_| ());
         if cancel {
             task.abort();
             assert!(task.await.unwrap_err().is_cancelled());
@@ -90,7 +91,10 @@ fn a_node_with_its_own_folder_keeps_its_own_locator() {
         locator_path(None, None).unwrap(),
         "the default folder keeps the user's locator"
     );
-    assert_eq!(locator_path(None, None).unwrap(), usual.join("presence.json"));
+    assert_eq!(
+        locator_path(None, None).unwrap(),
+        usual.join("presence.json")
+    );
     let own = Path::new("/srv/node");
     assert_eq!(
         locator_path(None, Some(own)).unwrap(),

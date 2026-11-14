@@ -1,8 +1,8 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, NodeMode, Prompt, Session, Start,
-    checkout, harnesses, live::Live, models, plans, restart::SETTINGS_WAIT,
+    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start,
+    checkout, harnesses, live::Live, models, plans,
 };
 use crate::{
     agents::mcp::{self, Launch},
@@ -11,10 +11,11 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
-    agent::{self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionInfo, Status},
+    agent::{self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionDevice, SessionInfo, Status},
     harness::{AgentSettings, HarnessReport},
     usage::PlanUsage,
 };
+use beep_proto::watched;
 use beep_proto::{AgentAccount, ModelId, Upload};
 use std::time::Duration;
 use std::{
@@ -28,7 +29,6 @@ use std::{
 use tokio::{
     sync::{oneshot, watch},
     task::spawn_blocking,
-    time::timeout,
 };
 
 impl Agents {
@@ -41,14 +41,30 @@ impl Agents {
 
     /// Whether `session` is one of this node's and still runs.
     pub(crate) fn runs(&self, session: &str) -> bool {
-        self.get(session)
-            .is_some_and(|session| session.live.borrow().status() != Status::Ended)
+        self.get(session).is_some_and(|session| {
+            watched::read(&session.live, |live| live.status() != Status::Ended)
+        })
     }
 
     /// The folder `session` works in, if it is one of this node's.
     pub(crate) fn folder_of(&self, session: &str) -> Option<PathBuf> {
         self.get(session)
             .map(|session| PathBuf::from(session.info().cwd))
+    }
+
+    /// Keeps `device` as the device `session` uses, or forgets it.
+    pub(crate) async fn set_device(
+        &self,
+        session: &str,
+        device: Option<SessionDevice>,
+    ) -> Result<()> {
+        let session = self
+            .get(session)
+            .with_context(|| format!("there is no session {session} here"))?;
+        session
+            .order(Command::SetDevice(device))
+            .await
+            .map_err(anyhow::Error::msg)
     }
 
     /// Puts `question` to the user in `session` and waits for the answer.
@@ -85,11 +101,12 @@ impl Agents {
 
         if session.agent == "claude" {
             let (id, calls) = {
-                let live = session.live.borrow();
-                (
-                    live.agent_session.clone(),
-                    live.claude_children(earlier, entries.len()),
-                )
+                watched::read(&session.live, |live| {
+                    (
+                        live.agent_session.clone(),
+                        live.claude_children(earlier, entries.len()),
+                    )
+                })
             };
 
             if let Some(id) = id.filter(|_| !calls.is_empty()) {
@@ -115,7 +132,7 @@ impl Agents {
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
         if session.agent == "codex" {
-            let parent = session.live.borrow().agent_session.clone();
+            let parent = watched::read(&session.live, |live| live.agent_session.clone());
             if let Some(parent) = parent {
                 let stores = self.stores.clone();
                 match spawn_blocking(move || stores.codex_children(&parent)).await {
@@ -128,8 +145,9 @@ impl Agents {
             }
         }
 
-        let (mut entries, earlier) = session.live.borrow().transcript_before(last, before);
-        let children = session.live.borrow().codex_children(earlier);
+        let (mut entries, earlier) =
+            watched::read(&session.live, |live| live.transcript_before(last, before));
+        let children = watched::read(&session.live, |live| live.codex_children(earlier));
 
         if children.is_empty() {
             return (entries, earlier);
@@ -150,19 +168,20 @@ impl Agents {
                 return (entries, earlier);
             }
         };
-        let live = session.live.borrow();
 
-        for (call, run) in runs {
-            let Some((at, text)) = live.with_run(&call, &run) else {
-                continue;
-            };
-            let index = at
-                .checked_sub(earlier)
-                .and_then(|i| usize::try_from(i).ok());
-            if let Some(entry) = index.and_then(|i| entries.get_mut(i)) {
-                entry.text = text;
+        watched::read(&session.live, |live| {
+            for (call, run) in runs {
+                let Some((at, text)) = live.with_run(&call, &run) else {
+                    continue;
+                };
+                let index = at
+                    .checked_sub(earlier)
+                    .and_then(|i| usize::try_from(i).ok());
+                if let Some(entry) = index.and_then(|i| entries.get_mut(i)) {
+                    entry.text = text;
+                }
             }
-        }
+        });
         (entries, earlier)
     }
 
@@ -242,12 +261,7 @@ impl Agents {
     /// waits for the user's agent settings, which say how each CLI signs in,
     /// for `SETTINGS_WAIT` at most.
     pub(crate) async fn read_plans_at_start(self: &Arc<Self>) {
-        let mut settled = self.settled.subscribe();
-
-        if timeout(SETTINGS_WAIT, settled.wait_for(|settled| *settled))
-            .await
-            .is_err()
-        {
+        if !self.settings_came().await {
             log::debug!("reading the plans without the agent settings");
         }
 
@@ -305,7 +319,7 @@ impl Agents {
         let running: Vec<Arc<Session>> = self
             .lock()
             .values()
-            .filter(|session| session.live.borrow().status() != Status::Ended)
+            .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
             .cloned()
             .collect();
         futures::future::join_all(running.iter().map(|session| session.close())).await;
@@ -346,9 +360,26 @@ impl Agents {
         self.kinds().iter().find(|kind| kind.name == name).cloned()
     }
 
+    /// The agent called `name`, or why this node cannot start it.
+    pub(super) fn kind_or_refusal(&self, name: &str) -> Result<AgentKind, String> {
+        let kinds = self.kinds();
+
+        kinds
+            .iter()
+            .find(|kind| kind.name == name)
+            .cloned()
+            .ok_or_else(|| {
+                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
+                format!(
+                    "This machine has no {name} agent. It has: {}.",
+                    have.join(", ")
+                )
+            })
+    }
+
     /// The agents this node can start now.
     pub(super) fn kinds(&self) -> Arc<Vec<AgentKind>> {
-        self.kinds.borrow().clone()
+        watched::read_sent(&self.kinds, Clone::clone)
     }
 
     /// Takes the agents a new detection found, when they differ.
@@ -398,14 +429,18 @@ impl Agents {
             .lock()
             .values()
             .filter_map(|s| {
-                let live = s.live.borrow();
-                live.agent_session.as_ref()?;
+                // Released before `info` reads the state again: a second read
+                // while this one is held waits behind any write queued in
+                // between, which waits on this one, and the node stops.
+                let listed = {
+                    watched::read(&s.live, |live| {
+                        live.agent_session.is_some()
+                            && id.is_none_or(|id| live.info.id == id)
+                            && (!s.reviewer || reviewers && live.info.parent.is_some())
+                    })
+                };
 
-                if id.is_some_and(|id| live.info.id != id) {
-                    return None;
-                }
-
-                if s.reviewer && !(reviewers && live.info.parent.is_some()) {
+                if !listed {
                     return None;
                 }
 
@@ -430,11 +465,6 @@ impl Agents {
         mut begin: Begin,
     ) -> Result<Arc<Session>> {
         self.prepare(kind).await?;
-
-        if checkout.is_some() {
-            // Refused starts must not leave a branch or worktree behind.
-            self.settings.configured(kind)?;
-        }
 
         let prompt = begin.prompt.as_deref().unwrap_or_default();
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
@@ -476,8 +506,9 @@ impl Agents {
         // both start it.
         if let Some(resume) = &begin.resume
             && let Some(running) = sessions.values().find(|session| {
-                let live = session.live.borrow();
-                live.status() != Status::Ended && live.agent_session.as_ref() == Some(resume)
+                watched::read(&session.live, |live| {
+                    live.status() != Status::Ended && live.agent_session.as_ref() == Some(resume)
+                })
             })
         {
             anyhow::bail!("session {resume} already runs here as {}", running.id);
@@ -486,8 +517,10 @@ impl Agents {
         if sessions.len() >= MAX_KEPT {
             let oldest = sessions
                 .values()
-                .filter(|session| session.live.borrow().status() == Status::Ended)
-                .min_by_key(|session| session.live.borrow().info.started_at)
+                .filter(|session| {
+                    watched::read(&session.live, |live| live.status() == Status::Ended)
+                })
+                .min_by_key(|session| watched::read(&session.live, |live| live.info.started_at))
                 .map(|session| session.id.clone());
             if let Some(oldest) = oldest {
                 sessions.remove(&oldest);
@@ -500,7 +533,10 @@ impl Agents {
                 // The ended run may be keyed by its original private handle.
                 // Remove it too, so listings cannot shadow the resumed run.
                 sessions.retain(|handle, session| {
-                    handle != resume && session.live.borrow().agent_session.as_ref() != Some(resume)
+                    handle != resume
+                        && watched::read(&session.live, |live| {
+                            live.agent_session.as_ref() != Some(resume)
+                        })
                 });
                 resume.clone()
             }
@@ -530,6 +566,7 @@ impl Agents {
             resume: begin.resume,
             earlier: begin.earlier,
             timestamps: begin.timestamps,
+            title: begin.title,
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
@@ -542,9 +579,7 @@ impl Agents {
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
-            node: NodeMode {
-                stopping: self.stopping.clone(),
-            },
+            stopping: self.stopping.clone(),
         })?;
         session.reviewer = begin.review;
         let session = Arc::new(session);
@@ -556,7 +591,7 @@ impl Agents {
             let mut previous = None;
 
             loop {
-                let info = updates.borrow_and_update().info.clone();
+                let info = watched::read_and_update(&mut updates, |live| live.info.clone());
                 events.changed(beep_proto::node::events::Topic::keyed("agent", &info.id));
                 let summary = (
                     info.id.clone(),
@@ -600,10 +635,15 @@ fn find_session(sessions: &HashMap<String, Arc<Session>>, id: &str) -> Option<Ar
 
     sessions
         .values()
-        .filter(|session| session.live.borrow().agent_session.as_deref() == Some(id))
+        .filter(|session| {
+            watched::read(&session.live, |live| {
+                live.agent_session.as_deref() == Some(id)
+            })
+        })
         .max_by_key(|session| {
-            let live = session.live.borrow();
-            (live.status() != Status::Ended, live.info.started_at)
+            watched::read(&session.live, |live| {
+                (live.status() != Status::Ended, live.info.started_at)
+            })
         })
         .cloned()
 }
@@ -620,6 +660,7 @@ pub(super) struct Begin {
     /// The resumed session's transcript from before the node restarted.
     pub(super) earlier: Vec<agent::Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
+    pub(super) title: Option<String>,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
     /// The session mode it was in before the node restarted.

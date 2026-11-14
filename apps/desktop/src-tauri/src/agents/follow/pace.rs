@@ -4,8 +4,8 @@
 //! everything is held, and the newest state goes once the window shows.
 
 use super::UpdateKind;
-use crate::agents::sessions::{ModesRow, TaskRow};
-use beep_proto::{AgentSessionView, AgentStatus, node::agent::SessionCursor};
+use crate::agents::sessions::ModesRow;
+use beep_proto::{AgentSessionView, AgentStatus, AgentTask, node::agent::SessionCursor};
 use std::time::{Duration, Instant};
 
 /// How often a session off screen goes to the webview, at most.
@@ -18,7 +18,7 @@ pub(super) struct Pushed {
     pub(super) resumed: bool,
     pub(super) view: AgentSessionView,
     pub(super) modes: Option<ModesRow>,
-    pub(super) tasks: Vec<TaskRow>,
+    pub(super) tasks: Vec<AgentTask>,
 }
 
 /// Whether a session's run goes on and what it asks: a change goes at once.

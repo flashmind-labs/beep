@@ -45,7 +45,7 @@ async fn file_previews_load_scripts_fonts_and_parent_assets_inside_the_project()
     let pages = Pages::default();
     let mut at = place();
     at.folder.clear();
-    let src = pages.keep_at(
+    let src = pages.keep(
         b"<script src='../mermaid.js'></script>".to_vec(),
         at,
         "mockups/desktop/index.html".into(),
@@ -85,7 +85,7 @@ async fn file_previews_load_scripts_fonts_and_parent_assets_inside_the_project()
 #[test]
 fn preview_entry_paths_encode_spaces_and_percent_signs() {
     let pages = Pages::default();
-    let src = pages.keep_at(b"page".to_vec(), place(), "reports/100% done.html".into());
+    let src = pages.keep(b"page".to_vec(), place(), "reports/100% done.html".into());
     assert!(src.ends_with("reports/100%25%20done.html"));
     assert_eq!(done(&pages, &src).body(), b"page");
 }
@@ -93,7 +93,7 @@ fn preview_entry_paths_encode_spaces_and_percent_signs() {
 #[test]
 fn a_kept_page_is_served_with_its_sandbox_and_others_are_not() {
     let pages = Pages::default();
-    let src = pages.keep(b"<p>hi</p>".to_vec(), place());
+    let src = pages.keep(b"<p>hi</p>".to_vec(), place(), String::new());
     assert!(src.ends_with('/'), "relative links resolve under {src}");
     let page = done(&pages, &src);
     assert_eq!(page.status(), StatusCode::OK);
@@ -126,7 +126,7 @@ fn a_kept_page_is_served_with_its_sandbox_and_others_are_not() {
 #[tokio::test]
 async fn a_relative_image_is_read_from_beside_the_page() {
     let pages = Pages::default();
-    let src = pages.keep(b"<img src=\"chart.png\">".to_vec(), place());
+    let src = pages.keep(b"<img src=\"chart.png\">".to_vec(), place(), String::new());
     let image = fetch(&pages, &format!("{src}chart.png")).await;
     assert_eq!(image.status(), StatusCode::OK);
     assert_eq!(image.body(), b"\x89PNG");
@@ -140,7 +140,7 @@ async fn a_relative_image_is_read_from_beside_the_page() {
 #[test]
 fn a_path_out_of_the_folder_is_refused() {
     let pages = Pages::default();
-    let src = pages.keep(b"<p>hi</p>".to_vec(), place());
+    let src = pages.keep(b"<p>hi</p>".to_vec(), place(), String::new());
     for escape in [
         "%2e%2e/secret.txt",
         "..%2fsecret.txt",
@@ -174,7 +174,7 @@ fn files_resolve_under_the_page_folder() {
 #[tokio::test]
 async fn a_page_loads_a_bounded_number_of_files() {
     let pages = Pages::default();
-    let src = pages.keep(b"<p>hi</p>".to_vec(), place());
+    let src = pages.keep(b"<p>hi</p>".to_vec(), place(), String::new());
 
     const { assert!(MAX_PAGE_FILES > 100, "large mocks need more than 64 assets") };
     for _ in 0..MAX_PAGE_FILES {
@@ -193,10 +193,10 @@ async fn a_page_loads_a_bounded_number_of_files() {
 #[test]
 fn only_the_oldest_pages_go() {
     let pages = Pages::default();
-    let first = pages.keep(b"1".to_vec(), place());
+    let first = pages.keep(b"1".to_vec(), place(), String::new());
 
     for _ in 0..KEPT_PAGES {
-        pages.keep(b"more".to_vec(), place());
+        pages.keep(b"more".to_vec(), place(), String::new());
     }
 
     let token = |src: &str| {
@@ -207,7 +207,7 @@ fn only_the_oldest_pages_go() {
             .expect("a token")
     };
     assert!(pages.get(token(&first)).is_none());
-    let last = pages.keep(b"last".to_vec(), place());
+    let last = pages.keep(b"last".to_vec(), place(), String::new());
     assert_eq!(
         pages
             .get(token(&last))

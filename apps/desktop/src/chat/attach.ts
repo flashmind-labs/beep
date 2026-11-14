@@ -1,8 +1,8 @@
 import { agentMessage } from "../agents/session-frame.tsx";
 import { showFieldDrop } from "../agents/composer-ui.tsx";
-import { agentAttach } from "../agents/images.ts";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
+import { bytesOf } from "../agentpane/media-state.ts";
 import { addMention, uploadDropped } from "../agents/workdrop.ts";
 import { bar, S } from "../bar/core.ts";
 import { createElement } from "react";
@@ -42,7 +42,7 @@ export async function picPreview(file: File) {
 
   const data = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
   const name = (file.name || "image").replace(/\.[^.]*$/, "");
-  return new File([Uint8Array.from(atob(data), c => c.charCodeAt(0))], `${name}.jpg`, { type: "image/jpeg" });
+  return new File([bytesOf(data)], `${name}.jpg`, { type: "image/jpeg" });
 }
 
 /// Whether the agent view's message field is on screen, to take what is
@@ -60,12 +60,7 @@ document.addEventListener("paste", e => {
 /// Files pasted or dropped on a coding agent session upload to its machine
 /// and are mentioned; a picture also attaches a small preview to the message.
 export async function agentDrop(files: Iterable<File>) {
-  const session = paneSession();
-
-  for (const { file, path } of await uploadDropped([...files])) {
-    if (paneSession() !== session) return;
-    if (file.type.startsWith("image/")) await agentAttach(file, path);
-  }
+  await uploadDropped([...files], null, paneSession()?.cwd ?? "", true);
 }
 
 // Dropping images and files on a session attaches them too; a path dragged

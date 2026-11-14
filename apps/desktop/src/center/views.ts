@@ -16,7 +16,6 @@ import { instructionsView, openSettings, providersView } from "../settings/sheet
 import { paneView } from "./pane.ts";
 import { homeView } from "./home.ts";
 import { ProjectsPage, projectsView } from "../project/page.ts";
-import { SyncRoute, syncView } from "../project/syncpage.ts";
 import { TerminalsPage, terminalsView } from "../terminals/view.ts";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
@@ -34,7 +33,6 @@ function viewOf(name: ViewName): CenterView {
     case "home": return homeView;
     case "pane": return paneView;
     case "projects": return projectsView;
-    case "sync": return syncView;
     case "instructions": return instructionsView;
     case "providers": return providersView;
     case "terminals": return terminalsView;
@@ -42,13 +40,13 @@ function viewOf(name: ViewName): CenterView {
 }
 
 /// The pages after Home and the pane, in the order their boxes follow them in `#main`.
-const PAGES = ["projects", "sync", "instructions", "providers", "terminals"] as const;
+const PAGES = ["projects", "instructions", "providers", "terminals"] as const;
 type Page = typeof PAGES[number];
 const boxes = new Map<Page, HTMLElement>();
 const keepBox = Object.fromEntries(PAGES.map(name => [name, (el: HTMLDivElement | null) => { if (el) boxes.set(name, el); else boxes.delete(name); }]));
 /// How often each page drew; 0 leaves its box empty.
 const shown = createStore<{ drawn: Record<Page, number> }>(() => ({
-  drawn: { projects: 0, sync: 0, instructions: 0, providers: 0, terminals: 0 },
+  drawn: { projects: 0, instructions: 0, providers: 0, terminals: 0 },
 }));
 
 /// Draws page `name` in its box again, or empties the box.
@@ -72,7 +70,6 @@ const PageBox = memo(function PageBox({ name, hidden, drawn }: { name: Page; hid
 const PageContent = memo(function PageContent({ name }: { name: Page; drawn: number }) {
   switch (name) {
     case "projects": return createElement(ProjectsPage);
-    case "sync": return createElement(SyncRoute);
     case "terminals": return createElement(TerminalsPage);
     case "instructions": case "providers": return null;
   }
@@ -170,7 +167,6 @@ export function goHistory(forward: boolean): boolean {
 export function go(...[name, arg]: NavigationArgs): boolean {
   switch (name) {
     case "home": return goTo({ view: name, arg: null });
-    case "sync": return goTo({ view: name, arg: null });
     case "terminals": return goTo({ view: name, arg: null });
     case "pane": return goTo({ view: name, arg: arg ?? null });
     case "projects": return goTo({ view: name, arg: arg ?? null });

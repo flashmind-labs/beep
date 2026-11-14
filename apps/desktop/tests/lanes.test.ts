@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { byLane, endedToday, laneOf, travelled } from "../src/center/lanes-state.ts";
+import { byLane, byProject, endedToday, laneOf, travelled } from "../src/center/lanes-state.ts";
 
 test("a session's status picks its lane", () => {
   assert.equal(laneOf("asking"), "needs");
@@ -26,4 +26,17 @@ test("only a card that moved travels, from where it was", () => {
   const before = new Map([["a", { x: 0, y: 40 }], ["b", { x: 300, y: 40 }], ["gone", { x: 0, y: 140 }]]);
   const after = new Map([["a", { x: 300, y: 140 }], ["b", { x: 300, y: 40 }], ["new", { x: 0, y: 40 }]]);
   assert.deepEqual([...travelled(before, after)], [["a", { dx: -300, dy: -100 }]]);
+});
+
+
+test("Home keeps needs first by default and sorts projects by the chosen recency", () => {
+  const cards = [
+    { lane: "needs", project: "example/alpha", id: "question" },
+    { lane: "working", project: "example/beta", id: "work" },
+    { lane: "review", project: null, id: "other" },
+  ] as const;
+  assert.deepEqual(byProject(cards).map(row => row.project), ["example/alpha", "example/beta", null]);
+  assert.deepEqual(byProject(cards, new Map([["example/beta", 200], ["example/alpha", 100]])).map(row => row.project), ["example/beta", "example/alpha", null]);
+  assert.deepEqual(byProject(cards, new Map()).map(row => row.project), ["example/alpha", "example/beta", null]);
+  assert.equal(cards[0].id, "question");
 });

@@ -1,6 +1,7 @@
 body.cbody
   div.cwin [aria-label="Beep" role="main"] style(--side-w)
     aside#side.cc-side
+      canvas.haze.painted-art [aria-hidden="true" height="225" width="46"]
       div.cc-head
       div.cc-brand
         b "Beep"
@@ -57,7 +58,7 @@ body.cbody
           button.dbtn.quiet [aria-label="Add a machine" title="Add a machine" type="button"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="184" role="separator" tabindex="0"]
-    div#main.cc-main
+    div#main.cc-main style(--top-w)
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -92,20 +93,23 @@ body.cbody
           div.cc-tabs [role="tablist"]
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-          div.cc-empty.cc-panel
-            b "Nothing running"
-            span "Start an agent on this computer, or add a machine to run it there."
-            button.dbtn.small [type="button"] "Start an agent"
+          div.painted-empty
+            canvas.painted-art.sunrise [aria-hidden="true" height="130" width="264"]
+            div.cc-empty.cc-panel
+              b "Nothing running"
+              span "Start an agent on this computer, or add a machine to run it there."
+              button.dbtn.pri.small [type="button"] "Start an agent"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box
         div.cc-view [data-project]
-          div.cc-empty.cc-panel
-            b "No projects yet"
-            span "A folder or a repository to clone."
-            button.pri [type="button"] "Add a project"
-              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-      div.cc-box [hidden]
+          div.painted-empty
+            canvas.painted-art.sunrise [aria-hidden="true" height="130" width="264"]
+            div.cc-empty.cc-panel
+              b "No projects yet"
+              span "Choose a folder, clone a repository or start a new one."
+              button.pri [type="button"] "Add a project"
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

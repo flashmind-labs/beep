@@ -1,4 +1,3 @@
-use std::time::Duration;
 use super::read::{ALPN, Access, Pulled, pull};
 use crate::{
     agents::{Agents, found::Stores},
@@ -10,6 +9,7 @@ use iroh::{
     endpoint::{Connection, presets},
     protocol::{AcceptError, ProtocolHandler, Router},
 };
+use std::time::Duration;
 use std::{fs, path::Path, sync::Arc};
 use tempfile::TempDir;
 
@@ -605,7 +605,7 @@ async fn a_flsh_session_file_is_read_and_one_in_an_old_database_is_refused() {
     assert!(err.is::<super::read::Refused>(), "{err:#}");
     assert!(
         err.to_string()
-            .contains("Update flsh on laptop to 0.2.10 to move this session"),
+            .contains("Update flsh on laptop to 0.2.9 to move this session"),
         "{err:#}"
     );
 }

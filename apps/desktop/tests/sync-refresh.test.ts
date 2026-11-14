@@ -50,8 +50,28 @@ test("one summary change reads the detail of that project only", async () => {
 
   const before = [row("a", "m1"), row("b", "m1"), row("c", "m1")];
   const { changed } = mergeSyncRows(before, [row("a", "m1"), row("b", "m1", { files: 11 }), row("c", "m1")]);
+  mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
   await sync.follow(changed, [], 60_000);
+  assert.equal(details().length, 3);
+  mock.timers.tick(60_000);
+  await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(details().slice(3), ["project_sync_detail:b"]);
+  mock.timers.reset();
+});
+
+test("a busy sync reads a changed project once per bound, then once after", async () => {
+  const { sync, details } = counted();
+  mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
+  await sync.follow(new Set(["a"]), [], 10_000);
+  for (let i = 0; i < 10; i++) {
+    mock.timers.tick(500);
+    await sync.follow(new Set(["a"]), [], 10_000);
+  }
+  assert.equal(details().length, 1);
+  mock.timers.tick(10_000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(details().length, 2);
+  mock.timers.reset();
 });
 
 test("an unchanged summary reads nothing and draws nothing while details are fresh", async () => {

@@ -28,6 +28,19 @@ pub(crate) struct UsageHub {
     plans: watch::Sender<Plans>,
 }
 
+/// `agent`'s entry in `plans`, empty when there is none.
+fn plan_of<'a>(plans: &'a mut Plans, agent: &AgentSlug) -> &'a mut PlanUsage {
+    plans.entry(agent.clone()).or_insert_with(|| PlanUsage {
+        agent: agent.clone(),
+        ..PlanUsage::default()
+    })
+}
+
+/// Tells the event followers that usage changed.
+fn usage_changed() {
+    crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
+}
+
 impl Default for UsageHub {
     fn default() -> Self {
         Self {
@@ -50,7 +63,7 @@ impl UsageHub {
 
         drop(turns);
         self.arrived.notify_one();
-        crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
+        usage_changed();
     }
 
     /// The oldest turn waiting for the caller, once there is one.
@@ -80,17 +93,16 @@ impl UsageHub {
         });
 
         if changed {
-            crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
+            usage_changed();
         }
     }
 
     /// Replaces a provider's last balance without changing session spend or plan windows.
     pub(crate) fn update_credits(&self, agent: &AgentSlug, credits: ProviderCredits, at: u64) {
-        self.plans.send_modify(|plans| {
-            let plan = plans.entry(agent.clone()).or_insert_with(|| PlanUsage {
-                agent: agent.clone(),
-                ..PlanUsage::default()
-            });
+        let changed = self.plans.send_if_modified(|plans| {
+            let plan = plan_of(plans, agent);
+            let before = plan.clone();
+
             if let Some(kept) = plan
                 .credits
                 .iter_mut()
@@ -100,8 +112,17 @@ impl UsageHub {
             } else {
                 plan.credits.push(credits);
             }
-            plan.at = at;
+
+            let changed = plan.credits != before.credits;
+            if changed {
+                plan.at = at;
+            }
+            changed
         });
+
+        if changed {
+            usage_changed();
+        }
     }
 
     /// Puts `windows`, seen `at` (Unix seconds), into `agent`'s report,
@@ -112,10 +133,7 @@ impl UsageHub {
         }
 
         let changed = self.plans.send_if_modified(|plans| {
-            let plan = plans.entry(agent.clone()).or_insert_with(|| PlanUsage {
-                agent: agent.clone(),
-                ..PlanUsage::default()
-            });
+            let plan = plan_of(plans, agent);
             let before = plan.clone();
 
             for window in windows {
@@ -134,7 +152,7 @@ impl UsageHub {
         });
 
         if changed {
-            crate::events::system().changed(beep_proto::node::events::Topic::new("usage"));
+            usage_changed();
         }
     }
 }

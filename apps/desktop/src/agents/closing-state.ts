@@ -25,7 +25,7 @@ export class Closings {
     let any = false;
 
     for (const [key, mark] of this.marks) {
-      if (mark.state === "closing" && key.endsWith(`:${id}`)) {
+      if (mark.state === "closing" && key.slice(key.indexOf(":") + 1) === id) {
         this.marks.set(key, { state: "ended", at: now });
         any = true;
       }

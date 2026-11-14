@@ -10,6 +10,7 @@ use crate::{
     records::projects,
 };
 use beep_mesh::{Mesh, MeshError, PeerClient};
+use beep_proto::watched;
 use beep_proto::{
     AgentNoticeKey, ApiError, Notice,
     node::agent::{
@@ -152,13 +153,12 @@ impl Drop for Running {
 /// Runs one task per online code host of `mesh`, started by `start`, as hosts come and go. A host
 /// that goes offline has its task ended, and a new one started when it is back. Ends when the mesh
 /// closes; the tasks end with it.
-pub async fn each_machine(mesh: &Mesh, start: impl FnMut(EndpointId) -> JoinHandle<()>) {
-    let mut start = start;
+pub async fn each_machine(mesh: &Mesh, mut start: impl FnMut(EndpointId) -> JoinHandle<()>) {
     let mut running = Running::default();
     let mut updates = mesh.updates();
 
     loop {
-        updates.borrow_and_update();
+        watched::read_and_update(&mut updates, |_| ());
         let machines = mesh
             .code_hosts()
             .into_iter()
@@ -267,7 +267,7 @@ async fn relinked(mesh: &Mesh, id: EndpointId, link: Option<usize>, pause: Durat
     tokio::pin!(wait);
 
     loop {
-        updates.borrow_and_update();
+        watched::read_and_update(&mut updates, |_| ());
 
         if link_of(mesh, id).is_some_and(|now| Some(now) != link) {
             return true;

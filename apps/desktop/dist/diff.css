@@ -36,7 +36,7 @@
 .dv-find { flex: 0 1 200px; min-width: 110px; height: 26px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); color: var(--fg); font: 12px var(--body, inherit); outline: 0 }
 .dv-find:focus { border-color: var(--accent) }
 .dv-find::placeholder { color: var(--dim) }
-.dv-btn { height: 26px; padding: 0 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--fg); font: 12px var(--body, inherit); white-space: nowrap; cursor: pointer }
+.dv-btn { height: 26px; padding: 0 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--fg); font: 12px var(--body, inherit); white-space: nowrap; cursor: default }
 .dv-btn:hover { background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .dv-btn:disabled { opacity: .45; cursor: default }
 .dv-btn.icon { width: 26px; padding: 0; display: inline-grid; place-items: center; color: var(--muted) }
@@ -49,7 +49,7 @@
 .dv-resize::after { content: ""; position: absolute; inset: 0 4px; background: var(--border) }
 .dv-resize:hover::after, .dv-resize:focus-visible::after, .dv-body.resizing .dv-resize::after { inset: 0 3px; background: var(--accent) }
 .dv-body.resizing, .dv-body.resizing * { cursor: col-resize; user-select: none }
-.dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: pointer }
+.dv-tr { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--fg); text-align: left; font: 12px var(--mono); cursor: default }
 .dv-tr:hover { background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .dv-tr.on { background: color-mix(in srgb, var(--accent) 20%, transparent) }
 .dv-tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
@@ -72,7 +72,7 @@
 .dv-win { flex: none; position: relative }
 .dv-win > .dv-file { position: absolute; left: 0; right: 0; margin: 0 }
 .dv-fh { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 6px 4px 8px; border-radius: 9px 9px 0 0;
-  background: var(--dv-head-bg); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none }
+  background: var(--dv-head-bg); border-bottom: 1px solid var(--border); cursor: default; user-select: none }
 .dv-file.closed .dv-fh { border-radius: var(--radius-sm); border-bottom-color: transparent }
 .dv-file.cur .dv-fh { box-shadow: inset 2px 0 0 var(--accent) }
 .dv-fh:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
@@ -105,7 +105,7 @@
 .dv-l { display: flex; min-width: 100% }
 .dv-g { position: sticky; left: 0; z-index: 1; flex: none; display: flex; background: var(--dv-gut-bg); color: var(--dim); -webkit-user-select: none; user-select: none; border-right: 1px solid var(--border) }
 .dv-g span { width: calc(var(--nw, 3) * 1ch + 14px); padding: 0 7px; text-align: right; font-variant-numeric: tabular-nums }
-.dv-c { flex: 1; padding: 0 12px 0 6px; white-space: pre; user-select: text }
+.dv-c { flex: 1; padding: 0 12px 0 6px; white-space: pre }
 .dv-c::before { display: inline-block; width: 1.2ch; color: var(--dim); content: " " }
 .dv-lines.split { width: 100% } .dv-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) } .dv-pair .dv-l { min-width: 0 } .dv-pair .dv-l + .dv-l { border-left: 1px solid var(--border) }
 .dv-pair .dv-c { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere } .dv-l.none { background: var(--dv-gut-bg) } .dv-l.none .dv-c::before { content: none }
@@ -118,7 +118,7 @@
 .dv-context { display: flex; height: 22px; border-block: 1px solid var(--border); background: var(--dv-gut-bg); color: var(--muted) }
 .dv-context-g { position: sticky; left: 0; display: flex; flex: none; width: calc(var(--nw, 3) * 2ch + 28px); border-right: 1px solid var(--border); background: inherit }
 .dv-l.hunk .dv-g.ctl { width: calc(var(--nw, 3) * 2ch + 28px) }
-.dv-gap-btn { flex: 1; min-width: 0; display: grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; cursor: pointer }
+.dv-gap-btn { flex: 1; min-width: 0; display: grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; cursor: default }
 .dv-gap-btn svg { width: 14px; height: 14px }
 .dv-gap-btn.above svg { transform: rotate(-90deg) }
 .dv-gap-btn.below svg { transform: rotate(90deg) }
@@ -135,13 +135,13 @@
 .dv-keys kbd { margin-right: 4px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; font: 10.5px var(--mono); color: var(--muted) }
 /* Review comments. */
 .dv-head [hidden] { display: none }
-.dv-l:not(.hunk):not(.none) .dv-g { cursor: pointer }
+.dv-l:not(.hunk):not(.none) .dv-g { cursor: default }
 .dv-l:not(.hunk):not(.none):hover .dv-g span:last-child { color: var(--fg) }
 .dv-cmt { position: sticky; left: 0; max-width: 560px; margin: 4px 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); font: 12.5px/18px var(--body, inherit); display: flex; gap: 8px; align-items: flex-start }
 .dv-cmt .b { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere }
 .dv-cmt .b code { font: 11.5px var(--mono); color: var(--muted) }
 .dv-cmt .a { display: flex; gap: 8px; color: var(--muted); font-size: 12px }
-.dv-cmt .a > button:not(.dbtn) { all: unset; cursor: pointer }
+.dv-cmt .a > button:not(.dbtn) { all: unset; cursor: default }
 .dv-cmt.open { flex-direction: column; align-items: stretch }
 .dv-cmt textarea { resize: none; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit }
 .dv-fcs:empty { display: none }
@@ -161,3 +161,7 @@
 .dv-fbnote[hidden] { display: none }
 .dv-fbnote pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/17px var(--mono); color: var(--muted); max-height: 120px; overflow: auto }
 .dv-fbnote .a { display: flex; gap: 8px }
+.dv-tr.dv-match { grid-template-columns: auto minmax(0, 1fr); color: var(--muted) }
+.dv-tr.dv-match .nm i { color: var(--muted) }
+.dv-tr.dv-match mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--fg); border-radius: 2px }
+.dv-l.dv-hit { box-shadow: inset 2px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent) }

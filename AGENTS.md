@@ -21,9 +21,25 @@ when the feature ships.
 
 ## UI
 
-Update the platform mock before changing an app's UI, then match the app to it:
-`mockups/desktop/index.html` (including the tray bar), and for the phone
-layout of the same app `mockups/ios/index.html` or `mockups/android/index.html`.
+Change the app's UI directly; there are no mockups. The committed screenshots of
+`apps/desktop/tests/browser/ui-baseline.spec.ts` are the visual record: update
+them with the change, and add one for a screen that has none.
+
+The desktop's style: a dark, Linear-style app with monospaced chrome, frosted
+glass on the layers that float, and brush-stroke paintings for atmosphere.
+
+- Chrome (labels, tabs, buttons, statuses, numbers) is set in the mono face;
+  reading text and titles stay in the sans.
+- Nearly square corners, spacing instead of borders, one accent used rarely.
+- Glass only on floating layers (palette, menus, dialogs, composers), never on
+  reading areas. A blur on an element becomes what its fixed descendants are
+  placed against, so put it on a layer behind.
+- The paintings (`src/ui/painted-art.tsx`) are drawn in blocks of short
+  strokes. One paints itself once and is still after that; words sit on a
+  panel or a clear patch, not on the strokes. No full-screen takeovers of
+  the desktop and no ambient animation.
+- The rules live in `apps/desktop/dist/native.css`, scoped away from the phone
+  layout.
 
 ## Code structure and readability
 
@@ -93,7 +109,9 @@ and wire representations independently. Prefer explicit
 Every agent must record user-visible changes before finishing work, as a new
 file per change in `changelogs/unreleased/<app>/` (`desktop`, `node`,
 `android`, `ios` or `server`), named after the issue or branch, such as
-`579-ghostty-terminals.md`. Never edit another change's file or the
+`579-ghostty-terminals.md`. A subagent on a small model writes the entry:
+Haiku 5.5 (`claude-haiku-5-5`) under Claude ACP, Terra 6.1 (`gpt-6-1-terra`)
+under Codex ACP. Never edit another change's file or the
 `changelogs/<app>.md` files, so branches do not conflict. Record shared changes
 in each affected app. A file holds `### Added`, `### Changed`, `### Fixed`,
 `### Security` or `### Performance` sections of `- ` items; write from the

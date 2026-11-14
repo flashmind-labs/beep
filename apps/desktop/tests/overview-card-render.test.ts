@@ -9,7 +9,7 @@ import { OverviewCardView, overviewCardModel } from "../src/project/overview-car
 test("overview cards update independently when another project's display changes", () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
-  const base = { name: "first", repo: "first", index: 0, pinned: false, sync: "", agents: "idle", latest: "No recent activity", hasMachines: false, machines: "" };
+  const base: ReturnType<typeof overviewCardModel> = { name: "first", repo: "first", index: 0, pinned: false, sync: null, running: null, ago: null, where: null, everywhere: "" };
   const other = { ...base, name: "second", repo: "second" };
   let nameReads = 0;
   const open = () => {}, pin = () => {}, none = () => {};
@@ -26,19 +26,20 @@ test("overview cards update independently when another project's display changes
     assert.equal(host.querySelector('[title="second"]'), unchanged);
     assert.equal(nameReads, 1, "the unchanged card model was compared but not rendered");
     assert.ok(host.querySelector('[title="first"] [aria-label="Unpin"]'));
-    render({ ...base, pinned: true }, { ...other, latest: "Last activity 2 min ago" });
-    assert.match(host.textContent ?? "", /Last activity 2 min ago/);
+    render({ ...base, pinned: true }, { ...other, ago: "2 min ago" });
+    assert.match(host.textContent ?? "", /2 min ago/);
   } finally { root.unmount(); host.remove(); }
 });
 
 test("overview card display models reflect activity, agents, pin and sync", () => {
   const project = { name: "example/project", url: null, display_name: null, machines: [], agents: 0, last: Date.now() - 120_000, imported: true, i: 0, repo: "project", pinned: false };
   const before = overviewCardModel(project, "Beep sync");
-  assert.equal(before.latest, "Last activity 2 min ago");
-  assert.equal(before.agents, "idle");
+  assert.equal(before.ago, "2 min ago");
+  assert.equal(before.running, null);
+  assert.equal(before.where, null);
   assert.equal(before.sync, "Beep sync");
   const after = overviewCardModel({ ...project, pinned: true, agents: 2 }, "Syncthing");
   assert.equal(after.pinned, true);
-  assert.equal(after.agents, "2 agents");
+  assert.equal(after.running, "2 agents");
   assert.equal(after.sync, "Syncthing");
 });

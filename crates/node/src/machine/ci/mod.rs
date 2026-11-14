@@ -1,8 +1,8 @@
 //! Watching the CI runs of the user's pinned projects, with no server
 //! (#338). One machine per project watches: among the project's machines that
 //! are online and have its checkout, the one that reaches the project's host
-//! first, then the smallest endpoint id (`elect`). It lists the project's runs
-//! every minute through `gh` or `teacli`, keeps the ones the signed-in user
+//! first, then the smallest endpoint id (`watcher_of`). It lists the
+//! project's runs every minute through `gh` or `teacli`, keeps the ones the signed-in user
 //! started by a push or a pull request, waits on each going one with the
 //! CLI's watch command, and tells the desktops once each ends (`book`), over
 //! their `FollowRuns` streams. Between lists, a GitHub project is checked
@@ -11,7 +11,6 @@
 
 mod book;
 mod check;
-mod elect;
 mod forge;
 mod github;
 mod projects;
@@ -26,6 +25,7 @@ use beep_proto::node::{
     agent::RunNews,
     tools::{ForgeReach, HostReach},
 };
+use beep_proto::watched;
 use tokio::sync::watch;
 
 pub(crate) use watcher::watch;
@@ -50,16 +50,13 @@ impl Default for Ci {
 impl Ci {
     /// How this node's calls to each host went.
     pub(crate) fn reach(&self) -> ForgeReach {
-        self.reach.borrow().clone()
+        watched::read_sent(&self.reach, Clone::clone)
     }
 
     fn reach_of(&self, host: &str) -> HostReach {
-        self.reach
-            .borrow()
-            .hosts
-            .get(host)
-            .copied()
-            .unwrap_or_default()
+        watched::read_sent(&self.reach, |reach| {
+            reach.hosts.get(host).copied().unwrap_or_default()
+        })
     }
 
     fn record_reach(&self, host: &str, ok: bool) {

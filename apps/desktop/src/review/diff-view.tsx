@@ -11,7 +11,7 @@ import { DiffFiles, fileMenu } from "./diff-files.tsx";
 import { FeedbackBox, FeedbackNoteBox } from "./feedback-view.tsx";
 import { allFolded, type DiffFile } from "./diff-state.ts";
 import { NARROW, WIDE, type Viewer, keepCurrent, remeasure, remember, saveSplit, shown } from "./diff-viewer.ts";
-import { foldAll, jump, markCurrent, onKey } from "./diff-keys.ts";
+import { foldAll, jump, jumpToLine, markCurrent, onKey } from "./diff-keys.ts";
 import { load, sendReview } from "./diff.ts";
 import { useTreeWidth } from "./treewidth.ts";
 
@@ -91,7 +91,7 @@ const Tree = memo(function Tree({ v, scroller }: { v: Viewer; scroller: HTMLElem
       if (open) next.add(path); else next.delete(path);
       v.set(filtering ? { filteredClosedFolders: next } : { closedFolders: next });
     }}
-    onFile={path => jump(v, path)} onMenu={(event, file) => fileMenu(v, event.nativeEvent, file)} />;
+    onFile={path => jump(v, path)} onLine={(path, match) => jumpToLine(v, path, match)} onMenu={(event, file) => fileMenu(v, event.nativeEvent, file)} />;
 });
 
 const NO_FILES: readonly DiffFile[] = [];

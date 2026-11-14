@@ -1,9 +1,8 @@
-//! Who started each coding agent session, as the nodes last listed them: a
-//! session an agent started with `start_agent` names its parent, which the
-//! session lists nest under, and the reviewers running as a child.
+//! Who started each coding agent session, as the nodes last listed them.
+//! Child sessions remain available to the parent panel while top-level
+//! lists omit them.
 
 use beep_mesh::machine::listing::Linked;
-use beep_proto::MachineSession;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -22,14 +21,14 @@ pub struct SessionParent {
 }
 
 /// The parents of the sessions each machine listed last, by machine and
-/// session, and the reviewers it listed, by machine.
+/// session, and its child sessions, by machine.
 #[derive(Default)]
 pub(super) struct Parents(Mutex<Held>);
 
 #[derive(Default)]
 struct Held {
     parents: HashMap<(String, String), SessionParent>,
-    reviewers: HashMap<String, Vec<MachineSession>>,
+    children: HashMap<String, Vec<Linked>>,
 }
 
 impl Parents {
@@ -55,12 +54,12 @@ impl Parents {
             );
         }
 
-        let reviewers: Vec<MachineSession> = listed
+        let children: Vec<Linked> = listed
             .iter()
-            .filter(|linked| linked.reviewer)
-            .map(|linked| linked.session.clone())
+            .filter(|linked| linked.parent.is_some() || linked.reviewer)
+            .cloned()
             .collect();
-        held.reviewers.insert(machine.to_owned(), reviewers);
+        held.children.insert(machine.to_owned(), children);
     }
 
     pub(super) fn of(&self, machine: &str, session: &str) -> Option<SessionParent> {
@@ -72,12 +71,26 @@ impl Parents {
             .cloned()
     }
 
-    /// The reviewers every machine listed last.
-    pub(super) fn reviewers(&self) -> Vec<MachineSession> {
+    /// Whether `machine` last listed `session` as a reviewer.
+    pub(super) fn is_reviewer(&self, machine: &str, session: &str) -> bool {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .reviewers
+            .children
+            .get(machine)
+            .is_some_and(|listed| {
+                listed
+                    .iter()
+                    .any(|linked| linked.reviewer && linked.session.id == session)
+            })
+    }
+
+    /// Child sessions every machine listed last, with their reviewer flag.
+    pub(super) fn children(&self) -> Vec<Linked> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .children
             .values()
             .flatten()
             .cloned()

@@ -61,7 +61,7 @@ pub async fn probe() -> EnvReport {
     let mut logins = Vec::new();
 
     if let Some(program) = at("claude") {
-        let mut claude = login(
+        let claude = login(
             "claude",
             &program,
             &["auth", "status"],
@@ -69,7 +69,6 @@ pub async fn probe() -> EnvReport {
             claude_account,
         )
         .await;
-        claude.signed_in = claude.signed_in || claude_in_keychain().await;
         logins.push(claude);
     }
 
@@ -155,7 +154,7 @@ pub(crate) async fn probe_tools(scope: ToolScope) -> (Vec<ToolInfo>, Vec<(&'stat
             .ok()
             .or_else(|| locate::fallback(name, home.as_deref()?));
         if let Some(program) = program {
-            let version = match ran(&program, args).await {
+            let version = match ran(&program, args, Scope::Probe).await {
                 // A stub that only says what is missing, like `xcodebuild`
                 // with no Xcode, is not the tool.
                 Some((false, _)) => continue,
@@ -174,14 +173,19 @@ pub(crate) async fn probe_tools(scope: ToolScope) -> (Vec<ToolInfo>, Vec<(&'stat
 
 /// What `program args` printed, stdout then stderr, when it ran in time.
 pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
-    ran(program, args).await.map(|(_, text)| text)
+    ran(program, args, Scope::Probe).await.map(|(_, text)| text)
 }
 
 /// What `program` printed, stdout then stderr, and whether it succeeded;
-/// `None` when it could not run or took too long.
-async fn ran(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<(bool, String)> {
+/// `None` when it could not run or took too long. It gets the credentials
+/// `scope` allows.
+async fn ran(
+    program: impl AsRef<std::ffi::OsStr>,
+    args: &[&str],
+    scope: Scope,
+) -> Option<(bool, String)> {
     let mut command = crate::run::process::probe(program.as_ref());
-    spawn_env::apply(&mut command, Scope::Probe);
+    spawn_env::apply(&mut command, scope);
     beside(&mut command, Path::new(program.as_ref()));
     let run = command
         .args(args)
@@ -239,23 +243,10 @@ async fn login(
     logged_in: fn(&str) -> Option<bool>,
     account: fn(&str) -> Option<String>,
 ) -> Login {
-    let mut command = crate::run::process::probe(program);
     // With the GitHub token, so `gh auth status` sees the one Beep gave.
-    spawn_env::apply(&mut command, Scope::Agent(None));
-    beside(&mut command, program);
-    let run = command
-        .args(args)
-        .stdin(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let (signed_in, text) = match timeout(PROBE_TIMEOUT, run).await {
-        Ok(Ok(out)) => {
-            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&out.stderr));
-            (out.status.success(), text)
-        }
-        _ => (false, String::new()),
-    };
+    let (signed_in, text) = ran(program, args, Scope::Agent(None))
+        .await
+        .unwrap_or_default();
     let signed_in = signed_in && logged_in(&text) != Some(false);
     Login {
         tool: tool.into(),
@@ -282,27 +273,6 @@ async fn has_file(home: Option<&Path>, path: &str) -> bool {
     tokio::fs::metadata(home.join(path))
         .await
         .is_ok_and(|meta| meta.is_file() && meta.len() > 2)
-}
-
-/// The macOS Keychain item Claude Code keeps its sign-in in.
-const CLAUDE_KEYCHAIN: &str = "Claude Code-credentials";
-
-/// Whether Claude Code's Keychain item is there, on a Mac where `claude
-/// auth status` cannot see it. Asks for the item's attributes, not its
-/// secret, so the Keychain never prompts.
-pub(crate) async fn claude_in_keychain() -> bool {
-    if env::consts::OS != "macos" {
-        return false;
-    }
-
-    let found = crate::run::process::command("/usr/bin/security")
-        .args(["find-generic-password", "-s", CLAUDE_KEYCHAIN])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .status();
-    matches!(timeout(PROBE_TIMEOUT, found).await, Ok(Ok(status)) if status.success())
 }
 
 /// `loggedIn` in `claude auth status`, which prints JSON; `None` for any
@@ -391,6 +361,10 @@ pub(crate) async fn memory_mb() -> Option<u64> {
 }
 
 async fn read_memory_mb() -> Option<u64> {
+    #[cfg(windows)]
+    return super::stats::memory().await.ok().map(|memory| memory.total_mb);
+
+    #[cfg(not(windows))]
     match env::consts::OS {
         "macos" => {
             let bytes: u64 = output("sysctl", &["-n", "hw.memsize"])
@@ -404,6 +378,7 @@ async fn read_memory_mb() -> Option<u64> {
     }
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 /// `MemTotal` from `/proc/meminfo`, which gives it in kB.
 fn mem_total_mb(meminfo: &str) -> Option<u64> {
     let line = meminfo.lines().find(|line| line.starts_with("MemTotal:"))?;

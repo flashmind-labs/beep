@@ -20,7 +20,7 @@ export interface DiffHunk {
 }
 
 export type DiffStatus = "added" | "modified" | "deleted" | "renamed" | "binary";
-export type LeftOut = "too_large" | "lockfile" | "over_total";
+type LeftOut = "too_large" | "lockfile" | "over_total";
 
 export interface DiffFile {
   path: string;
@@ -52,11 +52,11 @@ export interface DiffView {
 }
 
 /// Files with more changed lines than this start folded.
-export const FOLD_LINES = 400;
+const FOLD_LINES = 400;
 
 /// Whether `f` starts folded: a deleted file, one past [`FOLD_LINES`]
 /// changed lines, and a lockfile left out.
-export function startsFolded(f: Pick<DiffFile, "status" | "additions" | "deletions" | "left_out">) {
+function startsFolded(f: Pick<DiffFile, "status" | "additions" | "deletions" | "left_out">) {
   return f.status === "deleted" || f.additions + f.deletions > FOLD_LINES || f.left_out === "lockfile";
 }
 
@@ -77,7 +77,7 @@ export type DiffRow =
   | HunkRow
   | { kind: "line"; k: DiffLine["k"]; old: number | null; new: number | null; text: string; eol: boolean };
 
-export function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_start" | "new_lines" | "section">) {
+function hunkHeader(h: Pick<DiffHunk, "old_start" | "old_lines" | "new_start" | "new_lines" | "section">) {
   const side = (start: number, n: number) => (n === 1 ? `${start}` : `${start},${n}`);
   return `@@ -${side(h.old_start, h.old_lines)} +${side(h.new_start, h.new_lines)} @@${h.section ? ` ${h.section}` : ""}`;
 }
@@ -177,11 +177,38 @@ export function numberWidth(f: Pick<DiffFile, "hunks">) {
   return String(max).length;
 }
 
-/// Whether `f` matches the filter `q`: its path or old path holds it, any case.
-export function matchesFilter(f: Pick<DiffFile, "path" | "old_path">, q: string) {
+/// Whether `f` matches the filter `q`: its path, old path or a changed
+/// line holds it, any case.
+export function matchesFilter(f: Pick<DiffFile, "path" | "old_path" | "hunks">, q: string) {
   const want = q.trim().toLowerCase();
   if (!want) return true;
-  return f.path.toLowerCase().includes(want) || !!f.old_path?.toLowerCase().includes(want);
+  return f.path.toLowerCase().includes(want) || !!f.old_path?.toLowerCase().includes(want) || lineMatches(f, q, 1).length > 0;
+}
+
+/// A line of the diff holding the filter, on the side its number is of.
+export interface LineMatch { side: "old" | "new"; line: number; text: string }
+
+/// The lines of `f` holding the filter `q`, any case, at most `limit`.
+export function lineMatches(f: Pick<DiffFile, "hunks">, q: string, limit: number): LineMatch[] {
+  const want = q.trim().toLowerCase(), out: LineMatch[] = [];
+  if (!want) return out;
+
+  for (const h of f.hunks) {
+    let old = h.old_lines ? h.old_start : h.old_start + 1;
+    let now = h.new_lines ? h.new_start : h.new_start + 1;
+
+    for (const l of h.lines) {
+      if (l.t.toLowerCase().includes(want)) {
+        out.push(l.k === "-" ? { side: "old", line: old, text: l.t } : { side: "new", line: now, text: l.t });
+        if (out.length >= limit) return out;
+      }
+
+      if (l.k !== "+") old++;
+      if (l.k !== "-") now++;
+    }
+  }
+
+  return out;
 }
 
 /// `n` with thousands separators. One formatter for all: `toLocaleString`

@@ -64,14 +64,18 @@ impl Paths {
                         .collect::<Vec<_>>(),
                     Err(_) => roots.clone(),
                 };
+                let renames = |event: &notify::Event| {
+                    matches!(
+                        event.kind,
+                        EventKind::Create(_)
+                            | EventKind::Remove(_)
+                            | EventKind::Modify(notify::event::ModifyKind::Name(_))
+                    )
+                };
+
                 if event.as_ref().map_or(true, |event| {
                     event.need_rescan()
-                        || (matches!(
-                            event.kind,
-                            EventKind::Create(_)
-                                | EventKind::Remove(_)
-                                | EventKind::Modify(notify::event::ModifyKind::Name(_))
-                        ) && event.paths.iter().any(|path| loses_watch(&roots, path)))
+                        || (renames(event) && event.paths.iter().any(|path| loses_watch(&roots, path)))
                 }) {
                     invalidated.store(true, Ordering::Release);
                 }
@@ -81,15 +85,9 @@ impl Paths {
                     return;
                 }
 
-                let structural = event.as_ref().map_or(true, |event| {
-                    event.need_rescan()
-                        || matches!(
-                            event.kind,
-                            EventKind::Create(_)
-                                | EventKind::Remove(_)
-                                | EventKind::Modify(notify::event::ModifyKind::Name(_))
-                        )
-                });
+                let structural = event
+                    .as_ref()
+                    .map_or(true, |event| event.need_rescan() || renames(event));
                 direct(changed_roots, structural);
 
                 if structural {

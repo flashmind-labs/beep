@@ -3,19 +3,17 @@ import { snapshotView } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
 import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
-import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./home-state.ts";
+import { applyTelemetry, keepUnchanged, onlineMachines, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
 import { preloadModels } from "../agents/agentpicker.ts";
 import type { AgentHost } from "../agents/agents.ts";
-import { onlineMachines } from "./center.ts";
 import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pagesAccount } from "./state.ts";
 import { draw } from "./home.ts";
 import { readAllTerms } from "../terminals/view.ts";
 import { refreshGit } from "./openitems.ts";
-import { currentLocation, drawTop } from "./views.ts";
+import { currentLocation } from "./views.ts";
 import { reloadGroup, drawSide } from "./sidebar.ts";
-import { liveMode, runs } from "../project/sections.ts";
-import { drawProjects } from "../project/page.ts";
+import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { followSync, readSync } from "../project/syncpage.ts";
@@ -97,7 +95,7 @@ async function readHome(): Promise<void> {
 /// Home, the projects page while it shows, and the sidebar unless it draws later.
 function drawHome(side = true) {
   draw();
-  if (currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
+  redrawProjectsPage();
   if (side) drawSide();
 }
 
@@ -138,7 +136,7 @@ const refreshProjects = single(async () => {
 
   if (onScreen()) {
     drawSide();
-    if (currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
+    redrawProjectsPage();
   }
 });
 
@@ -186,7 +184,7 @@ export const onScreen = pageShown;
 onShownChange(visible => {
   if (!visible) { clearTimeout(retryTimer); runs.stop(); liveMode.follow(null); return; }
 
-  if (state.home && currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
+  if (state.home) redrawProjectsPage();
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.

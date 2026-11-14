@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.8.24"
+version = "0.8.33"
 edition = "2024"
 license = "MPL-2.0"
 rust-version = "1.99"
@@ -106,8 +106,9 @@ tauri-plugin-single-instance = "2"
 # which a local build signed ad hoc cannot load under the hardened runtime.
 tauri-plugin-sparkle-updater = { version = "0.3", optional = true }
 block2 = "0.6"
-# Notifications with Allow and Deny, and what a click on one opens. The
-# notification plugin shows them through the same crate but drops actions.
+# When the kernel started the process, for the startup timings in the log.
+libc = "0.2"
+# The application identity hook for notifications in unbundled development builds.
 mac-notification-sys = "0.6"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "NSResponder", "NSWindow", "block2", "objc2-core-graphics"] }
@@ -115,7 +116,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-application-services = { version = "0.3", default-features = false, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGImage", "CGRemoteOperation", "CGSession", "CGWindow"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSNotification", "NSOperation", "NSURL", "block2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSNotification", "NSOperation", "NSURL", "NSUserNotification", "block2"] }
 # Desktop control: screenshots.
 objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }
 

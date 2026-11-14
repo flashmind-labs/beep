@@ -1,8 +1,9 @@
 use super::*;
 use crate::agents::found_sessions::Held;
 use crate::agents::{AgentKind, OpenSession};
-use std::{collections::BTreeMap, path::Path};
 use beep_proto::node::agent::Request;
+use beep_proto::watched;
+use std::{collections::BTreeMap, path::Path};
 use tokio::time::timeout;
 
 /// An ACP adapter in shell: it logs what it reads to `$1`, answers each
@@ -45,7 +46,7 @@ fn kind(name: &str, log: &Path) -> AgentKind {
 
 async fn until(session: &Session, done: impl FnMut(&Live) -> bool) {
     let mut live = session.live.clone();
-    timeout(Duration::from_secs(20), live.wait_for(done))
+    timeout(Duration::from_secs(20), watched::wait_for(&mut live, done))
         .await
         .expect("the session got there in time")
         .expect("the session is kept");
@@ -135,6 +136,22 @@ async fn a_child_is_a_session_linked_to_its_parent() {
     assert_eq!(info.agent, "kid");
     let who = rig.agents.who_of(&parent);
     assert_eq!(rig.agents.children_of(&who).len(), 1);
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn child_completions_reach_the_parent_without_user_alerts() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let alerts = rig.agents.alerts.drain();
+    assert_eq!(alerts.len(), 1, "the root turn notifies the user");
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    until(&child, |live| live.info.turns == 1).await;
+    assert!(rig.agents.alerts.drain().is_empty());
+    let who = rig.agents.who_of(&parent);
+    let children = rig.agents.children_of(&who);
+    assert_eq!(children.len(), 1);
+    assert!(Arc::ptr_eq(&children[0], &child));
     rig.agents.shutdown().await;
 }
 
@@ -348,7 +365,7 @@ async fn a_parent_is_told_when_the_user_stops_its_child() {
         .await
         .expect("the child takes the stop");
     until(&child, |live| live.status() == Status::Idle).await;
-    let (entries, _) = child.live.borrow().transcript(usize::MAX);
+    let (entries, _) = watched::read(&child.live, |live| live.transcript(usize::MAX));
     assert!(
         entries.iter().any(|en| en.text == "Stopped by you"),
         "{entries:?}"
@@ -416,8 +433,8 @@ async fn stopping_a_parent_stops_its_children_s_turns() {
     until(&grandchild, |live| live.status() == Status::Idle).await;
     assert!(rig.read("kid.log").contains("session/cancel"));
     // The parent stopped them, so neither counts as stopped by the user.
-    assert!(!child.live.borrow().stopped_by_user);
-    assert!(!grandchild.live.borrow().stopped_by_user);
+    assert!(!watched::read(&child.live, |live| live.stopped_by_user));
+    assert!(!watched::read(&grandchild.live, |live| live.stopped_by_user));
     // Stop only ends turns: the sessions stay.
     assert!(rig.agents.runs(&Agents::name_of(&child)));
     rig.agents.shutdown().await;
@@ -814,9 +831,59 @@ async fn a_far_parent_s_stop_all_stops_its_child_here() {
             "{reply:?}"
         );
         until(&child, |live| live.status() == Status::Idle).await;
-        assert!(!child.live.borrow().stopped_by_user);
+        assert!(!watched::read(&child.live, |live| live.stopped_by_user));
         child.close().await;
     }
+
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_speaks() {
+    use beep_proto::node::tools::{Reply, Request as ToolRequest, Tool};
+
+    let rig = Rig::new();
+    let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let id = Agents::name_of(&session);
+    let far = SecretKeyFor::id();
+    let call = |tool: Tool, args: serde_json::Value| {
+        crate::agents::mcp::children::answer_peer(
+            &rig.agents,
+            far,
+            ToolRequest {
+                session: "far-agent".into(),
+                tool,
+                args: args.to_string(),
+                approved: Default::default(),
+            },
+        )
+    };
+
+    let Reply::Done {
+        text,
+        failed: false,
+    } = call(Tool::ListAgents, serde_json::json!({})).await
+    else {
+        panic!("the list is served");
+    };
+    assert!(text.contains(&format!("\"id\":\"{id}\"")), "{text}");
+
+    let send = || call(Tool::SendToAgent, serde_json::json!({ "id": id, "text": "hello" }));
+    for _ in 0..crate::agents::session::PEER_MESSAGES {
+        let reply = send().await;
+        assert!(matches!(&reply, Reply::Done { failed: false, .. }), "{reply:?}");
+    }
+    let refused = send().await;
+    assert!(matches!(&refused, Reply::Done { failed: true, .. }), "{refused:?}");
+
+    rig.agents
+        .send_session("top", &session.id, Request::Prompt { text: "carry on".into() })
+        .await
+        .expect("the user's prompt goes");
+    let reply = send().await;
+    assert!(matches!(&reply, Reply::Done { failed: false, .. }), "{reply:?}");
+    until(&session, |live| live.info.turns >= 8).await;
+    assert!(rig.read("top.log").contains("hello"));
 
     rig.agents.shutdown().await;
 }

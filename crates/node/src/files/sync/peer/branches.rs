@@ -78,15 +78,16 @@ pub(super) async fn receive_catalog(
         return Ok(());
     }
 
+    // Only the tips that moved since the last catalog cost Git work.
     let (root, peer_id, advertised) = (shared.root().to_owned(), *peer, tips.clone());
-    spawn_blocking(move || {
+    let changed = spawn_blocking(move || {
         Repo::open(&root)
             .context("Git checkout is unavailable")?
             .prepare_peer_refs(&peer_id, &advertised)
     })
     .await??;
 
-    for tip in &tips {
+    for tip in &changed {
         ensure!(
             shared.has_peer(peer) && !shared.is_stopped(),
             "Project sharing stopped"
@@ -94,7 +95,6 @@ pub(super) async fn receive_catalog(
         let (root, checked_tip) = (shared.root().to_owned(), tip.clone());
         let (need, have) = spawn_blocking(move || -> Result<_> {
             let repo = Repo::open(&root).context("Git checkout is unavailable")?;
-            repo.validate_branch(&checked_tip.name)?;
             Ok((
                 !repo.is_complete(checked_tip.commit),
                 repo.ref_oid(&checked_tip.name),

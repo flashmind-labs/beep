@@ -4,6 +4,7 @@
 //! probes at a time.
 
 use beep_proto::node::EnvReport;
+use beep_proto::watched;
 use futures::future::BoxFuture;
 use std::sync::{
     Arc, LazyLock,
@@ -64,12 +65,18 @@ pub(crate) fn machine() -> &'static Arc<Probes> {
 /// the last one is older.
 pub(crate) async fn fresh() -> EnvReport {
     let mut latest = machine().follow();
-    let probed = latest
-        .wait_for(|probed| probed.as_ref().is_some_and(|p| p.at.elapsed() < REPROBE))
-        .await;
+    let probed = watched::wait_for(&mut latest, |probed| {
+        probed.as_ref().is_some_and(|p| p.at.elapsed() < REPROBE)
+    })
+    .await;
 
     match probed {
-        Ok(probed) => probed.as_ref().map(|p| p.report.clone()).unwrap_or_default(),
+        Ok(()) => watched::read(&latest, |probed| {
+            probed
+                .as_ref()
+                .map(|p| p.report.clone())
+                .unwrap_or_default()
+        }),
         // The sender lives in `Probes`, which outlives this call.
         Err(_) => EnvReport::default(),
     }
@@ -122,11 +129,11 @@ impl Probes {
         signed_in.mark_unchanged();
 
         loop {
-            let due = self
-                .latest
-                .borrow()
-                .as_ref()
-                .map_or_else(Instant::now, |probed| probed.at + REPROBE);
+            let due = watched::read_sent(&self.latest, |probed| {
+                probed
+                    .as_ref()
+                    .map_or_else(Instant::now, |probed| probed.at + REPROBE)
+            });
 
             tokio::select! {
                 _ = tokio::time::sleep_until(due) => {}

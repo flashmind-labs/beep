@@ -27,7 +27,7 @@ pub(super) fn locate() -> Option<PathBuf> {
     root.join("sessions").is_dir().then_some(root)
 }
 
-pub(super) fn configured() -> Option<PathBuf> {
+pub(crate) fn configured() -> Option<PathBuf> {
     let root = match env::var_os("CODEX_HOME") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => dirs::home_dir()?.join(".codex"),
@@ -35,18 +35,20 @@ pub(super) fn configured() -> Option<PathBuf> {
     Some(root)
 }
 
+/// Whether `path` is a Codex rollout file.
+pub(super) fn is_rollout(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
+}
+
 /// The newest sessions under `root`, sub-agents left out.
 pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
-    let rollout = |path: &Path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
-    };
     let index = root.join("session_index.jsonl");
     let Ok(names) = memos
         .names
         .read(&index, || Ok::<_, Infallible>(Arc::new(titles(&index))));
-    newest_files(&root.join("sessions"), 3, &rollout)
+    newest_files(&root.join("sessions"), 3, &is_rollout)
         .into_iter()
         .filter_map(|(path, at)| {
             let read = || first_line(&path).map(|line| line.as_deref().and_then(header));

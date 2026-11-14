@@ -132,13 +132,18 @@ export function skillName(i: Note): string {
   return /^Skill (.+) differs on /.exec(i.title)?.[1] ?? "";
 }
 
+/// The project a sync conflict is in, from its id `conflict:<project>:<machine>`.
+export function conflictProject(i: Note): string | null {
+  return /^conflict:(.+):[^:]+$/.exec(i.id)?.[1] ?? null;
+}
+
 /// What a click on a row does: a skill conflict opens in the pane, the rest
-/// open their session, the Sync page or Machines.
-export function opens(i: Note): "skill" | "session" | "project" | "sync" | "machines" | null {
+/// open their session, the project a sync conflict is in, or Machines.
+export function opens(i: Note): "skill" | "session" | "project" | "conflict" | "machines" | null {
   if (i.kind === "skill_conflict") return "skill";
   if (i.target && typeof i.target === "object" && "projects" in i.target) return "project";
   if (i.target) return "session";
-  if (i.kind === "conflict") return "sync";
+  if (i.kind === "conflict") return "conflict";
   if (i.kind === "offline" || i.kind === "removed") return "machines";
   return null;
 }

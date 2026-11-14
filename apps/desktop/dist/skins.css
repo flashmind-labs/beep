@@ -5,7 +5,7 @@
   --fg: #e3e4e6; --muted: #8a8f98; --accent: #5e6ad2; --on-accent: #fff; --hot: #f2994a;
   --ok: #4cb782; --err: #eb5757; --warn: #f2c94c; --link: #8a9cf0;
   --body: Inter, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-  --radius: 8px; --label-case: none; --label-track: 0; --label-size: 12px;
+  --radius: 6px; --label-case: none; --label-track: 0; --label-size: 12px;
   /* Derived; a skin may set them itself. */
   --dim: color-mix(in srgb, var(--muted) 62%, var(--ink));
   --deep: color-mix(in srgb, var(--ink) 80%, #000);

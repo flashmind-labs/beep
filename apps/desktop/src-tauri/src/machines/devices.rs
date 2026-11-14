@@ -7,6 +7,7 @@
 use crate::{
     error::{DesktopError, Result},
     fleet::{Fleet, Machines},
+    machines::{Registry, Unfollow},
 };
 use beep_proto::{
     ApiError,
@@ -17,11 +18,7 @@ use beep_proto::{
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use serde::Serialize;
-use std::{
-    collections::HashMap,
-    sync::{Mutex, MutexGuard, PoisonError},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tauri::{
     Manager, State, WebviewWindow,
     ipc::{Channel, InvokeResponseBody},
@@ -212,36 +209,29 @@ fn answered(reply: Reply) -> DesktopError {
 /// What a followed device tells the window. A frame goes as raw bytes, its
 /// width and height first as four little-endian bytes each, then the JPEG;
 /// the rest goes as JSON tagged by `kind`.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScreenEvent {
     Attached,
+    #[serde(skip)]
     Frame(Frame),
-    Ended { reason: String },
-}
-
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ScreenNotice {
-    Attached,
-    Ended { reason: String },
+    Ended {
+        reason: String,
+    },
 }
 
 impl ScreenEvent {
     /// The message the window's channel gets.
     pub fn body(self) -> Result<InvokeResponseBody> {
-        let notice = match self {
-            Self::Frame(frame) => {
-                let mut bytes = Vec::with_capacity(8 + frame.jpeg.len());
-                bytes.extend_from_slice(&frame.width.to_le_bytes());
-                bytes.extend_from_slice(&frame.height.to_le_bytes());
-                bytes.extend_from_slice(&frame.jpeg);
-                return Ok(InvokeResponseBody::Raw(bytes));
-            }
-            Self::Attached => ScreenNotice::Attached,
-            Self::Ended { reason } => ScreenNotice::Ended { reason },
-        };
+        if let Self::Frame(frame) = self {
+            let mut bytes = Vec::with_capacity(8 + frame.jpeg.len());
+            bytes.extend_from_slice(&frame.width.to_le_bytes());
+            bytes.extend_from_slice(&frame.height.to_le_bytes());
+            bytes.extend_from_slice(&frame.jpeg);
+            return Ok(InvokeResponseBody::Raw(bytes));
+        }
 
-        let json = serde_json::to_string(&notice).map_err(anyhow::Error::from)?;
+        let json = serde_json::to_string(&self).map_err(anyhow::Error::from)?;
         Ok(InvokeResponseBody::Json(json))
     }
 }
@@ -289,93 +279,14 @@ impl Screen {
 
 /// What the window sends up an attached device's stream.
 #[derive(Debug)]
-enum Up {
+pub enum Up {
     Input(Input),
     /// The window drew the last frame.
     Drawn,
 }
 
 /// The devices the windows follow, by view, each with where its input goes.
-#[derive(Default)]
-pub struct Attached(Mutex<Following>);
-
-#[derive(Default)]
-struct Following {
-    next: u64,
-    by_view: HashMap<Uuid, Follow>,
-}
-
-struct Follow {
-    /// Which attach this is, so an older one ending leaves a newer alone.
-    serial: u64,
-    /// The window the view is in; closing it ends the follow.
-    window: String,
-    up: mpsc::Sender<Up>,
-}
-
-impl Attached {
-    fn lock(&self) -> MutexGuard<'_, Following> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn follow(&self, view: Uuid, window: &str, up: mpsc::Sender<Up>) -> u64 {
-        let mut following = self.lock();
-        following.next += 1;
-        let serial = following.next;
-        let follow = Follow {
-            serial,
-            window: window.to_owned(),
-            up,
-        };
-        following.by_view.insert(view, follow);
-        serial
-    }
-
-    /// Window `label` closed: its views stop following, which ends their
-    /// streams.
-    pub(crate) fn clear(&self, label: &str) {
-        self.lock()
-            .by_view
-            .retain(|_, follow| follow.window != label);
-    }
-
-    fn unfollow(&self, view: Uuid, serial: u64) {
-        let mut following = self.lock();
-
-        if following
-            .by_view
-            .get(&view)
-            .is_some_and(|f| f.serial == serial)
-        {
-            following.by_view.remove(&view);
-        }
-    }
-
-    fn detach(&self, view: Uuid) {
-        self.lock().by_view.remove(&view);
-    }
-
-    fn up(&self, view: Uuid) -> Result<mpsc::Sender<Up>> {
-        self.lock()
-            .by_view
-            .get(&view)
-            .map(|follow| follow.up.clone())
-            .ok_or_else(|| DesktopError::BadRequest("The device is not attached.".into()))
-    }
-}
-
-/// Forgets an attach once its stream ends, however it ends.
-struct Unfollow<'a> {
-    attached: &'a Attached,
-    view: Uuid,
-    serial: u64,
-}
-
-impl Drop for Unfollow<'_> {
-    fn drop(&mut self) {
-        self.attached.unfollow(self.view, self.serial);
-    }
-}
+pub type Attached = Registry<Uuid, mpsc::Sender<Up>>;
 
 /// Follows device `id` on `machine_id` in `view`: its frames, each with its
 /// longer side at most `max_side`, go to `on_event` one at a time, and what
@@ -404,8 +315,8 @@ pub async fn device_attach(
     let (up_tx, mut up) = mpsc::channel(UP_QUEUE);
     let serial = attached.follow(view, window.label(), up_tx);
     let _unfollow = Unfollow {
-        attached: &attached,
-        view,
+        registry: &attached,
+        key: view,
         serial,
     };
 
@@ -464,7 +375,7 @@ pub async fn device_attach(
 /// Input to the device attached in `view`.
 #[tauri::command]
 pub async fn device_input(attached: State<'_, Attached>, view: Uuid, input: Input) -> Result<()> {
-    let up = attached.up(view)?;
+    let up = attached.get(&view, "device")?;
 
     for input in checked(input) {
         up.send(Up::Input(input))
@@ -478,7 +389,7 @@ pub async fn device_input(attached: State<'_, Attached>, view: Uuid, input: Inpu
 /// The window drew the last frame of the device attached in `view`.
 #[tauri::command]
 pub fn device_drawn(attached: State<'_, Attached>, view: Uuid) {
-    if let Ok(up) = attached.up(view) {
+    if let Ok(up) = attached.get(&view, "device") {
         // A full queue already carries input the next frame answers.
         let _ = up.try_send(Up::Drawn);
     }
@@ -487,7 +398,7 @@ pub fn device_drawn(attached: State<'_, Attached>, view: Uuid) {
 /// Stops following the device in `view`; it keeps running on its machine.
 #[tauri::command]
 pub fn device_detach(attached: State<'_, Attached>, view: Uuid) {
-    attached.detach(view);
+    attached.detach(&view);
 }
 
 /// `input` as the node takes it: a touch inside the screen, text in pieces

@@ -5,7 +5,7 @@ use crate::records::{
     projects, read, sync_checkouts, write,
 };
 use async_trait::async_trait;
-use beep_mesh::Mesh;
+use beep_mesh::{Key, Mesh};
 use beep_projects::{
     imports::{
         records::{ImportRow, NewImport},
@@ -13,6 +13,7 @@ use beep_projects::{
     },
     model::RepoName,
 };
+use beep_proto::node::mesh_state::ProjectSyncSettings;
 use iroh::EndpointId;
 use std::str::FromStr;
 
@@ -61,6 +62,15 @@ impl MeshStore {
 
         if record.url.is_empty() {
             record.url = url.to_owned();
+
+            if record.syncthing_files.is_none()
+                && read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync)
+                    .unwrap_or_default()
+                    .beep_sync_over_syncthing
+            {
+                record.syncthing_files = Some(false);
+            }
+
             write(&self.mesh, key, Some(&record)).await?;
         }
 
@@ -124,11 +134,12 @@ impl ImportStore for MeshStore {
         let name = self.name_of_repo(import.project, import.url);
         self.ensure(&name, import.url).await?;
         let key = place_key(&name, machine);
+        let old = read::<Place>(&self.mesh, &key);
         let place = Place {
             folder: import.folder.to_owned(),
             // Moving a checkout keeps when it was first imported.
-            imported_ms: read::<Place>(&self.mesh, &key).map_or_else(now_ms, |old| old.imported_ms),
-            fork: read::<Place>(&self.mesh, &key).and_then(|old| old.fork),
+            imported_ms: old.as_ref().map_or_else(now_ms, |old| old.imported_ms),
+            fork: old.and_then(|old| old.fork),
         };
         write(&self.mesh, key, Some(&place)).await?;
         self.sync_project(&name).await;

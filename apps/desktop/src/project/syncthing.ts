@@ -56,6 +56,7 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
   };
   const replace = openMenu(event, project.name, entries());
   const reopen = () => openProjectMenu(event, project, top, remove, onChanged);
+  const retry = (e: unknown, again: () => void) => openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: again }]);
   const insert = (key: SyncLine, items: MenuLine[]) => {
     sync.set(key, items);
     replace(entries());
@@ -74,7 +75,7 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
           action: "Enable", run: save });
       } else {
         try { await save(); }
-        catch (e) { openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: change }]); }
+        catch (e) { retry(e, change); }
       }
     };
     insert("recovery", [{ kind: "toggle", label: "Preserve edits before Git sync", checked: enabled, on: change }]);
@@ -91,7 +92,7 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
         await invoke("project_ignored_sync", { project: project.name, settings: { ...settings, enabled: !settings.enabled } });
         onChanged();
       } catch (e) {
-        openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: change }]);
+        retry(e, change);
       }
     };
     const choose = { label: "Choose ignored folders…", on: () => chooseIgnoredFolders(project.name, settings, onChanged) };
@@ -106,7 +107,7 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
         await invoke("project_syncthing_mode", { project: project.name, enabled: beep });
         onChanged();
       } catch (e) {
-        openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: change }]);
+        retry(e, change);
       }
     };
     insert("syncthing", [{ label: beep ? "Use Syncthing instead of Beep sync" : "Use Beep sync instead of Syncthing", on: change }]);

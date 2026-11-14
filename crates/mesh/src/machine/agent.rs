@@ -6,8 +6,7 @@
 use super::{said, stream_closed, timed_out, unexpected};
 use crate::{CALL_TIMEOUT, MeshError, PeerClient};
 use beep_proto::{
-    AgentCheckoutPlan, AgentEffort, AgentHost, AgentSteer, ApiError, ModelId, agent_name,
-    check_agent_images,
+    AgentHost, AgentSteer, ApiError, ModelId, agent_name, check_agent_images,
     node::{
         LinkRx, LinkTx,
         agent::{self, Event, Request, SessionInfo},
@@ -146,6 +145,7 @@ pub fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
         AgentSteer::DropSteers {} => Request::DropSteers {},
         AgentSteer::SetMode { mode } => Request::SetMode { mode },
         AgentSteer::StopTask { task } => Request::StopTask { task },
+        AgentSteer::SetDevice { device } => Request::SetDevice { device },
         AgentSteer::Cancel {} => Request::Cancel {},
         AgentSteer::StopAll {} => Request::StopAll {},
         AgentSteer::Close {} => Request::Close {},
@@ -159,7 +159,7 @@ pub fn node_request(steer: AgentSteer) -> Result<Request, ApiError> {
                 .map(|m| m.as_ref().trim())
                 .filter(|m| !m.is_empty())
                 .map(ModelId::from),
-            effort: effort.map(Into::into),
+            effort,
         },
     })
 }
@@ -180,9 +180,9 @@ pub fn picked_model(model: Option<&str>) -> Result<Option<String>, ApiError> {
 /// The thinking level a start asks of `agent`: `None` for the agent's own.
 pub fn picked_effort(
     agent: &str,
-    effort: Option<AgentEffort>,
+    effort: Option<agent::Effort>,
 ) -> Result<Option<agent::Effort>, ApiError> {
-    let Some(effort) = effort.map(agent::Effort::from) else {
+    let Some(effort) = effort else {
         return Ok(None);
     };
 
@@ -240,9 +240,9 @@ pub struct Makes {
 pub fn checkout_for(
     makes: Makes,
     name: &str,
-    checkout: Option<AgentCheckoutPlan>,
+    checkout: Option<agent::CheckoutPlan>,
 ) -> Result<Option<agent::CheckoutPlan>, ApiError> {
-    let Some(plan) = checkout.map(agent::CheckoutPlan::from) else {
+    let Some(plan) = checkout else {
         return Ok(None);
     };
 

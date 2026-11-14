@@ -6,6 +6,7 @@ use super::{
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::sync::HandoffSnapshot;
+use beep_proto::watched;
 use std::{fs, path::Path, process::Stdio};
 use tokio::task::spawn_blocking;
 
@@ -150,14 +151,7 @@ fn apply(root: &Path, snapshot: HandoffSnapshot) -> Result<()> {
         "The destination commit changed. Try again."
     );
     ensure!(
-        repo.run(&[
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-            "--ignore-submodules=none"
-        ])?
-        .stdout
-        .is_empty(),
+        !repo.has_local_changes()?,
         "Commit or stash destination changes before handing off work."
     );
 
@@ -208,13 +202,10 @@ impl Syncs {
             return Ok(());
         }
 
-        let peer = shared
-            .watch_peers()
-            .borrow()
-            .iter()
-            .find(|peer| peer.id == *from)
-            .cloned()
-            .context("The source no longer shares this project.")?;
+        let peer = watched::read(&shared.watch_peers(), |peers| {
+            peers.iter().find(|peer| peer.id == *from).cloned()
+        })
+        .context("The source no longer shares this project.")?;
         let incoming =
             super::peer::handoff_snapshot(&self.inner.parts.endpoint, peer, project).await?;
         let _one = self.inner.configuring.lock().await;

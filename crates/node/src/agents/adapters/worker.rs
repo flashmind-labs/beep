@@ -11,6 +11,7 @@ use crate::{
     link::local_status::{Agent, AgentState},
 };
 use beep_proto::node::AdapterInstall;
+use beep_proto::watched;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -66,26 +67,27 @@ impl Installs {
 
     /// The adapters on their way or failed, for the machine's report.
     fn pending(&self) -> Vec<AdapterInstall> {
-        self.states
-            .borrow()
-            .iter()
-            .filter_map(|(name, install)| {
-                let failed = match install {
-                    Install::Running => None,
-                    Install::Failed(reason) => Some(reason.clone()),
-                    Install::Done => return None,
-                };
-                Some(AdapterInstall {
-                    agent: (*name).to_owned(),
-                    failed,
+        watched::read_sent(&self.states, |states| {
+            states
+                .iter()
+                .filter_map(|(name, install)| {
+                    let failed = match install {
+                        Install::Running => None,
+                        Install::Failed(reason) => Some(reason.clone()),
+                        Install::Done => return None,
+                    };
+                    Some(AdapterInstall {
+                        agent: (*name).to_owned(),
+                        failed,
+                    })
                 })
-            })
-            .collect()
+                .collect()
+        })
     }
 
     /// `kinds`, then the agents whose adapter is on its way or failed.
     fn report(&self, kinds: &[AgentKind]) -> Vec<Agent> {
-        let installs = self.states.borrow();
+        let installs = watched::read_sent(&self.states, Clone::clone);
         let mut agents: Vec<Agent> = kinds
             .iter()
             .map(|kind| Agent {
