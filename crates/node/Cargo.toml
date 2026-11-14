@@ -28,6 +28,7 @@ host = [
     "dep:flashmind-tools",
     "dep:flashmind-types",
     "dep:futures",
+    "dep:gix",
     "dep:hex",
     "dep:humantime",
     "dep:hyper-util",
@@ -112,6 +113,7 @@ dunce = { version = "1", optional = true }
 fastrand = "2"
 flate2 = { version = "1", optional = true }
 futures = { version = "0.3", optional = true }
+gix = { version = "0.90", default-features = false, features = ["revision", "sha1", "sha256"], optional = true }
 hex = { version = "0.4", optional = true }
 humantime = { version = "2", optional = true }
 ignore = { version = "0.4", optional = true }
