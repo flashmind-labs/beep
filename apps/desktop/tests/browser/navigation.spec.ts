@@ -180,3 +180,12 @@ test("collapsed sidebar retains project colors and folder navigation", async ({ 
   await expect(page.locator("#title")).toContainText("widget");
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
 });
+
+test("a project draft fits a narrow chat pane without scrolling sideways", async ({ page }, info) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await openProject(page);
+  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await expect(page.locator("#agdraft .agc-intro")).toBeVisible();
+  const body = page.locator("#agbody");
+  expect(await body.evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0);
+});
