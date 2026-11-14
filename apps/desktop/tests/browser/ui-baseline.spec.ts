@@ -490,6 +490,16 @@ test("phone home", async ({ page }) => {
   await baseline(page, "phone-home");
 });
 
+test("unfolded foldable home", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize({ width: 690, height: 830 });
+  await openDesktop(page, false, { center_home: home, mobile_paired: true });
+  await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
+  await expect(page.locator("body")).not.toHaveClass(/mobile/);
+  await expect(page.locator("#side kbd")).toHaveCount(0);
+  await baseline(page, "foldable-home");
+});
+
 test("phone projects", async ({ page }) => {
   await page.setViewportSize(PHONE);
   await openDesktop(page, false, { center_home: home });
