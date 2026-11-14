@@ -182,8 +182,11 @@ pub(crate) fn plugins_visible(app: AppHandle, window: WebviewWindow, visible: bo
     }
 }
 
-/// Each plugin's id, name, version, state (`waiting`, `running`, `paused` or `stopped` with
-/// a `reason`), script time over the last minute and pending timers. Empty on a phone.
+/// Each plugin's id, name, version, description, the permissions it asks for and the ones
+/// the user allowed, its source (`local`, `git` or `dev`), whether it is turned on, its state
+/// (`waiting`, `running`, `paused`, `disabled`, `needs-approval` with the `missing` permissions,
+/// or `stopped` with a `reason`), script time over the last minute and pending timers. Empty on
+/// a phone.
 #[tauri::command]
 pub(crate) fn plugins_status(app: AppHandle) -> Statuses {
     #[cfg(desktop)]

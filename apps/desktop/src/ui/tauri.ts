@@ -114,6 +114,7 @@ const UNTIMED = new Set([
   "agent_adapters_install", "agent_file", "agent_file_open", "agent_file_save", "agent_review", "agent_review_start", "agent_tree_upload",
   "allow_mac_permission", "claude_sign_in", "create_project", "follow_project", "found_machines", "found_projects",
   "gh_sign_in", "harness_compact", "import_project", "machine_sign_in", "mesh_join", "pick_folder",
+  "plugins_stage_folder", "plugins_stage_git", "plugins_stage_update",
   "project_add_to_machine", "project_git_move", "report_collect", "report_issue", "report_send", "rescan_found",
   "save_machine_log", "save_picture", "session_move", "terminal_attach", "terminal_open", "terminal_output",
   "update_machine", "update_machine_tool", "use_cli_login",

@@ -4,12 +4,13 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::manifest::PluginId;
+use crate::managed::Origin;
+use crate::manifest::{Permission, PluginId};
 use crate::meter::Meter;
 
 /// Where a plugin stands, as the page and agent tools read it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "lowercase")]
+#[serde(tag = "state", rename_all = "kebab-case")]
 pub enum PluginState {
     /// Not started: nothing it is activated by has happened.
     Waiting,
@@ -21,6 +22,14 @@ pub enum PluginState {
     Stopped {
         reason: String,
     },
+    /// Turned off by the user.
+    Disabled,
+    /// The manifest asks for permissions the user has not allowed. It does
+    /// not run until they are.
+    NeedsApproval {
+        /// The permissions that are not allowed yet.
+        missing: Vec<Permission>,
+    },
 }
 
 /// One plugin's name, state and cost.
@@ -30,6 +39,14 @@ pub struct PluginStatus {
     pub id: PluginId,
     pub name: String,
     pub version: semver::Version,
+    pub description: String,
+    /// What the manifest asks for.
+    pub permissions: Vec<Permission>,
+    /// What the user allowed.
+    pub approved: Vec<Permission>,
+    pub source: Origin,
+    /// Whether the user left it turned on.
+    pub enabled: bool,
     #[serde(flatten)]
     pub state: PluginState,
     /// Script time over the last minute, in ms.
@@ -43,11 +60,23 @@ pub(crate) enum Lifecycle {
     Waiting,
     Running,
     Stopped(String),
+    Disabled,
+    NeedsApproval(Vec<Permission>),
+}
+
+/// What a plugin's manifest and record say about it.
+pub(crate) struct Info {
+    pub name: String,
+    pub version: semver::Version,
+    pub description: String,
+    pub permissions: Vec<Permission>,
+    pub approved: Vec<Permission>,
+    pub source: Origin,
+    pub enabled: bool,
 }
 
 struct Entry {
-    name: String,
-    version: semver::Version,
+    info: Info,
     lifecycle: Lifecycle,
     meter: Option<Arc<Meter>>,
 }
@@ -63,16 +92,14 @@ impl Registry {
     pub(crate) fn set(
         &mut self,
         id: PluginId,
-        name: String,
-        version: semver::Version,
+        info: Info,
         lifecycle: Lifecycle,
         meter: Option<Arc<Meter>>,
     ) {
         self.entries.insert(
             id,
             Entry {
-                name,
-                version,
+                info,
                 lifecycle,
                 meter,
             },
@@ -105,6 +132,18 @@ impl Registry {
         self.visible = visible;
     }
 
+    /// The list as `list` gives it, with no script time or timers, so two
+    /// reads differ only when a plugin or its state did.
+    pub(crate) fn list_without_cost(&self) -> Vec<PluginStatus> {
+        let mut all = self.list(Instant::now());
+        for status in &mut all {
+            status.used_ms = 0;
+            status.pending_timers = 0;
+        }
+
+        all
+    }
+
     pub(crate) fn list(&self, now: Instant) -> Vec<PluginStatus> {
         self.entries
             .iter()
@@ -116,6 +155,10 @@ impl Registry {
                     Lifecycle::Stopped(reason) => PluginState::Stopped {
                         reason: reason.clone(),
                     },
+                    Lifecycle::Disabled => PluginState::Disabled,
+                    Lifecycle::NeedsApproval(missing) => PluginState::NeedsApproval {
+                        missing: missing.clone(),
+                    },
                 };
                 let (used, timers) = entry.meter.as_ref().map_or((0, 0), |meter| {
                     (meter.used(now).as_millis(), meter.timers())
@@ -123,8 +166,13 @@ impl Registry {
 
                 PluginStatus {
                     id: id.clone(),
-                    name: entry.name.clone(),
-                    version: entry.version.clone(),
+                    name: entry.info.name.clone(),
+                    version: entry.info.version.clone(),
+                    description: entry.info.description.clone(),
+                    permissions: entry.info.permissions.clone(),
+                    approved: entry.info.approved.clone(),
+                    source: entry.info.source.clone(),
+                    enabled: entry.info.enabled,
                     state,
                     used_ms: u64::try_from(used).unwrap_or(u64::MAX),
                     pending_timers: timers,

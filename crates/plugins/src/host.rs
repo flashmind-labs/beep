@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -12,12 +12,14 @@ use thiserror::Error;
 
 use crate::asset::{Asset, AssetHash};
 use crate::event::{EventError, Limiter, Mailbox, UiEvent};
+use crate::install::{ManageError, Preview, clean_leftovers};
 use crate::instance::{InstanceBatch, InstanceError, Instances};
 use crate::job::PluginJob;
+use crate::managed::{Managed, Origin, Policy, Record, Verdict};
 use crate::manifest::{Activation, Manifest, PluginId};
 use crate::meter::{BUDGET, Meter};
 use crate::sandbox::locked;
-use crate::status::{Lifecycle, PluginStatus, Registry};
+use crate::status::{Info, Lifecycle, PluginStatus, Registry};
 use crate::topic::{Delivery, Inbox, Publication, Topic, TopicError};
 use crate::ui::Placement;
 
@@ -37,6 +39,11 @@ pub trait Handler: Send + Sync + 'static {
 
     /// The topics running plugins follow, each time that set changes.
     fn wanted(&self, topics: &[Topic]);
+
+    /// Something in the plugins' list or states changed, such as a plugin turned
+    /// off, stopped or installed. Read it with `Host::status`. Script time and
+    /// pending timers do not count.
+    fn status_changed(&self) {}
 }
 
 type Shared = Arc<dyn Handler>;
@@ -66,6 +73,8 @@ pub(crate) struct Published {
 /// Runs every plugin in a folder and reloads them when their files change.
 /// Dropping it stops all of its threads.
 pub struct Host {
+    dir: PathBuf,
+    managed: Arc<Managed>,
     published: Arc<Published>,
     events: Sender<Event>,
     supervisor: Option<JoinHandle<()>>,
@@ -75,6 +84,11 @@ pub struct Host {
 pub(crate) enum Event {
     /// A path changed under the plugins folder.
     Fs(PathBuf),
+    /// A plugin's record or folder changed: read both again now, then answer.
+    Refresh {
+        id: PluginId,
+        done: Sender<()>,
+    },
     /// A plugin's render result.
     Shown {
         id: PluginId,
@@ -113,14 +127,17 @@ impl Host {
     /// Loads every plugin under `dir` (created if missing), watches it, and reports to
     /// `handler` what is shown and which topics the plugins follow. Plugins that start
     /// at launch are running when it returns; the others wait for their activation.
-    /// Plugins stay paused until a window reports that it is visible.
-    pub fn start(dir: PathBuf, handler: impl Handler) -> Result<Host, HostError> {
+    /// Plugins stay paused until a window reports that it is visible. `policy` says
+    /// whether a plugin with no record runs.
+    pub fn start(dir: PathBuf, handler: impl Handler, policy: Policy) -> Result<Host, HostError> {
         let folder = |source| HostError::Folder {
             path: dir.clone(),
             source,
         };
         std::fs::create_dir_all(&dir).map_err(folder)?;
         let dir = dir.canonicalize().map_err(folder)?;
+        clean_leftovers(&dir);
+        let managed = Arc::new(Managed::load(&dir, policy));
 
         let (events, inbox) = mpsc::channel();
         let sender = events.clone();
@@ -139,7 +156,8 @@ impl Host {
 
         let published = Arc::new(Published::default());
         let mut supervisor = Supervisor::new(
-            dir,
+            dir.clone(),
+            Arc::clone(&managed),
             events.clone(),
             Arc::new(handler),
             Arc::clone(&published),
@@ -156,6 +174,8 @@ impl Host {
         let _ = loaded.recv();
 
         Ok(Host {
+            dir,
+            managed,
             published,
             events,
             supervisor: Some(handle),
@@ -202,6 +222,118 @@ impl Host {
             window: window.to_owned(),
             visible,
         });
+    }
+}
+
+impl Host {
+    /// The folder plugins are installed in.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    pub fn policy(&self) -> Policy {
+        self.managed.policy()
+    }
+
+    /// What the host recorded about a plugin.
+    pub fn record(&self, id: &PluginId) -> Option<Record> {
+        self.managed.record(id)
+    }
+
+    /// Turns a plugin on or off. Its status shows the change when this returns.
+    pub fn set_enabled(&self, id: &PluginId, enabled: bool) -> Result<(), ManageError> {
+        let manifest = self.installed_manifest(id)?;
+        self.managed
+            .update(id, Some(&manifest), |record| record.enabled = enabled)
+            .map_err(ManageError::io("cannot save the plugin's record"))?;
+        self.refresh(id);
+
+        Ok(())
+    }
+
+    /// Allows every permission the plugin's manifest asks for, and turns it on.
+    /// Only the user may call this, from the page that shows what is asked.
+    pub fn approve(&self, id: &PluginId) -> Result<(), ManageError> {
+        let manifest = self.installed_manifest(id)?;
+        let approved = crate::managed::sorted(&manifest.permissions);
+        self.managed
+            .update(id, Some(&manifest), |record| {
+                record.enabled = true;
+                record.approved = approved;
+            })
+            .map_err(ManageError::io("cannot save the plugin's record"))?;
+        self.refresh(id);
+
+        Ok(())
+    }
+
+    /// Stops a plugin, then deletes its folder and its record.
+    pub fn remove(&self, id: &PluginId) -> Result<(), ManageError> {
+        let folder = self.dir.join(id.to_string());
+        if !folder.is_dir() && self.managed.record(id).is_none() {
+            return Err(ManageError::Unknown(id.clone()));
+        }
+
+        // A disabled record keeps the plugin from starting again while its
+        // folder goes, even in a development folder.
+        self.managed
+            .update(id, None, |record| record.enabled = false)
+            .map_err(ManageError::io("cannot save the plugin's record"))?;
+        self.refresh(id);
+
+        if folder.exists() {
+            std::fs::remove_dir_all(&folder).map_err(ManageError::io(format!(
+                "cannot delete {}",
+                folder.display()
+            )))?;
+        }
+        self.managed
+            .forget(id)
+            .map_err(ManageError::io("cannot save the plugin's record"))?;
+        self.refresh(id);
+
+        Ok(())
+    }
+
+    /// Checks a prepared folder (inside the plugins folder, so a move is one rename)
+    /// and says what installing it would do.
+    pub fn preview_install(&self, staged: &Path, origin: &Origin) -> Result<Preview, ManageError> {
+        self.managed.preview_install(&self.dir, staged, origin)
+    }
+
+    /// What allowing an installed plugin would grant.
+    pub fn preview_allow(&self, id: &PluginId) -> Result<Preview, ManageError> {
+        self.managed.preview_allow(&self.dir, id)
+    }
+
+    /// Moves a prepared folder in as a new plugin, or as the update of one from the
+    /// same source, and records the permissions the user allowed in the preview.
+    pub fn install(&self, staged: &Path, origin: Origin) -> Result<PluginId, ManageError> {
+        let id = self.managed.install(&self.dir, staged, origin)?;
+        self.refresh(&id);
+
+        Ok(id)
+    }
+
+    fn installed_manifest(&self, id: &PluginId) -> Result<Manifest, ManageError> {
+        let folder = self.dir.join(id.to_string());
+        if !folder.is_dir() {
+            return Err(ManageError::Unknown(id.clone()));
+        }
+
+        Ok(Manifest::read(&folder)?)
+    }
+
+    /// Has the supervisor read the plugin's folder and record again, and waits for it.
+    fn refresh(&self, id: &PluginId) {
+        let (done, finished) = mpsc::channel();
+        let sent = self.events.send(Event::Refresh {
+            id: id.clone(),
+            done,
+        });
+        if sent.is_ok() {
+            let _ = finished.recv();
+        }
     }
 }
 
@@ -308,6 +440,7 @@ impl Plan {
 /// Owns the running plugins. It is the only caller of the handler.
 struct Supervisor {
     dir: PathBuf,
+    managed: Arc<Managed>,
     events: Sender<Event>,
     running: HashMap<PluginId, Running>,
     plans: HashMap<PluginId, Plan>,
@@ -324,17 +457,21 @@ struct Supervisor {
     windows: BTreeSet<String>,
     handler: Shared,
     generation: u64,
+    /// The statuses last reported to the handler, without their costs.
+    reported: Vec<PluginStatus>,
 }
 
 impl Supervisor {
     fn new(
         dir: PathBuf,
+        managed: Arc<Managed>,
         events: Sender<Event>,
         handler: Shared,
         published: Arc<Published>,
     ) -> Self {
         Self {
             dir,
+            managed,
             events,
             running: HashMap::new(),
             plans: HashMap::new(),
@@ -348,6 +485,7 @@ impl Supervisor {
             windows: BTreeSet::new(),
             handler,
             generation: 0,
+            reported: Vec::new(),
         }
     }
 
@@ -380,6 +518,7 @@ impl Supervisor {
 
             self.reload_due(now);
             self.reconcile(now);
+            self.report_status();
         }
 
         let ids: Vec<PluginId> = self.running.keys().cloned().collect();
@@ -393,6 +532,11 @@ impl Supervisor {
         match event {
             Event::Stop => return false,
             Event::Fs(path) => self.note_change(&path),
+            Event::Refresh { id, done } => {
+                self.reloads.remove(&id);
+                self.reload(id, Instant::now());
+                let _ = done.send(());
+            }
             Event::Shown {
                 id,
                 generation,
@@ -416,6 +560,15 @@ impl Supervisor {
         }
 
         true
+    }
+
+    /// Tells the handler when the list of plugins or a state changed.
+    fn report_status(&mut self) {
+        let now = locked(&self.published.registry).list_without_cost();
+        if now != self.reported {
+            self.reported = now;
+            self.handler.status_changed();
+        }
     }
 
     fn next_reload(&self) -> Option<Instant> {
@@ -633,25 +786,35 @@ impl Supervisor {
 
         for id in due {
             self.reloads.remove(&id);
-
-            if self.dir.join(id.to_string()).is_dir() {
-                self.register(id, now);
-            } else {
-                self.stop_plugin(&id);
-                self.plans.remove(&id);
-                locked(&self.published.registry).remove(&id);
-                self.clear(&id);
-            }
+            self.reload(id, now);
         }
     }
 
-    /// Reads a plugin's manifest again, then starts it if it is activated.
-    /// What it showed stays until its new run replaces it.
+    /// Reads a plugin's folder and record again; a plugin whose folder is gone is forgotten.
+    fn reload(&mut self, id: PluginId, now: Instant) {
+        if self.dir.join(id.to_string()).is_dir() {
+            self.register(id, now);
+        } else {
+            self.stop_plugin(&id);
+            self.plans.remove(&id);
+            locked(&self.published.registry).remove(&id);
+            self.clear(&id);
+        }
+    }
+
+    /// Reads a plugin's manifest and record again, then starts it if it may run and
+    /// is activated. What it showed stays until its new run replaces it.
     fn register(&mut self, id: PluginId, now: Instant) {
         self.stop_plugin(&id);
 
         match Manifest::read(&self.dir.join(id.to_string())) {
             Ok(manifest) => {
+                let assessed = self.managed.assess(&id, &manifest);
+                let lifecycle = match assessed.verdict {
+                    Verdict::Run => Lifecycle::Waiting,
+                    Verdict::Disabled => Lifecycle::Disabled,
+                    Verdict::NeedsApproval(missing) => Lifecycle::NeedsApproval(missing),
+                };
                 self.plans.insert(
                     id.clone(),
                     Plan {
@@ -661,23 +824,48 @@ impl Supervisor {
                 );
                 locked(&self.published.registry).set(
                     id.clone(),
-                    manifest.name,
-                    manifest.version,
-                    Lifecycle::Waiting,
+                    Info {
+                        name: manifest.name,
+                        version: manifest.version,
+                        description: manifest.description,
+                        permissions: manifest.permissions,
+                        approved: assessed.approved,
+                        source: assessed.origin,
+                        enabled: assessed.enabled,
+                    },
+                    lifecycle,
                     None,
                 );
                 self.reconcile_one(&id, now);
-                if locked(&self.published.registry).lifecycle(&id) == Some(&Lifecycle::Waiting) {
+
+                let current = locked(&self.published.registry).lifecycle(&id).cloned();
+                if !matches!(
+                    current,
+                    Some(Lifecycle::Running | Lifecycle::Stopped(_)) | None
+                ) {
                     self.clear(&id);
                 }
             }
             Err(error) => {
                 warn!("plugin {id} stopped: {error}");
                 self.plans.remove(&id);
+                let record = self.managed.record(&id);
                 locked(&self.published.registry).set(
                     id.clone(),
-                    id.to_string(),
-                    semver::Version::new(0, 0, 0),
+                    Info {
+                        name: id.to_string(),
+                        version: semver::Version::new(0, 0, 0),
+                        description: String::new(),
+                        permissions: Vec::new(),
+                        approved: record
+                            .as_ref()
+                            .map(|record| record.approved.clone())
+                            .unwrap_or_default(),
+                        source: record
+                            .as_ref()
+                            .map_or(Origin::Local, |record| record.origin.clone()),
+                        enabled: record.is_none_or(|record| record.enabled),
+                    },
                     Lifecycle::Stopped(error.to_string()),
                     None,
                 );
@@ -721,7 +909,13 @@ impl Supervisor {
                     self.clear(id);
                 }
             }
-            Some(Lifecycle::Running | Lifecycle::Stopped(_)) | None => {}
+            Some(
+                Lifecycle::Running
+                | Lifecycle::Stopped(_)
+                | Lifecycle::Disabled
+                | Lifecycle::NeedsApproval(_),
+            )
+            | None => {}
         }
     }
 

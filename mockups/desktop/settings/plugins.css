@@ -1,0 +1,48 @@
+/* Settings, Plugins: the list, the Git form and the consent sheet. */
+.mac .plg-intro { margin: 0; font-size: 12.5px; color: var(--d-muted); line-height: 18px }
+.mac .plg-list { display: grid }
+.mac .plg-list .dgit:last-child { border-bottom: 0 }
+.mac .plg .l1 .dswitch { margin-left: auto }
+.mac .plg-desc { font-size: 12.5px; color: var(--d-muted); line-height: 18px; overflow-wrap: anywhere }
+.mac .plg-foot { flex-wrap: wrap; row-gap: 4px; min-width: 0 }
+.mac .plg-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap }
+.mac .plg-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--d-dim) }
+.mac .plg-state.ok::before { background: var(--d-emerald) }
+.mac .plg-state.warn { color: #f2c94c }
+.mac .plg-state.warn::before { background: #f2c94c }
+.mac .plg-state.err { color: var(--d-err) }
+.mac .plg-state.err::before { background: var(--d-err) }
+.mac .plg-src { min-width: 0; overflow-wrap: anywhere }
+.mac .plg-foot .acts { margin-left: auto }
+.mac .plg-form { display: grid; gap: 10px; padding: 12px 0 14px; border-bottom: 1px solid var(--d-border); margin-bottom: 4px }
+.mac .plg-form .dfield input { width: 100%; box-sizing: border-box }
+.mac .plg-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.mac .plg-empty { display: grid; gap: 10px; padding: 18px 0; justify-items: start; font-size: 13px; line-height: 19px }
+.mac .plg-empty p { margin: 0; color: var(--d-muted); max-width: 56ch }
+.mac .plg-sheet { display: grid; gap: 10px }
+.mac .plg-meta { font-size: 12.5px; color: var(--d-muted); line-height: 18px; overflow-wrap: anywhere }
+.mac .plg-meta b { color: var(--d-fg); font-weight: 600 }
+.mac .plg-perms { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--d-border); border-radius: var(--radius) }
+.mac .plg-perms li { display: grid; gap: 2px; padding: 9px 12px; border-bottom: 1px solid var(--d-border) }
+.mac .plg-perms li:last-child { border-bottom: 0 }
+.mac .plg-perms b { font-weight: 600; font-size: 13px; display: flex; gap: 8px; align-items: center }
+.mac .plg-perms small { font-size: 12px; color: var(--d-muted); line-height: 17px }
+.mac .plg-perms.none { padding: 9px 12px; font-size: 12.5px; color: var(--d-muted) }
+.mac .plg-removed { font-size: 12.5px; color: var(--d-muted) }
+/* Shared with the app's style.css: lines, small buttons and fine print. */
+.mac .dline { display: flex; align-items: center; gap: 8px }
+.mac .dline.tight { gap: 6px }
+.mac .dline.wrap { flex-wrap: wrap }
+.mac .dpush { margin-left: auto }
+.mac .dsub { font-size: 11.5px; color: var(--d-muted) }
+.mac .dbtn.small { min-height: 22px; padding: 0 9px; font-size: 12px; gap: 4px }
+.mac .dbtn.quiet { border-color: transparent; background: none; color: var(--d-muted) }
+.mac .dbtn.quiet:hover { color: var(--d-fg); border-color: var(--d-border) }
+.mac .dbtn.warn { color: var(--d-err) }
+.mac .gp-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px }
+.mac .am-msg { font-size: 13px }
+.mac .am-sheet { width: 520px; max-width: calc(100% - 40px); padding: 18px 20px; border-radius: var(--radius); border: 1px solid var(--d-border); background: var(--d-surface); box-shadow: 0 20px 60px rgba(0,0,0,.5); color: var(--d-fg) }
+.mac .am-head { display: flex; justify-content: space-between; align-items: center }
+.mac .am-head b { font-size: 15px; font-weight: 600 }
+.mac .am-head kbd { font-size: 11px; opacity: .7 }
+.mac .am-sub { font-size: 12.5px; color: var(--d-muted) }

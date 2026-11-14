@@ -892,6 +892,42 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dgchip.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent) }
 .dbtn.dico { width: 26px; min-height: 24px; padding: 0; justify-content: center }
 
+/* Settings, Plugins: the list, the Git form and the consent sheet. */
+.plg-page { display: grid; gap: 12px; min-width: 0 }
+.plg-intro { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 18px }
+.plg-list { display: grid }
+.plg-list .dgit:last-child { border-bottom: 0 }
+.plg .l1 .dswitch { margin-left: auto }
+.plg-desc { font-size: 12.5px; color: var(--muted); line-height: 18px; overflow-wrap: anywhere }
+.plg-foot { flex-wrap: wrap; row-gap: 4px; min-width: 0 }
+.plg-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap }
+.plg-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dim) }
+.plg-state.ok::before { background: var(--accent) }
+.plg-state.warn { color: var(--warn) }
+.plg-state.warn::before { background: var(--warn) }
+.plg-state.err { color: var(--err); white-space: normal }
+.plg-state.err::before { background: var(--err) }
+.plg-src { min-width: 0; overflow-wrap: anywhere }
+.plg-foot .acts { margin-left: auto }
+.plg-note.bad { color: var(--err) }
+.plg-form { display: grid; gap: 10px; padding: 12px 0 14px; border-bottom: 1px solid var(--border) }
+.plg-form .dfield input { width: 100%; box-sizing: border-box }
+.plg-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.plg-empty { display: grid; gap: 10px; padding: 6px 0 4px; justify-items: start; font-size: 13px; line-height: 19px }
+.plg-empty p { margin: 0; color: var(--muted); max-width: 56ch }
+.plg-sheet { display: grid; gap: 10px }
+.plg-meta { font-size: 12.5px; color: var(--muted); line-height: 18px; overflow-wrap: anywhere }
+.plg-meta b { color: var(--fg); font-weight: 600 }
+.plg-sheet .am-head, .plg-sheet .am-label, .plg-sheet .am-sub, .plg-sheet .am-msg { margin: 0 }
+.plg-sheet .gp-foot { margin-top: 4px }
+.plg-perms { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--border); border-radius: var(--radius) }
+.plg-perms li { display: grid; gap: 2px; padding: 9px 12px; border-bottom: 1px solid var(--border) }
+.plg-perms li:last-child { border-bottom: 0 }
+.plg-perms b { font-weight: 600; font-size: 13px; display: flex; gap: 8px; align-items: center }
+.plg-perms small { font-size: 12px; color: var(--muted); line-height: 17px }
+.plg-perms.none { padding: 9px 12px; font-size: 12.5px; color: var(--muted) }
+.plg-removed { font-size: 12.5px; color: var(--muted) }
+
 /* Settings, Appearance: the skins as swatches, dark then light. */
 .dskins { display: grid; gap: 6px; margin-bottom: 12px }
 .dskins small { font-size: 12px; color: var(--muted) }

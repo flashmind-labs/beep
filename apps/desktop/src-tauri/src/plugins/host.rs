@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use beep_plugins::{Handler, Host, HostError, Placement, Topic};
+use beep_plugins::{Handler, Host, HostError, Placement, Policy, Topic};
 use tauri::{AppHandle, Emitter};
 
 /// Names the folder plugins load from, overriding the app data folder's.
@@ -10,13 +10,18 @@ const DIR_ENV: &str = "BEEP_PLUGINS_DIR";
 const CHANGED: &str = "plugins-changed";
 /// Sent to every window with the topics plugins follow each time they change.
 const WANTED: &str = "plugins-wanted";
+/// Sent to every window when a plugin is added, removed or changes state.
+const STATUS: &str = "plugins-status";
 
 /// Starts the host on the plugins folder. The app data folder holds it unless
 /// `BEEP_PLUGINS_DIR` names another.
 pub(crate) fn start(app: &AppHandle, data: &Path) -> Result<Host, HostError> {
-    let dir = plugins_dir(std::env::var_os(DIR_ENV), data);
+    let configured = std::env::var_os(DIR_ENV);
+    let policy = policy(configured.as_deref());
+    let dir = plugins_dir(configured, data);
+    super::install::clean_stale(&dir);
 
-    Host::start(dir, Windows { app: app.clone() })
+    Host::start(dir, Windows { app: app.clone() }, policy)
 }
 
 /// Tells the windows what the host reports.
@@ -35,6 +40,21 @@ impl Handler for Windows {
         if let Err(e) = self.app.emit(WANTED, topics) {
             log::debug!("the page missed a plugin topic change: {e}");
         }
+    }
+
+    fn status_changed(&self) {
+        if let Err(e) = self.app.emit(STATUS, ()) {
+            log::debug!("the page missed a plugin status change: {e}");
+        }
+    }
+}
+
+/// A folder named by `BEEP_PLUGINS_DIR` is for development: its plugins run without
+/// an approval record. The app data folder's plugins wait for the user's approval.
+fn policy(configured: Option<&std::ffi::OsStr>) -> Policy {
+    match configured {
+        Some(dir) if !dir.is_empty() => Policy::Dev,
+        _ => Policy::Managed,
     }
 }
 

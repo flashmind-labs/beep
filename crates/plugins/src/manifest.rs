@@ -62,7 +62,20 @@ impl fmt::Display for PluginId {
 }
 
 /// What a plugin may do. Unknown permissions fail the manifest.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumString, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Display,
+    EnumString,
+    Serialize,
+    Deserialize,
+)]
 pub enum Permission {
     /// Place UI in a slot.
     #[serde(rename = "ui.add")]
@@ -173,15 +186,9 @@ pub enum ManifestError {
 }
 
 impl Manifest {
-    /// Reads and validates the manifest in a plugin folder.
+    /// Reads and validates the manifest in a plugin folder, whose name is the plugin's id.
     pub fn read(dir: &Path) -> Result<Self, ManifestError> {
-        let path = dir.join(MANIFEST_FILE);
-        let text = std::fs::read_to_string(&path).map_err(|source| ManifestError::Read {
-            path: path.clone(),
-            source,
-        })?;
-
-        let manifest = Self::parse(&text)?;
+        let manifest = Self::load(dir)?;
         let folder = dir
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -194,6 +201,18 @@ impl Manifest {
         }
 
         Ok(manifest)
+    }
+
+    /// Reads and validates the manifest in a folder of any name, such as a
+    /// plugin that is not installed yet.
+    pub fn load(dir: &Path) -> Result<Self, ManifestError> {
+        let path = dir.join(MANIFEST_FILE);
+        let text = std::fs::read_to_string(&path).map_err(|source| ManifestError::Read {
+            path: path.clone(),
+            source,
+        })?;
+
+        Self::parse(&text)
     }
 
     /// Parses and validates manifest text.

@@ -4,6 +4,32 @@ Prototype. A plugin is a folder `<plugins dir>/<id>/` with a `beep-plugin.json`
 and one TypeScript file. The desktop runs it in an embedded sandbox, reloads it
 when its files change, and draws what it places. A plugin never touches the DOM.
 There are three slots and two permissions (`ui.add`, `sessions.read`).
+Folders and files whose names start with a dot are never plugins.
+
+## Installing and approval
+
+Settings, Plugins lists every plugin with its source, permissions and state, and
+turns each on or off. Install one from Git (`owner/repo`, or an https or ssh
+address, with an optional branch, tag or commit and an optional folder of the
+repository) or from a folder on the computer. Beep fetches it into a staging
+folder, shows the plugin, its source and commit and what it asks for, and installs
+only when you choose Allow and install. Cancel deletes the staging folder. A Git
+plugin's Update looks for a newer commit on its branch and shows the permissions
+it adds or drops before anything changes. Beep never updates a plugin on its own.
+Installs are capped at 16 MB and refuse symlinks that leave the plugin folder.
+Git needs to be installed; it runs with no prompts, no hooks and no submodules.
+
+Beep keeps one record per plugin in `<plugins dir>/.plugins.json`: whether it is
+on, the permissions you allowed and where it came from. A plugin runs only when
+it is on and every permission its manifest asks for is allowed. A manifest that
+adds a permission, by an update or an edit, puts the plugin back to Needs approval
+and it stops until you allow it in Settings. A broken or missing record file is
+logged and read as empty.
+
+A folder in the app data plugins dir with no record waits for approval. When
+the plugins dir is named by `BEEP_PLUGINS_DIR` (development), a plugin with no
+record counts as on and allowed, and shows as a Dev folder. Turning it on or off,
+installing or updating it makes a record, and the record rules apply from then on.
 
 ## Manifest
 
@@ -146,9 +172,12 @@ arrive then. A plugin cannot run while hidden.
 
 The host adds up the time a plugin spends in its script. A plugin that uses more than
 500 ms in any 60 seconds is stopped, with the reason, and shows nothing until its files
-change. The `plugins_status` command lists each plugin's id, name, version, `state`
-(`waiting`, `running`, `paused` or `stopped` with a `reason`), `usedMs` over the last
-minute and `pendingTimers`.
+change. The `plugins_status` command lists each plugin's id, name, version, description,
+`permissions` asked for, `approved` permissions, `source` (`local`, `git` or `dev`),
+`enabled`, `state` (`waiting`, `running`, `paused`, `disabled`, `needs-approval` with
+the `missing` permissions, or `stopped` with a `reason`), `usedMs` over the last minute
+and `pendingTimers`. The desktop emits `plugins-status` when a plugin is added, removed
+or changes state.
 
 ## Topics
 
@@ -177,7 +206,8 @@ per slot, 64 nodes and 64 KB per drawn instance. Breaking one stops the plugin.
 ## Try the example
 
 The desktop loads plugins from `plugins/` in its app data folder, or from the
-folder named by `BEEP_PLUGINS_DIR`. Phones run none.
+folder named by `BEEP_PLUGINS_DIR`, which runs plugins without approval records, as
+described above. Phones run none.
 
 ```
 BEEP_PLUGINS_DIR=$PWD/plugins/examples just desktop-dev

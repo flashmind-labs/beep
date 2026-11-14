@@ -6,7 +6,7 @@ import { join } from "node:path";
 /// Commands Rust registers that nothing in src calls yet. Wire one up or
 /// delete it from Rust, then remove it here.
 // add_branch_worktree belonged to the retired branches panel, which had no callers after Git history replaced it.
-const UNCALLED = ["add_branch_worktree", "agent_preview", "center_open_project", "mesh_command", "mesh_remove", "open_center", "plugins_status"];
+const UNCALLED = ["add_branch_worktree", "agent_preview", "center_open_project", "mesh_command", "mesh_remove", "open_center"];
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e => {
@@ -19,7 +19,8 @@ function sources(dir: string): string[] {
 /// `generate_handler![ ... ]`.
 function registered() {
   const main = readFileSync("src-tauri/src/lib.rs", "utf8");
-  const body = main.slice(main.indexOf("generate_handler![") + "generate_handler![".length);
+  // Desktop-only commands carry a `#[cfg(...)]` attribute, whose bracket is not the macro's end.
+  const body = main.slice(main.indexOf("generate_handler![") + "generate_handler![".length).replace(/#\[[^\]]*\]/g, "");
   return body.slice(0, body.indexOf("]")).split(",").map(s => s.trim().split("::").pop()!).filter(Boolean);
 }
 

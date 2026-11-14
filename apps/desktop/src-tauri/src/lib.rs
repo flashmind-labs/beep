@@ -337,6 +337,28 @@ pub fn run() {
             plugins::command::plugins_asset,
             plugins::command::plugins_visible,
             plugins::command::plugins_status,
+            #[cfg(desktop)]
+            plugins::manage::plugins_enable,
+            #[cfg(desktop)]
+            plugins::manage::plugins_review,
+            #[cfg(desktop)]
+            plugins::manage::plugins_allow,
+            #[cfg(desktop)]
+            plugins::manage::plugins_remove,
+            #[cfg(desktop)]
+            plugins::manage::plugins_stage_git,
+            #[cfg(desktop)]
+            plugins::manage::plugins_stage_folder,
+            #[cfg(desktop)]
+            plugins::manage::plugins_check_update,
+            #[cfg(desktop)]
+            plugins::manage::plugins_stage_update,
+            #[cfg(desktop)]
+            plugins::manage::plugins_confirm,
+            #[cfg(desktop)]
+            plugins::manage::plugins_cancel,
+            #[cfg(desktop)]
+            plugins::manage::plugins_open_folder,
             projects::branches::add_branch_worktree,
             projects::branches::find_import_fork,
             projects::branches::preview_import,
@@ -569,6 +591,8 @@ fn setup(app: &mut App) -> anyhow::Result<()> {
     }
     bar::zoom::apply_saved(&handle, &prefs);
     app.manage(prefs);
+    #[cfg(desktop)]
+    app.manage(plugins::Installer::new());
     #[cfg(desktop)]
     match plugins::start(&handle, &dir) {
         Ok(host) => {

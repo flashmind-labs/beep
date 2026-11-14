@@ -4,10 +4,13 @@ use serde_json::json;
 
 use super::*;
 use crate::event::Action;
+use crate::install::PreviewKind;
 use crate::instance::{
     ComposerContext, Instance, InstanceKey, InstanceRef, SessionHeaderContext, SessionRowContext,
     SlotContext,
 };
+use crate::managed::Origin;
+use crate::manifest::Permission;
 use crate::status::{PluginState, PluginStatus};
 use crate::ui::{CallbackId, Node, Slot};
 
@@ -102,7 +105,7 @@ fn start_reporting(
 ) {
     let (shown, shown_rx) = mpsc::channel();
     let (wanted, wanted_rx) = mpsc::channel();
-    let host = Host::start(dir.to_path_buf(), Reports { shown, wanted }).unwrap();
+    let host = Host::start(dir.to_path_buf(), Reports { shown, wanted }, Policy::Dev).unwrap();
     host.set_visible("test", true);
     host.set_instances(batch(vec![composer_instance()], vec![]))
         .unwrap();
@@ -619,8 +622,10 @@ fn write_lazy(dir: &std::path::Path, id: &str, activation: &str, main: &str) {
 fn driven(dir: &std::path::Path) -> (Supervisor, Arc<Published>, mpsc::Receiver<Event>) {
     let (events, inbox) = mpsc::channel();
     let published = Arc::new(Published::default());
+    let dir = dir.canonicalize().unwrap();
     let supervisor = Supervisor::new(
-        dir.canonicalize().unwrap(),
+        dir.clone(),
+        Arc::new(Managed::load(&dir, Policy::Dev)),
         events,
         Arc::new(Quiet),
         Arc::clone(&published),
@@ -842,6 +847,11 @@ fn status_serializes_the_state_and_reason_flat() {
         id: "lazy-one".parse().unwrap(),
         name: "Lazy".to_owned(),
         version: semver::Version::new(1, 0, 0),
+        description: String::new(),
+        permissions: vec![Permission::UiAdd],
+        approved: vec![Permission::UiAdd],
+        source: Origin::Dev,
+        enabled: true,
         state: PluginState::Stopped {
             reason: "used 600 ms".to_owned(),
         },
@@ -851,8 +861,10 @@ fn status_serializes_the_state_and_reason_flat() {
 
     assert_eq!(
         serde_json::to_value(&status).unwrap(),
-        json!({ "id": "lazy-one", "name": "Lazy", "version": "1.0.0", "state": "stopped",
-                "reason": "used 600 ms", "usedMs": 600, "pendingTimers": 2 })
+        json!({ "id": "lazy-one", "name": "Lazy", "version": "1.0.0", "description": "",
+                "permissions": ["ui.add"], "approved": ["ui.add"], "source": { "kind": "dev" },
+                "enabled": true, "state": "stopped", "reason": "used 600 ms", "usedMs": 600,
+                "pendingTimers": 2 })
     );
     let running = PluginStatus {
         state: PluginState::Paused,
@@ -937,4 +949,270 @@ fn a_started_host_lists_its_plugins_at_once() {
 
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].state, PluginState::Waiting);
+}
+
+fn start_with(dir: &std::path::Path, policy: Policy) -> (Host, mpsc::Receiver<Vec<Placement>>) {
+    let (shown, shown_rx) = mpsc::channel();
+    let (wanted, _wanted_rx) = mpsc::channel();
+    let host = Host::start(dir.to_path_buf(), Reports { shown, wanted }, policy).unwrap();
+    host.set_visible("test", true);
+    host.set_instances(batch(vec![composer_instance()], vec![]))
+        .unwrap();
+
+    (host, shown_rx)
+}
+
+fn status_of(host: &Host, id: &str) -> Option<PluginStatus> {
+    let id: PluginId = id.parse().unwrap();
+
+    host.status().into_iter().find(|status| status.id == id)
+}
+
+fn plugin_id(id: &str) -> PluginId {
+    id.parse().unwrap()
+}
+
+#[test]
+fn a_managed_folder_without_a_record_waits_for_approval() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "cat-one", "meow");
+
+    let (host, _rx) = start_with(root.path(), Policy::Managed);
+
+    let status = status_of(&host, "cat-one").unwrap();
+    assert_eq!(
+        status.state,
+        PluginState::NeedsApproval {
+            missing: vec![Permission::UiAdd]
+        }
+    );
+    assert_eq!(status.source, Origin::Local);
+    assert!(host.placements().is_empty());
+}
+
+#[test]
+fn a_dev_folder_runs_without_a_record_and_says_so() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "cat-one", "meow");
+
+    let (host, rx) = start_with(root.path(), Policy::Dev);
+
+    wait_for(&rx, |p| !p.is_empty());
+    let status = status_of(&host, "cat-one").unwrap();
+    assert_eq!(status.state, PluginState::Running);
+    assert_eq!(status.source, Origin::Dev);
+    assert_eq!(status.approved, [Permission::UiAdd]);
+}
+
+#[test]
+fn approving_starts_the_plugin() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "cat-one", "meow");
+    let (host, rx) = start_with(root.path(), Policy::Managed);
+
+    host.approve(&plugin_id("cat-one")).unwrap();
+
+    assert_eq!(
+        status_of(&host, "cat-one").unwrap().state,
+        PluginState::Running
+    );
+    assert_eq!(texts(&wait_for(&rx, |p| !p.is_empty())), ["meow"]);
+    let record = host.record(&plugin_id("cat-one")).unwrap();
+    assert!(record.enabled);
+    assert_eq!(record.approved, [Permission::UiAdd]);
+}
+
+#[test]
+fn disabling_stops_the_plugin_and_enabling_starts_it_again() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "cat-one", "meow");
+    let (host, rx) = start_with(root.path(), Policy::Dev);
+    wait_for(&rx, |p| !p.is_empty());
+
+    host.set_enabled(&plugin_id("cat-one"), false).unwrap();
+
+    let status = status_of(&host, "cat-one").unwrap();
+    assert_eq!(status.state, PluginState::Disabled);
+    assert!(!status.enabled);
+    wait_for(&rx, <[Placement]>::is_empty);
+    assert!(host.placements().is_empty());
+
+    host.set_enabled(&plugin_id("cat-one"), true).unwrap();
+
+    assert_eq!(
+        status_of(&host, "cat-one").unwrap().state,
+        PluginState::Running
+    );
+    wait_for(&rx, |p| !p.is_empty());
+}
+
+#[test]
+fn a_plugin_that_gains_a_permission_stops_until_allowed() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "cat-one", "meow");
+    let (host, rx) = start_with(root.path(), Policy::Managed);
+    host.approve(&plugin_id("cat-one")).unwrap();
+    wait_for(&rx, |p| !p.is_empty());
+
+    std::fs::write(
+        root.path().join("cat-one/beep-plugin.json"),
+        r#"{ "id": "cat-one", "name": "T", "version": "0.2.0",
+             "permissions": ["ui.add", "sessions.read"] }"#,
+    )
+    .unwrap();
+    host.set_enabled(&plugin_id("cat-one"), true).unwrap();
+
+    assert_eq!(
+        status_of(&host, "cat-one").unwrap().state,
+        PluginState::NeedsApproval {
+            missing: vec![Permission::SessionsRead]
+        }
+    );
+    wait_for(&rx, <[Placement]>::is_empty);
+
+    let shown = host.preview_allow(&plugin_id("cat-one")).unwrap();
+    assert_eq!(shown.added, [Permission::SessionsRead]);
+    host.approve(&plugin_id("cat-one")).unwrap();
+    assert_eq!(
+        status_of(&host, "cat-one").unwrap().state,
+        PluginState::Running
+    );
+}
+
+#[test]
+fn removing_deletes_the_folder_and_the_record() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "cat-one", "meow");
+    let (host, rx) = start_with(root.path(), Policy::Dev);
+    wait_for(&rx, |p| !p.is_empty());
+    host.set_enabled(&plugin_id("cat-one"), true).unwrap();
+
+    host.remove(&plugin_id("cat-one")).unwrap();
+
+    assert!(!root.path().join("cat-one").exists());
+    assert!(host.record(&plugin_id("cat-one")).is_none());
+    assert!(status_of(&host, "cat-one").is_none());
+    wait_for(&rx, <[Placement]>::is_empty);
+    assert!(matches!(
+        host.remove(&plugin_id("cat-one")),
+        Err(ManageError::Unknown(_))
+    ));
+}
+
+#[test]
+fn installing_a_prepared_folder_runs_it_and_an_update_replaces_it() {
+    let root = tempfile::tempdir().unwrap();
+    let (host, rx) = start_with(root.path(), Policy::Managed);
+    let origin = |commit: &str| {
+        Origin::Git(crate::managed::GitOrigin {
+            url: "https://github.com/owner/repo.git".to_owned(),
+            reference: None,
+            subfolder: None,
+            commit: commit.parse().unwrap(),
+        })
+    };
+    let staged = root.path().join(".stage-one");
+    write_plugin(root.path(), ".stage-one", "one");
+    std::fs::write(
+        staged.join("beep-plugin.json"),
+        r#"{ "id": "cat-one", "name": "T", "version": "0.1.0", "permissions": ["ui.add"] }"#,
+    )
+    .unwrap();
+
+    let shown = host.preview_install(&staged, &origin("aaaaaaa")).unwrap();
+    assert_eq!(shown.kind, PreviewKind::New);
+    host.install(&staged, origin("aaaaaaa")).unwrap();
+
+    assert_eq!(
+        status_of(&host, "cat-one").unwrap().state,
+        PluginState::Running
+    );
+    assert_eq!(texts(&wait_for(&rx, |p| !p.is_empty())), ["one"]);
+
+    let update = root.path().join(".stage-two");
+    write_plugin(root.path(), ".stage-two", "two");
+    std::fs::write(
+        update.join("beep-plugin.json"),
+        r#"{ "id": "cat-one", "name": "T", "version": "0.2.0", "permissions": ["ui.add"] }"#,
+    )
+    .unwrap();
+    let other = root.path().join(".stage-three");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::copy(
+        update.join("beep-plugin.json"),
+        other.join("beep-plugin.json"),
+    )
+    .unwrap();
+    assert!(matches!(
+        host.install(&other, Origin::Local),
+        Err(ManageError::AlreadyInstalled(_))
+    ));
+
+    host.install(&update, origin("bbbbbbb")).unwrap();
+
+    let status = status_of(&host, "cat-one").unwrap();
+    assert_eq!(status.version, semver::Version::new(0, 2, 0));
+    assert_eq!(status.source, origin("bbbbbbb"));
+    assert_eq!(texts(&wait_for(&rx, |p| texts(p) == ["two"])), ["two"]);
+}
+
+#[test]
+fn a_dot_folder_is_never_a_plugin() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), ".stage-one", "meow");
+    write_plugin(root.path(), "cat-one", "meow");
+
+    let (host, _rx) = start_with(root.path(), Policy::Dev);
+
+    let ids: Vec<String> = host.status().iter().map(|s| s.id.to_string()).collect();
+    assert_eq!(ids, ["cat-one"]);
+}
+
+#[test]
+fn the_new_states_serialize_by_name() {
+    let disabled = serde_json::to_value(PluginState::Disabled).unwrap();
+    let waiting = serde_json::to_value(PluginState::NeedsApproval {
+        missing: vec![Permission::SessionsRead],
+    })
+    .unwrap();
+
+    assert_eq!(disabled, json!({ "state": "disabled" }));
+    assert_eq!(
+        waiting,
+        json!({ "state": "needs-approval", "missing": ["sessions.read"] })
+    );
+}
+
+struct StatusWatch(mpsc::Sender<()>);
+
+impl Handler for StatusWatch {
+    fn shown(&self, _placements: &[Placement]) {}
+
+    fn wanted(&self, _topics: &[Topic]) {}
+
+    fn status_changed(&self) {
+        let _ = self.0.send(());
+    }
+}
+
+#[test]
+fn the_handler_hears_when_a_status_changes() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "cat-one", "meow");
+    let (changed, heard) = mpsc::channel();
+    let host = Host::start(
+        root.path().to_path_buf(),
+        StatusWatch(changed),
+        Policy::Managed,
+    )
+    .unwrap();
+    while heard.try_recv().is_ok() {}
+
+    host.approve(&plugin_id("cat-one")).unwrap();
+
+    heard.recv_timeout(TIMEOUT).expect("no status change heard");
+    assert_eq!(
+        status_of(&host, "cat-one").unwrap().state,
+        PluginState::Paused
+    );
 }

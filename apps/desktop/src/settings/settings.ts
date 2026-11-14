@@ -4,6 +4,8 @@ import { createElement, createRef, type ReactNode, type ReactElement } from "rea
 import { flushSync } from "react-dom";
 import { AgentsOverview, CodingAgentOverview, InstructionsOverview, MachinesOverview } from "./overview-view.tsx";
 import { GeneralView } from "./general-view.tsx";
+import { PluginsView } from "./plugins-settings-view.tsx";
+import { pluginsSettings } from "./plugins-settings.ts";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
@@ -261,6 +263,8 @@ function settingsSections(mac: MacControl | null, sheet: boolean): [SettingsPage
     ["agents", agents],
     ["creds", sec("creds", "Credentials")],
     ["instr", sheet ? host("instr") : sec("instr", "Instructions")],
+    // Plugins run on a desktop only, so a phone and the bar's column do not list them.
+    ...(sheet && !onPhone() ? [["plugins", sec("plugins", "Plugins")] as [SettingsPage, ReactElement]] : []),
   ];
 }
 
@@ -313,7 +317,7 @@ const generalPending = new Set<string>();
 let macControlBusy = false;
 
 /// What a Settings section shows, drawn fresh from the module state on each render.
-type LocalView = "general" | "appearance" | "mac" | "machines" | "instr" | "creds" | "agent-overview" | "agent-bar";
+type LocalView = "general" | "appearance" | "mac" | "machines" | "instr" | "creds" | "plugins" | "agent-overview" | "agent-bar";
 function localView(kind: LocalView): ReactNode {
   const local = SET.local;
   switch (kind) {
@@ -335,6 +339,7 @@ function localView(kind: LocalView): ReactNode {
     case "machines": return createElement(MachinesOverview, { machines: SET.machines, open: () => setAway("machines", renderMachines) });
     case "instr": return createElement(InstructionsOverview, { open: () => windowHooks ? windowHooks.openInstructions() : toWindow("instructions") });
     case "creds": return credentialsContent();
+    case "plugins": return createElement(PluginsView, { store: pluginsSettings });
     case "agent-bar": return createElement(AgentsOverview, { open: () => windowHooks ? windowHooks.openProviders() : toWindow("providers") });
     case "agent-overview": return createElement(CodingAgentOverview, { open: (sub: SettingsSub) => goTo(openSub(sub)) });
   }
