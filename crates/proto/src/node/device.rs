@@ -5,7 +5,9 @@
 //! and the desktop sends `Input` until it closes the stream or the node sends
 //! `Ended`. `Platforms` gets one `Reply::Platforms`: the mobile platforms a
 //! checkout builds for. `FollowPhones` turns the stream into the machine's
-//! phone list, sent now and on every change.
+//! phone list, sent now and on every change. `Logs` gets one `Reply::Logs`:
+//! a device's newest log lines; `Ui` one `Reply::Ui`: what its screen shows.
+//! `Install`, `Launch` and `Reset` get `Done` or `Failed`.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -16,6 +18,8 @@ pub const PROTOCOL: &str = "device/1";
 pub const MAX_SIDE: u32 = 2048;
 /// The most one `Input::Text` may carry, in bytes.
 pub const MAX_TEXT: usize = 4096;
+/// The most log lines one `Logs` answers with.
+pub const MAX_LOG_LINES: u32 = 1000;
 
 /// An emulator, simulator or phone: an Android AVD name, an iOS simulator
 /// UDID or a phone's adb serial.
@@ -60,6 +64,33 @@ pub enum Request {
     /// The machine's phones now, then again each time one comes or goes,
     /// as `Reply::Devices`, until the desktop closes the stream.
     FollowPhones {},
+    /// Device `id`'s newest log lines containing `filter` (any case; all
+    /// lines when empty), at most `lines` of them, as `Reply::Logs`.
+    Logs {
+        id: DeviceId,
+        lines: u32,
+        filter: String,
+    },
+    /// What device `id` shows, as `Reply::Ui`.
+    Ui {
+        id: DeviceId,
+    },
+    /// Installs the APK or `.app` at `path` on the device's machine.
+    Install {
+        id: DeviceId,
+        path: String,
+    },
+    /// Starts app `target` (an Android package or iOS bundle id), or opens
+    /// it when it is a URL.
+    Launch {
+        id: DeviceId,
+        target: String,
+    },
+    /// Stops Android package `app` and clears its data.
+    Reset {
+        id: DeviceId,
+        app: String,
+    },
 }
 
 /// Something the user did on the attached device's screen or buttons.
@@ -140,6 +171,32 @@ pub enum Reply {
     Platforms {
         platforms: Vec<Platform>,
     },
+    /// The answer to `Logs`, oldest line first.
+    Logs {
+        text: String,
+    },
+    /// The answer to `Ui`: what the screen shows, in the device's order.
+    Ui {
+        elements: Vec<Element>,
+    },
+}
+
+/// One thing on a device's screen, from its accessibility tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Element {
+    /// What it says or is labelled, such as "Sign in"; empty when nothing.
+    pub label: String,
+    /// Its kind, such as "Button" or "EditText".
+    pub kind: String,
+    /// Its id for tests: an Android resource id or an iOS accessibility
+    /// identifier; empty when none.
+    pub id: String,
+    /// Its box, in fractions of the screen's width and height from the top
+    /// left.
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -1,8 +1,10 @@
 //! `device/1`: the machine's Android emulators (`android`), phones (`phone`) and iOS
 //! simulators (`ios`, on macOS), listed, started and stopped, and shown live
-//! to a desktop that taps and types on them; and which of those platforms a
-//! checkout builds for (`platforms`).
+//! to a desktop that taps and types on them; their logs, screen contents,
+//! installs, launches and resets for agents (`adb` for Android); and which
+//! of those platforms a checkout builds for (`platforms`).
 
+mod adb;
 mod android;
 #[cfg(target_os = "macos")]
 mod ios;
@@ -13,7 +15,10 @@ use crate::agents::{Agents, reach::Access};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    device::{Device, DeviceId, DeviceState, Frame, Input, MAX_SIDE, Platform, Reply, Request},
+    device::{
+        Device, DeviceId, DeviceState, Element, Frame, Input, MAX_LOG_LINES, MAX_SIDE, Platform,
+        Reply, Request,
+    },
 };
 use beep_proto::watched;
 use futures::FutureExt;
@@ -41,7 +46,7 @@ const NO_SIMULATORS: &str = "iOS simulators only run on a Mac.";
 /// something.
 const MIN_SIDE: u32 = 64;
 
-/// Serves one stream: answers `List`, `Boot`, `Shutdown` and `Platforms`
+/// Serves one stream: answers `List`, `Boot`, `Shutdown`, `Logs` and `Platforms`
 /// until the desktop closes it, or follows a device once it asks to
 /// `Attach`, or the phones once it asks to `FollowPhones`.
 pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
@@ -52,17 +57,23 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
             },
             Request::Boot { id } => done(boot(&id).await),
             Request::Shutdown { id } => done(shutdown(&id).await),
+            Request::Logs { id, lines, filter } => {
+                answer(logs(&id, lines, &filter).await.map(|text| Reply::Logs { text }))
+            }
+            Request::Ui { id } => answer(ui(&id).await.map(|elements| Reply::Ui { elements })),
+            Request::Install { id, path } => done(install(&agents, &id, &path).await),
+            Request::Launch { id, target } => done(launch(&id, &target).await),
+            Request::Reset { id, app } => done(reset(&id, &app).await),
             Request::Attach { id, max_side } => return attach(tx, rx, &id, max_side).await,
             Request::FollowPhones {} => return phone::follow(tx, rx).await,
             Request::Input { .. } => Reply::Failed {
                 reason: "No device is attached.".to_owned(),
             },
-            Request::Platforms { root } => match platforms_in(&agents, &root).await {
-                Ok(platforms) => Reply::Platforms { platforms },
-                Err(e) => Reply::Failed {
-                    reason: format!("{e:#}"),
-                },
-            },
+            Request::Platforms { root } => answer(
+                platforms_in(&agents, &root)
+                    .await
+                    .map(|platforms| Reply::Platforms { platforms }),
+            ),
             other => Reply::Failed {
                 reason: format!("Unknown request {other:?}."),
             },
@@ -126,6 +137,95 @@ async fn shutdown(id: &DeviceId) -> Result<()> {
     }
 }
 
+/// Device `id`'s newest `lines` log lines containing `filter`: logcat for
+/// Android, the unified log of the last minutes for an iOS simulator.
+async fn logs(id: &DeviceId, lines: u32, filter: &str) -> Result<String> {
+    let text = match reach(id).await? {
+        Reached::Adb(serial) => adb::logcat(&serial).await?,
+        #[cfg(target_os = "macos")]
+        Reached::Simulator(udid) => ios::logs(&udid).await?,
+    };
+
+    Ok(newest_lines(&text, filter, lines.min(MAX_LOG_LINES)))
+}
+
+/// What device `id`'s screen shows.
+async fn ui(id: &DeviceId) -> Result<Vec<Element>> {
+    match reach(id).await? {
+        Reached::Adb(serial) => adb::ui(&serial).await,
+        #[cfg(target_os = "macos")]
+        Reached::Simulator(udid) => ios::ui(&udid).await,
+    }
+}
+
+/// Installs the app at `path`, a file the caller may read, on device `id`.
+async fn install(agents: &Agents, id: &DeviceId, path: &str) -> Result<()> {
+    let real = agents.reachable(path, Access::Read).await?;
+
+    match reach(id).await? {
+        Reached::Adb(serial) => adb::install(&serial, &real).await,
+        #[cfg(target_os = "macos")]
+        Reached::Simulator(udid) => ios::install(&udid, &real).await,
+    }
+}
+
+async fn launch(id: &DeviceId, target: &str) -> Result<()> {
+    match reach(id).await? {
+        Reached::Adb(serial) => adb::launch(&serial, target).await,
+        #[cfg(target_os = "macos")]
+        Reached::Simulator(udid) => ios::launch(&udid, target).await,
+    }
+}
+
+async fn reset(id: &DeviceId, app: &str) -> Result<()> {
+    match reach(id).await? {
+        Reached::Adb(serial) => adb::reset(&serial, app).await,
+        #[cfg(target_os = "macos")]
+        Reached::Simulator(_) => {
+            anyhow::bail!("An iOS simulator cannot clear an app: install it again instead.")
+        }
+    }
+}
+
+/// How a device that is on takes commands.
+enum Reached {
+    /// By this adb serial, a phone's own or an emulator's.
+    Adb(DeviceId),
+    /// A simulator, by its UDID.
+    #[cfg(target_os = "macos")]
+    Simulator(DeviceId),
+}
+
+/// How device `id` takes commands, once it is on.
+async fn reach(id: &DeviceId) -> Result<Reached> {
+    let device = find(id).await?;
+
+    if device.state != DeviceState::On {
+        anyhow::bail!("{} is not on.", device.name);
+    }
+
+    match device.platform {
+        Platform::Android if device.phone => Ok(Reached::Adb(device.id)),
+        Platform::Android => Ok(Reached::Adb(android::serial(id).await?)),
+        #[cfg(target_os = "macos")]
+        Platform::Ios => Ok(Reached::Simulator(device.id)),
+        #[cfg(not(target_os = "macos"))]
+        Platform::Ios => anyhow::bail!(NO_SIMULATORS),
+    }
+}
+
+/// The last `lines` lines of `text` that contain `filter`, in any case.
+fn newest_lines(text: &str, filter: &str, lines: u32) -> String {
+    let filter = filter.to_lowercase();
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|line| filter.is_empty() || line.to_lowercase().contains(&filter))
+        .collect();
+    let lines = usize::try_from(lines).unwrap_or(usize::MAX);
+
+    kept[kept.len().saturating_sub(lines)..].join("\n")
+}
+
 /// `device`, unless it is a phone, which only its owner starts and stops.
 fn on_its_own(device: Device) -> Result<Device> {
     if device.phone {
@@ -135,13 +235,15 @@ fn on_its_own(device: Device) -> Result<Device> {
     Ok(device)
 }
 
+/// `reply`, or why there is none.
+fn answer(reply: Result<Reply>) -> Reply {
+    reply.unwrap_or_else(|e| Reply::Failed {
+        reason: format!("{e:#}"),
+    })
+}
+
 fn done(result: Result<()>) -> Reply {
-    match result {
-        Ok(()) => Reply::Done {},
-        Err(e) => Reply::Failed {
-            reason: format!("{e:#}"),
-        },
-    }
+    answer(result.map(|()| Reply::Done {}))
 }
 
 /// What a device shows, newest only.

@@ -185,9 +185,34 @@ async fn a_real_device_shows_its_screen_and_takes_input() {
     }
 
     drop(tx);
+    let logs = ask(Request::Logs {
+        id: id.clone(),
+        lines: 5,
+        filter: String::new(),
+    })
+    .await;
+    let Reply::Logs { text } = logs else {
+        panic!("no logs: {logs:?}");
+    };
+    eprintln!("logs:\n{text}");
+    assert!(!text.is_empty() && text.lines().count() <= 5, "{text}");
+    let ui = ask(Request::Ui { id: id.clone() }).await;
+    let Reply::Ui { elements } = ui else {
+        panic!("no screen contents: {ui:?}");
+    };
+    eprintln!("ui: {} elements, first {:?}", elements.len(), elements.first());
+    assert!(!elements.is_empty());
 
     if booted {
         let reply = ask(Request::Shutdown { id }).await;
         assert_eq!(reply, Reply::Done {});
     }
+}
+
+#[test]
+fn logs_keep_the_newest_matching_lines() {
+    let text = "a Beep start\nb other\nc beep tap\nd BEEP done\n";
+    assert_eq!(newest_lines(text, "beep", 2), "c beep tap\nd BEEP done");
+    assert_eq!(newest_lines(text, "", 1), "d BEEP done");
+    assert_eq!(newest_lines(text, "missing", 5), "");
 }

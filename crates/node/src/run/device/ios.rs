@@ -6,7 +6,8 @@ use super::{Controls as AnyControls, Live, Screen, Turn, Turned, follow, point};
 use crate::{lock, run::process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{
-    Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, TouchPhase,
+    Button, Device, DeviceId, DeviceState, Element, Frame, Input, Key, MAX_TEXT, Platform,
+    TouchPhase,
 };
 use hyper_util::rt::TokioIo;
 use image::{
@@ -14,7 +15,7 @@ use image::{
     codecs::jpeg::{JpegDecoder, JpegEncoder},
 };
 use proto::{
-    GetOrientationRequest, HidEvent, Point, TargetDescriptionRequest,
+    AccessibilityInfoRequest, GetOrientationRequest, HidEvent, Point, TargetDescriptionRequest,
     VideoStreamRequest,
     companion_service_client::CompanionServiceClient,
     get_orientation_response::Orientation,
@@ -175,6 +176,115 @@ pub(super) async fn shutdown(id: &DeviceId) -> Result<()> {
 
 /// What `xcrun simctl args` printed; an error with what it said when it
 /// failed.
+/// What simulator `id`'s screen shows, through an idb_companion of this
+/// call's own.
+pub(super) async fn ui(id: &DeviceId) -> Result<Vec<Element>> {
+    let companion = Companion::start(&companion()?, id).await?;
+    let mut client = CompanionServiceClient::new(companion.connect().await?);
+    let described = client
+        .describe(TargetDescriptionRequest::default())
+        .await?
+        .into_inner();
+    let screen = described
+        .target_description
+        .and_then(|target| target.screen_dimensions)
+        .context("idb_companion gave no screen size")?;
+    let info = client
+        .accessibility_info(AccessibilityInfoRequest::default())
+        .await?
+        .into_inner();
+
+    accessible(&info.json, screen.width_points as f32, screen.height_points as f32)
+}
+
+/// The elements of idb's accessibility list that say something or have an
+/// id, placed as fractions of a `width` by `height` point screen.
+pub(super) fn accessible(json: &str, width: f32, height: f32) -> Result<Vec<Element>> {
+    #[derive(Deserialize)]
+    struct Item {
+        #[serde(rename = "AXLabel")]
+        label: Option<String>,
+        #[serde(rename = "AXValue")]
+        value: Option<String>,
+        #[serde(rename = "AXUniqueId")]
+        id: Option<String>,
+        #[serde(rename = "type", default)]
+        kind: String,
+        frame: Bounds,
+    }
+    #[derive(Deserialize)]
+    struct Bounds {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    }
+
+    let items: Vec<Item> = serde_json::from_str(json).context("idb's screen did not read")?;
+    let (width, height) = (width.max(1.0), height.max(1.0));
+
+    Ok(items
+        .into_iter()
+        .filter_map(|item| {
+            let label = item
+                .label
+                .filter(|label| !label.is_empty())
+                .or(item.value)
+                .unwrap_or_default();
+            let id = item.id.unwrap_or_default();
+
+            if (label.is_empty() && id.is_empty()) || item.frame.width <= 0.0 {
+                return None;
+            }
+
+            Some(Element {
+                label,
+                kind: item.kind,
+                id,
+                x: item.frame.x / width,
+                y: item.frame.y / height,
+                width: item.frame.width / width,
+                height: item.frame.height / height,
+            })
+        })
+        .collect())
+}
+
+/// Installs the `.app` at `path` on simulator `id`.
+pub(super) async fn install(id: &DeviceId, path: &Path) -> Result<()> {
+    let path = path.to_str().context("the path is not text")?;
+    simctl(&["install", &id.0, path]).await?;
+
+    Ok(())
+}
+
+/// Starts app `target` by its bundle id, or opens it when it is a URL.
+pub(super) async fn launch(id: &DeviceId, target: &str) -> Result<()> {
+    let verb = if target.contains("://") { "openurl" } else { "launch" };
+    simctl(&[verb, &id.0, target]).await?;
+
+    Ok(())
+}
+
+/// idb_companion, on `PATH` or where Homebrew and pip put it.
+fn companion() -> Result<PathBuf> {
+    which::which("idb_companion")
+        .ok()
+        .or_else(|| {
+            ["/opt/homebrew/bin/idb_companion", "/usr/local/bin/idb_companion"]
+                .into_iter()
+                .map(PathBuf::from)
+                .chain(dirs::home_dir().map(|home| home.join(".local/bin/idb_companion")))
+                .find(|path| path.is_file())
+        })
+        .context(NO_COMPANION)
+}
+
+/// Simulator `id`'s unified log of the last minutes, a line per entry.
+pub(super) async fn logs(id: &DeviceId) -> Result<String> {
+    simctl(&["spawn", &id.0, "log", "show", "--last", "5m", "--style", "compact"]).await
+}
+
 async fn simctl(args: &[&str]) -> Result<String> {
     let mut command = process::command("xcrun");
     command
@@ -197,16 +307,7 @@ async fn simctl(args: &[&str]) -> Result<String> {
 /// Follows simulator `id`'s screen through an idb_companion of this
 /// stream's own, once the simulator finished booting.
 pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
-    let companion = which::which("idb_companion")
-        .ok()
-        .or_else(|| {
-            ["/opt/homebrew/bin/idb_companion", "/usr/local/bin/idb_companion"]
-                .into_iter()
-                .map(PathBuf::from)
-                .chain(dirs::home_dir().map(|home| home.join(".local/bin/idb_companion")))
-                .find(|path| path.is_file())
-        })
-        .context(NO_COMPANION)?;
+    let companion = companion()?;
     timeout(BOOT_WAIT, simctl(&["bootstatus", &id.0]))
         .await
         .with_context(|| format!("{id} did not finish booting"))??;

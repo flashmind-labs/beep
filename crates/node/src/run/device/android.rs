@@ -66,6 +66,8 @@ pub(super) struct Running {
     token: SecretString,
     /// The AVD's folder, with its `config.ini`.
     dir: Option<PathBuf>,
+    /// The console port adb names it by, as in `emulator-5554`.
+    console: Option<u16>,
 }
 
 /// Every AVD here, running or not.
@@ -246,6 +248,7 @@ pub(super) fn parse_discovery(text: &str) -> Option<Running> {
         port: section.get("grpc.port")?.parse().ok()?,
         token: SecretString::from(section.get("grpc.token")?),
         dir: section.get("avd.dir").map(PathBuf::from),
+        console: section.get("port.serial").and_then(|port| port.parse().ok()),
     })
 }
 
@@ -262,6 +265,15 @@ fn discovery_dirs() -> Vec<PathBuf> {
             .map(|user| std::env::temp_dir().join(format!("android-{}", user.to_string_lossy()))),
     );
     bases.into_iter().map(running).collect()
+}
+
+/// The adb serial of the running emulator of AVD `id`.
+pub(super) async fn serial(id: &DeviceId) -> Result<DeviceId> {
+    let found = running().await.into_iter().find(|(e, _)| e.avd == id.0);
+    let (emulator, _) = found.with_context(|| format!("{id} is not running."))?;
+    let console = emulator.console.context("the emulator gave no adb port")?;
+
+    Ok(DeviceId(format!("emulator-{console}")))
 }
 
 /// Starts AVD `id` without a window, to outlive the stream and the node.

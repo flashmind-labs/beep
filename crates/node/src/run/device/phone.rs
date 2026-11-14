@@ -3,7 +3,11 @@
 //! one comes or goes. Emulators, which adb lists too, are left to
 //! `android`, which reaches them faster.
 
-use super::{Controls as AnyControls, FRAME_GAP, Live, Screen, point};
+use super::{
+    Controls as AnyControls, FRAME_GAP, Live, Screen,
+    adb::{CALL_TIMEOUT, NO_ADB, call},
+    point,
+};
 use crate::{events, lock, machine::env, run::process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::events::Topic;
@@ -22,19 +26,15 @@ use std::{
     sync::{LazyLock, Mutex},
     time::{Duration, Instant},
 };
-use tokio::{io::AsyncReadExt, sync::watch, time::timeout};
+use tokio::{io::AsyncReadExt, sync::watch};
 use tokio_util::task::AbortOnDropHandle;
 
-/// How long one adb call may take; a screenshot over USB 2 takes about a
-/// second.
-const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 /// A finger held this long without moving presses long instead of tapping.
 const LONG_PRESS: Duration = Duration::from_millis(500);
 /// How far a finger may move, in screen pixels, and still tap.
 const TAP_SLOP: f64 = 16.0;
 const JPEG_QUALITY: u8 = 80;
 const PNG_SIGNATURE: &[u8] = b"\x89PNG";
-const NO_ADB: &str = "adb is not installed on this machine.";
 /// The first wait before following adb again after it stopped, doubled
 /// each time up to `TRACK_RETRY_MAX`.
 const TRACK_RETRY: Duration = Duration::from_secs(5);
@@ -185,7 +185,7 @@ async fn release(adb: &Path, id: &DeviceId) -> Option<String> {
         return Some(known.clone());
     }
 
-    let out = call(adb, id, &["shell", "getprop", "ro.build.version.release"]).await;
+    let out = call(adb, id, &["shell", "getprop", "ro.build.version.release"], CALL_TIMEOUT).await;
     let number = String::from_utf8(out.ok()?).ok()?;
     let release = format!("Android {}", number.trim());
     lock(&RELEASES).insert(id.0.clone(), release.clone());
@@ -226,7 +226,7 @@ async fn capture(
     let reason = loop {
         // Asked before every frame, so a foldable's view changes screens
         // on the next frame after it opens or closes.
-        let lit = call(&adb, &id, &["shell", "dumpsys", "display"])
+        let lit = call(&adb, &id, &["shell", "dumpsys", "display"], CALL_TIMEOUT)
             .await
             .ok()
             .and_then(|out| lit_screen(&String::from_utf8_lossy(&out)));
@@ -236,7 +236,7 @@ async fn capture(
             args.extend(["-d", display]);
         }
 
-        let png = match call(&adb, &id, &args).await {
+        let png = match call(&adb, &id, &args, CALL_TIMEOUT).await {
             Ok(png) => png,
             Err(e) => break format!("The phone stopped answering ({e:#})."),
         };
@@ -312,28 +312,6 @@ fn frame(png: &[u8], max_side: u32) -> Result<((u32, u32), Frame)> {
     Ok((full, frame))
 }
 
-/// What `adb -s id <args>` printed, once it succeeded.
-async fn call(adb: &Path, id: &DeviceId, args: &[&str]) -> Result<Vec<u8>> {
-    let mut command = process::command(adb);
-    command
-        .arg("-s")
-        .arg(&id.0)
-        .args(args)
-        .stdin(Stdio::null())
-        .kill_on_drop(true);
-    let output = timeout(CALL_TIMEOUT, command.output())
-        .await
-        .context("adb did not answer")?;
-    process::finished(adb, &output);
-    let output = output.context("could not run adb")?;
-
-    if !output.status.success() {
-        bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
-    }
-
-    Ok(output.stdout)
-}
-
 /// Input to an attached phone.
 pub(super) struct Controls {
     adb: PathBuf,
@@ -388,7 +366,7 @@ impl Controls {
     }
 
     async fn shell(&self, command: &str) -> Result<()> {
-        call(&self.adb, &self.id, &["shell", command]).await?;
+        call(&self.adb, &self.id, &["shell", command], CALL_TIMEOUT).await?;
         Ok(())
     }
 }
