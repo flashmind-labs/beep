@@ -236,6 +236,7 @@ pub async fn serve(
     // before leaves it as it was.
     let reopen = Reopen::read(&state.dir);
     offers.agents.keep_models(reopen.models);
+    offers.agents.keep_worktrees(reopen.worktrees);
     terminal::reopen(&state.dir, reopen.terminals).await;
     let agents = offers.agents.clone();
     let note_dir = state.dir.clone();
@@ -274,6 +275,7 @@ pub async fn serve(
         sessions: offers.agents.open_sessions(),
         terminals,
         models: offers.agents.last_models(),
+        worktrees: offers.agents.last_worktrees(),
     };
 
     if let Err(e) = reopen.save(&state.dir) {

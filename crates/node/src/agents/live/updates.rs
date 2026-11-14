@@ -421,14 +421,20 @@ impl Live {
     /// `None` when none of its commands ran `git worktree add`.
     pub(crate) fn turn_worktrees(&self) -> Option<TurnWorktrees> {
         let start = self.turn_start;
-        let added = self.tools.values().any(|tool| {
-            tool.entry > start
-                && tool.kind == ToolKind::Execute
-                && tool.title.contains("worktree add")
-        });
-        added.then(|| TurnWorktrees {
+        let commands: Vec<String> = self
+            .tools
+            .values()
+            .filter(|tool| {
+                tool.entry > start
+                    && tool.kind == ToolKind::Execute
+                    && tool.title.contains("worktree add")
+            })
+            .map(|tool| tool.title.clone())
+            .collect();
+        (!commands.is_empty()).then(|| TurnWorktrees {
             cwd: PathBuf::from(&self.info.cwd),
             since: self.turn_since(),
+            commands,
         })
     }
 

@@ -412,6 +412,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     let kept = before.last_models();
     let noted = Agents::new(Vec::new());
     noted.keep_models(kept);
+    noted.keep_worktrees(before.last_worktrees());
     assert_eq!(noted.last_model("held-1"), Some(ModelId::new("deep")));
     assert_eq!(
         noted.created_worktrees("held-1"),

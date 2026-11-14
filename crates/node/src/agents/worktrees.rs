@@ -105,6 +105,8 @@ pub(super) fn list(folder: &Path, created: &[String]) -> Result<Vec<Worktree>> {
         Err(e) => return Err(e),
     };
     let mut trees = parse(&text);
+    // Git lists the main checkout first; only linked worktrees are made.
+    let main = trees.first().map(|tree| tree.path.clone());
     // A synced `.git` lists the worktrees of other machines too.
     trees.retain(|tree| Path::new(&tree.path).is_dir());
 
@@ -121,13 +123,12 @@ pub(super) fn list(folder: &Path, created: &[String]) -> Result<Vec<Worktree>> {
         tree.own = true;
     }
 
-    // Git lists the main checkout first; only linked worktrees are made.
     let created: Vec<PathBuf> = created
         .iter()
         .map(|path| paths::canonicalize(path).unwrap_or_else(|_| path.into()))
         .collect();
 
-    for tree in trees.iter_mut().skip(1) {
+    for tree in trees.iter_mut().filter(|tree| Some(&tree.path) != main.as_ref()) {
         let path = paths::canonicalize(&tree.path).unwrap_or_else(|_| tree.path.clone().into());
         tree.created = created.contains(&path);
     }
@@ -135,18 +136,24 @@ pub(super) fn list(folder: &Path, created: &[String]) -> Result<Vec<Worktree>> {
     Ok(trees)
 }
 
-/// The linked worktrees of the repository holding `folder` that were made
-/// at or after `since`, as the `commondir` file git writes once when it
-/// adds one says. Blocks on git and the file system.
-pub(super) fn made_since(folder: &Path, since: SystemTime) -> Vec<String> {
+/// The linked worktrees of the repository holding `folder` that one of
+/// `commands` names by its folder's name and that were made at or after
+/// `since`, as the `commondir` file git writes once when it adds one says.
+/// The main checkout has no `commondir`. Blocks on git and the file system.
+pub(super) fn made_since(folder: &Path, since: SystemTime, commands: &[String]) -> Vec<String> {
     let Ok(trees) = list(folder, &[]) else {
         return Vec::new();
     };
 
     trees
         .into_iter()
-        .skip(1)
         .map(|tree| tree.path)
+        .filter(|tree| {
+            Path::new(tree)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| commands.iter().any(|command| names(command, name)))
+        })
         .filter(|tree| {
             git_dir(Path::new(tree))
                 .and_then(|git| fs::metadata(git.join("commondir")).ok())
@@ -214,6 +221,13 @@ fn listed_paths(folder: &Path) -> Vec<PathBuf> {
         Ok::<_, Infallible>(listed.into_iter().map(|tree| tree.path.into()).collect())
     });
     paths
+}
+
+/// Whether `command` names `name` as a whole part of a path.
+fn names(command: &str, name: &str) -> bool {
+    command
+        .split(|c: char| c.is_whitespace() || matches!(c, '/' | '\\' | '"' | '\''))
+        .any(|part| part == name)
 }
 
 #[cfg(test)]
@@ -300,9 +314,12 @@ pub(in crate::agents) mod tests {
         let before = SystemTime::now() - std::time::Duration::from_secs(5);
         let (_dir, main, other) = repo_with_worktree();
         let other = other.to_str().unwrap().to_owned();
-        assert_eq!(made_since(&main, before), vec![other.clone()]);
+        let added = ["git worktree add -b side ../other".to_owned()];
+        assert_eq!(made_since(&main, before, &added), vec![other.clone()]);
+        let elsewhere = ["git worktree add ../another".to_owned()];
+        assert!(made_since(&main, before, &elsewhere).is_empty());
         let later = SystemTime::now() + std::time::Duration::from_secs(60);
-        assert!(made_since(&main, later).is_empty());
+        assert!(made_since(&main, later, &added).is_empty());
 
         let created = |made: &[String]| {
             list(&main, made)

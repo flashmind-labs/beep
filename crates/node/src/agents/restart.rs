@@ -39,13 +39,19 @@ const KEPT_ENTRIES: usize = 1000;
 const KEPT_MODELS: usize = 500;
 
 /// The model a session last ran on, kept so it goes on with it when it is
-/// taken over again after it ended, and the worktrees it created.
+/// taken over again after it ended.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct LastModel {
     /// The agent's own id for the session.
     session: String,
     model: ModelId,
-    #[serde(default)]
+}
+
+/// The linked worktrees a session created, kept for after it ended.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct LastWorktrees {
+    /// The agent's own id for the session.
+    session: String,
     worktrees: Vec<String>,
 }
 
@@ -175,17 +181,36 @@ impl Agents {
                     Some(LastModel {
                         session: live.agent_session.clone()?,
                         model: live.info.model.clone()?,
-                        worktrees: live.info.worktrees.clone(),
                     })
                 })
             })
             .collect();
-        let mut kept = crate::lock(&self.last_models);
-        kept.retain(|old| !now.iter().any(|new| new.session == old.session));
-        kept.extend(now);
-        let over = kept.len().saturating_sub(KEPT_MODELS);
-        kept.drain(..over);
-        kept.clone()
+        kept_with(&mut crate::lock(&self.last_models), now, |kept| &kept.session)
+    }
+
+    /// The worktrees sessions here created, the ones running now last,
+    /// added to those kept from before.
+    pub(crate) fn last_worktrees(&self) -> Vec<LastWorktrees> {
+        // Copied out, as in `open_sessions`.
+        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+        let now: Vec<LastWorktrees> = sessions
+            .iter()
+            .filter_map(|session| {
+                watched::read(&session.live, |live| {
+                    Some(LastWorktrees {
+                        session: live.agent_session.clone()?,
+                        worktrees: live.info.worktrees.clone(),
+                    })
+                    .filter(|kept| !kept.worktrees.is_empty())
+                })
+            })
+            .collect();
+        kept_with(&mut crate::lock(&self.last_worktrees), now, |kept| &kept.session)
+    }
+
+    /// Takes the worktrees kept in the note from before the node started.
+    pub(crate) fn keep_worktrees(&self, worktrees: Vec<LastWorktrees>) {
+        *crate::lock(&self.last_worktrees) = worktrees;
     }
 
     /// Takes the models kept in the note from before the node started.
@@ -208,7 +233,7 @@ impl Agents {
             return session.info().worktrees;
         }
 
-        crate::lock(&self.last_models)
+        crate::lock(&self.last_worktrees)
             .iter()
             .rfind(|kept| kept.session == id)
             .map(|kept| kept.worktrees.clone())
@@ -402,3 +427,13 @@ pub(super) async fn to_project(kind: &AgentKind, id: &str, cwd: &Path) {
 #[cfg(all(test, unix))]
 #[path = "../tests/agents_restart.rs"]
 mod tests;
+
+/// `kept` with `now` in place of the entries of the same sessions, the
+/// newest `KEPT_MODELS`; a copy of the result.
+fn kept_with<T: Clone>(kept: &mut Vec<T>, now: Vec<T>, session: impl Fn(&T) -> &String) -> Vec<T> {
+    kept.retain(|old| !now.iter().any(|new| session(new) == session(old)));
+    kept.extend(now);
+    let over = kept.len().saturating_sub(KEPT_MODELS);
+    kept.drain(..over);
+    kept.clone()
+}

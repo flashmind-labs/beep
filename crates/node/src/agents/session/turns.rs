@@ -427,8 +427,12 @@ impl Actor {
     /// Looks for the worktrees a turn's commands added off the async
     /// workers; the session records them once found.
     fn find_worktrees(&mut self, turn: TurnWorktrees) {
-        let TurnWorktrees { cwd, since } = turn;
-        let found = spawn_blocking(move || worktrees::made_since(&cwd, since));
+        let TurnWorktrees {
+            cwd,
+            since,
+            commands,
+        } = turn;
+        let found = spawn_blocking(move || worktrees::made_since(&cwd, since, &commands));
         self.replies.push(
             async move {
                 let trees = found.await.unwrap_or_else(|e| {

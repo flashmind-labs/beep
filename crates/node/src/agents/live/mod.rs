@@ -194,6 +194,8 @@ pub(crate) struct TurnWorktrees {
     /// The session's folder, whose repository is looked in.
     pub(crate) cwd: PathBuf,
     pub(crate) since: SystemTime,
+    /// The commands of the turn that ran `git worktree add`.
+    pub(crate) commands: Vec<String>,
 }
 
 #[cfg(test)]
