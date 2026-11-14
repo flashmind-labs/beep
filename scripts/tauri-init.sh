@@ -44,6 +44,12 @@ else
     sed -i.bak 's/#[0-9A-Fa-f]\{6\}/#0B0E1D/' "$icons/android/values/ic_launcher_background.xml"
     rm "$icons/android/values/ic_launcher_background.xml.bak"
     cp -R "$icons"/android/. "$dir/app/src/main/res/"
+
+    # iroh reads the network state to find DNS servers and follow network
+    # changes; without it a phone keeps paths that died when it switched.
+    manifest=$dir/app/src/main/AndroidManifest.xml
+    grep -q ACCESS_NETWORK_STATE "$manifest" ||
+        perl -0pi -e 's|(\s*)(<uses-permission android:name="android.permission.INTERNET"\s*/>)|$1$2$1<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />|' "$manifest"
 fi
 
 rm -rf "$icons"

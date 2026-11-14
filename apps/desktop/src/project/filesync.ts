@@ -10,6 +10,7 @@ import { diffView, type DiffViewHandle } from "../review/diff.tsx";
 import { compareFiles } from "./compare.ts";
 import { loadClocks } from "../machines/clock.ts";
 import { plainPath } from "./projects-state.ts";
+import { onPhone } from "../ui/platform.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
 interface SyncProgress {
@@ -149,10 +150,11 @@ export function makeFileSync(deps: FileSyncDeps) {
   }
 
   /// Reads `name` once its detail is `every` old. The read, when one
-  /// starts.
+  /// starts. A phone shows no project sync, so it reads none: each read
+  /// waits on every machine of the project.
   function ensure(name: string, every = TILE_MAX_AGE_MS): Promise<void> | undefined {
     const s = of(name);
-    if (Date.now() - s.read_at > every && !s.loading) return load(name);
+    if (!onPhone() && Date.now() - s.read_at > every && !s.loading) return load(name);
   }
 
   /// The detail for the board's tile, read again once it is old.
