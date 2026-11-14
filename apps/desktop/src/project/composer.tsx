@@ -419,6 +419,8 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     bounds: () => projectComp.form.closest<HTMLElement>(".agconv") ?? projectComp.form.parentElement,
     changed: what => {
       if (what !== "models") {
+        // A model found under another harness keeps with it.
+        if (what === "model") pc.modelFor = `${host.machine_id}/${p.agent}`;
         p.effort = keepEffort(p.agent, p.effort);
         keepProjectPick(pc.project, p);
       }
