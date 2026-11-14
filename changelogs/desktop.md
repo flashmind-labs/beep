@@ -7,6 +7,19 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.39] - 2026-11-14
+
+### Changed
+
+- Desktop: files attached to a new agent's prompt upload as soon as you
+  attach them, not when you press Start. The new agent form and the
+  project composer show the upload progress bar above the input and a
+  progress chip per file, as in a conversation.
+- Desktop: removing an attached file, stashing the draft, or leaving the
+  new agent form without starting deletes the uploaded copy from the
+  machine.
+- Desktop: the model picker opens with ⇧⌘M (Ctrl+Shift+M on Windows and Linux) instead of ⌘M, which minimizes the window on macOS.
+
 ## [0.8.38] - 2026-11-14
 
 ### Added
