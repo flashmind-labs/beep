@@ -1,7 +1,7 @@
 // The diff viewer's frame: a one-line header with the counts, a filter, icon
 // toggles and the review buttons; a list of the files at wide widths, with a
 // grip to resize it; the files themselves (diff-files.tsx); and the keys.
-import { memo, useCallback, useEffect, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { DiffToolbar } from "./diff-toolbar.tsx";
@@ -9,7 +9,7 @@ import { DiffTree } from "./diff-tree.tsx";
 import { DiffKeys } from "./diff-status.tsx";
 import { DiffFiles, fileMenu } from "./diff-files.tsx";
 import { FeedbackBox, FeedbackNoteBox } from "./feedback-view.tsx";
-import { allFolded, type DiffFile } from "./diff-state.ts";
+import { allFolded, commentCounts, type DiffFile } from "./diff-state.ts";
 import { NARROW, WIDE, type Viewer, keepCurrent, remeasure, remember, saveSplit, shown } from "./diff-viewer.ts";
 import { foldAll, jump, jumpToLine, markCurrent, onKey } from "./diff-keys.ts";
 import { load, sendReview } from "./diff.tsx";
@@ -83,7 +83,9 @@ const Tree = memo(function Tree({ v, scroller }: { v: Viewer; scroller: HTMLElem
   const files = useStore(v.store, s => s.view?.files ?? NO_FILES);
   const filter = useStore(v.store, s => s.filter), cur = useStore(v.store, s => s.cur), reveal = useStore(v.store, s => s.revealTree);
   const closed = useStore(v.store, s => s.closedFolders), filteredClosed = useStore(v.store, s => s.filteredClosedFolders);
-  return <DiffTree files={files} filter={filter} current={cur} closedFolders={closed} filteredClosedFolders={filteredClosed}
+  const draft = useStore(v.store, s => s.draft);
+  const comments = useMemo(() => commentCounts(draft), [draft]);
+  return <DiffTree files={files} comments={comments} filter={filter} current={cur} closedFolders={closed} filteredClosedFolders={filteredClosed}
     scroller={scroller} reveal={reveal}
     onFolder={(path, open) => {
       const filtering = !!v.state.filter.trim();
