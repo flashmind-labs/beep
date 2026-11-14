@@ -109,10 +109,12 @@ body.cbody.mobile
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "PRs and issues"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-          div.cc-empty.cc-panel
-            b "Nothing running"
-            span "Start an agent on this computer, or add a machine to run it there."
-            button.dbtn.small [type="button"] "Start an agent"
+          div.painted-empty
+            canvas.painted-art.sunrise [aria-hidden="true"]
+            div.cc-empty.cc-panel
+              b "Nothing running"
+              span "Start an agent on this computer, or add a machine to run it there."
+              button.dbtn.pri.small [type="button"] "Start an agent"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box
@@ -149,7 +151,7 @@ body.cbody.mobile
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="example/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="example/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"] "a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
@@ -166,7 +168,7 @@ body.cbody.mobile
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="plain-folder-without-an-org-and-a-long-name-too"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="plain-folder-without-an-org-and-a-long-name-too"] "plain-folder-without-an-org-and-a-long-name-too"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]

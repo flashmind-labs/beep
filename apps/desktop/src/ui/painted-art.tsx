@@ -1,35 +1,40 @@
 // Scenes painted in short brush strokes, after Monet: a sunrise over a
 // harbour ("Impression, Sunrise") and the dawn haze of its sky alone. A scene paints
-// itself once and is still from then on; with Reduce motion on it is drawn
+// itself once after the app opens and is still from then on; with Reduce motion on it is drawn
 // finished.
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 
-/// The sunrise. `replay` false shows it risen once it has played since the app opened.
-export function SunriseArt({ replay = true }: { replay?: boolean }) {
-  return <PaintedArt scene="sunrise" replay={replay} />;
+/// The sunrise: it rises once after the app opens, wherever it shows first.
+export function SunriseArt() {
+  return <PaintedArt scene="sunrise" />;
 }
 
 /// The dawn haze, which fills in stroke by stroke the first time it shows.
 export function HazeArt() {
-  return <PaintedArt scene="haze" replay={false} />;
+  return <PaintedArt scene="haze" />;
+}
+
+/// An empty screen: the sunrise, with what to do next on a card beside the sun.
+export function PaintedEmpty({ children }: { children: ReactNode }) {
+  return <div className="painted-empty"><SunriseArt /><div className="cc-panel cc-empty">{children}</div></div>;
 }
 
 type Scene = "sunrise" | "haze";
-/// The scenes that have played since the app opened.
-const played = new Set<Scene>();
+/// When each scene began to paint itself. A scene drawn again, on another
+/// screen or after a resize, goes on from there instead of starting over.
+const began = new Map<Scene, number>();
 
-function PaintedArt({ scene, replay }: { scene: Scene; replay: boolean }) {
+function PaintedArt({ scene }: { scene: Scene }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useLayoutEffect(() => {
     const target = canvas.current;
     if (!target) return;
 
-    let frame = 0, strokes: Stroke[] = [], began: number | null = null, last = 0;
-    const still = (!replay && played.has(scene)) || (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-    played.add(scene);
+    let frame = 0, strokes: Stroke[] = [], last = 0;
+    const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const paint = (now: number) => {
-      began ??= now;
-      const done = still ? 1 : Math.min(1, (now - began) / PLAY_MS[scene]);
+      if (!began.has(scene)) began.set(scene, now);
+      const done = still ? 1 : Math.min(1, (now - (began.get(scene) ?? now)) / PLAY_MS[scene]);
 
       if (done === 1 || now - last >= FRAME_MS) {
         last = now;
@@ -43,7 +48,7 @@ function PaintedArt({ scene, replay }: { scene: Scene; replay: boolean }) {
     });
     resized.observe(target);
     return () => { resized.disconnect(); if (frame) cancelAnimationFrame(frame); };
-  }, [scene, replay]);
+  }, [scene]);
 
   return <canvas ref={canvas} className={`painted-art ${scene}`} aria-hidden="true" />;
 }

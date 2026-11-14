@@ -518,3 +518,25 @@ test("first run set up", async ({ page }) => {
   await expect(setup.getByRole("button", { name: "Install: Codex" })).toBeVisible();
   await baseline(page, "first-run-setup");
 });
+
+test("home with nothing running", async ({ page }) => {
+  await openDesktop(page, false, { center_home: { ...home, running: [], needs_you: [] }, agent_sessions: [], project_sessions: [], projects_sessions: [] });
+  await expect(page.locator(".painted-empty")).toBeVisible();
+  await baseline(page, "home-empty");
+});
+
+test("add a project", async ({ page }) => {
+  const place = (folder: string) => ({ machine_id: machineId, machine_name: machineId, folder });
+  const found = [
+    { name: "example/atlas", remote: "https://example.test/example/atlas", places: [place("/srv/atlas")], agents: [{ agent: "codex", sessions: 4 }], last_activity: NOW - 3_600_000 },
+    { name: "example/harbor", remote: "https://example.test/example/harbor", places: [place("/srv/harbor"), place("/srv/harbor-next")], agents: [], last_activity: 0 },
+    { name: "tools/ledger", remote: "https://example.test/tools/ledger", places: [place("/srv/ledger")], agents: [{ agent: "claude", sessions: 12 }], last_activity: NOW - 86_400_000 },
+  ];
+  const hosts = [{ host: "example.test", github: false, error: null, repos: [{ name: "example/quill", url: "https://example.test/example/quill", updated_at: NOW - 7_200_000 }] }];
+  await openDesktop(page, false, { center_home: home, found_projects: found, host_repos: hosts, found_machines: [] });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Add a project" });
+  await expect(sheet.getByText("example/atlas")).toBeVisible();
+  await sheet.getByText("Browse repositories on connected hosts").click();
+  await baseline(page, "add-project");
+});

@@ -210,7 +210,7 @@ body.cbody
               div.pj-grid
                 div.pj-card [data-live role="button" tabindex="0" title="example/widget"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="example/widget"] "widget"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
@@ -221,7 +221,7 @@ body.cbody
                     span.at [title="build-box"] "build-box"
                 div.pj-card [data-live role="button" tabindex="0" title="example/gadget"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="example/gadget"] "gadget"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]
@@ -240,7 +240,7 @@ body.cbody
               div.pj-grid
                 div.pj-card [role="button" tabindex="0" title="tools/delta"]
                   div.h
-                    span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
+                    span.pj-swatch style(--c)
                     b [title="tools/delta"] "delta"
                     button.pa [aria-label="Pin to top" type="button"]
                       svg [fill="currentColor" height="12" viewBox="0 0 24 24" width="12"]

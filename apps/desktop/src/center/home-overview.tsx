@@ -26,6 +26,7 @@ import { formatAgo } from "../ui/format.ts";
 import { machinesReach } from "../machines/machine-state.ts";
 import { isMobile } from "../ui/platform.ts";
 import { Button, Section } from "../ui/kit.tsx";
+import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { RunningStatus } from "../project/split-view.tsx";
 
 /// What a running row says at its end: a move or a close, that it asks, or since when.
@@ -165,5 +166,5 @@ export function HomeOverview({ home }: { home: HomeView }) {
 function Empty({ home }: { home: HomeView }) {
   const reach = machinesReach(home.machines ?? []);
   if (reach !== "reached") return <div className="cc-panel cc-empty"><span>{reach === "connecting" ? "Connecting to your machines…" : "No machine is online."}</span></div>;
-  return <div className="cc-panel cc-empty"><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button small onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</Button></div>;
+  return <PaintedEmpty><b>{state.home ? "Nothing running" : "Start an agent"}</b><span>{state.home ? "Start an agent on this computer, or add a machine to run it there." : "Your machines connect in the background."}</span><Button look="primary" small onClick={() => go("pane", { agentnew: { prompt: "" } })}>Start an agent</Button></PaintedEmpty>;
 }

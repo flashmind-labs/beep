@@ -69,6 +69,8 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .sw-spin { vertical-align: middle }
 .cc-note { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--elev); font-size: 12.5px; line-height: 18px; color: color-mix(in srgb, var(--fg) 90%, transparent) }
 .cc-note .ddot { margin-top: 1px }
+/* A project's swatch: its colour laid down in a few strokes. */
+.pj-swatch { flex: none; width: 14px; height: 12px; border-radius: 2px; background: linear-gradient(172deg, color-mix(in srgb, var(--c) 68%, #fff) 0 22%, var(--c) 22% 47%, color-mix(in srgb, var(--c) 60%, #000) 47% 68%, color-mix(in srgb, var(--c) 84%, #fff) 68% 85%, color-mix(in srgb, var(--c) 48%, #000) 85%) }
 .cc-empty { padding: 22px 18px; display: grid; justify-items: center; gap: 8px; text-align: center; font-size: 13px; line-height: 19px; color: var(--muted) }
 .cc-empty b { color: var(--fg); font-size: 14px; font-weight: 500 }
 .cc-empty ol { margin: 0; padding-left: 18px; text-align: left; display: grid; gap: 3px; color: color-mix(in srgb, var(--fg) 86%, transparent) }

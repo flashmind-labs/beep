@@ -28,9 +28,9 @@ test("sessions tab keeps its list host while tabs switch", async ({ page }) => {
 test("projects page shows its empty state with an Add a project button", async ({ page }) => {
   await openDesktop(page, false, { found_machines: [], center_home: { machines: [], projects: [], running: [], needs_you: [] } });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
-  const empty = page.locator(`#main .cc-view[data-project=""] > .cc-panel.cc-empty`);
+  const empty = page.locator(`#main .cc-view[data-project=""] > .painted-empty > .cc-panel.cc-empty`);
   await expect(empty.locator("b")).toHaveText("No projects yet");
-  await expect(empty.locator("span")).toHaveText("A folder or a repository to clone.");
+  await expect(empty.locator("span")).toHaveText("Choose a folder, clone a repository or start a new one.");
   await expect(empty.locator("button.pri svg")).toHaveCount(1);
   await expect(empty.getByRole("button", { name: "Add a project" })).toBeVisible();
   await expect(page.locator("#main .cc-view[data-project]")).toHaveCount(1);

@@ -93,19 +93,23 @@ body.cbody
           div.cc-tabs [role="tablist"]
             button [aria-selected="true" role="tab" type="button"] "Board"
             button [aria-selected="false" role="tab" type="button"] "Machines"
-          div.cc-empty.cc-panel
-            b "Nothing running"
-            span "Start an agent on this computer, or add a machine to run it there."
-            button.dbtn.small [type="button"] "Start an agent"
+          div.painted-empty
+            canvas.painted-art.sunrise [aria-hidden="true" height="130" width="264"]
+            div.cc-empty.cc-panel
+              b "Nothing running"
+              span "Start an agent on this computer, or add a machine to run it there."
+              button.dbtn.pri.small [type="button"] "Start an agent"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box
         div.cc-view [data-project]
-          div.cc-empty.cc-panel
-            b "No projects yet"
-            span "A folder or a repository to clone."
-            button.pri [type="button"] "Add a project"
-              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+          div.painted-empty
+            canvas.painted-art.sunrise [aria-hidden="true" height="130" width="264"]
+            div.cc-empty.cc-panel
+              b "No projects yet"
+              span "Choose a folder, clone a repository or start a new one."
+              button.pri [type="button"] "Add a project"
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]
