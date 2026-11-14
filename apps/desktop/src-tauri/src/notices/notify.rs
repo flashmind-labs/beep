@@ -47,8 +47,13 @@ fn notification_icon(app: &AppHandle) -> Option<String> {
 
 /// Shows `notice`, which opens its session when clicked and, when it asks a
 /// question, answers it from Allow or Deny.
-pub fn notice(app: &AppHandle, notice: &Notice) {
-    show(app, notice, click_target(notice));
+/// A reviewer's opens beside the diff it reviewed.
+pub fn notice(app: &AppHandle, notice: &Notice, reviewer: bool) {
+    let target = match click_target(notice) {
+        CenterTarget::Agent(target) if reviewer => CenterTarget::Agent(target.reviewing()),
+        target => target,
+    };
+    show(app, notice, target);
 }
 
 /// A notification with nothing to answer that opens `target` when clicked.

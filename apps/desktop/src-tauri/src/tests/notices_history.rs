@@ -214,7 +214,11 @@ fn a_watched_turn_leaves_no_ready_note_and_settles_its_question() {
     let dir = TempDir::new().expect("a temp dir");
     let notes = store(&dir);
     let ready = ready_key();
-    assert!(!notes.agent_notice(&ready, &notice(&ready), true).changed);
+    assert!(
+        !notes
+            .agent_notice(&ready, &notice(&ready), true, false)
+            .changed
+    );
     assert!(notes.list().is_empty());
 
     let question = AgentNoticeKey {
@@ -223,11 +227,19 @@ fn a_watched_turn_leaves_no_ready_note_and_settles_its_question() {
     };
     assert!(
         notes
-            .agent_notice(&question, &notice(&question), false)
+            .agent_notice(&question, &notice(&question), false, false)
             .changed
     );
-    assert!(notes.agent_notice(&ready, &notice(&ready), false).changed);
-    assert!(notes.agent_notice(&ready, &notice(&ready), true).changed);
+    assert!(
+        notes
+            .agent_notice(&ready, &notice(&ready), false, false)
+            .changed
+    );
+    assert!(
+        notes
+            .agent_notice(&ready, &notice(&ready), true, false)
+            .changed
+    );
     assert_eq!(ids(&notes), [question.to_string()]);
     assert!(notes.get(&question.to_string()).is_some_and(|n| n.done));
 
@@ -236,7 +248,11 @@ fn a_watched_turn_leaves_no_ready_note_and_settles_its_question() {
         question: Some(8),
         ..ready
     };
-    assert!(notes.agent_notice(&next, &notice(&next), true).changed);
+    assert!(
+        notes
+            .agent_notice(&next, &notice(&next), true, false)
+            .changed
+    );
     assert!(
         notes
             .get(&next.to_string())
@@ -272,7 +288,7 @@ fn opening_a_session_removes_only_its_ready_notes_and_saves_the_removal() {
         &other_session,
         &question,
     ] {
-        notes.agent_notice(key, &notice(key), false);
+        notes.agent_notice(key, &notice(key), false, false);
     }
     notes.read(&[ready.to_string()]);
     let mut renamed = note(
@@ -310,7 +326,7 @@ fn a_turn_read_on_one_app_does_not_notify_on_another() {
     let phone = store(&phone_dir);
     let ready = ready_key();
 
-    let told = desktop.agent_notice(&ready, &notice(&ready), false);
+    let told = desktop.agent_notice(&ready, &notice(&ready), false, false);
     assert!(
         told.unread.is_some(),
         "unread on the desktop, so it notifies"
@@ -320,14 +336,19 @@ fn a_turn_read_on_one_app_does_not_notify_on_another() {
     assert_eq!(shared.len(), 1, "opening the session reads it for the mesh");
 
     phone.shared_reads(shared);
-    let replayed = phone.agent_notice(&ready, &notice(&ready), false);
+    let replayed = phone.agent_notice(&ready, &notice(&ready), false, false);
     assert_eq!(replayed.unread, None, "the phone does not notify");
     assert!(phone.get(&ready.to_string()).is_some_and(|n| n.read));
 
     // The next turn of the session is news again.
     let mut next = notice(&ready);
     next.body = "Another turn ended".into();
-    assert!(phone.agent_notice(&ready, &next, false).unread.is_some());
+    assert!(
+        phone
+            .agent_notice(&ready, &next, false, false)
+            .unread
+            .is_some()
+    );
 }
 
 #[test]
@@ -335,7 +356,7 @@ fn a_turn_on_screen_and_a_dismissed_note_are_read_for_the_other_apps() {
     let dir = TempDir::new().expect("a temp dir");
     let notes = store(&dir);
     let ready = ready_key();
-    let seen = notes.agent_notice(&ready, &notice(&ready), true);
+    let seen = notes.agent_notice(&ready, &notice(&ready), true, false);
     assert_eq!(seen.unread, None);
     assert_eq!(
         seen.read.len(),
@@ -347,7 +368,7 @@ fn a_turn_on_screen_and_a_dismissed_note_are_read_for_the_other_apps() {
         question: Some(7),
         ..ready
     };
-    notes.agent_notice(&question, &notice(&question), false);
+    notes.agent_notice(&question, &notice(&question), false, false);
     let dismissed = notes.dismiss(&[question.to_string()]);
     assert_eq!(unread_of(dismissed).count(), 1);
 }

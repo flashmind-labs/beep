@@ -527,17 +527,22 @@ export function showArtifact(path?: string) {
 }
 
 /// View diff: the Changes tab zoomed over the conversation, the keyboard in the diff.
-/// A folded dock opens; the layout is otherwise as it was.
-export function showChanges() {
+/// Not `zoomed`, it shows beside the conversation. A folded dock opens; the
+/// layout is otherwise as it was.
+export function showChanges(zoomed = true) {
   if (!shell()) return;
   const d = dockOf(CHANGES);
   P.on[d] = CHANGES;
   P.layout.hidden[d] = false;
   setPaneModel({ log: false });
   draw();
-  P.zoom = d;
-  place();
-  focusChanges();
+
+  if (zoomed) {
+    P.zoom = d;
+    place();
+    focusChanges();
+  }
+
   rememberPane();
 }
 

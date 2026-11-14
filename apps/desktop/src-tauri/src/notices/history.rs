@@ -274,7 +274,13 @@ impl Notes {
     }
 
     /// Keeps questions, but a finished turn on screen needs no note.
-    fn agent_notice(&self, key: &AgentNoticeKey, notice: &Notice, seen: bool) -> Noted {
+    fn agent_notice(
+        &self,
+        key: &AgentNoticeKey,
+        notice: &Notice,
+        seen: bool,
+        reviewer: bool,
+    ) -> Noted {
         let finished = self.finish(|note| {
             asked(note).is_some_and(|asked| {
                 asked.is_session(&key.machine_id, &key.agent, &key.session)
@@ -286,10 +292,12 @@ impl Notes {
         } else {
             NoteKind::Finished
         };
+        let target = AgentTarget::notified(key);
+        let target = if reviewer { target.reviewing() } else { target };
         let note = Note {
             text: notice.body.clone(),
             read: seen,
-            target: Some(CenterTarget::Agent(AgentTarget::notified(key))),
+            target: Some(CenterTarget::Agent(target)),
             ..Note::new(
                 kind,
                 key.to_string(),
@@ -402,10 +410,11 @@ pub(crate) fn agent_notice(
     key: &AgentNoticeKey,
     notice: &Notice,
     seen: bool,
+    reviewer: bool,
 ) -> Option<Read> {
     let notes = notes(app);
     take_reads(app, &notes);
-    let noted = notes.agent_notice(key, notice, seen);
+    let noted = notes.agent_notice(key, notice, seen, reviewer);
 
     if noted.changed {
         changed(app, notes);
