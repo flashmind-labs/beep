@@ -47,3 +47,30 @@ fn typed_text_is_quoted_with_enter_between_lines() {
     );
     assert_eq!(typed("\n"), "input keyevent KEYCODE_ENTER");
 }
+
+#[test]
+fn a_foldable_shows_the_screen_that_is_on() {
+    let dumped = "  DisplayDeviceInfo{...}\n\
+        mUniqueId=local:111\n\
+        mPhysicalDisplayId=111\n\
+        mState=OFF\n\
+        mUniqueId=local:222\n\
+        mPhysicalDisplayId=222\n\
+        mState=ON\n\
+      mState=AUTO_BRIGHTNESS_ENABLED\n";
+    assert_eq!(lit_screen(dumped).as_deref(), Some("222"));
+    assert_eq!(lit_screen("    mPhysicalDisplayId=111\n    mState=ON\n"), None);
+}
+
+#[test]
+fn a_warning_before_the_screenshot_is_skipped() {
+    let mut png = Vec::new();
+    image::RgbImage::new(4, 8)
+        .write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)
+        .expect("encoded");
+    let mut printed = b"[Warning] Multiple displays were found\n".to_vec();
+    printed.extend(png);
+    let (full, frame) = frame(&printed, 800).expect("a frame");
+    assert_eq!(full, (4, 8));
+    assert_eq!((frame.width, frame.height), (4, 8));
+}

@@ -31,6 +31,10 @@ const LONG_PRESS: Duration = Duration::from_millis(500);
 /// How far a finger may move, in screen pixels, and still tap.
 const TAP_SLOP: f64 = 16.0;
 const JPEG_QUALITY: u8 = 80;
+/// How often a phone is asked which screen is on: a foldable changes
+/// screens as it opens and closes.
+const SCREEN_CHECK: Duration = Duration::from_secs(2);
+const PNG_SIGNATURE: &[u8] = b"\x89PNG";
 const NO_ADB: &str = "adb is not installed on this machine.";
 /// The first wait before following adb again after it stopped, doubled
 /// each time up to `TRACK_RETRY_MAX`.
@@ -190,9 +194,25 @@ async fn capture(
     size: watch::Sender<Option<(u32, u32)>>,
 ) {
     let mut last = Vec::new();
+    let mut lit: Option<String> = None;
+    let mut checked: Option<Instant> = None;
 
     let reason = loop {
-        let png = match call(&adb, &id, &["exec-out", "screencap", "-p"]).await {
+        if checked.is_none_or(|at| at.elapsed() >= SCREEN_CHECK) {
+            lit = call(&adb, &id, &["shell", "dumpsys", "display"])
+                .await
+                .ok()
+                .and_then(|out| lit_screen(&String::from_utf8_lossy(&out)));
+            checked = Some(Instant::now());
+        }
+
+        let mut args = vec!["exec-out", "screencap", "-p"];
+
+        if let Some(display) = &lit {
+            args.extend(["-d", display]);
+        }
+
+        let png = match call(&adb, &id, &args).await {
             Ok(png) => png,
             Err(e) => break format!("The phone stopped answering ({e:#})."),
         };
@@ -216,10 +236,40 @@ async fn capture(
     screen.send_replace(Screen::Ended(reason));
 }
 
+/// The screen that is on, by the physical id `screencap -d` takes, from
+/// `dumpsys display`; `None` for a phone with one screen, which needs none.
+pub(super) fn lit_screen(dumped: &str) -> Option<String> {
+    let mut screens = Vec::new();
+    let mut id = None;
+
+    for line in dumped.lines().map(str::trim) {
+        if let Some(found) = line.strip_prefix("mPhysicalDisplayId=") {
+            id = Some(found);
+        } else if let Some(state) = line.strip_prefix("mState=")
+            && let Some(id) = id.take()
+        {
+            screens.push((id, state == "ON"));
+        }
+    }
+
+    if screens.len() < 2 {
+        return None;
+    }
+
+    screens
+        .into_iter()
+        .find_map(|(id, on)| on.then(|| id.to_owned()))
+}
+
 /// A PNG screenshot as a frame no longer than `max_side`, with the
-/// screenshot's own size.
+/// screenshot's own size. Anything `screencap` printed before the image,
+/// such as a warning, is skipped.
 fn frame(png: &[u8], max_side: u32) -> Result<((u32, u32), Frame)> {
-    let image = image::load_from_memory_with_format(png, ImageFormat::Png)?;
+    let start = png
+        .windows(PNG_SIGNATURE.len())
+        .position(|window| window == PNG_SIGNATURE)
+        .context("screencap gave no image")?;
+    let image = image::load_from_memory_with_format(&png[start..], ImageFormat::Png)?;
     let full = (image.width(), image.height());
     let image = if full.0.max(full.1) > max_side {
         image.resize(max_side, max_side, FilterType::Triangle)
