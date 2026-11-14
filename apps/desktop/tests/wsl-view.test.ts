@@ -15,7 +15,7 @@ test("WSL rows show the work kept apart from them, and offer turning an off node
   const { WslRows } = await import("../src/machines/wsl-view.tsx");
   const { render, fireEvent, act, cleanup } = await import("@testing-library/react");
   const distro = (name: string, over: Partial<WslDistro> = {}): WslDistro => ({ name, agents: ["claude"], node: null, machine_id: null, kept: false, problem: null, probed: true, ...over });
-  const host: MachineView = { id: "desk", name: "desk-pc", online: true, seen_at: 0, version: "1.0", env: { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 2, memory_mb: 1024, home: "/path/to/work", tools: [], logins: [], avds: [], wsl: [distro("Ubuntu"), distro("Debian", { machine_id: "wsl-box" })] } };
+  const host: MachineView = { id: "desk", name: "desk-pc", online: true, seen_at: 0, version: "1.0", env: { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 2, memory_mb: 1024, home: "/path/to/work", tools: [], logins: [], avds: [], gpus: [], wsl: [distro("Ubuntu"), distro("Debian", { machine_id: "wsl-box" })] } };
   const wslBox: MachineView = { id: "wsl-box", name: "Debian on desk-pc", online: false, seen_at: 0, version: "1.0", env: null };
   const asked: string[] = [];
   const work = new WslWorkStore();

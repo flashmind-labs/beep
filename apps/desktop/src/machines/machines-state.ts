@@ -63,6 +63,11 @@ export function specLine(env: { os_version: string; arch: string; cpus: number; 
   return parts.filter(Boolean).join(" · ");
 }
 
+/// A machine's graphics cards: "NVIDIA GeForce RTX 4090 (24 GB)".
+export function gpuLine(gpus: readonly { model: string; vram_mb: number | null }[]) {
+  return gpus.map(g => g.vram_mb ? `${g.model} (${Math.round(g.vram_mb / 1024)} GB)` : g.model).join(", ");
+}
+
 /// The newest beep-node among `versions`, the ones that read as versions.
 export function newestNode(versions: readonly string[]): string | null {
   return versions.filter(v => /^\d/.test(v)).reduce<string | null>((best, v) => (!best || isNewer(v, best) ? v : best), null);

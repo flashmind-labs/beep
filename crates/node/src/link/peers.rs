@@ -26,7 +26,9 @@ use beep_mesh::{
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
 use beep_proto::watched;
-use beep_report::{Share, Target, collect};
+#[cfg(feature = "cli")]
+use beep_report::Share;
+use beep_report::{Target, collect};
 use iroh::{
     Endpoint,
     endpoint::Connection,

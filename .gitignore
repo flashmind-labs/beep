@@ -1,4 +1,5 @@
-/target/
+target/
+target-*/
 /.dev/
 .neon
 /.firecrawl/
@@ -8,7 +9,6 @@
 *.db-wal
 config.toml
 __pycache__/
-/apps/desktop/src-tauri/target/
 /apps/desktop/node_modules/
 test-results*/
 .artifacts/

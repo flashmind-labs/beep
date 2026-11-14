@@ -4,10 +4,10 @@ import { invoke } from "../ui/tauri.ts";
 import { keepLastImport, lastImport, openImportProject } from "../addproject/importproject.tsx";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { importFound } from "../addproject/addproject.tsx";
-import { projectsWithOpen, type GitItemRow, type GitItemsView } from "./openitems-state.ts";
+import { projectsWithOpen, type GitItemsView } from "./openitems-state.ts";
 import { state } from "./state.ts";
 import { draw } from "./home.tsx";
-import { currentLocation, go } from "./views.tsx";
+import { currentLocation } from "./views.tsx";
 import { loadFound } from "./sidebar.tsx";
 import { refresh } from "./refresh.ts";
 import { single } from "../ui/active.ts";
@@ -16,10 +16,6 @@ export function openUrl(url: string) {
   invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
 }
 
-/// Reply opens the agent's start form with a prompt to help reply to the item.
-export function replyItem(item: GitItemRow) {
-  go("pane", { agentnew: { prompt: `Help me reply to ${item.url}` } });
-}
 
 export type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
 

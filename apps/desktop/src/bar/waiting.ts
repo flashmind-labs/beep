@@ -3,7 +3,6 @@
 // opens one in the bar, with its conversation and composer.
 import { flushSync } from "react-dom";
 import { type AgentSession, folderName } from "../agents/agents.ts";
-import { renderAgentNew } from "../agents/agentnew.tsx";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { placeRepo } from "../agents/place-state.ts";
 import { openAgent } from "../agents/session.tsx";
@@ -15,7 +14,7 @@ import { formatAgo } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { $, bar, PANE, S } from "./core.ts";
+import { $, bar, newChat, PANE, S } from "./core.ts";
 import { hintModel } from "./hints.ts";
 import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
 import { waitingSessions, type WaitingSession } from "./waiting-state.ts";
@@ -29,18 +28,14 @@ let unread = new Set<string>();
 let known = false;
 let page: BarPageSlot | null = null;
 
-/// Shows the list, or the new agent form when nothing is recent. Known
-/// sessions draw at once; a read follows only when a change came since.
+/// Shows the list. Known sessions draw at once; a read follows only when a
+/// change came since.
 export function renderWaiting() {
   S.view = "waiting";
   W.sel = 0;
   W.query = "";
-  if (known && !pick().length) return renderAgentNew("", "waiting");
   drawWaiting(true);
-
-  ensureSessions()
-    .then(() => { if (S.view === "waiting" && !W.query && !W.rows.length) renderAgentNew("", "waiting"); })
-    .catch(() => { if (S.view === "waiting" && !W.rows.length) renderAgentNew("", "waiting"); });
+  ensureSessions().catch(() => {});
 }
 
 /// The project a session works in: its repository once its machine said, else its folder.
@@ -69,7 +64,7 @@ function drawWaiting(focus = false) {
   flushSync(() => slot.show({ view: "waiting", props: {
     rows: W.rows.map(row), selected: W.sel, summary, query: W.query,
     hints: hintModel([[ICON.ret, "open"], ["↑↓", "move"], ["⌘N", "new agent"], ["esc", W.query ? "clear" : "to hide"]]),
-    open: openRow, newAgent: () => renderAgentNew("", "waiting"),
+    open: openRow, newAgent: newChat,
   } }));
   // The command center's hidden pane draws too; WebKit would focus a list
   // it has not laid out yet and take the focus from the window's page.

@@ -272,6 +272,8 @@ wire_structs! {
         pub logins: Vec<MachineLogin>,
         /// Android virtual devices.
         pub avds: Vec<String>,
+        #[serde(default)]
+        pub gpus: Vec<MachineGpu>,
         /// The WSL distributions of a Windows machine.
         #[serde(default)]
         pub wsl: Vec<node::WslDistro>,

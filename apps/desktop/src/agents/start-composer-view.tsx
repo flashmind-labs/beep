@@ -1,14 +1,14 @@
 import { SunriseArt } from "../ui/painted-art.tsx";
-import { Icon } from "../ui/icons.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";
 import { Fragment, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { FieldMenu } from "./composer-ui.tsx";
+import { isMobile } from "../ui/platform.ts";
 
-export interface StartComposerNodes { input: HTMLTextAreaElement | null; project: HTMLButtonElement | null; machine: HTMLButtonElement | null; folder: HTMLButtonElement | null; harness: HTMLButtonElement | null; pick: HTMLDivElement | null; att: HTMLDivElement | null; box: HTMLDivElement | null; grow: () => void }
-interface ChoiceContents { project: ReactNode; machine: ReactNode; folder: ReactNode }
+export interface StartComposerNodes { input: HTMLTextAreaElement | null; machine: HTMLButtonElement | null; folder: HTMLButtonElement | null; harness: HTMLButtonElement | null; pick: HTMLDivElement | null; att: HTMLDivElement | null; box: HTMLDivElement | null; grow: () => void }
+interface ChoiceContents { machine: ReactNode; folder: ReactNode }
 /// Which pill's menu or picker is open.
-type ComposerOpen = "pick" | "project" | "host" | "folder" | "base" | null;
+type ComposerOpen = "pick" | "host" | "folder" | "base" | null;
 
 export interface StartComposerState {
   centered: boolean; busy: boolean; welcome: string;
@@ -18,7 +18,7 @@ export interface StartComposerState {
   /// A stash restore holds the send button until it is done.
   stashLocked: boolean;
   harness: ReactNode; harnessDisabled: boolean; open: ComposerOpen;
-  projectTitle: string; folderHidden: boolean; folderTitle: string | null;
+  folderHidden: boolean; folderTitle: string | null;
   choiceView: ReactNode; choiceContents: ChoiceContents | null; attachmentView: ReactNode; uploadPicker: ReactNode;
   notes: ReactNode; footer: ReactNode; under: ReactNode; extras: ReactNode; picker: ReactNode;
 }
@@ -27,7 +27,7 @@ export interface StartComposerActions {
   submit(): void;
   harness(): void;
   /// A pill of the new-agent form's own choices.
-  choice?(which: "project" | "host" | "folder"): void;
+  choice?(which: "host" | "folder"): void;
   keyDown?(event: KeyboardEvent): void;
   /// The task field changed.
   input?(value: string): void;
@@ -37,14 +37,11 @@ export interface StartComposerActions {
 
 const FIELD_MAX = 200;
 
-export function ProjectChoice({ name }: { name: string }) {
-  return <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>{name}<Icon name="caretDown" size={12} /></>;
-}
 export function FolderChoice({ checkout, label, detail }: { checkout: boolean; label: string; detail: string }) {
   if (checkout) return <>{label} <small>{detail}</small></>;
   return <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" /></svg>{label ? <>{label} <small className="mono">{detail}</small></> : <span className="mono">{detail}</span>}</>;
 }
-export function StartComposerView({ nodes, choices, projectPicker, externalChoices, ids, title, state, actions }: { nodes: StartComposerNodes; choices: HTMLSpanElement; projectPicker: boolean; externalChoices: boolean; ids: boolean; title: string; state: StartComposerState; actions: StartComposerActions }) {
+export function StartComposerView({ nodes, choices, externalChoices, ids, title, state, actions }: { nodes: StartComposerNodes; choices: HTMLSpanElement; externalChoices: boolean; ids: boolean; title: string; state: StartComposerState; actions: StartComposerActions }) {
   const row = useRef<HTMLDivElement>(null), box = useRef<HTMLDivElement>(null), input = useRef<HTMLTextAreaElement>(null);
   const id = (value: string) => ids ? value : undefined;
   const grow = () => {
@@ -63,7 +60,6 @@ export function StartComposerView({ nodes, choices, projectPicker, externalChoic
     input: (node: HTMLTextAreaElement | null) => { input.current = node; nodes.input = node; },
     harness: (node: HTMLButtonElement | null) => { nodes.harness = node; },
     pick: (node: HTMLDivElement | null) => { nodes.pick = node; },
-    project: (node: HTMLButtonElement | null) => { nodes.project = node; },
     machine: (node: HTMLButtonElement | null) => { nodes.machine = node; },
     folder: (node: HTMLButtonElement | null) => { nodes.folder = node; },
   }), [nodes]);
@@ -77,7 +73,7 @@ export function StartComposerView({ nodes, choices, projectPicker, externalChoic
     event.stopPropagation();
     actions.files(pasted);
   };
-  const choice = (which: "project" | "host" | "folder") => () => actions.choice?.(which);
+  const choice = (which: "host" | "folder") => () => actions.choice?.(which);
   const expanded = (which: ComposerOpen) => state.open === which;
   const sendLabel = state.centered ? state.busy ? "Starting" : "Start" : undefined;
   return <>{state.centered && <section className="agc-intro"><SunriseArt /><h3 aria-label={state.welcome}><span aria-hidden="true">{state.welcome.split(" ").map((word, index) => <Fragment key={index}>{index > 0 && " "}<span className="agc-word" style={{ "--word": index } as CSSProperties}>{word}</span></Fragment>)}</span></h3><p>A fresh idea. A tricky bug. A place to start.</p></section>}
@@ -85,13 +81,13 @@ export function StartComposerView({ nodes, choices, projectPicker, externalChoic
       <textarea ref={refs.input} id={id("agprompt")} rows={state.centered ? 3 : 1} autoComplete="off" spellCheck={false} aria-label="Task for a coding agent" title={title} placeholder={state.placeholder}
         onInput={event => { grow(); actions.input?.(event.currentTarget.value); }}
         onPaste={paste}
-        onKeyDown={event => { actions.keyDown?.(event.nativeEvent); if (event.currentTarget.readOnly || event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.defaultPrevented) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.form?.requestSubmit(); }} />
+        onKeyDown={event => { actions.keyDown?.(event.nativeEvent); if (event.currentTarget.readOnly || event.key !== "Enter" || event.shiftKey || isMobile() || event.nativeEvent.isComposing || event.defaultPrevented) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.form?.requestSubmit(); }} />
       <div className="row" ref={row}><span className="sp" /><button ref={refs.harness} id={id("agpillb")} className="pill" type="button" title="Harness, model and thinking" disabled={state.harnessDisabled} aria-expanded={expanded("pick")} onClick={actions.harness}>{state.harness}</button>{state.uploadPicker}<div className="ag-att" hidden={!state.attachmentView} ref={refs.att}>{state.attachmentView}</div><button id={id("aggo")} className={state.centered ? "agc-send" : "dbtn pri"} type="submit" disabled={state.sendDisabled || state.stashLocked} title={state.sendTitle ?? undefined} aria-label={sendLabel}>{state.centered ? state.busy ? <Spinner /> : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg> : <>{state.busy ? "Starting" : "Start"}<kbd>⏎</kbd></>}</button></div>
       <div className="pick" id={id("agpick")} ref={refs.pick}>{state.picker}</div>{state.under}<FieldMenu /></div>
     <span className={state.error ? "cc-err" : "cc-err cc-progress"} id={id("agerr")} role="status">{state.error || state.progress}</span>
     {state.notes}
     {state.footer}
-    {createPortal(externalChoices ? state.choiceView : <>{projectPicker && <button ref={refs.project} id={id("agprojb")} className="pill" type="button" title={state.projectTitle} aria-expanded={expanded("project")} onClick={choice("project")}>{state.choiceContents?.project}</button>}<button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button><button ref={refs.folder} id={id("agfoldb")} className="pill" type="button" title={state.folderTitle ?? "The checkout, a new worktree, or an existing worktree"} hidden={state.folderHidden} aria-expanded={expanded("folder")} onClick={choice("folder")}>{state.choiceContents?.folder}</button><span className="choices">{state.extras}</span></>, choices)}
+    {createPortal(externalChoices ? state.choiceView : <><button ref={refs.machine} id={id("aghostb")} className="pill" type="button" title="The machine it runs on" aria-expanded={expanded("host")} onClick={choice("host")}>{state.choiceContents?.machine}</button><button ref={refs.folder} id={id("agfoldb")} className="pill" type="button" title={state.folderTitle ?? "The checkout, a new worktree, or an existing worktree"} hidden={state.folderHidden} aria-expanded={expanded("folder")} onClick={choice("folder")}>{state.choiceContents?.folder}</button><span className="choices">{state.extras}</span></>, choices)}
   </>;
 }
 

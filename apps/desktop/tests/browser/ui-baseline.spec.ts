@@ -19,7 +19,7 @@
 // `git diff`, and commit them with the change.
 
 import { expect, test, type Page } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { openDesktop, openStartForm, projectName } from "./harness.ts";
 
 /// The frozen wall clock every state renders at.
 const NOW = Date.UTC(2026, 0, 15, 12, 0, 0);
@@ -172,18 +172,18 @@ test("search palette", async ({ page }) => {
   await baseline(page, "palette");
 });
 
-test("start screen", async ({ page }, info) => {
+test("start screen", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   // The headline is drawn by lot when the screen opens; the screenshot needs the same one each run.
   await page.evaluate(() => { Math.random = () => 0; });
-  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await openStartForm(page);
   await expect(page.locator(".cc-pjc.centered .agc-intro h3")).toBeVisible();
   await baseline(page, "start");
 });
 
 test("home machines", async ({ page }) => {
   const stats = { sampled_at: NOW, disks: [{ path: folder, free_bytes: 412e9, total_bytes: 1e12 }, { path: "/mnt/data", free_bytes: 1.8e12, total_bytes: 2e12 }], memory_used_mb: 38_000, memory_total_mb: 124_000, load: 1.4 };
-  const online = { ...machine("build-box", "build-box", true, 2), env: { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostname: "build-box", cpus: 32, memory_mb: 124_000, home: "/srv", tools: [], logins: [], avds: [] }, stats, capabilities: ["docker", "gpu", "android"] };
+  const online = { ...machine("build-box", "build-box", true, 2), env: { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostname: "build-box", cpus: 32, memory_mb: 124_000, home: "/srv", tools: [], logins: [], avds: [], gpus: [] }, stats, capabilities: ["docker", "gpu", "android"] };
   const names = ["example/widget", "example/gadget", "example/alpha", "example/bravo", "example/charlie", "tools/echo", "tools/foxtrot", "site/landing", "site/docs"];
   const sync = [{ project: "tools/delta", machine_id: "build-box", status: "syncing", files: 62, pending: 38, error: null }, ...names.map(name => ({ project: name, machine_id: "build-box", status: "in_sync", files: 90, pending: 0, error: null }))];
   const terminal = { id: "t1", project: "", machine_id: "build-box", machine_name: "build-box", name: "dev server", command: "shell", cwd: folder, state: "running", code: null, started_at: NOW - 600_000 };
@@ -309,7 +309,7 @@ test("settings machines", async ({ page }) => {
 
 test("settings machine with WSL", async ({ page }) => {
   const wsl = (name: string, agents: string[], machineId: string | null) => ({ name, agents, node: machineId ? "0.9.0" : null, machine_id: machineId, kept: !!machineId, problem: null, probed: true });
-  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], wsl: [wsl("Ubuntu", ["claude", "codex"], "wsl-box"), wsl("Debian", ["gemini"], null)] };
+  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"], "wsl-box"), wsl("Debian", ["gemini"], null)] };
   const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }, machine("wsl-box", "Ubuntu on desk-pc", true, 0)];
   await openDesktop(page, false, { ...settingsResponses, list_machines: machines });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
@@ -562,7 +562,7 @@ test("phone projects overflow", async ({ page }) => {
 
 /// The first launch on a computer that is alone in its mesh.
 async function openFirstRun(page: Page) {
-  const env = { os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "build-box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], tools: [{ name: "git", version: "2.50.1" }, { name: "node", version: "25.9.0" }, { name: "claude", version: "2.1.0" }], logins: [] };
+  const env = { os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "build-box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], gpus: [], tools: [{ name: "git", version: "2.50.1" }, { name: "node", version: "25.9.0" }, { name: "claude", version: "2.1.0" }], logins: [] };
   await openDesktop(page, false, { center_home: home, list_machines: [{ ...machine(machineId, machineId, true, 0), env }] });
   await page.addInitScript(() => localStorage.removeItem("beep.firstRunDone"));
   await page.reload();

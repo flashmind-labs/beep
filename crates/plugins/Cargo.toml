@@ -1,27 +1,27 @@
 [package]
 name = "beep-plugins"
 version = "0.1.0"
-edition = "2024"
-license = "MPL-2.0"
-rust-version = "1.99"
-publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "Runs Beep plugins: TypeScript in a QuickJS sandbox that places UI in named slots"
 
 [dependencies]
-blake3 = "1"
-cpu-time = "1.0.0"
-jsonschema = { version = "0.61.2", default-features = false }
-log = "0.4"
-mime_guess = "2"
-notify = "8"
+blake3.workspace = true
+cpu-time.workspace = true
+jsonschema.workspace = true
+log.workspace = true
+mime_guess.workspace = true
+notify.workspace = true
 # Strips TypeScript's types, so a plugin's source runs as written.
-oxc = { version = "0.158", features = ["transformer", "codegen", "semantic"] }
-rquickjs = { version = "0.14", features = ["loader"] }
-semver = { version = "1", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-strum = { version = "0.28", features = ["derive"] }
-thiserror = "2"
+oxc = { workspace = true, features = ["transformer", "codegen", "semantic"] }
+rquickjs = { workspace = true, features = ["loader"] }
+semver = { workspace = true, features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+strum.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

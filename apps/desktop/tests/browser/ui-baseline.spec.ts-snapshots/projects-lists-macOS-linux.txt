@@ -323,9 +323,6 @@ body.cbody
                     i.pj-tag "plugins"
                   span.r
                     span.age "3 h"
-                    span.acts
-                      button.dbtn.quiet.small [type="button"] "Review"
-                      button.dbtn.quiet.small [type="button"] "Reply"
                 div.it.pl-row
                   span.ic
                     svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
@@ -335,9 +332,6 @@ body.cbody
                   span.r
                     span.bad.chip "checks failing"
                     span.age "1 d"
-                    span.acts
-                      button.dbtn.quiet.small [type="button"] "Review"
-                      button.dbtn.quiet.small [type="button"] "Reply"
                 div.it.pl-row
                   span.ic
                     svg [fill="none" height="13" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
@@ -346,8 +340,6 @@ body.cbody
                     b "Tool calls should be shown in one place"
                   span.r
                     span.age "4 d"
-                    span.acts
-                      button.dbtn.quiet.small [type="button"] "Reply"
                 div.pl-row.repo
                   button.t [aria-expanded="false" title="docs/handbook" type="button"]
                     span.twist

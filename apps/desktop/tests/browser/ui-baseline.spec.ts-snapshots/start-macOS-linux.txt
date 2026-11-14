@@ -195,18 +195,15 @@ body.cbody
                       svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     input [hidden multiple type="file"] value=""
                     div.ag-att [hidden]
-                    button#aggo.agc-send [aria-label="Start" disabled title="Pick a project first" type="submit"]
+                    button#aggo.agc-send [aria-label="Start" disabled title="Pick a machine first" type="submit"]
                       svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="16"]
                   div#agpick.pick
                   div#agunder
                 span#agchoices.choices
-                  button#agprojb.pill [aria-expanded="false" title="Pick a project to start" type="button"] "No project"
-                    svg [fill="none" height="13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                    svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                   button#aghostb.pill [aria-expanded="false" title="The machine it runs on" type="button"] "Pick a machine"
-                  button#agfoldb.pill [aria-expanded="false" title="The machine's workspace" type="button"] "Workspace"
+                  button#agfoldb.pill [aria-expanded="false" title="/srv/project" type="button"]
                     svg [fill="none" height="13" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                    small.mono "~"
+                    span.mono "/srv/project"
                   span.choices
                 span#agerr.cc-err.cc-progress [role="status"]
                 div.agnew-notes
@@ -226,6 +223,7 @@ body.cbody
                   kbd "⇧⌘M"
                 span "back"
                   kbd "esc"
+              span.prompt-stash-slot [data-stash-project="example/widget"]
               details
                 summary "Show more"
                 div.agkeys-list
@@ -236,6 +234,90 @@ body.cbody
                     button [data-stash-action="pop" type="button"] "Pop latest"
                       kbd "Ctrl P"
       div.cc-box [hidden]
+        div.cc-view.split [data-project="example/widget"]
+          div.cc-mstrip.pj-strip
+            button.m [type="button"]
+              b "main"
+              span "branch"
+            button.m [type="button"]
+              b "2 agents"
+              span "running"
+            button.m [type="button"]
+              b "Machines"
+              span "1/1"
+            button.m [type="button"]
+              b "0 PRs"
+              span "open"
+            button.m [type="button"]
+              b "0 issues"
+              span "open"
+          div.picked.pj-split
+            div.pj-list
+            div.pj-det
+              section.pm-section
+                div.pm-list
+                  article.pm-machine [aria-label="build-box"]
+                    div.pm-head
+                      span.ddot
+                      b "build-box"
+                      code.pm-folder [title="/srv/project"] "/srv/project"
+                      span.pm-actions
+                        button.dbtn.small [aria-label="Change folder on build-box" type="button"] "Folder…"
+                        span.rmx-off [title="A project stays on at least one machine."]
+                          button.dbtn.small.warn [aria-label="Remove from build-box" disabled type="button"] "Remove"
+                    div.pm-body
+                      div.fs-row.pm-sync
+                        div.fs-m "Reading sync state…"
+                        span.pm-git
+                          small.gs "not pushed"
+                            code "main"
+                          span.pm-actions
+                            button.dbtn.gi.quiet.small [aria-label="Pull" disabled title="Pull" type="button"]
+                              span.gi-in "0"
+                                svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                            button.dbtn.gi.quiet.small [aria-label="Push" title="Push" type="button"]
+                              span.gi-in "0"
+                                svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                div.cc-empty.cc-panel
+                  span "Loading…"
+        form.cc-pjc
+          div.box
+            div.cx-layer [aria-hidden="true" hidden]
+            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Add example/widget to a machine to start an agent" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
+            div.row
+              span.choices
+                button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "Add to a machine"
+                button.pill [data-composer="folder" disabled title="The checkout, a new worktree, or an existing worktree" type="button"] "Current checkout"
+                  small "as it is"
+                span.choices [data-composer="extra"]
+                input.branch [aria-label="Branch name" autocomplete="off" hidden spellcheck="false" title="The new branch, in a new worktree" type="text" value] value=""
+                button.dbtn.quiet.small [hidden title="Back to a plain start" type="button"] "Clear"
+              span.sp
+              button.pill [aria-expanded="false" disabled title="Harness, model and thinking" type="button"] "Coding agent"
+              button.dbtn.quiet [aria-label="Attach files" title="Attach files" type="button"]
+                svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+              input [hidden multiple type="file"] value=""
+              div.ag-att [hidden]
+              button.dbtn.pri [disabled type="submit"] "Start"
+                kbd "⏎"
+            div.pick
+          span.cc-err.cc-progress [role="status"]
+          div.agkeys.prompt-stash-bar
+            div.dhints.slim
+              span "model"
+                kbd "⇧⌘M"
+              span "back"
+                kbd "esc"
+            span.prompt-stash-slot [data-stash-project="example/widget"]
+            details
+              summary "Show more"
+              div.agkeys-list
+                section
+                  b "Stash"
+                  button [data-stash-action="save" type="button"] "Stash draft"
+                    kbd "Ctrl S"
+                  button [data-stash-action="pop" type="button"] "Pop latest"
+                    kbd "Ctrl P"
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

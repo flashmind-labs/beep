@@ -10,7 +10,7 @@ apps/*
 apps/diagrams/*
 !apps/diagrams/assets/
 apps/desktop/node_modules/
-apps/desktop/src-tauri/target/
+target/
 
 !plugins/
 plugins/*

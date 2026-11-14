@@ -1,133 +1,119 @@
 [package]
 name = "beep-desktop"
 version = "0.9.7"
-edition = "2024"
-license = "MPL-2.0"
-rust-version = "1.99"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
 description = "Beep desktop: projects, coding agents and a quick-access tray bar"
-publish = false
-
-# Its own workspace, so the server's Docker build and Linux checks never see Tauri.
-[workspace]
+publish.workspace = true
 
 [lib]
 name = "beep_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build.workspace = true
 
 [features]
 # Sparkle updates, for the signed builds of the release workflow.
 sparkle = ["dep:tauri-plugin-sparkle-updater"]
 
 [dependencies]
-anyhow = "1"
-open = "5"
-which = "8"
-async-trait = "0.1"
-ammonia = "4"
-base64 = "0.23"
-beep-fleet = { path = "../../../crates/fleet" }
-beep-mesh = { path = "../../../crates/mesh" }
-beep-node = { path = "../../../crates/node", default-features = false }
-metrics = "0.24"
+ammonia.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+beep-fleet.workspace = true
+beep-mesh.workspace = true
+beep-node.workspace = true
+beep-projects.workspace = true
+beep-proto = { workspace = true, features = ["https"] }
+beep-report.workspace = true
+futures.workspace = true
+iroh.workspace = true
+iroh-blobs.workspace = true
+iroh-tickets.workspace = true
+log.workspace = true
+metrics.workspace = true
 # Renders the metrics a phone keeps itself; a desktop's embedded node uses it too.
-metrics-exporter-prometheus = { version = "0.18", default-features = false }
-beep-projects = { path = "../../../crates/projects" }
-beep-proto = { path = "../../../crates/proto", features = ["https"] }
-beep-report = { path = "../../../crates/report" }
-futures = "0.3"
-iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath"] }
-iroh-tickets = "1"
-iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"] }
-log = "0.4"
-pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-percent-encoding = "2"
-rusqlite = { version = "0.42", features = ["bundled"] }
-rust_decimal = "1"
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-secrecy = "0.10"
-serde = { version = "1", features = ["derive"] }
-semver = "1"
-serde_bytes = "0.11"
-serde_json = "1"
-strum = { version = "0.28", features = ["derive"] }
-tauri = { version = "2", default-features = false, features = ["wry", "dynamic-acl", "tray-icon", "image-png", "macos-private-api"] }
-tauri-plugin-dialog = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-opener = "2"
-thiserror = "2"
-tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
-url = "2"
-uuid = { version = "1", features = ["v4"] }
-pulldown-latex = "0.8"
+metrics-exporter-prometheus.workspace = true
+open.workspace = true
+percent-encoding.workspace = true
+pulldown-cmark = { workspace = true, features = ["html"] }
+pulldown-latex.workspace = true
+qrcode = { workspace = true, features = ["svg"] }
+rusqlite.workspace = true
+rust_decimal.workspace = true
+secrecy.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+serde_json.workspace = true
+strum.workspace = true
+tauri = { workspace = true, features = ["wry", "dynamic-acl", "tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-dialog.workspace = true
+tauri-plugin-notification.workspace = true
+tauri-plugin-opener.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tracing-appender.workspace = true
+tracing-subscriber = { workspace = true, default-features = true, features = ["env-filter"] }
+url.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+which.workspace = true
 
 [dev-dependencies]
-rmp-serde = "1"
-tempfile = "3"
-tokio = { version = "1", features = ["test-util"] }
+rmp-serde.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 # Desktop only: no login item or self-updater on a phone, and no embedded node.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-beep-node = { path = "../../../crates/node", default-features = false, features = ["host"] }
-beep-plugins = { path = "../../../crates/plugins" }
-arboard = "3.7"
-sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+arboard.workspace = true
+battery.workspace = true
+beep-mesh = { workspace = true, features = ["thumbs"] }
+beep-node = { workspace = true, features = ["host"] }
+beep-plugins.workspace = true
 # The app data folder before Tauri starts, as Tauri finds it.
-dirs = "7"
-battery = "0.7"
+dirs.workspace = true
+image = { workspace = true, features = ["png"] }
+sysinfo = { workspace = true, features = ["system"] }
 # Brotli for the bundled pages. A phone skips it: the IPA is zipped anyway.
 # macos-private-api is repeated here because the Tauri CLI checks this entry.
-tauri = { version = "2", features = ["macos-private-api", "compression", "common-controls-v6", "x11", "dbus"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
-beep-mesh = { path = "../../../crates/mesh", features = ["thumbs"] }
-tauri-plugin-autostart = "2"
-tauri-plugin-updater = "2"
+tauri = { workspace = true, default-features = true, features = ["macos-private-api", "compression", "common-controls-v6", "x11", "dbus"] }
+tauri-plugin-autostart.workspace = true
+tauri-plugin-updater.workspace = true
 
 # Phone only: the camera scans the pairing QR code.
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
-tauri-plugin-barcode-scanner = "2"
+tauri-plugin-barcode-scanner.workspace = true
 
 # The iPhone keeps its key in the Keychain.
 [target.'cfg(target_os = "ios")'.dependencies]
-security-framework = "3"
+security-framework.workspace = true
 # Removes the web view's bar above the keyboard.
-objc2 = "0.6"
+objc2.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-tauri-plugin-global-shortcut = "2"
-webview2-com = "0.39"
-tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut.workspace = true
+tauri-plugin-single-instance.workspace = true
+webview2-com.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The native updater, only in release builds (`sparkle`): it links Sparkle.framework,
 # which a local build signed ad hoc cannot load under the hardened runtime.
-tauri-plugin-sparkle-updater = { version = "0.3", optional = true }
-block2 = "0.6"
+tauri-plugin-sparkle-updater = { workspace = true, optional = true }
+block2.workspace = true
 # When the kernel started the process, for the startup timings in the log.
-libc = "0.2"
+libc.workspace = true
 # The application identity hook for notifications in unbundled development builds.
-mac-notification-sys = "0.6"
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "NSResponder", "NSWindow", "block2", "objc2-core-graphics"] }
+mac-notification-sys.workspace = true
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = ["std", "libc", "NSEvent", "NSBitmapImageRep", "NSImageRep", "NSRunningApplication", "NSWorkspace", "NSGraphics", "NSResponder", "NSWindow", "block2", "objc2-core-graphics"] }
 # Desktop control: the accessibility tree and Accessibility permission.
-objc2-application-services = { version = "0.3", default-features = false, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGImage", "CGRemoteOperation", "CGSession", "CGWindow"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSNotification", "NSOperation", "NSURL", "NSUserNotification", "block2"] }
+objc2-application-services = { workspace = true, features = ["std", "HIServices", "libc", "AXUIElement", "AXValue", "AXError"] }
+objc2-core-foundation = { workspace = true, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
+objc2-core-graphics = { workspace = true, features = ["std", "CGDirectDisplay", "CGEvent", "CGEventSource", "CGEventTypes", "CGImage", "CGRemoteOperation", "CGSession", "CGWindow"] }
+objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSDictionary", "NSError", "NSString", "NSValue", "NSData", "NSNotification", "NSOperation", "NSURL", "NSUserNotification", "block2"] }
 # Desktop control: screenshots.
-objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }
-
-[profile.release]
-strip = true
-
-# Line numbers for our crates and no debug info for dependencies: links
-# faster and keeps target/ small. Backtraces still name our lines.
-[profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
+objc2-screen-capture-kit = { workspace = true, features = ["std", "block2", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }

@@ -25,14 +25,17 @@ function Fold({ id, title, count, note, children }: { id: string; title: string;
 }
 
 /// A repository's line: `open` unfolds its items at first, `action` is its one button.
-export interface RepoLine { key: string; name: string; failed: string | null; last: number; open: boolean; items: GitItemRow[]; action: { label: string; primary?: boolean; disabled?: boolean; run(): void } }
+/// `start` starts an agent on an item; only a project's items have it.
+export interface RepoLine { key: string; name: string; failed: string | null; last: number; open: boolean; items: GitItemRow[]; action: { label: string; primary?: boolean; disabled?: boolean; run(): void }; start: ItemStart | null }
+interface ItemStart { review(item: GitItemRow): void; reply(item: GitItemRow): void }
 
 function counts(items: GitItemRow[]) {
   const prs = items.filter(item => item.kind === "pull_request").length;
   return [prs && plural(prs, "PR", "PRs"), items.length > prs && plural(items.length - prs, "issue", "issues")].filter(Boolean).join(" · ");
 }
 
-function RepoLines({ repo, review, reply, open }: { repo: RepoLine; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
+function RepoLines({ repo, open }: { repo: RepoLine; open(url: string): void }) {
+  const start = repo.start;
   const [shown, toggle] = useFold(`repo:${repo.key}`, repo.open);
   return <>
     <div className="pl-row repo" onClick={toggle}>
@@ -42,16 +45,16 @@ function RepoLines({ repo, review, reply, open }: { repo: RepoLine; open(url: st
     {shown && repo.items.map(item => <div key={item.url} className="pl-row it" onClick={() => open(item.url)}>
       <span className="ic"><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>
       <button type="button" className="t" title={item.url}><span className="num">#{item.number}</span><b>{item.title}</b>{item.labels?.map(label => <i key={label} className="pj-tag">{label}</i>)}</button>
-      <span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{formatAgo(item.updated_at, "short")}</span><span className="acts">{item.kind === "pull_request" && <Button look="quiet" small onClick={event => act(event, () => review(item))}>Review</Button>}<Button look="quiet" small onClick={event => act(event, () => reply(item))}>Reply</Button></span></span>
+      <span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{formatAgo(item.updated_at, "short")}</span>{start && <span className="acts">{item.kind === "pull_request" && <Button look="quiet" small onClick={event => act(event, () => start.review(item))}>Review</Button>}<Button look="quiet" small onClick={event => act(event, () => start.reply(item))}>Reply</Button></span>}</span>
     </div>)}
   </>;
 }
 
 /// Open PRs and issues by repository: a line per repository, which unfolds to its items.
-export function RepoSection({ id, title, note, repos, open, review, reply }: { id: string; title: string; note: string; repos: RepoLine[]; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
+export function RepoSection({ id, title, note, repos, open }: { id: string; title: string; note: string; repos: RepoLine[]; open(url: string): void }) {
   const total = repos.reduce((sum, repo) => sum + repo.items.length, 0);
   return <Fold id={id} title={title} count={`${plural(repos.length, "repo", "repos")} · ${total} open`} note={note}>
-    {repos.map(repo => <RepoLines key={repo.key} repo={repo} open={open} review={review} reply={reply} />)}
+    {repos.map(repo => <RepoLines key={repo.key} repo={repo} open={open} />)}
   </Fold>;
 }
 

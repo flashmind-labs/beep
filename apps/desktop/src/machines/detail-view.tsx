@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useLayoutEffect, useRef } from "react";
 import { bytes } from "../ui/format.ts";
 import { Button, CopyButton } from "../ui/kit.tsx";
-import { machineTag, nodeBehind, coders, isCoder, nodeVersion, removalNote, shownVersion, updatedNotes, updateOffered, type NodeUpdate } from "./machines-state.ts";
+import { gpuLine, machineTag, nodeBehind, coders, isCoder, nodeVersion, removalNote, shownVersion, updatedNotes, updateOffered, type NodeUpdate } from "./machines-state.ts";
 import { signInOffer } from "./signin-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
 import { RemoveAsk } from "./list-view.tsx";
@@ -39,7 +39,7 @@ export function MachineDetail(p: DetailProps) {
     <div className="dset-box"><div className="dset-kv">
       <span>Status</span><span>{m.online ? <span className="dtag ok">Online</span> : <span className="dtag">Seen {p.age(Date.now() - m.seen_at)} ago</span>}{tag && <> <span className="dtag" title="Removed after a day offline">{tag}</span></>}</span>
       {m.can_host === false ? <><span>Device</span><span>Phone</span><span>Role</span><span>Controller</span></> : <><span>beep-node</span><span>{version}{behind && <> <span className="dtag ask">{p.newest} is out</span></>}{up?.step === "updating" ? <> <span className="dtag ask">Updating…</span></> : up?.step === "restarting" ? <> <span className="dtag ask">Restarting on {up.to}…</span></> : m.online && nodeBehind(m.version, p.newest) ? p.updatable ? <> <Button onClick={p.updateNode}>{up?.step === "failed" ? "Try again" : "Update"}</Button></> : m.id !== p.mac ? <> <span className="dmuted">Run <span className="dmono">beep-node update</span> on the machine</span></> : null : null}</span></>}
-      {env ? <><span>System</span><span>{env.os_version}, {env.arch}</span><span>Hardware</span><span>{env.cpus} CPUs, {Math.round(env.memory_mb / 1024)} GB</span><span>Host name</span><span><span className="dmono">{env.hostname}</span></span><span>Home</span><span><span className="dmono">{env.home}</span></span>
+      {env ? <><span>System</span><span>{env.os_version}, {env.arch}</span><span>Hardware</span><span>{env.cpus} CPUs, {Math.round(env.memory_mb / 1024)} GB</span>{!!env.gpus.length && <><span>Graphics</span><span>{gpuLine(env.gpus)}</span></>}<span>Host name</span><span><span className="dmono">{env.hostname}</span></span><span>Home</span><span><span className="dmono">{env.home}</span></span>
         {m.can_host !== false && search?.folder !== null && search?.folder !== undefined && <><span>Projects in</span><span>{search.draft === null ? <><span className="dmono">{search.folder}</span>{m.online && <> <Button onClick={p.searchEdit}>Change</Button></>}</> : <SearchEditor key={m.id} draft={search.draft} busy={search.busy} save={p.searchSave} cancel={p.searchCancel} />}</span></>}
         {!!env.avds.length && <><span>Android emulators</span><span>{env.avds.join(", ")}</span></>}
       </> : m.can_host !== false && <><span>Report</span><span>None yet</span></>}

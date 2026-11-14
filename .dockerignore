@@ -3,6 +3,15 @@
 !Cargo.lock
 !crates/
 crates/*/target/
+# A workspace member: cargo reads its manifest and sources, never builds it here.
+!apps/
+apps/*
+!apps/desktop/
+apps/desktop/*
+!apps/desktop/src-tauri/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/icons/
+apps/desktop/src-tauri/sparkle/
 !deploy/entrypoint.sh
 !deploy/node-entrypoint.sh
 !deploy/onprem/entrypoint.sh

@@ -15,7 +15,7 @@ import type { ProviderCredits } from "../ui/credits.ts";
 import { type Nested, nest, splitEnded } from "./nesting-state.ts";
 import { parentSession, ensureSessions, loadSessions, sessions, sessionsChanged } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
-import { drawAgentNew, renderAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
+import { drawAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
 import { preloadModels } from "./agentpicker.tsx";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, OutboxRow, Waiting } from "./agentqueue.ts";
@@ -246,7 +246,7 @@ interface AgentForm {
   baseTyping?: boolean;
   /// The open popover: the harness picker, or the Project, Machine,
   /// Folder or Base menu.
-  open?: "pick" | "project" | "host" | "folder" | "base" | null;
+  open?: "pick" | "host" | "folder" | "base" | null;
   /// What the picker's search holds.
   query?: string;
   /// Whether the Folder button is a field to type a folder in.
@@ -521,7 +521,6 @@ export function toggleEnded() {
 
 export const openListed = (s: AgentSession) => openAgent(s, { back: "agents" });
 export const listedMenu = (e: MouseEvent, s: AgentSession) => void sessionMenu(e, s, row => openAgent(row, { back: "agents" }));
-export const newFromList = () => renderAgentNew("", "agents");
 
 /// Keys of the agent views; true when one was taken.
 export function agentKeys(e: KeyboardEvent, cmd: boolean) {

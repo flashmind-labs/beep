@@ -59,7 +59,7 @@ test("double tap opens the waiting list; Enter opens a session to reply, Esc com
   await expect.poll(() => calls(page, ["hide_bar"])).toBe(1);
 });
 
-test("typing filters the list and Cmd+N opens the new agent form", async ({ page }) => {
+test("typing filters the list and Cmd+N opens Projects in the window", async ({ page }) => {
   await openBar(page, rows);
   await shown(page);
   await expect(page.locator("#wtlist [role=option]")).toHaveCount(4);
@@ -69,16 +69,15 @@ test("typing filters the list and Cmd+N opens the new agent form", async ({ page
   await page.keyboard.press("Escape");
   await expect(page.locator("#wtlist [role=option]")).toHaveCount(4);
   await page.keyboard.press(test.info().project.name === "macOS" ? "Meta+n" : "Control+n");
-  await expect(page.locator("#agprompt")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#wtlist")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "center_open").map(c => c.args.target))).toEqual([{ projects: { project: null } }]);
+  await expect(page.locator("#agprompt")).toHaveCount(0);
 });
 
-test("with nothing recent the bar opens on the new agent form", async ({ page }) => {
+test("with nothing recent the bar shows its empty list", async ({ page }) => {
   await openBar(page, [rows[4]]);
   await shown(page);
-  await expect(page.locator("#agprompt")).toBeVisible();
-  await expect(page.locator("#wtlist")).toHaveCount(0);
+  await expect(page.locator(".dhead small")).toHaveText("Nothing waiting");
+  await expect(page.locator("#agprompt")).toHaveCount(0);
   await page.screenshot({ path: "../../.artifacts/bar-waiting-empty.png" });
 });
 

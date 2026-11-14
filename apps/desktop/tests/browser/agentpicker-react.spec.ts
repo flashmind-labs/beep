@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { openDesktop, openStartForm, projectName } from "./harness.ts";
 
 const hosts = [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex", "claude"], workspace: "/srv/project", home: "/path/to/work", capabilities: [] }];
 const models = { pick: "listed", current: "alpha", models: [
@@ -63,9 +63,9 @@ test("session model picker filters and closes after selection", async ({ page })
   await expect(pill).toHaveAttribute("aria-expanded", "false");
 });
 
-test("new-agent picker changes harness, effort and model", async ({ page }, info) => {
+test("new-agent picker changes harness, effort and model", async ({ page }) => {
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
-  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await openStartForm(page);
   const pill = page.locator("#agpillb");
   const choices = page.locator(".cc-pjc.centered > .choices");
   await expect(choices).toHaveCSS("display", "flex");
@@ -144,12 +144,11 @@ test("delayed model results clear the previous keyboard highlight", async ({ pag
   await expect(picker.locator('[data-agmo="beta"]')).not.toHaveClass(/on/);
 });
 
-test("new-agent picker can be reopened after its view is removed", async ({ page }, info) => {
+test("new-agent picker can be reopened after its view is removed", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
-  const shortcut = info.project.name === "Windows" ? "Control+n" : "Meta+n";
-  await page.keyboard.press(shortcut);
+  await openStartForm(page);
   await page.locator("#agpillb").click();
   await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
   await page.evaluate(() => window.__navigation.open({ agent: {
@@ -157,17 +156,16 @@ test("new-agent picker can be reopened after its view is removed", async ({ page
     cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
   } }));
   await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toHaveCount(0);
-  await page.evaluate(() => window.__navigation.open("home"));
-  await page.keyboard.press(shortcut);
+  await openStartForm(page);
   await page.locator("#agpillb").click();
   await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test("new agent draft and caret survive machine discovery", async ({ page }, info) => {
+test("new agent draft and caret survive machine discovery", async ({ page }) => {
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: models });
   await page.evaluate(() => window.__navigation.holdNext("agent_hosts"));
-  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await openStartForm(page);
   const input = page.locator("#agprompt");
   await expect(input).toBeVisible();
   await input.fill("Keep this draft");
@@ -177,9 +175,9 @@ test("new agent draft and caret survive machine discovery", async ({ page }, inf
   expect(await input.evaluate(el => el === Reflect.get(window, "startComposerInput") && document.activeElement === el && el instanceof HTMLTextAreaElement && el.value === "Keep this draft" && el.selectionStart === 2 && el.selectionEnd === 5)).toBe(true);
 });
 
-test("new-agent project, machine and folder menus keep their choices", async ({ page }, info) => {
+test("new-agent machine and folder menus keep their choices", async ({ page }) => {
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: models, list_machine_folder: { folders: ["project", "projects"] } });
-  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await openStartForm(page);
   await expect(page.locator("#aghostb")).toContainText("build-box");
   await page.locator("#aghostb").click();
   await expect(page.locator('#agunder [data-agm="build-box"]')).toBeVisible();
@@ -187,9 +185,6 @@ test("new-agent project, machine and folder menus keep their choices", async ({ 
   await page.locator("#agfoldb").click();
   await expect(page.locator('#agunder [data-agtype="1"]')).toBeVisible();
   await expect(page.locator('#agunder [data-agf=""]')).toContainText("Workspace");
-  await page.locator("#agprojb").click();
-  await expect(page.locator('#agunder [data-agp=""]')).toContainText("No project");
-  await page.locator("#agfoldb").click();
   await page.locator('#agunder [data-agtype="1"]').click();
   const folder = page.locator("#agcwd");
   await folder.fill("/srv/pro");
@@ -285,7 +280,7 @@ test("⇧⌘M then `opus 5 high` and Enter picks the model and thinking across h
     };
   });
   const mod = info.project.name === "Windows" ? "Control" : "Meta";
-  await page.keyboard.press(`${mod}+n`);
+  await openStartForm(page);
   const pill = page.locator("#agpillb");
   await expect(pill).toBeEnabled();
   await page.locator("#agprompt").press(`${mod}+Shift+m`);

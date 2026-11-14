@@ -42,6 +42,7 @@ export interface MachineEnv {
   tools: MachineTool[];
   logins: { tool: string; signed_in: boolean; account: string | null }[];
   avds: string[];
+  gpus: MachineGpu[];
   /// The WSL distributions of a Windows machine.
   wsl: WslDistro[];
 }
