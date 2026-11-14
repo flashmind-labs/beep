@@ -334,3 +334,117 @@ async fn opening_protocols_rejects_a_reply_before_ready() {
             .contains("Ready")
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn attachment_uploads_allow_more_than_30_seconds_with_progress() {
+    use crate::machine::sessions::{self, NodeWork, WorkWrite};
+    use beep_proto::node::agent::{SessionsReply, SessionsRequest};
+    use tokio::sync::Notify;
+    use tokio::time::{Instant, advance};
+
+    let received = Arc::new(Notify::new());
+    let accept = Arc::new(Notify::new());
+    let accepted = Arc::new(Notify::new());
+    let reply = Arc::new(Notify::new());
+    let node: SessionFn = {
+        let received = received.clone();
+        let accept = accept.clone();
+        let accepted = accepted.clone();
+        let reply = reply.clone();
+        Arc::new(move |mut tx, mut rx| {
+            let received = received.clone();
+            let accept = accept.clone();
+            let accepted = accepted.clone();
+            let reply = reply.clone();
+            Box::pin(async move {
+                rx.recv::<Open>().await.unwrap().unwrap();
+                assert!(matches!(
+                    rx.recv::<SessionsRequest>().await.unwrap(),
+                    Some(SessionsRequest::UploadFile { .. })
+                ));
+                received.notify_one();
+                accept.notified().await;
+                tx.send(&Opened::Ready {}).await.unwrap();
+                accepted.notify_one();
+                reply.notified().await;
+                tx.send(&SessionsReply::Written {
+                    path: "/cache/photo.jpg".into(),
+                })
+                .await
+                .unwrap();
+            })
+        })
+    };
+    let client = PeerClient::local(node);
+    let write = WorkWrite {
+        root: "/srv/project".into(),
+        path: "photo.jpg".into(),
+        offset: 0,
+        size: 3,
+        data: vec![1, 2, 3],
+    };
+    let mut upload = Box::pin(sessions::upload_file(
+        &client,
+        "codex".into(),
+        "session".into(),
+        write,
+    ));
+    let started = Instant::now();
+
+    tokio::select! {
+        _ = &mut upload => panic!("the upload needs an acknowledgement"),
+        _ = received.notified() => {},
+    }
+    advance(Duration::from_secs(20)).await;
+    accept.notify_one();
+    tokio::select! {
+        _ = &mut upload => panic!("the upload needs a reply"),
+        _ = accepted.notified() => {},
+    }
+    assert!(futures::poll!(&mut upload).is_pending());
+    advance(Duration::from_secs(20)).await;
+    reply.notify_one();
+
+    assert!(matches!(upload.await.unwrap(), NodeWork::Done(path) if path == "/cache/photo.jpg"));
+    assert_eq!(started.elapsed(), Duration::from_secs(40));
+}
+
+#[tokio::test(start_paused = true)]
+async fn attachment_uploads_report_30_seconds_without_progress() {
+    use crate::machine::sessions::{self, WorkWrite};
+    use beep_proto::node::agent::SessionsRequest;
+    use tokio::time::Instant;
+
+    let node: SessionFn = Arc::new(|mut tx, mut rx| {
+        Box::pin(async move {
+            rx.recv::<Open>().await.unwrap().unwrap();
+            tx.send(&Opened::Ready {}).await.unwrap();
+            rx.recv::<SessionsRequest>().await.unwrap().unwrap();
+            let _held = (tx, rx);
+            pending::<()>().await;
+        })
+    });
+    let client = PeerClient::local(node);
+    let started = Instant::now();
+    let result = sessions::upload_file(
+        &client,
+        "codex".into(),
+        "session".into(),
+        WorkWrite {
+            root: "/srv/project".into(),
+            path: "photo.jpg".into(),
+            offset: 0,
+            size: 3,
+            data: vec![1, 2, 3],
+        },
+    )
+    .await;
+    let error = result.err().expect("a silent upload must time out");
+
+    assert_eq!(started.elapsed(), Duration::from_secs(30));
+    assert!(error.is_transport());
+    assert_eq!(
+        error.to_string(),
+        "the transfer made no progress for 30 seconds"
+    );
+}
