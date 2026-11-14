@@ -40,7 +40,11 @@ use super::{Agents, found::Agent};
 use crate::files::sync::Syncs;
 use iroh::{Endpoint, EndpointId};
 use saved::Folder;
-use std::{path::PathBuf, sync::Arc};
+use anyhow::{Context, Result};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use store::StoreRoots;
 
 /// The most moves one node takes part in at once.
@@ -95,6 +99,34 @@ impl TryFrom<Agent> for Harness {
             Agent::OpenCode => Err(agent),
         }
     }
+}
+
+/// Copies Claude session `id`'s transcript, kept for the folder `old`, to
+/// where Claude Code looks for it in `new`, with the folders in it
+/// rewritten: Claude Code finds a session by the folder it runs in. Nothing
+/// when there is none, or one is there already. Blocks on the file system.
+pub(crate) fn rehome_claude(id: &str, old: &Path, new: &Path) -> Result<()> {
+    let projects = super::claude::config_dir()
+        .context("this machine has no home folder")?
+        .join("projects");
+    let kept_for = |folder: &Path| {
+        projects
+            .join(super::claude::slug(folder))
+            .join(format!("{id}.jsonl"))
+    };
+    let from = kept_for(old);
+
+    if !from.is_file() || kept_for(new).exists() {
+        return Ok(());
+    }
+
+    let folders = folder::Folders {
+        old: old.to_owned(),
+        new: new.to_owned(),
+        workspace: None,
+    };
+    let stored = claude::rewrite(&std::fs::read(&from)?, id, &folders);
+    store::write(&projects.join(&stored.path), &stored)
 }
 
 /// A transcript as the target machine stores it.

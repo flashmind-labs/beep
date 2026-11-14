@@ -2,7 +2,7 @@
 //! `agent::CheckoutPlan` asks: made in the session's folder's git checkout
 //! before the agent starts.
 
-use super::folder;
+use super::{folder, worktrees};
 use crate::agents::found;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{
@@ -16,34 +16,45 @@ use std::{
 };
 use tokio::task::spawn_blocking;
 
-/// The rule for an agent in a git repository's main checkout.
-pub(super) const MAIN_CHECKOUT_RULE: &str = "This folder is a git repository's main checkout. Before you change any file, \
-    create a new branch and a git worktree for it under the repository's .worktrees/ folder, \
-    both named for the work, and use that single worktree for all changes in this session. \
-    Do not create a new worktree for each change. Work that changes nothing stays here. \
-    After a merge, remove the worktree and its folder with everything left in it (build \
-    output and other artifacts), delete the branch and close the issues the merge resolves. \
-    You may then create a new worktree for further changes in this session.";
-/// The rule for an agent in a linked git worktree.
-pub(super) const WORKTREE_RULE: &str = "This folder is a git worktree. Use this single worktree for all changes and \
-    commits in this session. Do not create a new worktree for each change. After a merge, \
-    remove the worktree and its folder with everything left in it (build output and other \
-    artifacts), delete the branch and close the issues the merge resolves. You may then \
-    create a new worktree for further changes in this session.";
+/// Beep's standing rule for a session in a git repository. A session runs
+/// in the project folder, the main checkout, and works in worktrees under it.
+pub(super) const GIT_RULE: &str = "This folder is the project's git checkout, where this session runs. Before you \
+    change any file, create a new branch and a git worktree for it under the repository's \
+    .worktrees/ folder, both named for the work, and work there, unless this session already \
+    has a worktree for that work. A session may use several worktrees and branches. Work that \
+    changes nothing stays here. After a merge, remove every worktree this session created for \
+    the merged work, with its folder and everything left in it (build output and other \
+    artifacts), delete its branch and close the issues the merge resolves.";
 
-/// Beep's standing rule for an agent in `dir`, by the git checkout it is
-/// in: the nearest `.git` above it is a folder in a main checkout and a
-/// file in a linked worktree. None outside git.
+/// Beep's standing rule for a session in `dir`: [`GIT_RULE`] in a git
+/// checkout, none outside git.
 pub(super) fn rule(dir: &Path) -> Option<&'static str> {
+    dir.ancestors()
+        .any(|at| at.join(".git").exists())
+        .then_some(GIT_RULE)
+}
+
+/// The project folder a session asked to run in `dir` runs in instead,
+/// when `dir` is (or was, if removed) in a linked worktree: the main
+/// checkout, so removing the worktree never loses the session. `None` for a
+/// folder that is no worktree. Reads the file system, and git for a
+/// worktree outside `.worktrees/`.
+pub(super) fn project_of(dir: &Path) -> Option<PathBuf> {
+    if !dir.exists() {
+        return worktrees::checkout_of_gone(dir);
+    }
+
+    // The nearest `.git` above is a file in a linked worktree.
     let git = dir
         .ancestors()
         .map(|at| at.join(".git"))
         .find(|git| git.exists())?;
-    Some(if git.is_dir() {
-        MAIN_CHECKOUT_RULE
-    } else {
-        WORKTREE_RULE
-    })
+
+    if git.is_dir() {
+        return None;
+    }
+
+    found::checkout(dir).map(|checkout| checkout.root)
 }
 
 /// The most branch names tried, `beep/<slug>` then `-2` and on.
@@ -492,7 +503,8 @@ pub(super) mod tests {
         assert_eq!(place.folder.as_deref(), Some(cwd.as_str()));
         assert_eq!(place.note, None, "no branch line");
         assert_eq!(place.brief, None);
-        assert_eq!(rule(&work), Some(MAIN_CHECKOUT_RULE));
+        assert_eq!(rule(&work), Some(GIT_RULE));
+        assert_eq!(project_of(&work), None, "the checkout is the project");
         assert_eq!(current(&work), "main");
         assert_eq!(run(&work, &["branch", "--format=%(refname:short)"]), "main");
         assert!(!work.join(".worktrees").exists(), "no worktree");
@@ -533,7 +545,7 @@ pub(super) mod tests {
         assert_eq!(made.start, Start::NewWorktree);
         assert_eq!(current(&tree), "beep/add-dark-mode");
         assert_eq!(current(&work), "main", "the checkout keeps its branch");
-        assert_eq!(rule(&made.folder), Some(WORKTREE_RULE));
+        assert_eq!(project_of(&made.folder), Some(work.clone()), "runs in the project");
         assert!(made.brief().contains(&tree.display().to_string()));
         assert_eq!(
             run(&tree, &["rev-parse", "HEAD"]),
@@ -550,6 +562,12 @@ pub(super) mod tests {
         make(&work, &plan, "Add dark mode").expect("a second worktree");
         let again = fs::read_to_string(work.join(".git/info/exclude")).expect("the exclude");
         assert_eq!(again, exclude);
+        run(&work, &["worktree", "remove", "--force", tree.to_str().expect("UTF-8")]);
+        assert_eq!(
+            project_of(&made.folder),
+            Some(work.clone()),
+            "a removed worktree still has its project"
+        );
     }
 
     #[test]
