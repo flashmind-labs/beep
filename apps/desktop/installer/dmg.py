@@ -7,7 +7,8 @@ app = defines["app"]  # noqa: F821
 background = defines["background"]  # noqa: F821
 icon = defines["icon"]  # noqa: F821
 
-format = "UDZO"
+# LZMA: smaller than zlib, opens on macOS 10.15 and later.
+format = "ULMO"
 filesystem = "HFS+"
 files = [app]
 symlinks = {"Applications": "/Applications"}
