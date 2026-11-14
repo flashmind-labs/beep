@@ -265,7 +265,7 @@ test("model rows are no Tab stops: Tab from the search leaves the list", async (
   await expect(picker.locator(".agc-models .hi")).toHaveCount(1);
 });
 
-test("⇧⌘M then `opus 5 high` and Enter picks the model and thinking across harnesses", async ({ page }, info) => {
+test("⇧⌘M then `opus 5.5 h` and Enter picks the model and thinking across harnesses", async ({ page }, info) => {
   await openDesktop(page, false, { agent_hosts: hosts, agent_models: null });
   await page.evaluate(() => {
     const lists: Record<string, unknown> = {
@@ -287,7 +287,7 @@ test("⇧⌘M then `opus 5 high` and Enter picks the model and thinking across h
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker).toBeVisible();
   await picker.locator('[data-agh="codex"]').click();
-  await page.keyboard.type("opus 5 high");
+  await page.keyboard.type("opus 5.5 h");
   await expect(picker.locator('[data-agmo="opus"]')).toBeVisible();
   await expect(picker.locator('[data-agmo="opus"] .cc-ag.claude')).toBeVisible();
   await page.keyboard.press("Enter");

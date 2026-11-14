@@ -130,15 +130,18 @@ test("a search names a model, a thinking level and a harness, subscription harne
   const rows = (q: string, picked = "codex") => {
     const search = modelSearch(q, offered);
     const harnesses = searchedHarnesses(search, picked, offered);
-    return { search, rows: searchRows(harnesses.map(agent => ({ agent, list: lists.get(agent) })), search).rows.map(r => `${r.agent}/${r.value}`) };
+    return searchRows(harnesses.map(agent => ({ agent, list: lists.get(agent) })), search).rows.map(r => `${r.agent}/${r.value}${r.effort ? ` ${r.effort}` : ""}`);
   };
 
-  assert.deepEqual(modelSearch("Opus 5 HIGH", offered), { agent: null, effort: "high", words: "Opus 5" });
-  assert.deepEqual(rows("opus 5 high").rows, ["claude/opus", "pi/anthropic/claude-opus-5-5", "claude/"]);
-  assert.deepEqual(rows("pi opus max"), { search: { agent: "pi", effort: "max", words: "opus" }, rows: ["pi/anthropic/claude-opus-5-5"] });
-  assert.deepEqual(rows("high").rows, ["codex/", "codex/gpt-6"], "a level alone stays on the picked harness");
-  assert.deepEqual(modelSearch("opus 5.5 med", offered), { agent: null, effort: "medium", words: "opus 5.5" });
-  assert.deepEqual(modelSearch("opus 5.5 hi", offered).effort, "high");
-  assert.deepEqual(rows("pi opus 5.5 xhi"), { search: { agent: "pi", effort: "xhigh", words: "opus 5.5" }, rows: ["pi/anthropic/claude-opus-5-5"] });
-  assert.deepEqual(rows("claude opus 5-5").rows, ["claude/opus", "claude/"], "a version matches with any separator");
+  assert.deepEqual(modelSearch("pi Opus 5 HIGH", offered), { agent: "pi", words: "Opus 5 HIGH" });
+  assert.deepEqual(rows("opus 5 high"), ["claude/opus high", "pi/anthropic/claude-opus-5-5 high", "claude/ high"]);
+  assert.deepEqual(rows("pi opus max"), ["pi/anthropic/claude-opus-5-5 max"]);
+  assert.deepEqual(rows("high"), ["codex/ high", "codex/gpt-6 high"], "a level alone stays on the picked harness");
+  assert.deepEqual(rows("opus 5.5 med"), ["claude/opus medium", "pi/anthropic/claude-opus-5-5 medium", "claude/ medium"]);
+  assert.deepEqual(rows("claude opus 5.5 h"), ["claude/opus high", "claude/ high"], "a level matches by its start");
+  assert.deepEqual(rows("claude opus m"), ["claude/opus medium", "claude/opus max", "claude/ medium", "claude/ max"], "each level a word starts shows");
+  assert.deepEqual(rows("pi opus 5.5 xhi"), ["pi/anthropic/claude-opus-5-5 xhigh"]);
+  assert.deepEqual(rows("pi opus 5.5 h"), ["pi/anthropic/claude-opus-5-5", "pi/anthropic/claude-opus-5-5 high"], "a word in the model also reads as a level");
+  assert.ok(searchRows([{ agent: "claude", list: claude }], modelSearch("opus h", offered)).rows.some(r => r.label === "Opus 5.5 · High"));
+  assert.deepEqual(rows("claude opus 5-5"), ["claude/opus", "claude/"], "a version matches with any separator");
 });
