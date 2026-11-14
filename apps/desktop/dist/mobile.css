@@ -151,7 +151,8 @@ body.mobile .dinput.small { flex-wrap: wrap; gap: 6px; margin: 4px 10px 8px; pad
 body.mobile .dinput textarea { order: -1; flex: 1 1 100%; min-height: 38px; max-height: 120px; padding: 9px 0; border: 0; background: none }
 /* Its attach, mode and model controls show while typing, leaving the log the room. */
 body.mobile #agfield:not(:has(textarea:focus)) > :not(textarea, #agstop, #agsend, #agmodel, #agnativeparent, [data-agent-attachment-slot]) { display: none }
-body.mobile #agmodel .agc-pill.agm { max-width: 38vw }
+/* The model shows as its agent's mark; the picker names it. */
+body.mobile #agmodel .agc-pill.agm { font-size: 0; gap: 2px }
 body.mobile #agfield:not(:has(textarea:focus)) textarea { flex: 1 1 0 }
 /* Stop and Send are icons the height of the field; Return makes a new line. No gap, or the
    hidden label pushes the icon off center. */
@@ -240,3 +241,19 @@ body.mobile .agrail { display: none }
   body.mobile .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse) { flex: 0 1 auto; min-width: 0 }
   body.mobile .dinput textarea { max-height: 72px }
 }
+
+/* ----- The desktop's look on the phone: chrome in the mono face, cards without outlines but with
+   the lit top edge, small mono section labels, and the dawn band over Home and Projects ----- */
+body.mobile { --radius: 6px; --radius-sm: 4px;
+  --lit: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 16%, transparent) 30%, color-mix(in srgb, var(--accent) 60%, var(--fg)) 50%, color-mix(in srgb, var(--fg) 16%, transparent) 70%, transparent) top / 100% 1px no-repeat }
+body.mobile :is(.cc-tabs button, .mb-tabs button, #agmnav button, .dbtn, .dchip, .agc-pill, .bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3, .cc-mstrip > .m > span, .home-sort, .ag-head .tt small) { font-family: var(--mono); letter-spacing: 0 }
+body.mobile :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .cc-mstrip > .m > span) { font-size: 12px }
+body.mobile .mb-tabs button { font-size: 10.5px }
+body.mobile .bd-lane > h4 { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
+body.mobile .pj-org h3 { font-size: 12.5px; font-weight: 500; color: var(--muted) }
+body.mobile :is(.bd-card, .pj-card, .cc-mstrip > .m, .cc-tabs) { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body.mobile .cc-tabs { background: color-mix(in srgb, var(--fg) 4%, transparent) }
+body.mobile .cc-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 9%, transparent) }
+body.mobile .pj-org ~ .pj-add { display: none }
+body.mobile .cc-view:has(.painted-art.haze) { position: relative; isolation: isolate }
+body.mobile .cc-view .painted-art.haze { display: block; position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }

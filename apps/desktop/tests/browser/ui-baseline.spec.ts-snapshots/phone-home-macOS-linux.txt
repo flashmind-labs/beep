@@ -100,7 +100,7 @@ body.cbody.mb-home.mobile
               svg [fill="none" height="15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="15"]
       div#home-box.cc-box
         div#view.cc-view
-          canvas.haze.painted-art [aria-hidden="true"]
+          canvas.haze.painted-art [aria-hidden="true" height="33" width="94"]
           div.cc-mstrip
             button.m [type="button"]
               span.busy.ddot [title="Online · 2 agents running"]

@@ -104,7 +104,8 @@ test browser.
 ### The desktop's style
 
 A dark, Linear-style app with monospaced chrome, frosted glass on the layers
-that float, and brush-stroke paintings for atmosphere.
+that float, and brush-stroke paintings for atmosphere. The phone takes the
+same look, sized for touch, in `mobile.css`.
 
 - **Type.** Chrome (labels, tabs, buttons, statuses, numbers, details) is in
   the mono face at 11 to 12px. Titles and reading text stay in the sans.
