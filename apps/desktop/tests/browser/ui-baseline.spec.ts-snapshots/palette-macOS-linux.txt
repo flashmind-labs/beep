@@ -237,8 +237,19 @@ body.cbody
                 mark "example"
               small "/widget @ build-box"
                 mark "example"
-          h5 "Machines"
+          h5 "Coding agents"
           button#pal-opt-5.it [aria-selected="false" role="option" tabindex="-1" type="button"]
+            span style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
+            span.t
+              span "Tidy the docs"
+                mark "example"
+              small "Claude Code · /widget · build-box"
+                mark "example"
+              small.s "Prompt: …rewrite the in the README so it matches the new widget options and drop the old flags…"
+                mark "example"
+          h5 "Machines"
+          button#pal-opt-6.it [aria-selected="false" role="option" tabindex="-1" type="button"]
             span.ddot
             span.t
               span "-box"

@@ -82,9 +82,10 @@ body:not(.mobile) .cc-pal .q input { font-size: 15px }
 body:not(.mobile) .cc-pal h5 { margin: 8px 10px 3px; font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--dim) }
 body:not(.mobile) .cc-pal .it { min-height: 32px; padding: 0 10px }
 body:not(.mobile) .cc-pal .it[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent) }
-body:not(.mobile) .cc-pal .it .t { display: flex; align-items: baseline; gap: 12px }
-body:not(.mobile) .cc-pal .it .t span { flex: 0 1 auto; min-width: 0 }
-body:not(.mobile) .cc-pal .it .t small { flex: 1 1 0; min-width: 0; text-align: right; color: var(--dim) }
+body:not(.mobile) .cc-pal .it { padding-block: 5px }
+body:not(.mobile) .cc-pal .it .t { grid-template-columns: minmax(0, max-content) minmax(0, 1fr); align-items: baseline; column-gap: 12px }
+body:not(.mobile) .cc-pal .it .t small { text-align: right; color: var(--dim) }
+body:not(.mobile) .cc-pal .it .t small.s { grid-column: 1 / -1; text-align: left }
 body:not(.mobile) .cc-pal mark { padding: 0; border-radius: 0; background: none; color: var(--fg); font-weight: 650 }
 body:not(.mobile) .cc-pal small mark { color: var(--muted); font-weight: 500 }
 body:not(.mobile) .cc-pal .it:not([aria-selected="true"]) .t > span { color: color-mix(in srgb, var(--fg) 82%, transparent) }
