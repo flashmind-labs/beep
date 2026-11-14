@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.2] - 2026-11-14
+
+### Fixed
+
+- Desktop: in the search palette (Cmd+K), coding agent results found by their prompt show the matching prompt on its own line again, instead of squeezing the title, details and prompt onto one line.
+
 ## [0.9.1] - 2026-11-14
 
 ### Fixed
