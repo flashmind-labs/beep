@@ -2,6 +2,21 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.5] - 2026-11-14
+
+### Added
+
+- Node: when an agent sends files to another machine, the sending node reports
+  how many bytes the receiving machine has fetched. The agent session shows
+  this as progress on the running `files` tool call, updated about once a
+  second.
+
+### Fixed
+
+- Node: after you stop a turn and send a message, the message goes once the
+  turn has stopped. Before, it went into the stopping turn, so the agent kept
+  working and the session stayed on Stopping.
+
 ## [0.7.4] - 2026-11-14
 
 ### Added

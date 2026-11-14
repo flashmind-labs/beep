@@ -7,6 +7,38 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.8] - 2026-11-14
+
+### Added
+
+- Desktop: a machine's page shows its graphics cards with their video memory.
+- Desktop: while an agent sends files to another machine with the `files`
+  tool, its running row in the agent log shows how much has arrived, such as
+  "412 MB of 1.2 GB". The count updates about once a second instead of only
+  saying "Running".
+
+### Changed
+
+- Desktop: the phone pairing QR code holds far less data and is drawn larger,
+  so a phone camera reads it at once. The copied ticket is unchanged.
+- Desktop: the start form with a Project menu is gone. Chats now start
+  inside a project. Cmd+N outside a project, Start an agent on Home, and
+  New in the tray open Projects instead.
+- Desktop: Review and Reply on pull requests and issues only show for
+  repositories that are projects. Other repositories keep Import project.
+- Desktop: the tray no longer opens a start form when nothing is waiting.
+  It shows its empty list.
+- Desktop: the model picker search matches the thinking level by its start, as
+  it matches models: `opus 5.5 h` or `deepseek v4 med` shows rows such as
+  `Opus 5.5 · High`. A version typed as `5.5` also finds ids written `5-5`.
+
+### Fixed
+
+- Desktop: a new chat in a narrow chat pane, next to the files panel,
+  no longer scrolls sideways. The start screen fits the pane.
+- Desktop: while a turn is stopping, the key hints under the composer keep
+  their row, so Show more stays visible.
+
 ## [0.9.7] - 2026-11-14
 
 ### Added
