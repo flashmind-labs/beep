@@ -33,7 +33,7 @@ export function PaletteView({ input, hits, selected, query, searchIcon, group, i
       const multi = query.trim().split(/\s+/u).length > 1;
       return <Fragment key={`${hit.kind}:${hit.id}`}>{title !== previous && <h5>{title}</h5>}<button ref={i === selected ? active : null} type="button" className="it" tabIndex={-1} role="option" aria-selected={i === selected} id={`pal-opt-${i}`} onMouseMove={e => { if (e.movementX || e.movementY) hover(i); }} onClick={() => choose(hit)}>
         {hit.kind === "machine" ? <span className={`ddot${hit.detail === "online" ? "" : " off"}`} /> : <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: icon(hit) ?? "" }} />}
-        <span className="t"><span><Marked text={hit.title} query={query} /></span>{detail && <small style={multi ? { whiteSpace: "normal" } : undefined}><Marked text={detail} query={query} /></small>}{hit.snippet && <small style={multi ? { whiteSpace: "normal" } : undefined}><Marked text={hit.snippet} query={query} /></small>}</span>{side && <span className="w">{side}</span>}
+        <span className="t"><span><Marked text={hit.title} query={query} /></span>{detail && <small style={multi ? { whiteSpace: "normal" } : undefined}><Marked text={detail} query={query} /></small>}{hit.snippet && <small className="s" style={multi ? { whiteSpace: "normal" } : undefined}><Marked text={hit.snippet} query={query} /></small>}</span>{side && <span className="w">{side}</span>}
       </button></Fragment>;
     })}{!hits.length && <div className="none">Nothing matches “{query}”.</div>}</div>
     <div className="foot">{[["↑↓", "move"], ["↵", "open"], ["esc", "close"]].map(([key, label]) => <span key={key}><kbd>{key}</kbd>{label}</span>)}</div>

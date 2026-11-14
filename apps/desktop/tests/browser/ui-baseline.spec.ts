@@ -164,10 +164,11 @@ test("search palette", async ({ page }) => {
     projects: [hit("project", "one", "Example one", "Project"), hit("project", "two", "Example two", "Project")],
     sessions: [hit("session", "s1", "Fix the example redirect", "example/widget @ build-box")], machines: [hit("machine", "m1", "example-box", "online")],
   };
-  await openDesktop(page, false, { center_home: home, center_palette_index: index, center_find_prompts: [] });
+  const prompt = { ...hit("agent_session", "s2", "Tidy the example docs", "Claude Code · example/widget · build-box"), keys: [], snippet: "Prompt: …rewrite the example in the README so it matches the new widget options and drop the old flags…" };
+  await openDesktop(page, false, { center_home: home, center_palette_index: index, center_find_prompts: [prompt] });
   await page.getByRole("button", { name: /^Search/ }).click();
   await page.getByRole("dialog", { name: "Search" }).getByRole("combobox").fill("example");
-  await expect(page.locator(".cc-pal .it").first()).toBeVisible();
+  await page.locator(".cc-pal .it", { hasText: "Tidy the example docs" }).scrollIntoViewIfNeeded();
   await baseline(page, "palette");
 });
 
