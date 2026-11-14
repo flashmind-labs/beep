@@ -1347,3 +1347,143 @@ fn the_dev_policy_writes_no_built_in_and_runs_the_dev_copy() {
     let (_host, _rx) = start_with_builtins(empty.path(), Policy::Dev, &own_cat(BUILTIN_V1));
     assert!(!empty.path().join("own-cat").exists());
 }
+
+fn write_files(dir: &std::path::Path, id: &str, files: &[(&str, &str)]) {
+    let folder = dir.join(id);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("beep-plugin.json"),
+        format!(
+            r#"{{ "id": "{id}", "name": "T", "version": "0.1.0", "permissions": ["ui.add"] }}"#
+        ),
+    )
+    .unwrap();
+    for (name, text) in files {
+        std::fs::write(folder.join(name), text).unwrap();
+    }
+}
+
+const MESSAGE: &str = r#"export const message: string = "{}";"#;
+const IMPORTER: &str = r#"
+import { message } from "./message.ts";
+beep.place({ slot: "composer" }, () => beep.text(message));
+"#;
+
+#[test]
+fn a_change_to_an_imported_file_reloads_the_plugin() {
+    let root = tempfile::tempdir().unwrap();
+    write_files(
+        root.path(),
+        "cat-one",
+        &[
+            ("main.ts", IMPORTER),
+            ("message.ts", &MESSAGE.replace("{}", "before")),
+        ],
+    );
+    let (_host, rx) = start(root.path());
+    wait_for(&rx, |p| texts(p) == ["before"]);
+
+    std::fs::write(
+        root.path().join("cat-one/message.ts"),
+        MESSAGE.replace("{}", "after"),
+    )
+    .unwrap();
+
+    wait_for(&rx, |p| texts(p) == ["after"]);
+}
+
+#[test]
+fn a_plugin_that_needs_a_newer_api_stops_with_a_reason() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "cat-one", "meow");
+    std::fs::write(
+        root.path().join("cat-one/beep-plugin.json"),
+        r#"{ "id": "cat-one", "name": "T", "version": "0.1.0", "api": 2 }"#,
+    )
+    .unwrap();
+
+    let (host, _rx) = start(root.path());
+
+    let Some(PluginState::Stopped { reason }) = status_of(&host, "cat-one").map(|s| s.state) else {
+        panic!("not stopped");
+    };
+    assert!(reason.starts_with("needs a newer Beep"), "{reason}");
+}
+
+#[test]
+fn a_failing_plugin_logs_why_it_stopped() {
+    let root = tempfile::tempdir().unwrap();
+    write_files(
+        root.path(),
+        "logs-boom",
+        &[("main.ts", "console.log('hello'); throw new Error('boom');")],
+    );
+
+    crate::console::tests::captured("logs-boom");
+    let (_host, _rx) = start(root.path());
+
+    let wait = Instant::now() + TIMEOUT;
+    loop {
+        let lines = crate::console::tests::captured("logs-boom");
+        if lines.iter().any(|(level, text)| {
+            *level == log::Level::Error && text.starts_with("stopped:") && text.contains("boom")
+        }) {
+            assert!(lines.iter().any(|(_, text)| text == "hello"));
+            return;
+        }
+        assert!(Instant::now() < wait, "no error line: {lines:?}");
+        std::thread::yield_now();
+    }
+}
+
+const STORING: &str = r#"
+beep.store.set("seen", "yes");
+beep.place({ slot: "composer" }, () => beep.text("stored"));
+"#;
+
+#[test]
+fn removing_a_plugin_deletes_its_data_but_disabling_keeps_it() {
+    let root = tempfile::tempdir().unwrap();
+    write_files(root.path(), "cat-one", &[("main.ts", STORING)]);
+    let data = root.path().join(".data/cat-one.json");
+    let (host, rx) = start_with(root.path(), Policy::Dev);
+    wait_for(&rx, |p| texts(p) == ["stored"]);
+
+    host.set_enabled(&plugin_id("cat-one"), false).unwrap();
+    assert_eq!(std::fs::read_to_string(&data).unwrap(), r#"{"seen":"yes"}"#);
+
+    host.remove(&plugin_id("cat-one")).unwrap();
+    assert!(!data.exists());
+}
+
+#[test]
+fn a_built_in_update_keeps_the_plugins_data() {
+    const V1: &[(&str, &[u8])] = &[
+        (
+            "beep-plugin.json",
+            br#"{ "id": "own-cat", "name": "T", "version": "1.0.0", "permissions": ["ui.add"] }"#,
+        ),
+        ("main.ts", STORING.as_bytes()),
+    ];
+    const V2: &[(&str, &[u8])] = &[
+        (
+            "beep-plugin.json",
+            br#"{ "id": "own-cat", "name": "T", "version": "2.0.0", "permissions": ["ui.add"] }"#,
+        ),
+        ("main.ts", STORING.as_bytes()),
+    ];
+    let root = tempfile::tempdir().unwrap();
+    let (host, rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(V1));
+    wait_for(&rx, |p| texts(p) == ["stored"]);
+    drop(host);
+    let data = root.path().join(".data/own-cat.json");
+    assert!(data.is_file());
+
+    let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(V2));
+
+    assert_eq!(
+        status_of(&host, "own-cat").unwrap().version.to_string(),
+        "2.0.0"
+    );
+    assert_eq!(std::fs::read_to_string(&data).unwrap(), r#"{"seen":"yes"}"#);
+}

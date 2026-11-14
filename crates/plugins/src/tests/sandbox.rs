@@ -1,4 +1,5 @@
 use super::*;
+use log::Level;
 use serde_json::json;
 
 use crate::event::Action;
@@ -1634,4 +1635,261 @@ fn a_cheap_plugin_stays_within_the_default_budget() {
     }
 
     assert!(meter.used(Instant::now()) < crate::meter::BUDGET);
+}
+
+#[test]
+fn console_and_beep_log_write_to_the_app_log_like_console_log() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"
+        console.log("seen-a", { n: 1 }, [2], null);
+        console.warn("seen-b", undefined);
+        console.error(new Error("seen-c"));
+        beep.log("seen-d", 4, true);
+        "#,
+    );
+
+    // The first call installs the capture, so it comes before the plugin runs.
+    crate::console::tests::captured("test-plugin");
+    fixture.load(Instant::now()).unwrap();
+
+    let lines = crate::console::tests::captured("test-plugin");
+    let found = |text: &str| lines.iter().find(|(_, line)| line.starts_with(text));
+    assert_eq!(
+        found("seen-a"),
+        Some(&(Level::Info, r#"seen-a {"n":1} [2] null"#.to_owned()))
+    );
+    assert_eq!(
+        found("seen-b"),
+        Some(&(Level::Warn, "seen-b undefined".to_owned()))
+    );
+    assert_eq!(
+        found("Error: seen-c"),
+        Some(&(Level::Error, "Error: seen-c".to_owned()))
+    );
+    assert_eq!(
+        found("seen-d"),
+        Some(&(Level::Info, "seen-d 4 true".to_owned()))
+    );
+}
+
+#[test]
+fn the_store_survives_a_reload_and_is_written_after_the_debounce() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"
+        const runs = (beep.store.get("runs") ?? 0) + 1;
+        beep.store.set("runs", runs);
+        beep.store.set("nested", { list: [1, "two"] });
+        beep.store.delete("gone");
+        beep.place({ slot: "composer" }, () => beep.text(`run ${runs}`));
+        "#,
+    );
+    let file = fixture.root.path().join(".data/test-plugin.json");
+    let start = Instant::now();
+
+    let mut first = fixture.load(start).unwrap();
+    assert_eq!(texts_of(first.render().unwrap()), ["run 1"]);
+    assert!(!file.exists());
+    assert!(first.next_timer().is_some());
+
+    first.fire_due(start + Duration::from_millis(500)).unwrap();
+    assert!(!file.exists());
+    first.fire_due(start + Duration::from_secs(5)).unwrap();
+    assert!(file.is_file());
+    assert!(first.next_timer().is_none());
+    drop(first);
+
+    let mut second = fixture.load(start).unwrap();
+    assert_eq!(texts_of(second.render().unwrap()), ["run 2"]);
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(
+        saved,
+        json!({ "runs": 1, "nested": { "list": [1, "two"] } })
+    );
+
+    // Dropping the sandbox writes what is pending.
+    drop(second);
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved["runs"], 2);
+}
+
+#[test]
+fn a_store_set_over_the_cap_throws() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"beep.store.set("big", "x".repeat(300000));"#,
+    );
+
+    let error = fixture.load(Instant::now()).err().expect("load fails");
+
+    assert!(error.to_string().contains("beep.store is full"), "{error}");
+}
+
+#[test]
+fn a_store_value_must_be_json() {
+    let fixture = Fixture::new(r#""ui.add""#, "beep.store.set('f', () => 1);");
+
+    let error = fixture.load(Instant::now()).err().expect("load fails");
+
+    assert!(error.to_string().contains("needs a JSON value"), "{error}");
+}
+
+fn texts_of(placements: Option<Vec<Placement>>) -> Vec<String> {
+    placements
+        .expect("a render")
+        .into_iter()
+        .filter_map(|placement| match placement.node {
+            Node::Text { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Adds files to the plugin folder, then loads it.
+fn load_with(main: &str, files: &[(&str, &str)], now: Instant) -> Result<Sandbox, SandboxError> {
+    let fixture = Fixture::new(r#""ui.add""#, main);
+    for (name, text) in files {
+        let path = fixture.dir().join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    // Every import is read at load, so the folder may go with the fixture.
+    fixture.load(now)
+}
+
+#[test]
+fn a_plugin_imports_its_other_files_and_they_see_beep() {
+    let mut sandbox = load_with(
+        r#"
+        import { label } from "./lib/draw.ts";
+        import { shout } from "./lib/loud.js";
+        beep.place({ slot: "composer" }, () => beep.text(shout(label("hi"))));
+        "#,
+        &[
+            (
+                "lib/draw.ts",
+                "import { wrap } from '../wrap.ts';\nexport function label(s: string): string { return wrap(s, '<', '>'); }",
+            ),
+            (
+                "lib/loud.js",
+                "export const shout = (s) => s.toUpperCase() + beep.state(1).get();",
+            ),
+            (
+                "wrap.ts",
+                "export const wrap = (s: string, a: string, b: string): string => a + s + b;",
+            ),
+        ],
+        Instant::now(),
+    )
+    .unwrap();
+    sandbox.set_instances(&[composer_instance()]).unwrap();
+
+    assert_eq!(texts_of(sandbox.render().unwrap()), ["<HI>1"]);
+}
+
+#[test]
+fn imports_that_cycle_load_as_quickjs_loads_them() {
+    let mut sandbox = load_with(
+        r#"
+        import { a } from "./a.ts";
+        beep.place({ slot: "composer" }, () => beep.text(a()));
+        "#,
+        &[
+            (
+                "a.ts",
+                "import { b } from './b.ts';\nexport function a(): string { return 'a' + b(); }",
+            ),
+            (
+                "b.ts",
+                "import { a } from './a.ts';\nexport function b(): string { return typeof a; }",
+            ),
+        ],
+        Instant::now(),
+    )
+    .unwrap();
+    sandbox.set_instances(&[composer_instance()]).unwrap();
+
+    assert_eq!(texts_of(sandbox.render().unwrap()), ["afunction"]);
+}
+
+#[test]
+fn imports_outside_the_rules_are_refused() {
+    let cases = [
+        ("import '../outside.ts';", "leaves the plugin folder"),
+        ("import 'lodash';", "only relative imports"),
+        ("import '/etc/passwd.js';", "only relative imports"),
+        (
+            "import 'https://example.com/x.js';",
+            "only relative imports",
+        ),
+        ("import './data.json';", "only .ts and .js"),
+        ("import './notes.txt';", "only .ts and .js"),
+        ("import './missing.ts';", "cannot read"),
+        ("import './bad.ts';", "expected"),
+    ];
+
+    for (main, reason) in cases {
+        let files = [
+            ("data.json", "{}"),
+            ("notes.txt", ""),
+            ("bad.ts", "const = ;"),
+        ];
+
+        let error = load_with(main, &files, Instant::now())
+            .err()
+            .unwrap_or_else(|| panic!("{main} loads"));
+
+        assert!(
+            error.to_string().to_lowercase().contains(reason),
+            "{main}: {error}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_out_of_the_folder_is_refused() {
+    let fixture = Fixture::new(r#""ui.add""#, "import './link.ts';");
+    std::fs::write(fixture.root.path().join("outside.ts"), "1;").unwrap();
+    std::os::unix::fs::symlink("../outside.ts", fixture.dir().join("link.ts")).unwrap();
+
+    let error = fixture.load(Instant::now()).err().expect("load fails");
+
+    assert!(
+        error.to_string().contains("outside the plugin folder"),
+        "{error}"
+    );
+}
+
+#[test]
+fn too_many_files_are_refused() {
+    let imports: String = (0..40).map(|n| format!("import './f{n}.ts';\n")).collect();
+    let files: Vec<(String, &str)> = (0..40).map(|n| (format!("f{n}.ts"), "1;")).collect();
+    let files: Vec<(&str, &str)> = files.iter().map(|(n, t)| (n.as_str(), *t)).collect();
+
+    let error = load_with(&imports, &files, Instant::now())
+        .err()
+        .expect("load fails");
+
+    assert!(error.to_string().contains("more than 32 files"), "{error}");
+}
+
+#[test]
+fn an_imported_file_runs_under_the_budget_and_reports_its_errors() {
+    let looping = load_with(
+        "import './spin.ts';",
+        &[("spin.ts", "while (true) {}")],
+        Instant::now(),
+    );
+    assert!(matches!(looping.err(), Some(SandboxError::Script(_))));
+
+    let throwing = load_with(
+        "import './boom.ts';",
+        &[("boom.ts", "throw new Error('imported boom');")],
+        Instant::now(),
+    );
+    let error = throwing.err().expect("load fails");
+    assert!(error.to_string().contains("imported boom"), "{error}");
 }

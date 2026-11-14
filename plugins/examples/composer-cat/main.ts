@@ -5,14 +5,13 @@
 // declaration, so the plugin sleeps between events. When the turn of the
 // session whose message box is open ends, it is happy for a moment.
 
+import { isRecord, readTurn, type Turn } from "./turn.ts";
+
 /** The session whose message box is open, as `ui.composer` says. */
 interface Composer {
   readonly machine: string;
   readonly session: string;
 }
-
-/** Where a session's turn stands. `done` is a session that waits for a prompt. */
-type Turn = "running" | "done" | "other";
 
 const WIDTH = 36;
 const HEIGHT = 28;
@@ -64,10 +63,6 @@ function cheer(): void {
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /** `{ machine, session }` from the `ui.composer` topic, or null when it is anything else. */
 function readComposer(data: unknown): Composer | null {
   if (!isRecord(data)) {
@@ -79,39 +74,6 @@ function readComposer(data: unknown): Composer | null {
   }
 
   return { machine, session };
-}
-
-/**
- * Where the session's turn stands, from the `agent` topic. The app's view is
- * `{ Sessions: { Sessions: { sessions: [{ id, state: { status, subagents } }] } } }`.
- * A turn runs while the status is Working or Asking, or while subagents run.
- */
-function readTurn(data: unknown, session: string): Turn | null {
-  if (!isRecord(data) || !isRecord(data.Sessions)) {
-    return null;
-  }
-  const reply = data.Sessions.Sessions;
-  if (!isRecord(reply) || !Array.isArray(reply.sessions)) {
-    return null;
-  }
-
-  const info: unknown = reply.sessions.find(
-    (item: unknown) => isRecord(item) && item.id === session,
-  );
-  if (!isRecord(info) || !isRecord(info.state)) {
-    return null;
-  }
-
-  const { status, subagents } = info.state;
-  const waiting = typeof subagents === "number" && subagents > 0;
-  if (status === "Working" || status === "Asking") {
-    return "running";
-  }
-  if (status === "Idle") {
-    return waiting ? "running" : "done";
-  }
-
-  return "other";
 }
 
 let followed: Composer | null = null;

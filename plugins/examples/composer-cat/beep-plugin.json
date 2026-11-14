@@ -2,6 +2,7 @@
   "id": "composer-cat",
   "name": "Composer cat",
   "version": "0.2.0",
+  "api": 1,
   "description": "A cat sits on the message box.",
   "entry": "main.ts",
   "permissions": ["ui.add", "sessions.read"],

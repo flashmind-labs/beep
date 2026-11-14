@@ -2,6 +2,7 @@
   "id": "session-notes",
   "name": "Session notes",
   "version": "0.2.0",
+  "api": 1,
   "description": "A short note on each session, set from its header.",
   "entry": "main.ts",
   "permissions": ["ui.add"],

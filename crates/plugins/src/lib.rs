@@ -2,6 +2,7 @@
 //! slots. It has no Tauri dependency, so `beep-node` and phones can host it too.
 
 mod asset;
+mod console;
 mod event;
 mod host;
 mod install;
@@ -13,6 +14,7 @@ mod meter;
 mod sandbox;
 mod source;
 mod status;
+mod store;
 mod topic;
 mod ui;
 
@@ -26,7 +28,8 @@ pub use instance::{
 };
 pub use managed::{Commit, GitOrigin, InvalidCommit, Origin, Policy, Record, STATE_FILE};
 pub use manifest::{
-    Activation, InvalidActivation, InvalidPluginId, Manifest, ManifestError, Permission, PluginId,
+    API_VERSION, Activation, InvalidActivation, InvalidPluginId, Manifest, ManifestError,
+    Permission, PluginId,
 };
 pub use status::{PluginState, PluginStatus};
 pub use topic::{Publication, Topic, TopicError};

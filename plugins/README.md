@@ -1,7 +1,7 @@
 # Plugins
 
 Prototype. A plugin is a folder `<plugins dir>/<id>/` with a `beep-plugin.json`
-and one TypeScript file. The desktop runs it in an embedded sandbox, reloads it
+and TypeScript files. The desktop runs it in an embedded sandbox, reloads it
 when its files change, and draws what it places. A plugin never touches the DOM.
 There are three slots and two permissions (`ui.add`, `sessions.read`).
 Folders and files whose names start with a dot are never plugins.
@@ -43,14 +43,16 @@ that folder with the same id runs instead.
 ## Manifest
 
 ```json
-{ "id": "composer-cat", "name": "Composer cat", "version": "0.2.0",
+{ "id": "composer-cat", "name": "Composer cat", "version": "0.2.0", "api": 1,
   "description": "A cat sits on the message box.", "entry": "main.ts", "permissions": ["ui.add"],
   "activation": ["slot:composer"] }
 ```
 
 - `id`: 2 to 40 chars, lowercase letters, digits and dashes, starts with a
   letter, equals the folder name.
-- `version`: semver. `description`: optional. `entry`: optional, default
+- `version`: semver. `api`: the plugin API version, default 1. This Beep knows
+  version 1. A plugin that asks for a newer one does not load, and Settings shows
+  "needs a newer Beep". `description`: optional. `entry`: optional, default
   `main.ts`, a path inside the folder.
 - `activation`: optional, when the plugin starts, default `["startup"]`. See
   Activation.
@@ -59,8 +61,7 @@ that folder with the same id runs instead.
 
 ## API
 
-Types are in `sdk/beep.d.ts`. The source is one file with no imports, and there
-is no DOM, `setTimeout` or `console`.
+Types are in `sdk/beep.d.ts`. There is no DOM or `setTimeout`.
 
 ```ts
 /// <reference path="../../sdk/beep.d.ts" />
@@ -80,8 +81,46 @@ const stop = beep.on({ name: "ui.composer" }, event => { /* event.data */ });
 - `after(ms, callback)`: one-shot timer, at least 16 ms, returns a cancel function.
   Timers wait while no window is visible.
 - `on(topic, callback)`: follow a topic, see below. Returns a function that stops it.
+- `log(...values)`, and `console.log`, `console.warn`, `console.error`: see Logs.
+- `store.get(key)`, `store.set(key, value)`, `store.delete(key)`: see Store.
 - `image`, `sprite`, `text`, `row`, `button`, `toggle`, `input`: build nodes. Images
   are paths inside the folder, at most 256 KB each and 4 MB per plugin.
+
+## Files
+
+The entry can import other `.ts` and `.js` files of the plugin folder with
+relative paths: `import { draw } from "./lib/draw.ts"`. Types are stripped from each
+file as it loads. Imports need the extension. Only relative paths that stay inside
+the folder load (a symlink out of it is refused); there are no bare specifiers,
+URLs or other file types. A plugin loads at most 32 files and 512 KB of source.
+Imports that cycle work as in any ES module. `beep` and `console` are global in
+every file. Top-level code in all files runs before the first render, under the
+same CPU budget, and an error in any of them stops the plugin. A change to any file
+in the folder reloads the plugin.
+
+## Logs
+
+There is one log file, the app's. `beep.log` and `console.log` write at info,
+`console.warn` at warn and `console.error` at error. Values format as in
+`console.log`: strings as they are, the rest as compact JSON, on one line cut at
+1 KB. A plugin writes at most 20 lines a second; the rest are counted and one
+`dropped N lines` line follows. Uncaught errors, budget stops and load failures are
+logged too, at error. Every line has the target `plugin` and the plugin id first:
+
+```
+INFO plugin: session-notes: loaded 3 notes
+```
+
+Filter one plugin's lines with `plugin: <id>: `.
+
+## Store
+
+`beep.store` keeps JSON values for the plugin across restarts, with no permission.
+`get` returns `null` for a missing key, `set` throws for a value that is not JSON or
+when all keys and values would pass 256 KB. Changes are written to
+`<plugins dir>/.data/<id>.json` a couple of seconds later (atomically) and when the
+plugin stops or reloads. Disabling a plugin or updating it (a built-in too) keeps
+its data; removing it deletes the data.
 
 ## Slots
 
@@ -224,7 +263,8 @@ BEEP_PLUGINS_DIR=$PWD/plugins/examples just desktop-dev
 ```
 
 `examples/session-notes` puts a note on each session's row, set from an input
-and a button in the open session's header.
+and a button in the open session's header, and keeps the notes in its store.
+`examples/composer-cat` keeps its turn parsing in a second file, `turn.ts`.
 
 Regenerate the cat frames with
 `python3 -I plugins/examples/composer-cat/art-src/sprite.py`.

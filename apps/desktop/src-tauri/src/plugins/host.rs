@@ -36,6 +36,10 @@ const COMPOSER_CAT: &[(&str, &[u8])] = &[
         include_bytes!("../../../../../plugins/examples/composer-cat/main.ts"),
     ),
     (
+        "turn.ts",
+        include_bytes!("../../../../../plugins/examples/composer-cat/turn.ts"),
+    ),
+    (
         "art/cat-blink.png",
         include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-blink.png"),
     ),

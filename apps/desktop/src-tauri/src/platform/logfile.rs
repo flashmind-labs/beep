@@ -1,7 +1,8 @@
 //! The app's log, under `~/Library/Logs/Beep` on macOS (where Console shows
 //! it), the XDG state folder on Linux, so a user can send it. Beep's own lines from
 //! debug up but the per-snapshot event lines, the embedded node's from info
-//! but its per-read subscription lines, iroh and the networking crates
+//! but its per-read subscription lines, plugins' own lines (target `plugin`,
+//! `<id>: text`) from info, iroh and the networking crates
 //! under it only when something goes wrong. `RUST_LOG` overrides it.
 
 use std::path::{Path, PathBuf};
@@ -12,7 +13,7 @@ use tracing_appender::{
 use tracing_subscriber::EnvFilter;
 
 const LOG_FILTER: &str = "info,beep_desktop=debug,beep_desktop_lib::fleet::events=info,\
-                          beep_node::link::events=warn,iroh=warn,noq=error,n0=warn,\
+                          beep_node::link::events=warn,plugin=info,iroh=warn,noq=error,n0=warn,\
                           netwatch=error,netdev=warn,portmapper=warn,igd_next=warn,\
                           notify::inotify=warn";
 /// The current daily log and the two previous daily logs.

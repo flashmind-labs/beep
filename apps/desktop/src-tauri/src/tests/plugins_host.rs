@@ -35,8 +35,22 @@ fn the_embedded_composer_cat_matches_its_source() {
     assert!(embedded("beep-plugin.json").is_some());
     assert!(embedded(&manifest.entry.to_string_lossy()).is_some());
 
-    // Every frame `main.ts` names through `art("...")` must be embedded.
+    // Every file `main.ts` imports must be embedded too.
     let main = std::fs::read_to_string(source.join("main.ts")).unwrap();
+    let imports: Vec<&str> = main
+        .lines()
+        .filter(|line| line.starts_with("import "))
+        .filter_map(|line| line.split('"').nth(1))
+        .collect();
+    assert!(!imports.is_empty());
+    for import in imports {
+        assert!(
+            embedded(import.trim_start_matches("./")).is_some(),
+            "{import}"
+        );
+    }
+
+    // Every frame `main.ts` names through `art("...")` must be embedded.
     let frames: Vec<&str> = main
         .split("art(\"")
         .skip(1)
@@ -55,5 +69,5 @@ fn the_embedded_composer_cat_matches_its_source() {
         assert_eq!(&std::fs::read(source.join(name)).unwrap(), bytes, "{name}");
     }
     let art = std::fs::read_dir(source.join("art")).unwrap().count();
-    assert_eq!(art, COMPOSER_CAT.len() - 2);
+    assert_eq!(art, COMPOSER_CAT.len() - 3);
 }

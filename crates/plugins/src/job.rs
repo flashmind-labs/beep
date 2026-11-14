@@ -4,9 +4,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Instant;
 
-use log::warn;
+use log::Level;
 
 use crate::asset::Asset;
+use crate::console::emit;
 use crate::event::Mailbox;
 use crate::host::Event;
 use crate::manifest::PluginId;
@@ -121,7 +122,7 @@ impl PluginJob {
 
     /// Logs the error once and tells the supervisor, which shows nothing for this plugin.
     fn fail(&self, error: &SandboxError) {
-        warn!("plugin {} stopped: {error}", self.id);
+        emit(&self.id, Level::Error, &format!("stopped: {error}"));
         let _ = self.events.send(Event::Stopped {
             id: self.id.clone(),
             generation: self.generation,

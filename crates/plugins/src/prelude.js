@@ -1,9 +1,11 @@
 // Evaluates to a function the host calls once with (schedule, canPlace, listen,
-// unlisten, checkPlace). These are the only native functions a plugin can reach, through
+// unlisten, checkPlace, native). These are the only native functions a plugin can reach, through
 // the closures below. `schedule(id, ms)`: a negative `ms` cancels the timer; it
 // returns false when the host refuses another timer. `listen(id, topicJson)`
 // returns "" or why the host refuses the subscription; `unlisten(id)` drops it.
 // `checkPlace(optionsJson)` returns "" or why the host refuses the options.
+// `native` holds `log(level, text)`, `get(key)` (JSON text or undefined),
+// `set(key, json)` (returns "" or why the store refuses it) and `remove(key)`.
 // The function returns { fire(id), emit(eventJson), instances(json),
 // invoke(id, argumentJson), render() }.
 //
@@ -12,7 +14,7 @@
 // live instance of its slot, with that instance's context. It returns one JSON
 // string per placement and instance, or null when nothing changed. An entry
 // is drawn again only when its context changed or a state was set.
-(function (schedule, canPlace, listen, unlisten, checkPlace) {
+(function (schedule, canPlace, listen, unlisten, checkPlace, native) {
   "use strict";
 
   const stringify = JSON.stringify;
@@ -202,7 +204,57 @@
     return { version, json: instance.json, ids, text };
   }
 
-  const api = { place, state, after, on, image, sprite, text, row, button, toggle, input };
+  // Formats values as console.log does: strings as they are, the rest as JSON.
+  function show(value) {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (value instanceof Error) {
+      return String(value);
+    }
+    try {
+      const json = stringify(value);
+      return json === undefined ? String(value) : json;
+    } catch (error) {
+      return String(value);
+    }
+  }
+
+  const logger = (level) => (...values) => {
+    native.log(level, values.map(show).join(" "));
+  };
+
+  const store = Object.freeze({
+    get(key) {
+      const json = native.get(String(key));
+      return json === undefined ? null : JSON.parse(json);
+    },
+    set(key, value) {
+      const json = stringify(value);
+      if (json === undefined) {
+        throw new TypeError("beep.store.set needs a JSON value");
+      }
+      const refused = native.set(String(key), json);
+      if (refused) {
+        throw new Error(refused);
+      }
+    },
+    delete(key) {
+      native.remove(String(key));
+    },
+  });
+
+  const api = {
+    place, state, after, on, image, sprite, text, row, button, toggle, input,
+    log: logger("info"),
+    store,
+  };
+  Object.defineProperty(globalThis, "console", {
+    value: Object.freeze({ log: logger("info"), warn: logger("warn"), error: logger("error") }),
+    writable: false,
+    configurable: false,
+    enumerable: false,
+  });
   Object.defineProperty(globalThis, "beep", {
     value: Object.freeze(api),
     writable: false,

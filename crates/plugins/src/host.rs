@@ -6,11 +6,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use log::{debug, warn};
+use log::{Level, debug, warn};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use thiserror::Error;
 
 use crate::asset::{Asset, AssetHash};
+use crate::console::emit;
 use crate::event::{EventError, Limiter, Mailbox, UiEvent};
 use crate::install::{Builtin, ManageError, Preview, clean_leftovers};
 use crate::instance::{InstanceBatch, InstanceError, Instances};
@@ -20,6 +21,7 @@ use crate::manifest::{Activation, Manifest, PluginId};
 use crate::meter::{BUDGET, Meter};
 use crate::sandbox::locked;
 use crate::status::{Info, Lifecycle, PluginStatus, Registry};
+use crate::store::DATA_DIR;
 use crate::topic::{Delivery, Inbox, Publication, Topic, TopicError};
 use crate::ui::Placement;
 
@@ -299,6 +301,14 @@ impl Host {
                 "cannot delete {}",
                 folder.display()
             )))?;
+        }
+        // The plugin has stopped, so nothing writes its data again.
+        let data = self.dir.join(DATA_DIR).join(format!("{id}.json"));
+        match std::fs::remove_file(&data) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                return Err(ManageError::io(format!("cannot delete {}", data.display()))(error));
+            }
+            _ => {}
         }
         self.managed
             .forget(id)
@@ -860,7 +870,7 @@ impl Supervisor {
                 }
             }
             Err(error) => {
-                warn!("plugin {id} stopped: {error}");
+                emit(&id, Level::Error, &format!("stopped: {error}"));
                 self.plans.remove(&id);
                 let record = self.managed.record(&id);
                 locked(&self.published.registry).set(
@@ -975,7 +985,7 @@ impl Supervisor {
                 );
             }
             Err(error) => {
-                warn!("cannot start plugin {id}: {error}");
+                emit(id, Level::Error, &format!("cannot start: {error}"));
                 registry.move_to(id, Lifecycle::Stopped(format!("cannot start: {error}")));
                 drop(registry);
                 self.clear(id);

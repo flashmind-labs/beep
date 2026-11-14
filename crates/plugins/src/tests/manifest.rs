@@ -131,3 +131,22 @@ fn bad_activations_fail_the_manifest() {
         Err(ManifestError::NoActivation)
     ));
 }
+
+#[test]
+fn a_missing_api_is_version_one_and_a_newer_one_needs_a_newer_beep() {
+    let plain = r#"{ "id": "ab", "name": "n", "version": "1.0.0" }"#;
+    assert_eq!(Manifest::parse(plain).unwrap().api, API_VERSION);
+
+    let current = r#"{ "id": "ab", "name": "n", "version": "1.0.0", "api": 1 }"#;
+    assert_eq!(Manifest::parse(current).unwrap().api, API_VERSION);
+
+    let newer = r#"{ "id": "ab", "name": "n", "version": "1.0.0", "api": 2 }"#;
+    let error = Manifest::parse(newer).unwrap_err();
+    assert!(
+        error.to_string().starts_with("needs a newer Beep"),
+        "{error}"
+    );
+
+    let zero = r#"{ "id": "ab", "name": "n", "version": "1.0.0", "api": 0 }"#;
+    assert!(Manifest::parse(zero).is_err());
+}

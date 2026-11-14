@@ -1,11 +1,27 @@
 /// <reference path="../../sdk/beep.d.ts" />
 
 // A short note on each session's row, set from the open session's header.
-// Notes live in memory, so a reload clears them.
+// Notes are kept in the plugin's store, so they survive a restart.
 
 type Notes = Readonly<Record<string, string>>;
 
-const notes = beep.state<Notes>({});
+const NOTES_KEY = "notes";
+
+/** The saved notes, or none when the store holds something else. */
+function loadNotes(): Notes {
+  const saved: unknown = beep.store.get(NOTES_KEY);
+  if (typeof saved !== "object" || saved === null || Array.isArray(saved)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(saved).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+const notes = beep.state<Notes>(loadNotes());
 const drafts = beep.state<Notes>({});
 
 function set(state: State<Notes>, session: string, value: string): void {
@@ -14,6 +30,7 @@ function set(state: State<Notes>, session: string, value: string): void {
 
 function save(session: string, value: string): void {
   set(notes, session, value.trim());
+  beep.store.set(NOTES_KEY, notes.get());
   set(drafts, session, "");
 }
 

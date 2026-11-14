@@ -1,4 +1,5 @@
 use std::fmt;
+use std::num::NonZeroU32;
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
@@ -11,6 +12,9 @@ use crate::ui::Slot;
 
 /// File name of the manifest inside a plugin folder.
 pub const MANIFEST_FILE: &str = "beep-plugin.json";
+
+/// The plugin API this Beep implements. A manifest asks for one with `api`.
+pub const API_VERSION: NonZeroU32 = NonZeroU32::MIN;
 
 const ID_LEN: std::ops::RangeInclusive<usize> = 2..=40;
 
@@ -156,6 +160,9 @@ pub struct Manifest {
     pub id: PluginId,
     pub name: String,
     pub version: semver::Version,
+    /// The plugin API the plugin is written for. Default 1.
+    #[serde(default = "default_api")]
+    pub api: NonZeroU32,
     #[serde(default)]
     pub description: String,
     /// Source file relative to the plugin folder.
@@ -181,6 +188,8 @@ pub enum ManifestError {
     IdMismatch { id: PluginId, folder: String },
     #[error("entry {} must be a relative path inside the plugin folder", .0.display())]
     Entry(PathBuf),
+    #[error("needs a newer Beep: the plugin uses API {0}, this Beep knows up to {API_VERSION}")]
+    Api(NonZeroU32),
     #[error("activation needs at least one entry")]
     NoActivation,
 }
@@ -219,6 +228,10 @@ impl Manifest {
     pub fn parse(text: &str) -> Result<Self, ManifestError> {
         let manifest: Self = serde_json::from_str(text)?;
 
+        if manifest.api > API_VERSION {
+            return Err(ManifestError::Api(manifest.api));
+        }
+
         let stays_inside = manifest
             .entry
             .components()
@@ -242,6 +255,10 @@ impl Manifest {
     pub fn allows(&self, permission: Permission) -> bool {
         self.permissions.contains(&permission)
     }
+}
+
+fn default_api() -> NonZeroU32 {
+    API_VERSION
 }
 
 fn default_activation() -> Vec<Activation> {

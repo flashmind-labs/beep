@@ -4,16 +4,20 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use cpu_time::ThreadTime;
-use rquickjs::context::EvalOptions;
-use rquickjs::{CatchResultExt, Context, Ctx, Function, Object, Persistent, Runtime};
+use log::Level;
+use rquickjs::{
+    CatchResultExt, Context, Ctx, Function, Module, Object, Persistent, Runtime, Value,
+};
 use thiserror::Error;
 
 use crate::asset::{Asset, Assets, ImageError};
+use crate::console::Console;
 use crate::event::UiEvent;
 use crate::instance::Instance;
 use crate::manifest::{Manifest, ManifestError, Permission, PluginId};
 use crate::meter::Meter;
-use crate::source::{SourceError, strip_types};
+use crate::source::{Imports, Sources};
+use crate::store::{DATA_DIR, Store};
 use crate::topic::{Delivery, Subscriptions, Topic};
 use crate::ui::{
     MAX_FRAMES, Motion, Node, Placement, RawNode, RawPlace, RawPlacement, RawRepeat, Repeat, Slot,
@@ -42,15 +46,11 @@ const MAX_TOTAL_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) enum SandboxError {
     #[error(transparent)]
     Manifest(#[from] ManifestError),
-    #[error(transparent)]
-    Source(#[from] SourceError),
     #[error("cannot read {}: {source}", path.display())]
     Io {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("entry {} is outside the plugin folder", .0.display())]
-    EntryOutside(PathBuf),
     #[error("script error: {0}")]
     Script(String),
     #[error("script engine error: {0}")]
@@ -94,6 +94,7 @@ pub(crate) struct Sandbox {
     images: Resolver,
     /// The images the last render used.
     shown_assets: Vec<Asset>,
+    store: Arc<Mutex<Store>>,
 }
 
 struct Timers {
@@ -162,25 +163,10 @@ impl Sandbox {
             path: dir.to_path_buf(),
             source,
         })?;
-        let entry_path = root.join(&manifest.entry);
-        let entry_real = entry_path
-            .canonicalize()
-            .map_err(|source| SandboxError::Io {
-                path: entry_path,
-                source,
-            })?;
-        if !entry_real.starts_with(&root) {
-            return Err(SandboxError::EntryOutside(manifest.entry));
-        }
-        let source = std::fs::read_to_string(&entry_real).map_err(|source| SandboxError::Io {
-            path: entry_real.clone(),
-            source,
-        })?;
-        let script = strip_types(&source, &manifest.entry)?;
-
         let runtime = Runtime::new()?;
         runtime.set_memory_limit(MEMORY_LIMIT);
         runtime.set_max_stack_size(STACK_LIMIT);
+        runtime.set_loader(Imports, Sources::new(root.clone()));
         let budget = Budget::default();
         let watched = budget.clone();
         runtime.set_interrupt_handler(Some(Box::new(move || watched.exceeded())));
@@ -192,18 +178,26 @@ impl Sandbox {
 
         let subscriptions = Arc::new(Mutex::new(Subscriptions::new(&manifest.permissions)));
 
+        let data = root.parent().unwrap_or(&root).join(DATA_DIR);
+        let store = Arc::new(Mutex::new(Store::load(
+            manifest.id.clone(),
+            data.join(format!("{}.json", manifest.id)),
+        )));
+        let console = Arc::new(Mutex::new(Console::new(manifest.id.clone())));
+
         let started = Cpu::start();
         budget.start();
         let can_place = manifest.allows(Permission::UiAdd);
-        let filename = manifest.entry.display().to_string();
+        let entry = format!("./{}", manifest.entry.to_string_lossy().replace('\\', "/"));
         let loaded = context.with(|ctx| {
             let schedule = schedule_function(&ctx, &timers)?;
             let (listen, unlisten) = subscribe_functions(&ctx, &subscriptions)?;
             let check_place = Function::new(ctx.clone(), check_place)?;
+            let native = native_functions(&ctx, &store, &console)?;
             let factory: Function = caught(&ctx, ctx.eval(PRELUDE))?;
             let api: Object = caught(
                 &ctx,
-                factory.call((schedule, can_place, listen, unlisten, check_place)),
+                factory.call((schedule, can_place, listen, unlisten, check_place, native)),
             )?;
             let fire: Function = caught(&ctx, api.get("fire"))?;
             let emit: Function = caught(&ctx, api.get("emit"))?;
@@ -211,9 +205,9 @@ impl Sandbox {
             let invoke: Function = caught(&ctx, api.get("invoke"))?;
             let render: Function = caught(&ctx, api.get("render"))?;
 
-            let mut options = EvalOptions::default();
-            options.filename = Some(filename);
-            caught(&ctx, ctx.eval_with_options::<(), _>(script, options))?;
+            // The entry and what it imports run now, before the first render.
+            let imported = caught(&ctx, Module::import(&ctx, entry))?;
+            caught(&ctx, imported.finish::<Value>())?;
 
             Ok::<_, SandboxError>((
                 Persistent::save(&ctx, fire),
@@ -246,20 +240,29 @@ impl Sandbox {
             meter,
             images: Resolver::new(Assets::new(root)),
             shown_assets: Vec::new(),
+            store,
         })
     }
 
-    /// When the earliest pending timer is due.
+    /// When the earliest pending timer is due, or the store's changes are.
     pub(crate) fn next_timer(&self) -> Option<Instant> {
-        locked(&self.timers)
+        let timer = locked(&self.timers)
             .pending
             .iter()
             .map(|(_, due)| *due)
+            .min();
+
+        [timer, locked(&self.store).due()]
+            .into_iter()
+            .flatten()
             .min()
     }
 
-    /// Runs every timer due at `now`, in due order. Timers they set land after `now`.
+    /// Runs every timer due at `now`, in due order, and writes the store if its
+    /// changes are due. Timers they set land after `now`.
     pub(crate) fn fire_due(&mut self, now: Instant) -> Result<(), SandboxError> {
+        locked(&self.store).flush_due(now);
+
         let due = {
             let mut timers = locked(&self.timers);
             timers.now = now;
@@ -395,6 +398,38 @@ impl Sandbox {
     }
 }
 
+/// The native functions behind `console`, `beep.log` and `beep.store`.
+fn native_functions<'js>(
+    ctx: &Ctx<'js>,
+    store: &Arc<Mutex<Store>>,
+    console: &Arc<Mutex<Console>>,
+) -> Result<Object<'js>, SandboxError> {
+    let console = Arc::clone(console);
+    let log = move |level: String, text: String| {
+        let level = level.parse().unwrap_or(Level::Info);
+        locked(&console).line(Instant::now(), level, &text);
+    };
+    let held = Arc::clone(store);
+    let get = move |key: String| locked(&held).get(&key);
+    let held = Arc::clone(store);
+    let set = move |key: String, json: String| -> String {
+        match locked(&held).set(&key, &json, Instant::now()) {
+            Ok(()) => String::new(),
+            Err(error) => error.to_string(),
+        }
+    };
+    let held = Arc::clone(store);
+    let remove = move |key: String| locked(&held).delete(&key, Instant::now());
+
+    let native = Object::new(ctx.clone())?;
+    native.set("log", Function::new(ctx.clone(), log)?)?;
+    native.set("get", Function::new(ctx.clone(), get)?)?;
+    native.set("set", Function::new(ctx.clone(), set)?)?;
+    native.set("remove", Function::new(ctx.clone(), remove)?)?;
+
+    Ok(native)
+}
+
 /// The one native function plugins reach, through the prelude's closures.
 fn schedule_function<'js>(
     ctx: &Ctx<'js>,
@@ -479,6 +514,13 @@ fn caught<T>(ctx: &Ctx<'_>, result: rquickjs::Result<T>) -> Result<T, SandboxErr
     result
         .catch(ctx)
         .map_err(|error| SandboxError::Script(error.to_string()))
+}
+
+impl Drop for Sandbox {
+    /// Writes the store's changes when the plugin stops, reloads or fails.
+    fn drop(&mut self) {
+        locked(&self.store).flush();
+    }
 }
 
 pub(crate) fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

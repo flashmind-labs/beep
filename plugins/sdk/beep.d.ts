@@ -1,6 +1,8 @@
 // Types for the global `beep` that the host gives every plugin.
-// A plugin is one source file with no imports. It has no DOM, no
-// setTimeout and no console: use `beep.after` for timers.
+// A plugin is a TypeScript or JavaScript entry file that may import other
+// .ts and .js files of its folder by relative path (`import { x } from "./x.ts"`).
+// It has no DOM and no setTimeout: use `beep.after` for timers. `console.log`,
+// `console.warn` and `console.error` work like `beep.log`.
 
 /**
  * A named place in the app. A slot can be on the page many times, each time
@@ -255,7 +257,29 @@ interface State<T> {
   set(next: T): void;
 }
 
+/**
+ * Values kept for the plugin across restarts, as JSON, in a file of the plugins
+ * folder. Changes are written a moment later and when the plugin stops. All keys
+ * and values together may take 256 KB. No permission needed.
+ */
+interface Store {
+  /** The value saved under `key`, or null when there is none. */
+  get(key: string): unknown;
+  /** Save a JSON value. Throws when it is not JSON or the store would pass 256 KB. */
+  set(key: string, value: unknown): void;
+  delete(key: string): void;
+}
+
 interface Beep {
+  readonly store: Store;
+
+  /**
+   * Write a line to the app's log file, at info. Values are formatted like
+   * `console.log`: strings as they are, the rest as JSON. A line is cut at 1 KB,
+   * and a plugin may write 20 lines a second.
+   */
+  log(...values: unknown[]): void;
+
   /**
    * Put a node in a slot. `render` runs once for each instance of the slot on
    * the page, with that instance's context. It runs again for an instance whose
@@ -315,5 +339,12 @@ interface Beep {
   /** Build a single line text field. */
   input(options: InputOptions): Node;
 }
+
+/** Like `beep.log`, at the level of the method: info, warn or error. */
+declare const console: {
+  log(...values: unknown[]): void;
+  warn(...values: unknown[]): void;
+  error(...values: unknown[]): void;
+};
 
 declare const beep: Beep;
