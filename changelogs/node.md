@@ -2,6 +2,16 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.28] - 2026-11-14
+
+### Added
+
+- Node: tells the desktops when a review agent has handed in its review.
+
+### Fixed
+
+- Node: Claude sign-in detection on macOS now follows Claude's auth status instead of treating leftover Keychain entries as a sign-in.
+
 ## [0.6.27] - 2026-11-14
 
 ### Added
