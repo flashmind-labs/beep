@@ -30,6 +30,15 @@ server features, and nodes do not connect to it.
 - Every feature the user asks for gets a GitHub issue in `flashmind-labs/beep`
   (`gh issue create`) before work starts. Link it from the commit or close it
   when the feature ships.
+- Label every issue: one or more areas (`area: desktop`, `area: phone`,
+  `area: node`, `area: mesh`, `area: sync`, `area: server`, `area: agents`
+  for coding agent sessions, ACP and MCP, `area: release` for builds,
+  signing and CI, `area: assistant` for the removed server assistant,
+  `command-center`, `plugin`), exactly one type (`bug`, `enhancement`,
+  `performance`, `refactor`, `security`, `discussion`, `documentation`), and
+  `priority: low` when it fits.
+- Close an issue as completed only when main implements all of it and a
+  commit or `file:line` shows it. Partial work stays open.
 - The desktop is a separate Cargo workspace: `just desktop-dev`,
   `just desktop-check`, `just desktop-build`.
 - The phone app is `apps/desktop` built for iOS and Android: `just ios-run`
