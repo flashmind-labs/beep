@@ -554,9 +554,9 @@ strict_action_test!(
     json!({"action":"send", "machine":"build-box", "paths":["/path/to/file"], "dest":"/path/to/dest"})
 );
 strict_action_test!(
-    agent_list_rejects_arguments,
+    agent_list_rejects_unused_arguments,
     "agent",
-    json!({"action":"list"})
+    json!({"action":"list", "project":"beep", "all":true})
 );
 strict_action_test!(
     beep_status_rejects_arguments,

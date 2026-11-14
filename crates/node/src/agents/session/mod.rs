@@ -31,7 +31,10 @@ use std::{
     collections::{HashSet, VecDeque},
     path::Path,
     process::Stdio,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    },
     time::Duration,
 };
 use tokio::sync::{mpsc, oneshot, watch};
@@ -173,7 +176,14 @@ pub(super) struct Session {
     _task: AbortOnDropHandle<()>,
     /// What watches over its children, which stops with it.
     guards: Mutex<Vec<AbortOnDropHandle<()>>>,
+    /// Messages from agents that are not its parent since the user last
+    /// wrote, so two agents cannot keep each other talking.
+    peer_messages: AtomicU32,
 }
+
+/// The most messages a session takes from other agents between two of the
+/// user's.
+pub(super) const PEER_MESSAGES: u32 = 5;
 
 impl std::fmt::Debug for Session {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -419,6 +429,7 @@ impl Session {
             processes,
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),
+            peer_messages: AtomicU32::new(0),
         })
     }
 
@@ -426,6 +437,27 @@ impl Session {
     /// lives.
     pub(super) fn keep(&self, task: tokio::task::JoinHandle<()>) {
         crate::lock(&self.guards).push(AbortOnDropHandle::new(task));
+    }
+
+    /// Counts one more message from another agent, or refuses it once
+    /// `PEER_MESSAGES` came since the user last wrote.
+    pub(super) fn take_peer_message(&self) -> Result<(), String> {
+        self.peer_messages
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                (count < PEER_MESSAGES).then_some(count + 1)
+            })
+            .map(drop)
+            .map_err(|_| {
+                format!(
+                    "It took {PEER_MESSAGES} messages from agents since the user last wrote. \
+                     Stop and let the user decide."
+                )
+            })
+    }
+
+    /// The user wrote: other agents may message the session again.
+    pub(super) fn user_wrote(&self) {
+        self.peer_messages.store(0, Ordering::Relaxed);
     }
 
     pub(super) fn info(&self) -> SessionInfo {
