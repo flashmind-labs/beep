@@ -3,6 +3,7 @@ import { plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { machineDisk, machineDot, type MachineCard, type MacRow } from "../machines/machine-state.ts";
 import { Button } from "../ui/kit.tsx";
+import { HazeArt } from "../ui/painted-art.tsx";
 
 export type HomeTab = "overview" | "git" | "machines";
 
@@ -24,6 +25,7 @@ interface HomeShellProps {
 
 export function HomeShell({ machines, mac, jump, menu, addMachine, useMac, error, unavailable, offline, content, tabs, selected, open }: HomeShellProps) {
   return <>
+    <HazeArt />
     {machines && <div className="cc-mstrip">{machines.map(machine => {
       const disk = machineDisk(machine).text;
       const now = machine.online ? (machine.can_host === false ? "controller" : machine.agents ? plural(machine.agents, "agent", "agents") : "idle") : machine.connecting ? "connecting" : "offline";
