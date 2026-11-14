@@ -525,7 +525,7 @@ export const newFromList = () => renderAgentNew("", "agents");
 export function agentKeys(e: KeyboardEvent, cmd: boolean) {
   if (S.view === "agentnew") {
     if (cmd && e.key === "Enter") { e.preventDefault(); startAgent(); return true; }
-    if (cmd && e.key.toLowerCase() === "m") { e.preventDefault(); togglePicker(); return true; }
+    if (cmd && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); togglePicker(); return true; }
     return false;
   }
 

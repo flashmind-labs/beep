@@ -58,8 +58,8 @@ export const projectComp = (() => {
   renderChoices({ machine: "Machine", adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
   // Esc or a click outside closes the picker.
   form.addEventListener("keydown", e => {
-    // ⌘M opens the model picker, as on the agent start page.
-    if (commandKey(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "m") {
+    // ⇧⌘M opens the model picker, as on the agent start page. ⌘M minimizes on macOS.
+    if (commandKey(e) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "m") {
       e.preventDefault();
       e.stopPropagation();
       toggleBarPicker();

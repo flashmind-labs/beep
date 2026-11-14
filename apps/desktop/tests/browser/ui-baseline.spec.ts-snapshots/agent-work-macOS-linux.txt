@@ -292,7 +292,7 @@ body.cbody
                           span "Close session"
                             kbd "⇧⌘W"
                           span "Pick the model, on the start form"
-                            kbd "⌘M"
+                            kbd "⇧⌘M"
                           span "Move through models, in the model search"
                             kbd "↑ ↓"
                           span "Open or fold thoughts"
