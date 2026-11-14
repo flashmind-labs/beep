@@ -4,7 +4,10 @@
 
 use crate::{
     error::{DesktopError, Result},
-    fleet::projects::{FleetState, desk},
+    fleet::{
+        Machines, agents as direct,
+        projects::{FleetState, desk},
+    },
 };
 use beep_fleet::{MoveAsk, MoveState};
 use beep_proto::{
@@ -104,6 +107,7 @@ fn machine(id: &str) -> Result<EndpointId> {
 #[allow(clippy::too_many_arguments)]
 pub async fn session_move(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     machine_id: String,
     to: String,
     agent: String,
@@ -114,15 +118,19 @@ pub async fn session_move(
     model: Option<String>,
     stop: bool,
 ) -> Result<MoveView> {
+    let from = machine(&machine_id)?;
+    // The worktrees it created go along in the record, so the target keeps them.
+    let worktrees = direct::created_worktrees(&machines, from, &agent, &session).await;
     let ask = MoveAsk {
         agent: &agent,
         id: &session,
-        from: machine(&machine_id)?,
+        from,
         to: machine(&to)?,
         project: &project,
         cwd: &cwd,
         mode,
         model: model.map(ModelId::new),
+        worktrees,
         stop,
     };
     Ok(desk(&fleet).await?.move_session(ask).await?.into())

@@ -2860,6 +2860,7 @@ async fn ask_to_move_in(
         stop,
         at: 1_793_696_400_000,
         worktree: None,
+        worktrees: Vec::new(),
     };
     desktop
         .mesh

@@ -13,8 +13,8 @@ const { flushSync } = await import("react-dom");
 const { createRoot } = await import("react-dom/client");
 const { WorktreeMenu } = await import("../src/agentpane/worktree-view.tsx");
 const { startWorktrees, worktreeMenu } = await import("../src/agentpane/worktree.ts");
-const main: Tree = {path: "/srv/app", branch: "main", head: "abc1234", own: true};
-const fix: Tree = {path: "/srv/app/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false};
+const main: Tree = {path: "/srv/app", branch: "main", head: "abc1234", own: true, created: false};
+const fix: Tree = {path: "/srv/app/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false, created: true};
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 
 test("a pointerdown whose target is not an element closes the open menu", async () => {

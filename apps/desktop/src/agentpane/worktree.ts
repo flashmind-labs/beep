@@ -62,6 +62,10 @@ const W = {
 
 let firstRead: Promise<void> = Promise.resolve();
 
+/// The menu lists every worktree of the repository, not only the session's
+/// folder and the worktrees the session made. Kept while the window is open.
+let showAll = false;
+
 /// Initial reads wait until a removed worktree has resolved to its checkout.
 export function worktreesReady(): Promise<void> { return firstRead; }
 
@@ -168,7 +172,7 @@ async function readTrees() {
   let listed = false;
 
   try {
-    const asked = await invoke<Tree[] | null>("agent_worktrees", { machineId: p.machine_id, folder: p.cwd });
+    const asked = await invoke<Tree[] | null>("agent_worktrees", { machineId: p.machine_id, folder: p.cwd, session: p.id || null });
     const got = asked ?? [];
     if (W.place?.id !== p.id) return;
 
@@ -306,15 +310,19 @@ export function worktreeMenu(): WorktreeMenuModel | null {
   const now = W.trees.find(t => rootOf(t, W.cwd) === W.shown);
   const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
   const main = W.trees.find(t => t.own);
-  const items = W.trees.map(t => {
+  const listed = W.trees.filter(t => {
+    const path = rootOf(t, W.cwd);
+    return showAll || t.own || t.created || path === W.shown || path === W.seen;
+  });
+  const items = listed.map(t => {
     const path = rootOf(t, W.cwd);
     const sub = t.own ? (removed(p) ? "main checkout" : "the session's folder")
       : main && t.path.startsWith(`${bare(main.path)}/`) ? t.path.slice(bare(main.path).length + 1) : t.path;
     return { path, title: t.path, name: treeName(t), sub: sub + (W.seen === path ? " · agent here" : ""), visible: matchesTree(t, W.search) };
   });
   return {
-    label, items, shown: W.shown, follow: W.follow, open: W.open, search: W.search,
-    pick: pickRoot, searchChanged: (value: string) => { W.search = value; W.changed(false); },
+    label, items, shown: W.shown, follow: W.follow, open: W.open, search: W.search, all: showAll,
+    pick: pickRoot, showAll: (all: boolean) => { showAll = all; W.changed(false); }, searchChanged: (value: string) => { W.search = value; W.changed(false); },
     toggle: () => {
       W.open = !W.open;
       W.search = "";

@@ -3,7 +3,7 @@
 //! for the node to be idle.
 
 use crate::{
-    agents::{Agents, LastModel, OpenSession},
+    agents::{Agents, LastModel, LastWorktrees, OpenSession},
     link::local_socket::{Listener, Stream},
     link::note,
     link::watchdog::{self, Step},
@@ -41,6 +41,9 @@ pub(crate) struct Reopen {
     /// The models sessions last ran on, ended ones too.
     #[serde(default)]
     pub(crate) models: Vec<LastModel>,
+    /// The worktrees sessions created, ended ones too.
+    #[serde(default)]
+    pub(crate) worktrees: Vec<LastWorktrees>,
 }
 
 impl Reopen {
@@ -57,6 +60,7 @@ impl Reopen {
             sessions: agents.open_sessions(),
             terminals: terminal::running(),
             models: agents.last_models(),
+            worktrees: agents.last_worktrees(),
         }
     }
 
@@ -95,6 +99,7 @@ pub(crate) async fn keep(dir: &Path, agents: &Agents) {
 pub async fn reopen_and_keep(dir: &Path, agents: &Agents) {
     let reopen = Reopen::read(dir);
     agents.keep_models(reopen.models);
+    agents.keep_worktrees(reopen.worktrees);
     terminal::reopen(dir, reopen.terminals).await;
     agents.reopen(reopen.sessions).await;
     keep(dir, agents).await;

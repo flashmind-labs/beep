@@ -32,6 +32,8 @@ pub struct MoveAsk<'a> {
     pub mode: Option<String>,
     /// The model it runs on.
     pub model: Option<ModelId>,
+    /// The linked worktrees it created on the source.
+    pub worktrees: Vec<String>,
     /// Stop the turn instead of waiting for it.
     pub stop: bool,
 }
@@ -81,6 +83,7 @@ impl Desk {
             // Sessions run in the project folder, never in a worktree.
             worktree: None,
             model: ask.model,
+            worktrees: ask.worktrees,
         };
         let _one = WRITES.lock().await;
         self.forget_old_moves(record.at).await?;

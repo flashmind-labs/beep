@@ -13,6 +13,8 @@ export interface Tree {
   head: string;
   /// The one holding the session's folder.
   own: boolean;
+  /// The session the list was asked for made it.
+  created: boolean;
 }
 
 /// The parts of a log entry the matching reads.

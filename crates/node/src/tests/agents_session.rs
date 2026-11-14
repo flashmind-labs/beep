@@ -825,6 +825,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         parent: None,
         follows: None,
         note: None,
+        worktrees: Vec::new(),
         brief: None,
         rule: None,
         mcp: None,

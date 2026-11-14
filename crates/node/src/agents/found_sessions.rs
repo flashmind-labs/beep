@@ -47,6 +47,7 @@ pub(super) struct Held {
     pub(super) parent: Option<ParentLink>,
     pub(super) mode: Option<String>,
     pub(super) model: Option<ModelId>,
+    pub(super) worktrees: Vec<String>,
 }
 
 /// How many of a store's sessions one listing keeps.
@@ -529,6 +530,7 @@ impl Agents {
                 parent: info.parent,
                 mode: info.mode,
                 model: info.model,
+                worktrees: info.worktrees,
             }
         });
         let ended = ours
@@ -586,6 +588,9 @@ impl Agents {
         // It goes on with the model it last ran on here, also after a restart.
         let mut before = before.unwrap_or_default();
         before.model = before.model.or_else(|| self.last_model(id));
+        if before.worktrees.is_empty() {
+            before.worktrees = self.created_worktrees(id);
+        }
         let begin = self.resumed_begin(prompt, id, before);
         let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
@@ -600,6 +605,7 @@ impl Agents {
             parent,
             mode,
             model,
+            worktrees,
         } = before;
         let follows = parent.as_ref().and_then(|link| self.parent_live_of(link));
         Begin {
@@ -609,6 +615,7 @@ impl Agents {
             model,
             parent,
             follows,
+            worktrees,
             ..Begin::default()
         }
     }

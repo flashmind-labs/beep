@@ -370,9 +370,12 @@ pub async fn serve_sessions(
             })
             .await
         }
-        SessionsRequest::Worktrees { folder } => {
+        SessionsRequest::Worktrees { folder, session } => {
+            let created = session
+                .map(|id| agents.created_worktrees(&id))
+                .unwrap_or_default();
             let list = work_request(&agents, &folder, reach::Access::Work, move |real| {
-                let worktrees = worktrees::list(&real)?;
+                let worktrees = worktrees::list(&real, &created)?;
                 Ok(SessionsReply::Worktrees { worktrees })
             });
             timeout(WORKTREES_WAIT, list)

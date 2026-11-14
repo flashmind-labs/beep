@@ -556,6 +556,7 @@ mod mesh_state {
             at: u64,
             worktree: Option<MovedWorktree>,
             model: Option<String>,
+            worktrees: Vec<String>,
             added_later: u8,
         }
         let (from, to) = (
@@ -574,10 +575,12 @@ mod mesh_state {
             at: 7,
             worktree: None,
             model: None,
+            worktrees: vec!["/srv/app/.worktrees/fix".into()],
             added_later: 1,
         };
         let record = SessionMove::from_bytes(&rmp_serde::to_vec(&sent).unwrap()).unwrap();
         assert_eq!((record.from, record.to, record.stop), (from, to, true));
+        assert_eq!(record.worktrees, ["/srv/app/.worktrees/fix"]);
         assert_eq!(
             SessionMove::from_bytes(&record.to_bytes().unwrap()).unwrap(),
             record
@@ -1761,6 +1764,7 @@ mod agent {
         fn worktrees_round_trip_and_may_be_asked_again() {
             let ask = SessionsRequest::Worktrees {
                 folder: "/srv/project".into(),
+                session: Some("a3f9c1".into()),
             };
             assert!(ask.is_read());
             let body = rmp_serde::to_vec(&ask).unwrap();
@@ -1774,6 +1778,7 @@ mod agent {
                     branch: None,
                     head: "abc1234".into(),
                     own: true,
+                    created: true,
                 }],
             };
             let body = rmp_serde::to_vec(&reply).unwrap();

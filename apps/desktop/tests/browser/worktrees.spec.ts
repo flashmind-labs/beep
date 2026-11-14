@@ -7,8 +7,8 @@ test("the worktree picker can pause following and search branches or paths", asy
   await openDesktop(page, true);
   await page.evaluate(() => {
     window.__navigation.worktrees([
-      {path: "/srv/project", branch: "main", head: "abc1234", own: true},
-      {path: "/srv/project/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false},
+      {path: "/srv/project", branch: "main", head: "abc1234", own: true, created: false},
+      {path: "/srv/project/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false, created: true},
     ]);
     window.__navigation.open({agent: {
       kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "First notification",

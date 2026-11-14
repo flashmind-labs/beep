@@ -115,6 +115,7 @@ fn record(env: &Env, stop: bool) -> SessionMove {
         path: String::new(),
         mode: None,
         model: None,
+        worktrees: Vec::new(),
         stop,
         at: 1_793_696_400_000,
         worktree: None,

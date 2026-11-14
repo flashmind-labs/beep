@@ -398,6 +398,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
             Some(&dir.path().to_string_lossy()),
             Begin {
                 model: Some(ModelId::new("deep")),
+                worktrees: vec!["/srv/app/.worktrees/fix".into()],
                 ..begin("hello")
             },
         )
@@ -411,7 +412,12 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     let kept = before.last_models();
     let noted = Agents::new(Vec::new());
     noted.keep_models(kept);
+    noted.keep_worktrees(before.last_worktrees());
     assert_eq!(noted.last_model("held-1"), Some(ModelId::new("deep")));
+    assert_eq!(
+        noted.created_worktrees("held-1"),
+        vec!["/srv/app/.worktrees/fix".to_owned()]
+    );
 
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
@@ -422,6 +428,10 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
         live.info.model == Some(ModelId::new("deep"))
     })
     .await;
+    assert_eq!(
+        session.info().worktrees,
+        vec!["/srv/app/.worktrees/fix".to_owned()]
+    );
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
     let loaded = read.find("session/load").expect("the session loads");
     assert!(read[loaded..].contains("session/set_model"), "{read}");

@@ -583,6 +583,7 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
         parent: before.parent.clone(),
         mode: before.mode.clone(),
         model: None,
+        worktrees: Vec::new(),
     };
     let begin = rig.agents.resumed_begin(None, "agent-id", held);
     assert_eq!(begin.parent, before.parent);

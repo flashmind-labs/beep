@@ -30,7 +30,7 @@ test("a row with no known place keeps its fallback", () => {
   assert.equal(placeSub(undefined, "build-box"), null);
 });
 
-const tree = (path: string, own = false): Tree => ({ path, branch: null, head: "abc1234", own });
+const tree = (path: string, own = false): Tree => ({ path, branch: null, head: "abc1234", own, created: false });
 
 test("the folder a machine reports is the worktree the pane reads", () => {
   const trees = [tree("/srv/app", true), tree("/srv/app/.worktrees/fix")];
@@ -44,6 +44,6 @@ test("a reported folder the list does not have yet is read as it is", () => {
 });
 
 test("a reported worktree that was removed is not read", () => {
-  const trees: Tree[] = [{ path: "/srv/app", branch: "main", head: "abc1234", own: true }];
+  const trees: Tree[] = [{ path: "/srv/app", branch: "main", head: "abc1234", own: true, created: false }];
   assert.equal(reportedRoot(trees, "/srv/app", "/srv/app/.worktrees/gone"), null);
 });

@@ -2635,6 +2635,7 @@ async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cann
         cwd,
         mode: None,
         model: None,
+        worktrees: Vec::new(),
         stop: false,
     };
     let why = |result: Result<_, FleetError>| match result {
@@ -2705,6 +2706,7 @@ async fn a_move_takes_folders_from_place_records_when_there_is_no_sync_record() 
         cwd,
         mode: None,
         model: None,
+        worktrees: Vec::new(),
         stop: false,
     };
     let ask = || ask_in("/srv/build/app/crates/a");
