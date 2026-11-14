@@ -111,6 +111,11 @@ body.mobile .pj-org h3.gp .pj-fold { display: flex }
 body.mobile .pj-org h3.gp .gp-paths { display: block; margin-top: 2px }
 body.mobile .pj-org h3.gp .gp-acts { display: flex; margin: 4px 0 0 -9px }
 body.mobile .cc-top .tools .pj-tool { width: 36px; padding: 0; gap: 0; justify-content: center; font-size: 0; flex: none }
+/* The + is a round button floating at the bottom right of the page, above the tab bar. It is placed
+   against .cc-main, the nearest positioned box; the page leaves room under its last row. */
+body.mobile .cc-top .tools .pj-tool.fab { position: absolute; right: 16px; bottom: 16px; z-index: 5; width: 56px; height: 56px; min-height: 56px; border: 0; border-radius: 50%; background: var(--accent); color: var(--on-accent); box-shadow: 0 6px 20px color-mix(in srgb, var(--shade) 45%, transparent) }
+body.mobile .cc-top .tools .pj-tool.fab svg { width: 22px; height: 22px }
+body.mobile .cc-main:has(.pj-tool.fab) :is(.cc-view:not(.split), .cc-view.split .pj-board) { padding-bottom: 88px }
 
 /* Coding agents: the page header has the title and New, so the list's own header goes. */
 body.mobile .dhead:has(> #agNew) { display: none }
