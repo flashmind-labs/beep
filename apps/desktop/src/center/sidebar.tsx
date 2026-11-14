@@ -80,7 +80,7 @@ export function paneOn(): { view: PaneNow["view"] | null } {
 export function drawSide() {
   const home = state.home, location = currentLocation()?.view;
   const links: SideLink[] = [
-    { svg: IC.find, label: "Search", count: 0, className: "cc-search", open: openPalette, shortcut: WINDOWS ? "Ctrl+K" : "⌘K" },
+    { svg: IC.find, label: "Search", count: 0, className: "cc-search", open: openPalette, shortcut: shortcut("Ctrl+K", "⌘K") },
     { svg: IC.home, label: "Home", count: home?.needs_you.length ?? 0, current: location === "home", hot: true, open: () => go("home") },
   ];
   // The board has every session; the list keeps its own page of them.
@@ -214,7 +214,7 @@ registerSidebarGroup("views", {
   title: "Beep",
   load: async () => ["settings" as const],
   key: v => v,
-  render: v => <SidebarItem svg={IC.gear} label="Settings" shortcut={WINDOWS ? "Ctrl+," : "⌘,"} open={() => go("pane", v)} />,
+  render: v => <SidebarItem svg={IC.gear} label="Settings" shortcut={shortcut("Ctrl+,", "⌘,")} open={() => go("pane", v)} />,
 });
 
 /// Imported projects merged with the folders agents run in.
@@ -367,3 +367,10 @@ registerSidebarGroup("projects", {
 
 onClosing(() => drawSide());
 layoutChanged.add(() => drawSide());
+
+/// A sidebar item's key hint: none on a phone, whose keyboard rarely has the keys.
+function shortcut(windows: string, apple: string): string | undefined {
+  if (onPhone()) return undefined;
+
+  return WINDOWS ? windows : apple;
+}

@@ -6,12 +6,18 @@ import { activeTab, backTo, fullScreen, type MobileAt } from "../src/center/mobi
 const at = (over: Partial<MobileAt>): MobileAt => ({ page: "home", paneView: null, homeTab: "overview", picked: null, tile: false, terminal: false, ...over });
 
 test("a phone, a narrow window and a small touch screen get the phone layout", () => {
-  assert.equal(mobileLayout({ width: 1280, coarse: false, phone: false }), false);
-  assert.equal(mobileLayout({ width: 699, coarse: false, phone: false }), true);
-  assert.equal(mobileLayout({ width: 700, coarse: false, phone: false }), false);
-  assert.equal(mobileLayout({ width: 820, coarse: true, phone: false }), true);
-  assert.equal(mobileLayout({ width: 1100, coarse: true, phone: false }), false);
-  assert.equal(mobileLayout({ width: 1100, coarse: false, phone: true }), true);
+  assert.equal(mobileLayout({ width: 1280, height: 800, coarse: false, phone: false }), false);
+  assert.equal(mobileLayout({ width: 699, height: 800, coarse: false, phone: false }), true);
+  assert.equal(mobileLayout({ width: 700, height: 800, coarse: false, phone: false }), false);
+  assert.equal(mobileLayout({ width: 820, height: 800, coarse: true, phone: false }), true);
+  assert.equal(mobileLayout({ width: 1100, height: 800, coarse: true, phone: false }), false);
+  assert.equal(mobileLayout({ width: 390, height: 844, coarse: true, phone: true }), true);
+  assert.equal(mobileLayout({ width: 915, height: 412, coarse: true, phone: true }), true);
+});
+
+test("an unfolded foldable gets the desktop layout", () => {
+  assert.equal(mobileLayout({ width: 690, height: 830, coarse: true, phone: true }), false);
+  assert.equal(mobileLayout({ width: 830, height: 690, coarse: true, phone: true }), false);
 });
 
 test("the tab bar lights the tab that owns the page", () => {
