@@ -191,7 +191,7 @@ body.cbody
           svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
   div
     div.fr-scrim
-      canvas.dither-art.sunrise-art [aria-hidden="true" height="119" width="320"]
+      canvas.dither-art.sunrise-art [aria-hidden="true" height="225" width="320"]
       div.fr-card [aria-label="First run" role="dialog"]
         div.fr-head
           svg [aria-hidden="true" fill="currentColor" height="34" viewBox="0 0 28 28" width="34"]

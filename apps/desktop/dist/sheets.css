@@ -101,12 +101,14 @@
 .am-kind span { font-size: 12px; color: var(--muted); font-weight: 400 }
 .am-kind[aria-checked="true"] { border-color: var(--accent) }
 .am-sheet input.am-code { width: 100%; box-sizing: border-box; margin-bottom: 12px; color: inherit }
-/* First run: the dithered scene fills the band above, the words sit below it and never over it. */
-.fr-scrim { position: fixed; inset: 0; z-index: 40; display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(28px, .35fr); justify-items: center; background: var(--ink); overflow: hidden }
+/* First run: the painted sunrise fills the window; the words sit on a glass card beside the sun,
+   whose blur is on a layer behind it. */
+.fr-scrim { position: fixed; inset: 0; z-index: 40; display: grid; align-items: center; justify-items: start; padding: 0 max(6vw, 40px); background: var(--ink); overflow: hidden }
 .fr-scrim.under { z-index: 30 }
-.fr-scrim.fr-scrim > .dither-art { display: block; position: static; z-index: 0; left: auto; top: auto; grid-row: 1; width: 100%; height: 100%; min-height: 0; opacity: 1; transform: none; -webkit-mask-image: linear-gradient(#000 62%, transparent 97%), linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(#000 62%, transparent 97%), linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect; image-rendering: pixelated }
-.fr-card { grid-row: 2; width: min(440px, 90%); display: grid; gap: 16px }
-.fr-setup { width: min(480px, 90%) }
+.fr-scrim.fr-scrim > .dither-art { display: block; position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; opacity: 1; transform: none; image-rendering: pixelated }
+.fr-card { position: relative; isolation: isolate; width: min(440px, 100%); padding: 24px 26px; border-radius: var(--radius); display: grid; gap: 16px }
+.fr-card::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--ink) 80%, transparent); -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 10%, transparent), 0 24px 70px -12px color-mix(in srgb, var(--shade, #000) 60%, transparent) }
+.fr-setup { width: min(480px, 100%) }
 .fr-head { display: grid; gap: 12px }
 .fr-head svg { width: 26px; height: 26px }
 .fr-head b { font-size: 21px; font-weight: 600; letter-spacing: -.01em }
