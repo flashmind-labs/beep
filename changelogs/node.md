@@ -2,6 +2,25 @@
 
 Earlier releases predate this changelog.
 
+## [0.7.1] - 2026-11-14
+
+### Added
+
+- Node: when a coding agent sends a Beep problem report, the approval
+  offers "Send and open issue". It also opens a public GitHub issue
+  with your signed-in `gh` account. The issue carries the description,
+  the report reference and the versions, but no logs. The agent gets
+  the issue link back.
+- Node: coding agents read Beep's status and logs first, and offer a
+  problem report when Beep itself fails.
+- Node: an Android phone connected to the machine over adb, by USB or
+  wireless debugging once debugging is allowed on the phone, is listed with
+  the machine's devices. The Device tab and agents' `device` tool show its
+  screen and tap, swipe, type and press keys on it. A phone cannot be booted
+  or shut down from Beep.
+- Node: the machine tells desktops when adb sees a phone or emulator connect
+  or disconnect, so the device list updates without waiting for a refresh.
+
 ## [0.7.0] - 2026-11-14
 
 ### Added

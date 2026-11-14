@@ -7,6 +7,33 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.3] - 2026-11-14
+
+### Added
+
+- Desktop: Android phones show in the Device tab without Boot or Shut down
+  buttons.
+- Desktop: the Device tab's list updates as soon as a node reports a phone
+  or emulator connecting or leaving. Otherwise it rereads every 60 seconds
+  instead of every 10.
+- Desktop: the harness, model and thinking picker (Shift+Cmd+M or the
+  model pill) reads a search such as `opus 5 high`. Model words find the
+  model across every harness on the machine, Claude Code and Codex first.
+  A thinking level word such as low, medium, high, xhigh or max sets the
+  thinking level, and a harness name such as `pi` keeps the search on that
+  harness. Enter picks the first match at that level.
+
+### Changed
+
+- Desktop: built-in plugins start turned off on first run. Turn them on in Plugins.
+- Desktop: Home's "PRs and issues" tab is now two plain lists, pull
+  requests on the left and issues on the right, grouped by repository
+  with one line per item. Review and Reply show on the row under the
+  pointer. Each repository has a button that opens its project or
+  imports it.
+- Desktop: The label cloud, time filter, sort and issue picker are no
+  longer on Home. They remain on the project page.
+
 ## [0.9.2] - 2026-11-14
 
 ### Fixed
