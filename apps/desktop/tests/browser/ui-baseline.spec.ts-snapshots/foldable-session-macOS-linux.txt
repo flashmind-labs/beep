@@ -374,14 +374,6 @@ body.cbody
                           span.sp
                           span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
                 div#agpstrip-bottom.agpstrip.tabs [data-dock="bottom" hidden role="tablist"]
-                  button.agtab.on [aria-selected="true" data-mtab="files" role="tab" title="Files" type="button"]
-                    i style(display)
-                      svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                    span "Files"
-                  button.agtab [aria-selected="false" data-mtab="changes" role="tab" title="Changes" type="button"]
-                    i style(display)
-                      svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                    span "Changes"
               div#agdiv-right.agdiv [data-dock="right" hidden role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
               aside#agpane-right.agpane [data-dock="right" hidden tabindex="-1"]
                 div.agpane-content

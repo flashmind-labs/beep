@@ -363,11 +363,7 @@ body.cbody
                         span style(display)
                           svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
                     div.agpviews
-                button#agpstrip-bottom.agpstrip [data-dock="bottom" hidden title="Show the pane"]
-                  span style(display)
-                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                  span "Files"
-                  small "0"
+                div#agpstrip-bottom.agpstrip.tabs [data-dock="bottom" hidden role="tablist"]
               div#agdiv-right.agdiv [aria-orientation="vertical" data-dock="right" role="separator" tabindex="0" title="Drag to resize, double-click to reset"]
               aside#agpane-right.agpane [data-dock="right" tabindex="-1"] style(flex-basis)
                 div.agpane-content

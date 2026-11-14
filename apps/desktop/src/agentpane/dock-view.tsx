@@ -83,7 +83,7 @@ export function PaneDock({ dock }: { dock: Dock }) {
       </div><div className="agpviews">{model?.views.map(view => <PaneView key={view.kind === "tab" ? view.tab.id : view.kind} view={view} />)}</div></div>
     </aside>
     {dock === "bottom"
-      ? <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" hidden={!model?.strip}>{model && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={UNFOLD} />}</div>
+      ? <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" hidden={!model?.strip}>{model?.strip && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={UNFOLD} />}</div>
       : <button ref={el => { stripRefs[dock].current = el; }} className="agpstrip" id={`agpstrip-${dock}`} data-dock={dock} hidden={!model?.strip} title="Show the pane" onClick={() => foldDock(dock, false)}>{model && <DockStrip model={model} />}</button>}</>;
 }
 
