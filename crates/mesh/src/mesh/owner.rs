@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::task::{AbortHandle, JoinSet};
 use tokio::time::{Instant, sleep, timeout};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 /// A member that stays away is tried about twice a minute. One that comes
