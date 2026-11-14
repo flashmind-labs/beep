@@ -2856,6 +2856,7 @@ async fn ask_to_move_in(
         project: "proj".to_owned(),
         path: path.to_owned(),
         mode: None,
+        model: None,
         stop,
         at: 1_793_696_400_000,
         worktree: None,
@@ -3256,6 +3257,7 @@ async fn ask_to_move_worktree(
         project: "proj".to_owned(),
         path: String::new(),
         mode: None,
+        model: None,
         stop: false,
         at: 1_793_696_400_000 + at,
         worktree: Some(beep_proto::node::mesh_state::MovedWorktree {

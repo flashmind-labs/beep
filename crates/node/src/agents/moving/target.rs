@@ -254,6 +254,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     let arrival = Arrival {
         id: &record.id,
         mode: record.mode.clone(),
+        model: record.model.clone(),
         from: record.from,
     };
     let resumed = resume(env, &arrival, &kind, &folders, copied.file_name, copy).await;

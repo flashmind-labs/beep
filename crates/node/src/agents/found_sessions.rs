@@ -17,7 +17,7 @@ use beep_proto::node::{
     },
     events::Topic,
 };
-use beep_proto::watched;
+use beep_proto::{ModelId, watched};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -46,6 +46,7 @@ pub(super) struct Listed {
 pub(super) struct Held {
     pub(super) parent: Option<ParentLink>,
     pub(super) mode: Option<String>,
+    pub(super) model: Option<ModelId>,
 }
 
 /// How many of a store's sessions one listing keeps.
@@ -527,6 +528,7 @@ impl Agents {
             Held {
                 parent: info.parent,
                 mode: info.mode,
+                model: info.model,
             }
         });
         let ended = ours
@@ -581,7 +583,10 @@ impl Agents {
 
         self.prepare(kind).await?;
         super::restart::to_project(kind, id, Path::new(&cwd)).await;
-        let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
+        // It goes on with the model it last ran on here, also after a restart.
+        let mut before = before.unwrap_or_default();
+        before.model = before.model.or_else(|| self.last_model(id));
+        let begin = self.resumed_begin(prompt, id, before);
         let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
         Ok(session)
@@ -591,12 +596,17 @@ impl Agents {
     /// its parent and the mode it was in, and following the parent when that
     /// runs here.
     pub(super) fn resumed_begin(&self, prompt: Option<String>, id: &str, before: Held) -> Begin {
-        let Held { parent, mode } = before;
+        let Held {
+            parent,
+            mode,
+            model,
+        } = before;
         let follows = parent.as_ref().and_then(|link| self.parent_live_of(link));
         Begin {
             prompt,
             resume: Some(id.to_owned()),
             mode,
+            model,
             parent,
             follows,
             ..Begin::default()

@@ -235,6 +235,7 @@ pub async fn serve(
     // Only then is the note kept to what is open, so a start that dies
     // before leaves it as it was.
     let reopen = Reopen::read(&state.dir);
+    offers.agents.keep_models(reopen.models);
     terminal::reopen(&state.dir, reopen.terminals).await;
     let agents = offers.agents.clone();
     let note_dir = state.dir.clone();
@@ -272,6 +273,7 @@ pub async fn serve(
     let reopen = Reopen {
         sessions: offers.agents.open_sessions(),
         terminals,
+        models: offers.agents.last_models(),
     };
 
     if let Err(e) = reopen.save(&state.dir) {

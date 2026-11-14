@@ -114,6 +114,7 @@ fn record(env: &Env, stop: bool) -> SessionMove {
         project: "org/app".into(),
         path: String::new(),
         mode: None,
+        model: None,
         stop,
         at: 1_793_696_400_000,
         worktree: None,

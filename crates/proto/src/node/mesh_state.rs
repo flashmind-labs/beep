@@ -6,7 +6,7 @@
 //! at the end with `#[serde(default)]`.
 
 use super::{EnvSecret, ForgejoLogin, harness::HarnessConfig};
-use crate::AgentSlug;
+use crate::{AgentSlug, ModelId};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::{BTreeMap, BTreeSet};
@@ -209,6 +209,10 @@ pub struct SessionMove {
     /// so a node from before it reads the rest.
     #[serde(default)]
     pub worktree: Option<MovedWorktree>,
+    /// The model the session runs on, which the target resumes it on.
+    /// Added after `worktree`.
+    #[serde(default)]
+    pub model: Option<ModelId>,
 }
 
 /// The linked worktree a session moves out of: the target makes a worktree

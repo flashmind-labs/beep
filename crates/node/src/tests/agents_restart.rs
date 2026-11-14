@@ -407,6 +407,11 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     before.shutdown().await;
     let stopped = before.open_sessions();
     assert_eq!(stopped[0].model, Some(ModelId::new("deep")));
+    // Kept for a take-over after it ended, across the restart note.
+    let kept = before.last_models();
+    let noted = Agents::new(Vec::new());
+    noted.keep_models(kept);
+    assert_eq!(noted.last_model("held-1"), Some(ModelId::new("deep")));
 
     let after = Agents::new(vec![kind]);
     after.settings_arrived();

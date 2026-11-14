@@ -17,6 +17,7 @@ fn session(id: &str, machine: &str, activity: u64) -> MachineSession {
         external: false,
         question: None,
         subagents: 0,
+        model: None,
     }
 }
 

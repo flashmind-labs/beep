@@ -69,6 +69,7 @@ fn session() -> MachineSession {
         external: false,
         question: None,
         subagents: 0,
+        model: None,
     }
 }
 

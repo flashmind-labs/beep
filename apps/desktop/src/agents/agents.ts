@@ -77,6 +77,8 @@ export interface AgentSession {
   parent?: AgentParent | null;
   /// A temporary reviewer of its parent's changes.
   reviewer?: boolean;
+  /// The model it runs on, when its node says.
+  model?: string | null;
 }
 
 /// Where the session that started another runs and the ids it is listed
