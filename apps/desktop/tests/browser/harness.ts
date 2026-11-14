@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Tree } from "../../src/agentpane/worktree-state.ts";
+import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import type { HomeView } from "../../src/center/home-state.ts";
 import type { RunningAgent } from "../../src/agents/running-state.ts";
@@ -69,6 +70,25 @@ export function pageErrors(page: Page): string[] {
     if (message.type() === "error" && !knownWarnings.some(known => known.test(text))) errors.push(text);
   });
   return errors;
+}
+
+/// Waits until an open session has its final layout. The session shows before the window has laid its
+/// tools over the title row, and before the side pane has the size for the shell, so a box read
+/// earlier is a box of a layout that is about to change.
+export async function sessionSettled(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>(".cc-main");
+    const top = main?.querySelector<HTMLElement>(":scope > .cc-top");
+    const agent = main?.querySelector(':scope > #pane-box:not([hidden]) > .dbar[data-view="agent"]');
+    const toolsKept = main && top && main.style.getPropertyValue("--top-w") === `${top.offsetWidth}px`;
+
+    const pane = document.querySelector<HTMLElement>("#agpane-right");
+    const shell = document.querySelector<HTMLElement>(".agshell");
+    const wanted = shell && pane && !pane.hidden ? `${Math.round(shell.clientWidth * 0.42)}px` : null;
+    const sized = wanted === null || pane?.style.flexBasis === `var(--drag-size, ${wanted})`;
+
+    return Boolean(agent && toolsKept && sized);
+  }), { message: "the session's layout settles" }).toBe(true);
 }
 
 export async function openDesktop(page: Page, streaming = false, responses: Record<string, unknown> = {}): Promise<void> {

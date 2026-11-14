@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, sessionSettled } from "./harness.ts";
 
 interface Box { x: number; y: number; width: number; height: number }
 
@@ -82,6 +82,7 @@ test("a composer plugin placement stands on the message box without changing lay
   const cat = placement("cat-idle.png");
   const natural = sprite("cat-idle.png");
   await openSession(page, [cat]);
+  await sessionSettled(page);
 
   const image = page.locator(".pluginslot img");
   await expect(image).toBeVisible();
@@ -101,6 +102,7 @@ test("a composer plugin placement stands on the message box without changing lay
   // 2. The composer does not move compared with a page that has no placement.
   const bare = await context.newPage();
   await openSession(bare, []);
+  await sessionSettled(bare);
   await expect(bare.locator(".pluginslot")).toHaveCount(0);
   expect(await box(bare.locator("#agfield"))).toEqual(field);
 
@@ -217,6 +219,7 @@ test("each session row reports its instance and draws its own plugin output", as
 
 test("the open session's header reports its instance, and a header button press reaches plugins_event", async ({ page }) => {
   await openSession(page, []);
+  await sessionSettled(page);
 
   await expect.poll(async () => (await batches(page)).flatMap(batch => batch.shown).filter(item => item.slot === "session.header")).toEqual([{ slot: "session.header", key: "build-box:notice-one", context: { machine: "build-box", session: "notice-one" } }]);
   const composer = (await batches(page)).flatMap(batch => batch.shown).filter(item => item.slot === "composer");

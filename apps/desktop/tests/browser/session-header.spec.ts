@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, sessionSettled } from "./harness.ts";
 
 const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
 const usages = {
@@ -49,6 +49,7 @@ for (const width of [1557, 1100, 900, 760]) for (const usage of ["short", "long"
     await openDesktop(page, true, { agent_usage: usages[usage] });
     await page.evaluate(session => window.__navigation.open({ agent: session }), agent);
     await expect(page.locator("#agfield")).toBeVisible();
+    await sessionSettled(page);
     await expect(page.locator("#aguse")).not.toBeEmpty();
     await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [placement]);
     await expect(page.locator(".ag-head .pluginhere")).toBeAttached();
