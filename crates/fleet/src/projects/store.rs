@@ -5,7 +5,7 @@ use crate::records::{
     projects, read, sync_checkouts, write,
 };
 use async_trait::async_trait;
-use beep_mesh::Mesh;
+use beep_mesh::{Key, Mesh};
 use beep_projects::{
     imports::{
         records::{ImportRow, NewImport},
@@ -13,6 +13,7 @@ use beep_projects::{
     },
     model::RepoName,
 };
+use beep_proto::node::mesh_state::ProjectSyncSettings;
 use iroh::EndpointId;
 use std::str::FromStr;
 
@@ -61,6 +62,15 @@ impl MeshStore {
 
         if record.url.is_empty() {
             record.url = url.to_owned();
+
+            if record.syncthing_files.is_none()
+                && read::<ProjectSyncSettings>(&self.mesh, &Key::ProjectSync)
+                    .unwrap_or_default()
+                    .beep_sync_over_syncthing
+            {
+                record.syncthing_files = Some(false);
+            }
+
             write(&self.mesh, key, Some(&record)).await?;
         }
 

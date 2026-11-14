@@ -3,9 +3,14 @@ import { invoke } from "../ui/tauri.ts";
 
 type Invoke = typeof invoke;
 interface SyncSettingState { enabled: boolean | null; busy: boolean; error: string }
-export function createSyncSetting(call: Invoke, kind: "skills" | "projects") {
-  const get = kind === "skills" ? "skill_sync_get" : "project_sync_get";
-  const set = kind === "skills" ? "skill_sync_set" : "project_sync_set";
+export type SyncSettingKind = "skills" | "projects" | "syncthing";
+const COMMANDS: Record<SyncSettingKind, { get: string; set: string }> = {
+  skills: { get: "skill_sync_get", set: "skill_sync_set" },
+  projects: { get: "project_sync_get", set: "project_sync_set" },
+  syncthing: { get: "beep_sync_over_syncthing_get", set: "beep_sync_over_syncthing_set" },
+};
+export function createSyncSetting(call: Invoke, kind: SyncSettingKind) {
+  const { get, set } = COMMANDS[kind];
   const state = createStore<SyncSettingState>()(() => ({ enabled: null, busy: false, error: "" }));
   return {
     state,
@@ -24,8 +29,8 @@ export function createSyncSetting(call: Invoke, kind: "skills" | "projects") {
       try { await call(set, { enabled }); state.setState({ enabled }); }
       catch (error) {
         state.setState({ error: String(error) });
-        if (kind === "projects") {
-          // A failed mesh write may already have changed the master preference.
+        if (kind !== "skills") {
+          // A failed mesh write may already have changed the preference.
           try { state.setState({ enabled: await call<boolean>(get) }); } catch { /* Keep the last confirmed value. */ }
         }
       }
@@ -35,3 +40,4 @@ export function createSyncSetting(call: Invoke, kind: "skills" | "projects") {
 }
 export const skillSync = createSyncSetting(invoke, "skills");
 export const projectSync = createSyncSetting(invoke, "projects");
+export const beepSyncOverSyncthing = createSyncSetting(invoke, "syncthing");

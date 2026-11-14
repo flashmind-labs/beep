@@ -411,6 +411,8 @@ pub fn run() {
             settings::skill_sync::skill_sync_set,
             settings::skill_sync::project_sync_get,
             settings::skill_sync::project_sync_set,
+            settings::skill_sync::beep_sync_over_syncthing_get,
+            settings::skill_sync::beep_sync_over_syncthing_set,
         ]))
         .build(context)
         .expect("the app failed to start")

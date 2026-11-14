@@ -203,13 +203,18 @@ body.cbody
               div#skillSyncSetting.dtoggle
                 span
                   b "Sync coding agent skills"
-                  small "Loading skill sync setting..."
-                button.dswitch [aria-checked="false" aria-label="Sync coding agent skills" disabled role="switch" type="button"]
+                  small "Keep your coding agent skills in sync across your machines."
+                button.dswitch [aria-checked="true" aria-label="Sync coding agent skills" role="switch" type="button"]
               div#projectSyncSetting.dtoggle
                 span
                   b "Project sync"
-                  small "Loading project sync setting..."
-                button.dswitch [aria-checked="false" aria-label="Project sync" disabled role="switch" type="button"]
+                  small "Sync projects across all your machines. Turning off keeps existing files in place."
+                button.dswitch [aria-checked="true" aria-label="Project sync" role="switch" type="button"]
+              div#beepSyncOverSyncthingSetting.dtoggle
+                span
+                  b "Always use Beep sync over Syncthing"
+                  small "Each project keeps its own Syncthing setting."
+                button.dswitch [aria-checked="false" aria-label="Always use Beep sync over Syncthing" role="switch" type="button"]
               div.dtoggle
                 span
                   b "Save files to"
