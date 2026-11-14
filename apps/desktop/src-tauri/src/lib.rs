@@ -331,6 +331,8 @@ pub fn run() {
             platform::metrics::desktop_ui_metrics,
             plugins::command::plugins_placements,
             plugins::command::plugins_publish,
+            plugins::command::plugins_instances,
+            plugins::command::plugins_event,
             plugins::command::plugins_wanted,
             projects::branches::add_branch_worktree,
             projects::branches::find_import_fork,

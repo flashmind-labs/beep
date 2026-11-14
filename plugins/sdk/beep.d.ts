@@ -2,11 +2,47 @@
 // A plugin is one source file with no imports. It has no DOM, no
 // setTimeout and no console: use `beep.after` for timers.
 
-/** Where a plugin can place a node. Only the message box exists for now. */
-type Slot = "composer";
+/**
+ * A named place in the app. A slot can be on the page many times, each time
+ * with its own context: `place` calls `render` once per instance.
+ * - "composer": the edge of the session's message box.
+ * - "session.row": a session's row in the session list. Text and images only.
+ * - "session.header": the open session's header.
+ */
+type Slot = keyof SlotContexts;
+
+/** The message box of a session. */
+interface ComposerContext {
+  readonly machine: string;
+  readonly session: string;
+}
+
+/** A session's row in the session list. */
+interface SessionRowContext {
+  readonly machine: string;
+  readonly session: string;
+  /** The title the row shows. */
+  readonly title: string;
+}
+
+/** The header of the open session. */
+interface SessionHeaderContext {
+  readonly machine: string;
+  readonly session: string;
+}
+
+/** What `render` is given for each slot. */
+interface SlotContexts {
+  readonly composer: ComposerContext;
+  readonly "session.row": SessionRowContext;
+  readonly "session.header": SessionHeaderContext;
+}
 
 /** Which side of the slot a node is aligned to. */
 type Align = "start" | "center" | "end";
+
+/** How strongly text is drawn, in the app's colors. */
+type Tone = "normal" | "dim" | "accent";
 
 /** A picture. `src` is a path relative to the plugin folder. */
 interface ImageNode {
@@ -21,6 +57,7 @@ interface ImageNode {
 interface TextNode {
   readonly kind: "text";
   readonly text: string;
+  readonly tone?: Tone;
 }
 
 /** Children laid out left to right with `gap` px between them. */
@@ -30,8 +67,37 @@ interface RowNode {
   readonly children: readonly Node[];
 }
 
+/**
+ * A button. `label` is its accessible name, and its content when it has no
+ * children. Not allowed in "session.row".
+ */
+interface ButtonNode {
+  readonly kind: "button";
+  readonly label: string;
+  readonly children: readonly Node[];
+  readonly onPress: () => void;
+}
+
+/** A switch. Not allowed in "session.row". */
+interface ToggleNode {
+  readonly kind: "toggle";
+  readonly label: string;
+  readonly value: boolean;
+  readonly onChange: (value: boolean) => void;
+}
+
+/** A single line of text. Not allowed in "session.row". */
+interface InputNode {
+  readonly kind: "input";
+  readonly label: string;
+  readonly value: string;
+  readonly placeholder: string;
+  readonly onChange?: (value: string) => void;
+  readonly onSubmit?: (value: string) => void;
+}
+
 /** Anything a plugin can draw. */
-type Node = ImageNode | TextNode | RowNode;
+type Node = ImageNode | TextNode | RowNode | ButtonNode | ToggleNode | InputNode;
 
 /** Options for `beep.image`. Sizes are CSS px. */
 interface ImageOptions {
@@ -49,9 +115,43 @@ interface RowOptions {
   gap?: number;
 }
 
-/** Where `beep.place` puts the node. */
-interface PlaceOptions {
-  slot: Slot;
+/** Options for `beep.text`. */
+interface TextOptions {
+  /** Default "normal". */
+  tone?: Tone;
+}
+
+/** Options for `beep.button`. */
+interface ButtonOptions {
+  /** The accessible name. It is the content too when there are no children. */
+  label: string;
+  /** Runs when the button is pressed. */
+  onPress: () => void;
+}
+
+/** Options for `beep.toggle`. */
+interface ToggleOptions {
+  label: string;
+  value: boolean;
+  /** Runs with the new value when the user switches it. Set the state there. */
+  onChange: (value: boolean) => void;
+}
+
+/** Options for `beep.input`. */
+interface InputOptions {
+  label: string;
+  /** The text shown. Keep it in a state and set it in `onChange`. Default "". */
+  value?: string;
+  placeholder?: string;
+  /** Runs with the whole text on each change. At most 4 KB. */
+  onChange?: (value: string) => void;
+  /** Runs with the whole text when the user presses Enter. */
+  onSubmit?: (value: string) => void;
+}
+
+/** The composer stands on the edge of the message box. */
+interface ComposerPlace {
+  slot: "composer";
   /** Side of the slot to align to. Default "end". */
   align?: Align;
   /** Distance in px from the aligned side. Default 0. */
@@ -60,11 +160,17 @@ interface PlaceOptions {
   sink?: number;
 }
 
+/** Other slots draw in the page's normal flow and take no position. */
+interface InlinePlace<S extends Exclude<Slot, "composer">> {
+  slot: S;
+}
+
 /**
  * A topic to follow, as the app names it. Topics:
  * - "ui.composer": the session whose message box is shown. `data` is
  *   `{ machine: string, session: string }`, or null when no message box is shown.
- *   Other "ui." names are the app's own state. No permission needed.
+ *   The "composer" slot's context says the same. Other "ui." names are the
+ *   app's own state. No permission needed.
  * - "agents": the sessions of every machine, or of `machine`. Needs "sessions.read".
  * - "agent": one session, named by `key` (a session id), or every session without
  *   a key. Needs "sessions.read".
@@ -101,10 +207,15 @@ interface State<T> {
 
 interface Beep {
   /**
-   * Put a node in a slot. `render` runs again whenever a state changed.
-   * Needs the "ui.add" permission.
+   * Put a node in a slot. `render` runs once for each instance of the slot on
+   * the page, with that instance's context. It runs again for an instance whose
+   * context changed, and for all of them after a state was set. Return null to
+   * draw nothing for an instance. Up to 200 instances of a slot are drawn, and
+   * 8 `place` calls are allowed. Needs the "ui.add" permission.
    */
-  place(options: PlaceOptions, render: () => Node): void;
+  place(options: ComposerPlace, render: (context: ComposerContext) => Node | null): void;
+  place(options: InlinePlace<"session.row">, render: (context: SessionRowContext) => Node | null): void;
+  place(options: InlinePlace<"session.header">, render: (context: SessionHeaderContext) => Node | null): void;
 
   /** Create a state with an initial value. */
   state<T>(initial: T): State<T>;
@@ -129,10 +240,23 @@ interface Beep {
   image(options: ImageOptions): Node;
 
   /** Build a text node. */
-  text(text: string): Node;
+  text(text: string, options?: TextOptions): Node;
 
   /** Build a row node. */
   row(options: RowOptions, children: readonly Node[]): Node;
+
+  /**
+   * Build a button. Its callback runs on the plugin's thread, then the UI is
+   * drawn again. A callback from an older draw is ignored. A plugin gets at
+   * most 30 events a second.
+   */
+  button(options: ButtonOptions, children?: readonly Node[]): Node;
+
+  /** Build a switch. */
+  toggle(options: ToggleOptions): Node;
+
+  /** Build a single line text field. */
+  input(options: InputOptions): Node;
 }
 
 declare const beep: Beep;

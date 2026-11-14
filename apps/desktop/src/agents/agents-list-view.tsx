@@ -4,6 +4,7 @@ import { Spinner } from "../ui/kit.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { AGENT_ICON, agentsList, listedMenu, newFromList, openListed, toggleEnded, type ListedSession } from "./agents.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
+import { SessionRowSlot } from "../plugins/slot-view.tsx";
 import type { MachinesReach } from "../machines/machine-state.ts";
 
 export interface AgentListRow { key: string; depth: number; agent: string; title: string; sub: string; tail: { kind: "review" } | { kind: "move"; label: string; why: string | null } | { kind: "asking" } | { kind: "running"; doing: string } | { kind: "plain"; label: string } | { kind: "connecting" } }
@@ -48,6 +49,7 @@ function SessionRow({ index, entry, gone, picked, pickedRef }: { index: number; 
     onClick={() => openListed(session)} onContextMenu={e => listedMenu(e.nativeEvent, session)}>
     <HarnessIcon agent={row.agent} className="dapp dcoderav" />
     <span className="t"><span>{row.title}</span><small>{row.sub}</small></span>
+    <SessionRowSlot machine={session.machine_id} session={session.id} title={row.title} />
     <Tail tail={row.tail} />
   </button>;
 }

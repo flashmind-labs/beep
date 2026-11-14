@@ -9,6 +9,8 @@ use log::{debug, warn};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use thiserror::Error;
 
+use crate::event::{EventError, Limiter, Mailbox, UiEvent};
+use crate::instance::{InstanceBatch, InstanceError, Instances};
 use crate::manifest::PluginId;
 use crate::sandbox::{Sandbox, locked};
 use crate::topic::{Delivery, Inbox, Publication, Topic, TopicError};
@@ -71,6 +73,10 @@ enum Event {
     },
     /// An update from the page.
     Publish(Delivery),
+    /// What changed about the slots on the page.
+    Instances(InstanceBatch),
+    /// The user used a control a plugin drew.
+    Ui(UiEvent),
     Stop,
 }
 
@@ -112,6 +118,7 @@ impl Host {
             wanted: BTreeMap::new(),
             reported: Arc::clone(&wanted),
             local: HashMap::new(),
+            instances: Instances::default(),
             handler: Arc::new(handler),
             generation: 0,
         };
@@ -151,6 +158,28 @@ impl Host {
     }
 }
 
+impl Host {
+    /// Tells the plugins which slots are on the page now and with what context.
+    /// The page sends what changed since its last batch.
+    pub fn set_instances(&self, batch: InstanceBatch) -> Result<(), InstanceError> {
+        batch.check()?;
+        let _ = self.events.send(Event::Instances(batch));
+
+        Ok(())
+    }
+
+    /// Hands a press, switch or text change to the plugin that drew the control.
+    /// The plugin's thread runs the callback, then draws again. An event for a
+    /// control that is no longer shown is ignored, and a plugin gets at most
+    /// thirty events a second.
+    pub fn event(&self, event: UiEvent) -> Result<(), EventError> {
+        event.action.check()?;
+        let _ = self.events.send(Event::Ui(event));
+
+        Ok(())
+    }
+}
+
 impl Drop for Host {
     fn drop(&mut self) {
         let _ = self.events.send(Event::Stop);
@@ -164,6 +193,8 @@ struct Running {
     /// Wakes the plugin's thread; dropping it stops the thread.
     wake: SyncSender<()>,
     inbox: Arc<Inbox>,
+    mailbox: Arc<Mailbox>,
+    limiter: Limiter,
     thread: JoinHandle<()>,
     generation: u64,
 }
@@ -171,6 +202,10 @@ struct Running {
 impl Running {
     fn send(&self, delivery: Delivery) {
         self.inbox.push(delivery);
+        self.wake();
+    }
+
+    fn wake(&self) {
         // A full channel means a wake is already waiting.
         let _ = self.wake.try_send(());
     }
@@ -194,6 +229,8 @@ struct Supervisor {
     reported: Arc<Mutex<Vec<Topic>>>,
     /// The latest update of each `ui.*` topic.
     local: HashMap<Topic, Delivery>,
+    /// The slots on the page now.
+    instances: Instances,
     handler: Shared,
     generation: u64,
 }
@@ -232,6 +269,8 @@ impl Supervisor {
                     topics,
                 }) => self.note_wanted(id, generation, topics),
                 Some(Event::Publish(delivery)) => self.route(delivery),
+                Some(Event::Instances(batch)) => self.note_instances(batch),
+                Some(Event::Ui(event)) => self.route_ui(event),
                 None => {}
             }
 
@@ -338,6 +377,33 @@ impl Supervisor {
         }
     }
 
+    /// Gives every running plugin the instances on the page when they changed.
+    fn note_instances(&mut self, batch: InstanceBatch) {
+        if !self.instances.apply(batch) {
+            return;
+        }
+
+        let list = self.instances.list();
+        for running in self.running.values() {
+            running.mailbox.set_instances(Arc::clone(&list));
+            running.wake();
+        }
+    }
+
+    /// Gives an event to the plugin that drew the control, within its rate limit.
+    fn route_ui(&mut self, event: UiEvent) {
+        let Some(running) = self.running.get_mut(&event.plugin) else {
+            return;
+        };
+        if !running.limiter.allow(Instant::now()) {
+            debug!("dropped an event for {}: too many a second", event.plugin);
+            return;
+        }
+
+        running.mailbox.push(event);
+        running.wake();
+    }
+
     /// Reports the topics all plugins follow when they changed.
     fn sync_wanted(&self) {
         let all: BTreeSet<&Topic> = self
@@ -388,12 +454,15 @@ impl Supervisor {
         let generation = self.generation;
         let (wake, woken) = mpsc::sync_channel(1);
         let inbox = Arc::new(Inbox::default());
+        let mailbox = Arc::new(Mailbox::default());
+        mailbox.set_instances(self.instances.list());
         let job = PluginJob {
             dir: self.dir.join(id.to_string()),
             id: id.clone(),
             generation,
             events: self.events.clone(),
             inbox: Arc::clone(&inbox),
+            mailbox: Arc::clone(&mailbox),
         };
 
         let spawned = thread::Builder::new()
@@ -406,6 +475,8 @@ impl Supervisor {
                     Running {
                         wake,
                         inbox,
+                        mailbox,
+                        limiter: Limiter::default(),
                         thread,
                         generation,
                     },
@@ -448,6 +519,7 @@ struct PluginJob {
     generation: u64,
     events: Sender<Event>,
     inbox: Arc<Inbox>,
+    mailbox: Arc<Mailbox>,
 }
 
 impl PluginJob {
@@ -456,6 +528,11 @@ impl PluginJob {
             Ok(sandbox) => sandbox,
             Err(error) => return self.fail(&error),
         };
+
+        // The first batch of instances comes before the first render.
+        if let Err(error) = self.take_mail(&mut sandbox) {
+            return self.fail(&error);
+        }
 
         loop {
             match sandbox.render() {
@@ -485,6 +562,9 @@ impl PluginJob {
                     }
                 }
                 Ok(()) => {
+                    if let Err(error) = self.take_mail(&mut sandbox) {
+                        return self.fail(&error);
+                    }
                     for delivery in self.inbox.take() {
                         if let Err(error) = sandbox.deliver(&delivery) {
                             return self.fail(&error);
@@ -494,6 +574,20 @@ impl PluginJob {
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         }
+    }
+
+    /// Runs the events and applies the instances that waited for the plugin.
+    fn take_mail(&self, sandbox: &mut Sandbox) -> Result<(), crate::sandbox::SandboxError> {
+        let mail = self.mailbox.take();
+
+        for event in &mail.events {
+            sandbox.handle(event)?;
+        }
+        if let Some(instances) = mail.instances {
+            sandbox.set_instances(&instances)?;
+        }
+
+        Ok(())
     }
 
     /// Logs the error once and shows nothing for this plugin.

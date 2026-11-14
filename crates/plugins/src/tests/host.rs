@@ -3,9 +3,57 @@ use std::sync::mpsc;
 use serde_json::json;
 
 use super::*;
-use crate::ui::Node;
+use crate::event::Action;
+use crate::instance::{
+    ComposerContext, Instance, InstanceKey, InstanceRef, SessionHeaderContext, SessionRowContext,
+    SlotContext,
+};
+use crate::ui::{CallbackId, Node, Slot};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+fn key(text: &str) -> InstanceKey {
+    InstanceKey::try_from(text.to_owned()).unwrap()
+}
+
+fn composer_instance() -> Instance {
+    Instance {
+        key: key("composer"),
+        context: SlotContext::Composer(ComposerContext {
+            machine: "build-box".to_owned(),
+            session: "s1".to_owned(),
+        }),
+    }
+}
+
+fn row_instance(session: &str, title: &str) -> Instance {
+    Instance {
+        key: key(session),
+        context: SlotContext::SessionRow(SessionRowContext {
+            machine: "build-box".to_owned(),
+            session: session.to_owned(),
+            title: title.to_owned(),
+        }),
+    }
+}
+
+fn header_instance(session: &str) -> Instance {
+    Instance {
+        key: key(session),
+        context: SlotContext::SessionHeader(SessionHeaderContext {
+            machine: "build-box".to_owned(),
+            session: session.to_owned(),
+        }),
+    }
+}
+
+fn batch(shown: Vec<Instance>, gone: Vec<InstanceRef>) -> InstanceBatch {
+    InstanceBatch {
+        reset: false,
+        shown,
+        gone,
+    }
+}
 
 fn write_plugin(dir: &std::path::Path, id: &str, text: &str) {
     let folder = dir.join(id);
@@ -54,6 +102,8 @@ fn start_reporting(
     let (shown, shown_rx) = mpsc::channel();
     let (wanted, wanted_rx) = mpsc::channel();
     let host = Host::start(dir.to_path_buf(), Reports { shown, wanted }).unwrap();
+    host.set_instances(batch(vec![composer_instance()], vec![]))
+        .unwrap();
 
     (host, shown_rx, wanted_rx)
 }
@@ -133,7 +183,7 @@ fn texts(placements: &[Placement]) -> Vec<String> {
     placements
         .iter()
         .filter_map(|placement| match &placement.node {
-            Node::Text { text } => Some(text.clone()),
+            Node::Text { text, .. } => Some(text.clone()),
             _ => None,
         })
         .collect()
@@ -323,4 +373,221 @@ fn a_plugin_that_fails_follows_nothing() {
     .unwrap();
 
     wait_wanted(&wanted, <[Topic]>::is_empty);
+}
+
+fn write_custom(dir: &std::path::Path, id: &str, main: &str) {
+    write_plugin(dir, id, "unused");
+    std::fs::write(dir.join(id).join("main.ts"), main).unwrap();
+}
+
+fn gone(slot: Slot, text: &str) -> InstanceRef {
+    InstanceRef {
+        slot,
+        key: key(text),
+    }
+}
+
+/// The text of every text node, with the instance it belongs to.
+fn by_instance(placements: &[Placement]) -> Vec<(String, String)> {
+    placements
+        .iter()
+        .filter_map(|placement| match &placement.node {
+            Node::Text { text, .. } => Some((placement.instance.to_string(), text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn instances_from_the_page_are_rendered_and_dropped_when_they_go() {
+    let root = tempfile::tempdir().unwrap();
+    write_custom(
+        root.path(),
+        "rows-one",
+        r#"beep.place({ slot: "session.row" }, (row) => beep.text(row.title));"#,
+    );
+    let (host, rx) = start(root.path());
+
+    host.set_instances(batch(
+        vec![row_instance("a", "Alpha"), row_instance("b", "Beta")],
+        vec![],
+    ))
+    .unwrap();
+    let placements = wait_for(&rx, |p| p.len() == 2);
+    assert_eq!(
+        by_instance(&placements),
+        [
+            ("a".to_owned(), "Alpha".to_owned()),
+            ("b".to_owned(), "Beta".to_owned())
+        ]
+    );
+    assert_eq!(host.placements(), placements);
+
+    host.set_instances(batch(vec![], vec![gone(Slot::SessionRow, "a")]))
+        .unwrap();
+    let placements = wait_for(&rx, |p| p.len() == 1);
+    assert_eq!(
+        by_instance(&placements),
+        [("b".to_owned(), "Beta".to_owned())]
+    );
+}
+
+#[test]
+fn a_page_that_starts_over_resets_the_instances() {
+    let root = tempfile::tempdir().unwrap();
+    write_custom(
+        root.path(),
+        "rows-one",
+        r#"beep.place({ slot: "session.row" }, (row) => beep.text(row.title));"#,
+    );
+    let (host, rx) = start(root.path());
+    host.set_instances(batch(vec![row_instance("a", "Alpha")], vec![]))
+        .unwrap();
+    wait_for(&rx, |p| p.len() == 1);
+
+    let mut fresh = batch(vec![row_instance("z", "Zed")], vec![]);
+    fresh.reset = true;
+    host.set_instances(fresh).unwrap();
+
+    let placements = wait_for(&rx, |p| {
+        by_instance(p) == [("z".to_owned(), "Zed".to_owned())]
+    });
+    assert_eq!(placements.len(), 1);
+}
+
+#[test]
+fn a_plugin_started_later_gets_the_instances_already_on_the_page() {
+    let root = tempfile::tempdir().unwrap();
+    let (host, rx) = start(root.path());
+    host.set_instances(batch(vec![row_instance("a", "Alpha")], vec![]))
+        .unwrap();
+
+    write_custom(
+        root.path(),
+        "rows-one",
+        r#"beep.place({ slot: "session.row" }, (row) => beep.text(row.title));"#,
+    );
+
+    wait_for(&rx, |p| {
+        by_instance(p) == [("a".to_owned(), "Alpha".to_owned())]
+    });
+}
+
+/// A plugin with a header button that counts presses, for the event tests.
+const COUNTER: &str = r#"
+    const count = beep.state(0);
+    beep.place({ slot: "session.header" }, () =>
+      beep.button({ label: "Count", onPress: () => count.set(count.get() + 1) },
+        [beep.text("n:" + count.get())]));
+"#;
+
+fn button_id(placements: &[Placement]) -> CallbackId {
+    match placements.first().map(|placement| &placement.node) {
+        Some(Node::Button { on_press, .. }) => *on_press,
+        other => panic!("expected a button, got {other:?}"),
+    }
+}
+
+fn button_text(placements: &[Placement]) -> String {
+    match placements.first().map(|placement| &placement.node) {
+        Some(Node::Button { children, .. }) => match children.first() {
+            Some(Node::Text { text, .. }) => text.clone(),
+            other => panic!("expected text, got {other:?}"),
+        },
+        other => panic!("expected a button, got {other:?}"),
+    }
+}
+
+fn press(id: CallbackId) -> UiEvent {
+    UiEvent {
+        plugin: "counter-one".parse().unwrap(),
+        id,
+        action: Action::Press,
+    }
+}
+
+/// Starts the counter with a header open. Returns what it drew first.
+fn start_counter(root: &std::path::Path) -> (Host, mpsc::Receiver<Vec<Placement>>, Vec<Placement>) {
+    write_custom(root, "counter-one", COUNTER);
+    let (host, rx) = start(root);
+    host.set_instances(batch(vec![header_instance("s1")], vec![]))
+        .unwrap();
+    let first = wait_for(&rx, |p| button_text(p) == "n:0");
+
+    (host, rx, first)
+}
+
+#[test]
+fn a_button_press_runs_the_callback_and_the_plugin_draws_again() {
+    let root = tempfile::tempdir().unwrap();
+    let (host, rx, first) = start_counter(root.path());
+
+    host.event(press(button_id(&first))).unwrap();
+    let second = wait_for(&rx, |p| button_text(p) == "n:1");
+
+    assert_ne!(button_id(&second), button_id(&first));
+}
+
+#[test]
+fn an_old_id_does_nothing_and_events_for_unknown_plugins_are_dropped() {
+    let root = tempfile::tempdir().unwrap();
+    let (host, rx, first) = start_counter(root.path());
+
+    host.event(press(button_id(&first))).unwrap();
+    let second = wait_for(&rx, |p| button_text(p) == "n:1");
+
+    // The first id is stale now. The events are handled in order, so by the
+    // time the third press shows, the stale one has been seen and ignored.
+    host.event(press(button_id(&first))).unwrap();
+    let mut other = press(button_id(&second));
+    other.plugin = "someone-else".parse().unwrap();
+    host.event(other).unwrap();
+    host.event(press(button_id(&second))).unwrap();
+
+    wait_for(&rx, |p| button_text(p) == "n:2");
+}
+
+#[test]
+fn oversized_text_is_refused_before_it_reaches_a_plugin() {
+    let root = tempfile::tempdir().unwrap();
+    let (host, _rx, _first) = start_counter(root.path());
+    let event = UiEvent {
+        plugin: "counter-one".parse().unwrap(),
+        id: CallbackId::from(1),
+        action: Action::Text {
+            value: "x".repeat(5000),
+        },
+    };
+
+    assert!(matches!(host.event(event), Err(EventError::TooLong(5000))));
+}
+
+#[test]
+fn a_plugin_gets_at_most_thirty_events_a_second() {
+    let root = tempfile::tempdir().unwrap();
+    write_custom(
+        root.path(),
+        "counter-one",
+        r#"
+        // The press does not draw, so the button keeps its id.
+        let count = 0;
+        const shown = beep.state(0);
+        const tick = () => { shown.set(count); beep.after(50, tick); };
+        beep.after(50, tick);
+        beep.place({ slot: "session.header" }, () =>
+          beep.button({ label: "Count", onPress: () => { count += 1; } },
+            [beep.text("n:" + shown.get())]));
+        "#,
+    );
+    let (host, rx) = start(root.path());
+    host.set_instances(batch(vec![header_instance("s1")], vec![]))
+        .unwrap();
+    let first = wait_for(&rx, |p| !p.is_empty());
+    let id = button_id(&first);
+
+    for _ in 0..100 {
+        host.event(press(id)).unwrap();
+    }
+
+    wait_for(&rx, |p| button_text(p) == "n:30");
 }

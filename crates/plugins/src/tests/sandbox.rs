@@ -1,8 +1,12 @@
 use super::*;
 use serde_json::json;
 
+use crate::event::Action;
+use crate::instance::{
+    ComposerContext, InstanceKey, SessionHeaderContext, SessionRowContext, SlotContext,
+};
 use crate::topic::Publication;
-use crate::ui::{Align, Slot};
+use crate::ui::{Align, CallbackId, Position, Slot, Tone};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot a real image";
 
@@ -34,9 +38,34 @@ impl Fixture {
         self.root.path().join("test-plugin")
     }
 
+    /// Loads the plugin with the composer open, as when a session is shown.
     fn load(&self, now: Instant) -> Result<Sandbox, SandboxError> {
-        Sandbox::load(&self.dir(), now)
+        Ok(with_composer(Sandbox::load(&self.dir(), now)?))
     }
+}
+
+fn instance(key: &str, context: SlotContext) -> Instance {
+    Instance {
+        key: InstanceKey::try_from(key.to_owned()).unwrap(),
+        context,
+    }
+}
+
+fn composer_instance() -> Instance {
+    instance(
+        "composer",
+        SlotContext::Composer(ComposerContext {
+            machine: "build-box".to_owned(),
+            session: "s1".to_owned(),
+        }),
+    )
+}
+
+/// Opens the composer, the one instance of its slot.
+fn with_composer(mut sandbox: Sandbox) -> Sandbox {
+    sandbox.set_instances(&[composer_instance()]).unwrap();
+
+    sandbox
 }
 
 fn only_node(placements: Option<Vec<Placement>>) -> Node {
@@ -64,8 +93,15 @@ fn placed_image_becomes_a_data_url() {
     let placement = &placements[0];
     assert_eq!(placement.plugin.to_string(), "test-plugin");
     assert_eq!(placement.slot, Slot::Composer);
-    assert_eq!(placement.align, Align::End);
-    assert_eq!((placement.offset, placement.sink), (84, 4));
+    assert_eq!(
+        placement.position,
+        Position::Edge {
+            align: Align::End,
+            offset: 84,
+            sink: 4
+        }
+    );
+    assert_eq!(placement.instance.to_string(), "composer");
     let Node::Image {
         src,
         width,
@@ -99,6 +135,7 @@ fn timer_and_state_rerender() {
         gap: 2,
         children: vec![Node::Text {
             text: word.to_owned(),
+            tone: Tone::Normal,
         }],
     };
 
@@ -158,7 +195,8 @@ fn timer_delay_has_a_floor_and_chains_run_later() {
     assert_eq!(
         only_node(sandbox.render().unwrap()),
         Node::Text {
-            text: "1".to_owned()
+            text: "1".to_owned(),
+            tone: Tone::Normal
         }
     );
 }
@@ -264,7 +302,7 @@ fn invalid_trees_fail() {
         r#""ui.add""#,
         r#"beep.place({ slot: "nowhere" }, () => beep.text("x"));"#,
     );
-    assert!(slot.load(Instant::now()).unwrap().render().is_err());
+    assert!(slot.load(Instant::now()).is_err());
 
     let many = Fixture::new(
         r#""ui.add""#,
@@ -335,7 +373,7 @@ fn update(topic: Topic, machine: Option<&str>, data: serde_json::Value) -> Deliv
 
 fn text_of(placements: Option<Vec<Placement>>) -> String {
     match only_node(placements) {
-        Node::Text { text } => text,
+        Node::Text { text, .. } => text,
         other => panic!("expected text, got {other:?}"),
     }
 }
@@ -542,7 +580,7 @@ fn image_src(node: &Node) -> &str {
 fn composer_cat_example_runs() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat");
     let start = Instant::now();
-    let mut sandbox = Sandbox::load(&dir, start).unwrap();
+    let mut sandbox = with_composer(Sandbox::load(&dir, start).unwrap());
 
     let first = sandbox.render().unwrap().expect("a first render");
     assert_eq!(first.len(), 1);
@@ -576,7 +614,7 @@ fn agent_state(session: &str, status: &str) -> serde_json::Value {
 fn composer_cat_is_happy_when_a_turn_ends() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat");
     let start = Instant::now();
-    let mut sandbox = Sandbox::load(&dir, start).unwrap();
+    let mut sandbox = with_composer(Sandbox::load(&dir, start).unwrap());
     let happy = format!(
         "data:image/png;base64,{}",
         STANDARD.encode(std::fs::read(dir.join("art/cat-happy.png")).unwrap())
@@ -640,7 +678,7 @@ fn composer_cat_is_happy_when_a_turn_ends() {
 #[test]
 fn composer_cat_ignores_what_it_does_not_expect() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat");
-    let mut sandbox = Sandbox::load(&dir, Instant::now()).unwrap();
+    let mut sandbox = with_composer(Sandbox::load(&dir, Instant::now()).unwrap());
     let composer = topic("ui.composer", None, None);
     let session = topic("agent", Some("s1"), Some("m1"));
     sandbox.render().unwrap();
@@ -673,4 +711,651 @@ fn composer_cat_ignores_what_it_does_not_expect() {
         .unwrap();
 
     assert!(sandbox.render().unwrap().is_none());
+}
+
+fn row_instance(session: &str, title: &str) -> Instance {
+    instance(
+        session,
+        SlotContext::SessionRow(SessionRowContext {
+            machine: "build-box".to_owned(),
+            session: session.to_owned(),
+            title: title.to_owned(),
+        }),
+    )
+}
+
+fn header_instance(session: &str) -> Instance {
+    instance(
+        session,
+        SlotContext::SessionHeader(SessionHeaderContext {
+            machine: "build-box".to_owned(),
+            session: session.to_owned(),
+        }),
+    )
+}
+
+/// The text of each placement, with its instance key, in order.
+fn texts_by_instance(placements: &[Placement]) -> Vec<(String, String)> {
+    placements
+        .iter()
+        .map(|placement| {
+            let Node::Text { text, .. } = &placement.node else {
+                panic!("expected text, got {:?}", placement.node);
+            };
+            (placement.instance.to_string(), text.clone())
+        })
+        .collect()
+}
+
+fn press(plugin: &Sandbox, id: u64, action: Action) -> UiEvent {
+    UiEvent {
+        plugin: plugin.id.clone(),
+        id: CallbackId::from(id),
+        action,
+    }
+}
+
+const ROWS: &str = r#"
+    let renders = 0;
+    const mood = beep.state("calm");
+    beep.place({ slot: "session.row" }, (row) => {
+      renders += 1;
+      return beep.text(`${row.title}/${mood.get()}/${renders}`);
+    });
+"#;
+
+#[test]
+fn each_instance_is_rendered_with_its_own_context() {
+    let fixture = Fixture::new(r#""ui.add""#, ROWS);
+    let mut sandbox = Sandbox::load(&fixture.dir(), Instant::now()).unwrap();
+
+    sandbox
+        .set_instances(&[row_instance("a", "Alpha"), row_instance("b", "Beta")])
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+
+    assert_eq!(
+        texts_by_instance(&placements),
+        [
+            ("a".to_owned(), "Alpha/calm/1".to_owned()),
+            ("b".to_owned(), "Beta/calm/2".to_owned())
+        ]
+    );
+    assert!(
+        placements
+            .iter()
+            .all(|p| p.slot == Slot::SessionRow && p.position == Position::Inline)
+    );
+}
+
+#[test]
+fn only_instances_that_changed_are_rendered_again() {
+    let fixture = Fixture::new(r#""ui.add""#, ROWS);
+    let mut sandbox = Sandbox::load(&fixture.dir(), Instant::now()).unwrap();
+    sandbox
+        .set_instances(&[row_instance("a", "Alpha"), row_instance("b", "Beta")])
+        .unwrap();
+    sandbox.render().unwrap();
+
+    // A new row renders alone. The others keep what they drew.
+    sandbox
+        .set_instances(&[
+            row_instance("a", "Alpha"),
+            row_instance("b", "Beta"),
+            row_instance("c", "Gamma"),
+        ])
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    assert_eq!(
+        texts_by_instance(&placements),
+        [
+            ("a".to_owned(), "Alpha/calm/1".to_owned()),
+            ("b".to_owned(), "Beta/calm/2".to_owned()),
+            ("c".to_owned(), "Gamma/calm/3".to_owned())
+        ]
+    );
+
+    // The same list again renders nothing.
+    sandbox
+        .set_instances(&[
+            row_instance("a", "Alpha"),
+            row_instance("b", "Beta"),
+            row_instance("c", "Gamma"),
+        ])
+        .unwrap();
+    assert!(sandbox.render().unwrap().is_none());
+
+    // A changed context renders that instance alone.
+    sandbox
+        .set_instances(&[
+            row_instance("a", "Alpha"),
+            row_instance("b", "Renamed"),
+            row_instance("c", "Gamma"),
+        ])
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    assert_eq!(
+        texts_by_instance(&placements)[1],
+        ("b".to_owned(), "Renamed/calm/4".to_owned())
+    );
+    assert_eq!(texts_by_instance(&placements)[0].1, "Alpha/calm/1");
+}
+
+#[test]
+fn a_state_change_renders_every_instance_again() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        &format!(r#"{ROWS} beep.after(50, () => mood.set("busy"));"#),
+    );
+    let start = Instant::now();
+    let mut sandbox = Sandbox::load(&fixture.dir(), start).unwrap();
+    sandbox
+        .set_instances(&[row_instance("a", "Alpha"), row_instance("b", "Beta")])
+        .unwrap();
+    sandbox.render().unwrap();
+
+    sandbox.fire_due(start + Duration::from_millis(50)).unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+
+    assert_eq!(
+        texts_by_instance(&placements),
+        [
+            ("a".to_owned(), "Alpha/busy/3".to_owned()),
+            ("b".to_owned(), "Beta/busy/4".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn an_instance_that_goes_away_drops_its_output() {
+    let fixture = Fixture::new(r#""ui.add""#, ROWS);
+    let mut sandbox = Sandbox::load(&fixture.dir(), Instant::now()).unwrap();
+    sandbox
+        .set_instances(&[row_instance("a", "Alpha"), row_instance("b", "Beta")])
+        .unwrap();
+    sandbox.render().unwrap();
+
+    sandbox.set_instances(&[row_instance("b", "Beta")]).unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    assert_eq!(texts_by_instance(&placements).len(), 1);
+    assert_eq!(texts_by_instance(&placements)[0].0, "b");
+
+    sandbox.set_instances(&[]).unwrap();
+    assert_eq!(sandbox.render().unwrap().unwrap(), []);
+
+    // When it comes back it is drawn fresh.
+    sandbox
+        .set_instances(&[row_instance("a", "Alpha")])
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    assert_eq!(texts_by_instance(&placements)[0].1, "Alpha/calm/3");
+}
+
+#[test]
+fn placements_only_get_instances_of_their_slot() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"
+        beep.place({ slot: "session.row" }, (c) => beep.text("row " + c.session));
+        beep.place({ slot: "session.header" }, (c) => beep.text("head " + c.session));
+        beep.place({ slot: "composer" }, (c) => beep.text("comp " + JSON.stringify(c)));
+        "#,
+    );
+    let mut sandbox = Sandbox::load(&fixture.dir(), Instant::now()).unwrap();
+
+    sandbox
+        .set_instances(&[
+            composer_instance(),
+            row_instance("a", "Alpha"),
+            header_instance("a"),
+        ])
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+
+    let mut seen: Vec<(Slot, String)> = placements
+        .iter()
+        .map(|p| {
+            (
+                p.slot,
+                texts_by_instance(std::slice::from_ref(p))[0].1.clone(),
+            )
+        })
+        .collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        [
+            (
+                Slot::Composer,
+                r#"comp {"machine":"build-box","session":"s1"}"#.to_owned()
+            ),
+            (Slot::SessionRow, "row a".to_owned()),
+            (Slot::SessionHeader, "head a".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn a_render_that_returns_null_draws_nothing() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"beep.place({ slot: "session.row" }, (c) => c.title === "" ? null : beep.text(c.title));"#,
+    );
+    let mut sandbox = Sandbox::load(&fixture.dir(), Instant::now()).unwrap();
+
+    sandbox
+        .set_instances(&[row_instance("a", ""), row_instance("b", "Beta")])
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+
+    assert_eq!(
+        texts_by_instance(&placements),
+        [("b".to_owned(), "Beta".to_owned())]
+    );
+}
+
+#[test]
+fn place_options_must_fit_the_slot() {
+    for options in [
+        r#"{ slot: "session.row", align: "end" }"#,
+        r#"{ slot: "session.header", offset: 3 }"#,
+        r#"{ slot: "composer", gap: 1 }"#,
+        r#"{ slot: "composer", align: "middle" }"#,
+        r#"{ slot: "nowhere" }"#,
+    ] {
+        let fixture = Fixture::new(
+            r#""ui.add""#,
+            &format!(r#"beep.place({options}, () => beep.text("x"));"#),
+        );
+
+        let error = fixture.load(Instant::now()).err().expect("load fails");
+
+        assert!(
+            error.to_string().contains("beep.place"),
+            "{options}: {error}"
+        );
+    }
+}
+
+#[test]
+fn at_most_eight_places_and_two_thousand_entries() {
+    let nine = Fixture::new(
+        r#""ui.add""#,
+        r#"for (let i = 0; i < 9; i++) beep.place({ slot: "composer" }, () => beep.text("x"));"#,
+    );
+    let error = nine.load(Instant::now()).err().expect("load fails");
+    assert!(error.to_string().contains("at most 8"), "{error}");
+
+    let many = Fixture::new(
+        r#""ui.add""#,
+        r#"for (let i = 0; i < 8; i++) beep.place({ slot: "session.row" }, () => beep.text("x"));"#,
+    );
+    let mut sandbox = Sandbox::load(&many.dir(), Instant::now()).unwrap();
+    let rows: Vec<Instance> = (0..200)
+        .map(|i| row_instance(&format!("s{i}"), "t"))
+        .collect();
+    sandbox.set_instances(&rows).unwrap();
+    // 8 places x 200 rows is 1600 entries, inside the limit.
+    assert_eq!(sandbox.render().unwrap().unwrap().len(), 1600);
+}
+
+const CONTROLS: &str = r#"
+    const clicks = beep.state(0);
+    const on = beep.state(false);
+    const typed = beep.state("");
+    const sent = beep.state("");
+    beep.place({ slot: "session.header" }, (c) =>
+      beep.row({ gap: 4 }, [
+        beep.button({ label: "Go", onPress: () => clicks.set(clicks.get() + 1) }, [beep.text("Go " + c.session + " " + clicks.get())]),
+        beep.toggle({ label: "On", value: on.get(), onChange: (v) => on.set(v) }),
+        beep.input({ label: "Note", value: typed.get(), placeholder: "p",
+          onChange: (v) => typed.set(v), onSubmit: (v) => sent.set(v) }),
+        beep.text(`${sent.get()}`, { tone: "dim" }),
+      ]));
+"#;
+
+/// The callback ids of a header render: button, toggle, input change, input submit.
+fn control_ids(placements: &[Placement]) -> (u64, u64, u64, u64) {
+    let Node::Row { children, .. } = &placements[0].node else {
+        panic!("expected a row");
+    };
+    let id = |callback: Option<CallbackId>| {
+        serde_json::to_value(callback.unwrap())
+            .unwrap()
+            .as_u64()
+            .unwrap()
+    };
+    let [
+        Node::Button { on_press, .. },
+        Node::Toggle { on_change, .. },
+        Node::Input {
+            on_change: change,
+            on_submit,
+            ..
+        },
+        _,
+    ] = children.as_slice()
+    else {
+        panic!("expected button, toggle, input and text: {children:?}");
+    };
+
+    (
+        id(Some(*on_press)),
+        id(Some(*on_change)),
+        id(*change),
+        id(*on_submit),
+    )
+}
+
+fn controls() -> (
+    Sandbox,
+    tempfile::TempDir,
+    Vec<Placement>,
+    (u64, u64, u64, u64),
+) {
+    let fixture = Fixture::new(r#""ui.add""#, CONTROLS);
+    let mut sandbox = Sandbox::load(&fixture.dir(), Instant::now()).unwrap();
+    sandbox.set_instances(&[header_instance("s1")]).unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    let ids = control_ids(&placements);
+
+    (sandbox, fixture.root, placements, ids)
+}
+
+#[test]
+fn a_button_press_runs_its_callback_and_renders_again() {
+    let (mut sandbox, _root, _first, (button, ..)) = controls();
+
+    sandbox
+        .handle(&press(&sandbox, button, Action::Press))
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+
+    let Node::Row { children, .. } = &placements[0].node else {
+        panic!("expected a row");
+    };
+    let Node::Button {
+        label,
+        children: inside,
+        ..
+    } = &children[0]
+    else {
+        panic!("expected a button");
+    };
+    assert_eq!(label, "Go");
+    assert_eq!(
+        inside,
+        &[Node::Text {
+            text: "Go s1 1".to_owned(),
+            tone: Tone::Normal
+        }]
+    );
+}
+
+#[test]
+fn toggles_and_inputs_pass_their_value() {
+    let (mut sandbox, _root, _first, (_, toggle, change, submit)) = controls();
+
+    sandbox
+        .handle(&press(&sandbox, toggle, Action::Toggle { value: true }))
+        .unwrap();
+    sandbox
+        .handle(&press(
+            &sandbox,
+            change,
+            Action::Text {
+                value: "hi".to_owned(),
+            },
+        ))
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    let Node::Row { children, .. } = &placements[0].node else {
+        panic!("expected a row");
+    };
+    assert!(matches!(children[1], Node::Toggle { value: true, .. }));
+    assert!(matches!(&children[2], Node::Input { value, .. } if value == "hi"));
+
+    // The ids were made again, so submit is read from the new render.
+    let (_, _, _, submit_now) = control_ids(&placements);
+    assert_ne!(submit_now, submit, "an id is never reused");
+    sandbox
+        .handle(&press(
+            &sandbox,
+            submit_now,
+            Action::Text {
+                value: "sent".to_owned(),
+            },
+        ))
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    let Node::Row { children, .. } = &placements[0].node else {
+        panic!("expected a row");
+    };
+    assert_eq!(
+        children[3],
+        Node::Text {
+            text: "sent".to_owned(),
+            tone: Tone::Dim
+        }
+    );
+}
+
+#[test]
+fn stale_unknown_and_mismatched_events_are_ignored() {
+    let (mut sandbox, _root, _first, (button, toggle, change, _)) = controls();
+
+    // The press renders again, which makes new ids.
+    sandbox
+        .handle(&press(&sandbox, button, Action::Press))
+        .unwrap();
+    sandbox.render().unwrap();
+
+    // The old id does nothing now.
+    sandbox
+        .handle(&press(&sandbox, button, Action::Press))
+        .unwrap();
+    // Neither does an id nobody had.
+    sandbox
+        .handle(&press(&sandbox, 9999, Action::Press))
+        .unwrap();
+    assert!(sandbox.render().unwrap().is_none());
+
+    // A fresh id with the wrong kind of value is ignored too.
+    let placements = {
+        sandbox
+            .set_instances(&[header_instance("s1"), header_instance("s2")])
+            .unwrap();
+        sandbox.render().unwrap().unwrap()
+    };
+    let (new_button, new_toggle, new_change, _) = control_ids(&placements[..1]);
+    assert!(new_button > button && new_toggle > toggle && new_change > change);
+    sandbox
+        .handle(&press(&sandbox, new_button, Action::Toggle { value: true }))
+        .unwrap();
+    sandbox
+        .handle(&press(
+            &sandbox,
+            new_toggle,
+            Action::Text {
+                value: "x".to_owned(),
+            },
+        ))
+        .unwrap();
+    sandbox
+        .handle(&press(&sandbox, new_change, Action::Press))
+        .unwrap();
+    assert!(sandbox.render().unwrap().is_none());
+}
+
+#[test]
+fn the_ids_of_an_instance_that_left_are_stale() {
+    let (mut sandbox, _root, _first, (button, ..)) = controls();
+
+    sandbox.set_instances(&[]).unwrap();
+    sandbox.render().unwrap();
+    sandbox
+        .handle(&press(&sandbox, button, Action::Press))
+        .unwrap();
+
+    assert!(sandbox.render().unwrap().is_none());
+}
+
+#[test]
+fn a_callback_that_throws_fails_the_event() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"beep.place({ slot: "composer" }, () => beep.button({ label: "x", onPress: () => { throw new Error("nope"); } }));"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    let Node::Button { on_press, .. } = &placements[0].node else {
+        panic!("expected a button");
+    };
+    let event = UiEvent {
+        plugin: sandbox.id.clone(),
+        id: *on_press,
+        action: Action::Press,
+    };
+
+    let error = sandbox.handle(&event).unwrap_err();
+
+    assert!(error.to_string().contains("nope"), "{error}");
+}
+
+#[test]
+fn controls_need_their_callbacks() {
+    for tree in [
+        r#"beep.button({ label: "x" })"#,
+        r#"beep.button({ label: "x", onPress: "go" })"#,
+        r#"beep.toggle({ label: "x", value: true })"#,
+        r#"beep.input({ label: "x", onChange: 3 })"#,
+        r#"{ kind: "button", label: "x", onPress: () => {}, extra: 1 }"#,
+    ] {
+        let fixture = Fixture::new(
+            r#""ui.add""#,
+            &format!(r#"beep.place({{ slot: "composer" }}, () => ({tree}));"#),
+        );
+        let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+        assert!(sandbox.render().is_err(), "{tree}");
+    }
+}
+
+#[test]
+fn session_rows_take_no_controls() {
+    for tree in [
+        r#"beep.button({ label: "x", onPress: () => {} })"#,
+        r#"beep.row({}, [beep.input({ label: "x" })])"#,
+    ] {
+        let fixture = Fixture::new(
+            r#""ui.add""#,
+            &format!(r#"beep.place({{ slot: "session.row" }}, () => {tree});"#),
+        );
+        let mut sandbox = Sandbox::load(&fixture.dir(), Instant::now()).unwrap();
+        sandbox.set_instances(&[row_instance("a", "A")]).unwrap();
+
+        assert!(
+            matches!(
+                sandbox.render(),
+                Err(SandboxError::NotInteractive(Slot::SessionRow))
+            ),
+            "{tree}"
+        );
+    }
+}
+
+#[test]
+fn the_composer_context_is_machine_and_session() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"beep.place({ slot: "composer" }, (c) => beep.text(`${c.machine}:${c.session}`));"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    assert_eq!(text_of(sandbox.render().unwrap()), "build-box:s1");
+}
+
+fn session_notes() -> Sandbox {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/session-notes");
+
+    Sandbox::load(&dir, Instant::now()).unwrap()
+}
+
+#[test]
+fn session_notes_draws_a_note_per_row_from_the_header() {
+    let mut sandbox = session_notes();
+    sandbox
+        .set_instances(&[
+            row_instance("a", "Alpha"),
+            row_instance("b", "Beta"),
+            header_instance("a"),
+        ])
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+
+    // No note yet, so the rows draw nothing and the header has its controls.
+    assert_eq!(placements.len(), 1);
+    assert_eq!(placements[0].slot, Slot::SessionHeader);
+    let Node::Row { children, .. } = &placements[0].node else {
+        panic!("expected a row");
+    };
+    let Node::Input {
+        on_change,
+        on_submit,
+        ..
+    } = &children[0]
+    else {
+        panic!("expected an input");
+    };
+    let (on_change, on_submit) = (on_change.unwrap(), on_submit.unwrap());
+
+    let event = |id: CallbackId, value: &str| UiEvent {
+        plugin: sandbox_id(),
+        id,
+        action: Action::Text {
+            value: value.to_owned(),
+        },
+    };
+    sandbox.handle(&event(on_change, "  ship it ")).unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    assert_eq!(placements.len(), 1, "typing alone adds no badge");
+    let Node::Row { children, .. } = &placements[0].node else {
+        panic!("expected a row");
+    };
+    let Node::Input {
+        on_submit: submit,
+        value,
+        ..
+    } = &children[0]
+    else {
+        panic!("expected an input");
+    };
+    assert_eq!(value, "  ship it ");
+    let _ = on_submit;
+
+    sandbox
+        .handle(&event(submit.unwrap(), "  ship it "))
+        .unwrap();
+    let placements = sandbox.render().unwrap().unwrap();
+    let rows: Vec<(String, String)> = placements
+        .iter()
+        .filter(|p| p.slot == Slot::SessionRow)
+        .map(|p| texts_by_instance(std::slice::from_ref(p))[0].clone())
+        .collect();
+    assert_eq!(rows, [("a".to_owned(), "ship it".to_owned())]);
+    assert!(matches!(
+        placements
+            .iter()
+            .find(|p| p.slot == Slot::SessionRow)
+            .unwrap()
+            .node,
+        Node::Text {
+            tone: Tone::Accent,
+            ..
+        }
+    ));
+}
+
+fn sandbox_id() -> PluginId {
+    "session-notes".parse().unwrap()
 }

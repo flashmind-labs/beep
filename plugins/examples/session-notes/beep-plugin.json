@@ -1,0 +1,8 @@
+{
+  "id": "session-notes",
+  "name": "Session notes",
+  "version": "0.1.0",
+  "description": "A short note on each session, set from its header.",
+  "entry": "main.ts",
+  "permissions": ["ui.add"]
+}

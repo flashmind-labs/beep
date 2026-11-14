@@ -9,10 +9,12 @@ use rquickjs::context::EvalOptions;
 use rquickjs::{CatchResultExt, Context, Ctx, Function, Object, Persistent, Runtime};
 use thiserror::Error;
 
+use crate::event::UiEvent;
+use crate::instance::Instance;
 use crate::manifest::{Manifest, ManifestError, Permission, PluginId};
 use crate::source::{SourceError, strip_types};
 use crate::topic::{Delivery, Subscriptions, Topic};
-use crate::ui::{Node, Placement, RawNode, RawPlacement};
+use crate::ui::{Node, Placement, RawNode, RawPlace, RawPlacement, Slot};
 
 const PRELUDE: &str = include_str!("prelude.js");
 
@@ -22,9 +24,14 @@ const CPU_BUDGET: Duration = Duration::from_millis(50);
 const MAX_TIMERS: usize = 64;
 const MIN_TIMER_MS: f64 = 16.0;
 const MAX_TIMER_MS: f64 = 86_400_000.0;
-const MAX_PLACEMENTS: usize = 8;
+/// Rendered placements, over all instances.
+const MAX_ENTRIES: usize = 2000;
+/// Nodes in one placement.
 const MAX_NODES: usize = 64;
+/// One placement, as JSON.
 const MAX_RENDER_BYTES: usize = 64 * 1024;
+/// All placements of one render, as JSON.
+const MAX_TOTAL_BYTES: usize = 2 * 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 256 * 1024;
 
 #[derive(Debug, Error)]
@@ -46,10 +53,14 @@ pub(crate) enum SandboxError {
     Engine(#[from] rquickjs::Error),
     #[error("placed {0} nodes, the limit is {MAX_NODES}")]
     TooManyNodes(usize),
-    #[error("placed {0} things, the limit is {MAX_PLACEMENTS}")]
+    #[error("rendered {0} placements, the limit is {MAX_ENTRIES}")]
     TooManyPlacements(usize),
-    #[error("rendered {0} bytes, the limit is {MAX_RENDER_BYTES}")]
+    #[error("rendered {0} bytes, the limit is {MAX_RENDER_BYTES} for one placement")]
     TooLarge(usize),
+    #[error("rendered {0} bytes in all, the limit is {MAX_TOTAL_BYTES}")]
+    TooLargeInAll(usize),
+    #[error("the {0} slot takes no buttons, toggles or inputs")]
+    NotInteractive(Slot),
     #[error("invalid tree: {0}")]
     Tree(#[from] serde_json::Error),
     #[error("image {src:?}: {reason}")]
@@ -76,6 +87,8 @@ pub(crate) struct Sandbox {
     // Drop order matters: persistent handles, then the context, then the runtime.
     fire: Persistent<Function<'static>>,
     emit: Persistent<Function<'static>>,
+    instances: Persistent<Function<'static>>,
+    invoke: Persistent<Function<'static>>,
     render: Persistent<Function<'static>>,
     context: Context,
     runtime: Runtime,
@@ -153,10 +166,16 @@ impl Sandbox {
         let loaded = context.with(|ctx| {
             let schedule = schedule_function(&ctx, &timers)?;
             let (listen, unlisten) = subscribe_functions(&ctx, &subscriptions)?;
+            let check_place = Function::new(ctx.clone(), check_place)?;
             let factory: Function = caught(&ctx, ctx.eval(PRELUDE))?;
-            let api: Object = caught(&ctx, factory.call((schedule, can_place, listen, unlisten)))?;
+            let api: Object = caught(
+                &ctx,
+                factory.call((schedule, can_place, listen, unlisten, check_place)),
+            )?;
             let fire: Function = caught(&ctx, api.get("fire"))?;
             let emit: Function = caught(&ctx, api.get("emit"))?;
+            let instances: Function = caught(&ctx, api.get("instances"))?;
+            let invoke: Function = caught(&ctx, api.get("invoke"))?;
             let render: Function = caught(&ctx, api.get("render"))?;
 
             let mut options = EvalOptions::default();
@@ -166,17 +185,21 @@ impl Sandbox {
             Ok::<_, SandboxError>((
                 Persistent::save(&ctx, fire),
                 Persistent::save(&ctx, emit),
+                Persistent::save(&ctx, instances),
+                Persistent::save(&ctx, invoke),
                 Persistent::save(&ctx, render),
             ))
         });
         let drained = drain_jobs(&runtime);
         budget.stop();
-        let (fire, emit, render) = loaded?;
+        let (fire, emit, instances, invoke, render) = loaded?;
         drained?;
 
         Ok(Self {
             fire,
             emit,
+            instances,
+            invoke,
             render,
             context,
             runtime,
@@ -237,34 +260,68 @@ impl Sandbox {
         locked(&self.subscriptions).take_changed()
     }
 
+    /// Tells the plugin which instances of its slots are on the page.
+    pub(crate) fn set_instances(&mut self, instances: &[Instance]) -> Result<(), SandboxError> {
+        let json = serde_json::to_string(instances)?;
+
+        self.enter(|ctx| {
+            let set = self.instances.clone().restore(ctx)?;
+            caught(ctx, set.call::<_, ()>((json,)))
+        })
+    }
+
+    /// Runs the callback an event names. A callback from an older render, or one
+    /// that takes another kind of value, is ignored.
+    pub(crate) fn handle(&mut self, event: &UiEvent) -> Result<(), SandboxError> {
+        let id = Into::<f64>::into(event.id);
+        let argument = event.action.argument();
+
+        self.enter(|ctx| {
+            let invoke = self.invoke.clone().restore(ctx)?;
+            caught(ctx, invoke.call::<_, bool>((id, argument)))
+        })?;
+
+        Ok(())
+    }
+
     /// The placements to show, or `None` when nothing changed since the last call.
     pub(crate) fn render(&mut self) -> Result<Option<Vec<Placement>>, SandboxError> {
-        let json = self.enter(|ctx| {
+        let entries = self.enter(|ctx| {
             let render = self.render.clone().restore(ctx)?;
-            caught(ctx, render.call::<_, Option<String>>(()))
+            caught(ctx, render.call::<_, Option<Vec<String>>>(()))
         })?;
-        let Some(json) = json else {
+        let Some(entries) = entries else {
             return Ok(None);
         };
 
-        if json.len() > MAX_RENDER_BYTES {
-            return Err(SandboxError::TooLarge(json.len()));
+        if entries.len() > MAX_ENTRIES {
+            return Err(SandboxError::TooManyPlacements(entries.len()));
         }
-        let raw: Vec<RawPlacement> = serde_json::from_str(&json)?;
-        if raw.len() > MAX_PLACEMENTS {
-            return Err(SandboxError::TooManyPlacements(raw.len()));
+        let total: usize = entries.iter().map(String::len).sum();
+        if total > MAX_TOTAL_BYTES {
+            return Err(SandboxError::TooLargeInAll(total));
         }
 
-        let mut nodes = 0;
-        let mut placements = Vec::with_capacity(raw.len());
-        for item in raw {
+        let mut placements = Vec::with_capacity(entries.len());
+        for json in &entries {
+            if json.len() > MAX_RENDER_BYTES {
+                return Err(SandboxError::TooLarge(json.len()));
+            }
+
+            let raw: RawPlacement = serde_json::from_str(json)?;
+            let slot = raw.place.slot();
+            let mut nodes = 0;
+            let node = self.images.resolve(raw.node, &mut nodes)?;
+            if !slot.is_interactive() && node.is_interactive() {
+                return Err(SandboxError::NotInteractive(slot));
+            }
+
             placements.push(Placement {
                 plugin: self.id.clone(),
-                slot: item.slot,
-                align: item.align,
-                offset: item.offset,
-                sink: item.sink,
-                node: self.images.resolve(item.node, &mut nodes)?,
+                slot,
+                instance: raw.instance,
+                position: raw.place.position(),
+                node,
             });
         }
 
@@ -313,6 +370,14 @@ fn schedule_function<'js>(
     };
 
     Ok(Function::new(ctx.clone(), schedule)?)
+}
+
+/// The native function behind `beep.place`: "" when the options are valid, else why not.
+fn check_place(options: String) -> String {
+    match serde_json::from_str::<RawPlace>(&options) {
+        Ok(_) => String::new(),
+        Err(error) => format!("invalid beep.place options: {error}"),
+    }
 }
 
 /// The two native functions behind `beep.on`: subscribe and drop. `listen`
@@ -391,15 +456,54 @@ impl Images {
                 height,
                 pixelated,
             },
-            RawNode::Text { text } => Node::Text { text },
+            RawNode::Text { text, tone } => Node::Text { text, tone },
             RawNode::Row { gap, children } => Node::Row {
                 gap,
-                children: children
-                    .into_iter()
-                    .map(|child| self.resolve(child, nodes))
-                    .collect::<Result<_, _>>()?,
+                children: self.resolve_all(children, nodes)?,
+            },
+            RawNode::Button {
+                label,
+                children,
+                on_press,
+            } => Node::Button {
+                label,
+                children: self.resolve_all(children, nodes)?,
+                on_press,
+            },
+            RawNode::Toggle {
+                label,
+                value,
+                on_change,
+            } => Node::Toggle {
+                label,
+                value,
+                on_change,
+            },
+            RawNode::Input {
+                label,
+                value,
+                placeholder,
+                on_change,
+                on_submit,
+            } => Node::Input {
+                label,
+                value,
+                placeholder,
+                on_change,
+                on_submit,
             },
         })
+    }
+
+    fn resolve_all(
+        &mut self,
+        children: Vec<RawNode>,
+        nodes: &mut usize,
+    ) -> Result<Vec<Node>, SandboxError> {
+        children
+            .into_iter()
+            .map(|child| self.resolve(child, nodes))
+            .collect()
     }
 
     fn data_url(&mut self, src: &str) -> Result<String, ImageError> {

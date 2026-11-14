@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
@@ -17,7 +18,7 @@ function sprite(name: string) {
 
 function placement(name: string) {
   const { src, width, height } = sprite(name);
-  return { plugin: "composer-cat", slot: "composer", align: "end", offset: 84, sink: 3, node: { kind: "image", src, width: width * 2, height: height * 2, pixelated: true } };
+  return { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "end", offset: 84, sink: 3 }, node: { kind: "image", src, width: width * 2, height: height * 2, pixelated: true } };
 }
 
 const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
@@ -134,6 +135,123 @@ test("an update for a topic plugins want is forwarded through plugins_publish", 
   await page.evaluate(() => window.__navigation.publish("agent.notice-one", null));
 
   await expect.poll(async () => (await published(page)).filter(update => update.topic.name === "agent")).toEqual([{ topic: { name: "agent", key: "notice-one", machine: "build-box" }, machine: "build-box", data: null }]);
+});
+
+interface Reported { reset: boolean; shown: { slot: string; key: string; context: Record<string, string> }[]; gone: { slot: string; key: string }[] }
+
+/// The batches the page handed to `plugins_instances` so far.
+async function batches(page: Page): Promise<Reported[]> {
+  const calls = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "plugins_instances").map(call => call.args.batch));
+  return calls.filter((batch): batch is Reported => typeof batch === "object" && batch !== null && "shown" in batch && "gone" in batch && "reset" in batch);
+}
+
+/// The events the page handed to `plugins_event` so far.
+function events(page: Page): Promise<unknown[]> {
+  return page.evaluate(() => window.__navigation.calls().filter(call => call.command === "plugins_event").map(call => call.args.event));
+}
+
+const inline = (slot: string, instance: string, node: unknown) => ({ plugin: "session-notes", slot, instance, position: { kind: "inline" }, node });
+const note = (text: string) => ({ kind: "text", text, tone: "accent" });
+const listed = [0, 1].map(index => ({ id: `agent-${index}`, machine_id: "build-box", machine_name: "Build box", agent: "codex", title: `Agent ${index}`, cwd: "/srv/project", status: "working", doing: "Working", started_at: index, last_activity: index, external: false, question: null }));
+
+test("each session row reports its instance and draws its own plugin output", async ({ page }) => {
+  await openDesktop(page, false, { agent_sessions: listed, session_moves: [] });
+  await page.goto("https://app.test/index.html");
+  const bundle = await build({ entryPoints: ["tests/browser/agents-bar-fixture.ts"], bundle: true, write: false, platform: "browser", format: "iife" });
+  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  await page.evaluate(() => Reflect.get(window, "openTestAgents")());
+  const rows = page.getByRole("option");
+  await expect(rows).toHaveCount(2);
+  const before = await box(rows.first());
+
+  // The page tells the host both rows, with what each row shows, in one batch.
+  await expect.poll(async () => (await batches(page)).flatMap(batch => batch.shown).filter(item => item.slot === "session.row").map(item => [item.key, item.context])).toEqual([
+    ["build-box:agent-0", { machine: "build-box", session: "agent-0", title: "Agent 0" }],
+    ["build-box:agent-1", { machine: "build-box", session: "agent-1", title: "Agent 1" }],
+  ]);
+  expect((await batches(page)).filter(batch => batch.shown.some(item => item.slot === "session.row"))).toHaveLength(1);
+
+  // Each row draws the output for its own instance, and nothing moves when a row has none.
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [inline("session.row", "build-box:agent-1", note("second note"))]);
+  await expect(rows.nth(1).locator(".pluginhere")).toHaveText("second note");
+  await expect(rows.nth(0).locator(".pluginhere")).toHaveCount(0);
+  expect(await box(rows.first())).toEqual(before);
+
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [inline("session.row", "build-box:agent-0", note("first note")), inline("session.row", "build-box:agent-1", note("second note"))]);
+  await expect(rows.nth(0).locator(".pluginhere")).toHaveText("first note");
+  await expect(rows.nth(1).locator(".pluginhere")).toHaveText("second note");
+
+  // A row that leaves the page reports as gone.
+  await page.evaluate(async rest => { window.__navigation.respond("agent_sessions", rest); await Reflect.get(window, "refreshTestAgents")(); }, listed.slice(0, 1));
+  await expect(rows).toHaveCount(1);
+  await expect.poll(async () => (await batches(page)).flatMap(batch => batch.gone).filter(item => item.slot === "session.row")).toEqual([{ slot: "session.row", key: "build-box:agent-1" }]);
+});
+
+test("the open session's header reports its instance, and a header button press reaches plugins_event", async ({ page }) => {
+  await openSession(page, []);
+
+  await expect.poll(async () => (await batches(page)).flatMap(batch => batch.shown).filter(item => item.slot === "session.header")).toEqual([{ slot: "session.header", key: "build-box:notice-one", context: { machine: "build-box", session: "notice-one" } }]);
+  const composer = (await batches(page)).flatMap(batch => batch.shown).filter(item => item.slot === "composer");
+  expect(composer).toEqual([{ slot: "composer", key: "composer", context: { machine: "build-box", session: "notice-one" } }]);
+  await expect(page.locator(".pluginhere")).toHaveCount(0);
+  const head = await box(page.locator(".ag-head"));
+
+  const controls = { kind: "row", gap: 6, children: [
+    { kind: "input", label: "Session note", value: "", placeholder: "Add a note", onChange: 3, onSubmit: 4 },
+    { kind: "button", label: "Save note", children: [{ kind: "text", text: "Save", tone: "normal" }], onPress: 5 },
+    { kind: "toggle", label: "Pinned", value: false, onChange: 6 },
+  ] };
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [inline("session.header", "build-box:notice-one", controls)]);
+
+  const button = page.getByRole("button", { name: "Save note" });
+  await expect(button).toBeVisible();
+  expect((await box(page.locator(".ag-head"))).height).toBe(head.height);
+  await button.click();
+  await expect.poll(() => events(page)).toEqual([{ plugin: "session-notes", id: 5, action: { kind: "press" } }]);
+
+  // The toggle sends the opposite of what it shows. A keyboard press works as a click.
+  const toggle = page.getByRole("switch", { name: "Pinned" });
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await events(page)).at(-1)).toEqual({ plugin: "session-notes", id: 6, action: { kind: "toggle", value: true } });
+
+  // The input sends each change and, on Enter, the text for onSubmit. Typing stays out of the app's keys.
+  const field = page.getByRole("textbox", { name: "Session note" });
+  await field.click();
+  await page.keyboard.type("hi");
+  await expect(field).toHaveValue("hi");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await events(page)).slice(2)).toEqual([
+    { plugin: "session-notes", id: 3, action: { kind: "text", value: "h" } },
+    { plugin: "session-notes", id: 3, action: { kind: "text", value: "hi" } },
+    { plugin: "session-notes", id: 4, action: { kind: "text", value: "hi" } },
+  ]);
+  await expect(page.locator("#agfield")).toBeVisible();
+
+  // The plugin's value replaces what was typed.
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [inline("session.header", "build-box:notice-one", { ...controls, children: [{ ...controls.children[0], value: "" }, controls.children[1], controls.children[2]] })]);
+  await expect(field).toHaveValue("hi");
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [inline("session.header", "build-box:notice-one", { ...controls, children: [{ ...controls.children[0], value: "cleared" }, controls.children[1], controls.children[2]] })]);
+  await expect(field).toHaveValue("cleared");
+});
+
+test("a composer slot with a control takes the pointer there only, and the cat still takes none", async ({ page }) => {
+  const cat = placement("cat-idle.png");
+  const press = { plugin: "composer-cat", slot: "composer", instance: "composer", position: { kind: "edge", align: "start", offset: 8, sink: 0 }, node: { kind: "button", label: "Poke", children: [], onPress: 2 } };
+  await openSession(page, [cat, press]);
+
+  const slot = page.locator(".pluginslot");
+  await expect(slot.getByRole("button", { name: "Poke" })).toBeVisible();
+  await expect(slot).not.toHaveAttribute("aria-hidden", "true");
+  const image = await box(page.locator(".pluginslot img"));
+  const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".pluginslot") !== null, { x: image.x + image.width / 2, y: image.y + image.height / 2 });
+  expect(hit).toBe(false);
+
+  await slot.getByRole("button", { name: "Poke" }).click();
+  await expect.poll(() => events(page)).toEqual([{ plugin: "composer-cat", id: 2, action: { kind: "press" } }]);
+
+  await page.evaluate(list => window.__navigation.emit("plugins-changed", list), [cat]);
+  await expect(slot).toHaveAttribute("aria-hidden", "true");
 });
 
 for (const scheme of ["dark", "light"] as const) {

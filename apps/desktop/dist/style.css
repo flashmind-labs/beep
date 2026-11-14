@@ -459,11 +459,20 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agupask { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted) }
 .agupask .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
 #agfield.dropping { box-shadow: 0 0 0 1px var(--accent) }
-/* Plugins draw on the message box's top edge and take no pointer. */
+/* Plugins draw on the message box's top edge and take no pointer, except on their controls. */
 .pluginslot { position: relative; flex: none; height: 0; z-index: 1; pointer-events: none; user-select: none }
 .pluginplace { position: absolute; bottom: 0; display: flex; line-height: 0 }
 .pluginplace img { display: block; flex: none }
 .pluginrow { display: flex; align-items: flex-end; line-height: normal }
+.pluginctl { pointer-events: auto }
+/* Slots in the page's flow draw nothing, and take no room, until a plugin fills them. */
+.pluginhere { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; max-width: 45%; font-size: 12px; color: var(--muted); white-space: nowrap }
+.pluginhere .pluginrow { align-items: center }
+.plugintext.dim { color: var(--muted) }
+.plugintext.accent { color: var(--accent) }
+.pluginin { width: 160px; min-width: 0; min-height: 24px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px; outline: 0; caret-color: var(--accent) }
+.pluginin::placeholder { color: var(--dim) }
+.pluginin:focus { border-color: var(--accent) }
 #agfield button[aria-label="Attach files"] { width: 26px; padding: 0; justify-content: center; margin-right: -8px }
 .agmain > .agpstrip span { writing-mode: initial }
 /* A step's media files, as buttons that open them in the pane. */

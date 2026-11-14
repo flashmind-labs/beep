@@ -1,20 +1,31 @@
 import { createStore } from "zustand";
 
-export type PluginSlotName = "composer";
+/// A named place in the app. A slot can be on the page many times, each with its own context.
+export type PluginSlotName = "composer" | "session.row" | "session.header";
 export type PluginAlign = "start" | "center" | "end";
+export type PluginTone = "normal" | "dim" | "accent";
+
+/// Names a function the plugin passed in a tree, valid for one render of one instance.
+export type CallbackId = number;
 
 export type PluginNode =
   | { kind: "image"; src: string; width: number; height: number; pixelated: boolean }
-  | { kind: "text"; text: string }
-  | { kind: "row"; gap: number; children: PluginNode[] };
+  | { kind: "text"; text: string; tone: PluginTone }
+  | { kind: "row"; gap: number; children: PluginNode[] }
+  | { kind: "button"; label: string; children: PluginNode[]; onPress: CallbackId }
+  | { kind: "toggle"; label: string; value: boolean; onChange: CallbackId }
+  | { kind: "input"; label: string; value: string; placeholder: string; onChange: CallbackId | null; onSubmit: CallbackId | null };
 
-/// One node a plugin put in a slot, as the desktop publishes it.
+/// Where a placement sits: on the slot's edge, or in the page's flow where the slot is.
+export type PluginPosition = { kind: "edge"; align: PluginAlign; offset: number; sink: number } | { kind: "inline" };
+
+/// One node a plugin put in one instance of a slot, as the desktop publishes it.
 export interface Placement {
   plugin: string;
   slot: PluginSlotName;
-  align: PluginAlign;
-  offset: number;
-  sink: number;
+  /// The key the page reported the instance with.
+  instance: string;
+  position: PluginPosition;
   node: PluginNode;
 }
 
@@ -22,9 +33,25 @@ export interface Placement {
 const IMAGE_PREFIX = "data:image/";
 /// Rows nest no deeper than this.
 const MAX_DEPTH = 8;
+const MAX_KEY_BYTES = 128;
+const SLOTS: ReadonlySet<string> = new Set<PluginSlotName>(["composer", "session.row", "session.header"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isLength = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 65535;
+const isCallback = (value: unknown): value is CallbackId => typeof value === "number" && Number.isInteger(value) && value > 0;
+const isSlot = (value: unknown): value is PluginSlotName => typeof value === "string" && SLOTS.has(value);
+const byteLength = (text: string) => new TextEncoder().encode(text).length;
+
+function parseChildren(raw: unknown, depth: number): PluginNode[] | null {
+  if (!Array.isArray(raw)) return null;
+  const children: PluginNode[] = [];
+  for (const child of raw) {
+    const node = parseNode(child, depth + 1);
+    if (node === null) return null;
+    children.push(node);
+  }
+  return children;
+}
 
 function parseNode(raw: unknown, depth: number): PluginNode | null {
   if (!isRecord(raw) || depth > MAX_DEPTH) return null;
@@ -37,32 +64,55 @@ function parseNode(raw: unknown, depth: number): PluginNode | null {
   }
 
   if (raw.kind === "text") {
-    return typeof raw.text === "string" ? { kind: "text", text: raw.text } : null;
+    const { text, tone } = raw;
+    if (typeof text !== "string" || (tone !== "normal" && tone !== "dim" && tone !== "accent")) return null;
+    return { kind: "text", text, tone };
   }
 
   if (raw.kind === "row") {
-    if (!isLength(raw.gap) || !Array.isArray(raw.children)) return null;
-    const children: PluginNode[] = [];
-    for (const child of raw.children) {
-      const node = parseNode(child, depth + 1);
-      if (node === null) return null;
-      children.push(node);
-    }
-    return { kind: "row", gap: raw.gap, children };
+    const children = parseChildren(raw.children, depth);
+    return isLength(raw.gap) && children !== null ? { kind: "row", gap: raw.gap, children } : null;
+  }
+
+  if (raw.kind === "button") {
+    const children = parseChildren(raw.children, depth);
+    return typeof raw.label === "string" && isCallback(raw.onPress) && children !== null ? { kind: "button", label: raw.label, children, onPress: raw.onPress } : null;
+  }
+
+  if (raw.kind === "toggle") {
+    return typeof raw.label === "string" && typeof raw.value === "boolean" && isCallback(raw.onChange) ? { kind: "toggle", label: raw.label, value: raw.value, onChange: raw.onChange } : null;
+  }
+
+  if (raw.kind === "input") {
+    const { label, value, placeholder, onChange, onSubmit } = raw;
+    if (typeof label !== "string" || typeof value !== "string" || typeof placeholder !== "string") return null;
+    if ((onChange !== null && !isCallback(onChange)) || (onSubmit !== null && !isCallback(onSubmit))) return null;
+    return { kind: "input", label, value, placeholder, onChange, onSubmit };
   }
 
   return null;
 }
 
+function parsePosition(raw: unknown): PluginPosition | null {
+  if (!isRecord(raw)) return null;
+  if (raw.kind === "inline") return { kind: "inline" };
+  if (raw.kind !== "edge") return null;
+  const { align, offset, sink } = raw;
+  if (align !== "start" && align !== "center" && align !== "end") return null;
+  return isLength(offset) && isLength(sink) ? { kind: "edge", align, offset, sink } : null;
+}
+
 function parsePlacement(raw: unknown): Placement | null {
   if (!isRecord(raw)) return null;
-  const { plugin, slot, align, offset, sink } = raw;
-  if (typeof plugin !== "string" || slot !== "composer") return null;
-  if (align !== "start" && align !== "center" && align !== "end") return null;
-  if (!isLength(offset) || !isLength(sink)) return null;
+  const { plugin, slot, instance } = raw;
+  if (typeof plugin !== "string" || !isSlot(slot)) return null;
+  if (typeof instance !== "string" || instance.length === 0 || byteLength(instance) > MAX_KEY_BYTES) return null;
 
+  const position = parsePosition(raw.position);
   const node = parseNode(raw.node, 0);
-  return node === null ? null : { plugin, slot, align, offset, sink, node };
+  // Only the composer stands on an edge; every other slot is in the page's flow.
+  if (position === null || node === null || (position.kind === "edge") !== (slot === "composer")) return null;
+  return { plugin, slot, instance, position, node };
 }
 
 /// Reads the host's payload, dropping each placement that is not valid.
@@ -78,12 +128,36 @@ export function placementsFor(placements: readonly Placement[], slot: PluginSlot
   return placements.filter(placement => placement.slot === slot);
 }
 
+/// Names one instance of a slot: the slot, and the key the page reported it with.
+export const instanceId = (slot: PluginSlotName, key: string) => `${slot}\n${key}`;
+
+/// The placements of each instance, in the order the host gave them. An instance whose
+/// placements did not change keeps the list it had, so a view that shows it stays as it is.
+export function indexPlacements(placements: readonly Placement[], previous: ReadonlyMap<string, readonly Placement[]>): Map<string, readonly Placement[]> {
+  const grouped = new Map<string, Placement[]>();
+  for (const placement of placements) {
+    const id = instanceId(placement.slot, placement.instance);
+    const group = grouped.get(id);
+    if (group) group.push(placement);
+    else grouped.set(id, [placement]);
+  }
+
+  const index = new Map<string, readonly Placement[]>();
+  for (const [id, group] of grouped) {
+    const before = previous.get(id);
+    index.set(id, before !== undefined && JSON.stringify(before) === JSON.stringify(group) ? before : group);
+  }
+  return index;
+}
+
 interface PluginsState {
   placements: Placement[];
+  /// The same placements by instance.
+  index: ReadonlyMap<string, readonly Placement[]>;
 }
 
 /// What plugins have placed, shared by every slot.
-export const pluginsStore = createStore<PluginsState>(() => ({ placements: [] }));
+export const pluginsStore = createStore<PluginsState>(() => ({ placements: [], index: new Map() }));
 
 /// The page's side of the desktop: reading placements and hearing changes.
 export interface PluginsBridge {
@@ -93,7 +167,10 @@ export interface PluginsBridge {
 
 /// Fills the store from the desktop now and on every `plugins-changed`.
 export function connectPlugins(bridge: PluginsBridge): Promise<void> {
-  const show = (payload: unknown) => pluginsStore.setState({ placements: parsePlacements(payload) });
+  const show = (payload: unknown) => {
+    const placements = parsePlacements(payload);
+    pluginsStore.setState(state => ({ placements, index: indexPlacements(placements, state.index) }));
+  };
   const subscribed = bridge.listen("plugins-changed", event => show(event.payload)).then(() => undefined);
   const first = bridge.invoke("plugins_placements").then(show);
   return Promise.all([subscribed, first]).then(() => undefined).catch(() => undefined);
@@ -191,4 +268,144 @@ export function connectPluginTopics(bridge: TopicsBridge): Promise<void> {
   // An event that arrived first is newer than the answer to the read.
   const first = bridge.invoke("plugins_wanted").then(payload => { if (!heard) sync(parseWanted(payload)); });
   return Promise.all([subscribed, first]).then(() => undefined).catch(() => undefined);
+}
+
+/// The context of an instance of each slot, as the page tells plugins.
+export interface SessionRef { machine: string; session: string }
+export interface SessionRowContext extends SessionRef { title: string }
+
+/// One place a slot is on the page now, and what it is about.
+export type SlotInstance =
+  | { slot: "composer"; key: string; context: SessionRef }
+  | { slot: "session.row"; key: string; context: SessionRowContext }
+  | { slot: "session.header"; key: string; context: SessionRef };
+
+export interface InstanceRef { slot: PluginSlotName; key: string }
+
+/// What changed about the slots on the page. `reset` says the page started over.
+export interface InstanceBatch { reset: boolean; shown: SlotInstance[]; gone: InstanceRef[] }
+
+/// The host keeps no more instances of a slot than this.
+export const MAX_INSTANCES_PER_SLOT = 200;
+/// The longest text in a context, and a context as JSON, in bytes.
+export const MAX_CONTEXT_TEXT = 512;
+export const MAX_CONTEXT_BYTES = 1024;
+
+/// `text` cut to at most `max` bytes, at a character boundary.
+export function clipBytes(text: string, max: number): string {
+  if (byteLength(text) <= max) return text;
+  let end = text.length;
+  while (end > 0 && byteLength(text.slice(0, end)) > max) end--;
+  return text.slice(0, end);
+}
+
+/// Whether the host takes the instance: a short key, and a small context.
+export function instanceFits({ key, context }: SlotInstance): boolean {
+  if (key.length === 0 || byteLength(key) > MAX_KEY_BYTES || /[\u0000-\u001f\u007f]/.test(key)) return false;
+  return Object.values(context).every(text => byteLength(text) <= MAX_CONTEXT_TEXT) && byteLength(JSON.stringify(context)) <= MAX_CONTEXT_BYTES;
+}
+
+/// Which slot instances are on the page, sent to the host in batches. A view calls `show` when
+/// its slot appears and `hide` when it goes. Each microtask's changes make one batch, and the
+/// first batch after `connect` starts over. An instance shown twice stays until both hide.
+export interface InstanceBook {
+  /// False when the instance is refused: it does not fit, or its slot holds the most already.
+  show(instance: SlotInstance): boolean;
+  hide(slot: PluginSlotName, key: string): void;
+  connect(send: (batch: InstanceBatch) => void): void;
+}
+
+interface Held { instance: SlotInstance; json: string; count: number }
+
+export function createInstanceBook(schedule: (run: () => void) => void): InstanceBook {
+  const held = new Map<string, Held>();
+  const perSlot = new Map<PluginSlotName, number>();
+  const changed = new Map<string, SlotInstance>();
+  const gone = new Map<string, InstanceRef>();
+  let send: ((batch: InstanceBatch) => void) | null = null;
+  let started = false;
+  let queued = false;
+
+  const flush = () => {
+    queued = false;
+    if (send === null) return;
+    send({ reset: !started, shown: [...changed.values()], gone: [...gone.values()] });
+    started = true;
+    changed.clear();
+    gone.clear();
+  };
+  const queue = () => {
+    if (queued || send === null) return;
+    queued = true;
+    schedule(flush);
+  };
+
+  return {
+    show(instance) {
+      if (!instanceFits(instance)) return false;
+      const id = instanceId(instance.slot, instance.key);
+      const json = JSON.stringify(instance.context);
+      const was = held.get(id);
+
+      if (was === undefined) {
+        const count = perSlot.get(instance.slot) ?? 0;
+        if (count >= MAX_INSTANCES_PER_SLOT) return false;
+        perSlot.set(instance.slot, count + 1);
+        held.set(id, { instance, json, count: 1 });
+      } else {
+        was.count++;
+        if (was.json === json) return true;
+        was.instance = instance;
+        was.json = json;
+      }
+
+      changed.set(id, instance);
+      gone.delete(id);
+      queue();
+      return true;
+    },
+    hide(slot, key) {
+      const id = instanceId(slot, key);
+      const was = held.get(id);
+      if (was === undefined || --was.count > 0) return;
+
+      held.delete(id);
+      perSlot.set(slot, (perSlot.get(slot) ?? 1) - 1);
+      changed.delete(id);
+      gone.set(id, { slot, key });
+      queue();
+    },
+    connect(next) {
+      send = next;
+      // Everything shown so far is news to the host.
+      for (const [id, entry] of held) changed.set(id, entry.instance);
+      queued = true;
+      schedule(flush);
+    },
+  };
+}
+
+/// What the user did to a control a plugin drew.
+export type PluginAction = { kind: "press" } | { kind: "toggle"; value: boolean } | { kind: "text"; value: string };
+export interface PluginEvent { plugin: string; id: CallbackId; action: PluginAction }
+
+/// The slots on the page, reported to the host once `connectPluginSlots` ran.
+export const instanceBook = createInstanceBook(run => queueMicrotask(run));
+
+let sendEvent: ((event: PluginEvent) => void) | null = null;
+
+/// Passes the user's use of a control to the plugin that drew it. Before the bridge connects, it is dropped.
+export function sendPluginEvent(event: PluginEvent): void {
+  sendEvent?.(event);
+}
+
+/// The page's side of the slots: the desktop commands that take instances and events.
+export interface SlotsBridge {
+  invoke(cmd: string, args: Record<string, unknown>): Promise<unknown>;
+}
+
+/// Starts reporting the slots on the page, and passing control events, to the desktop.
+export function connectPluginSlots(bridge: SlotsBridge): void {
+  sendEvent = event => void bridge.invoke("plugins_event", { event }).catch(() => undefined);
+  instanceBook.connect(batch => void bridge.invoke("plugins_instances", { batch }).catch(() => undefined));
 }
