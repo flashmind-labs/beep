@@ -19,7 +19,7 @@ pub use client::{
 };
 pub use devices::{Device, DeviceKind, MeshError};
 pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};
-pub use join::{JoinSecret, JoinTicket, TicketError};
+pub use join::{Invitation, JoinSecret, JoinTicket, PhoneTicket, TicketError};
 pub use mesh::{
     DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol,
     PEER_ALPN, PeerStream, StreamHandler, transport_config,

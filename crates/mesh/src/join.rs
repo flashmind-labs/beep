@@ -61,6 +61,79 @@ pub struct JoinTicket {
     pub observer: bool,
 }
 
+/// A phone's pairing code: the desktop that minted the invite and its secret, short enough for
+/// a QR code a phone reads off a screen. iroh finds the desktop by its id; the desktop keeps the
+/// invite's kind, flags and expiry and enforces them when the secret is spent.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PhoneTicket {
+    #[serde(with = "crate::wire::id")]
+    pub desktop: EndpointId,
+    pub secret: JoinSecret,
+}
+
+impl PhoneTicket {
+    /// Reads the code in either case: the QR code carries it in capitals, which it packs smaller.
+    pub fn parse(text: &str) -> Result<Self, TicketError> {
+        Self::decode_string(&text.trim().to_ascii_lowercase()).map_err(|_| TicketError::Unreadable)
+    }
+}
+
+impl Ticket for PhoneTicket {
+    const KIND: &'static str = "beepjoin3";
+
+    fn encode_bytes(&self) -> Vec<u8> {
+        rmp_serde::to_vec(self).expect("msgpack encodes a phone ticket")
+    }
+
+    fn decode_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
+        lenient::from_slice(bytes)
+            .map_err(|_| ParseError::verification_failed("the ticket cannot be read"))
+    }
+}
+
+impl From<&JoinTicket> for PhoneTicket {
+    fn from(ticket: &JoinTicket) -> Self {
+        Self {
+            desktop: ticket.addr.id,
+            secret: ticket.secret.clone(),
+        }
+    }
+}
+
+/// What a joiner redeems: where the desktop is, the secret, and the mesh it expects when the
+/// ticket names one.
+pub struct Invitation {
+    addr: EndpointAddr,
+    secret: JoinSecret,
+    mesh: Option<EndpointId>,
+}
+
+impl From<&JoinTicket> for Invitation {
+    fn from(ticket: &JoinTicket) -> Self {
+        Self {
+            addr: ticket.addr.clone(),
+            secret: ticket.secret.clone(),
+            mesh: Some(ticket.mesh),
+        }
+    }
+}
+
+impl From<&PhoneTicket> for Invitation {
+    fn from(ticket: &PhoneTicket) -> Self {
+        Self {
+            addr: EndpointAddr::new(ticket.desktop),
+            secret: ticket.secret.clone(),
+            mesh: None,
+        }
+    }
+}
+
+impl Invitation {
+    pub(crate) fn addr(&self) -> &EndpointAddr {
+        &self.addr
+    }
+}
+
 /// Why ticket text could not be read. Neither case quotes the text.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum TicketError {
@@ -143,17 +216,17 @@ fn elapsed<T>(r: Result<Result<T, MeshError>, Elapsed>) -> Result<T, MeshError> 
 /// The joiner's side.
 pub(crate) async fn redeem(
     endpoint: &Endpoint,
-    ticket: &JoinTicket,
+    invite: &Invitation,
     name: &str,
 ) -> Result<Welcome, MeshError> {
     let work = async {
         let conn = endpoint
-            .connect(ticket.addr.clone(), JOIN_ALPN)
+            .connect(invite.addr.clone(), JOIN_ALPN)
             .await
             .map_err(wire::net)?;
         let (mut send, recv) = conn.open_bi().await.map_err(wire::net)?;
         let request = Request {
-            secret: ticket.secret.clone(),
+            secret: invite.secret.clone(),
             name: clean(name),
         };
         wire::send(&mut send, &request).await?;
@@ -168,7 +241,10 @@ pub(crate) async fn redeem(
         Reply::Welcome { ops, addrs } => {
             let (devices, _) = Devices::from_ops(&ops)?;
 
-            if devices.mesh() != ticket.mesh {
+            // The connection proved the desktop's id; it must be a desktop of the mesh it sent.
+            if invite.mesh.is_some_and(|mesh| mesh != devices.mesh())
+                || !devices.is_desktop(invite.addr.id)
+            {
                 return Err(MeshError::OtherMesh);
             }
 

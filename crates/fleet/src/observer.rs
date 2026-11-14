@@ -2,11 +2,16 @@
 //! answers the mesh and join protocols only, so no session, terminal or sync runs on it.
 
 use crate::error::{FleetError, Result};
-use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
+use beep_mesh::{DeviceKind, Invitation, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN, PhoneTicket};
 use iroh::{Endpoint, protocol::Router};
 
-/// The ticket in `text`, which must be a desktop's phone pairing ticket.
-pub fn phone_ticket(text: &str) -> Result<JoinTicket> {
+/// The invite in `text`: the short code of a desktop's phone QR code, or a full phone pairing
+/// ticket copied from the desktop.
+pub fn phone_ticket(text: &str) -> Result<Invitation> {
+    if let Ok(code) = PhoneTicket::parse(text) {
+        return Ok(Into::<Invitation>::into(&code));
+    }
+
     let ticket = JoinTicket::parse(text).map_err(|error| FleetError::refused(error.to_string()))?;
 
     if ticket.kind != DeviceKind::Desktop {
@@ -15,7 +20,7 @@ pub fn phone_ticket(text: &str) -> Result<JoinTicket> {
         ));
     }
 
-    Ok(ticket)
+    Ok(Into::<Invitation>::into(&ticket))
 }
 
 /// Marks this device as an observer (once; the mark replicates) and serves the mesh and join
@@ -37,7 +42,7 @@ pub async fn observe(mesh: &Mesh, endpoint: &Endpoint) -> Result<Router> {
 mod tests {
     use super::*;
     use beep_proto::watched;
-    use iroh::{SecretKey, endpoint::presets};
+    use iroh::{SecretKey, address_lookup::memory::MemoryLookup, endpoint::presets};
     use iroh_tickets::Ticket;
     use std::time::Duration;
     use tempfile::TempDir;
@@ -68,7 +73,7 @@ mod tests {
 
         let phone_dir = TempDir::new().expect("a temp dir");
         let phone_endpoint = bind().await;
-        let phone = Mesh::join(phone_dir.path(), phone_endpoint.clone(), &ticket, "phone")
+        let phone = Mesh::join(phone_dir.path(), phone_endpoint.clone(), ticket, "phone")
             .await
             .expect("the phone joins");
         let _phone_router = observe(&phone, &phone_endpoint).await.expect("observing");
@@ -96,6 +101,44 @@ mod tests {
         assert_eq!(listed, vec![desk_endpoint.id()]);
         let seen: Vec<_> = phone.code_hosts().iter().map(|s| s.device.id).collect();
         assert_eq!(seen, vec![desk_endpoint.id()]);
+    }
+
+    /// The phone QR code holds only the desktop's id and the secret, in capitals; iroh finds
+    /// the desktop by its id, which a memory lookup stands in for here.
+    #[tokio::test]
+    async fn a_phone_pairs_with_the_short_qr_code() {
+        let desk_dir = TempDir::new().expect("a temp dir");
+        let desk_endpoint = bind().await;
+        let desktop = Mesh::create(desk_dir.path(), desk_endpoint.clone(), "desktop")
+            .await
+            .expect("the mesh is made");
+        let _desktop_router = serve(&desktop, &desk_endpoint);
+        let ticket = desktop
+            .invite_observer(Duration::from_secs(3600))
+            .await
+            .expect("a ticket");
+        let code = PhoneTicket::from(&ticket)
+            .encode_string()
+            .to_ascii_uppercase();
+        assert!(code.len() < 130, "{} characters", code.len());
+
+        let lookup = MemoryLookup::new();
+        lookup.add_endpoint_info(desk_endpoint.addr());
+        let phone_endpoint = Endpoint::builder(presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .transport_config(beep_mesh::transport_config())
+            .address_lookup(lookup)
+            .bind()
+            .await
+            .expect("the endpoint binds");
+        let phone_dir = TempDir::new().expect("a temp dir");
+        let invite = phone_ticket(&code).expect("a phone code");
+        let phone = Mesh::join(phone_dir.path(), phone_endpoint, invite, "phone")
+            .await
+            .expect("the phone joins");
+
+        assert_eq!(phone.id(), desktop.id());
+        assert!(phone.is_member(phone.me()));
     }
 
     fn serve(mesh: &Mesh, endpoint: &Endpoint) -> Router {
