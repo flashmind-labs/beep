@@ -51,9 +51,10 @@ const transcript = [
   { kind: "user", text: "The login page redirects to a blank page after sign in. Find out why and fix it." },
   { kind: "tool", text: "Read: src/login.ts [completed]" },
   { kind: "tool", text: "Bash: npm test [completed]" },
-  { kind: "assistant", text: "The redirect reads `next` before the session cookie is set.\n\n- Moved the read after the cookie write\n- Added a test for the empty `next` case\n\nAll tests pass." },
+  { kind: "agent", text: "The redirect reads `next` before the session cookie is set.\n\n- Moved the read after the cookie write\n- Added a test for the empty `next` case\n\nAll tests pass." },
+  { kind: "other", text: "Switched to thinking medium from the next turn" },
   { kind: "user", text: "Also keep the query string." },
-  { kind: "assistant", text: "Done. The query string now survives the redirect." },
+  { kind: "agent", text: "Done. The query string now survives the redirect." },
 ];
 const agentView = { session: { ...session, question: null }, plan: [], files: [], entries: transcript, earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 2 };
 const listing = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1200, ignored: false, change: null }, { name: "package.json", folder: false, size: 640, ignored: false, change: "modified" }, { name: "sample.ts", folder: false, size: 300, ignored: false, change: "modified" }], more: 0, git: true }], truncated: false };

@@ -293,17 +293,33 @@ impl Agents {
         );
     }
 
-    /// Checks installed harness releases once an hour while the node runs.
-    pub fn start_harness_checks(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
+    /// While the node runs: checks installed harness releases once an hour
+    /// and deletes background children that closed once a minute.
+    pub fn start_upkeep(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
         let agents = self.clone();
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let every = |period| {
+                let mut interval = tokio::time::interval(period);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                interval
+            };
+            let harness_checks = async {
+                let mut interval = every(Duration::from_secs(60 * 60));
 
-            loop {
-                interval.tick().await;
-                harnesses::refresh_versions(&agents.kinds(), &agents.latest).await;
-            }
+                loop {
+                    interval.tick().await;
+                    harnesses::refresh_versions(&agents.kinds(), &agents.latest).await;
+                }
+            };
+            let background_children = async {
+                let mut interval = every(Duration::from_secs(60));
+
+                loop {
+                    interval.tick().await;
+                    agents.delete_closed_background().await;
+                }
+            };
+            tokio::join!(harness_checks, background_children);
         }))
     }
 

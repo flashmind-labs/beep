@@ -128,7 +128,7 @@ body:not(.mobile) .agphead, body:not(.mobile) .agfbar { border-bottom: 0 }
 body:not(.mobile) .agpacts { border-top: 0 }
 body:not(.mobile) .dagmain { gap: 14px; padding-top: 10px }
 body:not(.mobile) .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { max-width: 720px }
-body:not(.mobile) .dcoderen:is(.agent, .other) { font-size: 13.5px; line-height: 21px; color: var(--fg) }
+body:not(.mobile) .dcoderen.agent { font-size: 13.5px; line-height: 21px; color: var(--fg) }
 body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
