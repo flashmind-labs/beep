@@ -1,6 +1,7 @@
 // What Home and the Projects page say about coding agents running or waiting:
 // their rows, lines and keys, apart from the DOM so it can be tested.
 import { base, formatAgo } from "../ui/format.ts";
+import type { OpenAgent } from "./agents.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
 /// A coding agent's session running now: a Running now row (RunningAgent).
@@ -101,7 +102,7 @@ export function projectOf(r: Pick<RunningAgent, "machine_id" | "cwd"> & { main?:
 
 /// Whether `open` is session `s`, on the same machine and agent.
 export function sameSession(
-  open: { machine_id: string; agent: string; session: string } | null,
+  open: OpenAgent | null,
   s: { machine_id: string; agent: string; id: string },
 ) {
   return !!open && open.machine_id === s.machine_id && open.agent === s.agent && open.session === s.id;

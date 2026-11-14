@@ -4,14 +4,14 @@ import { flushSync } from "react-dom";
 import { openSheet } from "../ui/parts.ts";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
-import { Button, Checkbox } from "../ui/kit.tsx";
+import { Button, Checkbox, SheetHead } from "../ui/kit.tsx";
 import { openSettings } from "../settings/sheet.ts";
 import { pickHas, projectLines, projectPicks, toggleSkill, type Pick, type ProjectLibraries } from "../settings/skills-state.ts";
 
 export function openProjectSkills(project: string) {
   let busy = false;
   const { close, render } = openSheet(`Skills in ${project}`, "am-sheet", { canClose: () => !busy });
-  const head = <div className="am-head"><b>Skills in {project}</b><kbd>esc</kbd></div>;
+  const head = <SheetHead title={`Skills in ${project}`} />;
   const save = async (picks: Record<string, Pick>, keepOutOfGit: boolean) => {
     busy = true;
     try {

@@ -36,7 +36,7 @@ function draw(t: any) {
   const shown = roots.get(t);
   if (!shown) return;
   shown.rev++;
-  flushSync(() => shown.root.render(createElement(TextView, { tab: t, text: t.text, rev: shown.rev })));
+  flushSync(() => shown.root.render(createElement(TextView, { tab: t, text: t.text })));
 }
 Object.assign(globalThis, { previewDraw: draw });
 function tab(name = "report.HTML") {

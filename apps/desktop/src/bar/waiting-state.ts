@@ -1,5 +1,6 @@
 // Which sessions the bar's default list shows, and in what order.
 import type { AgentSession } from "../agents/agents.ts";
+import { sessionKey } from "../agents/conversation-state.ts";
 
 /// Why a session is on the list, in the order the groups show.
 export type WaitingKind = "asking" | "done" | "running" | "idle";
@@ -13,9 +14,6 @@ export interface WaitingSession {
 export const WAITING_MAX = 10;
 
 const ORDER: Record<WaitingKind, number> = { asking: 0, done: 1, running: 2, idle: 3 };
-
-/// The key `unread` holds for a session with an unread finished turn.
-export const sessionKey = (s: { machine_id: string; id: string }) => `${s.machine_id}\n${s.id}`;
 
 export function waitingKind(s: AgentSession, unread: ReadonlySet<string>): WaitingKind | null {
   if (s.status === "asking" || s.question) return "asking";

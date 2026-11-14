@@ -33,7 +33,7 @@ import { prefetchOnHover, sessionsDue } from "../project/loads.ts";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import { drawProjects } from "../project/page.ts";
 import { refresh } from "./refresh.ts";
-import { IC } from "../ui/icons.tsx";
+import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { createElement, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
@@ -354,12 +354,12 @@ registerSidebarGroup("projects", {
   render: p => {
     if (!p.group && p.org === undefined) return projectReact(p, p.repo ?? projectName(p), false, !!p.repo);
     const title = p.group ? p.group.name : `${p.org}/`;
-    const label = p.group ? createElement("span", { className: "sidebar-icon", style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }) : null;
+    const label = p.group ? createElement("span", { className: "sidebar-icon", style: { display: "contents" } }, createElement(Icon, { name: "folder" })) : null;
     return createElement("button", { type: "button", className: `cc-org${p.group ? " gp" : ""}`,
       title: p.group ? `${title}\n${p.group.paths.join(", ")} on every machine` : title, "aria-label": title,
       "aria-expanded": !p.folded, "aria-current": currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked) ? "true" : undefined,
       onClick: () => toggleFold(p), onContextMenu: (event: React.MouseEvent) => p.group ? groupMenu(event.nativeEvent, p.group, [foldItem(p)]) : openMenu(event.nativeEvent, p.org ?? "", [foldItem(p)]) },
-      createElement("span", { className: `twist${p.folded ? "" : " open"}`, dangerouslySetInnerHTML: { __html: IC.twist } }), label, createElement("span", { className: "tt" }, title));
+      createElement("span", { className: `twist${p.folded ? "" : " open"}` }, createElement(Icon, { name: "twist" })), label, createElement("span", { className: "tt" }, title));
   },
 
 });

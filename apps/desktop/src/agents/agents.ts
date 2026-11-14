@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { createStore } from "zustand/vanilla";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { AgentListRow } from "./agents-list-view.tsx";
-import { cap, formatAgo } from "../ui/format.ts";
+import { cap, formatAgo, plural } from "../ui/format.ts";
 import { machineConnecting, machinesReachNow, onConnecting, type MachinesReach } from "../machines/machine-state.ts";
 import type { ProviderCredits } from "../ui/credits.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
@@ -493,7 +493,7 @@ export function drawAgents(loading: boolean) {
   const going = split.live.filter(n => !n.row.reviewer).map(n => n.row), machines = new Set(going.map(s => s.machine_id)).size;
   const reach = machinesReachNow();
   const summary = loading && !nested.length ? "Looking at your machines…"
-    : going.length ? `${going.length} live on ${machines} ${machines === 1 ? "machine" : "machines"}`
+    : going.length ? `${going.length} live on ${plural(machines, "machine", "machines")}`
     // Until a machine answers, nothing is known to run.
     : reach === "reached" ? "Nothing running" : "";
 

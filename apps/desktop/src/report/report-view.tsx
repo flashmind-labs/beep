@@ -1,4 +1,4 @@
-import { Button, CopyButton, Spinner } from "../ui/kit.tsx";
+import { Button, CopyButton, Spinner, SheetHead } from "../ui/kit.tsx";
 import { PERIODS, answerLabel, canSend, issueHint, sizeLabel, type ReportEvent, type ReportState } from "./report-state.ts";
 
 interface ReportBodyProps {
@@ -22,7 +22,7 @@ interface ReportBodyProps {
 
 export function ReportBody(props: ReportBodyProps) {
   return <>
-    <div className="am-head"><b>{props.title}</b><kbd>esc</kbd></div>
+    <SheetHead title={props.title} />
     <Body {...props} />
   </>;
 }

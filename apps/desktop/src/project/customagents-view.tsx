@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { agentLabel } from "./projects-state.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
-import { Button, EmptyPanel, SectionHead, onRowKey } from "../ui/kit.tsx";
+import { Button, EmptyPanel, SectionHead, onRowKey, SheetHead } from "../ui/kit.tsx";
 import { agentColor, agentMeta, type CustomAgentRow } from "./customagents-state.ts";
 
 export function CustomAgentsView({ rows, message, error, reload, open, start }: { rows: CustomAgentRow[] | null; message: string; error: boolean; reload: (() => void) | null; open: (row: CustomAgentRow) => void; start: (row: CustomAgentRow) => void }) {
@@ -18,7 +18,7 @@ export function CustomAgentPrompt({ agent, close, start }: { agent: CustomAgentR
   const prompt = useRef<HTMLPreElement>(null);
   useLayoutEffect(() => { prompt.current?.focus(); }, []);
   const icon = <HarnessIcon agent={agent.harness} className="cc-ag ca-ic" />;
-  return <><div className="am-head"><b>{icon}{agent.name}</b><kbd>esc</kbd></div><div className="am-sub">{[agentLabel(agent.harness), ...agentMeta(agent), agent.path].join(" · ")}</div>
+  return <><SheetHead title={<>{icon}{agent.name}</>} /><div className="am-sub">{[agentLabel(agent.harness), ...agentMeta(agent), agent.path].join(" · ")}</div>
     {agent.description && <div className="ca-about">{agent.description}</div>}{!!agent.tools.length && <div className="am-sub">Tools: {agent.tools.join(", ")}</div>}{agent.error && <div className="am-msg bad">{agent.error}</div>}
     <pre ref={prompt} className="ca-prompt" tabIndex={0}>{agent.prompt || "No prompt."}</pre>{agent.prompt_cut && <div className="am-sub">The prompt goes on; open the file to read the rest.</div>}
     <div className="gp-foot"><Button look="quiet" onClick={close}>Close</Button><Button look="primary" onClick={start}>Start</Button></div></>;

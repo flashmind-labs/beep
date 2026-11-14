@@ -76,7 +76,6 @@ interface FileSyncDeps {
   /// Opens an agent draft for a blocked Git sync.
   fixGit?: (project: string, machine: string, error: string) => void;
   /// Opens the sheet that points `project` on machine `m` at another folder.
-  changeFolder?: (project: string, m: MachineDetail) => void;
   /// Where each project's sync is kept between windows; in memory only
   /// without it.
   kept?: SectionStore<SyncDetail>;
@@ -274,7 +273,6 @@ export function makeFileSync(deps: FileSyncDeps) {
     pause, startOver, resolve, compare, watch,
     fix: deps.fix ? (name: string, conflict: Conflict) => deps.fix?.(name, conflict) : null,
     fixGit: deps.fixGit ? (name: string, machine: MachineDetail) => { if (machine.error) deps.fixGit?.(name, machine.machine_id, machine.error); } : null,
-    changeFolder: deps.changeFolder ? (name: string, machine: MachineDetail) => deps.changeFolder?.(name, machine) : null,
     stop: () => watch(null),
   };
 }
@@ -452,11 +450,6 @@ export function conflictSub(name: string | null, c: Conflict, machines: readonly
   const git = gitConflict(c.path);
   const what = git ? `Another commit of ${git.original.replace(/^refs\/heads\//, "")}` : `Another copy of ${c.original}`;
   return `${name ? `${name} · ` : ""}${what}${where ? ` · on ${where}` : ""}`;
-}
-
-/// Conflicts across projects, for the sidebar. Projects not read yet count none.
-export function conflictTotal(details: readonly (Pick<SyncDetail, "machines"> | null | undefined)[]) {
-  return details.reduce((n, d) => n + conflictList(d).length, 0);
 }
 
 /// The changes still waiting, each path once, with the machines it waits on.

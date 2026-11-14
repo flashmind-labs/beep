@@ -3,6 +3,7 @@
 import { memo, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { clock, duration, heading, type TurnState } from "./agentturns.ts";
 import { Icon } from "../ui/icons.tsx";
+import { Spinner } from "../ui/kit.tsx";
 import { onShownChange, paneShown } from "../ui/active.ts";
 
 export interface TurnHeading {
@@ -40,7 +41,7 @@ export function stepMark(status: string, running: boolean): StepMark {
 export function StepMarkView({ mark }: { mark: StepMark }) {
   if (mark === "done") return <span className="dok" title="Done"><Icon name="check" /></span>;
   if (mark === "failed") return <span className="dbad" title="Failed"><Icon name="x" /></span>;
-  if (mark === "running") return <span className="drun" title="Running" />;
+  if (mark === "running") return <Spinner dot title="Running" />;
   if (mark === "stopped") return <span className="ddot off" title="Did not finish" />;
   return null;
 }

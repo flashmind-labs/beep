@@ -472,7 +472,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
 interface Taken { text: string; images: SentImage[] }
 
 /// What `outbox-changed` tells every window.
-interface OutboxChanged { machine_id: string; agent: string; session: string; rows: OutboxRow[]; sent: OutboxRow[] }
+interface OutboxChanged extends OpenAgent { rows: OutboxRow[]; sent: OutboxRow[] }
 
 /// Reads what waits on this device for `o`, as it opens.
 export async function readOutbox(o: OpenAgent) {

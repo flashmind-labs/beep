@@ -1,7 +1,7 @@
 import type { LiveMode } from "./projectlive.ts";
 import { formatAgo } from "../ui/format.ts";
 import { going, hostCounts, hostLabel, progressText, runChip, runKey, runsCount, runSpan, type RunDetail, type RunRow, type RunsRow } from "./runs.ts";
-import { Button, EmptyPanel, onRowKey } from "../ui/kit.tsx";
+import { Button, EmptyPanel, onRowKey, SectionHead } from "../ui/kit.tsx";
 
 export interface RunsViewProps {
   data: RunsRow | undefined; error: string; only: string | null; open: string | null; mode: LiveMode | null;
@@ -26,7 +26,7 @@ export function RunsView(p: RunsViewProps) {
   return <><div className="cc-sec"><h4>Actions</h4>{perHost.length ? perHost.map(c => <small key={c.host} className={c.error ? "hosterr" : undefined}>{c.text}</small>) : !!d?.runs.length && <small>{runsCount(d.runs)}</small>}{d?.synced_at ? <small className="sw-age">synced {formatAgo(d.synced_at, "since")}</small> : null}<Mode value={p.mode} /><Button look="quiet" small onClick={p.refresh}>Refresh</Button></div>
     {d === undefined ? <EmptyPanel text="Reading the runs…" /> : <>
       {d.rate_limited_until && d.rate_limited_until > Date.now() ? <div className="cc-note"><span className="ddot warn" /><span>The host's rate limit for your token is low, so live progress waits until {new Date(d.rate_limited_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</span></div> : null}
-      {!d.runs.length ? <EmptyPanel error={!!why} text={why || "No workflow runs yet."} /> : <>{why && <div className="cc-err">{why}</div>}<div className="cc-sec"><h4>Running</h4><small>{current.length}</small></div>{current.length ? panel(current) : <EmptyPanel text="Nothing running." />}<div className="cc-sec"><h4>Finished</h4><small>{finished.length}</small></div>{states.length > 1 && <div className="pj-labels">{states.map(state => <Button key={state} className={`pj-tag lab${state === only ? " on" : ""}`} onClick={() => p.filter(state === only ? null : state)}>{runChip(state).text} {finished.filter(r => r.state === state).length}</Button>)}</div>}{finished.length ? panel(only ? finished.filter(r => r.state === only) : finished) : <EmptyPanel text="No finished runs." />}</>}
+      {!d.runs.length ? <EmptyPanel error={!!why} text={why || "No workflow runs yet."} /> : <>{why && <div className="cc-err">{why}</div>}<SectionHead title="Running"><small>{current.length}</small></SectionHead>{current.length ? panel(current) : <EmptyPanel text="Nothing running." />}<SectionHead title="Finished"><small>{finished.length}</small></SectionHead>{states.length > 1 && <div className="pj-labels">{states.map(state => <Button key={state} className={`pj-tag lab${state === only ? " on" : ""}`} onClick={() => p.filter(state === only ? null : state)}>{runChip(state).text} {finished.filter(r => r.state === state).length}</Button>)}</div>}{finished.length ? panel(only ? finished.filter(r => r.state === only) : finished) : <EmptyPanel text="No finished runs." />}</>}
     </>}
   </>;
 }

@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Icon } from "../ui/icons.tsx";
 import { compactFolders, grouped, lineMatches, matchesFilter, splitPath, STATUS_LETTER, type DiffFile, type LineMatch } from "./diff-state.ts";
 
 /// Matching lines listed under each file while filtering.
@@ -130,7 +131,7 @@ export function DiffTree(props: DiffTreeProps) {
             props.onFolder(item.path, group.open);
           }
         }}>
-          <span className="dv-dir-chevron" style={{ display: "grid" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M9 6l6 6-6 6"/></svg></span>
+          <span className="dv-dir-chevron" style={{ display: "grid" }}><Icon name="twist" size={12} /></span>
           <span className="nm"><b>{item.name}</b></span>
         </summary>
       </details>;

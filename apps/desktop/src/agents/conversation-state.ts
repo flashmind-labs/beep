@@ -1,4 +1,4 @@
-import type { AgentRow } from "./agents.ts";
+import type { AgentRow, OpenAgent } from "./agents.ts";
 import { isNativeSession } from "./native-session-state.ts";
 
 type SessionId = Pick<AgentRow, "machine_id" | "agent" | "id">;
@@ -38,7 +38,7 @@ export class ConversationHistory {
 export const conversationHistory = new ConversationHistory();
 
 /// A title saved for a session, here or on another app: null shows the agent's own title again.
-export interface Retitled { machine_id: string; agent: string; session: string; title: string | null }
+export interface Retitled extends OpenAgent { title: string | null }
 
 /// Session `s` under the title `change` saved for it, or null when `change` is for another
 /// session. A cleared title takes the agent's own from `listed`, the sessions read after it.

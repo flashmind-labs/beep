@@ -14,6 +14,11 @@ export function SectionHead({ title, count = 0, children }: { title: ReactNode; 
   return <div className="cc-sec"><h4>{title}{!!count && <span className="n">{count}</span>}</h4>{children}</div>;
 }
 
+/// The title row of a sheet, with the key that closes it. `children` go inside the title.
+export function SheetHead({ title, children }: { title: ReactNode; children?: ReactNode }) {
+  return <div className="am-head"><b>{title}{children}</b><kbd>esc</kbd></div>;
+}
+
 /// Grey bars while a list loads, one per width in percent.
 export function SkeletonRows({ widths }: { widths: readonly number[] }) {
   return <div className="dskel-rows">{widths.map(width => <div className="dskel" key={width} style={{ width: `${width}%` }} />)}</div>;
@@ -108,6 +113,28 @@ export function onRowKey(run: () => void) {
     event.preventDefault();
     run();
   };
+}
+
+/// How many of `total` rows to draw: `initial` first, then `step` more each time `end`, a marker
+/// after the last drawn row, comes within 800px of its scroll area. `first` wraps the drawn rows;
+/// once `rowOf` finds the first row in it, `height` is one row's measured height, for sizing the
+/// marker as the rows not drawn yet.
+export function useLazyCount<F extends HTMLElement>(total: number, initial: number | (() => number), step: number, rowOf: (first: F) => Element | null = first => first) {
+  const [count, setCount] = useState(initial), [height, setHeight] = useState(0), end = useRef<HTMLDivElement>(null), first = useRef<F>(null);
+  useEffect(() => {
+    const el = end.current;
+    if (!el || typeof IntersectionObserver === "undefined") { if (typeof IntersectionObserver === "undefined") setCount(total); return; }
+    let root: Element | null = el.parentElement;
+    while (root && !/(auto|scroll)/.test(getComputedStyle(root).overflowY)) root = root.parentElement;
+    const observer = new IntersectionObserver(entries => {
+      const row = !height && first.current ? rowOf(first.current) : null;
+      if (row) { const measured = (el.getBoundingClientRect().top - row.getBoundingClientRect().top) / Math.min(count, total); if (measured > 0) setHeight(measured); }
+      if (entries.some(entry => entry.isIntersecting)) setCount(value => Math.min(total, value + step));
+    }, { root, rootMargin: "800px 0px" });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [count, height, total]);
+  return { count, height, end, first };
 }
 
 /// A button that copies `text` and reads "Copied" for a moment, then `label` again.

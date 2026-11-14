@@ -1,4 +1,6 @@
 import { useSyncExternalStore, type ReactNode } from "react";
+import { Icon } from "../ui/icons.tsx";
+import { Spinner } from "../ui/kit.tsx";
 import type { Feedback } from "./feedback.ts";
 
 export type FeedbackState =
@@ -39,9 +41,9 @@ export function FeedbackControl({ state, setButton, setSlot, onClick, picker }: 
   return <>
     <button ref={setButton} type="button" className="dv-btn dv-fb" disabled={disabled} title={title} aria-expanded={expanded}
       onClick={event => { event.stopPropagation(); onClick(); }}>
-      {state.kind === "running" ? <><span className="dspin"/>Reviewing <small>{state.agent}</small></>
-        : state.kind === "starting" ? <><span className="dspin"/>Starting</>
-        : <>Review with agent<span style={{ display: "grid" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></>}
+      {state.kind === "running" ? <><Spinner />Reviewing <small>{state.agent}</small></>
+        : state.kind === "starting" ? <><Spinner />Starting</>
+        : <>Review with agent<span style={{ display: "grid" }}><Icon name="caretDown" size={12} /></span></>}
     </button>
     <div ref={setSlot}>{picker}</div>
   </>;

@@ -26,7 +26,7 @@ import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.ts";
 import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection, disposeSessionPanel } from "./loads.ts";
 import { ensureHome } from "../center/refresh.ts";
-import { IC } from "../ui/icons.tsx";
+import { Icon } from "../ui/icons.tsx";
 import { EmptyPanel } from "../ui/kit.tsx";
 
 /// What the page last drew. It stays rendered while another page shows, so
@@ -122,8 +122,8 @@ export const projectsView: CenterView<"projects"> = {
       const rows = projectRows();
       const sub = rows?.length ? overviewSub(overviewGroups(rows, state.top, state.groups)) : "Repositories on your machines";
       // Group controls follow mesh support.
-      const tools = [state.groups ? createElement("button", { key: "group", type: "button", className: "dbtn small pj-tool", "aria-label": "New group", onClick: () => editGroup() }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.folder } }), " New group") : null,
-        createElement("button", { key: "add", type: "button", className: "dbtn small pj-tool", "aria-label": "Add a project", onClick: addProject }, createElement("span", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: IC.plus } }), " Add a project")];
+      const tools = [state.groups ? createElement("button", { key: "group", type: "button", className: "dbtn small pj-tool", "aria-label": "New group", onClick: () => editGroup() }, createElement("span", { style: { display: "contents" } }, createElement(Icon, { name: "folder" })), " New group") : null,
+        createElement("button", { key: "add", type: "button", className: "dbtn small pj-tool", "aria-label": "Add a project", onClick: addProject }, createElement("span", { style: { display: "contents" } }, createElement(Icon, { name: "plus" })), " Add a project")];
       return { title: "Projects", sub, reactTools: tools };
     }
 

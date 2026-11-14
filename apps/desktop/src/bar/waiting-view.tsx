@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import { HintView, type HintViewModel } from "./hints-view.tsx";
 import type { WaitingKind } from "./waiting-state.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
-import { Button } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 
 export interface WaitingRow { key: string; agent: string; title: string; sub: string; kind: WaitingKind; doing: string }
 
@@ -17,7 +17,7 @@ export function WaitingList(p: { rows: WaitingRow[]; selected: number; summary: 
         <span className="t"><span>{row.title}</span><small>{row.sub}</small></span>
         {row.kind === "asking" ? <span className="dstate ask">Needs you</span>
           : row.kind === "done" ? <span className="dstate run">Done</span>
-          : row.kind === "running" ? <span className="run" title={row.doing}><span className="drun" /><span className="tx">{row.doing}</span></span>
+          : row.kind === "running" ? <span className="run" title={row.doing}><Spinner dot /><span className="tx">{row.doing}</span></span>
           : <span className="w">Idle</span>}
       </button>)}
       {!p.rows.length && <div className="dmuted dpadx">Nothing matches.</div>}

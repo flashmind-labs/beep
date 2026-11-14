@@ -6,7 +6,7 @@ import { refresh } from "../center/refresh.ts";
 import { closeMenu } from "../ui/menu.ts";
 import { openSheet } from "../ui/parts.ts";
 import { projectName, type Project } from "./projects-state.ts";
-import { Button, Checkbox } from "../ui/kit.tsx";
+import { Button, Checkbox, SheetHead } from "../ui/kit.tsx";
 
 type RepositoryTarget = { url: string; host: string; name: string };
 type RenameResult =
@@ -77,7 +77,7 @@ function RenameProject({ project, close, pending }: { project: Project; close():
   };
 
   return <form className="pr-form" onSubmit={event => { void save(event); }}>
-    <div className="am-head"><b>Rename project</b><kbd>esc</kbd></div>
+    <SheetHead title="Rename project" />
     <label className="pr-label" htmlFor="project-name">Project name</label>
     <input ref={field} id="project-name" className="gp-field pr-name" value={name} spellCheck={false} maxLength={200} required disabled={busy} onChange={event => setName(event.currentTarget.value)} />
     {repositories.kind === "loading" && <p className="pr-loading" role="status">Looking for repository copies…</p>}

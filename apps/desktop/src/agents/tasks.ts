@@ -7,6 +7,7 @@ import { showAgentControl } from "./composer-ui.tsx";
 import { type AgentTask, type OpenAgent, AG, AGENT_READ_WAIT_MS, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
+import { plural } from "../ui/format.ts";
 import { backgroundTasks, paneTasks, sessionKey } from "../agentpane/running.ts";
 import { showRunning } from "../agentpane/media.ts";
 import { draw } from "../agentpane/media-draw.ts";
@@ -57,7 +58,7 @@ export function drawTasks() {
 function TasksLine({ count }: { count: number }) {
   return createElement("button", { type: "button", className: "ag-tasks", title: "Show them in the Running tab", onClick: showRunning },
     createElement(Spinner, { dot: true }),
-    createElement("span", null, `${count} ${count === 1 ? "command" : "commands"} running`));
+    createElement("span", null, `${plural(count, "command", "commands")} running`));
 }
 
 /// Stop was clicked on task `id` in the Running tab.

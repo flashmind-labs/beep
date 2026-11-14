@@ -4,7 +4,7 @@ import { stashFile } from "../chat/stash-state.ts";
 import { windowHooks } from "../bar/core.ts";
 import { AG } from "./agents.ts";
 import type { Attached } from "./agentqueue.ts";
-import { attachPreview, drawAgentAttached, imagesReading } from "./images.ts";
+import { attachPreview, drawAgentAttached } from "./images.ts";
 import { MN, prepareStashFiles } from "./workdrop.ts";
 
 export function bindSessionStash(field: HTMLTextAreaElement) {
@@ -13,7 +13,7 @@ export function bindSessionStash(field: HTMLTextAreaElement) {
     project: () => AG.open === open && AG.page ? windowHooks?.sessionProject?.(AG.page.session)?.name ?? null : null,
     hasAttachments: () => !!AG.att.length || !!MN.paths.length,
     capture: async () => {
-      if (imagesReading || MN.uploads.length || MN.reading || MN.ask) throw new Error("Wait for the attachments to finish loading");
+      if (MN.uploads.length || MN.reading || MN.ask) throw new Error("Wait for the attachments to finish loading");
       return {
         text: draftText(field.value),
         images: AG.att.filter(image => image.original === null).map(({ name, mime, size, data }) => ({ name, mime, size, data })),

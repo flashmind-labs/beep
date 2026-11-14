@@ -23,6 +23,7 @@ import type { HomeView } from "../center/home-state.ts";
 import { composeField, composeMessage } from "../chat/compose.ts";
 import type { Machine } from "../machines/machines.ts";
 import { invoke } from "../ui/tauri.ts";
+import { plural } from "../ui/format.ts";
 
 // ----- Start form -----
 
@@ -226,7 +227,7 @@ function drawParts() {
   drawPill(c, none);
   drawPicker(c);
   drawUnder(c);
-  c.setNotes(createElement(NewAgentNotes, { waiting: !AG.hosts, none, noMachine: !f.machine && !!AG.hosts?.length, openMachines }));
+  c.update({ notes: createElement(NewAgentNotes, { waiting: !AG.hosts, none, noMachine: !f.machine && !!AG.hosts?.length, openMachines }) });
 }
 
 function openMachines() { void import("../machines/machines.ts").then(m => m.renderMachines()); }
@@ -274,8 +275,8 @@ function drawUnder(c: StartComposer) {
   const shown = folderPill(f.cwd, host?.workspace, host?.home);
   const co = barCheckout(f.checkout ?? DEFAULT_CHECKOUT, baseFor(f.base, formBranches()));
   drawExtras(c);
-  c.setChoiceContents({ project: createElement(ProjectChoice, { name: f.project || "No project" }), machine: host ? host.machine_name : "Pick a machine", folder: createElement(FolderChoice, { checkout, label: checkout ? co.label : shown.label, detail: checkout ? co.sub : shown.path }) });
-  c.setUnder(createElement(ChoiceMenuView, { menu: projectMenu() ?? hostMenu() ?? folderMenu(checkout) ?? baseMenu(), anchor: menuAnchor, bounds: menuBounds, pick: pickChoice }));
+  c.update({ choiceContents: { project: createElement(ProjectChoice, { name: f.project || "No project" }), machine: host ? host.machine_name : "Pick a machine", folder: createElement(FolderChoice, { checkout, label: checkout ? co.label : shown.label, detail: checkout ? co.sub : shown.path }) } });
+  c.update({ under: createElement(ChoiceMenuView, { menu: projectMenu() ?? hostMenu() ?? folderMenu(checkout) ?? baseMenu(), anchor: menuAnchor, bounds: menuBounds, pick: pickChoice }) });
 }
 
 const baseButton = createRef<HTMLButtonElement>();
@@ -288,7 +289,7 @@ function drawExtras(c: StartComposer) {
       ? createElement(BaseInput, { value: f.base ?? "", placeholder: base, change: value => { f.base = value.trim() || null; drawExtras(c); }, keyDown: baseKey, leave: () => { if (AG.form.baseTyping) { AG.form.baseTyping = false; drawParts(); } } })
       : createElement(BaseChoice, { base, open: f.open === "base", button: baseButton, toggle: toggleBase })
     : null;
-  c.setExtras(createElement(Fragment, null, folder, branch));
+  c.update({ extras: createElement(Fragment, null, folder, branch) });
 }
 
 /// The pill the open menu hangs from, and the area it stays in.
@@ -307,7 +308,7 @@ function projectMenu(): ChoiceMenu | null {
   const machine = f.machine || null;
   const rows = (PROJECTS ?? []).map(p => {
     const here = machine ? p.places.find(x => x.machine === machine) : null;
-    const where = here ? tildePath(here.cwd, formHost()?.home) : `${p.places.length} ${p.places.length === 1 ? "machine" : "machines"}`;
+    const where = here ? tildePath(here.cwd, formHost()?.home) : `${plural(p.places.length, "machine", "machines")}`;
     return { kind: "button", action: "agp", value: p.name, selected: f.project === p.name, label: createElement("span", null, p.name), detail: where, mono: !!here } satisfies ChoiceRow;
   });
   const note: ChoiceRow[] = PROJECTS === null ? [{ kind: "button", action: null, value: "loading", disabled: true, label: createElement("span", null, createElement(Spinner), " Reading projects…"), detail: "" }] : [];

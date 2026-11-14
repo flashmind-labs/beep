@@ -18,7 +18,6 @@ import { makeGitHistory } from "../review/history.ts";
 import { sessions } from "../agents/sessions.ts";
 import { showChanges } from "../agentpane/media.ts";
 import { makeFileSync } from "./filesync.ts";
-import { changeFolder } from "./changefolder.ts";
 import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
 import { makeThreadDetail } from "./threaddetail.ts";
 import { makeRuns, type RunDetail } from "./runs.ts";
@@ -37,7 +36,7 @@ import { drawProjects } from "./page.ts";
 export const pa = { tile: null as string | null, run: null as { project: string; id: number; host: string } | null };
 
 export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
-export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), changeFolder: (project, m) => changeFolder(project, { id: m.machine_id, name: m.machine_name }, m.folder), kept: keptSection("filesync") });
+export const fsync = makeFileSync({ invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, fixGit: (project, machine, error) => void openSyncRepair(project, machine, error), kept: keptSection("filesync") });
 
 export const gitHistory = makeGitHistory({
   invoke,

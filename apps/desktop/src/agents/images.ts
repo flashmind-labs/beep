@@ -14,7 +14,6 @@ import { invoke } from "../ui/tauri.ts";
 import { fillInlineImages } from "./inline-images.ts";
 
 let pastedCount = 0;
-export let imagesReading = 0;
 
 /// A name for an image, unique among those waiting in `list`; a pasted one
 /// is named "Pasted image 1.png" and so on rather than "image.png".
@@ -32,15 +31,6 @@ export function agentAttachError(text: string) {
   drawAgentAttached();
   clearTimeout(AG.attTimer);
   AG.attTimer = setTimeout(() => { AG.attError = ""; drawAgentAttached(); }, 5000);
-}
-
-/// Adds a preview of the picture `file`, uploaded at `path`, to the session's
-/// next message.
-export async function agentAttach(file: File, path: string) {
-  imagesReading++;
-
-  try { await attachPreview(AG.att, file, path); }
-  finally { imagesReading--; drawAgentAttached(); }
 }
 
 /// Adds a small preview of the picture `file` to `list`, the images of one

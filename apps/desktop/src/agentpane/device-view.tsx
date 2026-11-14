@@ -8,7 +8,7 @@ import {
   BUTTON_NAMES, type Device, type DeviceButton, type DeviceMachine, type Rect, type ScreenState, type Size, type TouchPhase,
   buttonsFor, fitRect, keyInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint,
 } from "./device-state.ts";
-import { Button } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 
 const BUTTON_ICONS: Record<DeviceButton, IconName> = {
   Home: "devHome", Back: "devBack", AppSwitch: "devRecent", Rotate: "devRotate", Power: "devPower", VolumeDown: "devVolumeDown", VolumeUp: "devVolumeUp",
@@ -59,7 +59,7 @@ function DeviceHead({ machines, device, busy, listed }: { machines: readonly Dev
         {m.devices.map(d => <option key={d.id} value={pickValue({ machine: m.machine_id, device: d.id })}>{d.name}</option>)}
       </optgroup>)}
     </select>
-    {device && chip && <span className={`chip ${chip.cls}`}>{device.state === "Booting" && <span className="dspin" />}{chip.text}</span>}
+    {device && chip && <span className={`chip ${chip.cls}`}>{device.state === "Booting" && <Spinner />}{chip.text}</span>}
     <span className="sp" />
     {device && (device.state === "Off"
       ? <Button disabled={busy} onClick={() => void power(true)}>{busy ? "Booting…" : "Boot"}</Button>
@@ -196,8 +196,8 @@ function note(screen: ScreenState, device: Device | null) {
   if (device?.state === "Off") return `${device.name} is off.`;
   if (screen.kind === "ended") return <>{screen.reason}<Button onClick={showAgain}>Show again</Button></>;
   if (!device) return null;
-  if (device.state === "Booting") return <><span className="dspin" />Booting {device.name}…</>;
-  return <><span className="dspin" />Connecting…</>;
+  if (device.state === "Booting") return <><Spinner />Booting {device.name}…</>;
+  return <><Spinner />Connecting…</>;
 }
 
 /// Draws `bitmap` fitted in the canvas, or clears it.

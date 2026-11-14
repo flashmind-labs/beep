@@ -7,6 +7,7 @@ import { flushSync } from "react-dom";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { writeClipboard } from "../ui/parts.ts";
 import { DiffFileHeader } from "./diff-file-header.tsx";
 import { DiffContext, DiffOmitted } from "./diff-body-controls.tsx";
 import { DiffRows } from "./diff-chunk.tsx";
@@ -404,7 +405,7 @@ export function fileMenu(v: Viewer, e: MouseEvent, f: DiffFile) {
 
 async function copy(v: Viewer, path: string) {
   try {
-    await navigator.clipboard.writeText(path);
+    await writeClipboard(path);
     say(v, "Copied the path");
   } catch (e) {
     say(v, `Could not copy: ${reasonOf(e)}`);

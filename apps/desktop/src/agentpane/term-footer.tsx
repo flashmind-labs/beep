@@ -9,7 +9,7 @@ import { Button } from "../ui/kit.tsx";
 /// A terminal tab: its live screen, and a footer to attach again or stop it.
 /// The screen draws itself, so its element stays a native child of the view;
 /// moved to the other dock, the same screen goes along.
-export function TermView({ tab, term, hidden }: { tab: MediaTab; term: PaneTerm; hidden: boolean; rev: number }) {
+export function TermView({ tab, term, hidden }: { tab: MediaTab; term: PaneTerm; hidden: boolean }) {
   const host = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {

@@ -1,4 +1,3 @@
-import { Fragment } from "react";
 import { Icon } from "../ui/icons.tsx";
 import { StepMarkView, type StepMark } from "../agents/turn-heading-view.tsx";
 
@@ -10,7 +9,7 @@ export interface SubagentRow {
 }
 
 export function SubagentsView({ rows }: { rows: readonly SubagentRow[] }) {
-  return <>{rows.map(row => <Fragment key={row.at}><Subagent row={row} /></Fragment>)}</>;
+  return <>{rows.map(row => <Subagent key={row.at} row={row} />)}</>;
 }
 
 function Subagent({ row }: { row: SubagentRow }) {

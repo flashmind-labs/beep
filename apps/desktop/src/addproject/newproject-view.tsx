@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
 import { canCreate, creatingText, folderOn, folderTail, goesText, landedLines, shownName, type Created, type Forge, type NewProjectForm } from "./newproject-state.ts";
-import { Button, ChipToggle } from "../ui/kit.tsx";
+import { Button, ChipToggle, SheetHead, Spinner } from "../ui/kit.tsx";
 import { FolderField } from "./folderbrowser.tsx";
 
 interface Machine { id: string; name: string; online: boolean }
@@ -29,5 +29,5 @@ function Done({ made, p }: { made: Created; p: Props }) {
 }
 export function NewProjectView(p: Props) {
   const names = p.form.machines.map(id => p.machines.find(machine => machine.id === id)?.name ?? id);
-  return <><div className="am-head"><b>New project</b><kbd>esc</kbd></div>{p.forges === undefined ? <div className="am-wait"><span className="dspin" /></div> : p.creating ? <div className="am-wait"><span className="dspin" />{creatingText(p.form, names)}</div> : p.created ? <Done made={p.created} p={p} /> : <Fields {...p} />}</>;
+  return <><SheetHead title="New project" />{p.forges === undefined ? <div className="am-wait"><Spinner /></div> : p.creating ? <div className="am-wait"><Spinner />{creatingText(p.form, names)}</div> : p.created ? <Done made={p.created} p={p} /> : <Fields {...p} />}</>;
 }

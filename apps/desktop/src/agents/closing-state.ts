@@ -3,7 +3,7 @@
 
 type CloseState = "closing" | "ended";
 type Mark = { state: CloseState; at: number };
-type Ref = { machine_id: string; id: string };
+export type Ref = { machine_id: string; id: string };
 
 /// How long a mark stands in for the lists: a close ends within seconds and
 /// the next read shows it.

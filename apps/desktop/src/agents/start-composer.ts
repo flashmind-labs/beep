@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createDocumentView } from "../ui/document-root.tsx";
-import { StartComposerView, type ChoiceContents, type StartComposerActions, type StartComposerNodes, type StartComposerState } from "./start-composer-view.tsx";
+import { StartComposerView, type StartComposerActions, type StartComposerNodes, type StartComposerState } from "./start-composer-view.tsx";
 import { nextSessionIntro } from "./session-intro.ts";
 import { bindMentionMenu, type MenuPlace } from "./mentionmenu.ts";
 
@@ -78,20 +78,14 @@ export function makeStartComposer({ projectPicker = false, externalChoices = fal
   draw();
   if (nodes.input) bindMentionMenu(nodes.input, place);
   const required = <T,>(value: T | null): T => { if (!value) throw new Error("Start composer did not mount"); return value; };
-  const view = (key: "choiceView" | "attachmentView" | "uploadPicker" | "notes" | "footer" | "under" | "extras" | "picker" | "harness") => (node: ReactNode) => update({ [key]: node });
+  const view = (key: "choiceView" | "footer" | "picker" | "harness") => (node: ReactNode) => update({ [key]: node });
 
   return {
     update,
     setPresentation,
     setBusy: (busy: boolean) => update({ busy }),
     setChoices: view("choiceView"),
-    setChoiceContents: (choiceContents: ChoiceContents) => update({ choiceContents }),
-    setAttachments: view("attachmentView"),
-    setUploadPicker: view("uploadPicker"),
-    setNotes: view("notes"),
     setFooter: view("footer"),
-    setUnder: view("under"),
-    setExtras: view("extras"),
     setPicker: view("picker"),
     setHarness: view("harness"),
     centered: () => state.centered,

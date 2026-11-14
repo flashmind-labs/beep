@@ -26,9 +26,9 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     c.input.focus();
   };
   const draw = () => {
-    c.setAttachments(images.length || files.pending.length
+    c.update({ attachmentView: images.length || files.pending.length
       ? createElement(StartAttachmentChips, { images: [...images], files: [...files.pending], remove })
-      : null);
+      : null });
   };
   const add = (input: Iterable<File>) => {
     if (locked) return Promise.resolve();
@@ -43,7 +43,7 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     }).catch(e => error(String(e))).finally(() => { reading--; changed(); });
     return serial;
   };
-  const drawPicker = () => c.setUploadPicker(createElement(FilePicker, { attach: add, disabled: locked }));
+  const drawPicker = () => c.update({ uploadPicker: createElement(FilePicker, { attach: add, disabled: locked }) });
   drawPicker();
   return {
     add, images, files,

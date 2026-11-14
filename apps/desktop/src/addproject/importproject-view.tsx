@@ -6,7 +6,7 @@ import { doneText, folderHelp, folderNote, looksLikeRepo, machineChips, progress
 import type { Machine } from "./importproject.ts";
 import { SyncthingChoice } from "../project/syncthing-choice.tsx";
 import type { SyncthingImportChoice } from "../project/syncthing.ts";
-import { Button, type ButtonLook } from "../ui/kit.tsx";
+import { Button, type ButtonLook, SheetHead, Spinner } from "../ui/kit.tsx";
 
 interface Props {
   state: ImportState; machines: readonly Machine[]; preview: PreviewView | null | undefined; previewFor: string; previewError: string; fork: ImportFork | null | undefined; picks: BranchPicks;
@@ -19,7 +19,7 @@ function Folder({ p }: { p: Props }) {
 }
 function Branches({ p }: { p: Props }) {
   if (!p.previewFor || p.previewFor !== p.state.repo.trim()) return null;
-  if (p.preview === undefined) return <><div className="am-label">Branches</div><div className="am-wait"><span className="dspin" />Looking for checkouts and branches…</div></>;
+  if (p.preview === undefined) return <><div className="am-label">Branches</div><div className="am-wait"><Spinner />Looking for checkouts and branches…</div></>;
   if (p.preview === null) return p.previewError ? <><div className="am-label">Branches</div><div className="am-sub">{p.previewError}</div></> : null;
   const preview = p.preview, choices = placeChoices(preview, p.machines);
   return <><div className="am-label">Branches</div><div className="am-sub">{[checkoutNote(preview), preview.note].filter(Boolean).join(" ")}</div>{preview.branches.length ? <div className="ip-branches">{preview.branches.map(branch => { const meta = previewLine(branch, preview.default_branch); return <div className="ip-branch" title={`${branch.name}  ${meta}`} key={branch.name}><code>{branch.name}</code><span className="m">{meta}</span>{branch.name !== preview.default_branch && !branch.worktree && <><span className="lbl">Worktree</span><span className="pb-seg">{[...choices.map(choice => ({ label: choice.name, value: choice.id as string | null })), { label: "Skip", value: null }].map(choice => <button type="button" key={choice.value ?? "skip"} aria-pressed={choice.value === (p.picks[branch.name] ?? null)} onClick={() => p.pickBranch(branch.name, choice.value)}>{choice.label}</button>)}</span></>}</div>; })}</div> : <div className="am-sub">No branches with work.</div>}</>;
@@ -43,5 +43,5 @@ function FocusButton({ look, onClick, children }: { look: ButtonLook; onClick():
 }
 export function ImportProjectView(p: Props) {
   const state = p.state;
-  return <><div className="am-head"><b>Import a project</b><kbd>esc</kbd></div>{state.step === "cloning" ? <><div className="am-wait"><span className="dspin" />{progressText(state, p.machines)}</div><div className="am-sub">A large repository takes a few minutes. You can close this; the project shows up once it is in.</div><div className="am-line"><span className="end" /><FocusButton look="quiet" onClick={p.close}>Close</FocusButton></div></> : state.step === "done" && state.project ? <><div className="am-done"><span className="ddot" /><b>{state.project.name} imported</b></div><div className="am-sub">{doneText(state.project)}</div><FocusButton look="primary" onClick={p.close}>Open project</FocusButton></> : <Form {...p} />}</>;
+  return <><SheetHead title="Import a project" />{state.step === "cloning" ? <><div className="am-wait"><Spinner />{progressText(state, p.machines)}</div><div className="am-sub">A large repository takes a few minutes. You can close this; the project shows up once it is in.</div><div className="am-line"><span className="end" /><FocusButton look="quiet" onClick={p.close}>Close</FocusButton></div></> : state.step === "done" && state.project ? <><div className="am-done"><span className="ddot" /><b>{state.project.name} imported</b></div><div className="am-sub">{doneText(state.project)}</div><FocusButton look="primary" onClick={p.close}>Open project</FocusButton></> : <Form {...p} />}</>;
 }

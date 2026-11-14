@@ -5,15 +5,14 @@ import { HistoryFacts } from "./history-facts.tsx";
 import { HistoryDetail } from "./history-detail.tsx";
 import { HistoryHeader } from "./history-header.tsx";
 import { HistoryNavigation } from "./history-navigation.tsx";
-import { HistoryPath, HistorySessions } from "./history-sessions.tsx";
+import { HistoryPath, HistorySessions, SessionLink } from "./history-sessions.tsx";
 import { TreeNode } from "./history-tree.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { SLOW_MS } from "../ui/active.ts";
 // The project's Git navigator and its selected commit or worktree diff.
-import { formatAgo, reason } from "../ui/format.ts";
+import { reason } from "../ui/format.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { SessionRow } from "../project/projects-state.ts";
-import { agentLabel } from "../project/projects-state.ts";
 import { branchSessions } from "./branchsession-state.ts";
 import { windowDiffOwner } from "./diff-owner.ts";
 import { diffView, type DiffViewHandle } from "./diff.ts";
@@ -253,9 +252,7 @@ export function makeGitHistory(deps: HistoryDeps) {
   function treeSessions(p: ProjectHistory, w: GitWorktree): ReactNode[] {
     const all = deps.sessions(p.name);
     const related = branchSessions(all || [], p.data?.machine_id, w.path, p.data?.worktrees.map(tree => tree.path));
-    return related.length ? related.map(s => createElement("button", {
-      key: `${s.machine_id}:${s.agent}:${s.id}`, type: "button", className: "gh-session-link", onClick: () => deps.openSession(s),
-    }, createElement("b", null, s.title || "Untitled session"), createElement("span", null, `${agentLabel(s.agent)} · ${s.status} · ${formatAgo(s.last_activity, "short")}`)))
+    return related.length ? related.map(s => createElement(SessionLink, { key: `${s.machine_id}:${s.agent}:${s.id}`, session: s, open: deps.openSession }))
       : [createElement("p", { key: "empty", className: "gh-empty" }, all === undefined ? "Reading sessions…" : "No sessions in this worktree.")];
   }
 

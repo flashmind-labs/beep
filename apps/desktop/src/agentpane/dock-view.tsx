@@ -22,7 +22,7 @@ import { SubagentsView } from "./subagents-view.tsx";
 import { changesModel, leftChanges, placedChanges } from "./changes.ts";
 import { TextView } from "./text-view.tsx";
 import { ImageView } from "./image-view.tsx";
-import { AudioView, ModelView, PdfView, PendingView, VideoView } from "./media-view.tsx";
+import { ModelView, PdfView, PendingView, PlayerView } from "./media-view.tsx";
 import { TermView } from "./term-footer.tsx";
 
 /// The session's shell: the conversation with the bottom dock under it, and the right dock.
@@ -117,15 +117,16 @@ const ChangesView = memo(function ChangesView({ hidden }: { hidden: boolean }) {
 
 /// What an opened tab shows: a file as text, a terminal, a picture, a video,
 /// audio, a PDF or a 3D model, or its load while it reads.
-const TabView = memo(function TabView({ tab, rev, hidden }: { tab: MediaTab; rev: number; hidden: boolean }) {
+/// `rev` is only a memo key: it draws again when the tab changed.
+const TabView = memo(function TabView({ tab, hidden }: { tab: MediaTab; rev: number; hidden: boolean }) {
   const machine = P.session?.machine_id ?? null;
-  if (tab.kind === "term" && tab.term && !tab.error) return <TermView tab={tab} term={tab.term} hidden={hidden} rev={rev} />;
+  if (tab.kind === "term" && tab.term && !tab.error) return <TermView tab={tab} term={tab.term} hidden={hidden} />;
   const ready = !tab.error && (tab.kind === "text" ? !!tab.text : tab.kind === "term" ? false : tab.kind === "model" ? !!tab.bytes : !!tab.url);
   return <div className="agpview" hidden={hidden}>{!ready ? <PendingView tab={tab} />
-    : tab.kind === "text" && tab.text ? <TextView tab={tab} text={tab.text} rev={rev} />
+    : tab.kind === "text" && tab.text ? <TextView tab={tab} text={tab.text} />
     : tab.kind === "image" ? <ImageView tab={tab} machine={machine} />
-    : tab.kind === "video" ? <VideoView tab={tab} machine={machine} />
-    : tab.kind === "audio" ? <AudioView tab={tab} machine={machine} />
+    : tab.kind === "video" ? <PlayerView tab={tab} machine={machine} video />
+    : tab.kind === "audio" ? <PlayerView tab={tab} machine={machine} video={false} />
     : tab.kind === "pdf" ? <PdfView tab={tab} machine={machine} />
     : tab.bytes ? <ModelView tab={tab} bytes={tab.bytes} machine={machine} /> : <PendingView tab={tab} />}</div>;
 });

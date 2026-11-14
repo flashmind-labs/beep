@@ -5,7 +5,7 @@ import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths,
 import { createElement } from "react";
 import { toolDetails } from "./tool-details.ts";
 import { isCommandCall } from "./tool-details-state.ts";
-import { esc, linkified, money, tokenCount } from "../ui/format.ts";
+import { esc, linkified, money, plural, tokenCount } from "../ui/format.ts";
 import { beepCall, beepLine, commandOf, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
 import { windowHooks } from "../bar/core.ts";
@@ -298,7 +298,7 @@ function subData(at: number, inPane: boolean): SubagentRow {
     const spent = kid?.tokens ? [`${tokenCount(kid.tokens)} tokens`, kid.cost != null ? money(kid.cost) : ""] : [];
     const s = AG.page?.session;
     const model = x.sub.model && s ? modelLabel(knownModels(s.machine_id, s.agent), x.sub.model) : null;
-    const meta = [model, st, x.ms != null ? duration(x.ms) : "", kid ? "" : x.sub.count === 1 ? "1 step" : `${x.sub.count} steps`, ...spent].filter(Boolean).join(" · ");
+    const meta = [model, st, x.ms != null ? duration(x.ms) : "", kid ? "" : plural(x.sub.count, "step", "steps"), ...spent].filter(Boolean).join(" · ");
     return { at, title: x.title, agent: x.agent, meta, mark: stepMark(x.working ? "in_progress" : x.status, x.working),
       target: kid ? { kind: "child", id: kid.id, key: kid.key } : x.sub.session ? { kind: "native" } : { kind: "summary" },
       dismiss: inPane && st !== "working" && st !== "needs you", stoppable: !!kid && (st === "working" || st === "needs you"),

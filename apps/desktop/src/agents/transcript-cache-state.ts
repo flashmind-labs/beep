@@ -1,4 +1,5 @@
 import { conversationKey } from "./conversation-state.ts";
+import type { OpenAgent } from "./agents.ts";
 import { joinRuns, type Run } from "./older-state.ts";
 
 export interface TranscriptCursor {
@@ -137,5 +138,5 @@ export class TranscriptCache<T extends Run> {
   }
 }
 
-export const transcriptKey = (session: { machine_id: string; agent: string; session: string }) =>
+export const transcriptKey = (session: OpenAgent) =>
   conversationKey({ machine_id: session.machine_id, agent: session.agent, id: session.session });

@@ -3,7 +3,6 @@ import { clockWarning } from "../machines/clock.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.ts";
 import { gitSyncWarning } from "./gitsync-state.ts";
 import { conflictList, conflictSub, gitConflict, machineMeta, stateChip, stateNote, syncedBySyncthing, syncPct, syncSummary, waitingList, type Conflict, type MachineDetail, type makeFileSync } from "./filesync.ts";
-import { plainPath } from "./projects-state.ts";
 import { Button, Chip, EmptyPanel, SectionHead } from "../ui/kit.tsx";
 
 type Sync = ReturnType<typeof makeFileSync>;
@@ -13,13 +12,13 @@ function DiffHost({ node }: { node: HTMLElement }) {
   useLayoutEffect(() => { const el = host.current; if (!el) return; el.append(node); return () => { node.remove(); }; }, [node]);
   return <div ref={host} style={{ display: "contents" }} />;
 }
-export function SyncMachine({ sync, project, machine, compact = false, extra = null }: { sync: Sync; project: string; machine: MachineDetail; compact?: boolean; extra?: ReactNode }) {
-  const chip = stateChip(machine), pct = machine.paused ? null : syncPct(machine), clock = clockWarning(machine.machine_id, null), note = stateNote(machine), folder = plainPath(machine.folder);
-  return <div className={compact ? "fs-row pm-sync" : "fs-row"} onContextMenu={event => { if (!compact && sync.changeFolder && machine.status !== "offline" && machine.folder) openMenu(event.nativeEvent, machine.machine_name, [{ label: "Change folder…", on: () => sync.changeFolder?.(project, machine) }]); }}>
-    <div className="fs-h">{!compact && <span className={`ddot${machine.status === "offline" ? " off" : ""}`} />}<b>{compact ? machine.git_only ? "Git sync" : "File sync" : machine.machine_name}</b><Chip kind={chip.wait ? "wait" : ""} text={chip.text} title={machine.error || ""} />{compact && sync.fixGit && !machine.paused && gitSyncWarning(machine) && <Button small title="Opens a draft with both checkouts and recent session references" onClick={() => sync.fixGit?.(project, machine)}>Fix with an agent</Button>}{extra}</div>
-    {pct !== null && <div className="fs-bar"><i style={{ width: `${pct}%` }} /></div>}{(!compact || !machine.git_only) && <div className="fs-m">{(compact ? machineMeta(machine) : machine.git_only ? ["Git sync"] : machineMeta(machine)).map((part, i) => <span key={i}>{part}</span>)}{!compact && folder && <code>{folder}</code>}</div>}
+export function SyncMachine({ sync, project, machine, extra = null }: { sync: Sync; project: string; machine: MachineDetail; extra?: ReactNode }) {
+  const chip = stateChip(machine), pct = machine.paused ? null : syncPct(machine), clock = clockWarning(machine.machine_id, null), note = stateNote(machine);
+  return <div className="fs-row pm-sync">
+    <div className="fs-h"><b>{machine.git_only ? "Git sync" : "File sync"}</b><Chip kind={chip.wait ? "wait" : ""} text={chip.text} title={machine.error || ""} />{sync.fixGit && !machine.paused && gitSyncWarning(machine) && <Button small title="Opens a draft with both checkouts and recent session references" onClick={() => sync.fixGit?.(project, machine)}>Fix with an agent</Button>}{extra}</div>
+    {pct !== null && <div className="fs-bar"><i style={{ width: `${pct}%` }} /></div>}{!machine.git_only && <div className="fs-m">{machineMeta(machine).map((part, i) => <span key={i}>{part}</span>)}</div>}
     {clock && <div className="fs-m"><span className="clockoff" title={clock.title}>{clock.text}</span></div>}{note && <div className={machine.status === "syncthing" ? "fs-m" : "cc-err"} title={machine.error || ""}>{note}</div>}
-    {!compact && sync.fixGit && !machine.paused && gitSyncWarning(machine) && <div className="fs-m"><Button small title="Opens a draft with both checkouts and recent session references" onClick={() => sync.fixGit?.(project, machine)}>Fix with an agent</Button></div>}{machine.can_start_over && !machine.paused && <div className="fs-m"><Button small title="Syncs the folder now at this path from nothing; nothing is deleted on other machines" onClick={() => void sync.startOver(project, machine)}>Start over with this folder</Button></div>}{machine.hint && <div className="fs-m">Rescanned instead of watched. To watch it, run {machine.hint}</div>}
+    {machine.can_start_over && !machine.paused && <div className="fs-m"><Button small title="Syncs the folder now at this path from nothing; nothing is deleted on other machines" onClick={() => void sync.startOver(project, machine)}>Start over with this folder</Button></div>}{machine.hint && <div className="fs-m">Rescanned instead of watched. To watch it, run {machine.hint}</div>}
   </div>;
 }
 function ConflictRow({ sync, project, conflict, machines, busy, paused }: { sync: Sync; project: string; conflict: Conflict; machines: MachineDetail[]; busy: string | null; paused: boolean }) {
@@ -42,12 +41,12 @@ function ConflictRow({ sync, project, conflict, machines, busy, paused }: { sync
     {comparing && <div className="fs-cmp"><div className="fs-cmph"><span>Kept <b>{conflict.original}</b></span><span>Copy <b>{conflict.path}</b></span><small>{where ? `on ${where}` : ""}</small></div>{shown === null ? <div className="dmuted fs-cmpn">Reading…</div> : typeof shown === "string" ? <div className="dmuted fs-cmpn">{shown}</div> : shown && <DiffHost node={shown} />}</div>}
   </div>;
 }
-export function SyncProject({ sync, project, model, machines = null, heading = project }: { sync: Sync; project: string; model: ReturnType<Sync["page"]>; machines?: ReactNode; heading?: string }) {
+export function SyncProject({ sync, project, model, machines }: { sync: Sync; project: string; model: ReturnType<Sync["page"]>; machines: ReactNode }) {
   const { detail, error, busy } = model;
   if (!detail) return <>{error && <div className="cc-err">{error}</div>}{machines}<EmptyPanel text="Loading…" /></>;
   const conflicts = conflictList(detail), waiting = waitingList(detail);
-  return <>{error && <div className="cc-err">{error}</div>}<SectionHead title={heading}><span className="fs-tools"><small>{syncSummary(detail)}</small><Button look={detail.paused ? "primary" : "secondary"} disabled={!!busy || detail.pinned || !detail.machines.length} hidden={!detail.paused && detail.machines.every(syncedBySyncthing)} title={detail.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are"} onClick={() => void sync.pause(project, !detail.paused)}>{busy === "pause" ? (detail.paused ? "Resuming…" : "Pausing…") : detail.paused ? "Resume" : "Pause"}</Button></span></SectionHead>
-    {machines ?? <div className="cc-panel fs-list">{detail.machines.length ? detail.machines.map(machine => <SyncMachine key={machine.machine_id} sync={sync} project={project} machine={machine} />) : <div className="cc-empty"><span>{detail.pinned ? "Pinned: never syncs." : "No machine syncs this project."}</span></div>}</div>}
+  return <>{error && <div className="cc-err">{error}</div>}<SectionHead title="Machines"><span className="fs-tools"><small>{syncSummary(detail)}</small><Button look={detail.paused ? "primary" : "secondary"} disabled={!!busy || detail.pinned || !detail.machines.length} hidden={!detail.paused && detail.machines.every(syncedBySyncthing)} title={detail.paused ? "Sync again on every machine" : "Hold sync on every machine; files stay as they are"} onClick={() => void sync.pause(project, !detail.paused)}>{busy === "pause" ? (detail.paused ? "Resuming…" : "Pausing…") : detail.paused ? "Resume" : "Pause"}</Button></span></SectionHead>
+    {machines}
     {!!detail.ignored_folders?.length && <div className="fs-m">File sync for ignored folders: {detail.ignored_folders.join(", ")}</div>}
     {!!conflicts.length && <><SectionHead title="Conflicts"><small>edited on two machines at once</small></SectionHead><div className="cc-panel fs-list">{conflicts.map(conflict => <ConflictRow key={conflict.path} sync={sync} project={project} conflict={conflict} machines={detail.machines} busy={busy} paused={detail.paused} />)}</div></>}
     {!!waiting.length && <><SectionHead title="Waiting" /><div className="cc-panel fs-list">{waiting.map(item => <div className="fs-wait" key={item.path}><code>{item.path}</code><span className="dmuted">{item.machines.join(", ")}</span></div>)}</div></>}

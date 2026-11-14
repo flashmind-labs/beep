@@ -3,7 +3,7 @@ import { JoinTicketFields, type JoinTicket } from "../machines/jointicket-view.t
 import { useDialogRef } from "../ui/parts.ts";
 import { ITEMS, ITEM_NAMES, ITEM_ROLES, pending, ready, row, type Item, type Row, type Setup } from "./firstrun-state.ts";
 import type { SetupRun } from "./firstrun-setup.ts";
-import { Button } from "../ui/kit.tsx";
+import { Button, Spinner } from "../ui/kit.tsx";
 import { SunriseArt } from "../ui/painted-art.tsx";
 
 type Step = { kind: "choose" } | { kind: "link" } | { kind: "setup"; run: SetupRun };
@@ -67,7 +67,7 @@ function SetupRow({ item, row: r, running, act, skip }: { item: Item; row: Row; 
   return <div className="fr-item">
     <div className="fr-item-name"><b>{ITEM_NAMES[item]}</b><span>{ITEM_ROLES[item]}</span></div>
     <div className={`fr-item-state ${tone(r)}`}>
-      {(r.kind === "installing" || r.kind === "dialog" || r.kind === "signing_in") && <span className="dspin" />}
+      {(r.kind === "installing" || r.kind === "dialog" || r.kind === "signing_in") && <Spinner />}
       <span>{status(r)}</span>
       {canSkip && action && <Button small aria-label={`${action}: ${ITEM_NAMES[item]}`} onClick={act}>{action}</Button>}
       {canSkip && <Button look="quiet" small aria-label={`Skip ${ITEM_NAMES[item]}`} onClick={skip}>Skip</Button>}

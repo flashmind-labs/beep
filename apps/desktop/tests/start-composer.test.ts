@@ -14,11 +14,11 @@ test("machine availability notes update without replacing the composer", async (
     const { makeStartComposer } = await import("../src/agents/start-composer.ts");
     const c = makeStartComposer({ place: () => null, actions }); env.dom.window.document.body.append(c.form);
     c.input.value = "Keep this draft"; c.input.focus();
-    c.setNotes(createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false, openMachines }));
+    c.update({ notes: createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false, openMachines }) });
     assert.match(c.form.textContent ?? "", /Looking for machines/);
-    c.setNotes(createElement(NewAgentNotes, { waiting: false, none: true, noMachine: false, openMachines }));
+    c.update({ notes: createElement(NewAgentNotes, { waiting: false, none: true, noMachine: false, openMachines }) });
     assert.ok(c.form.querySelector("#agmachines"));
-    c.setNotes(createElement(NewAgentNotes, { waiting: false, none: false, noMachine: true, openMachines }));
+    c.update({ notes: createElement(NewAgentNotes, { waiting: false, none: false, noMachine: true, openMachines }) });
     assert.equal(c.form.querySelector("#agwhy")?.textContent, "Pick a machine to start.");
     assert.equal(c.input.value, "Keep this draft");
     assert.equal(document.activeElement, c.input);
@@ -32,10 +32,10 @@ test("new agent choices retain controls across updates", async () => {
     const { makeStartComposer } = await import("../src/agents/start-composer.ts");
     const c = makeStartComposer({ place: () => null, projectPicker: true, actions }); env.dom.window.document.body.append(c.form);
     const choices = (machine: string) => ({ project: createElement(ProjectChoice, { name: "Project" }), machine, folder: createElement(FolderChoice, { checkout: false, label: "Home", detail: "~/work" }) });
-    c.setChoiceContents(choices("First"));
+    c.update({ choiceContents: choices("First") });
     const folder = c.choice("folder"), project = c.choice("project"), machine = c.choice("host");
     assert.ok(folder && project && machine); machine.focus();
-    c.setChoiceContents(choices("Second")); c.setBusy(true); c.setBusy(false);
+    c.update({ choiceContents: choices("Second") }); c.setBusy(true); c.setBusy(false);
     assert.equal(c.choice("folder"), folder); assert.equal(c.choice("project"), project); assert.equal(c.choice("host"), machine);
     assert.equal(document.activeElement, machine); assert.equal(machine.textContent, "Second");
     assert.equal(folder.textContent, "Home ~/work"); assert.equal(project.textContent, "Project");

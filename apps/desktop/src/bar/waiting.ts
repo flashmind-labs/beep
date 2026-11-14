@@ -18,7 +18,8 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { $, bar, PANE, S } from "./core.ts";
 import { hintModel } from "./hints.ts";
 import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
-import { sessionKey, waitingSessions, type WaitingSession } from "./waiting-state.ts";
+import { waitingSessions, type WaitingSession } from "./waiting-state.ts";
+import { sessionKey } from "../agents/conversation-state.ts";
 import type { WaitingRow } from "./waiting-view.tsx";
 
 const W = { sel: 0, query: "", rows: [] as WaitingSession[] };

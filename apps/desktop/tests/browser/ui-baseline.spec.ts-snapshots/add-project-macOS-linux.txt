@@ -214,7 +214,7 @@ body.cbody
         button.dbtn.pri.small [disabled type="button"] "Import 0"
           kbd "⌘↵"
       div.am-wait.ap-look [hidden]
-        span.dspin
+        span.dspin style(animation-delay)
       div.ap-results
         div.ap-box
           div.ap-list

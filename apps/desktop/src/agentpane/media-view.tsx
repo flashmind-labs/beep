@@ -23,7 +23,7 @@ export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: s
 
 /// A video or audio tab. Its element is the tab's, so the pane pauses it out
 /// of sight; moved to the other dock, it goes on from where it was.
-function PlayerView({ tab, machine, video }: { tab: MediaTab; machine: string | null; video: boolean }) {
+export function PlayerView({ tab, machine, video }: { tab: MediaTab; machine: string | null; video: boolean }) {
   const [meta, setMeta] = useState(fileSize(tab.size));
   const [failed, setFailed] = useState(false);
   const player = useCallback((node: HTMLMediaElement | null) => keepPlayer(tab, node), [tab]);
@@ -39,14 +39,6 @@ function PlayerView({ tab, machine, video }: { tab: MediaTab; machine: string | 
       ? <div className="agpstage"><video ref={player} controls playsInline preload="auto" src={tab.url ?? undefined} onLoadedMetadata={loaded} onError={() => setFailed(true)} onEnded={event => event.currentTarget.load()} /></div>
       : <div className="agpstage audio"><audio ref={player} controls preload="auto" src={tab.url ?? undefined} onLoadedMetadata={loaded} onError={() => setFailed(true)} /></div>}
   <div className="agpacts"><span className="meta">{tab.note ?? meta}</span><span className="sp" /><FileActions tab={tab} machine={machine} label={video ? "Open in QuickTime" : "Open"} /></div></>;
-}
-
-export function VideoView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
-  return <PlayerView tab={tab} machine={machine} video />;
-}
-
-export function AudioView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
-  return <PlayerView tab={tab} machine={machine} video={false} />;
 }
 
 /// Keeps a tab's player, and where it stood when its view went.

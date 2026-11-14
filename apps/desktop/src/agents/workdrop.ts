@@ -103,15 +103,6 @@ export function addMention(path: string) {
   agentMessage.current?.focus();
 }
 
-/// Takes the mentions for a message being sent.
-export function takeMentions() {
-  const paths = MN.paths;
-  MN.paths = [];
-  MN.files.clear();
-  MN.redraw();
-  return paths;
-}
-
 export function removeMention(index: number) {
   if (index < 0) return;
   MN.paths.splice(index, 1);

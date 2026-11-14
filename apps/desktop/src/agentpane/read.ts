@@ -1,4 +1,3 @@
-import { takeQueuedPreview } from "./html-preview-state.ts";
 import { togglePreview } from "./text-view.tsx";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
@@ -109,7 +108,9 @@ export async function loadText(t: MediaTab) {
 
   if (P.tabs.includes(t)) {
     touchTab(t);
-    if (takeQueuedPreview(t) && t.text && !t.text.binary) void togglePreview(t);
+    const queued = t.previewQueued;
+    t.previewQueued = false;
+    if (queued && t.text && !t.text.binary) void togglePreview(t);
   }
 }
 

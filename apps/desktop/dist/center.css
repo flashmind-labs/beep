@@ -179,8 +179,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-set-scrim { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--shade) 45%, transparent); display: flex; align-items: center; justify-content: center }
 .cc-set { width: min(1040px, 92%); height: min(720px, 88%); display: grid; grid-template-columns: 218px minmax(0, 1fr); border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); box-shadow: 0 20px 60px color-mix(in srgb, var(--shade) 50%, transparent); overflow: hidden; outline: 0 }
 .cc-set .dset-nav { padding: 14px 8px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; background: color-mix(in srgb, var(--fg) 1.2%, transparent); scrollbar-width: thin }
-.cc-set .dset-nav > b { padding: 0 10px; font-size: 15px; font-weight: 600 }
-.cc-set .dset-nav > b { margin-bottom: 10px }
+.cc-set .dset-nav > b { padding: 0 10px; margin-bottom: 10px; font-size: 15px; font-weight: 600 }
 .cc-set .dset-nav > small.dset-ver { margin-top: auto; padding: 10px 10px 0; font-size: 11.5px; color: var(--muted) }
 .cc-set .dset-pages { display: flex; flex-direction: column; gap: 2px }
 .cc-set .dset-pages .cc-si { padding: 6px 10px }
@@ -262,10 +261,9 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-row.cc-gr.it + .cc-row.cc-gr.it { border-top-color: color-mix(in srgb, var(--fg) 4%, transparent) }
 .cc-gr.it .ic { display: grid; color: var(--muted) }
 .cc-gr.it .t { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; min-width: 0 }
-.cc-gr.it .t b { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.cc-gr.it .t b { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 450 }
 .cc-gr.it .t .pj-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .cc-gr.it .t .num { flex: none }
-.cc-gr.it .t b { font-weight: 450 }
 .cc-gr.it.more { padding: 3px 11px 6px 26px }
 .cc-gr.it.more + .cc-row { border-top: 1px solid var(--border) }
 .cc-open .cc-note { margin: 8px 10px 2px }
@@ -318,7 +316,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pv-row .acts .bad { font-size: 11.5px; color: var(--hot); max-width: 28ch }
 .pv-scroll { max-height: 520px; overflow: auto }
 #sec-found .ap-list { max-height: none; overflow: visible }
-#sec-found h4 small, #sec-sessions h4 small, #sec-where h4 small { font-weight: 400; color: var(--muted); font-size: 11.5px; margin-left: 8px; text-transform: none; letter-spacing: 0 }
+#sec-found h4 small, #sec-sessions h4 small { font-weight: 400; color: var(--muted); font-size: 11.5px; margin-left: 8px; text-transform: none; letter-spacing: 0 }
 
 /* A project's agent: Tasks beside Workers, then the cards its chat waits on. */
 .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
@@ -799,8 +797,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pj-log small { color: var(--muted); font-size: 11px }
 .pj-log pre { margin: 4px 0 0; padding: 8px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--shade) 25%, transparent); font-family: var(--mono); font-size: 11.5px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto }
 .pj-run .acts { display: flex; gap: 6px }
-/* Research: the page's field, its table and the sidebar's running spinner. */
-.cc-grp.research .cc-si > .dspin { flex: none; width: 10px; height: 10px; margin-left: auto }
 
 /* A list as tall as its first rows, the rest scrolls (fitRows). The script sets the exact
    height once the rows are drawn; this is the fallback. */
@@ -861,7 +857,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .gh-file { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; border: 0; padding: 8px 4px 8px 16px; border-radius: 4px; text-align: left; background: transparent; color: var(--fg); font: inherit; font-size: 12px; line-height: 16px; cursor: default }
 .gh-file > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .gh-status { font-family: var(--mono); color: #c6a866; font-size: 12px }
-.gh-location { padding: 8px; color: var(--muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere }
+.gh-location { padding: 8px; color: var(--muted); font-size: 12px; line-height: 20px; overflow-wrap: anywhere; white-space: pre-line }
 .gh-location code { font-size: 12px }
 .gh-more { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; padding: 8px; margin-top: 8px; border: 0; background: transparent; color: var(--fg); text-align: left; font-size: 12px; cursor: default }
 .gh-more span { color: var(--muted) }
@@ -899,7 +895,6 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .gh-detail.pj-det { padding: 0; gap: 0; overflow: hidden }
 .gh-detail-body > .dv { flex: 1; min-height: 0; height: auto }
 .gh-detail-body .dv-head .dv-sum .base { display: none }
-.gh-location { white-space: pre-line }
 
 /* Each project's machines own their sync details and terminals. */
 .pm-list { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px }

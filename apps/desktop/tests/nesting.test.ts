@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { childRow, nest, parentRow, splitEnded } from "../src/agents/nesting-state.ts";
-import { waitingSessions, sessionKey } from "../src/bar/waiting-state.ts";
+import { waitingSessions } from "../src/bar/waiting-state.ts";
+import { sessionKey } from "../src/agents/conversation-state.ts";
 import { subagent } from "../src/agents/agentlog.ts";
 import type { AgentSession } from "../src/agents/agents.ts";
 

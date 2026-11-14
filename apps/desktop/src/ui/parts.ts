@@ -129,3 +129,13 @@ export function openSheet(label: string, cls: string, options: SheetOptions = {}
   openSheets.push(root);
   return { root, sheet, close, render: (content: ReactNode, named = label) => { if (open) render(content, named); } };
 }
+
+const identities = new WeakMap<object, number>();
+let nextIdentity = 0;
+
+/// A number that stays with `object`, for a list key where the items have no id.
+export function identity(object: object) {
+  let id = identities.get(object);
+  if (id === undefined) { id = ++nextIdentity; identities.set(object, id); }
+  return id;
+}

@@ -1,6 +1,7 @@
 // Moving a coding agent session to another machine, apart from the DOM so it
 // can be tested: the menu's notes, the steps, what the lists say and which
 // machine's copy of a session they show.
+import type { OpenAgent } from "./agents.ts";
 
 /// A move record (MoveView).
 export interface MoveRecord {
@@ -166,7 +167,7 @@ export function dedupe<T extends { machine_id: string; id: string; agent: string
 /// Where the session open on `open.machine_id` went: its row on the machine
 /// its latest move went to, once that machine lists it; else null.
 export function movedTo<T extends { machine_id: string; id: string; agent: string }>(
-  open: { machine_id: string; session: string; agent: string }, records: ReadonlyMap<string, MoveRecord>, rows: readonly T[]): T | null {
+  open: OpenAgent, records: ReadonlyMap<string, MoveRecord>, rows: readonly T[]): T | null {
   const r = records.get(open.session);
   if (!r || r.from !== open.machine_id || r.agent !== open.agent) return null;
   return rows.find(s => s.machine_id === r.to && s.id === open.session && s.agent === open.agent) ?? null;
