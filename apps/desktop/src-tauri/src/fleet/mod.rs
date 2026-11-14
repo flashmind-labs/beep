@@ -270,6 +270,11 @@ impl Fleet {
         self.parents.of(machine, session)
     }
 
+    /// Whether `session` on `machine` is a temporary reviewer, as last listed.
+    pub(crate) fn is_reviewer(&self, machine: &str, session: &str) -> bool {
+        self.parents.is_reviewer(machine, session)
+    }
+
     /// Child sessions, kept for the parent agent panel.
     pub(crate) fn children(&self) -> Vec<beep_mesh::machine::listing::Linked> {
         self.parents.children()

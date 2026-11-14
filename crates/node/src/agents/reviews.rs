@@ -12,7 +12,7 @@ use super::{
     unix_now,
 };
 use beep_proto::ModelId;
-use beep_proto::node::agent::{ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview};
+use beep_proto::node::agent::{Alert, AlertKind, ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview};
 use beep_proto::watched;
 use house::HouseRules;
 use std::{
@@ -329,7 +329,10 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
                     break;
                 }
             }
-            Step::Done => break,
+            Step::Done => {
+                review_done(&agents, &session);
+                break;
+            }
             Step::Fail(why) => {
                 agents.fail_review(&id, why);
                 break;
@@ -340,6 +343,23 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
     session.close().await;
     agents.lock().remove(&id);
     crate::link::restart::changed();
+}
+
+/// Tells the user the review is in. A child's turn ends tell nothing
+/// (`Actor::alert`), so the reviewer's end is told here, once.
+fn review_done(agents: &Agents, session: &Session) {
+    let alert = watched::read(&session.live, |live: &Live| Alert {
+        session: live.info.id.clone(),
+        agent: session.agent.clone(),
+        title: live.info.title.clone(),
+        cwd: live.info.cwd.clone(),
+        kind: AlertKind::TurnEnded {
+            stop_reason: live.last_stop.unwrap_or(StopReason::EndTurn),
+            last_message: live.info.last_message.clone(),
+            error: None,
+        },
+    });
+    agents.alerts.record(alert);
 }
 
 /// A ref as git names it, kept short enough for a prompt.

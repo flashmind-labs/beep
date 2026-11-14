@@ -55,6 +55,9 @@ pub(crate) struct AgentTarget {
     started_at: u64,
     last_activity: u64,
     external: bool,
+    /// A temporary reviewer: it opens beside the diff it reviewed.
+    #[serde(default)]
+    reviewer: bool,
 }
 
 impl AgentTarget {
@@ -80,7 +83,14 @@ impl AgentTarget {
             started_at: 0,
             last_activity: 0,
             external: false,
+            reviewer: false,
         })
+    }
+
+    /// The same session, a temporary reviewer.
+    pub(crate) fn reviewing(mut self: Box<Self>) -> Box<Self> {
+        self.reviewer = true;
+        self
     }
 
     /// The session a coding-agent notice is about: asking while its

@@ -8,12 +8,12 @@ use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard, PoisonError},
 };
+#[cfg(target_os = "macos")]
+use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, Window, WindowEvent,
 };
-#[cfg(target_os = "macos")]
-use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tokio::sync::watch;
 
 pub const LABEL: &str = "center";
