@@ -172,10 +172,10 @@ function say(key: string, text: string) {
   attached.get(key)?.say(text);
 }
 
-/// Opens the reviewer's conversation, listed under the session it reviews.
+/// Opens the reviewer's conversation beside the changes it reviews.
 /// Read when needed: the agent views need the window.
 function openReviewer(run: Run, machineName: string) {
-  void import("../agents/session.ts").then(({ openAgent }) => openAgent({ machine_id: run.machineId, machine_name: machineName, id: run.id, agent: run.agent, cwd: run.root, status: "working", external: false, reviewer: true }));
+  void import("../bar/pane.ts").then(({ pane }) => pane.open({ agent: { machine_id: run.machineId, machine_name: machineName, id: run.id, agent: run.agent, cwd: run.root, status: "working", external: false, reviewer: true } }));
 }
 
 // ----- The button -----

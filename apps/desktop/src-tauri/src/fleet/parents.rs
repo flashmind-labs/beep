@@ -71,6 +71,20 @@ impl Parents {
             .cloned()
     }
 
+    /// Whether `machine` last listed `session` as a reviewer.
+    pub(super) fn is_reviewer(&self, machine: &str, session: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .children
+            .get(machine)
+            .is_some_and(|listed| {
+                listed
+                    .iter()
+                    .any(|linked| linked.reviewer && linked.session.id == session)
+            })
+    }
+
     /// Child sessions every machine listed last, with their reviewer flag.
     pub(super) fn children(&self) -> Vec<Linked> {
         self.0

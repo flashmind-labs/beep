@@ -4,7 +4,7 @@ import "./events.ts";
 import { type AgentPlace, renderAgentNew } from "../agents/agentnew.ts";
 import { type AgentRow, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.ts";
-import { closePaneTabs, newTerminal, openTerminal } from "../agentpane/media.ts";
+import { closePaneTabs, newTerminal, openTerminal, showChanges } from "../agentpane/media.ts";
 import type { TerminalRow } from "../terminals/terminals.ts";
 import { sessions } from "../agents/sessions.ts";
 import { type BackTo, changeListeners, connectWindow, current, type PaneNow } from "./core.ts";
@@ -47,7 +47,10 @@ export const pane = {
       if ("agent" in target) {
         const { machine_id, agent, id } = target.agent;
         const row = sessions.find(s => s.machine_id === machine_id && s.agent === agent && s.id === id);
-        return openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
+        openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
+        // A reviewer opens beside the changes it reviewed.
+        if (target.agent.reviewer) showChanges(false);
+        return;
       }
 
       if ("draft" in target) {
