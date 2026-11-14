@@ -235,3 +235,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   };
   Object.defineProperty(window, "__navigation", { value: harness });
 }
+
+/// The app limits text selection to chat. A test that checks a selection surviving a
+/// re-render opts the page in, so it protects the render and not the selection policy.
+export async function allowSelection(page: Page): Promise<void> {
+  await page.addStyleTag({ content: ":root:root:root * { -webkit-user-select: text !important; user-select: text !important }" });
+}

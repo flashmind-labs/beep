@@ -194,15 +194,19 @@ body.cbody
                                   span "Ran 1 command, read 1 file"
                                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                             div style(display)
-                              div.dcoderen.other [data-row="3"] "The redirect reads `next` before the session cookie is set. - Moved the read after the cookie write - Added a test for the empty `next` case All tests pass."
-                          div.agturn [data-find-key="t4"]
+                              div.agent.dcoderen [data-row="3"]
+                                div.reply-body "The redirect reads `next` before the session cookie is set. - Moved the read after the cookie write - Added a test for the empty `next` case All tests pass."
                             div style(display)
-                              div.dcoderen.md.user [data-at="4"]
+                              div.dcoderen.other [data-row="4"] "Switched to thinking medium from the next turn"
+                          div.agturn [data-find-key="t5"]
+                            div style(display)
+                              div.dcoderen.md.user [data-at="5"]
                                 b "You"
                                 div.said
                                   p "Also keep the query string."
                             div style(display)
-                              div.dcoderen.other [data-row="5"] "Done. The query string now survives the redirect."
+                              div.agent.dcoderen [data-row="6"]
+                                div.reply-body "Done. The query string now survives the redirect."
                             div style(display)
                               div.dlive.dthink
                                 span.lb "Waiting for you"
@@ -278,7 +282,7 @@ body.cbody
                           span "Close session"
                             kbd "⇧⌘W"
                           span "Pick the model, on the start form"
-                            kbd "⌘M"
+                            kbd "⇧⌘M"
                           span "Move through models, in the model search"
                             kbd "↑ ↓"
                           span "Open or fold thoughts"
@@ -295,12 +299,8 @@ body.cbody
                           b "Side pane"
                           span "Focus chat"
                             kbd "⌘1"
-                          span "Files"
-                            kbd "⌘2"
-                          span "Changes"
-                            kbd "⌘3"
-                          span "Artifacts"
-                            kbd "⌘4"
+                          span "Pane tab by its place"
+                            kbd "⌘2-9"
                           span "Open folder in the editor, or from the bar the session in the window"
                             kbd "⌘O"
                           span "Zoom the pane"

@@ -17,6 +17,8 @@ pub(super) struct Arrival<'a> {
     pub(super) mode: Option<String>,
     /// The model it ran on.
     pub(super) model: Option<ModelId>,
+    /// The linked worktrees it created, as the source named them.
+    pub(super) worktrees: Vec<String>,
     /// The machine that ran it.
     pub(super) from: EndpointId,
 }
@@ -80,6 +82,11 @@ pub(super) async fn resume(
             resume: Some(arrival.id.to_owned()),
             mode: arrival.mode.clone(),
             model: arrival.model.clone(),
+            worktrees: arrival
+                .worktrees
+                .iter()
+                .filter_map(|tree| folders.remap(tree))
+                .collect(),
             note: Some(note),
             brief: Some(Cow::Owned(brief)),
             ..Begin::default()
@@ -87,7 +94,3 @@ pub(super) async fn resume(
     )?;
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "../../tests/agents_moving_resume.rs"]
-mod tests;

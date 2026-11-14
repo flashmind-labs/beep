@@ -7,6 +7,78 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.39] - 2026-11-14
+
+### Changed
+
+- Desktop: files attached to a new agent's prompt upload as soon as you
+  attach them, not when you press Start. The new agent form and the
+  project composer show the upload progress bar above the input and a
+  progress chip per file, as in a conversation.
+- Desktop: removing an attached file, stashing the draft, or leaving the
+  new agent form without starting deletes the uploaded copy from the
+  machine.
+- Desktop: the model picker opens with ⇧⌘M (Ctrl+Shift+M on Windows and Linux) instead of ⌘M, which minimizes the window on macOS.
+
+## [0.8.38] - 2026-11-14
+
+### Added
+
+- Desktop: the list of changed files beside a diff now shows how many
+  draft review comments each file has, for example after a review with
+  an agent, so they can be read before the review is sent.
+
+### Changed
+
+- Desktop: the worktree menu in an agent session's Files and Changes
+  tabs lists the session's folder, the worktrees that session created
+  and still exist, and the one currently shown. A "Show all" checkbox
+  next to the search lists every worktree of the repository.
+
+## [0.8.37] - 2026-11-14
+
+### Changed
+
+- Desktop: the move menu moves a session to the project folder on the
+  other machine. It no longer offers a worktree there, and it no longer
+  stops because a machine cannot make worktrees or ignores them in
+  Syncthing. Committed branches still reach that machine through Git.
+  Uncommitted work in a worktree stays where it is.
+- Desktop: agents started by another agent now show on their project's
+  page. Background agents (started with `background`) stay hidden there
+  and appear only in the chat that started them.
+- Desktop: notes such as "Switched to thinking medium from the next turn"
+  show as dim status lines instead of looking like the agent's reply.
+- Desktop: in a session, Cmd+1 still focuses the chat, and Cmd+2 to
+  Cmd+9 now open the side pane tabs in the order they appear (Files,
+  Changes, Running, Artifacts, Subagents, Device, then any opened
+  files or terminals), where before only Cmd+2 to Cmd+4 worked.
+- Desktop: Home's Machines tab shows one card per machine, with disk and
+  memory bars, traffic and what the machine can run. Only terminals and
+  projects that need a look are listed. The rest fold into one "projects
+  here" line that opens a compact list.
+- Desktop: on the Projects page, each found folder takes one line, with
+  the machines that hold it shown as small chips. The path appears on
+  hover.
+- Desktop: pull requests and issues in repos without a project are
+  grouped per repo and folded. Click a repo to see its items. Both
+  sections fold from their header, and row buttons show on hover.
+
+### Fixed
+
+- Desktop: a file uploading to a session shows a progress bar along the top of the message field, also while a sent message waits for it.
+
+### Performance
+
+- Desktop: a project's branch list and each branch's upstream, ahead and
+  behind counts are read directly from Git instead of starting a Git process
+  for every branch whenever refs change. Branches refresh faster and use less
+  battery.
+- Desktop: the project page shows each machine's branch right away and
+  updates the ahead and behind counts once the fetch finishes,
+  instead of waiting for every machine to fetch first.
+- macOS: the Beep download and update are smaller.
+
 ## [0.8.36] - 2026-11-14
 
 ### Changed

@@ -168,9 +168,9 @@ function drawFrame() {
       return S.view === "agentnew" && f.machine && f.agent && f.cwd ? menuPlaceFor(f.machine, f.agent, f.cwd) : null;
     },
   });
-  attachments = startAttachments(c, text => { AG.error = text; c.update({ error: text }); }, () => drawParts());
+  const started = attachments = startAttachments(c, text => { AG.error = text; c.update({ error: text }); }, () => drawParts());
   c.setText(f.prompt);
-  const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); c.dispose(); stopOutside(); });
+  const page = shellPage = openBarPage(() => { shellPage = null; closedPicker(c.pick); started.discard(); c.dispose(); stopOutside(); });
   showForm(page, c);
   composeField(c.input, { images: files => attachments.add(files), removeLast: () => attachments.removeLast() });
   attachments.bindStash(() => AG.form.project ?? null);
@@ -222,6 +222,7 @@ function drawParts() {
     folderHidden: !!f.typing, folderTitle: f.cwd.trim() || host?.workspace || "The machine's workspace",
   });
   attachments.setBusy(AG.busy);
+  if (!AG.busy) attachments.files.moveTo(f.machine, f.cwd.trim());
   // Text set from code (a stash restore, a start) fits once drawn.
   requestAnimationFrame(c.grow);
   drawPill(c, none);
@@ -629,7 +630,7 @@ export async function startAgent() {
     const { cwd, checkout } = checkoutHere()
       ? startPlace(f.checkout ?? DEFAULT_CHECKOUT, f.cwd.trim(), baseFor(f.base, formBranches()))
       : { cwd: f.cwd.trim(), checkout: null };
-    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim(), progress => composer?.update({ progress }));
+    const prompt = await attachments.files.prompt(composeMessage(f.prompt), f.machine, f.cwd.trim());
     if (attachments.files.pending.length) composer?.update({ progress: "Starting the agent…" });
     const images = attachments.images.map(sentImage);
     const started = await invoke<Started>("agent_start", {
@@ -642,6 +643,7 @@ export async function startAgent() {
       effort,
       checkout,
     });
+    attachments.clear();
     const resolved = model ?? models?.current ?? "";
     sessionPicks.set(started.session.id, { model: resolved.toLowerCase() === "default" ? "" : resolved, effort });
     AG.busy = false;

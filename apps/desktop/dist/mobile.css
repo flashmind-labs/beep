@@ -57,6 +57,12 @@ body.mobile .cc-menu .lbl { font-size: 12px; padding: 6px 12px 4px }
 /* Home. */
 body.mobile .cc-view { padding: 12px 12px calc(16px + env(safe-area-inset-bottom)); gap: 14px }
 body.mobile.mb-full .cc-view, body.mobile .cc-box:has(:is(.cc-comp, .cc-pjc)) .cc-view { padding-bottom: 12px }
+/* A split page scrolls inside itself: its board ends at the tab bar, with the room below its last card. */
+body.mobile .cc-view.split { padding-bottom: 0 }
+body.mobile .cc-view.split .pj-board { padding-bottom: calc(16px + env(safe-area-inset-bottom)) }
+/* A picture opened over the whole window keeps its Close below the status bar, where taps land. */
+body.mobile .dover { padding-bottom: env(safe-area-inset-bottom) }
+body.mobile .dover .vt { padding-top: calc(12px + env(safe-area-inset-top)) }
 body.mobile .cc-mstrip { flex-wrap: nowrap; gap: 8px; margin: 0 -12px; padding: 0 12px; overflow-x: auto; border: 0; border-radius: 0; background: none; scrollbar-width: none }
 body.mobile .cc-mstrip::-webkit-scrollbar { display: none }
 body.mobile .cc-mstrip > .m { flex: none; min-width: 132px; min-height: 0; text-align: left; justify-items: start; align-content: center; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface) }
@@ -92,11 +98,19 @@ body.mobile .pj-find { max-width: none }
 body.mobile .pj-org h3.gp { display: block }
 body.mobile .pj-org h3.gp svg { display: inline; vertical-align: -1px; margin-right: 6px }
 body.mobile .pj-fold { min-height: 44px; align-items: center }
+body.mobile .pl-head { min-height: 44px; flex-wrap: wrap; row-gap: 0 }
+body.mobile .pl-head .note { flex-basis: 100%; margin: -6px 0 6px 20px }
+body.mobile .pl-row { min-height: 44px; padding-top: 6px; padding-bottom: 6px }
+body.mobile .pl-row.found { grid-template-columns: minmax(0, 1fr); gap: 4px }
+body.mobile .pl-row.found .r { justify-content: space-between }
+body.mobile .pl-row.it { grid-template-columns: 16px minmax(0, 1fr); padding-left: 12px }
+body.mobile .pl-row.it .t { flex-wrap: wrap; gap: 4px 6px }
+body.mobile .pl-row.it .r { grid-column: 2; flex-wrap: wrap; justify-content: flex-start }
+body.mobile .pl-row .acts { opacity: 1 }
 body.mobile .pj-org h3.gp .pj-fold { display: flex }
 body.mobile .pj-org h3.gp .gp-paths { display: block; margin-top: 2px }
 body.mobile .pj-org h3.gp .gp-acts { display: flex; margin: 4px 0 0 -9px }
-body.mobile #sec-elsewhere .cc-gr.it .r { grid-column: 2 / -1; flex-wrap: wrap }
-body.mobile .cc-top .tools .pj-tool { width: 36px; padding: 0; gap: 0; justify-content: center; font-size: 0 }
+body.mobile .cc-top .tools .pj-tool { width: 36px; padding: 0; gap: 0; justify-content: center; font-size: 0; flex: none }
 
 /* Coding agents: the page header has the title and New, so the list's own header goes. */
 body.mobile .dhead:has(> #agNew) { display: none }
@@ -132,7 +146,9 @@ body.mobile .cc-pal .it { min-height: 44px }
 body.mobile .cc-set-scrim, body.mobile .cc-scrim { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right) }
 
 /* Wide tables scroll sideways; keyboard hints have no keyboard to point at. */
-body.mobile .cc-mt { overflow-x: auto }
+body.mobile .mstats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px }
+body.mobile .mgrid { grid-template-columns: minmax(0, 1fr) }
+body.mobile .mcard .cc-row.tl-row { min-height: 44px }
 body.mobile .dcoderen.agent.md :is(th, td) { min-width: 9em }
 body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
 body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot, body.mobile .agpacts .hint { display: none }
@@ -251,9 +267,15 @@ body.mobile :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .cc-mstrip > .m > span
 body.mobile .mb-tabs button { font-size: 10.5px }
 body.mobile .bd-lane > h4 { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body.mobile .pj-org h3 { font-size: 12.5px; font-weight: 500; color: var(--muted) }
-body.mobile :is(.bd-card, .pj-card, .cc-mstrip > .m, .cc-tabs) { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body.mobile :is(.bd-card, .pj-card, .mcard, .cc-mstrip > .m, .cc-tabs) { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
 body.mobile .cc-tabs { background: color-mix(in srgb, var(--fg) 4%, transparent) }
 body.mobile .cc-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 9%, transparent) }
 body.mobile .pj-org ~ .pj-add { display: none }
 body.mobile .cc-view:has(.painted-art.haze) { position: relative; isolation: isolate }
 body.mobile .cc-view .painted-art.haze { display: block; position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }
+
+/* While typing in a session the keyboard leaves little room: the top bar keeps only the safe
+   area, the head only its title, and the tab strip goes, so the chat has what is left. */
+body.mobile.mb-kbd .cwin:has(#agfield:focus-within) .cc-top { min-height: 0; padding: env(safe-area-inset-top) 0 0 }
+body.mobile.mb-kbd .cwin:has(#agfield:focus-within) :is(.cc-top > *, #agmnav, .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse)) { display: none }
+body.mobile.mb-kbd .cwin:has(#agfield:focus-within) .dhead { padding-block: 4px }

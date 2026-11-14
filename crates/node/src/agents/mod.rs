@@ -84,7 +84,7 @@ host! {
     pub(crate) use moving::project_folder;
     pub use requests::serve_sessions;
     pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
-    pub(crate) use restart::{LastModel, OpenSession};
+    pub(crate) use restart::{LastModel, LastWorktrees, OpenSession};
     pub(crate) use session::{Answered, Asking};
     pub use session_stream::serve_session;
     pub(crate) use subagent::{Run as SubagentRun, RunStep};
@@ -222,6 +222,8 @@ host! {
         holders: holders::Holders,
         /// The models sessions last ran on, from the restart note.
         last_models: Mutex<Vec<restart::LastModel>>,
+        /// The worktrees sessions created, from the restart note.
+        last_worktrees: Mutex<Vec<restart::LastWorktrees>>,
     }
 
     /// The folders found in the agents' logs, and when.

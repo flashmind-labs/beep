@@ -100,7 +100,7 @@ test("a session shown again draws its worktree's tree where it was left, from th
       const entries = Array.from({ length: rows }, (_, i) => ({ name: `${tag}${String(i).padStart(2, "0")}.txt`, folder: false, size: 1, ignored: false, change: null }));
       return structuredClone({ folders: [{ path: "", entries, more: 0, git: true }], truncated: false }) as T;
     };
-    window.__navigation.worktrees([{ path: "/srv/project", branch: "main", head: "abc1234", own: true }, { path: "/srv/project/.worktrees/fix", branch: "fix", head: "abc1234", own: false }]);
+    window.__navigation.worktrees([{ path: "/srv/project", branch: "main", head: "abc1234", own: true, created: false }, { path: "/srv/project/.worktrees/fix", branch: "fix", head: "abc1234", own: false, created: true }]);
     // The agent works in the linked worktree.
     window.__navigation.respond("agent_view", { session: { ...s, question: null }, plan: [], files: [], entries: [{ kind: "user", text: "Fix the login" }, { kind: "tool", text: "Edit /srv/project/.worktrees/fix/login.ts [completed]" }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 });
     window.__navigation.open({ agent: s });

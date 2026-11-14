@@ -162,3 +162,19 @@ test("a 600 file diff keeps drafts, selections and filters while drawing only ne
   await expect(page.locator(".dv-l.dv-hit")).toContainText("compute(477, 2)");
   await expect(page.locator(".dv-l.dv-hit")).toBeInViewport();
 });
+
+test("the file list marks the files a review commented on", async ({ page }, info) => {
+  test.skip(info.project.name !== "macOS", "one run is enough");
+  await setup(page);
+  const path = "pkg-0/src/area-0/part-0/module-0.ts";
+  await page.evaluate(path => {
+    const comment = (text: string) => ({ path, side: "new", line: null, text, by: "claude" });
+    localStorage.setItem("beep.diffReview.large-diff", JSON.stringify([comment("high: first"), comment("low: second")]));
+    Reflect.get(window, "openLargeDiff")();
+  }, path);
+
+  const row = page.locator(`.dv-tree .dv-tr[data-path="${path}"]`);
+  await expect(row.locator(".dv-cm")).toHaveText("2");
+  await expect(row.locator(".dv-cm")).toHaveAttribute("title", "2 comments");
+  await expect(page.locator(".dv-tree .dv-cm")).toHaveCount(1);
+});

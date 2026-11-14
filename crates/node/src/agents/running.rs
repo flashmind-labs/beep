@@ -293,17 +293,33 @@ impl Agents {
         );
     }
 
-    /// Checks installed harness releases once an hour while the node runs.
-    pub fn start_harness_checks(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
+    /// While the node runs: checks installed harness releases once an hour
+    /// and deletes background children that closed once a minute.
+    pub fn start_upkeep(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
         let agents = self.clone();
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let every = |period| {
+                let mut interval = tokio::time::interval(period);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                interval
+            };
+            let harness_checks = async {
+                let mut interval = every(Duration::from_secs(60 * 60));
 
-            loop {
-                interval.tick().await;
-                harnesses::refresh_versions(&agents.kinds(), &agents.latest).await;
-            }
+                loop {
+                    interval.tick().await;
+                    harnesses::refresh_versions(&agents.kinds(), &agents.latest).await;
+                }
+            };
+            let background_children = async {
+                let mut interval = every(Duration::from_secs(60));
+
+                loop {
+                    interval.tick().await;
+                    agents.delete_closed_background().await;
+                }
+            };
+            tokio::join!(harness_checks, background_children);
         }))
     }
 
@@ -470,6 +486,7 @@ impl Agents {
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
         begin.note = place.note;
         begin.brief = place.brief.map(Cow::Owned);
+        begin.worktrees.extend(place.worktree);
         self.start(kind, place.folder.as_deref(), begin)
     }
 
@@ -573,6 +590,7 @@ impl Agents {
             parent: begin.parent,
             follows: begin.follows,
             note: begin.note,
+            worktrees: begin.worktrees,
             brief,
             rule,
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
@@ -669,6 +687,8 @@ pub(super) struct Begin {
     pub(super) note: Option<String>,
     /// Beep's word to the agent ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
+    /// The linked worktrees it created, kept across restarts and moves.
+    pub(super) worktrees: Vec<String>,
     /// The session that started this one with `start_agent`.
     pub(super) parent: Option<ParentLink>,
     /// The parent's state when it runs here.

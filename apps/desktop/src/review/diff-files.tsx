@@ -8,13 +8,14 @@ import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { writeClipboard } from "../ui/parts.tsx";
+import { plural } from "../ui/format.ts";
 import { DiffFileHeader } from "./diff-file-header.tsx";
 import { DiffContext, DiffOmitted } from "./diff-body-controls.tsx";
 import { DiffRows } from "./diff-chunk.tsx";
 import { DiffComment } from "./diff-comment.tsx";
 import { DiffMessage, DiffMore } from "./diff-status.tsx";
 import {
-  type ContextEdit, type DiffFile, type DiffRow, type PlacedFile, type ReviewComment, type SplitRow, diffRows, isFolded, leftOutNote, lineLabel, matchesFilter,
+  type ContextEdit, type DiffFile, type DiffRow, type PlacedFile, type ReviewComment, type SplitRow, commentCounts, diffRows, isFolded, leftOutNote, lineLabel, matchesFilter,
   numberWidth, placeComments, splitHeight, splitRows,
 } from "./diff-state.ts";
 import { CH, CHUNK, GAP, MARGIN, type Viewer, indexOf, reasonOf, remember, say, selected, shown } from "./diff-viewer.ts";
@@ -41,11 +42,7 @@ export const DiffFiles = memo(function DiffFiles({ v }: { v: Viewer }) {
     out.lost.push(...s.orphaned);
     return out;
   }, [list, s.draft, fresh, s.orphaned]);
-  const counts = useMemo(() => {
-    const out = new Map<string, number>();
-    for (const comment of s.draft) out.set(comment.path, (out.get(comment.path) ?? 0) + 1);
-    return out;
-  }, [s.draft]);
+  const counts = useMemo(() => commentCounts(s.draft), [s.draft]);
 
   // The files near the viewport, and the drawn ones that must stay: the
   // focus, a selection or an open comment would be lost with them.
@@ -285,7 +282,7 @@ const FileSection = memo(function FileSection({ v, file, index, top, folded, cur
   return <section ref={ref} className={`dv-file${folded ? " closed" : ""}${cur ? " cur" : ""}`} data-path={path} data-index={index}
     style={{ top: `${top}px` }} hidden={hidden}>
     <div style={{ display: "contents" }}>
-      <DiffFileHeader file={file} count={count ? `${count} ${count === 1 ? "comment" : "comments"}` : ""} readOnly={!!v.src.readOnly}
+      <DiffFileHeader file={file} count={count ? plural(count, "comment", "comments") : ""} readOnly={!!v.src.readOnly}
         openLabel={v.src.open?.label ?? null} folded={folded}
         onToggle={select => {
           if (select) v.store.setState({ cur: path });

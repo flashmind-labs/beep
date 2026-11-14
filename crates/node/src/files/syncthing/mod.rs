@@ -50,12 +50,6 @@ pub struct Managed {
 }
 
 impl Managed {
-    /// Keeps Git metadata and linked worktrees local to this machine.
-    pub(crate) async fn protect_checkout(&self) -> Result<()> {
-        let root = self.root.clone();
-        spawn_blocking(move || protect_checkout(&root)).await?
-    }
-
     /// Why Beep does not sync the folder.
     pub fn reason(&self) -> String {
         format!("Already synced by Syncthing ({})", self.label)

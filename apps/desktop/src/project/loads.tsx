@@ -13,11 +13,11 @@ import { type MenuItem } from "../ui/menu.tsx";
 import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
 import { parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { ElsewhereSection, FoundSection } from "./overview-view.tsx";
+import { ElsewhereSection, FoundSection } from "./outside-lists.tsx";
 import type { RecentSessions } from "./split-view.tsx";
 import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
-import { ITEMS_SHOWN, repoUrl, reviewStart } from "../center/openitems-state.ts";
+import { repoUrl, reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId } from "./localid.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
@@ -157,22 +157,29 @@ export function projectPlaces(p: Project) {
 const readingGit = new Set<string>();
 export const gitDue = new Set<string>();
 
-/// Reads each checkout's branch and distance from its upstream. Kept apart
-/// from "where" so a slow fetch never holds the page.
+/// Reads each checkout's branch and distance from its upstream: the local refs
+/// first, then again after a fetch. Kept apart from "where" so a slow fetch
+/// never holds the page.
 export async function loadGit(name: string) {
   if (readingGit.has(name)) return;
   readingGit.add(name);
   gitDue.delete(name);
 
   try {
-    const rows = await invoke<GitRow[]>("project_git_state", { project: name });
+    for (const fetch of [false, true]) await readGit(name, fetch);
+  } finally {
+    readingGit.delete(name);
+  }
+}
+
+async function readGit(name: string, fetch: boolean) {
+  try {
+    const rows = await invoke<GitRow[]>("project_git_state", { project: name, fetch });
     state.gitsync.set(name, rows);
     keep("gitsync", name, rows);
   } catch (e) {
     console.warn("project git state:", e);
     if (!state.gitsync.has(name)) state.gitsync.set(name, []);
-  } finally {
-    readingGit.delete(name);
   }
 
   if (currentLocation()?.view === "projects" && state.picked === name) redrawProjectsPage();
@@ -362,8 +369,8 @@ async function readSessions(name: string) {
   drawProjects();
 }
 
-/// The checkouts the machines found that are not projects yet: the first
-/// three, each with Import; the sheet lists them all.
+/// The checkouts the machines found that are not projects yet, one line
+/// each with Import; the sheet lists them all.
 export function foundSection(enabled: boolean) {
   if (!enabled || !state.found?.length) return null;
   return <div id="sec-found"><FoundSection rows={state.found} importing={state.importing} error={state.foundError} importOne={importFromPage} add={addProject} /></div>;
@@ -385,10 +392,9 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
     // A checkout the machines found imports as it is; otherwise the sheet clones.
     const here = foundFor(state.found, r.repo);
     const failed = here && state.foundError?.name === here.name ? state.foundError.message : null;
-    const sub = failed ?? (here ? `on ${here.places.map(p => p.machine_name).join(", ")}` : r.host);
-    return { key: `${r.host} ${r.repo}`, name: r.repo, sub, url: repoUrl(r.items[0].url), last: r.last,
+    return { key: `${r.host} ${r.repo}`, name: r.repo, failed, url: repoUrl(r.items[0].url), last: r.last,
       importing: !!here && state.importing === here.name, disabled: !!here && state.importing != null, primary: i === 0,
-      items: r.items.slice(0, ITEMS_SHOWN), import: () => { if (here) void importFromPage(here); else importSheet(r.repo); } };
+      items: r.items, import: () => { if (here) void importFromPage(here); else importSheet(r.repo); } };
   });
   return <div id="sec-elsewhere"><ElsewhereSection repos={body} open={openUrl}
     review={item => go("pane", { agentnew: reviewStart(item, null, state.home?.machines?.filter(m => m.can_host !== false)) })}

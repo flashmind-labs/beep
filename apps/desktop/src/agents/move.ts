@@ -128,20 +128,13 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
   // that cannot be asked (offline) is offered: it answers when it returns.
   // An offline one is not asked: the dial would only time out.
   const takes = await Promise.all(others.map(m => m.online ? probe(invoke<boolean>("session_move_probe", { machineId: m.id }), true) : Promise.resolve(true)));
-  // A session in a worktree also needs a node that makes the worktree, and a
-  // Syncthing that does not leave it out.
-  const tree = placeOf(s);
-  const trees = await Promise.all(others.map(m => m.online && tree?.linked && tree.branch
-    ? probe(invoke<"takes" | "ignored" | "update">("session_move_worktree_probe", { machineId: m.id, project, branch: tree.branch }), "takes" as const)
-    : Promise.resolve("takes" as const)));
   return others.map((m, i) => ({
     id: m.id,
     name: m.name,
     online: m.online,
     harnesses: hosts.find(h => h.machine_id === m.id)?.agents ?? [],
     checkout: !!m.folder,
-    old: !takes[i] || trees[i] === "update",
-    ignored: trees[i] === "ignored",
+    old: !takes[i],
   }));
 }
 
@@ -152,10 +145,10 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
 
   try {
     const project = windowHooks?.sessionProject?.(s)?.name ?? "";
+    // A session that worked in a worktree resumes in the project folder.
     const tree = placeOf(s);
     const r = await invoke<MoveRecord>("session_move", {
-      machineId: s.machine_id, to: to.id, agent: s.agent, session: s.id, project, cwd: s.cwd,
-      worktreeFolder: tree?.linked ? tree.folder : null, worktreeBranch: tree?.linked ? tree.branch ?? "" : null,
+      machineId: s.machine_id, to: to.id, agent: s.agent, session: s.id, project, cwd: tree?.linked ? tree.main : s.cwd,
       mode: null, model: s.model ?? null, stop,
     });
     const { records, progress } = moveStore.getState();

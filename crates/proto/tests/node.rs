@@ -556,6 +556,7 @@ mod mesh_state {
             at: u64,
             worktree: Option<MovedWorktree>,
             model: Option<String>,
+            worktrees: Vec<String>,
             added_later: u8,
         }
         let (from, to) = (
@@ -574,10 +575,12 @@ mod mesh_state {
             at: 7,
             worktree: None,
             model: None,
+            worktrees: vec!["/srv/app/.worktrees/fix".into()],
             added_later: 1,
         };
         let record = SessionMove::from_bytes(&rmp_serde::to_vec(&sent).unwrap()).unwrap();
         assert_eq!((record.from, record.to, record.stop), (from, to, true));
+        assert_eq!(record.worktrees, ["/srv/app/.worktrees/fix"]);
         assert_eq!(
             SessionMove::from_bytes(&record.to_bytes().unwrap()).unwrap(),
             record
@@ -1377,6 +1380,7 @@ mod agent {
                     others: 0,
                     agent: "claude".into(),
                     mode: None,
+                    background: false,
                 }),
                 ..SessionInfo::default()
             };
@@ -1433,6 +1437,7 @@ mod agent {
                     others: 1,
                     agent: "claude".into(),
                     mode: Some("plan".into()),
+                    background: false,
                 }),
                 ..SessionInfo::default()
             };
@@ -1648,6 +1653,7 @@ mod agent {
                     started_at: 1_700_000_000,
                     ports: vec![3000],
                     left_group: true,
+                    parent: 7,
                 }],
             };
             let bytes = rmp_serde::to_vec(&reply).unwrap();
@@ -1684,12 +1690,14 @@ mod agent {
             let process: RunningProcess = beep_proto::lenient::from_slice(&bytes).unwrap();
             assert!(process.ports.is_empty());
             assert!(!process.left_group);
+            assert_eq!(process.parent, 0);
             let bytes =
-                rmp_serde::to_vec(&(42, "watch", 1_700_000_000_u64, vec![3000], true, "extra"))
+                rmp_serde::to_vec(&(42, "watch", 1_700_000_000_u64, vec![3000], true, 7, "extra"))
                     .unwrap();
             let process: RunningProcess = beep_proto::lenient::from_slice(&bytes).unwrap();
             assert_eq!(process.ports, [3000]);
             assert!(process.left_group);
+            assert_eq!(process.parent, 7);
         }
 
         #[test]
@@ -1760,6 +1768,7 @@ mod agent {
         fn worktrees_round_trip_and_may_be_asked_again() {
             let ask = SessionsRequest::Worktrees {
                 folder: "/srv/project".into(),
+                session: Some("a3f9c1".into()),
             };
             assert!(ask.is_read());
             let body = rmp_serde::to_vec(&ask).unwrap();
@@ -1773,6 +1782,7 @@ mod agent {
                     branch: None,
                     head: "abc1234".into(),
                     own: true,
+                    created: true,
                 }],
             };
             let body = rmp_serde::to_vec(&reply).unwrap();

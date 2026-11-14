@@ -23,6 +23,7 @@ body.cbody
             span.sidebar-icon style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Terminals"
+            span.n "1"
         div.cc-grp.projects
           h3
             button.cc-gt [type="button"] "Projects"
@@ -105,7 +106,7 @@ body.cbody
             button.m [type="button"]
               span.busy.ddot [title="Online · 2 agents running"]
               b "build-box"
-              span "2 agents"
+              span "2 agents · 412 GB free"
             button.m.off [type="button"]
               span.ddot.off [title="Offline"]
               b "test-box"
@@ -122,41 +123,66 @@ body.cbody
                 span.n "1 of 2 online"
               button.dbtn.small [type="button"] "Add a machine"
                 svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-            div.cc-mt
-              span.th "Machine"
-              span.th "Agents"
-              span.th "Disk"
-              span.th "Memory"
-              span.th "Sent / received"
-              span.th "Can run"
-              span.th "Now"
-              span.th
-              span#m-build-box.nm [title="build-box"]
-                b
-                  span.busy.ddot [title="Online · 2 agents running"]
-                  span "build-box"
-                span.os
-              span.num "2"
-              span.num "–"
-              span.num "–"
-              span.num "–"
-              span.caps "–"
-              span.num "working"
-              span.act
-                button.dbtn.small [type="button"] "New terminal"
-              span#m-test-box.nm.off [title="test-box"]
-                b
-                  span.ddot.off [title="Offline"]
-                  span "test-box"
-                span.os
-              span.num.off "–"
-              span.num.off "–"
-              span.num.off "–"
-              span.num.off "–"
-              span.caps.off "–"
-              span.num.off [title="Seen 1 h ago"] "offline"
-              span.act
-                button.dbtn.small [disabled type="button"] "New terminal"
+            div.mcards
+              div#m-build-box.mcard
+                div.mtop
+                  span.mname [title="build-box"]
+                    span.busy.ddot [title="Online · 2 agents running"]
+                    b "build-box"
+                    span.mnote "Ubuntu 26.04 · 2 agents"
+                  span.act
+                    button.dbtn.small [type="button"] "New terminal"
+                div.mstats
+                  div.mstat [title="/srv/project: 412 GB free of 1.0 TB /mnt/data: 1.8 TB free of 2.0 TB"]
+                    span.ml "Disk"
+                    span.v "412 GB free"
+                    small "data 1.8 TB free"
+                    div.mbar
+                      i style(width)
+                  div.mstat [title="Load 1.40 on 32 cores"]
+                    span.ml "Memory"
+                    span.v "37 / 121 GB"
+                    div.mbar
+                      i style(width)
+                  div.mstat
+                    span.ml "Sent / received"
+                    span.v "–"
+                  div.mstat [title="Docker, GPU, Android"]
+                    span.ml "Can run"
+                    span.mcaps
+                      span.chip "Docker"
+                      span.chip "GPU"
+                      span.chip "Android"
+                div.mlist
+                  button.cc-row.tl-row [title="build-box: shell in /srv/project" type="button"]
+                    span.ddot
+                    span.t
+                      b "dev server"
+                      span "/srv/project"
+                    span.r "10 min"
+                  button.cc-row.tl-row [title="tools/delta" type="button"]
+                    span.ddot
+                    span.t
+                      b "tools/delta"
+                      span "62 files · 38 changes waiting"
+                    span.r
+                      span.fs-pct "62 %"
+                        span.fs-bar
+                          i style(width)
+                div.mlist
+                  button.cc-row.mfold.tl-row [aria-expanded="false" type="button"]
+                    svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+                    span.t
+                      b "10 projects here"
+                      span "· 9 in sync · 1 syncing"
+              div#m-test-box.mcard.off
+                div.mtop
+                  span.mname [title="test-box"]
+                    span.ddot.off [title="Offline"]
+                    b "test-box"
+                    span.mnote "offline, last seen 1 h ago"
+                  span.act
+                    button.dbtn.small [disabled type="button"] "New terminal"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
       div.cc-box [hidden]

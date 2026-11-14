@@ -305,10 +305,12 @@ impl Processes {
             .into_iter()
             .map(|p| RunningProcess {
                 pid: p.pid,
-                command: p.command.chars().take(240).collect(),
+                // Long enough to reach the command inside an agent's shell wrapper.
+                command: p.command.chars().take(2000).collect(),
                 started_at: p.started_at,
                 ports: ports.remove(&p.pid).unwrap_or_default(),
                 left_group: cfg!(unix) && p.group != self.root,
+                parent: p.parent,
             })
             .collect();
         rows.sort_by_key(|p| (p.started_at, p.pid));

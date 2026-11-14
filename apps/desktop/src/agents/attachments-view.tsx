@@ -30,7 +30,11 @@ export function AgentAttachments() {
   useLayoutEffect(() => { if (ask) queueMicrotask(() => { if (MN.ask === ask) there.current?.focus(); }); }, [ask]);
   const machine = paneSession()?.machine_name ?? "the machine";
   const loose = MN.paths.filter(path => !AG.att.some(image => image.original === path));
-  return <><AttachmentBatch count={AG.att.length + loose.length + MN.uploads.length}>{AG.att.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={AG.att} index={i} listed /><RemoveChip name={image.name} data="data-agatt" index={i} remove={() => removeImage(i)} /></span>)}
+  const uploading = MN.pending.size ? [...MN.pending] : MN.uploads;
+  const size = uploading.reduce((n, u) => n + u.size, 0), done = uploading.reduce((n, u) => n + u.done, 0);
+  const uploaded = size ? Math.round(done / size * 100) : 0;
+  return <>{uploading.length > 0 && <div className="agupbar" role="progressbar" aria-label={`Uploading to ${machine}`} aria-valuenow={uploaded} title={`Uploading to ${machine}: ${uploaded}%`}><span style={{ width: `${uploaded}%` }} /></div>}
+    <AttachmentBatch count={AG.att.length + loose.length + MN.uploads.length}>{AG.att.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={AG.att} index={i} listed /><RemoveChip name={image.name} data="data-agatt" index={i} remove={() => removeImage(i)} /></span>)}
     {MN.paths.map((path, i) => {
       if (AG.att.some(image => image.original === path)) return null;
       const file = MN.files.get(path);

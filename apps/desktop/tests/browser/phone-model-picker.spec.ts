@@ -38,3 +38,23 @@ test("a phone picks a model while typing in an agent conversation", async ({ pag
   await expect(page.locator("#agmodelb")).toContainText("Test model");
   await expect(page.locator("#agmsg")).toHaveValue("Draft");
 });
+
+test("typing on a phone leaves the chat the room the head and tabs took", async ({ page }) => {
+  await openDesktop(page, false, { agent_view: view, agent_steer: [] });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  const chat = page.locator("#agconv .dbody"), height = async () => (await chat.boundingBox())?.height ?? 0;
+  await expect(page.locator("#agmnav")).toBeVisible();
+  const before = await height();
+
+  // The keyboard is up: the app marks the body when the visual viewport shrinks.
+  await page.locator("#agmsg").tap();
+  await page.evaluate(() => document.body.classList.add("mb-kbd"));
+  await expect(page.locator("#agmnav")).toBeHidden();
+  await expect(page.locator("#agstate")).toBeHidden();
+  await expect(page.locator(".mb-back")).toBeHidden();
+  await expect(page.locator("#agtitle")).toBeVisible();
+  expect(await height()).toBeGreaterThan(before + 60);
+
+  await page.evaluate(() => { document.body.classList.remove("mb-kbd"); (document.activeElement as HTMLElement | null)?.blur(); });
+  await expect(page.locator("#agmnav")).toBeVisible();
+});

@@ -206,15 +206,17 @@ pub async fn agent_commands(
 }
 
 /// The worktrees of the repository holding the session folder `folder` on
-/// `machine_id`. Empty for a machine outside the mesh.
+/// `machine_id`, each saying whether `session` made it. Empty for a machine
+/// outside the mesh.
 #[tauri::command]
 pub async fn agent_worktrees(
     fleet: Machines<'_>,
     machine_id: String,
     folder: String,
+    session: Option<String>,
 ) -> Result<Vec<Worktree>> {
     match fleet.member(&machine_id) {
-        Some(machine) => agent_nodes::worktrees(&fleet, machine, &folder).await,
+        Some(machine) => agent_nodes::worktrees(&fleet, machine, &folder, session.as_deref()).await,
         None => Ok(Vec::new()),
     }
 }

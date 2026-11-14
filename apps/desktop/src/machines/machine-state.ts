@@ -1,7 +1,7 @@
 import { onPhone } from "../ui/platform.ts";
-// What a machine's rows say: its card, abilities, disk, memory and synced
+// What a machine's card says: its abilities, disk, memory and synced
 // projects, apart from the DOM so it can be tested.
-import { bytes, cap, plural } from "../ui/format.ts";
+import { bytes, cap, formatAgo, plural } from "../ui/format.ts";
 import { conflictCount, machineMeta, rowDetail, stateChip, syncPct, type SyncDetail, type SyncRow } from "../project/filesync.ts";
 
 /// A tool found on a machine's `PATH` (MachineTool).
@@ -139,9 +139,12 @@ export function machineCaps(m: { gpus: readonly { model: string }[]; capabilitie
   return [...new Set(out)];
 }
 
-/// The machine table's Now column.
-export function machineNow(m: Pick<MachineCard, "online" | "agents" | "can_host" | "connecting">) {
-  return !m.online ? m.connecting ? "connecting" : "offline" : m.can_host === false ? "controller" : m.agents ? "working" : "idle";
+/// What a machine does now, for the quiet line on its card: "2 agents",
+/// "idle", "controller", "connecting" or "offline, last seen 2 h ago".
+export function machineNow(m: Pick<MachineCard, "online" | "agents" | "can_host" | "connecting" | "seen_at">) {
+  if (!m.online) return m.connecting ? "connecting" : `offline, last seen ${formatAgo(m.seen_at, "since")}`;
+  if (m.can_host === false) return "controller";
+  return m.agents ? plural(m.agents, "agent", "agents") : "idle";
 }
 
 /// How far machine `id` is with a synced project it fetches or scans now,
@@ -161,6 +164,19 @@ export interface MachineProject {
   chip: { text: string; wait: boolean };
   meta: string[];
   title: string;
+}
+
+/// What a machine's folded projects say together: how many sit in each
+/// state, the most common first ("3 in sync · 2 paused"), or "all in sync".
+export function projectsSummary(projects: readonly Pick<MachineProject, "chip">[]) {
+  const counts = new Map<string, number>();
+  for (const p of projects) {
+    const text = p.chip.text.toLowerCase().replace(/ \d+%$/, "");
+    counts.set(text, (counts.get(text) ?? 0) + 1);
+  }
+  const groups = [...counts].sort((a, b) => b[1] - a[1]);
+  if (groups.length === 1) return `all ${groups[0][0]}`;
+  return groups.map(([text, n]) => `${n} ${text}`).join(" · ");
 }
 
 /// The projects machine `id` syncs, what needs a look first. `detailOf` gives
@@ -196,29 +212,31 @@ function volumeName(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
 
-/// The Disk column: free space where the machine keeps the user's files,
-/// low under a tenth free, and the other volume with the most free. The
-/// title lists each volume measured.
+/// The Disk stat: free space where the machine keeps the user's files, the
+/// fraction used (null without a reading), low under a tenth free, and the
+/// other volume with the most free. The title lists each volume measured.
 export function machineDisk(m: { online: boolean; stats?: { disks?: readonly MachineDisk[] } | null }) {
   const disks = (m.online && m.stats?.disks) || [];
   const d = disks[0];
-  if (!d || !d.total_bytes) return { text: "–", low: false, title: "", other: "" };
+  if (!d || !d.total_bytes) return { text: "–", used: null, low: false, title: "", other: "" };
   const roomiest = disks.slice(1).reduce<MachineDisk | null>((best, v) => !best || v.free_bytes > best.free_bytes ? v : best, null);
   return {
     text: `${bytes(d.free_bytes)} free`,
+    used: 1 - d.free_bytes / d.total_bytes,
     low: d.free_bytes / d.total_bytes < 0.1,
     other: roomiest ? `${volumeName(roomiest.path)} ${bytes(roomiest.free_bytes)} free` : "",
     title: disks.map(d => `${d.path}: ${bytes(d.free_bytes)} free of ${bytes(d.total_bytes)}`).join("\n"),
   };
 }
 
-/// The Memory column: used of total, with the load in the title.
+/// The Memory stat: used of total, the fraction used, and the load in the title.
 export function machineMemory(m: { online: boolean; stats?: Pick<CardStats, "memory_used_mb" | "memory_total_mb" | "load"> | null; env?: { cpus?: number } | null }) {
   const s = m.online && m.stats;
-  if (!s || !s.memory_total_mb) return { text: "–", title: "" };
+  if (!s || !s.memory_total_mb) return { text: "–", used: null, title: "" };
   const cores = m.env?.cpus ? ` on ${m.env.cpus} cores` : "";
   return {
     text: `${gb(s.memory_used_mb)} / ${gb(s.memory_total_mb)} GB`,
+    used: s.memory_used_mb / s.memory_total_mb,
     title: s.load == null ? "" : `Load ${s.load.toFixed(2)}${cores}`,
   };
 }

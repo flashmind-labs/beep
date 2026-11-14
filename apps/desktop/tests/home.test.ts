@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type MacControl, machineDisk, machineProjects, machinesReach, thisMacRow } from "../src/machines/machine-state.ts";
+import { type MacControl, machineDisk, machineMemory, machineNow, machineProjects, projectsSummary, machinesReach, thisMacRow } from "../src/machines/machine-state.ts";
 import { byRecent, remotePath, runningKey, runningLine, runningWhen, sameSession } from "../src/agents/running-state.ts";
 
 test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
@@ -86,6 +86,26 @@ test("the disk column shows the other volume with the most free", () => {
   assert.equal(d.other, "D: 512 GB free");
   assert.equal(machineDisk({ online: true, stats: { disks: stats.disks.slice(0, 1) } }).other, "");
   assert.equal(machineDisk({ online: true, stats: { disks: [stats.disks[0], { path: "/mnt/data", free_bytes: 1, total_bytes: 2 }] } }).other, "data 1 B free");
+});
+
+test("disk and memory give the used fraction, and a machine says what it does now", () => {
+  const disk = machineDisk({ online: true, stats: { disks: [{ path: "/srv", free_bytes: 250, total_bytes: 1000 }] } });
+  assert.equal(disk.used, 0.75);
+  assert.equal(machineDisk({ online: true, stats: null }).used, null);
+  assert.equal(machineMemory({ online: true, stats: { memory_used_mb: 2048, memory_total_mb: 8192, load: null } }).used, 0.25);
+  assert.equal(machineMemory({ online: false, stats: null }).used, null);
+  const m = { online: true, agents: 0, can_host: true, connecting: false, seen_at: Date.now() - 2 * 3_600_000 };
+  assert.equal(machineNow(m), "idle");
+  assert.equal(machineNow({ ...m, agents: 2 }), "2 agents");
+  assert.equal(machineNow({ ...m, can_host: false }), "controller");
+  assert.equal(machineNow({ ...m, online: false }), "offline, last seen 2 h ago");
+  assert.equal(machineNow({ ...m, online: false, connecting: true }), "connecting");
+});
+
+test("a folded project list counts its states, most common first", () => {
+  const p = (text: string) => ({ chip: { text, wait: false } });
+  assert.equal(projectsSummary([p("In sync"), p("In sync")]), "all in sync");
+  assert.equal(projectsSummary([p("Paused"), p("In sync"), p("In sync"), p("Syncing 40%")]), "2 in sync · 1 paused · 1 syncing");
 });
 
 test("the open session is the same only on its machine and agent", () => {

@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { allowSelection, openDesktop } from "./harness.ts";
 
 test("running process rows retain focus through updates and stop safely", async ({ page }) => {
   await openDesktop(page, true);
-  const process = (pid: number, command: string) => ({ pid, command, started_at: 1, ports: [], left_group: false });
+  const process = (pid: number, command: string) => ({ pid, command, started_at: 1, ports: [], left_group: false, parent: 0 });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   await page.evaluate(rows => window.__navigation.processes(rows), [process(41, "first process"), process(42, "second process")]);
   await page.getByRole("tab", { name: /Running/ }).click();
@@ -18,6 +18,7 @@ test("running process rows retain focus through updates and stop safely", async 
   await expect(stop).toBeFocused();
   await first.locator("[data-whole]").click();
   await expect(first).toHaveClass(/whole/);
+  await allowSelection(page);
   await first.locator("b").evaluate(element => { const range = document.createRange(); range.selectNodeContents(element); const selection = document.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); });
   await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe("first process");
   await page.evaluate(rows => window.__navigation.processes(rows), [process(41, "first process"), process(42, "newer process")]);
@@ -46,7 +47,7 @@ test("a pending process read cannot update a different session", async ({ page }
       if (args?.session === "notice-one") {
         Reflect.set(window, "processReadPending", true);
         await new Promise<void>(resolve => window.addEventListener("test-release-process", () => resolve(), { once: true }));
-        return { processes: [{ pid: 41, command: "old process", started_at: 1, ports: [], left_group: false }], local: false } as T;
+        return { processes: [{ pid: 41, command: "old process", started_at: 1, ports: [], left_group: false, parent: 0 }], local: false } as T;
       }
       return { processes: [], local: false } as T;
     };
@@ -64,7 +65,7 @@ test("an older process read cannot replace a newer result in the same session", 
   await openDesktop(page, true);
   const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
   await page.evaluate(value => window.__navigation.open({ agent: value }), agent);
-  await page.evaluate(() => window.__navigation.processes([{ pid: 41, command: "initial process", started_at: 1, ports: [], left_group: false }]));
+  await page.evaluate(() => window.__navigation.processes([{ pid: 41, command: "initial process", started_at: 1, ports: [], left_group: false, parent: 0 }]));
   await page.getByRole("tab", { name: /Running/ }).click();
   await expect(page.getByText("initial process")).toBeVisible();
   await page.evaluate(() => {
@@ -78,7 +79,7 @@ test("an older process read cannot replace a newer result in the same session", 
         await new Promise<void>(resolve => Reflect.set(window, "releaseOldProcesses", resolve));
         Reflect.set(window, "oldProcessesDelivered", true);
       }
-      return { processes: [{ pid: 41, command: read === 1 ? "old process" : "new process", started_at: 1, ports: [], left_group: false }], local: false } as T;
+      return { processes: [{ pid: 41, command: read === 1 ? "old process" : "new process", started_at: 1, ports: [], left_group: false, parent: 0 }], local: false } as T;
     };
     window.dispatchEvent(new Event("agent-pane-shown"));
   });
@@ -102,7 +103,7 @@ test("running pane keeps its scroll and handlers after leaving and reopening the
     };
   });
   const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
-  const rows = (last: string) => Array.from({ length: 30 }, (_, i) => ({ pid: 100 + i, command: i === 29 ? last : `process ${i}`, started_at: 1, ports: i === 0 ? [3000] : [], left_group: false }));
+  const rows = (last: string) => Array.from({ length: 30 }, (_, i) => ({ pid: 100 + i, command: i === 29 ? last : `process ${i}`, started_at: 1, ports: i === 0 ? [3000] : [], left_group: false, parent: 0 }));
   await page.evaluate(value => window.__navigation.open({ agent: value }), agent);
   await page.evaluate(value => window.__navigation.processes(value), rows("last process"));
   await page.getByRole("tab", { name: /Running/ }).click();

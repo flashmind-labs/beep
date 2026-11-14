@@ -186,6 +186,7 @@ async fn the_depth_a_caller_on_another_machine_passes_is_checked_here() {
         others: 0,
         agent: "kid".into(),
         mode: None,
+        background: false,
     };
     let refused = rig
         .agents
@@ -223,6 +224,7 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
         others: 0,
         agent: "kid".into(),
         mode: None,
+        background: false,
     };
     let mut started = Vec::new();
 
@@ -488,6 +490,7 @@ fn a_child_never_runs_above_its_parents_mode() {
         others: 0,
         agent: agent.into(),
         mode: mode.map(str::to_owned),
+        background: false,
     };
     assert_eq!(child_mode(&link("claude", None), "codex"), Ok(None));
     assert_eq!(
@@ -580,6 +583,7 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
         parent: before.parent.clone(),
         mode: before.mode.clone(),
         model: None,
+        worktrees: Vec::new(),
     };
     let begin = rig.agents.resumed_begin(None, "agent-id", held);
     assert_eq!(begin.parent, before.parent);
@@ -798,6 +802,7 @@ async fn a_far_parent_s_stop_all_stops_its_child_here() {
         others: 0,
         agent: "kid".into(),
         mode: None,
+        background: false,
     };
     let stop = |id: String, args: serde_json::Value| {
         let mut args = args;

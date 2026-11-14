@@ -223,7 +223,7 @@ body.cbody
             div.agkeys.prompt-stash-bar
               div.dhints.slim
                 span "model"
-                  kbd "⌘M"
+                  kbd "⇧⌘M"
                 span "back"
                   kbd "esc"
               details

@@ -11,7 +11,7 @@ import { menuPlaceFor } from "../agents/mentionmenu.ts";
 import { sessionPicks } from "../agents/session.tsx";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
-import { commandKey } from "../ui/platform.ts";
+import { commandKey, isMobile } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.tsx";
 import { localProjectId } from "./localid.ts";
@@ -58,8 +58,8 @@ export const projectComp = (() => {
   renderChoices({ machine: "Machine", adding: false, machineDisabled: true, folder: "Current checkout", folderSub: "as it is", folderDisabled: true, branch: "", showBranch: false, showClear: false });
   // Esc or a click outside closes the picker.
   form.addEventListener("keydown", e => {
-    // ⌘M opens the model picker, as on the agent start page.
-    if (commandKey(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "m") {
+    // ⇧⌘M opens the model picker, as on the agent start page. ⌘M minimizes on macOS.
+    if (commandKey(e) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "m") {
       e.preventDefault();
       e.stopPropagation();
       toggleBarPicker();
@@ -276,6 +276,7 @@ export function drawProjectComp(name: string) {
   });
   drawBarPicker(host, offered);
   barAttachments.setBusy(pc.starting);
+  if (place && !pc.starting) barAttachments.files.moveTo(place.machine_id, place.cwd);
   draftPlace(place);
 }
 
@@ -300,6 +301,8 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
   // A session may have started in the worktree since.
   ensureSessions().then(redrawProjects).catch(e => console.warn("agent sessions:", e));
   redrawProjects();
+  // A phone's project page has no bar: the empty agent view shows it.
+  if (isMobile() && !projectComp.form.isConnected) return go("pane", { draft: { project: name, machine: null } });
   projectComp.form.scrollIntoView({ block: "nearest" });
   projectComp.input.focus();
 }
@@ -450,7 +453,7 @@ async function startFromBar() {
   redrawProjects();
 
   try {
-    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, progress => c.update({ progress }));
+    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd);
     if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, model, effort, checkout, images });
@@ -497,7 +500,7 @@ async function continueReview(number: number, earlier: ReviewSession, text: stri
 
   try {
     const root = listed?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
-    const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root, error => c.update({ error }));
+    const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root);
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     let session = listed;
 

@@ -23,11 +23,14 @@ interface Upload {
   done: number;
 }
 
-/// One attachment batch, including its image previews.
+/// One attachment batch, including its image previews; `size` and `done`
+/// count the bytes of all its files.
 interface UploadBatch {
   paths: string[];
   failed: boolean;
   ready: Promise<void>;
+  size: number;
+  done: number;
 }
 
 /// Files dropped on a folder, waiting for the user to say where they go.
@@ -129,7 +132,7 @@ export function askUpload(files: File[], folder: string, root = paneSession()?.c
 export async function uploadDropped(files: File[], folder: string | null = null, root = paneSession()?.cwd ?? "", preview = false) {
   const state = current, session = paneSession();
   const pending = state.pending;
-  const batch: UploadBatch = { paths: [], failed: false, ready: Promise.resolve() };
+  const batch: UploadBatch = { paths: [], failed: false, ready: Promise.resolve(), size: files.reduce((n, f) => n + f.size, 0), done: 0 };
   pending.add(batch);
   const work = uploadFiles(files, folder, root, preview, batch, state, session);
   batch.ready = work.then(() => {});
@@ -143,9 +146,11 @@ async function uploadFiles(files: File[], folder: string | null, root: string, p
   state.error = "";
 
   for (const f of files) {
+    const start = batch.done;
+
     try {
       state.reading++;
-      const path = await uploadOne(f, folder, root, session, state);
+      const path = await uploadOne(f, folder, root, session, state, batch);
       const data = path ? await fileBase64(f) : "";
 
       if (path) {
@@ -165,6 +170,7 @@ async function uploadFiles(files: File[], folder: string | null, root: string, p
       setTimeout(() => { if (state.error === message) state.error = ""; }, ERROR_SHOWN_MS);
     } finally {
       state.reading--;
+      batch.done = start + f.size;
     }
 
     redrawUploads(state);
@@ -191,7 +197,7 @@ export async function prepareStashFiles(files: StashFile[]) {
 
 /// Uploads `file` into `folder` of the session's folder, a part at a time;
 /// the path it took there, or "" when the session went away.
-async function uploadOne(file: File, folder: string | null, root: string, s = paneSession(), state = current) {
+async function uploadOne(file: File, folder: string | null, root: string, s = paneSession(), state = current, batch: UploadBatch | null = null) {
   if (!s) return "";
   const up: Upload = { name: file.name || "file", size: file.size, done: 0 };
   state.uploads.push(up);
@@ -212,6 +218,7 @@ async function uploadOne(file: File, folder: string | null, root: string, s = pa
         attachment: folder === null ? { agent: s.agent, session: s.id } : null,
       });
       up.done = part.offset + part.len;
+      if (batch) batch.done += part.len;
       redrawUploads(state);
     }
 

@@ -194,15 +194,19 @@ body.cbody
                                   span "Ran 1 command, read 1 file"
                                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                             div style(display)
-                              div.dcoderen.other [data-row="3"] "The redirect reads `next` before the session cookie is set. - Moved the read after the cookie write - Added a test for the empty `next` case All tests pass."
-                          div.agturn [data-find-key="t4"]
+                              div.agent.dcoderen [data-row="3"]
+                                div.reply-body "The redirect reads `next` before the session cookie is set. - Moved the read after the cookie write - Added a test for the empty `next` case All tests pass."
                             div style(display)
-                              div.dcoderen.md.user [data-at="4"]
+                              div.dcoderen.other [data-row="4"] "Switched to thinking medium from the next turn"
+                          div.agturn [data-find-key="t5"]
+                            div style(display)
+                              div.dcoderen.md.user [data-at="5"]
                                 b "You"
                                 div.said
                                   p "Also keep the query string."
                             div style(display)
-                              div.dcoderen.other [data-row="5"] "Done. The query string now survives the redirect."
+                              div.agent.dcoderen [data-row="6"]
+                                div.reply-body "Done. The query string now survives the redirect."
                             div style(display)
                               div.dlive.dthink.live
                                 span.lb [title="Working"] "Working"
@@ -264,7 +268,7 @@ body.cbody
                           span "Close session"
                             kbd "⇧⌘W"
                           span "Pick the model, on the start form"
-                            kbd "⌘M"
+                            kbd "⇧⌘M"
                           span "Move through models, in the model search"
                             kbd "↑ ↓"
                           span "Open or fold thoughts"
@@ -281,12 +285,8 @@ body.cbody
                           b "Side pane"
                           span "Focus chat"
                             kbd "⌘1"
-                          span "Files"
-                            kbd "⌘2"
-                          span "Changes"
-                            kbd "⌘3"
-                          span "Artifacts"
-                            kbd "⌘4"
+                          span "Pane tab by its place"
+                            kbd "⌘2-9"
                           span "Open folder in the editor, or from the bar the session in the window"
                             kbd "⌘O"
                           span "Zoom the pane"
@@ -361,7 +361,7 @@ body.cbody
                         i style(display)
                           svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                         span "Running"
-                        small "2"
+                        small "3"
                     span.agwtw [hidden]
                     button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
                     button.agpbtn [data-pact="dock" title="Dock these tabs at the bottom"]
@@ -406,18 +406,27 @@ body.cbody
                     div.agpview.running
                       div.agrunninglist
                         div.agart.agrunningrow
-                          span.t [data-whole="41" title="Click to show the whole command"]
+                          span.t [data-whole="41" title="Click to show the whole command and its processes"]
                             b "npm run dev"
                             small "since 01:20"
                           span.r
                             span ":5173"
                             button.dbtn [data-pid="41" type="button"] "Stop"
                         div.agart.agrunningrow
-                          span.t [data-whole="42" title="Click to show the whole command"]
+                          span.t [data-whole="42" title="Click to show the whole command and its processes"]
                             b "cargo watch -x check"
                             small "since 01:20"
                           span.r
                             button.dbtn [data-pid="42" type="button"] "Stop"
+                        div.agart.agrunningrow.whole
+                          span.t [data-whole="43" title="Click to fold"]
+                            b "/usr/bin/zsh -c source /srv/home/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'npm run test:browser' < /dev/null"
+                            small "since 01:20 · 3 more processes"
+                            small.child [title="npm run test:browser"] "44 npm run test:browser"
+                            small.child [title="node /srv/project/node_modules/.bin/playwright test"] "45 node playwright test"
+                            small.child [title="/srv/cache/ms-playwright/chromium_headless_shell/chrome-headless-shell --headless"] "46 chrome-headless-shell --headless"
+                          span.r
+                            button.dbtn [data-pid="43" type="button"] "Stop"
                       div.agpacts
                         span.meta "build-box · closing the session stops these"
                         span.sp

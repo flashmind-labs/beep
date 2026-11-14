@@ -12,8 +12,8 @@ const { flushSync } = await import("react-dom");
 const { createRoot } = await import("react-dom/client");
 const { WorktreeMenu } = await import("../src/agentpane/worktree-view.tsx");
 const { startWorktrees, worktreeMenu, followAgent, paneRoot, refreshWorktrees } = await import("../src/agentpane/worktree.ts");
-const main: Tree = {path: "/srv/app", branch: "main", head: "abc1234", own: true};
-const fix: Tree = {path: "/srv/app/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false};
+const main: Tree = {path: "/srv/app", branch: "main", head: "abc1234", own: true, created: false};
+const fix: Tree = {path: "/srv/app/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false, created: true};
 const tool = (text: string): Entry => ({kind: "tool", text});
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 
@@ -82,7 +82,7 @@ test("a worktree refresh keeps the search input mounted and focused", async () =
   input.value = "fixes";
   input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   input.setSelectionRange(3, 3);
-  answers.agent_worktrees = [main, fix, { path: "/srv/other", branch: "other", head: "def", own: false }];
+  answers.agent_worktrees = [main, fix, { path: "/srv/other", branch: "other", head: "def", own: false, created: true }];
   refreshWorktrees();
   await flush();
   assert.equal(host.querySelector(".agwt-search"), input);
@@ -112,4 +112,22 @@ test("Git list changes reveal candidates, edits confirm usage, and main reads pr
   followAgent([...edited, tool("wrapper [completed]"), tool("wrapper [completed]")], 0, null);
   await flush();
   assert.equal(paneRoot(), main.path);
+});
+
+test("the menu lists the worktrees the session made, and every one with Show all", async () => {
+  const other: Tree = {path: "/srv/app/.worktrees/other", branch: "other", head: "abc1234", own: false, created: false};
+  const host = setup("made", [main, fix, other]);
+  await flush();
+  const asked = calls.filter(call => call.cmd === "agent_worktrees").at(-1)?.args;
+  assert.ok(asked && typeof asked === "object" && "session" in asked);
+  assert.equal(asked.session, "made");
+  click(host, ".agwt");
+  const listed = () => [...host.querySelectorAll('[role="menuitemradio"]')].map(item => item.getAttribute("data-wt"));
+  assert.deepEqual(listed(), [main.path, fix.path]);
+  const all = host.querySelector<HTMLInputElement>(".agwt-all input");
+  assert.ok(all);
+  all.click();
+  assert.deepEqual(listed(), [main.path, fix.path, other.path]);
+  all.click();
+  assert.deepEqual(listed(), [main.path, fix.path]);
 });

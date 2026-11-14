@@ -267,26 +267,43 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 .cc-gr.it.more { padding: 3px 11px 6px 26px }
 .cc-gr.it.more + .cc-row { border-top: 1px solid var(--border) }
 .cc-open .cc-note { margin: 8px 10px 2px }
-/* Machines as a table: one row per machine, so a glance compares them. */
-.cc-mt { display: grid; grid-template-columns: minmax(110px, 1.2fr) 52px max-content max-content max-content minmax(0, 1.5fr) minmax(0, 1fr) max-content; font-size: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); overflow: hidden }
-.cc-mt > * { padding: 6px 10px; display: flex; align-items: center; gap: 6px; min-width: 0; border-top: 1px solid color-mix(in srgb, var(--fg) 5%, transparent) }
-.cc-mt > .th { border-top: 0; padding-top: 7px; padding-bottom: 5px }
-.cc-mt .nm { flex-direction: column; align-items: flex-start; gap: 3px; scroll-margin-top: 30px }
-.cc-mt .nm b { display: flex; align-items: center; gap: 6px; max-width: 100%; font-weight: 500; font-size: 12.5px }
-.cc-mt .nm b span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-.cc-mt .nm .os { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100% }
-.cc-mt .num { font-variant-numeric: tabular-nums; color: var(--muted) }
-.cc-mt .num.low { color: var(--hot) }
-.cc-mt .num.two { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0 }
-.cc-mt .num small { font-size: 10.5px; color: var(--muted) }
-.cc-mt .caps { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 30px }
-.cc-mt .off { opacity: .5 }
-.cc-mt .mac-state { grid-column: span 5 }
-.cc-mt .mac-state.bad, .cc-si .mac-state.bad { color: var(--hot) }
-.cc-mt .act { justify-content: flex-end }
-/* A machine's terminals, indented under its row across every column. */
-.cc-mt > .tl-row { grid-column: 1 / -1; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; padding-left: 30px }
-.cc-mt .tl-row .t b { font-family: var(--mono, ui-monospace, monospace); font-size: 12px }
+/* Machines as cards: the top line, four stats, what needs a look, and a fold for the rest. */
+.mcards { display: grid; gap: 12px }
+.mcard { display: grid; gap: 12px; padding: 14px 16px 8px; border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, transparent); scroll-margin-top: 30px }
+.mcard.off { padding-bottom: 14px }
+.mcard.off .mname { opacity: .6 }
+.mtop { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px }
+.mname { display: flex; align-items: center; gap: 8px; min-width: 0 }
+.mname b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mnote { font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mnote.bad { color: var(--hot) }
+.mcard .act { display: flex; gap: 6px; flex: none }
+.mstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px }
+.mstat { min-width: 0 }
+.mstat .ml { display: block; margin-bottom: 5px; font: 500 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+.mstat .v { display: block; font: 12px var(--mono); color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mstat small { display: block; margin-top: 2px; font: 11px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.mbar { height: 3px; margin-top: 6px; border-radius: 2px; background: color-mix(in srgb, var(--fg) 8%, transparent); overflow: hidden }
+.mbar i { display: block; height: 100%; background: color-mix(in srgb, var(--fg) 45%, transparent) }
+.mbar.low i { background: var(--warn) }
+.mcaps { display: flex; flex-wrap: wrap; gap: 4px }
+.mcard .chip { padding: 1px 6px; border: 0; border-radius: 3px; background: color-mix(in srgb, var(--fg) 4%, transparent); font: 400 11px var(--mono); line-height: 1.45 }
+.mcard .chip.wait { color: var(--warn) }
+/* Terminals and projects under a card: one line each, the fold last. */
+.mlist { margin: 0 -8px }
+.mcard .cc-row.tl-row { grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; min-height: 30px; padding: 0 8px; border-top: 0; border-radius: 3px }
+.mcard .tl-row .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.mcard .tl-row .t b { font-size: 12.5px }
+.mcard .tl-row .t span { margin-left: 8px }
+.mcard .mfold { grid-template-columns: 12px minmax(0, 1fr); color: var(--muted) }
+.mcard .mfold .t b { font: 400 11.5px var(--mono) }
+.mcard .mfold .t span { color: var(--dim) }
+.mfold svg { transition: transform .12s }
+.mfold[aria-expanded="true"] svg { transform: rotate(90deg) }
+.mgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 14px; padding: 2px 0 6px }
+.mcard .mgrid .cc-row.tl-row { grid-template-columns: 10px minmax(0, 1fr) }
+.mgrid .t { font: 11.5px var(--mono); color: var(--muted) }
+.cc-si .mac-state.bad { color: var(--hot) }
 .cc-si .mac-state { max-width: 45%; overflow: hidden; text-overflow: ellipsis }
 .cc-si .mac-add { margin-left: auto; min-height: 18px; padding: 0 6px; font-size: 11px }
 /* A sidebar group title that opens its view. */
@@ -315,8 +332,42 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .pv-row .acts { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 6px; align-items: center }
 .pv-row .acts .bad { font-size: 11.5px; color: var(--hot); max-width: 28ch }
 .pv-scroll { max-height: 520px; overflow: auto }
-#sec-found .ap-list { max-height: none; overflow: visible }
-#sec-found h4 small, #sec-sessions h4 small { font-weight: 400; color: var(--muted); font-size: 11.5px; margin-left: 8px; text-transform: none; letter-spacing: 0 }
+/* The lists under the project cards: folded sections of one-line rows. */
+.pl { margin-top: 10px }
+.pl-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; padding: 0 14px; border: 0; background: none; color: inherit; text-align: left; cursor: default }
+.pl-head .lbl { font: 500 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+.pl-head:hover .lbl { color: var(--muted) }
+.pl-head .n, .pl .dim, .pl .age { font: 11.5px var(--mono) }
+.pl-head .n { color: var(--muted) }
+.pl-head .note { margin-left: auto; font: 11.5px var(--mono); color: var(--dim) }
+.pl .twist { flex: none; width: 10px; display: grid; place-items: center; color: var(--dim) }
+.pl .twist svg { transition: transform .12s }
+.pl [aria-expanded="true"] > .twist svg, .pl [aria-expanded="true"] .twist svg { transform: rotate(90deg) }
+.pl-body { padding: 0 6px 6px }
+.pl-row { display: grid; font-size: 13px; align-items: center; gap: 10px; min-height: 32px; padding: 0 8px; border-radius: 3px; cursor: default }
+.pl-row:is(:hover, :focus-within) { background: color-mix(in srgb, var(--fg) 4%, transparent) }
+.pl-row.found { grid-template-columns: minmax(140px, 26%) minmax(0, 1fr) auto }
+.pl-row.repo { grid-template-columns: minmax(0, 1fr) auto }
+.pl-row.it { grid-template-columns: 16px minmax(0, 1fr) auto; min-height: 30px; padding-left: 28px }
+.pl-row .n { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pl-row .t { all: unset; display: flex; align-items: baseline; gap: 8px; min-width: 0; cursor: default }
+.pl-row .t:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px }
+.pl-row.repo .t { align-items: center }
+.pl-row .t b { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.pl-row.it .t b { font-weight: 450 }
+.pl-row .num { flex: none; font: 11.5px var(--mono); color: var(--dim) }
+.pl-row .ic { display: grid; color: var(--dim) }
+.pl-row .where { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0 }
+.pl-row .r { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0 }
+.pl-row .age { min-width: 36px; text-align: right; color: var(--dim) }
+.pl-row .dim { color: var(--dim); white-space: nowrap }
+.pl-row .acts { display: flex; justify-content: flex-end; gap: 6px; opacity: 0 }
+.pl-row:is(.it, .repo) .acts { width: 150px }
+.pl-row:is(:hover, :focus-within) .acts { opacity: 1 }
+.pl .chip { padding: 1px 6px; border: 0; border-radius: 3px; background: color-mix(in srgb, var(--fg) 4%, transparent); font: 11px var(--mono); line-height: 1.45; font-weight: 400; white-space: nowrap }
+.pl-bad { padding: 0 8px 6px; font: 11.5px var(--mono); color: var(--err) }
+.pl-body > .dbtn { margin: 4px 0 0 8px }
+#sec-sessions h4 small { font-weight: 400; color: var(--muted); font-size: 11.5px; margin-left: 8px; text-transform: none; letter-spacing: 0 }
 
 /* A project's agent: Tasks beside Workers, then the cards its chat waits on. */
 .pj-cols.pj-half { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) }
@@ -362,7 +413,7 @@ button.pv-row .cc-ag { width: 16px; height: 16px; border-radius: 4px; font-size:
 .cc-tabs.pj-tabs { position: static; flex: none; margin: -14px -18px 0; padding: 0 14px }
 .pj-split { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); height: 100%; min-height: 0 }
 .pj-list { overflow: auto; border-right: 1px solid var(--border); padding-bottom: 10px; scrollbar-width: thin }
-.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
+.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h { font-size: var(--label-size); font-weight: 600; letter-spacing: var(--label-track); text-transform: var(--label-case); color: var(--dim) }
 .pj-list h4 { margin: 0; padding: 12px 14px 4px; display: flex; gap: 8px }
 .pj-list h4 .n { font-weight: 400 }
 .pj-list .note { padding: 4px 14px 6px; font-size: 12px; color: var(--muted) }

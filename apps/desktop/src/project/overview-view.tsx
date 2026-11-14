@@ -1,20 +1,19 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HazeArt } from "../ui/painted-art.tsx";
 import { Input, SearchField } from "react-aria-components";
 import { commandKey } from "../ui/platform.ts";
-import { formatAgo, plural } from "../ui/format.ts";
+import { plural } from "../ui/format.ts";
 import { Dropdown } from "../ui/dropdown.tsx";
 import { Icon } from "../ui/icons.tsx";
-import { itemChips, type GitItemRow } from "../center/openitems-state.ts";
 import { projectWindowProps, openProjects, setProjectOnTop } from "../center/sidebar.tsx";
-import { agentLabel, foundSessions, parseFolded, type FoundRow, type Project } from "./projects-state.ts";
+import { parseFolded, type Project } from "./projects-state.ts";
 import { PROJECT_SORTS, searchOverview, type ProjectSort, type OverviewGroup } from "./overview-state.ts";
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
 import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.tsx";
 import { state } from "../center/state.ts";
 import { redrawProjects } from "./sections.ts";
 import { dialogOpen } from "../ui/parts.tsx";
-import { Button, SectionHead, useLazyCount } from "../ui/kit.tsx";
+import { Button, useLazyCount } from "../ui/kit.tsx";
 
 type Group = OverviewGroup<Project>;
 /// What the search field holds, kept while the user is on other pages.
@@ -69,14 +68,6 @@ function useSearchKeys(field: React.RefObject<HTMLInputElement | null>) {
   }, [field]);
 }
 
-interface ElsewhereRepo { key: string; name: string; sub: string; url: string; last: number; importing: boolean; disabled: boolean; primary: boolean; items: GitItemRow[]; import(): void }
-export function ElsewhereSection({ repos, open, review, reply }: { repos: ElsewhereRepo[]; open(url: string): void; review(item: GitItemRow): void; reply(item: GitItemRow): void }) {
-  const act = (event: React.MouseEvent, run: () => void) => { event.stopPropagation(); run(); };
-  return <><SectionHead title="Your open PRs and issues in repos without a project" /><div className="cc-panel cc-open">{repos.map(repo => <Fragment key={repo.key}><div className="cc-row cc-line cc-gr" onClick={() => open(repo.url)}><span className="cc-pdot"/><button type="button" className="t" title={repo.name}><b>{repo.name}</b><span>{repo.sub}</span></button><span className="r"><span className="age">{formatAgo(repo.last, "short")}</span><Button look={repo.primary ? "primary" : "secondary"} small disabled={repo.disabled} onClick={event => act(event, repo.import)}>{repo.importing ? "Importing…" : "Import project"}</Button></span></div>{repo.items.map(item => <div key={item.url} className="cc-row cc-line cc-gr it" onClick={() => open(item.url)}><span className="ic"><Icon name={item.kind === "pull_request" ? "pr" : "issue"}/></span><button type="button" className="t" title={item.url}><span className="num">#{item.number}</span><b>{item.title}</b>{item.labels?.map(label => <i key={label} className="pj-tag">{label}</i>)}</button><span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{formatAgo(item.updated_at, "short")}</span>{item.kind === "pull_request" && <Button small onClick={event => act(event, () => review(item))}>Review</Button>}<Button small onClick={event => act(event, () => reply(item))}>Reply</Button></span></div>)}</Fragment>)}</div></>;
-}
-export function FoundSection({ rows, importing, error, importOne, add }: { rows: FoundRow[]; importing: string | null; error: { name: string; message: string } | null; importOne(row: FoundRow): void; add(): void }) {
-  return <><SectionHead title="Found on your machines">{rows.length > 3 && <Button look="quiet" small onClick={add}>All {rows.length}</Button>}</SectionHead><div className="cc-panel ap-list">{rows.slice(0, 3).map(row => <div className="ap-row" key={row.name}><span className="n">{row.name}</span>{row.places.map(place => <span className="m" key={`${place.machine_name}:${place.folder}`}><span title={`${place.machine_name}: ${place.folder}`}><b>{place.machine_name}</b> <code>{place.folder}</code></span></span>)}<span className="m">{row.agents.map((agent, index) => <span className="ap-ag" key={index}>{agentLabel(agent.agent)} {agent.sessions}</span>)}{row.last_activity ? <span>{formatAgo(row.last_activity, "long")}</span> : null}</span>{error?.name === row.name && <span className="m bad">{error.message}</span>}<span className="acts"><Button small disabled={importing !== null} title={`Import ${row.name} with ${foundSessions(row)} sessions`} onClick={() => importOne(row)}>{importing === row.name ? "Importing…" : "Import"}</Button></span></div>)}</div></>;
-}
 function OverviewGroupView({ group, sync, editing, folded, fold }: { group: Group; sync: (name: string) => string | null; editing: { id: string; draft: string } | null; folded: boolean; fold(): void }) {
   const g = group.group;
   const input = useRef<HTMLInputElement>(null);

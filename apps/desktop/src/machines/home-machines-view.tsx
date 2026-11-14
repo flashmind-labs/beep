@@ -1,17 +1,22 @@
-import { Fragment } from "react";
-import { formatAgo } from "../ui/format.ts";
+import { create } from "zustand";
+import { formatAgo, plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
-import { SectionHead } from "../ui/kit.tsx";
 import { ALL, byMachine, terminalNote, terminalWhere, type TerminalRow } from "../terminals/terminals.tsx";
 import { allTerms, openTerminals, termMachines } from "../terminals/view.tsx";
 import { openAddMachine, openProjects } from "../center/sidebar.tsx";
 import { state } from "../center/state.ts";
 import { fsync } from "../project/sections.ts";
 import { openTile } from "../project/split.tsx";
-import { machineCaps, machineDisk, machineDot, machineMemory, machineNow, machineOs, machineProjects, thisMacRow, type MachineCard, type MachineProject } from "./machine-state.ts";
+import { machineCaps, machineDisk, machineDot, machineMemory, machineNow, machineOs, machineProjects, projectsSummary, thisMacRow, type MacRow, type MachineCard, type MachineProject } from "./machine-state.ts";
 import { showMachineMenu, useThisMac } from "./table.ts";
 import { trafficRows, trafficSummary } from "./traffic-state.ts";
-import { Button, type ButtonLook } from "../ui/kit.tsx";
+import { Button, Chip, SectionHead, type ButtonLook } from "../ui/kit.tsx";
+
+/// The machines whose project list is open, for as long as the window lives.
+const useOpenFolds = create<{ open: ReadonlySet<string>; toggle(id: string): void }>(set => ({
+  open: new Set(),
+  toggle: id => set(({ open }) => ({ open: new Set(open.has(id) ? [...open].filter(x => x !== id) : [...open, id]) })),
+}));
 
 function Dot({ machine }: { machine: MachineCard }) {
   const { className, title } = machineDot(machine);
@@ -24,17 +29,39 @@ function Terminal({ terminal, online }: { terminal: TerminalRow; online: boolean
 function Project({ project }: { project: MachineProject }) {
   return <button type="button" className="cc-row tl-row" title={project.title} onClick={() => { openProjects(project.project); openTile("sync"); }}><span className={`ddot${project.off ? " off" : ""}`} /><span className="t"><b>{project.project}</b><span>{project.meta.join(" · ")}</span></span><span className="r">{project.pct == null ? <span className={`chip${project.chip.wait ? " wait" : ""}`}>{project.chip.text}</span> : <span className="fs-pct"><span className="fs-bar"><i style={{ width: `${project.pct}%` }} /></span>{project.pct}%</span>}</span></button>;
 }
+function Stat({ label, title, bar, low = false, children }: { label: string; title?: string; bar?: number | null; low?: boolean; children: React.ReactNode }) {
+  return <div className="mstat" title={title || undefined}><span className="ml">{label}</span>{children}{bar != null && <div className={`mbar${low ? " low" : ""}`}><i style={{ width: `${Math.round(100 * bar)}%` }} /></div>}</div>;
+}
+function Folded({ machine, projects }: { machine: MachineCard; projects: MachineProject[] }) {
+  const open = useOpenFolds(fold => fold.open.has(machine.id)), toggle = useOpenFolds(fold => fold.toggle);
+  return <div className="mlist"><button type="button" className="cc-row tl-row mfold" aria-expanded={open} onClick={() => toggle(machine.id)}><Icon name="chev" /><span className="t"><b>{plural(projects.length, "project", "projects")} here</b><span>· {projectsSummary(projects)}</span></span></button>{open && <div className="mgrid">{projects.map(project => <button key={project.project} type="button" className="cc-row tl-row" title={project.title} onClick={() => { openProjects(project.project); openTile("sync"); }}><span className={`ddot${project.off ? " off" : ""}`} /><span className="t">{project.project}</span></button>)}</div>}</div>;
+}
 function Machine({ machine, terminals }: { machine: MachineCard; terminals: TerminalRow[] }) {
-  const off = machine.online ? "" : " off", caps = machine.can_host === false ? ["Controller"] : machineCaps(machine);
+  const caps = machine.can_host === false ? ["Controller"] : machineCaps(machine);
   const disk = machineDisk(machine), memory = machineMemory(machine), moved = trafficSummary(trafficRows(state.traffic.find(row => row.id === machine.id)));
+  const projects = machine.online ? machineProjects(machine.id, state.sync, fsync.detail) : [], live = projects.filter(project => project.pct != null || project.chip.wait);
   const menu = (event: React.MouseEvent) => showMachineMenu(machine, () => [], event.nativeEvent);
-  return <><span id={`m-${machine.id}`} title={machine.name} className={`nm${off}`} onContextMenu={menu}><b><Dot machine={machine} /><span>{machine.name}</span></b><span className="os">{machine.can_host === false ? "Phone" : machineOs(machine)}</span></span><span className={`num${off}`} onContextMenu={menu}>{machine.online && machine.agents ? machine.agents : "–"}</span><span className={`num${off}${disk.low ? " low" : ""}${disk.other ? " two" : ""}`} title={disk.title || undefined} onContextMenu={menu}>{disk.text}{disk.other && <small>{disk.other}</small>}</span><span className={`num${off}`} title={memory.title || undefined} onContextMenu={menu}>{memory.text}</span><span className={`num${off}`} title={moved?.each} onContextMenu={menu}>{moved?.both ?? "–"}</span><span className={`caps${off}`} title={caps.length ? [...caps, ...machine.gpus.map(gpu => gpu.model)].join(", ") : undefined} onContextMenu={menu}>{caps.join(" · ") || "–"}</span><span className={`num${off}`} title={machine.online || machine.connecting ? undefined : `Seen ${formatAgo(machine.seen_at, "since")}`} onContextMenu={menu}>{machineNow(machine)}</span><span className="act" onContextMenu={menu}>{machine.can_host !== false && <Button small disabled={!machine.online} onClick={() => openTerminals({ newOn: machine.id })}>New terminal</Button>}</span>{terminals.map(terminal => <Terminal key={terminal.id} terminal={terminal} online={machine.online} />)}{machineProjects(machine.id, state.sync, fsync.detail).map(project => <Project key={project.project} project={project} />)}</>;
+  return <div id={`m-${machine.id}`} className={`mcard${machine.online ? "" : " off"}`} onContextMenu={menu}>
+    <div className="mtop"><span className="mname" title={machine.name}><Dot machine={machine} /><b>{machine.name}</b><span className="mnote">{[machine.can_host === false ? "Phone" : machineOs(machine), machineNow(machine)].filter(Boolean).join(" · ")}</span></span><span className="act">{machine.can_host !== false && <Button small disabled={!machine.online} onClick={() => openTerminals({ newOn: machine.id })}>New terminal</Button>}</span></div>
+    {machine.online && <>
+      <div className="mstats">
+        <Stat label="Disk" title={disk.title} bar={disk.used} low={disk.low}><span className="v">{disk.text}</span>{disk.other && <small>{disk.other}</small>}</Stat>
+        <Stat label="Memory" title={memory.title} bar={memory.used}><span className="v">{memory.text}</span></Stat>
+        <Stat label="Sent / received" title={moved?.each}><span className="v">{moved?.both ?? "–"}</span></Stat>
+        <Stat label="Can run" title={caps.length ? [...caps, ...machine.gpus.map(gpu => gpu.model)].join(", ") : undefined}>{caps.length ? <span className="mcaps">{caps.map(name => <Chip key={name} kind="" text={name} />)}</span> : <span className="v">–</span>}</Stat>
+      </div>
+      {(terminals.length > 0 || live.length > 0) && <div className="mlist">{terminals.map(terminal => <Terminal key={terminal.id} terminal={terminal} online={machine.online} />)}{live.map(project => <Project key={project.project} project={project} />)}</div>}
+      {projects.length > 0 && <Folded machine={machine} projects={projects} />}
+    </>}
+  </div>;
+}
+function ThisMac({ mac }: { mac: MacRow }) {
+  return <div id="m-this-mac" className="mcard off"><div className="mtop"><span className="mname" title={mac.title}><span className="ddot off" /><b>{mac.name}</b><span className={`mnote${mac.bad ? " bad" : ""}`}>{[mac.sub, mac.state].filter(Boolean).join(" · ")}</span></span>{mac.action && <span className="act keep"><Button look="primary" small onClick={() => { void useThisMac(); }}>{mac.action}</Button></span>}</div></div>;
 }
 export function HomeMachines({ machines }: { machines: MachineCard[] }) {
   const unlisted = thisMacRow(state.mac, machines);
   if (!machines.length && !unlisted) return <div id="sec-machines"><SectionHead title="Machines"><AddMachine small /></SectionHead><div className="cc-panel cc-empty"><b>No machines linked yet</b><AddMachine look="primary" /></div></div>;
   const online = machines.filter(machine => machine.online).length, count = machines.length ? `${online} of ${machines.length} online` : "";
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);
-  return <><div id="sec-machines"><SectionHead title="Machines" count={count}><AddMachine small /></SectionHead><div className="cc-mt">{["Machine", "Agents", "Disk", "Memory", "Sent / received", "Can run", "Now", ""].map((header, index) => <span className="th" key={index}>{header}</span>)}{machines.map(machine => <Fragment key={machine.id}><Machine machine={machine} terminals={terms.find(row => row.id === machine.id)?.terms || []} /></Fragment>)}{unlisted && <><span className="nm off" id="m-this-mac"><b><span className="ddot off" /><span>{unlisted.name}</span></b><span className="os">{unlisted.sub}</span></span><span className={`caps mac-state${unlisted.bad ? " bad" : ""}`} title={unlisted.title}>{unlisted.state}</span><span className="num">{unlisted.action ? <Button look="primary" small onClick={() => { void useThisMac(); }}>{unlisted.action}</Button> : "–"}</span><span /></>}</div></div></>;
+  return <div id="sec-machines"><SectionHead title="Machines" count={count}><AddMachine small /></SectionHead><div className="mcards">{machines.map(machine => <Machine key={machine.id} machine={machine} terminals={terms.find(row => row.id === machine.id)?.terms || []} />)}{unlisted && <ThisMac mac={unlisted} />}</div></div>;
 }
-

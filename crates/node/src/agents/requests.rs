@@ -370,9 +370,12 @@ pub async fn serve_sessions(
             })
             .await
         }
-        SessionsRequest::Worktrees { folder } => {
+        SessionsRequest::Worktrees { folder, session } => {
+            let created = session
+                .map(|id| agents.created_worktrees(&id))
+                .unwrap_or_default();
             let list = work_request(&agents, &folder, reach::Access::Work, move |real| {
-                let worktrees = worktrees::list(&real)?;
+                let worktrees = worktrees::list(&real, &created)?;
                 Ok(SessionsReply::Worktrees { worktrees })
             });
             timeout(WORKTREES_WAIT, list)
@@ -431,11 +434,9 @@ pub async fn serve_sessions(
         SessionsRequest::MoveProgress { session } => SessionsReply::Moving {
             progress: agents.moves.progress(&session),
         },
-        SessionsRequest::MoveCheck { project, branch: _ } => agents
-            .moves
-            .prepare_worktree(&project)
-            .await
-            .map_or_else(failed, |()| SessionsReply::MoveChecked { ignored: false }),
+        // Asked by apps from before worktree moves were removed, before they
+        // send one: this node takes it as a move to the project folder.
+        SessionsRequest::MoveCheck { .. } => SessionsReply::MoveChecked { ignored: false },
         // Asked by apps from before background copies were removed: this
         // node keeps no copies.
         SessionsRequest::Copies {} => SessionsReply::Copies { copies: Vec::new() },

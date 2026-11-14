@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { allowSelection, openDesktop, projectName } from "./harness.ts";
 
 test("issue detail keeps comment draft, caret and scroll during project refresh", async ({ page }) => {
   const now = Date.now(), issue = { number: 1, title: "Example issue", url: "https://example.test/issues/1", author: "Author", opened_at: now, comments: 1, labels: [] };
@@ -37,6 +37,7 @@ test("issue detail keeps comment draft, caret and scroll during project refresh"
   await expect(input).toBeEnabled();
   await expect(input).toHaveValue("");
   const paragraph = pane.locator(".pj-md p").first();
+  await allowSelection(page);
   await paragraph.evaluate(element => { Reflect.set(window, "threadParagraph", element); const range = document.createRange(); range.selectNodeContents(element); window.getSelection()?.removeAllRanges(); window.getSelection()?.addRange(range); });
   const detailReads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_thread_detail").length);
   await page.evaluate(value => { window.__navigation.respond("center_thread_detail", value); const now = Date.now(); Date.now = () => now + 61000; window.__navigation.notify("projects"); }, { ...detail, body_html: "<p>Issue description</p><p>New information</p>" });

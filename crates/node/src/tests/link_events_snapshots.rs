@@ -50,6 +50,7 @@ async fn session_process_topics_read_children_and_follow_process_changes() {
             started_at: 1,
             ports: vec![],
             left_group: false,
+            parent: 0,
         }],
     }));
     let result = children.clone();

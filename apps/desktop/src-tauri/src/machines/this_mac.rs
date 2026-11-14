@@ -118,7 +118,7 @@ impl Machine {
                 .offers
                 .agents
                 .install_adapters(home.dir.clone(), Vec::new());
-            let _harness_checks = home.offers.agents.start_harness_checks();
+            let _upkeep = home.offers.agents.start_upkeep();
             let _mcp = mcp::start(&home.dir, &home.offers);
             // Terminal Claude Code sessions report their state here; the
             // MCP server stops when this task does, with the app.

@@ -104,8 +104,8 @@ pub async fn serve(
     let _provision = provision.start();
     let _sccache = provision.start_sccache();
     let mut offers = Offers::local(&state.agents, provision);
-    let _harness_checks = offers.agents.start_harness_checks();
-    let _uploads = crate::agents::uploads::maintain();
+    let _upkeep = offers.agents.start_upkeep();
+    let _uploads = crate::agents::uploads::maintain(offers.agents.clone());
     // The ACP adapters an agent found here lacks, installed in the node's
     // folder; the work stops with the node.
     let _adapters = offers
@@ -236,6 +236,7 @@ pub async fn serve(
     // before leaves it as it was.
     let reopen = Reopen::read(&state.dir);
     offers.agents.keep_models(reopen.models);
+    offers.agents.keep_worktrees(reopen.worktrees);
     terminal::reopen(&state.dir, reopen.terminals).await;
     let agents = offers.agents.clone();
     let note_dir = state.dir.clone();
@@ -274,6 +275,7 @@ pub async fn serve(
         sessions: offers.agents.open_sessions(),
         terminals,
         models: offers.agents.last_models(),
+        worktrees: offers.agents.last_worktrees(),
     };
 
     if let Err(e) = reopen.save(&state.dir) {

@@ -179,9 +179,12 @@ pub enum SessionsRequest {
     /// `folder`, as `git worktree list` gives them. Answered with
     /// `Worktrees` (none when `folder` is not in a repository), or `Error`
     /// saying why. A node from before it answers `Error` or closes the
-    /// stream.
+    /// stream. With `session`, each worktree says whether that session
+    /// created it.
     Worktrees {
         folder: String,
+        #[serde(default)]
+        session: Option<String>,
     },
     /// Deletes the ended session `session` of the harness `agent` from this
     /// machine: its transcript file and the node's record of it. `session`
@@ -207,11 +210,10 @@ pub enum SessionsRequest {
     MoveProgress {
         session: String,
     },
-    /// Whether this node can take a session that works in a worktree of
-    /// `project`, on `branch`: it makes the worktree itself, and says if
-    /// its Syncthing is set not to sync that folder. Answered with
-    /// `MoveChecked`; a node from before it closes the stream, and takes
-    /// checkout sessions only.
+    /// Asked by apps from before worktree moves were removed, before they
+    /// move a session in a worktree. Answered with `MoveChecked` and
+    /// `ignored: false`: the node resumes such a session in the project
+    /// folder.
     MoveCheck {
         project: String,
         branch: String,
@@ -557,8 +559,7 @@ pub enum SessionsReply {
     },
     /// The answer to `MoveCheck`.
     MoveChecked {
-        /// The worktree's folder is one Syncthing keeps in step here, and
-        /// its `.stignore` leaves it out: the session cannot move.
+        /// Always false now.
         ignored: bool,
     },
     /// The answer to `Copies`.
@@ -639,6 +640,9 @@ pub struct Worktree {
     /// The one holding the folder asked about.
     #[serde(default)]
     pub own: bool,
+    /// The session the list was asked for created it.
+    #[serde(default)]
+    pub created: bool,
 }
 
 /// Something a node's session did that the user would want to hear about.
@@ -757,4 +761,7 @@ pub struct RunningProcess {
     pub ports: Vec<u16>,
     #[serde(default)]
     pub left_group: bool,
+    /// The process that started it; 0 from nodes that predate it.
+    #[serde(default)]
+    pub parent: u32,
 }

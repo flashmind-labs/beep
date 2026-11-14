@@ -79,7 +79,7 @@ test("Machines retains a focused terminal action when another machine changes", 
   await terminal.evaluate(element => { (window as any).__machineAction = element; });
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [{ ...home.machines[0], agents: 2 }, home.machines[1]] });
   await expect(page.locator("#m-one")).toContainText("Build box");
-  await expect.poll(() => page.locator("#m-one + .num").textContent()).toBe("2");
+  await expect(page.locator("#m-one .mnote")).toHaveText("2 agents");
   await expect(terminal).toBeFocused();
   expect(await terminal.evaluate(element => element === (window as any).__machineAction)).toBe(true);
 });
@@ -91,4 +91,27 @@ test("Home shows unavailable and recently offline notices", async ({ page }) => 
   const machine = { id: "one", name: "Build box", online: false, can_host: true, seen_at: Date.now(), version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [machine], running: [] });
   await expect(page.getByText("Build box is offline.")).toBeVisible();
+});
+
+test("A machine card folds its quiet projects and keeps the ones that need a look", async ({ page }) => {
+  const stats = { sampled_at: 0, disks: [{ path: "/srv", free_bytes: 50, total_bytes: 1000 }], memory_used_mb: 1024, memory_total_mb: 4096, load: null };
+  const machine = (id: string, name: string, online: boolean) => ({ id, name, online, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: online ? stats : null });
+  const home = { machines: [machine("one", "Build box", true), machine("two", "Test box", false)], projects: [], running: [], needs_you: [] };
+  const row = (project: string, status: string) => ({ project, machine_id: "one", status, files: 10, pending: 0, error: null });
+  await openDesktop(page, false, { center_home: home, terminals_all: [], project_sync: [row("example/one", "in_sync"), row("example/two", "in_sync"), row("example/three", "failed")] });
+  await page.getByRole("tab", { name: "Machines" }).click();
+  const card = page.locator("#m-one");
+  await expect(card.locator(".mbar.low")).toHaveCount(1);
+  await expect(card.getByRole("button", { name: /example\/three/ })).toBeVisible();
+  await expect(card.getByRole("button", { name: /example\/one/ })).toHaveCount(0);
+  const fold = card.getByRole("button", { name: /3 projects here/ });
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await fold.click();
+  await expect(fold).toHaveAttribute("aria-expanded", "true");
+  await expect(card.locator(".mgrid .cc-row")).toHaveCount(3);
+  await expect(page.locator("#m-two .mstats")).toHaveCount(0);
+  await expect(page.locator("#m-two .mnote")).toContainText("offline");
+  await page.getByRole("tab", { name: "Board" }).click();
+  await page.getByRole("tab", { name: "Machines" }).click();
+  await expect(page.locator("#m-one .mfold")).toHaveAttribute("aria-expanded", "true");
 });

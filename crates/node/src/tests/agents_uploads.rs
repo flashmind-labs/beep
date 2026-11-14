@@ -85,7 +85,7 @@ fn attachments_have_no_file_or_aggregate_size_quota() {
     );
     assert_eq!(fs::metadata(&first).unwrap().len(), size);
     assert!(write_in(dir.path(), &session, "other.mp4", 0, size, b"a").is_ok());
-    sweep(dir.path(), SystemTime::now() + DAY * 60).unwrap();
+    sweep(dir.path(), SystemTime::now() + DAY / 2, &HashSet::new()).unwrap();
     assert_eq!(fs::metadata(&first).unwrap().len(), size);
 }
 
@@ -96,9 +96,52 @@ fn only_abandoned_partial_uploads_expire() {
     let complete = put(dir.path(), "session", "keep.mp4", b"keep");
     let partial = write_in(dir.path(), &session, "partial.mp4", 0, 8, b"part").unwrap();
     let partial_bucket = Path::new(&partial).parent().unwrap().parent().unwrap();
-    sweep(dir.path(), SystemTime::now() + DAY * 60).unwrap();
+    sweep(dir.path(), SystemTime::now() + DAY * 2, &HashSet::new()).unwrap();
     assert!(Path::new(&complete).exists());
     assert!(!partial_bucket.exists());
+}
+
+#[test]
+fn attachments_go_a_day_after_their_session_ends_unless_it_runs_again() {
+    let dir = TempDir::new().unwrap();
+    let ended = put(dir.path(), "ended", "a.txt", b"a");
+    let resumed = put(dir.path(), "resumed", "b.txt", b"b");
+    let open = put(dir.path(), "open", "c.txt", b"c");
+
+    for session in ["ended", "resumed"] {
+        fs::write(dir.path().join(owner("codex", session)).join(ENDED), b"").unwrap();
+    }
+
+    let running = HashSet::from([owner("codex", "resumed")]);
+    sweep(dir.path(), SystemTime::now() + DAY / 2, &running).unwrap();
+    assert!(Path::new(&ended).exists(), "within a day of the end");
+    sweep(dir.path(), SystemTime::now() + DAY * 2, &running).unwrap();
+    assert!(!dir.path().join(owner("codex", "ended")).exists());
+    assert!(Path::new(&resumed).exists());
+    assert!(Path::new(&open).exists());
+}
+
+#[test]
+fn attachments_unused_for_three_days_go_even_while_their_session_runs() {
+    let dir = TempDir::new().unwrap();
+    let file = put(dir.path(), "open", "a.txt", b"a");
+    let running = HashSet::from([owner("codex", "open")]);
+    sweep(dir.path(), SystemTime::now() + DAY * 2, &running).unwrap();
+    assert!(Path::new(&file).exists());
+    sweep(dir.path(), SystemTime::now() + UNUSED + DAY, &running).unwrap();
+    assert!(!Path::new(&file).exists());
+}
+
+#[test]
+fn project_uploads_unused_for_three_days_go() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("clip.mp4"), b"clip").unwrap();
+    fs::create_dir(dir.path().join("folder")).unwrap();
+    prune(dir.path(), SystemTime::now() + DAY * 2).unwrap();
+    assert!(dir.path().join("clip.mp4").exists());
+    prune(dir.path(), SystemTime::now() + UNUSED + DAY).unwrap();
+    assert!(!dir.path().join("clip.mp4").exists());
+    assert!(dir.path().join("folder").exists());
 }
 
 #[test]

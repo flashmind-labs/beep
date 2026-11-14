@@ -98,6 +98,8 @@ test("sync and terminal events refresh the combined machine sections", async ({ 
   await detailPane.evaluate(element => { element.style.maxHeight = "180px"; element.scrollTop = 70; });
   const top = await detailPane.evaluate(element => element.scrollTop);
   await page.evaluate(({ sync, terminal }) => {
+    // Sync detail reads are at most ten seconds apart.
+    const now = Date.now(); Date.now = () => now + 61000;
     window.__navigation.respond("project_sync_detail", sync);
     window.__navigation.respond("project_sync", [{ project: sync.project, machine_id: "studio", status: "in_sync", files: 0, pending: 0, error: null }]);
     window.__navigation.respond("terminals_list", [terminal]);

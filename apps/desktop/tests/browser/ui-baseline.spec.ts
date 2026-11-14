@@ -51,9 +51,10 @@ const transcript = [
   { kind: "user", text: "The login page redirects to a blank page after sign in. Find out why and fix it." },
   { kind: "tool", text: "Read: src/login.ts [completed]" },
   { kind: "tool", text: "Bash: npm test [completed]" },
-  { kind: "assistant", text: "The redirect reads `next` before the session cookie is set.\n\n- Moved the read after the cookie write\n- Added a test for the empty `next` case\n\nAll tests pass." },
+  { kind: "agent", text: "The redirect reads `next` before the session cookie is set.\n\n- Moved the read after the cookie write\n- Added a test for the empty `next` case\n\nAll tests pass." },
+  { kind: "other", text: "Switched to thinking medium from the next turn" },
   { kind: "user", text: "Also keep the query string." },
-  { kind: "assistant", text: "Done. The query string now survives the redirect." },
+  { kind: "agent", text: "Done. The query string now survives the redirect." },
 ];
 const agentView = { session: { ...session, question: null }, plan: [], files: [], entries: transcript, earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 2 };
 const listing = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1200, ignored: false, change: null }, { name: "package.json", folder: false, size: 640, ignored: false, change: "modified" }, { name: "sample.ts", folder: false, size: 300, ignored: false, change: "modified" }], more: 0, git: true }], truncated: false };
@@ -180,9 +181,14 @@ test("start screen", async ({ page }, info) => {
 });
 
 test("home machines", async ({ page }) => {
-  await openDesktop(page, false, { center_home: home, terminals_all: [] });
+  const stats = { sampled_at: NOW, disks: [{ path: folder, free_bytes: 412e9, total_bytes: 1e12 }, { path: "/mnt/data", free_bytes: 1.8e12, total_bytes: 2e12 }], memory_used_mb: 38_000, memory_total_mb: 124_000, load: 1.4 };
+  const online = { ...machine("build-box", "build-box", true, 2), env: { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostname: "build-box", cpus: 32, memory_mb: 124_000, home: "/srv", tools: [], logins: [], avds: [] }, stats, capabilities: ["docker", "gpu", "android"] };
+  const names = ["example/widget", "example/gadget", "example/alpha", "example/bravo", "example/charlie", "tools/echo", "tools/foxtrot", "site/landing", "site/docs"];
+  const sync = [{ project: "tools/delta", machine_id: "build-box", status: "syncing", files: 62, pending: 38, error: null }, ...names.map(name => ({ project: name, machine_id: "build-box", status: "in_sync", files: 90, pending: 0, error: null }))];
+  const terminal = { id: "t1", project: "", machine_id: "build-box", machine_name: "build-box", name: "dev server", command: "shell", cwd: folder, state: "running", code: null, started_at: NOW - 600_000 };
+  await openDesktop(page, false, { center_home: { ...home, machines: [online, home.machines[1]] }, terminals_all: [terminal], project_sync: sync });
   await page.getByRole("tab", { name: "Machines" }).click();
-  await expect(page.locator("#sec-machines")).toBeVisible();
+  await expect(page.locator("#m-build-box .mfold")).toBeVisible();
   await baseline(page, "home-machines");
 });
 
@@ -205,6 +211,32 @@ test("projects overview grouped", async ({ page }) => {
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
   await expect(page.locator(".pj-card")).toHaveCount(3);
   await baseline(page, "projects-grouped");
+});
+
+test("projects lists", async ({ page }) => {
+  const place = (id: string, name: string, dir: string) => ({ machine_id: id, machine_name: name, folder: dir });
+  const found = [
+    { name: "example/alpha", remote: "https://example.test/alpha", places: [place("build-box", "build-box", "/srv/example/alpha"), place("studio", "studio", "~/work/alpha"), place("laptop", "laptop", "~/work/alpha")], agents: [{ agent: "claude", sessions: 12 }, { agent: "codex", sessions: 3 }], last_activity: NOW - 2 * 86_400_000 },
+    { name: "tools/echo", remote: "https://example.test/echo", places: [place("build-box", "build-box", "/srv/tools/echo"), place("studio", "studio", "~/work/echo")], agents: [{ agent: "claude", sessions: 4 }], last_activity: NOW - 7 * 86_400_000 },
+    { name: "site/docs", remote: "https://example.test/docs", places: [place("laptop", "laptop", "~/work/docs")], agents: [], last_activity: NOW - 21 * 86_400_000 },
+  ];
+  const item = (repo: string, number: number, kind: string, title: string, hours: number, extra = {}) => ({ host: "example.test", repo, number, kind, title, url: `https://example.test/${repo}/${number}`, updated_at: NOW - hours * 3_600_000, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [], ...extra });
+  const items = [
+    item("agent/plugins", 412, "pull_request", "feat: add background and foreground task switch", 3, { labels: ["plugins"] }),
+    item("agent/plugins", 398, "pull_request", "fix: keep a session's model when it resumes", 24, { checks_failing: true }),
+    item("agent/plugins", 377, "issue", "Tool calls should be shown in one place", 96),
+    item("docs/handbook", 88, "pull_request", "docs: a shorter README and a manual", 30),
+    item("docs/handbook", 85, "pull_request", "docs: sync, explained in one page", 50),
+    item("cli/runner", 31, "pull_request", "fix: timeouts other than the default are honoured", 48),
+    item("cli/runner", 14, "issue", "Exit code is lost in a pipe", 60),
+    item("lib/parser", 12, "issue", "Tables break on nested pipes", 168),
+  ];
+  await openDesktop(page, false, { center_home: home, found_projects: found, git_items: { items, hosts: [] } });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await expect(page.locator("#sec-found .pl-row")).toHaveCount(3);
+  await expect(page.locator("#sec-elsewhere .pl-row.repo")).toHaveCount(4);
+  await expect(page.locator("#sec-elsewhere .it")).toHaveCount(3);
+  await baseline(page, "projects-lists");
 });
 
 test("projects overview search", async ({ page }) => {
@@ -381,10 +413,14 @@ test("agent message of several lines stays inside its field", async ({ page }) =
 
 test("agent running", async ({ page }) => {
   await openAgent(page);
-  const process = (pid: number, command: string) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false });
-  await page.evaluate(rows => window.__navigation.processes(rows), [process(41, "npm run dev"), process(42, "cargo watch -x check")]);
+  const process = (pid: number, command: string, parent = 0) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false, parent });
+  const wrapped = "/usr/bin/zsh -c source /srv/home/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'npm run test:browser' < /dev/null";
+  await page.evaluate(rows => window.__navigation.processes(rows), [process(41, "npm run dev"), process(42, "cargo watch -x check"), process(43, wrapped), process(44, "npm run test:browser", 43), process(45, "node /srv/project/node_modules/.bin/playwright test", 44), process(46, "/srv/cache/ms-playwright/chromium_headless_shell/chrome-headless-shell --headless", 45)]);
   await page.getByRole("tab", { name: /Running/ }).click();
   await expect(page.locator(".agrunningrow").filter({ hasText: "cargo watch" })).toBeVisible();
+  await expect(page.locator(".agrunningrow")).toHaveCount(3);
+  await page.locator(".agrunningrow").filter({ hasText: "npm run test:browser" }).locator(".t").click();
+  await expect(page.locator(".agrunningrow .child")).toHaveCount(3);
   await baseline(page, "agent-running");
 });
 

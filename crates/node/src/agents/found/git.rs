@@ -158,6 +158,12 @@ pub(crate) fn common_dir(dir: &Path) -> Option<PathBuf> {
     GitFiles::above(dir).map(|files| files.common)
 }
 
+/// The git folder of the checkout holding `dir`: `.git`, or for a linked
+/// worktree the folder its `.git` file names.
+pub(crate) fn git_dir(dir: &Path) -> Option<PathBuf> {
+    GitFiles::above(dir).map(|files| files.git)
+}
+
 /// Where git keeps a checkout's files, found without running git.
 #[derive(Debug)]
 struct GitFiles {

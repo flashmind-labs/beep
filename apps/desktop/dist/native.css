@@ -128,7 +128,7 @@ body:not(.mobile) .agphead, body:not(.mobile) .agfbar { border-bottom: 0 }
 body:not(.mobile) .agpacts { border-top: 0 }
 body:not(.mobile) .dagmain { gap: 14px; padding-top: 10px }
 body:not(.mobile) .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { max-width: 720px }
-body:not(.mobile) .dcoderen:is(.agent, .other) { font-size: 13.5px; line-height: 21px; color: var(--fg) }
+body:not(.mobile) .dcoderen.agent { font-size: 13.5px; line-height: 21px; color: var(--fg) }
 body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
@@ -214,7 +214,7 @@ body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; l
   background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent), transparent); filter: blur(30px) }
 
 /* Mono chrome. */
-body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th, .dcoder .sec, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .dcoder .sec, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
 body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
 body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .agtab span { font: inherit }
@@ -252,20 +252,20 @@ body:not(.mobile) .cc-side > .painted-art { display: block; position: absolute; 
 /* ----- The start screen: a painted sunrise behind the headline (src/ui/painted-art.tsx), with the
    composer as frosted glass over its water ----- */
 .painted-art { display: none; image-rendering: pixelated }
-body:not(.mobile) .cc-pjc.centered { position: relative; isolation: isolate }
-body:not(.mobile) .agc-intro > .painted-art { display: block; position: absolute; z-index: -1; left: 50%; top: -290px; width: 1500px; height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
-body:not(.mobile) .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
-body:not(.mobile) .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; color: color-mix(in srgb, var(--fg) 78%, transparent); text-shadow: 0 1px 12px var(--ink) }
+.cc-pjc.centered { position: relative; isolation: isolate }
+.agc-intro > .painted-art { display: block; position: absolute; z-index: -1; left: 50%; top: -290px; width: 1500px; height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
+.cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
+.cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; color: color-mix(in srgb, var(--fg) 78%, transparent); text-shadow: 0 1px 12px var(--ink) }
 /* Frosted glass: a light tint, a strong blur, a bright rim. */
-body:not(.mobile) .cc-pjc.centered .box { border-color: color-mix(in srgb, var(--fg) 22%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 22%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--fg) 5%, transparent), 0 20px 50px -16px color-mix(in srgb, var(--shade) 80%, transparent) }
+.cc-pjc.centered .box { border-color: color-mix(in srgb, var(--fg) 22%, transparent); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 22%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--fg) 5%, transparent), 0 20px 50px -16px color-mix(in srgb, var(--shade) 80%, transparent) }
 /* The tint alone keeps the words readable: WebKit does not always blur what lies behind this layer. */
-body:not(.mobile) .cc-pjc.centered .box::before { background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--ink) 86%, transparent)); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8) }
+.cc-pjc.centered .box::before { background: color-mix(in srgb, var(--fg) 6%, color-mix(in srgb, var(--ink) 86%, transparent)); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8) }
 /* The start screen fills its card on any window: the old 960px box cut the picture on a large one.
    The doubled id outranks the pane's own rule in center.css. */
 body:not(.mobile) #pane-box#pane-box > .dbar:has(.cc-pjc.centered) { width: 100%; max-width: none; border: 0; border-radius: 0; background: none; box-shadow: none }
 /* The words stand on a soft patch of the card's own colour, so the strokes never run through them. */
-body:not(.mobile) .cc-pjc.centered .agc-intro { position: relative }
-body:not(.mobile) .cc-pjc.centered .agc-intro::after { content: ""; position: absolute; z-index: -1; inset: -34px 2% -6px; pointer-events: none; background: radial-gradient(closest-side, color-mix(in srgb, var(--ink) 92%, transparent) 55%, transparent) }
+.cc-pjc.centered .agc-intro { position: relative }
+.cc-pjc.centered .agc-intro::after { content: ""; position: absolute; z-index: -1; inset: -34px 2% -6px; pointer-events: none; background: radial-gradient(closest-side, color-mix(in srgb, var(--ink) 92%, transparent) 55%, transparent) }
 
 /* The bar's words are not selectable. */
 body:not(.mobile) .cc-top { user-select: none; -webkit-user-select: none }
@@ -332,7 +332,7 @@ body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .
 body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
 body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent }
-body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine), body:not(.mobile) .cc-panel.fs-list { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) .cc-panel.fs-list { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
 body:not(.mobile) :is(.bd-card, .pj-card):hover, body:not(.mobile) .bd-card:focus-visible { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 7%, transparent) }
 body:not(.mobile) .bd-empty { padding: 4px 2px; border: 0; color: var(--dim) }
 body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
@@ -358,6 +358,9 @@ body:not(.mobile) .pm-body { padding: 0 12px 10px 30px }
 body:not(.mobile) .pm-body .pm-sync { gap: 5px }
 body:not(.mobile) .pm-body hr { margin: 8px 0; background: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .cc-panel.fs-list { border: 0; border-radius: var(--radius) }
+body:not(.mobile) .pl { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) .pl-row.it .t .pj-tag { flex: none }
+body:not(.mobile) .pl-row.it .t { overflow: hidden }
 body:not(.mobile) :is(.fs-row + .fs-row, .fs-conflict + .fs-conflict, .fs-wait + .fs-wait) { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .fs-note { color: var(--dim) }
 
@@ -407,3 +410,6 @@ body:not(.mobile) .pj-org { gap: 6px; margin-bottom: 18px }
 body:not(.mobile) .pj-org h3 { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--muted) }
 body:not(.mobile) .pj-org h3 small { color: var(--dim) }
 body:not(.mobile) .pj-org ~ .pj-add { display: none }
+/* A machine card's actions show when it is pointed at or focused. */
+body:not(.mobile) .mcard .act:not(.keep) { opacity: 0; transition: opacity .12s }
+body:not(.mobile) .mcard:is(:hover, :focus-within) .act { opacity: 1 }

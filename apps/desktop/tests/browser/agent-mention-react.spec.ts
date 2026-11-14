@@ -33,15 +33,18 @@ test("late command results cannot remount a removed composer", async ({ page }) 
 });
 
 test("agent file picker preserves composer focus and attaches an image", async ({ page }) => {
-  await openDesktop(page, true);
+  await openDesktop(page, true, { agent_tree_upload: "/cache/uploads/example.png" });
   await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
   const input = page.locator("#agmsg"), picker = page.getByRole("button", { name: "Attach files" });
   await input.focus();
   await picker.dispatchEvent("pointerdown", { button: 0 });
   await expect(input).toBeFocused();
   await page.locator('#agfield input[type="file"]').setInputFiles({ name: "example.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64") });
-  await expect(page.locator("#agatt")).toContainText("example.png");
+  const count = page.locator("#agfield .attachment-count");
+  await expect(count).toHaveText("1 file");
   await expect(input).toBeFocused();
+  await count.click();
+  await expect(page.getByRole("dialog", { name: "Attachments", exact: true }).getByRole("button", { name: "Preview example.jpg", exact: true })).toBeVisible();
 });
 
 test("a failed background session close shows a dismissible error", async ({ page }, info) => {

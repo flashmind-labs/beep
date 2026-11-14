@@ -96,7 +96,7 @@ test("resuming reconnects a stream that closed before its first snapshot", async
 function pendingUpload() {
   let finish = () => {};
   const ready = new Promise<void>(resolve => { finish = resolve; });
-  const batch = { paths: [] as string[], failed: false, ready };
+  const batch = { paths: [] as string[], failed: false, ready, size: 0, done: 0 };
   MN.pending.add(batch);
   return {
     batch,

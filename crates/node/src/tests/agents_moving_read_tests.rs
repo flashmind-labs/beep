@@ -92,7 +92,6 @@ async fn read_from(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
             agent: AgentSlug::CODEX,
             id,
             copy,
-            worktree: false,
         },
     )
     .await
@@ -331,6 +330,7 @@ fn a_move_record_lets_only_its_two_machines_read_and_ask() {
         path: String::new(),
         mode: None,
         model: None,
+        worktrees: Vec::new(),
         stop: false,
         at: 1,
         worktree: None,
@@ -412,94 +412,6 @@ async fn an_older_nodes_background_list_and_copy_are_refused() {
     }
 }
 
-#[tokio::test]
-async fn a_worktree_read_before_the_source_registered_the_worktree_reads_as_running() {
-    let source = source(&header(""));
-    let server = serving(&source.agents).await;
-    let mine = TempDir::new().expect("a temp folder");
-    let client = endpoint().await;
-    let pull_with = |copy: std::path::PathBuf, worktree: bool| {
-        let (client, addr) = (client.clone(), server.endpoint().addr());
-        async move {
-            let connection = client.connect(addr, ALPN).await.expect("connects");
-            let (send, recv) = connection.open_bi().await.expect("a stream");
-            let (tx, rx) = link(send, recv);
-            pull(
-                tx,
-                rx,
-                super::read::Ask {
-                    agent: AgentSlug::CODEX,
-                    id: ID,
-                    copy: &copy,
-                    worktree,
-                },
-            )
-            .await
-            .expect("a read")
-        }
-    };
-    // The worktree is not registered yet: not read as ended, or the target
-    // would get no commit and no work, and fail for good.
-    let early = pull_with(mine.path().join("a.jsonl"), true).await;
-    assert!(early.live && early.work.is_none());
-    // A read of a checkout session is not held up by that.
-    let plain = pull_with(mine.path().join("b.jsonl"), false).await;
-    assert!(!plain.live);
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn a_live_read_refuses_what_the_snapshot_cannot_read_before_the_source_stops_anything() {
-    use std::{ffi::OsStr, os::unix::ffi::OsStrExt, process::Command};
-    let source = source(&header(""));
-    let server = serving(&source.agents).await;
-    let mine = TempDir::new().expect("a temp folder");
-    // A worktree with a new file whose name is not UTF-8: the snapshot
-    // cannot read it, and no size estimate would see that.
-    let repo = TempDir::new().expect("a temp folder");
-    let git = |args: &[&str]| {
-        let out = Command::new("git")
-            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
-            .args(args)
-            .current_dir(repo.path())
-            .output()
-            .expect("git runs");
-        assert!(out.status.success(), "git {args:?}");
-    };
-    git(&["init", "-q", "--initial-branch=main"]);
-    fs::write(repo.path().join("a.txt"), "one\n").expect("a file");
-    git(&["add", "."]);
-    git(&["commit", "-q", "-m", "first"]);
-    fs::write(repo.path().join(OsStr::from_bytes(b"bad\xff.txt")), "x\n").expect("a file");
-    source
-        .agents
-        .moves
-        .set_worktree(ID, repo.path().to_path_buf());
-    // The session still runs: the read is a live one.
-    let _held = source.agents.moves.hold(ID);
-    let client = endpoint().await;
-    let connection = client
-        .connect(server.endpoint().addr(), ALPN)
-        .await
-        .expect("connects");
-    let (send, recv) = connection.open_bi().await.expect("a stream");
-    let (tx, rx) = link(send, recv);
-    let copy = mine.path().join("copy.jsonl");
-    let err = pull(
-        tx,
-        rx,
-        super::read::Ask {
-            agent: AgentSlug::CODEX,
-            id: ID,
-            copy: &copy,
-            worktree: true,
-        },
-    )
-    .await
-    .expect_err("refused on the live read");
-    assert!(err.is::<super::read::Refused>(), "{err:#}");
-}
-
 /// Takes the request and never answers, as a source whose stream stalled.
 #[derive(Debug, Clone)]
 struct Mute;
@@ -532,7 +444,6 @@ async fn a_read_the_source_stops_answering_fails_instead_of_waiting_forever() {
         agent: AgentSlug::CODEX,
         id: ID,
         copy: &copy,
-        worktree: false,
     };
     let quiet = Duration::from_millis(300);
     let err = tokio::time::timeout(
@@ -583,7 +494,6 @@ async fn read_flsh(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pul
         agent: AgentSlug::from("flsh"),
         id,
         copy,
-        worktree: false,
     };
     pull(tx, rx, ask).await
 }
@@ -609,24 +519,4 @@ async fn a_flsh_session_file_is_read_and_one_in_an_old_database_is_refused() {
             .contains("Update flsh on laptop to 0.2.9 to move this session"),
         "{err:#}"
     );
-}
-
-#[tokio::test]
-async fn a_device_no_move_names_cannot_read_a_worktree_bundle() {
-    let source = source(&header(""));
-    let server = Router::builder(endpoint().await)
-        .accept(ALPN, Strict(source.agents.clone()))
-        .spawn();
-    let client = endpoint().await;
-    let connection = client
-        .connect(server.endpoint().addr(), ALPN)
-        .await
-        .unwrap();
-    let (send, recv) = connection.open_bi().await.unwrap();
-    let (tx, rx) = link(send, recv);
-    let error = super::read::pull_bundle(tx, rx, ID, "deadbeef")
-        .await
-        .unwrap_err();
-    assert!(error.is::<super::read::Refused>());
-    assert!(error.to_string().contains("no move"));
 }

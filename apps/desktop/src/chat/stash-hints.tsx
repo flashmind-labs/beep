@@ -17,5 +17,5 @@ export function StashActions() {
 
 /// The key hints under a start composer; `away` while a menu above them is open.
 export function StashBar({ project, away = false }: { project: string | null; away?: boolean }) {
-  return <div className={`agkeys prompt-stash-bar${away ? " away" : ""}`}><div className="dhints slim"><span><kbd>⌘M</kbd>model</span><span><kbd>esc</kbd>back</span></div><StashIndicator project={project} /><details><summary>Show more</summary><div className="agkeys-list"><StashActions /></div></details></div>;
+  return <div className={`agkeys prompt-stash-bar${away ? " away" : ""}`}><div className="dhints slim"><span><kbd>⇧⌘M</kbd>model</span><span><kbd>esc</kbd>back</span></div><StashIndicator project={project} /><details><summary>Show more</summary><div className="agkeys-list"><StashActions /></div></details></div>;
 }

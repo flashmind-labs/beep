@@ -85,6 +85,8 @@ pub(super) struct Made {
     /// was); the branch itself for an existing one.
     pub(super) base: String,
     pub(super) start: Start,
+    /// The worktree the plan added, when it added one.
+    pub(super) added: Option<PathBuf>,
 }
 
 impl Made {
@@ -138,6 +140,8 @@ pub(super) struct Place {
     /// Beep's word to the agent ahead of its first prompt, when a plan made
     /// a checkout.
     pub(super) brief: Option<String>,
+    /// The worktree a plan added for the session, as git names it.
+    pub(super) worktree: Option<String>,
 }
 
 /// Where a session asked to start in `cwd` runs: what `plan` makes, or,
@@ -153,6 +157,7 @@ pub(super) async fn place(
             folder: cwd,
             note: None,
             brief: None,
+            worktree: None,
         });
     };
     let made = make_checkout(cwd.as_deref(), plan, prompt).await?;
@@ -165,6 +170,14 @@ pub(super) async fn place(
         folder: Some(folder),
         note: Some(made.note()),
         brief: Some(made.brief()),
+        worktree: made
+            .added
+            .map(|tree| {
+                tree.into_os_string()
+                    .into_string()
+                    .map_err(|_| anyhow::anyhow!("the new worktree's folder is not UTF-8"))
+            })
+            .transpose()?,
     })
 }
 
@@ -244,6 +257,7 @@ pub(super) fn make(dir: &Path, plan: &CheckoutPlan, prompt: &str) -> Result<Made
                 branch,
                 base: base.to_owned(),
                 start: Start::NewBranch,
+                added: None,
             })
         }
         CheckoutPlan::NewWorktree { .. } => new_worktree(&at, base, &prompt_branch(prompt)),
@@ -268,25 +282,27 @@ fn new_worktree(at: &Checkout, base: &str, first: &str) -> Result<Made> {
     )?;
     exclude_worktrees(&at.root)?;
     Ok(Made {
-        folder: at.inside(tree),
+        folder: at.inside(tree.clone()),
         branch,
         base: base.to_owned(),
         start: Start::NewWorktree,
+        added: Some(tree),
     })
 }
 
 /// The existing `branch`: in the worktree that has it checked out, else in
 /// a new worktree on it, fetched from `origin` first.
 fn branch_worktree(at: &Checkout, branch: &str) -> Result<Made> {
-    let made = |folder, start| Made {
+    let made = |folder, start, added| Made {
         folder,
         branch: branch.to_owned(),
         base: branch.to_owned(),
         start,
+        added,
     };
 
     if let Some(tree) = worktree_of(&at.top, branch)? {
-        return Ok(made(at.inside(tree), Start::OwnWorktree));
+        return Ok(made(at.inside(tree), Start::OwnWorktree, None));
     }
     // A branch only in this checkout is fine without a remote.
     let fetched = git(&at.top, &["fetch", "--quiet", "origin", branch]);
@@ -323,7 +339,7 @@ fn branch_worktree(at: &Checkout, branch: &str) -> Result<Made> {
     }
 
     exclude_worktrees(&at.root)?;
-    Ok(made(at.inside(tree), Start::AddedWorktree))
+    Ok(made(at.inside(tree.clone()), Start::AddedWorktree, Some(tree)))
 }
 
 /// The folder of the worktree of the checkout at `top` that has `branch`
