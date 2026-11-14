@@ -48,7 +48,11 @@ async fn the_process_table_is_read_every_second_only_while_followed() {
     let (_session, mut idle) = tokio::sync::watch::channel(false);
     let unfollowed = tokio::spawn(async move {
         let started = Instant::now();
-        assert!(pace(&mut seen, &mut idle, |works: &bool| *works).await);
+        // Woken for a follower, the read wants a table no older than a second.
+        assert_eq!(
+            pace(&mut seen, &mut idle, |works: &bool| *works).await,
+            Some(WATCHED)
+        );
         (started.elapsed(), seen, idle)
     });
     tokio::time::sleep(WATCHED * 2).await;
@@ -61,16 +65,25 @@ async fn the_process_table_is_read_every_second_only_while_followed() {
     assert_eq!(Instant::now(), waited_from);
 
     let started = Instant::now();
-    assert!(pace(&mut seen, &mut idle, |works: &bool| *works).await);
+    assert_eq!(
+        pace(&mut seen, &mut idle, |works: &bool| *works).await,
+        Some(WATCHED)
+    );
     assert_eq!(started.elapsed(), WATCHED);
 
     demand.send_replace(0);
-    assert!(pace(&mut seen, &mut idle, |works: &bool| *works).await);
     let started = Instant::now();
-    assert!(pace(&mut seen, &mut idle, |works: &bool| *works).await);
+    // Unwatched, the read may share a table as old as the time it waited.
+    assert_eq!(
+        pace(&mut seen, &mut idle, |works: &bool| *works).await,
+        Some(UNWATCHED)
+    );
     assert_eq!(started.elapsed(), UNWATCHED);
     drop(demand);
-    assert!(!pace(&mut seen, &mut idle, |works: &bool| *works).await);
+    assert_eq!(
+        pace(&mut seen, &mut idle, |works: &bool| *works).await,
+        None
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -79,7 +92,10 @@ async fn the_process_table_is_read_every_second_while_the_session_works() {
     let (session, mut works) = tokio::sync::watch::channel(false);
     let idle = tokio::spawn(async move {
         let started = Instant::now();
-        assert!(pace(&mut seen, &mut works, |works: &bool| *works).await);
+        assert_eq!(
+            pace(&mut seen, &mut works, |works: &bool| *works).await,
+            Some(WATCHED)
+        );
         (started.elapsed(), seen, works)
     });
     tokio::time::sleep(WATCHED * 2).await;
@@ -90,12 +106,18 @@ async fn the_process_table_is_read_every_second_while_the_session_works() {
     assert_eq!(elapsed, WATCHED * 2);
 
     let started = Instant::now();
-    assert!(pace(&mut seen, &mut works, |works: &bool| *works).await);
+    assert_eq!(
+        pace(&mut seen, &mut works, |works: &bool| *works).await,
+        Some(WATCHED)
+    );
     assert_eq!(started.elapsed(), WATCHED);
 
     session.send_replace(false);
     let started = Instant::now();
-    assert!(pace(&mut seen, &mut works, |works: &bool| *works).await);
+    assert_eq!(
+        pace(&mut seen, &mut works, |works: &bool| *works).await,
+        Some(UNWATCHED)
+    );
     assert_eq!(started.elapsed(), UNWATCHED);
 }
 

@@ -4,7 +4,7 @@ use super::{Oid, Repo, WriteGuard, is_busy};
 use anyhow::{Context, Result, bail, ensure};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const HEADS: &str = "refs/heads/";
 const MAX_BRANCHES: usize = 4096;
@@ -109,33 +109,42 @@ impl Repo {
     }
 
     /// Removed peer refs are archived, never local branches. This also clears name-prefix
-    /// conflicts when a peer replaces a branch such as `topic` with `topic/next`.
+    /// conflicts when a peer replaces a branch such as `topic` with `topic/next`. Returns
+    /// the tips whose peer ref is missing or elsewhere: a tip already held needs no Git.
     pub(in crate::files::sync) fn prepare_peer_refs(
         &self,
         peer: &EndpointId,
         tips: &[BranchTip],
-    ) -> Result<()> {
-        let mut wanted = HashSet::new();
-
-        for tip in tips {
-            self.validate_branch(&tip.name)?;
-            wanted.insert(Self::peer_ref(peer, &tip.name)?);
-        }
-
+    ) -> Result<Vec<BranchTip>> {
         let prefix = format!("refs/remotes/beep/{peer}/");
+        let held = self
+            .refs()?
+            .into_iter()
+            .filter_map(|reference| {
+                let name = reference.found.path.trim_start_matches(".git/");
+                let branch = name.strip_prefix(&prefix)?;
+                Some((format!("{HEADS}{branch}"), reference.oid))
+            })
+            .collect::<HashMap<_, _>>();
 
-        for reference in self.refs()? {
-            let name = reference.found.path.trim_start_matches(".git/");
+        let changed = tips
+            .iter()
+            .filter(|tip| held.get(&tip.name) != Some(&tip.commit))
+            .cloned()
+            .collect::<Vec<_>>();
 
-            if let Some(branch) = name.strip_prefix(&prefix)
-                && !wanted.contains(name)
-            {
-                self.retain_peer_history(peer, &format!("{HEADS}{branch}"), reference.oid)?;
-                self.delete_ref(name, reference.oid)?;
-            }
+        for tip in changed.iter().filter(|tip| !held.contains_key(&tip.name)) {
+            self.validate_branch(&tip.name)?;
         }
 
-        Ok(())
+        let wanted = tips.iter().map(|tip| &tip.name).collect::<HashSet<_>>();
+
+        for (branch, &oid) in held.iter().filter(|(branch, _)| !wanted.contains(branch)) {
+            self.retain_peer_history(peer, branch, oid)?;
+            self.delete_ref(&Self::peer_ref(peer, branch)?, oid)?;
+        }
+
+        Ok(changed)
     }
 
     /// Pin received commits before the peer's advertisement is accepted by the task.

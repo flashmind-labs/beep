@@ -397,3 +397,57 @@ fn an_unchanged_file_read_backs_off() {
     };
     assert_eq!(list.gap(), READ_GAP);
 }
+
+/// A Git read whose command keeps failing ran git again on every change, four
+/// times a second; it backs off like an unchanged read and recovers at once.
+#[tokio::test(start_paused = true)]
+async fn a_failing_git_read_backs_off_until_it_succeeds() {
+    let offers = Offers::default();
+    let caller = iroh::SecretKey::generate().public();
+    let root = "/srv/missing-project";
+    let query = Query {
+        id: 1,
+        topic: Topic::keyed("files", root),
+        read: Read::Git {
+            root: root.into(),
+            query: beep_proto::node::events::GitRead::State,
+        },
+    };
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(&offers, &[], std::slice::from_ref(&query), &BTreeMap::new());
+    let key = (query.topic.clone(), Some(1));
+
+    for gap in [1, 2, 4, 8, 8].map(|doublings| READ_GAP * doublings) {
+        let started = Instant::now();
+        snapshots.start(&offers, caller);
+        assert!(snapshots.entries[&key].running);
+        assert!(matches!(
+            stepped_snapshot(&mut snapshots).await,
+            Some(Reply::SnapshotError { query: Some(1), .. })
+        ));
+
+        snapshots.changed(&query.topic, ChangeKind::Any);
+        assert_eq!(snapshots.due(), Some(started + gap));
+        tokio::time::advance(gap - Duration::from_millis(1)).await;
+        snapshots.start(&offers, caller);
+        assert!(snapshots.reads.is_empty());
+        tokio::time::advance(Duration::from_millis(1)).await;
+    }
+
+    let value = Value::Plugin(vec![1]);
+    let generation = snapshots.generation;
+    let completed = key.clone();
+    snapshots.entries.get_mut(&key).unwrap().running = true;
+    snapshots.reads.spawn(async move {
+        Completed {
+            generation,
+            key: completed,
+            result: Ok((value, 1)),
+        }
+    });
+    assert!(matches!(
+        stepped_snapshot(&mut snapshots).await,
+        Some(Reply::Snapshot(_))
+    ));
+    assert_eq!(snapshots.entries[&key].gap(), READ_GAP);
+}

@@ -58,8 +58,9 @@ use windows::signal;
 /// would lose its child, and closing the session would leave it running.
 const WATCHED: Duration = Duration::from_secs(1);
 /// How often an idle session reads it, only to keep track of children that
-/// leave the session's group, so closing the session can stop them. Each
-/// idle session reads on its own, so this is slow.
+/// leave the session's group, so closing the session can stop them. Idle
+/// sessions share a table up to this old, so however many there are, the
+/// OS is read about once per interval.
 const UNWATCHED: Duration = Duration::from_secs(60);
 
 /// How many topic sources follow `processes` right now.
@@ -84,13 +85,14 @@ impl Drop for Demand {
 
 /// Waits until the next read of the process table: a second while someone
 /// follows `processes` or the session works, longer otherwise, and at once
-/// when a follower comes or the session starts working. `false` once the
-/// demand can no longer change.
+/// when a follower comes or the session starts working. Returns how old a
+/// shared table that read may use, the time it waited or a second when it
+/// was woken; `None` once the demand can no longer change.
 async fn pace<T>(
     demand: &mut watch::Receiver<usize>,
     session: &mut watch::Receiver<T>,
     works: impl Fn(&T) -> bool,
-) -> bool {
+) -> Option<Duration> {
     let working = watched::read_and_update(session, &works);
     let wait = if watched::read_and_update(demand, |demand| *demand) > 0 || working {
         WATCHED
@@ -99,10 +101,9 @@ async fn pace<T>(
     };
 
     tokio::select! {
-        () = sleep(wait) => true,
-        changed = demand.changed() => changed.is_ok(),
-        // An ended session still keeps its watch until it is dropped.
-        Ok(()) = watched::wait_for(session, &works), if !working => true,
+        () = sleep(wait) => Some(wait),
+        changed = demand.changed() => changed.is_ok().then_some(WATCHED),
+        Ok(()) = watched::wait_for(session, &works), if !working => Some(WATCHED),
     }
 }
 
@@ -120,7 +121,7 @@ pub(super) struct Process {
 /// The machine's processes, by pid, from the table every reader shares: it
 /// is read at most once a second however many ask.
 pub(super) async fn table() -> anyhow::Result<Arc<HashMap<u32, Process>>> {
-    snapshot::read(false).await
+    snapshot::read(WATCHED).await
 }
 
 /// The coding agents' own programs, never a command they ran.
@@ -216,7 +217,8 @@ impl Processes {
     /// Observe ancestry even while the desktop is closed. Remembering a child's
     /// birth time keeps it ours after its parent exits, without claiming a reused pid.
     /// The table is read every second only while the session works or a
-    /// client follows `processes`.
+    /// client follows `processes`. The session's actor drops the handle
+    /// when the session ends, so an ended session reads nothing.
     pub(super) fn watch(
         self: &Arc<Self>,
         mut session: watch::Receiver<super::live::Live>,
@@ -224,23 +226,27 @@ impl Processes {
         let processes = self.clone();
         let mut demand = DEMAND.subscribe();
         AbortOnDropHandle::new(tokio::spawn(async move {
+            let mut max_age = WATCHED;
+
             loop {
-                if let Err(e) = processes.refresh(false).await {
+                if let Err(e) = processes.refresh(max_age).await {
                     log::debug!("could not read session processes: {e:#}");
                 }
 
-                if !pace(&mut demand, &mut session, super::live::Live::works).await {
-                    return;
+                match pace(&mut demand, &mut session, super::live::Live::works).await {
+                    Some(age) => max_age = age,
+                    None => return,
                 }
             }
         }))
     }
 
-    async fn refresh(self: &Arc<Self>, fresh: bool) -> anyhow::Result<Vec<Process>> {
+    /// Observes the session's processes in a table at most `max_age` old.
+    async fn refresh(self: &Arc<Self>, max_age: Duration) -> anyhow::Result<Vec<Process>> {
         let _reading = self.reading.lock().await;
         // A new root must not take a cached entry left by a reused pid.
         let first = crate::lock(&self.known).root_birth.is_none();
-        let all = snapshot::read(fresh || first).await?;
+        let all = snapshot::read(if first { Duration::ZERO } else { max_age }).await?;
         let mut observed = crate::lock(&self.known);
         let before = observed.processes.clone();
         if observed.root_birth.is_none() {
@@ -289,7 +295,7 @@ impl Processes {
 
     pub(super) async fn list(self: &Arc<Self>) -> anyhow::Result<Vec<RunningProcess>> {
         let processes: Vec<_> = self
-            .refresh(false)
+            .refresh(WATCHED)
             .await?
             .into_iter()
             .filter(|p| !p.helper())
@@ -311,7 +317,7 @@ impl Processes {
 
     pub(super) async fn stop(self: &Arc<Self>, pid: u32) -> anyhow::Result<()> {
         let process = self
-            .refresh(true)
+            .refresh(Duration::ZERO)
             .await?
             .into_iter()
             .find(|p| p.pid == pid && !p.helper())
@@ -322,7 +328,7 @@ impl Processes {
     }
 
     pub(super) async fn close(self: &Arc<Self>) {
-        match self.refresh(true).await {
+        match self.refresh(Duration::ZERO).await {
             Ok(processes) => {
                 if let Err(e) = stop(&processes).await {
                     log::warn!("could not stop session processes: {e:#}");
@@ -344,7 +350,7 @@ pub(super) async fn close_outside(pid: u32, wait: Duration) -> anyhow::Result<()
     }
     // Watched before the signal, so its exit cannot come first.
     let exit = crate::events::exits::Exit::watch(pid)?;
-    let Some(process) = snapshot::read(true).await?.get(&pid).cloned() else {
+    let Some(process) = snapshot::read(Duration::ZERO).await?.get(&pid).cloned() else {
         return Ok(());
     };
 
