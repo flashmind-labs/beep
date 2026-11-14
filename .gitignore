@@ -34,3 +34,5 @@ admin.sock
 
 # What Beep writes into a plugins folder: managed state, plugin data and staging.
 /plugins/examples/.*
+# Written by the qr-scan plugin build.
+/apps/desktop/src-tauri/qr-scan/permissions/
