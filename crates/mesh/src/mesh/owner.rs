@@ -216,8 +216,8 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                     continue;
                 }
             }
-            Ok(Err(e)) => debug!("dial failed: {e}"),
-            Err(_) => debug!("dial timed out"),
+            Ok(Err(e)) => info!(peer = %peer.fmt_short(), elapsed_ms = started.elapsed().as_millis(), "dial failed: {e}"),
+            Err(_) => info!(peer = %peer.fmt_short(), "dial timed out"),
         }
         // A new address for this peer or for us ends the wait early.
         let pause = sleep(backoff.pause());
