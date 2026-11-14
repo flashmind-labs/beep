@@ -80,3 +80,46 @@ fn inactive_updates_block_checkout_in_existing_worktrees_and_release_only_their_
         "another operation"
     );
 }
+
+#[test]
+fn a_repeated_catalog_reports_only_the_tips_that_moved() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = Repo {
+        root: temp.path().to_owned(),
+    };
+    let commit = |message: &str| {
+        repo.run(&[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            message,
+        ])
+        .unwrap();
+        repo.head().unwrap()
+    };
+    repo.run(&["init", "-q", "-b", "main"]).unwrap();
+    let first = commit("first");
+    let second = commit("second");
+    let peer = iroh::SecretKey::from_bytes(&[7; 32]).public();
+    let tip = |name: &str, commit| BranchTip {
+        name: format!("refs/heads/{name}"),
+        commit,
+    };
+
+    let catalog = [tip("main", first), tip("topic", second)];
+    assert_eq!(repo.prepare_peer_refs(&peer, &catalog).unwrap(), catalog);
+    for tip in &catalog {
+        repo.keep_peer_branch(&peer, tip).unwrap();
+    }
+
+    assert!(repo.prepare_peer_refs(&peer, &catalog).unwrap().is_empty());
+
+    let moved = [tip("main", second)];
+    assert_eq!(repo.prepare_peer_refs(&peer, &moved).unwrap(), moved);
+    assert_eq!(repo.cached_branches(&peer).unwrap(), vec![tip("main", first)]);
+}

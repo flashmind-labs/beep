@@ -5,9 +5,6 @@ use crate::AsyncMutex;
 use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 use tokio::time::Instant;
 
-/// Matches the ancestry watch's cadence. Stop and close bypass it.
-const FRESH: Duration = Duration::from_secs(1);
-
 type Table = Arc<HashMap<u32, Process>>;
 
 struct Snapshot {
@@ -23,13 +20,13 @@ struct Reader {
 impl Reader {
     async fn read(
         &self,
-        fresh: bool,
+        max_age: Duration,
         scan: impl Future<Output = anyhow::Result<HashMap<u32, Process>>>,
     ) -> anyhow::Result<Table> {
         // Coalesce concurrent reads instead of starting another full OS scan.
         let mut last = self.last.lock().await;
 
-        if !fresh && let Some(snapshot) = last.as_ref().filter(|s| s.at.elapsed() < FRESH) {
+        if let Some(snapshot) = last.as_ref().filter(|s| s.at.elapsed() < max_age) {
             return Ok(snapshot.table.clone());
         }
 
@@ -44,10 +41,12 @@ impl Reader {
 
 static READER: std::sync::OnceLock<Reader> = std::sync::OnceLock::new();
 
-pub(super) async fn read(fresh: bool) -> anyhow::Result<Table> {
+/// The table, read again unless the last read is younger than `max_age`;
+/// `Duration::ZERO` always reads the OS.
+pub(super) async fn read(max_age: Duration) -> anyhow::Result<Table> {
     READER
         .get_or_init(Reader::default)
-        .read(fresh, os::snapshot())
+        .read(max_age, os::snapshot())
         .await
 }
 

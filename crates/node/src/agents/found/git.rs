@@ -140,6 +140,12 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
 }
 
 
+/// The git folder the worktrees of the repository holding `dir` share,
+/// found without running git; `None` when `dir` is in no checkout.
+pub(crate) fn common_dir(dir: &Path) -> Option<PathBuf> {
+    GitFiles::above(dir).map(|files| files.common)
+}
+
 /// Where git keeps a checkout's files, found without running git.
 #[derive(Debug)]
 struct GitFiles {
