@@ -406,7 +406,7 @@ body.cbody
                             i.dv-plus "+ 1"
                             span.base "vs"
                               code "main"
-                          input.dv-find [aria-label="Filter files" placeholder="Filter" spellcheck="false" value] value=""
+                          input.dv-find [aria-label="Filter files and lines" placeholder="Filter files and lines" spellcheck="false" value] value=""
                           span.dv-tools
                             button.dv-btn.icon [aria-label="Uncommitted only" aria-pressed="false" title="Uncommitted only: hide the branch's commits" type="button"]
                               span style(display)
@@ -476,37 +476,37 @@ body.cbody
                                               span
                                               span
                                             span.dv-c "@@ -17,7 +17,7 @@"
-                                          div.dv-l
+                                          div.dv-l [data-at="new:17"]
                                             span.dv-g
                                               span "17"
                                               span "17"
                                             span.dv-c "const value17 = 17;"
-                                          div.dv-l
+                                          div.dv-l [data-at="new:18"]
                                             span.dv-g
                                               span "18"
                                               span "18"
                                             span.dv-c "const value18 = 18;"
-                                          div.dv-l
+                                          div.dv-l [data-at="new:19"]
                                             span.dv-g
                                               span "19"
                                               span "19"
                                             span.dv-c "const value19 = 19;"
-                                          div.dv-l
+                                          div.dv-l [data-at="new:20"]
                                             span.dv-g
                                               span "20"
                                               span "20"
                                             span.dv-c "const value20 = 20;"
-                                          div.dv-l
+                                          div.dv-l [data-at="new:21"]
                                             span.dv-g
                                               span "21"
                                               span "21"
                                             span.dv-c "const value21 = 21;"
-                                          div.dv-l
+                                          div.dv-l [data-at="new:22"]
                                             span.dv-g
                                               span "22"
                                               span "22"
                                             span.dv-c "const value22 = 22;"
-                                          div.dv-l
+                                          div.dv-l [data-at="new:23"]
                                             span.dv-g
                                               span "23"
                                               span "23"

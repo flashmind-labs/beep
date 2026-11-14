@@ -1,10 +1,19 @@
 // The diff's keyboard, its current file and its folds: j and k step between
 // files, x folds one, / finds; the current file is marked in the list and its
 // section as the view scrolls.
-import { currentFile, inView, isFolded, estimateHeight, matchesFilter, stepFile, type DiffFile } from "./diff-state.ts";
-import { GAP, type Viewer, indexOf, itemAt, keepCurrent, remeasure, remember, shown } from "./diff-viewer.ts";
+import { currentFile, diffRows, inView, isFolded, estimateHeight, lineKey, matchesFilter, splitRows, stepFile, type DiffFile, type LineMatch } from "./diff-state.ts";
+import { CHUNK, GAP, type Viewer, indexOf, itemAt, keepCurrent, remeasure, remember, shown } from "./diff-viewer.ts";
 
 export function onKey(v: Viewer, e: KeyboardEvent) {
+  // ⌘F in the diff is its filter, not the chat's find.
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && !e.isComposing && e.key.toLowerCase() === "f" && v.find && !v.find.disabled) {
+    e.preventDefault();
+    e.stopPropagation();
+    v.find.focus();
+    v.find.select();
+    return;
+  }
+
   if (e.metaKey || e.ctrlKey || e.altKey || !(e.target instanceof HTMLElement)) return;
   const t = e.target, find = v.find;
 
@@ -41,6 +50,52 @@ export function jump(v: Viewer, path: string) {
   const near = Math.abs(item.start - files.scrollTop) < files.clientHeight * 3;
   const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   v.virtual.scrollToIndex(index, { align: "start", behavior: near && !reduced ? "smooth" : "auto" });
+}
+
+/// Scrolls line `match` of file `path` to the middle and marks it a moment.
+/// Its chunk draws its rows only once near, so it goes there first.
+export function jumpToLine(v: Viewer, path: string, match: LineMatch) {
+  const f = v.state.view?.files.find(x => x.path === path);
+  if (!f) return;
+  if (isFolded(f, v.state.folded)) setFolded(v, [path], false);
+  jump(v, path);
+  const key = lineKey(match.side, match.line), chunk = Math.floor(rowIndex(v, f, match) / CHUNK);
+  let frames = 60, near = false;
+
+  const step = () => {
+    if (v.disposed || frames-- <= 0) return;
+    const section = v.sections.get(path);
+    const row = section?.querySelector<HTMLElement>(`[data-at="${key}"]`);
+
+    if (row) {
+      row.scrollIntoView({ block: "center" });
+      row.classList.add("dv-hit");
+      window.setTimeout(() => row.classList.remove("dv-hit"), 1500);
+      return;
+    }
+
+    const box = section?.querySelectorAll<HTMLElement>(".dv-chunk")[chunk];
+
+    if (box && !near) {
+      box.scrollIntoView({ block: "center" });
+      near = true;
+    }
+
+    requestAnimationFrame(step);
+  };
+
+  requestAnimationFrame(step);
+}
+
+/// Where line `match` sits among the rows of `f` as they are drawn.
+function rowIndex(v: Viewer, f: DiffFile, match: LineMatch) {
+  const rows = diffRows(f, v.context.get(f.path)?.extents ?? null), old = match.side === "old";
+
+  if (v.state.split && !v.state.narrow) {
+    return Math.max(0, splitRows(rows).findIndex(r => r.kind === "pair" && (old ? r.left?.k === "-" && r.left.num === match.line : r.right?.num === match.line)));
+  }
+
+  return Math.max(0, rows.findIndex(r => r.kind === "line" && (old ? r.k === "-" && r.old === match.line : r.k !== "-" && r.new === match.line)));
 }
 
 /// Marks the current file: the one stepped to while it shows, else the one

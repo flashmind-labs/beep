@@ -272,7 +272,7 @@ body.cbody
                       b "No changes"
                       span.base "vs"
                         code
-                    input.dv-find [aria-label="Filter files" disabled placeholder="Filter" spellcheck="false" value] value=""
+                    input.dv-find [aria-label="Filter files and lines" disabled placeholder="Filter files and lines" spellcheck="false" value] value=""
                     span.dv-tools
                       button.dv-btn.dv-splitbtn.icon [aria-label="Side by side" aria-pressed="false" title="Side by side" type="button"]
                         span style(display)

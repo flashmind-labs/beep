@@ -177,11 +177,38 @@ export function numberWidth(f: Pick<DiffFile, "hunks">) {
   return String(max).length;
 }
 
-/// Whether `f` matches the filter `q`: its path or old path holds it, any case.
-export function matchesFilter(f: Pick<DiffFile, "path" | "old_path">, q: string) {
+/// Whether `f` matches the filter `q`: its path, old path or a changed
+/// line holds it, any case.
+export function matchesFilter(f: Pick<DiffFile, "path" | "old_path" | "hunks">, q: string) {
   const want = q.trim().toLowerCase();
   if (!want) return true;
-  return f.path.toLowerCase().includes(want) || !!f.old_path?.toLowerCase().includes(want);
+  return f.path.toLowerCase().includes(want) || !!f.old_path?.toLowerCase().includes(want) || lineMatches(f, q, 1).length > 0;
+}
+
+/// A line of the diff holding the filter, on the side its number is of.
+export interface LineMatch { side: "old" | "new"; line: number; text: string }
+
+/// The lines of `f` holding the filter `q`, any case, at most `limit`.
+export function lineMatches(f: Pick<DiffFile, "hunks">, q: string, limit: number): LineMatch[] {
+  const want = q.trim().toLowerCase(), out: LineMatch[] = [];
+  if (!want) return out;
+
+  for (const h of f.hunks) {
+    let old = h.old_lines ? h.old_start : h.old_start + 1;
+    let now = h.new_lines ? h.new_start : h.new_start + 1;
+
+    for (const l of h.lines) {
+      if (l.t.toLowerCase().includes(want)) {
+        out.push(l.k === "-" ? { side: "old", line: old, text: l.t } : { side: "new", line: now, text: l.t });
+        if (out.length >= limit) return out;
+      }
+
+      if (l.k !== "+") old++;
+      if (l.k !== "-") now++;
+    }
+  }
+
+  return out;
 }
 
 /// `n` with thousands separators. One formatter for all: `toLocaleString`
