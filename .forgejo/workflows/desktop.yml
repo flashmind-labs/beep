@@ -300,6 +300,8 @@ jobs:
           '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -Path $config -Encoding ascii
           & ./scripts/build-desktop-windows.ps1 -TauriArgs @('--config', $config, '--', '--locked')
           if ($LASTEXITCODE) { throw 'Windows desktop build failed' }
+          # A reused workspace can keep an earlier release's installer here.
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist/windows
           New-Item -ItemType Directory -Force dist/windows | Out-Null
           Copy-Item "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe*" dist/windows/
 
