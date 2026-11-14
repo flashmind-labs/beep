@@ -35,6 +35,7 @@ export function drawModelPill() {
 }
 
 export function toggleModelPicker() {
+  if (!AG.modelOpen && modelPill.current?.disabled) return;
   AG.modelOpen = !AG.modelOpen;
   const opened = AG.modelOpen ? perfOpen("picker") : null;
   drawModelPicker();

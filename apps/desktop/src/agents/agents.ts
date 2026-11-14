@@ -37,7 +37,7 @@ import { jumpToStart, loadOlder, logJumpKey, nearTop } from "./older.ts";
 import { jumpToLatest } from "./logview.tsx";
 import { pageDirection } from "./logkeys-state.ts";
 import type { OlderStop } from "./older-state.ts";
-import { closeModelPicker } from "./modelpill.tsx";
+import { closeModelPicker, toggleModelPicker } from "./modelpill.tsx";
 import { interruptAgent, answerFirst } from "./messages.ts";
 import { cycleMode } from "./modepill.tsx";
 import { money } from "../ui/format.ts";
@@ -538,13 +538,14 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
 
     // ⌘T a terminal in the pane, ⌘N one like the terminal on screen, ⌘1 focuses chat, ⌘2 to ⌘9 the pane's tabs
     // in strip order, ⌘O the session in the window from the bar, else the folder in the editor. ⌘U opens or folds every thought, ⌘Y
-    // every command, ⇧⌘Y the last one. They work from the field and from a terminal: none edits text.
+    // every command, ⇧⌘Y the last one, ⇧⌘M the model picker. They work from the field and from a terminal: none edits text.
     if (cmd && !e.altKey && (WINDOWS || !e.ctrlKey) && !e.isComposing) {
       const k = e.key.toLowerCase();
       if (k === "w" && e.shiftKey && !AG.draft && AG.open) { e.preventDefault(); if (!e.repeat) void closeOpenSession(); return true; }
       if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerminal(undefined, !!AG.draft); return true; }
       if (k === "n" && !e.shiftKey && newTerminalLike()) { e.preventDefault(); return true; }
       if (k === "u" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
+      if (k === "m" && e.shiftKey) { e.preventDefault(); toggleModelPicker(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
 
       if (!e.shiftKey && k === "1") {
