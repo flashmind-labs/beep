@@ -11,7 +11,7 @@ import { menuPlaceFor } from "../agents/mentionmenu.ts";
 import { sessionPicks } from "../agents/session.tsx";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
-import { commandKey } from "../ui/platform.ts";
+import { commandKey, isMobile } from "../ui/platform.ts";
 import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.tsx";
 import { localProjectId } from "./localid.ts";
@@ -300,6 +300,8 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
   // A session may have started in the worktree since.
   ensureSessions().then(redrawProjects).catch(e => console.warn("agent sessions:", e));
   redrawProjects();
+  // A phone's project page has no bar: the empty agent view shows it.
+  if (isMobile() && !projectComp.form.isConnected) return go("pane", { draft: { project: name, machine: null } });
   projectComp.form.scrollIntoView({ block: "nearest" });
   projectComp.input.focus();
 }

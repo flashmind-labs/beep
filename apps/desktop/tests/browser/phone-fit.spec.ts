@@ -152,18 +152,6 @@ test("open issues with many long labels stay inside the phone screen", async ({ 
   expect(over).toBe(0);
 });
 
-test("the project page leaves no blank band above its composer on the phone", async ({ page }) => {
-  await openPhone(page);
-  await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projects[0].name);
-  const composer = page.locator(".cc-pjc").first();
-  await expect(composer).toBeVisible();
-  const pad = await composer.evaluate(el => {
-    const view = el.closest(".cc-box")?.querySelector<HTMLElement>(".cc-view");
-    return view ? parseFloat(getComputedStyle(view).paddingBottom) : -1;
-  });
-  expect(pad).toBe(12);
-});
-
 test("a phone machine card keeps its actions, stats and long project names inside the screen", async ({ page }) => {
   const stats = { sampled_at: 0, disks: [{ path: "/srv", free_bytes: 400, total_bytes: 1000 }], memory_used_mb: 1024, memory_total_mb: 4096, load: null };
   const home = { ...responses.center_home, machines: responses.center_home.machines.map(m => ({ ...m, stats, capabilities: ["docker", "gpu", "android"] })) };

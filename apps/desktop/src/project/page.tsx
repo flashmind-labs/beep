@@ -1,6 +1,6 @@
 import { projectName } from "./projects-state.ts";
 import { renameProject } from "./rename.tsx";
-import { onPhone } from "../ui/platform.ts";
+import { isMobile, onPhone } from "../ui/platform.ts";
 // project/: the Projects page and one project's page (pull requests, issues,
 // runs, file sync, custom agents, the agent bar). Entry: this file's view.
 // The Projects page: drawing it, and the project rows Home lists.
@@ -16,7 +16,7 @@ import { NEW_WINDOW } from "./projectwindow.ts";
 import { localProjectId } from "./localid.ts";
 import { type CenterView, state, warm } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
-import { boxOf, drawPage, windowProject } from "../center/views.tsx";
+import { boxOf, drawPage, go, windowProject } from "../center/views.tsx";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, addProject } from "../center/sidebar.tsx";
 import { editGroup } from "./groups.tsx";
 import { disposeOverview, overviewSection, projectDetail } from "./projects.tsx";
@@ -68,11 +68,12 @@ export function drawProjects() {
   drawPage("projects");
   restoreScroll(el);
 
-  // The bar starts coding agents in the project's checkout.
-  if (one) {
+  // The bar starts coding agents in the project's checkout. A phone keeps the
+  // room for the page and starts them from the + in its top bar.
+  if (one && !isMobile()) {
     drawProjectComp(one.name);
     if (el.lastElementChild !== projectComp.form) el.append(projectComp.form);
-  } else {
+  } else if (projectComp.form.parentNode === el) {
     projectComp.form.remove();
   }
 }
@@ -131,6 +132,9 @@ export const projectsView: CenterView<"projects"> = {
     const tools: ReactNode[] = [];
 
     if (p) {
+      // A phone starts agents from here; its page has no bar.
+      if (isMobile()) tools.push(<Button key="new" small className="pj-tool" aria-label="New agent" onClick={() => go("pane", { draft: { project: p.name, machine: null } })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New agent</Button>);
+
       for (const f of forgeLinks(p.url, runs.hosts(localProjectId(p.name)))) {
         tools.push(<Button key={`forge:${f.url}`} small title={f.url} onClick={() => openUrl(f.url)}>{f.label}</Button>);
       }
