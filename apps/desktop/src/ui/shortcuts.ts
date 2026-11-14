@@ -65,9 +65,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
   ] },
   { title: "Side pane", rows: [
     { keys: "⌘1", does: "Focus chat" },
-    { keys: "⌘2", does: "Files" },
-    { keys: "⌘3", does: "Changes" },
-    { keys: "⌘4", does: "Artifacts" },
+    { keys: "⌘2-9", does: "Pane tab by its place" },
     { keys: "⌘O", does: "Open folder in the editor, or from the bar the session in the window" },
     { keys: "⇧esc", does: "Zoom the pane" },
     { keys: "⌃tab", does: "Next tab" },
