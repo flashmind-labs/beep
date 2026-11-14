@@ -112,6 +112,30 @@ test("a composer plugin placement stands on the message box without changing lay
   expect(await box(page.locator("#agfield"))).toEqual(field);
 });
 
+interface Published { topic: { name: string; key: string | null; machine: string | null }; machine: string | null; data: unknown }
+
+/// What the page handed to `plugins_publish` so far.
+async function published(page: Page): Promise<Published[]> {
+  const calls = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "plugins_publish").map(call => call.args.update));
+  return calls.filter((update): update is Published => typeof update === "object" && update !== null && "topic" in update && "data" in update);
+}
+
+test("opening a session publishes ui.composer to plugins", async ({ page }) => {
+  await openSession(page, []);
+
+  await expect.poll(async () => (await published(page)).map(update => [update.topic.name, update.data])).toContainEqual(["ui.composer", { machine: "build-box", session: "notice-one" }]);
+});
+
+test("an update for a topic plugins want is forwarded through plugins_publish", async ({ page }) => {
+  const wanted = [{ name: "agent", key: "notice-one", machine: "build-box" }, { name: "ui.composer", key: null, machine: null }];
+  await openDesktop(page, true, { plugins_wanted: wanted });
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "mesh_watch"))).toBe(true);
+
+  await page.evaluate(() => window.__navigation.publish("agent.notice-one", null));
+
+  await expect.poll(async () => (await published(page)).filter(update => update.topic.name === "agent")).toEqual([{ topic: { name: "agent", key: "notice-one", machine: "build-box" }, machine: "build-box", data: null }]);
+});
+
 for (const scheme of ["dark", "light"] as const) {
   test(`screenshot of the slot in the ${scheme} theme`, async ({ page }, info) => {
     // Pictures for review, written to the untracked docs folder only when asked.

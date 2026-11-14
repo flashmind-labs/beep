@@ -98,3 +98,97 @@ export function connectPlugins(bridge: PluginsBridge): Promise<void> {
   const first = bridge.invoke("plugins_placements").then(show);
   return Promise.all([subscribed, first]).then(() => undefined).catch(() => undefined);
 }
+
+/// A topic plugins follow, as the desktop reports it: `key` null means every key, `machine` null any machine.
+export interface WantedTopic {
+  name: string;
+  key: string | null;
+  machine: string | null;
+}
+
+/// The session whose message box is shown, published as `ui.composer`.
+export interface ComposerShown {
+  machine: string;
+  session: string;
+}
+
+/// What the page publishes itself: a `ui.` topic and its value. `null` means the thing went away.
+export type UiUpdate = { name: "ui.composer"; data: ComposerShown | null };
+
+/// The mesh topics the page follows for plugins; the desktop refuses others too.
+const MESH_NAMES: ReadonlySet<string> = new Set(["agents", "agent"]);
+const WORD = /^[A-Za-z0-9._-]{1,128}$/;
+const MAX_KEY = 1024;
+const LOCAL_PREFIX = "ui.";
+
+function parseWanted1(raw: unknown): WantedTopic | null {
+  if (!isRecord(raw)) return null;
+  const { name, key, machine } = raw;
+  if (typeof name !== "string" || !WORD.test(name)) return null;
+  if (key !== null && (typeof key !== "string" || key.length === 0 || key.length > MAX_KEY || key.includes("\0"))) return null;
+  if (machine !== null && (typeof machine !== "string" || !WORD.test(machine))) return null;
+  return { name, key, machine };
+}
+
+/// Reads the desktop's list of wanted topics, dropping each entry that is not valid.
+export function parseWanted(payload: unknown): WantedTopic[] {
+  if (!Array.isArray(payload)) return [];
+  return payload.flatMap(raw => {
+    const wanted = parseWanted1(raw);
+    return wanted === null ? [] : [wanted];
+  });
+}
+
+/// The topics to follow on the mesh: `ui.` topics are published by the page, other names are refused.
+export function meshTopics(wanted: readonly WantedTopic[]): WantedTopic[] {
+  return wanted.filter(topic => !topic.name.startsWith(LOCAL_PREFIX) && MESH_NAMES.has(topic.name));
+}
+
+const wantedKey = (topic: WantedTopic) => JSON.stringify([topic.name, topic.key, topic.machine]);
+
+/// The page's side of the topic bridge: the desktop, and the app's mesh subscriptions.
+export interface TopicsBridge extends PluginsBridge {
+  invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
+  /// Follows `topic` on the mesh; `receive` gets the sending machine and the update's data. Returns the stop.
+  follow(topic: WantedTopic, receive: (machine: string, data: unknown) => void): () => void;
+}
+
+let sendUi: ((update: UiUpdate) => void) | null = null;
+const waitingUi = new Map<string, UiUpdate>();
+
+/// Publishes a `ui.` topic to plugins. Before the bridge connects, the latest value of each waits.
+export function publishUi(update: UiUpdate): void {
+  if (sendUi === null) waitingUi.set(update.name, update);
+  else sendUi(update);
+}
+
+/// Follows on the mesh what plugins want, forwarding each update to the desktop, and sends `ui.` updates.
+export function connectPluginTopics(bridge: TopicsBridge): Promise<void> {
+  const stops = new Map<string, () => void>();
+  let heard = false;
+
+  const forward = (topic: WantedTopic, machine: string | null, data: unknown) =>
+    bridge.invoke("plugins_publish", { update: { topic, machine, data } }).catch(() => undefined);
+
+  const sync = (wanted: readonly WantedTopic[]) => {
+    const next = new Map(meshTopics(wanted).map(topic => [wantedKey(topic), topic]));
+    for (const [key, stop] of stops) {
+      if (next.has(key)) continue;
+      stop();
+      stops.delete(key);
+    }
+    for (const [key, topic] of next) {
+      if (stops.has(key)) continue;
+      stops.set(key, bridge.follow(topic, (machine, data) => void forward(topic, machine, data)));
+    }
+  };
+
+  sendUi = update => void forward({ name: update.name, key: null, machine: null }, null, update.data);
+  for (const update of waitingUi.values()) sendUi(update);
+  waitingUi.clear();
+
+  const subscribed = bridge.listen("plugins-wanted", event => { heard = true; sync(parseWanted(event.payload)); }).then(() => undefined);
+  // An event that arrived first is newer than the answer to the read.
+  const first = bridge.invoke("plugins_wanted").then(payload => { if (!heard) sync(parseWanted(payload)); });
+  return Promise.all([subscribed, first]).then(() => undefined).catch(() => undefined);
+}

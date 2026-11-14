@@ -159,7 +159,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await retitleOpen({ machine_id: s.machine_id, agent: s.agent, session: s.id, title: title || null });
   };
   const head = createElement(SessionHead, { agent: s.agent, ...headText(s), openProject: project?.open ?? null, cwd: s.cwd, machine: s.machine_name, usage: shownUsage(s), moveKey: moveKey(s), saveTitle });
-  const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: moveKey(s), continueHere, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
+  const field = createElement(SessionField, { mode, name: k.name, banner, moveKey: moveKey(s), machine: s.machine_id, session: s.id, continueHere, attach: agentDrop, send: submitAgentMessage, stop: () => void interruptAgent(), openParent });
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   if (paneSessionKey !== `${s.machine_id}\n${s.id}`) { paneSessionKey = `${s.machine_id}\n${s.id}`; resetMentions(); }
   drawAgentHeading();

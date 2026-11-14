@@ -4,5 +4,5 @@
   "version": "0.1.0",
   "description": "A cat sits on the message box.",
   "entry": "main.ts",
-  "permissions": ["ui.add"]
+  "permissions": ["ui.add", "sessions.read"]
 }

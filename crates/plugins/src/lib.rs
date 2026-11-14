@@ -5,8 +5,10 @@ mod host;
 mod manifest;
 mod sandbox;
 mod source;
+mod topic;
 mod ui;
 
-pub use host::{Host, HostError};
+pub use host::{Handler, Host, HostError};
 pub use manifest::{InvalidPluginId, Manifest, ManifestError, Permission, PluginId};
+pub use topic::{Publication, Topic, TopicError};
 pub use ui::{Align, Node, Placement, Slot};

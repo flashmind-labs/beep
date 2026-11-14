@@ -1,10 +1,29 @@
-import type { CSSProperties } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { useStore } from "zustand";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { connectPlugins, placementsFor, pluginsStore } from "./plugins-state.ts";
-import type { Placement, PluginNode, PluginSlotName } from "./plugins-state.ts";
+import { connectPluginTopics, connectPlugins, placementsFor, pluginsStore, publishUi } from "./plugins-state.ts";
+import type { ComposerShown, Placement, PluginNode, PluginSlotName } from "./plugins-state.ts";
 
-void connectPlugins({ invoke: cmd => invoke(cmd), listen });
+const bridge = { invoke: (cmd: string, args?: Record<string, unknown>) => invoke(cmd, args), listen };
+void connectPlugins(bridge);
+void connectPluginTopics({
+  ...bridge,
+  follow: (wanted, receive) => subscribeChanges(
+    topic(wanted.name, wanted.key),
+    { deliver: "each", receive: event => receive(event.machine_id, event.data ?? null) },
+    { machine: wanted.machine },
+  ),
+});
+
+/// Publishes `ui.composer` while the session's message field is on the page, and `null` once it is gone.
+export function ComposerPresence({ machine, session }: ComposerShown) {
+  useEffect(() => {
+    publishUi({ name: "ui.composer", data: { machine, session } });
+    return () => publishUi({ name: "ui.composer", data: null });
+  }, [machine, session]);
+  return null;
+}
 
 /// Where a placement sits on the slot's edge: `align` picks the side, `offset`
 /// the inset from it, `sink` how far it drops below the edge.

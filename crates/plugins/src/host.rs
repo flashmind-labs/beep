@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Component, PathBuf};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -11,12 +11,25 @@ use thiserror::Error;
 
 use crate::manifest::PluginId;
 use crate::sandbox::{Sandbox, locked};
+use crate::topic::{Delivery, Inbox, Publication, Topic, TopicError};
 use crate::ui::Placement;
 
 /// How long a plugin's files must stay quiet before it reloads.
 const RELOAD_QUIET: Duration = Duration::from_millis(200);
 
-type Changed = Arc<dyn Fn(&[Placement]) + Send + Sync>;
+/// The most `ui.*` topics whose latest value the host keeps.
+const MAX_LOCAL_TOPICS: usize = 64;
+
+/// Where the host reports changes. Calls come from the supervisor thread.
+pub trait Handler: Send + Sync + 'static {
+    /// Every placement of every running plugin, each time what is shown changes.
+    fn shown(&self, placements: &[Placement]);
+
+    /// The topics running plugins follow, each time that set changes.
+    fn wanted(&self, topics: &[Topic]);
+}
+
+type Shared = Arc<dyn Handler>;
 
 #[derive(Debug, Error)]
 pub enum HostError {
@@ -35,6 +48,7 @@ pub enum HostError {
 /// Dropping it stops all of its threads.
 pub struct Host {
     shown: Arc<Mutex<Vec<Placement>>>,
+    wanted: Arc<Mutex<Vec<Topic>>>,
     events: Sender<Event>,
     supervisor: Option<JoinHandle<()>>,
     _watcher: RecommendedWatcher,
@@ -49,16 +63,21 @@ enum Event {
         generation: u64,
         placements: Vec<Placement>,
     },
+    /// The topics a plugin follows now.
+    Wanted {
+        id: PluginId,
+        generation: u64,
+        topics: Vec<Topic>,
+    },
+    /// An update from the page.
+    Publish(Delivery),
     Stop,
 }
 
 impl Host {
-    /// Loads every plugin under `dir` (created if missing), watches it, and calls `changed`
-    /// with every placement of every running plugin each time what is shown changes.
-    pub fn start(
-        dir: PathBuf,
-        changed: impl Fn(&[Placement]) + Send + Sync + 'static,
-    ) -> Result<Host, HostError> {
+    /// Loads every plugin under `dir` (created if missing), watches it, and reports to
+    /// `handler` what is shown and which topics the plugins follow.
+    pub fn start(dir: PathBuf, handler: impl Handler) -> Result<Host, HostError> {
         let folder = |source| HostError::Folder {
             path: dir.clone(),
             source,
@@ -82,6 +101,7 @@ impl Host {
         watcher.watch(&dir, RecursiveMode::Recursive)?;
 
         let shown = Arc::new(Mutex::new(Vec::new()));
+        let wanted = Arc::new(Mutex::new(Vec::new()));
         let supervisor = Supervisor {
             dir,
             events: events.clone(),
@@ -89,7 +109,10 @@ impl Host {
             shown: BTreeMap::new(),
             reloads: HashMap::new(),
             published: Arc::clone(&shown),
-            changed: Arc::new(changed),
+            wanted: BTreeMap::new(),
+            reported: Arc::clone(&wanted),
+            local: HashMap::new(),
+            handler: Arc::new(handler),
             generation: 0,
         };
         let handle = thread::Builder::new()
@@ -99,6 +122,7 @@ impl Host {
 
         Ok(Host {
             shown,
+            wanted,
             events,
             supervisor: Some(handle),
             _watcher: watcher,
@@ -108,6 +132,22 @@ impl Host {
     /// What is shown now.
     pub fn placements(&self) -> Vec<Placement> {
         locked(&self.shown).clone()
+    }
+
+    /// The topics running plugins follow now.
+    pub fn wanted(&self) -> Vec<Topic> {
+        locked(&self.wanted).clone()
+    }
+
+    /// Hands an update to every plugin that follows its topic. The host keeps the
+    /// latest value of each `ui.*` topic for plugins that subscribe later.
+    pub fn publish(&self, publication: &Publication) -> Result<(), TopicError> {
+        let delivery = Delivery::new(publication).inspect_err(|error| {
+            warn!("dropped an update for {}: {error}", publication.topic.name);
+        })?;
+        let _ = self.events.send(Event::Publish(delivery));
+
+        Ok(())
     }
 }
 
@@ -121,12 +161,28 @@ impl Drop for Host {
 }
 
 struct Running {
-    stop: Sender<()>,
+    /// Wakes the plugin's thread; dropping it stops the thread.
+    wake: SyncSender<()>,
+    inbox: Arc<Inbox>,
     thread: JoinHandle<()>,
     generation: u64,
 }
 
-/// Owns the running plugins. It is the only caller of `changed`.
+impl Running {
+    fn send(&self, delivery: Delivery) {
+        self.inbox.push(delivery);
+        // A full channel means a wake is already waiting.
+        let _ = self.wake.try_send(());
+    }
+}
+
+/// What one plugin follows, as its current run reported it.
+struct Wanted {
+    generation: u64,
+    topics: Vec<Topic>,
+}
+
+/// Owns the running plugins. It is the only caller of the handler.
 struct Supervisor {
     dir: PathBuf,
     events: Sender<Event>,
@@ -134,7 +190,11 @@ struct Supervisor {
     shown: BTreeMap<PluginId, Vec<Placement>>,
     reloads: HashMap<PluginId, Instant>,
     published: Arc<Mutex<Vec<Placement>>>,
-    changed: Changed,
+    wanted: BTreeMap<PluginId, Wanted>,
+    reported: Arc<Mutex<Vec<Topic>>>,
+    /// The latest update of each `ui.*` topic.
+    local: HashMap<Topic, Delivery>,
+    handler: Shared,
     generation: u64,
 }
 
@@ -166,6 +226,12 @@ impl Supervisor {
                     generation,
                     placements,
                 }) => self.note_shown(id, generation, placements),
+                Some(Event::Wanted {
+                    id,
+                    generation,
+                    topics,
+                }) => self.note_wanted(id, generation, topics),
+                Some(Event::Publish(delivery)) => self.route(delivery),
                 None => {}
             }
 
@@ -227,6 +293,70 @@ impl Supervisor {
         self.publish();
     }
 
+    fn note_wanted(&mut self, id: PluginId, generation: u64, topics: Vec<Topic>) {
+        let Some(running) = self.running.get(&id) else {
+            return;
+        };
+        if running.generation != generation {
+            return;
+        }
+
+        // A plugin that just subscribed to a `ui.*` topic gets its latest value.
+        let known = self
+            .wanted
+            .get(&id)
+            .filter(|held| held.generation == generation);
+        for topic in topics.iter().filter(|topic| topic.is_local()) {
+            let is_new = known.is_none_or(|held| !held.topics.contains(topic));
+            if is_new && let Some(latest) = self.local.get(topic) {
+                running.send(latest.clone());
+            }
+        }
+
+        self.wanted.insert(id, Wanted { generation, topics });
+        self.sync_wanted();
+    }
+
+    /// Gives an update to each running plugin that follows its topic.
+    fn route(&mut self, delivery: Delivery) {
+        if delivery.topic.is_local() {
+            if self.local.len() >= MAX_LOCAL_TOPICS && !self.local.contains_key(&delivery.topic) {
+                warn!("too many ui topics, dropped {}", delivery.topic.name);
+                return;
+            }
+            self.local.insert(delivery.topic.clone(), delivery.clone());
+        }
+
+        for (id, wanted) in &self.wanted {
+            let running = self.running.get(id);
+            if let Some(running) = running
+                && running.generation == wanted.generation
+                && wanted.topics.contains(&delivery.topic)
+            {
+                running.send(delivery.clone());
+            }
+        }
+    }
+
+    /// Reports the topics all plugins follow when they changed.
+    fn sync_wanted(&self) {
+        let all: BTreeSet<&Topic> = self
+            .wanted
+            .values()
+            .flat_map(|wanted| wanted.topics.iter())
+            .collect();
+        let all: Vec<Topic> = all.into_iter().cloned().collect();
+        {
+            let mut reported = locked(&self.reported);
+            if *reported == all {
+                return;
+            }
+            reported.clone_from(&all);
+        }
+
+        self.handler.wanted(&all);
+    }
+
     fn reload_due(&mut self) {
         let now = Instant::now();
         let due: Vec<PluginId> = self
@@ -242,8 +372,12 @@ impl Supervisor {
 
             if self.dir.join(id.to_string()).is_dir() {
                 self.start_plugin(id);
-            } else if self.shown.remove(&id).is_some() {
-                self.publish();
+            } else {
+                self.wanted.remove(&id);
+                self.sync_wanted();
+                if self.shown.remove(&id).is_some() {
+                    self.publish();
+                }
             }
         }
     }
@@ -252,36 +386,43 @@ impl Supervisor {
         self.stop_plugin(&id);
         self.generation += 1;
         let generation = self.generation;
-        let (stop, stopped) = mpsc::channel();
+        let (wake, woken) = mpsc::sync_channel(1);
+        let inbox = Arc::new(Inbox::default());
         let job = PluginJob {
             dir: self.dir.join(id.to_string()),
             id: id.clone(),
             generation,
             events: self.events.clone(),
+            inbox: Arc::clone(&inbox),
         };
 
         let spawned = thread::Builder::new()
             .name(format!("plugin-{id}"))
-            .spawn(move || job.run(&stopped));
+            .spawn(move || job.run(&woken));
         match spawned {
             Ok(thread) => {
                 self.running.insert(
                     id,
                     Running {
-                        stop,
+                        wake,
+                        inbox,
                         thread,
                         generation,
                     },
                 );
             }
-            Err(error) => warn!("cannot start plugin {id}: {error}"),
+            Err(error) => {
+                warn!("cannot start plugin {id}: {error}");
+                self.wanted.remove(&id);
+                self.sync_wanted();
+            }
         }
     }
 
-    /// Stops a plugin's thread and waits for it. What it showed stays until replaced.
+    /// Stops a plugin's thread and waits for it. What it showed and followed stays until replaced.
     fn stop_plugin(&mut self, id: &PluginId) {
         if let Some(running) = self.running.remove(id) {
-            drop(running.stop);
+            drop(running.wake);
             let _ = running.thread.join();
         }
     }
@@ -296,7 +437,7 @@ impl Supervisor {
             published.clone_from(&all);
         }
 
-        (self.changed)(&all);
+        self.handler.shown(&all);
     }
 }
 
@@ -306,10 +447,11 @@ struct PluginJob {
     id: PluginId,
     generation: u64,
     events: Sender<Event>,
+    inbox: Arc<Inbox>,
 }
 
 impl PluginJob {
-    fn run(self, stopped: &Receiver<()>) {
+    fn run(self, woken: &Receiver<()>) {
         let mut sandbox = match Sandbox::load(&self.dir, Instant::now()) {
             Ok(sandbox) => sandbox,
             Err(error) => return self.fail(&error),
@@ -326,9 +468,15 @@ impl PluginJob {
                 Err(error) => return self.fail(&error),
             }
 
+            if let Some(topics) = sandbox.take_wanted()
+                && !self.report(topics)
+            {
+                return;
+            }
+
             let woke = match sandbox.next_timer() {
-                Some(due) => stopped.recv_timeout(due.saturating_duration_since(Instant::now())),
-                None => stopped.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                Some(due) => woken.recv_timeout(due.saturating_duration_since(Instant::now())),
+                None => woken.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
             match woke {
                 Err(RecvTimeoutError::Timeout) => {
@@ -336,7 +484,14 @@ impl PluginJob {
                         return self.fail(&error);
                     }
                 }
-                Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+                Ok(()) => {
+                    for delivery in self.inbox.take() {
+                        if let Err(error) = sandbox.deliver(&delivery) {
+                            return self.fail(&error);
+                        }
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => return,
             }
         }
     }
@@ -345,6 +500,18 @@ impl PluginJob {
     fn fail(&self, error: &crate::sandbox::SandboxError) {
         warn!("plugin {} failed: {error}", self.id);
         self.show(Vec::new());
+        self.report(Vec::new());
+    }
+
+    /// Returns false when the supervisor is gone.
+    fn report(&self, topics: Vec<Topic>) -> bool {
+        self.events
+            .send(Event::Wanted {
+                id: self.id.clone(),
+                generation: self.generation,
+                topics,
+            })
+            .is_ok()
     }
 
     /// Returns false when the supervisor is gone.

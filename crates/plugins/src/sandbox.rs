@@ -11,6 +11,7 @@ use thiserror::Error;
 
 use crate::manifest::{Manifest, ManifestError, Permission, PluginId};
 use crate::source::{SourceError, strip_types};
+use crate::topic::{Delivery, Subscriptions, Topic};
 use crate::ui::{Node, Placement, RawNode, RawPlacement};
 
 const PRELUDE: &str = include_str!("prelude.js");
@@ -74,11 +75,13 @@ pub(crate) enum ImageError {
 pub(crate) struct Sandbox {
     // Drop order matters: persistent handles, then the context, then the runtime.
     fire: Persistent<Function<'static>>,
+    emit: Persistent<Function<'static>>,
     render: Persistent<Function<'static>>,
     context: Context,
     runtime: Runtime,
     id: PluginId,
     timers: Arc<Mutex<Timers>>,
+    subscriptions: Arc<Mutex<Subscriptions>>,
     budget: Budget,
     images: Images,
 }
@@ -142,34 +145,44 @@ impl Sandbox {
             pending: Vec::new(),
         }));
 
+        let subscriptions = Arc::new(Mutex::new(Subscriptions::new(&manifest.permissions)));
+
         budget.start();
         let can_place = manifest.allows(Permission::UiAdd);
         let filename = manifest.entry.display().to_string();
         let loaded = context.with(|ctx| {
             let schedule = schedule_function(&ctx, &timers)?;
+            let (listen, unlisten) = subscribe_functions(&ctx, &subscriptions)?;
             let factory: Function = caught(&ctx, ctx.eval(PRELUDE))?;
-            let api: Object = caught(&ctx, factory.call((schedule, can_place)))?;
+            let api: Object = caught(&ctx, factory.call((schedule, can_place, listen, unlisten)))?;
             let fire: Function = caught(&ctx, api.get("fire"))?;
+            let emit: Function = caught(&ctx, api.get("emit"))?;
             let render: Function = caught(&ctx, api.get("render"))?;
 
             let mut options = EvalOptions::default();
             options.filename = Some(filename);
             caught(&ctx, ctx.eval_with_options::<(), _>(script, options))?;
 
-            Ok::<_, SandboxError>((Persistent::save(&ctx, fire), Persistent::save(&ctx, render)))
+            Ok::<_, SandboxError>((
+                Persistent::save(&ctx, fire),
+                Persistent::save(&ctx, emit),
+                Persistent::save(&ctx, render),
+            ))
         });
         let drained = drain_jobs(&runtime);
         budget.stop();
-        let (fire, render) = loaded?;
+        let (fire, emit, render) = loaded?;
         drained?;
 
         Ok(Self {
             fire,
+            emit,
             render,
             context,
             runtime,
             id: manifest.id,
             timers,
+            subscriptions,
             budget,
             images: Images::new(root),
         })
@@ -209,6 +222,19 @@ impl Sandbox {
         }
 
         Ok(())
+    }
+
+    /// Hands an update to the callbacks subscribed to its topic.
+    pub(crate) fn deliver(&mut self, delivery: &Delivery) -> Result<(), SandboxError> {
+        self.enter(|ctx| {
+            let emit = self.emit.clone().restore(ctx)?;
+            caught(ctx, emit.call::<_, ()>((delivery.json(),)))
+        })
+    }
+
+    /// The distinct topics the plugin follows, once after each change.
+    pub(crate) fn take_wanted(&mut self) -> Option<Vec<Topic>> {
+        locked(&self.subscriptions).take_changed()
     }
 
     /// The placements to show, or `None` when nothing changed since the last call.
@@ -287,6 +313,28 @@ fn schedule_function<'js>(
     };
 
     Ok(Function::new(ctx.clone(), schedule)?)
+}
+
+/// The two native functions behind `beep.on`: subscribe and drop. `listen`
+/// returns the reason a subscription is refused, or an empty string.
+fn subscribe_functions<'js>(
+    ctx: &Ctx<'js>,
+    subscriptions: &Arc<Mutex<Subscriptions>>,
+) -> Result<(Function<'js>, Function<'js>), SandboxError> {
+    let held = Arc::clone(subscriptions);
+    let listen = move |id: u32, topic: String| -> String {
+        match locked(&held).add(id, &topic) {
+            Ok(()) => String::new(),
+            Err(error) => error.to_string(),
+        }
+    };
+    let held = Arc::clone(subscriptions);
+    let unlisten = move |id: u32| locked(&held).remove(id);
+
+    Ok((
+        Function::new(ctx.clone(), listen)?,
+        Function::new(ctx.clone(), unlisten)?,
+    ))
 }
 
 fn drain_jobs(runtime: &Runtime) -> Result<(), SandboxError> {

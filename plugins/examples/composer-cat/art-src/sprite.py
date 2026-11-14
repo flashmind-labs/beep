@@ -4,6 +4,7 @@ Run: python3 -I plugins/examples/composer-cat/art-src/sprite.py
 Standard library only. The cat is rasterized from shapes, outlined by
 dilation and shaded by rule, then small details are stamped on top. Every
 frame is the same drawing with one parameter changed (eyes, tail or ear).
+The happy frame changes the eyes and lifts the tail tip.
 """
 
 import math
@@ -57,13 +58,21 @@ def triangle(a, b, c):
     return out
 
 
-def thick_path(points, radius, tip_radius):
-    """Discs stamped along a polyline. Returns pixels and path parameter."""
+def path_steps(points):
     steps = []
     for (x0, y0), (x1, y1) in zip(points, points[1:]):
         n = max(1, int(math.hypot(x1 - x0, y1 - y0) * 4))
         steps += [(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n) for i in range(n)]
     steps.append(points[-1])
+    return steps
+
+
+def thick_path(points, radius, tip_radius, scale_to=None):
+    """Discs stamped along a polyline. Returns pixels and path parameter.
+    The parameter runs 0 to 1 over `scale_to` (default `points`); steps past
+    its end stay at 1, so a longer path keeps the pattern of a shorter one."""
+    steps = path_steps(points)
+    last = len(path_steps(scale_to or points)) - 1
     out = {}
     for y in range(HEIGHT):
         for x in range(WIDTH):
@@ -71,7 +80,7 @@ def thick_path(points, radius, tip_radius):
             for i, (sx, sy) in enumerate(steps):
                 d = math.hypot(x + 0.5 - sx, y + 0.5 - sy)
                 if best is None or d < best:
-                    best, where = d, i / (len(steps) - 1)
+                    best, where = d, min(1.0, i / last)
             limit = radius + (tip_radius - radius) * where
             if best is not None and best <= limit:
                 out[(x, y)] = where
@@ -145,13 +154,17 @@ TAIL_TIP_RADIUS = 1.25
 TAIL_FIRST_MOVING = 4  # path points from here on follow the sway
 
 
-def swayed_tail(sway):
+# Points a raised tail adds past its tip: it goes on up and curls in.
+TAIL_RAISE = [(33.0, 5.8), (32.2, 4.2)]
+
+
+def swayed_tail(sway, raised=False):
     """Shift the upper tail sideways, more the further up it is."""
     out = []
     for i, (x, y) in enumerate(TAIL_PATH):
         weight = max(0, i - TAIL_FIRST_MOVING + 1) / (len(TAIL_PATH) - TAIL_FIRST_MOVING)
         out.append((x + sway * weight, y))
-    return out
+    return out + TAIL_RAISE if raised else out
 
 
 def tail_shader(parts):
@@ -166,8 +179,8 @@ def tail_shader(parts):
     return shade
 
 
-def draw_tail(cv, sway):
-    parts = thick_path(swayed_tail(sway), TAIL_RADIUS, TAIL_TIP_RADIUS)
+def draw_tail(cv, sway, raised):
+    parts = thick_path(swayed_tail(sway, raised), TAIL_RADIUS, TAIL_TIP_RADIUS, scale_to=TAIL_PATH if raised else None)
     mask = set(parts)
     cv.paint(mask, tail_shader(parts))
     # Light the left edge of the tail, shade the right edge.
@@ -273,7 +286,7 @@ def draw_head(cv, ear_tipped):
         cv.set(x, y, CREAM_SHADOW if low else CREAM)
 
 
-def draw_face(cv, blink):
+def draw_face(cv, blink, happy):
     # Forehead stripes.
     for x, y in ((13, 3), (14, 3), (13, 4), (14, 4), (13, 5), (14, 5)):
         cv.set(x, y, STRIPE)
@@ -281,7 +294,11 @@ def draw_face(cv, blink):
         cv.set(x, y, STRIPE)
     # Eyes: 2 by 3, wide and low, one white highlight at the top left.
     for x0 in (8, 18):
-        if blink:
+        if happy:
+            # Small upward arcs, the reverse of the blink's.
+            for x, y in ((x0 - 1, 14), (x0, 13), (x0 + 1, 13), (x0 + 2, 14)):
+                cv.set(x, y, EYE)
+        elif blink:
             for x, y in ((x0 - 1, 13), (x0, 14), (x0 + 1, 14), (x0 + 2, 13)):
                 cv.set(x, y, EYE)
         else:
@@ -296,14 +313,14 @@ def draw_face(cv, blink):
         cv.set(x, y, OUTLINE)
 
 
-def render(blink=False, sway=0.0, ear_tipped=False):
+def render(blink=False, sway=0.0, ear_tipped=False, happy=False):
     cv = Canvas()
-    draw_tail(cv, sway)
+    draw_tail(cv, sway, happy)
     draw_ears(cv, ear_tipped)
     draw_body(cv)
     draw_head(cv, ear_tipped)
     draw_inner_ears(cv, ear_tipped)
-    draw_face(cv, blink)
+    draw_face(cv, blink, happy)
     return cv.rows()
 
 
@@ -332,6 +349,7 @@ def frames():
         "cat-tail-a": render(sway=-1.5),
         "cat-tail-b": render(sway=1.0),
         "cat-ear": render(ear_tipped=True),
+        "cat-happy": render(happy=True),
     }
 
 

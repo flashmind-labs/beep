@@ -330,6 +330,8 @@ pub fn run() {
             platform::metrics::desktop_trace_enabled,
             platform::metrics::desktop_ui_metrics,
             plugins::command::plugins_placements,
+            plugins::command::plugins_publish,
+            plugins::command::plugins_wanted,
             projects::branches::add_branch_worktree,
             projects::branches::find_import_fork,
             projects::branches::preview_import,

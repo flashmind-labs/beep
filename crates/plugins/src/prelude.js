@@ -1,14 +1,18 @@
-// Evaluates to a function the host calls once with (schedule, canPlace).
-// `schedule(id, ms)` is the only native function a plugin can reach, through
-// the closures below. A negative `ms` cancels the timer. It returns false when
-// the host refuses another timer. The function returns { fire(id), render() }.
-(function (schedule, canPlace) {
+// Evaluates to a function the host calls once with (schedule, canPlace, listen,
+// unlisten). These are the only native functions a plugin can reach, through
+// the closures below. `schedule(id, ms)`: a negative `ms` cancels the timer; it
+// returns false when the host refuses another timer. `listen(id, topicJson)`
+// returns "" or why the host refuses the subscription; `unlisten(id)` drops it.
+// The function returns { fire(id), emit(eventJson), render() }.
+(function (schedule, canPlace, listen, unlisten) {
   "use strict";
 
   const stringify = JSON.stringify;
   const timers = new Map();
   const placed = [];
+  const subscriptions = new Map();
   let nextTimer = 0;
+  let nextSubscription = 0;
   let dirty = true;
 
   function place(options, render) {
@@ -52,12 +56,47 @@
     };
   }
 
+  function optional(value, field) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "string") {
+      throw new TypeError(`beep.on needs ${field} to be a string`);
+    }
+    return value;
+  }
+
+  function on(topic, callback) {
+    if (topic === null || typeof topic !== "object" || typeof topic.name !== "string") {
+      throw new TypeError("beep.on needs a topic with a name");
+    }
+    if (typeof callback !== "function") {
+      throw new TypeError("beep.on needs a callback");
+    }
+    const wanted = {
+      name: topic.name,
+      key: optional(topic.key, "key"),
+      machine: optional(topic.machine, "machine"),
+    };
+    const id = ++nextSubscription;
+    const refused = listen(id, stringify(wanted));
+    if (refused) {
+      throw new Error(refused);
+    }
+    subscriptions.set(id, { topic: wanted, callback });
+    return function cancel() {
+      if (subscriptions.delete(id)) {
+        unlisten(id);
+      }
+    };
+  }
+
   const image = (props) => Object.assign({ kind: "image" }, props);
   const text = (value) => ({ kind: "text", text: String(value) });
   const row = (options, children) =>
     Object.assign({ kind: "row" }, options, { children });
 
-  const api = { place, state, after, image, text, row };
+  const api = { place, state, after, on, image, text, row };
   Object.defineProperty(globalThis, "beep", {
     value: Object.freeze(api),
     writable: false,
@@ -73,6 +112,19 @@
       }
       timers.delete(id);
       callback();
+    },
+    emit(json) {
+      const event = JSON.parse(json);
+      for (const [id, item] of Array.from(subscriptions)) {
+        const topic = item.topic;
+        const same =
+          topic.name === event.topic.name &&
+          topic.key === event.topic.key &&
+          topic.machine === event.topic.machine;
+        if (same && subscriptions.get(id) === item) {
+          item.callback(event);
+        }
+      }
     },
     render() {
       if (!dirty) {

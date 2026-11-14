@@ -71,3 +71,12 @@ fn id_must_match_folder() {
     std::fs::write(dir.join(MANIFEST_FILE), VALID).unwrap();
     assert!(Manifest::read(&dir).is_ok());
 }
+
+#[test]
+fn parses_the_sessions_permission() {
+    let manifest =
+        Manifest::parse(&VALID.replace("\"ui.add\"", "\"ui.add\", \"sessions.read\"")).unwrap();
+
+    assert!(manifest.allows(Permission::SessionsRead));
+    assert_eq!(Permission::SessionsRead.to_string(), "sessions.read");
+}

@@ -65,6 +65,10 @@ pub enum Permission {
     #[serde(rename = "ui.add")]
     #[strum(serialize = "ui.add")]
     UiAdd,
+    /// Follow the app's session topics, `agents` and `agent`.
+    #[serde(rename = "sessions.read")]
+    #[strum(serialize = "sessions.read")]
+    SessionsRead,
 }
 
 /// The parsed `beep-plugin.json`.

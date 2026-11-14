@@ -1,4 +1,7 @@
 use super::*;
+use serde_json::json;
+
+use crate::topic::Publication;
 use crate::ui::{Align, Slot};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot a real image";
@@ -313,6 +316,221 @@ fn plugin_cannot_reach_the_host() {
     fixture.load(Instant::now()).unwrap();
 }
 
+fn topic(name: &str, key: Option<&str>, machine: Option<&str>) -> Topic {
+    Topic {
+        name: name.to_owned(),
+        key: key.map(str::to_owned),
+        machine: machine.map(str::to_owned),
+    }
+}
+
+fn update(topic: Topic, machine: Option<&str>, data: serde_json::Value) -> Delivery {
+    Delivery::new(&Publication {
+        topic,
+        machine: machine.map(str::to_owned),
+        data,
+    })
+    .unwrap()
+}
+
+fn text_of(placements: Option<Vec<Placement>>) -> String {
+    match only_node(placements) {
+        Node::Text { text } => text,
+        other => panic!("expected text, got {other:?}"),
+    }
+}
+
+const FOLLOW_COMPOSER: &str = r#"
+    const seen = beep.state("none");
+    beep.on({ name: "ui.composer" }, (event) =>
+      seen.set(event.data === null ? "gone" : String(event.data.session)));
+    beep.place({ slot: "composer" }, () => beep.text(seen.get()));
+"#;
+
+#[test]
+fn a_delivered_update_runs_the_callback_and_rerenders() {
+    let fixture = Fixture::new(r#""ui.add""#, FOLLOW_COMPOSER);
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+    let composer = topic("ui.composer", None, None);
+
+    assert_eq!(text_of(sandbox.render().unwrap()), "none");
+    assert_eq!(sandbox.take_wanted(), Some(vec![composer.clone()]));
+
+    let shown = json!({ "machine": "m1", "session": "s1" });
+    sandbox
+        .deliver(&update(composer.clone(), None, shown))
+        .unwrap();
+    assert_eq!(text_of(sandbox.render().unwrap()), "s1");
+
+    sandbox
+        .deliver(&update(composer, None, json!(null)))
+        .unwrap();
+    assert_eq!(text_of(sandbox.render().unwrap()), "gone");
+}
+
+#[test]
+fn only_the_followed_topic_reaches_the_callback() {
+    let fixture = Fixture::new(
+        r#""ui.add", "sessions.read""#,
+        r#"
+        const seen = beep.state("none");
+        beep.on({ name: "agent", key: "s1", machine: "m1" }, (event) =>
+          seen.set(`${event.machine}:${event.topic.key}:${event.data}`));
+        beep.place({ slot: "composer" }, () => beep.text(seen.get()));
+        "#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+    sandbox.render().unwrap();
+
+    for other in [
+        topic("agent", Some("s2"), Some("m1")),
+        topic("agent", Some("s1"), Some("m2")),
+        topic("agent", Some("s1"), None),
+        topic("agents", None, None),
+    ] {
+        sandbox
+            .deliver(&update(other, Some("m1"), json!(0)))
+            .unwrap();
+    }
+    assert!(sandbox.render().unwrap().is_none());
+
+    let wanted = topic("agent", Some("s1"), Some("m1"));
+    sandbox
+        .deliver(&update(wanted, Some("m1"), json!(7)))
+        .unwrap();
+    assert_eq!(text_of(sandbox.render().unwrap()), "m1:s1:7");
+}
+
+#[test]
+fn cancel_stops_delivery() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"
+        const seen = beep.state("none");
+        const stop = beep.on({ name: "ui.composer" }, () => seen.set("heard"));
+        beep.place({ slot: "composer" }, () => beep.text(seen.get()));
+        beep.after(100, () => { stop(); stop(); });
+        "#,
+    );
+    let start = Instant::now();
+    let mut sandbox = fixture.load(start).unwrap();
+    sandbox.render().unwrap();
+    sandbox.take_wanted();
+
+    sandbox
+        .fire_due(start + Duration::from_millis(100))
+        .unwrap();
+    assert_eq!(sandbox.take_wanted(), Some(Vec::new()));
+
+    sandbox
+        .deliver(&update(topic("ui.composer", None, None), None, json!(1)))
+        .unwrap();
+    assert!(sandbox.render().unwrap().is_none());
+}
+
+#[test]
+fn a_callback_can_follow_and_drop_other_topics() {
+    let fixture = Fixture::new(
+        r#""sessions.read""#,
+        r#"
+        let stop = null;
+        beep.on({ name: "ui.composer" }, (event) => {
+          if (stop !== null) stop();
+          stop = event.data === null ? null : beep.on({ name: "agent", key: event.data.session }, () => {});
+        });
+        "#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+    sandbox.take_wanted();
+    let composer = topic("ui.composer", None, None);
+
+    sandbox
+        .deliver(&update(composer.clone(), None, json!({ "session": "s1" })))
+        .unwrap();
+    let wanted = sandbox.take_wanted().unwrap();
+    assert!(wanted.contains(&topic("agent", Some("s1"), None)));
+
+    sandbox
+        .deliver(&update(composer, None, json!({ "session": "s2" })))
+        .unwrap();
+    let wanted = sandbox.take_wanted().unwrap();
+    assert!(!wanted.contains(&topic("agent", Some("s1"), None)));
+    assert!(wanted.contains(&topic("agent", Some("s2"), None)));
+}
+
+#[test]
+fn following_sessions_needs_the_permission() {
+    let fixture = Fixture::new(
+        r#""ui.add""#,
+        r#"beep.on({ name: "agent", key: "s1" }, () => {});"#,
+    );
+
+    let error = fixture.load(Instant::now()).err().expect("load fails");
+
+    assert!(error.to_string().contains("sessions.read"), "{error}");
+}
+
+#[test]
+fn unknown_topic_names_are_refused() {
+    let fixture = Fixture::new(
+        r#""ui.add", "sessions.read""#,
+        r#"beep.on({ name: "machines" }, () => {});"#,
+    );
+
+    let error = fixture.load(Instant::now()).err().expect("load fails");
+
+    assert!(error.to_string().contains("unknown topic"), "{error}");
+}
+
+#[test]
+fn bad_arguments_to_on_are_refused() {
+    for call in [
+        r#"beep.on({ name: "ui.a" })"#,
+        r#"beep.on("ui.a", () => {})"#,
+        r#"beep.on({ name: "ui.a", key: 3 }, () => {})"#,
+        r#"beep.on({ name: "ui.a", machine: {} }, () => {})"#,
+    ] {
+        let fixture = Fixture::new("", call);
+
+        assert!(fixture.load(Instant::now()).is_err(), "{call}");
+    }
+}
+
+#[test]
+fn subscriptions_are_limited_to_sixteen() {
+    let fixture = Fixture::new(
+        "",
+        r#"for (let i = 0; i < 17; i++) beep.on({ name: "ui.composer" }, () => {});"#,
+    );
+
+    let error = fixture.load(Instant::now()).err().expect("load fails");
+
+    assert!(error.to_string().contains("at most 16"), "{error}");
+}
+
+#[test]
+fn a_callback_that_loops_is_interrupted() {
+    let fixture = Fixture::new("", r#"beep.on({ name: "ui.a" }, () => { for (;;) {} });"#);
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    let result = sandbox.deliver(&update(topic("ui.a", None, None), None, json!(1)));
+
+    assert!(matches!(result, Err(SandboxError::Script(_))));
+}
+
+#[test]
+fn a_callback_that_throws_fails_the_delivery() {
+    let fixture = Fixture::new(
+        "",
+        r#"beep.on({ name: "ui.a" }, () => { throw new Error("boom"); });"#,
+    );
+    let mut sandbox = fixture.load(Instant::now()).unwrap();
+
+    let result = sandbox.deliver(&update(topic("ui.a", None, None), None, json!(1)));
+
+    assert!(result.unwrap_err().to_string().contains("boom"));
+}
+
 fn image_src(node: &Node) -> &str {
     match node {
         Node::Image { src, .. } => src,
@@ -346,4 +564,113 @@ fn composer_cat_example_runs() {
     }
 
     assert!(seen.iter().any(|src| *src != idle), "a motion fired");
+}
+
+fn agent_state(session: &str, status: &str) -> serde_json::Value {
+    json!({ "Sessions": { "Sessions": { "sessions": [
+        { "id": session, "state": { "status": status, "subagents": 0 } }
+    ] } } })
+}
+
+#[test]
+fn composer_cat_is_happy_when_a_turn_ends() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat");
+    let start = Instant::now();
+    let mut sandbox = Sandbox::load(&dir, start).unwrap();
+    let happy = format!(
+        "data:image/png;base64,{}",
+        STANDARD.encode(std::fs::read(dir.join("art/cat-happy.png")).unwrap())
+    );
+    let composer = topic("ui.composer", None, None);
+    let session = topic("agent", Some("s1"), Some("build-box"));
+    let shown = |sandbox: &mut Sandbox| {
+        sandbox
+            .render()
+            .unwrap()
+            .map(|placements| image_src(&placements[0].node).to_owned())
+    };
+
+    assert_eq!(sandbox.take_wanted(), Some(vec![composer.clone()]));
+    let idle = shown(&mut sandbox).expect("a first render");
+    assert_ne!(idle, happy);
+
+    // An update for a session nobody shows is not followed yet.
+    let message = json!({ "machine": "build-box", "session": "s1" });
+    sandbox
+        .deliver(&update(composer.clone(), None, message))
+        .unwrap();
+    let mut wanted = vec![composer.clone(), session.clone()];
+    wanted.sort();
+    assert_eq!(sandbox.take_wanted(), Some(wanted));
+
+    let send = |sandbox: &mut Sandbox, status: &str| {
+        let data = agent_state("s1", status);
+        sandbox
+            .deliver(&update(session.clone(), Some("build-box"), data))
+            .unwrap();
+    };
+
+    // The first update is only a baseline, even for a session that is idle.
+    send(&mut sandbox, "Idle");
+    assert_ne!(shown(&mut sandbox), Some(happy.clone()));
+
+    send(&mut sandbox, "Working");
+    assert_ne!(shown(&mut sandbox), Some(happy.clone()));
+
+    send(&mut sandbox, "Idle");
+    assert_eq!(shown(&mut sandbox), Some(happy.clone()));
+
+    // It is happy for a moment, then the idle frames come back.
+    let mut tick = 1;
+    let back = loop {
+        sandbox
+            .fire_due(start + Duration::from_millis(tick * 50))
+            .unwrap();
+        if let Some(src) = shown(&mut sandbox)
+            && src != happy
+        {
+            break tick * 50;
+        }
+        tick += 1;
+        assert!(tick < 400, "the happy frame never left");
+    };
+    assert!(back >= 1000, "happy for {back} ms");
+}
+
+#[test]
+fn composer_cat_ignores_what_it_does_not_expect() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/composer-cat");
+    let mut sandbox = Sandbox::load(&dir, Instant::now()).unwrap();
+    let composer = topic("ui.composer", None, None);
+    let session = topic("agent", Some("s1"), Some("m1"));
+    sandbox.render().unwrap();
+    sandbox.take_wanted();
+
+    for data in [json!(null), json!(7), json!({ "machine": 1 }), json!([])] {
+        sandbox
+            .deliver(&update(composer.clone(), None, data))
+            .unwrap();
+        assert_eq!(sandbox.take_wanted(), None);
+    }
+
+    let open = json!({ "machine": "m1", "session": "s1" });
+    sandbox
+        .deliver(&update(composer.clone(), None, open))
+        .unwrap();
+    for data in [
+        json!(null),
+        json!({ "Sessions": 1 }),
+        json!({ "Sessions": { "Sessions": { "sessions": [{ "id": "other", "state": { "status": "Working" } }] } } }),
+        json!({ "Sessions": { "Sessions": { "sessions": [{ "id": "s1" }] } } }),
+        json!({ "error": "boom" }),
+    ] {
+        sandbox
+            .deliver(&update(session.clone(), Some("m1"), data))
+            .unwrap();
+    }
+    sandbox
+        .deliver(&update(composer, None, json!(null)))
+        .unwrap();
+
+    assert!(sandbox.render().unwrap().is_none());
 }

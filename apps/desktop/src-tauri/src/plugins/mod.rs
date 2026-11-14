@@ -1,5 +1,6 @@
 //! Plugins: the host that runs the folders under the plugins directory, and
-//! the command the page reads what they placed with. A phone runs none.
+//! the commands the page uses to read what they placed, learn which topics they
+//! follow and pass updates in. A phone runs none.
 
 pub(crate) mod command;
 #[cfg(desktop)]
