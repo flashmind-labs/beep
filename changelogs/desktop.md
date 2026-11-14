@@ -7,6 +7,53 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.33] - 2026-11-14
+
+### Added
+
+- Desktop: sign in to Claude on individual online machines from Agent accounts.
+- Desktop: a review agent that hands in its review sends a notification.
+  Opening it, or the running review from the diff, shows the reviewer's
+  conversation with the Changes tab beside it.
+
+### Changed
+
+- Desktop: a working agent, a running command, a CI run and research show
+  a turning spinner again instead of a still dot. It pauses while the
+  window is hidden.
+- Desktop: the first-run screens have a new look, with a painted sunrise
+  above the choices. "Link another desktop" is now "Join my other
+  computer" and says what it does.
+- Desktop: in Set up this computer, each row has its own Install or Sign
+  in button, so one agent can be signed in without setting up the rest.
+- Desktop: the start screen shows a painted sunrise behind the headline
+  instead of the dotted one; the sun rises once after the app opens and
+  then stays still.
+- Desktop: the sidebar has a painted dawn haze down it, strongest at the
+  top, instead of the dots in its corner.
+- Desktop: an empty Home and an empty Projects page show the sunrise with
+  the next step on a card. The sun rises once and stays risen from screen
+  to screen.
+- Desktop: Add a project shows its three ways as tiles, and each found
+  folder as a plain row whose Import button appears when pointed at.
+- Desktop: each project card has a small painted swatch in its colour.
+
+### Fixed
+
+- Desktop: moving a coding agent session to another machine no longer
+  refuses with "the session works outside the project's checkout" when the
+  session started in the project's checkout and later worked in one of its
+  worktrees.
+- Desktop: Claude sign-in detection on macOS now follows Claude's auth status instead of treating leftover Keychain entries as a sign-in.
+
+### Performance
+
+- Desktop: while a project syncs, its sync details are read at most
+  every ten seconds instead of on every change, which uses less battery.
+- Desktop: the app log no longer fills with network warnings after
+  waking from sleep, and writes one line per request to another machine
+  instead of three.
+
 ## [0.8.32] - 2026-11-14
 
 ### Fixed
