@@ -5,7 +5,7 @@ import {
   keptPick, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, showsDeviceTab, touchPoint, commandName, deviceCall, followedDevice, targetPick,
 } from "../src/agentpane/device-state.ts";
 
-const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null });
+const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null, phone: false });
 const machines: DeviceMachine[] = [
   { machine_id: "a", machine_name: "build-box", devices: [], error: null },
   { machine_id: "b", machine_name: "gpu-box", devices: [device("pixel"), device("tablet", "On")], error: null },
@@ -21,7 +21,7 @@ test("the pick starts on the session's machine, a running device first", () => {
   assert.equal(defaultPick([machines[0]], "a", null, android), null);
 });
 
-const simulator = (id: string, state: "Off" | "On" = "Off") => ({ id, name: id, platform: "Ios" as const, state, os: null });
+const simulator = (id: string, state: "Off" | "On" = "Off") => ({ id, name: id, platform: "Ios" as const, state, os: null, phone: false });
 const mixed: DeviceMachine[] = [
   { machine_id: "linux", machine_name: "build-box", devices: [device("pixel", "On")], error: null },
   { machine_id: "mac", machine_name: "mac-box", devices: [device("pixel-mac"), simulator("iphone"), simulator("ipad", "On")], error: null },

@@ -1,4 +1,4 @@
-//! `device/1`: the machine's Android emulators (`android`) and iOS
+//! `device/1`: the machine's Android emulators (`android`), phones (`phone`) and iOS
 //! simulators (`ios`, on macOS), listed, started and stopped, and shown live
 //! to a desktop that taps and types on them; and which of those platforms a
 //! checkout builds for (`platforms`).
@@ -6,6 +6,7 @@
 mod android;
 #[cfg(target_os = "macos")]
 mod ios;
+mod phone;
 mod platforms;
 
 use crate::agents::{Agents, reach::Access};
@@ -29,6 +30,7 @@ use tokio_util::task::AbortOnDropHandle;
 use tonic::{Status, Streaming};
 
 pub use beep_proto::node::device::PROTOCOL;
+pub(crate) use phone::track;
 
 /// The shortest wait between two frames: about 30 a second.
 const FRAME_GAP: Duration = Duration::from_millis(33);
@@ -80,13 +82,16 @@ async fn platforms_in(agents: &Agents, root: &str) -> Result<Vec<Platform>> {
         .context("the platform check stopped")
 }
 
-/// Every emulator and simulator here, Android first.
+/// Every emulator, phone and simulator here, Android first.
 async fn list() -> Vec<Device> {
     #[cfg(target_os = "macos")]
-    let (mut devices, simulators) = tokio::join!(android::list(), ios::list());
+    let (mut devices, phones, simulators) =
+        tokio::join!(android::list(), phone::list(), ios::list());
     #[cfg(not(target_os = "macos"))]
-    let (mut devices, simulators) = (android::list().await, Vec::new());
+    let ((mut devices, phones), simulators) =
+        (tokio::join!(android::list(), phone::list()), Vec::new());
 
+    devices.extend(phones);
     devices.extend(simulators);
     devices
 }
@@ -101,7 +106,7 @@ async fn find(id: &DeviceId) -> Result<Device> {
 }
 
 async fn boot(id: &DeviceId) -> Result<()> {
-    match find(id).await?.platform {
+    match on_its_own(find(id).await?)?.platform {
         Platform::Android => android::boot(id).await,
         #[cfg(target_os = "macos")]
         Platform::Ios => ios::boot(id).await,
@@ -111,13 +116,22 @@ async fn boot(id: &DeviceId) -> Result<()> {
 }
 
 async fn shutdown(id: &DeviceId) -> Result<()> {
-    match find(id).await?.platform {
+    match on_its_own(find(id).await?)?.platform {
         Platform::Android => android::shutdown(id).await,
         #[cfg(target_os = "macos")]
         Platform::Ios => ios::shutdown(id).await,
         #[cfg(not(target_os = "macos"))]
         Platform::Ios => anyhow::bail!(NO_SIMULATORS),
     }
+}
+
+/// `device`, unless it is a phone, which only its owner starts and stops.
+fn on_its_own(device: Device) -> Result<Device> {
+    if device.phone {
+        anyhow::bail!("{} is a phone: only you can turn it on or off.", device.name);
+    }
+
+    Ok(device)
 }
 
 fn done(result: Result<()>) -> Reply {
@@ -149,6 +163,7 @@ struct Live {
 
 enum Controls {
     Android(Box<android::Controls>),
+    Phone(Box<phone::Controls>),
     #[cfg(target_os = "macos")]
     Ios(Box<ios::Controls>),
 }
@@ -157,6 +172,7 @@ impl Controls {
     async fn send(&mut self, input: Input) -> Result<()> {
         match self {
             Self::Android(controls) => controls.send(input).await,
+            Self::Phone(controls) => controls.send(input).await,
             #[cfg(target_os = "macos")]
             Self::Ios(controls) => controls.send(input).await,
         }
@@ -215,6 +231,10 @@ async fn open(id: &DeviceId, max_side: u32) -> Result<Live> {
 
     if device.state == DeviceState::Off {
         anyhow::bail!("{} is off.", device.name);
+    }
+
+    if device.phone {
+        return phone::attach(id, max_side).await;
     }
 
     match device.platform {

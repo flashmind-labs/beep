@@ -386,11 +386,21 @@ fn mem_total_mb(meminfo: &str) -> Option<u64> {
     Some(kb / 1024)
 }
 
-/// The Android emulator, on `PATH` or in an SDK a service may not have on
-/// it: the one `ANDROID_HOME` names, else where Android Studio and Homebrew
-/// put it.
+/// The Android emulator, on `PATH` or in an SDK.
 pub(crate) fn emulator() -> Option<PathBuf> {
-    which::which("emulator").ok().or_else(|| {
+    sdk_tool("emulator", "emulator")
+}
+
+/// adb, on `PATH` or in an SDK.
+pub(crate) fn adb() -> Option<PathBuf> {
+    sdk_tool("platform-tools", "adb")
+}
+
+/// Android SDK tool `name`, on `PATH` or in folder `dir` of an SDK a service
+/// may not have on it: the one `ANDROID_HOME` names, else where Android
+/// Studio and Homebrew put it.
+fn sdk_tool(dir: &str, name: &str) -> Option<PathBuf> {
+    which::which(name).ok().or_else(|| {
         let named = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
             .iter()
             .filter_map(env::var_os)
@@ -404,10 +414,7 @@ pub(crate) fn emulator() -> Option<PathBuf> {
         ];
         named
             .chain(usual.into_iter().flatten())
-            .map(|sdk| {
-                sdk.join("emulator")
-                    .join(format!("emulator{}", env::consts::EXE_SUFFIX))
-            })
+            .map(|sdk| sdk.join(dir).join(format!("{name}{}", env::consts::EXE_SUFFIX)))
             .find(|path| path.is_file())
     })
 }

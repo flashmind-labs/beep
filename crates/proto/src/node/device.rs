@@ -16,7 +16,8 @@ pub const MAX_SIDE: u32 = 2048;
 /// The most one `Input::Text` may carry, in bytes.
 pub const MAX_TEXT: usize = 4096;
 
-/// An emulator or simulator: an Android AVD name or an iOS simulator UDID.
+/// An emulator, simulator or phone: an Android AVD name, an iOS simulator
+/// UDID or a phone's adb serial.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct DeviceId(pub String);
@@ -146,6 +147,10 @@ pub struct Device {
     pub state: DeviceState,
     /// Such as "Android 16" or "iOS 26.5", when known.
     pub os: Option<String>,
+    /// A phone reached over adb, which stays on: it has no boot or shut
+    /// down.
+    #[serde(default)]
+    pub phone: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

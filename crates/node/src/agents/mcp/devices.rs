@@ -210,6 +210,11 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
         }
         Action::Shutdown(at) => {
             let (machine, device) = find(offers, mesh, &at).await?;
+
+            if device.phone {
+                bail!("{} on {} is a phone: only the user turns it off.", device.name, machine.name);
+            }
+
             screens.close(machine.id, &device.id.0, &at.device);
             let shutdown = Request::Shutdown {
                 id: device.id.clone(),
@@ -390,7 +395,8 @@ async fn list(offers: &Offers, mesh: &Mesh) -> String {
     text.trim_end().to_owned()
 }
 
-/// One line per device: its name, id, OS and state.
+/// One line per device: its name, id, OS and state, and whether it is a
+/// phone.
 fn lines(devices: &[Device]) -> String {
     devices
         .iter()
@@ -404,7 +410,8 @@ fn lines(devices: &[Device]) -> String {
                 DeviceState::Booting => "booting",
                 DeviceState::On => "on",
             };
-            format!("  - {} (id {}): {os}, {state}", device.name, device.id)
+            let phone = if device.phone { ", phone" } else { "" };
+            format!("  - {} (id {}): {os}, {state}{phone}", device.name, device.id)
         })
         .collect::<Vec<_>>()
         .join("\n")

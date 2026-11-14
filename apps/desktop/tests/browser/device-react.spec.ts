@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 const host = { machine_id: "build-box", machine_name: "build-box" };
-const pixel = { id: "pixel", name: "Pixel 9", platform: "Android", state: "On", os: "Android 16" };
+const pixel = { id: "pixel", name: "Pixel 9", platform: "Android", state: "On", os: "Android 16", phone: false };
 
 test("the Device tab shows a device live, takes touches, keys and buttons, and stops when hidden", async ({ page }) => {
   await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [pixel], error: null }] });
@@ -86,4 +86,13 @@ test("an iOS project with no simulator says so in one line", async ({ page }) =>
   await page.getByRole("tab", { name: "Device" }).click();
   await expect(page.locator(".agdevmiss")).toHaveText("No machine has an iOS simulator. A Mac with Xcode and idb_companion can run one.");
   await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("");
+});
+
+test("a phone shows without Boot or Shut down", async ({ page }) => {
+  const phone = { ...pixel, id: "R5CT1234ABC", name: "Pixel 8 Pro", phone: true };
+  await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [phone], error: null }] });
+  await page.evaluate(agent => window.__navigation.open({ agent }), session);
+  await page.getByRole("tab", { name: "Device" }).click();
+  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\nR5CT1234ABC");
+  await expect(page.getByRole("button", { name: /Boot|Shut down/ })).toHaveCount(0);
 });

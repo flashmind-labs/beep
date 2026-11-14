@@ -61,7 +61,7 @@ function DeviceHead({ machines, device, busy, listed }: { machines: readonly Dev
     </select>
     {device && chip && <span className={`chip ${chip.cls}`}>{device.state === "Booting" && <Spinner />}{chip.text}</span>}
     <span className="sp" />
-    {device && (device.state === "Off"
+    {device && !device.phone && (device.state === "Off"
       ? <Button disabled={busy} onClick={() => void power(true)}>{busy ? "Booting…" : "Boot"}</Button>
       : <Button disabled={busy} onClick={() => void power(false)}>{busy ? "Shutting down…" : "Shut down"}</Button>)}
   </div>;

@@ -116,6 +116,7 @@ fn device(name: String, state: DeviceState, config: Option<AvdConfig>) -> Device
         platform: Platform::Android,
         state,
         os,
+        phone: false,
     }
 }
 

@@ -7,13 +7,15 @@ import { parseTool } from "../agents/agentlog.ts";
 export type DevicePlatform = "Android" | "Ios";
 type DevicePower = "Off" | "Booting" | "On";
 
-/// An emulator or simulator, as `device_list` gives it.
+/// An emulator, simulator or phone, as `device_list` gives it.
 export interface Device {
   id: string;
   name: string;
   platform: DevicePlatform;
   state: DevicePower;
   os: string | null;
+  /// A phone over adb: always on, with no Boot or Shut down.
+  phone: boolean;
 }
 
 /// One machine's devices, or why it could not list them.
@@ -259,7 +261,7 @@ function readDevice(value: unknown): Device[] {
   const platform = value.platform === "Android" || value.platform === "Ios" ? value.platform : null;
   const state = value.state === "Off" || value.state === "Booting" || value.state === "On" ? value.state : null;
   if (!platform || !state) return [];
-  return [{ id: value.id, name: value.name, platform, state, os: typeof value.os === "string" ? value.os : null }];
+  return [{ id: value.id, name: value.name, platform, state, os: typeof value.os === "string" ? value.os : null, phone: value.phone === true }];
 }
 
 /// `device_hosts`' answer, checked.
