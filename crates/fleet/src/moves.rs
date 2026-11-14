@@ -12,7 +12,7 @@ use beep_mesh::{
     machine::sessions::{MoveState, WorktreeMove, move_progress, worktree_move},
 };
 use beep_proto::{
-    AgentSlug,
+    AgentSlug, ModelId,
     node::mesh_state::{MovedWorktree, SessionMove, StateValue, SyncSpec},
 };
 use iroh::EndpointId;
@@ -31,6 +31,8 @@ pub struct MoveAsk<'a> {
     /// It works in a linked worktree of the project, not its checkout.
     pub worktree: Option<AskedWorktree<'a>>,
     pub mode: Option<String>,
+    /// The model it runs on.
+    pub model: Option<ModelId>,
     /// Stop the turn instead of waiting for it.
     pub stop: bool,
 }
@@ -97,6 +99,7 @@ impl Desk {
                 branch: w.branch.to_owned(),
                 from: w.folder.to_owned(),
             }),
+            model: ask.model,
         };
         let _one = WRITES.lock().await;
         self.forget_old_moves(record.at).await?;

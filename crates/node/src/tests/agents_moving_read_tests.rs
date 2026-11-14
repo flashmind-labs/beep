@@ -330,6 +330,7 @@ fn a_move_record_lets_only_its_two_machines_read_and_ask() {
         project: "p".into(),
         path: String::new(),
         mode: None,
+        model: None,
         stop: false,
         at: 1,
         worktree: None,

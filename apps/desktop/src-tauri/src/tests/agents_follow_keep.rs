@@ -81,6 +81,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], start: u64) -> Pushed 
                 external: false,
                 question: None,
                 subagents: 0,
+                model: None,
             },
             plan: Vec::new(),
             files: Vec::new(),

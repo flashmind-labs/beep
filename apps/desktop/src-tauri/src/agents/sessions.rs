@@ -24,7 +24,7 @@ use beep_proto::{
     AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels, AgentQuestion,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask, AgentToolCall,
     ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, GetAgentSessionUsage,
-    ListAgentModels, MachineSession, ResumeAgentSession, StartAgentSession,
+    ListAgentModels, MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
     node::{
         agent::{CheckoutPlan, Effort},
         harness::HarnessConfig,
@@ -102,6 +102,8 @@ pub struct SessionRow {
     reviewer: bool,
     /// Its subagents that still run.
     subagents: u32,
+    /// The model it runs on, when its node says.
+    model: Option<ModelId>,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -122,6 +124,7 @@ impl From<MachineSession> for SessionRow {
             parent: None,
             reviewer: false,
             subagents: session.subagents,
+            model: session.model,
         }
     }
 }
