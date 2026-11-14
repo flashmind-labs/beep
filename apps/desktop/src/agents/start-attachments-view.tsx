@@ -1,16 +1,23 @@
 import { useEffect, useMemo } from "react";
 import { AttachmentBatch, ImagePreview, RemoveChip } from "./composer-ui.tsx";
 import { identity } from "../ui/parts.tsx";
+import { Spinner } from "../ui/kit.tsx";
 import type { Attached } from "./agentqueue.ts";
+import type { PendingFile } from "./start-files.ts";
 
-export function StartAttachmentChips({ images, files, remove }: { images: Attached[]; files: { file: File }[]; remove(kind: "image" | "file", index: number): void }) {
-  return <AttachmentBatch count={images.length + files.filter(({ file }) => !images.some(image => image.original === file)).length}>{images.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={images} index={i} listed /><RemoveChip name={image.name} data="data-startimage" index={i} remove={() => remove("image", i)} /></span>)}
-    {files.map(({ file }, i) => !images.some(image => image.original === file) && <span className="att" key={identity(files[i])}><LocalFile file={file} /><RemoveChip name={file.name || "file"} data="data-startfile" index={i} remove={() => remove("file", i)} /></span>)}</AttachmentBatch>;
+export function StartAttachmentChips({ images, files, progress, remove }: { images: Attached[]; files: PendingFile[]; progress: { size: number; done: number } | null; remove(kind: "image" | "file", index: number): void }) {
+  const loose = (file: File) => !images.some(image => image.original === file);
+  const uploaded = progress?.size ? Math.round(progress.done / progress.size * 100) : 0;
+
+  return <>{progress && <div className="agupbar" role="progressbar" aria-label="Uploading" aria-valuenow={uploaded} title={`Uploading: ${uploaded}%`}><span style={{ width: `${uploaded}%` }} /></div>}
+    <AttachmentBatch count={images.length + files.filter(({ file }) => loose(file)).length}>{images.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={images} index={i} listed /><RemoveChip name={image.name} data="data-startimage" index={i} remove={() => remove("image", i)} /></span>)}
+    {files.map((entry, i) => loose(entry.file) && <span className="att" key={identity(entry)} title={entry.error ?? undefined}><LocalFile entry={entry} /><RemoveChip name={entry.file.name || "file"} data="data-startfile" index={i} remove={() => remove("file", i)} /></span>)}</AttachmentBatch></>;
 }
 
-function LocalFile({ file }: { file: File }) {
+function LocalFile({ entry: { file, at, path, done, error } }: { entry: PendingFile }) {
   const url = useMemo(() => file.type.startsWith("image/") ? URL.createObjectURL(file) : null, [file]);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  const uploading = at && !path && !error;
 
-  return url ? <ImagePreview images={[{ url, name: file.name }]} index={0} listed={false} /> : <span className="nm">{file.name || "file"}</span>;
+  return <>{uploading && <Spinner />}{url ? <ImagePreview images={[{ url, name: file.name }]} index={0} listed={false} /> : <span className="nm">{file.name || "file"}</span>}{uploading && <small>{file.size ? Math.round(done / file.size * 100) : 0}%</small>}</>;
 }

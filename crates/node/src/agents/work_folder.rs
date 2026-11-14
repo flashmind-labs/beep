@@ -488,6 +488,12 @@ pub(super) fn write(
             keep_out_of_git(&root.root.join(BEEP_FOLDER))?;
         }
 
+        if folder == uploads(&root.root)
+            && let Err(e) = super::uploads::prune(&folder, std::time::SystemTime::now())
+        {
+            log::warn!("could not clean old uploads: {e:#}");
+        }
+
         let name = free_name(&folder, asked)?;
         (folder, name)
     } else {
@@ -531,6 +537,11 @@ pub(super) fn write(
     }
 
     Ok(root.relative(&to))
+}
+
+/// Where files dropped on a new agent's prompt go in its folder.
+pub(super) fn uploads(root: &Path) -> PathBuf {
+    root.join(BEEP_FOLDER).join("uploads")
 }
 
 /// `asked`, or the first of `stem 2.ext`, `stem 3.ext`, ... that neither a

@@ -276,6 +276,7 @@ export function drawProjectComp(name: string) {
   });
   drawBarPicker(host, offered);
   barAttachments.setBusy(pc.starting);
+  if (place && !pc.starting) barAttachments.files.moveTo(place.machine_id, place.cwd);
   draftPlace(place);
 }
 
@@ -452,7 +453,7 @@ async function startFromBar() {
   redrawProjects();
 
   try {
-    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd, progress => c.update({ progress }));
+    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd);
     if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     const started = await invoke<Started>("agent_start", { machineId: place.machine_id, agent, cwd, prompt, model, effort, checkout, images });
@@ -499,7 +500,7 @@ async function continueReview(number: number, earlier: ReviewSession, text: stri
 
   try {
     const root = listed?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
-    const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root, error => c.update({ error }));
+    const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root);
     const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
     let session = listed;
 
