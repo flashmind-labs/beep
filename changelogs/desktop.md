@@ -7,6 +7,16 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.7] - 2026-11-14
+
+### Added
+
+- Desktop: coding agents on this Mac read a device's logs, list what its screen shows, install apps, open apps or links and clear an Android app's data with the `device` tool.
+
+### Fixed
+
+- Desktop: code blocks in chat replies no longer show a horizontal scrollbar over a one-line block.
+
 ## [0.9.6] - 2026-11-14
 
 ### Changed
