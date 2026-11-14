@@ -9,7 +9,7 @@ pub(crate) const BRIEF: &str = "The `beep` MCP server's tools reach the user's o
 - agent: starts another coding agent on any machine, linked to you, and follows it; replies arrive in your session. Also reads any session's transcript.
 - review: has your changes reviewed and returns the findings.
 - ask_user: asks the user and waits for the answer.
-- beep: Beep's own status, logs, metrics and problem reports.
+- beep: Beep's own status, logs, metrics and problem reports. When Beep itself fails (a beep tool errors, a machine, sync or chat misbehaves), read its status and logs, then send a report with your findings; the user approves it and can have it open a GitHub issue too.
 
 For Rust, C or C++ builds, use sccache when it is installed: for Rust set RUSTC_WRAPPER=sccache if no wrapper is set; for C or C++ keep the project's compiler launcher. Do not install it or change global configuration unless asked.";
 

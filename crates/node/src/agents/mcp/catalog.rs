@@ -275,7 +275,8 @@ pub(super) fn tools(reviewer: bool, alone: bool) -> Value {
                 metrics: optional machine, period (1h, 1d, up to 7d) or start/end, search, regex, \
                 limit, offset; counters and sampled ranges\n\
                 report: description, period (hour, today or day); sends a problem report with logs \
-                and status after asking the user, and returns its reference",
+                and status after asking the user, and returns its reference and, when the user picks it, \
+                the GitHub issue opened with their gh",
             "inputSchema": {
                 "type": "object",
                 "properties": {
