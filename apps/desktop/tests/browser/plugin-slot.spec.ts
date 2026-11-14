@@ -221,6 +221,14 @@ test("the open session's header reports its instance, and a header button press 
   const button = page.getByRole("button", { name: "Save note" });
   await expect(button).toBeVisible();
   expect((await box(page.locator(".ag-head"))).height).toBe(head.height);
+
+  // In a narrow window the title keeps room to read and nothing in the header overlaps.
+  await page.setViewportSize({ width: 760, height: 900 });
+  const parts = await Promise.all([".ag-head .tt", ".pluginhere", "#agstate"].map(selector => box(page.locator(selector))));
+  expect(parts[0].width).toBeGreaterThan(100);
+  for (const [i, a] of parts.entries()) for (const b of parts.slice(i + 1)) expect(a.x + a.width <= b.x + 0.5 || b.x + b.width <= a.x + 0.5).toBe(true);
+  if (process.env.PLUGIN_SLOT_SHOTS === "1") await page.screenshot({ path: "../../docs/plugin-header-narrow.png", clip: { x: 0, y: 0, width: 760, height: 120 } });
+  await page.setViewportSize({ width: 1280, height: 900 });
   await button.click();
   await expect.poll(() => events(page)).toEqual([{ plugin: "session-notes", id: 5, action: { kind: "press" } }]);
 

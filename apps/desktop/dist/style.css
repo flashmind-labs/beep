@@ -465,7 +465,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .pluginrow { display: flex; align-items: flex-end; line-height: normal }
 .pluginctl { pointer-events: auto }
 /* Slots in the page's flow draw nothing, and take no room, until a plugin fills them. */
-.pluginhere { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; max-width: 45%; font-size: 12px; color: var(--muted); white-space: nowrap }
+.pluginhere { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; max-width: 45%; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden }
+/* A plugin in a header gives way to the title, which keeps room to read. */
+.dhead .tt:has(~ .pluginhere) { min-width: min(16em, 45%) }
 .pluginhere .pluginrow { align-items: center }
 .plugintext.dim { color: var(--muted) }
 .plugintext.accent { color: var(--accent) }

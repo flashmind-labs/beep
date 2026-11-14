@@ -2,8 +2,8 @@
 // plugins-settings-state.ts has its words and flow; plugins-settings-view.tsx draws it.
 import { createElement } from "react";
 import { createStore } from "zustand/vanilla";
-import { confirmSheet } from "../ui/menu.ts";
-import { openSheet } from "../ui/parts.ts";
+import { confirmSheet } from "../ui/menu.tsx";
+import { openSheet } from "../ui/parts.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ConsentView } from "./plugins-settings-view.tsx";
 import {
