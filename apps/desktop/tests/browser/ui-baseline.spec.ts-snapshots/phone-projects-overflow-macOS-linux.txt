@@ -183,32 +183,26 @@ body.cbody.mobile
                 span "A folder or a repository to clone."
               button.dbtn [type="button"] "Add"
           div#sec-found
-            div.cc-sec
-              h4 "Found on your machines"
-            div.ap-list.cc-panel
-              div.ap-row
-                span.n "found-org/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
-                span.m
-                  span [title="build-box-with-a-long-name-0: /srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"]
-                    b "build-box-with-a-long-name-0"
-                    code "/srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
-                span.m
-                  span [title="build-box-with-a-long-name-1: /srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"]
-                    b "build-box-with-a-long-name-1"
-                    code "/srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
-                span.m
-                  span [title="build-box-with-a-long-name-2: /srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"]
-                    b "build-box-with-a-long-name-2"
-                    code "/srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
-                span.m
-                  span [title="build-box-with-a-long-name-3: /srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"]
-                    b "build-box-with-a-long-name-3"
-                    code "/srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
-                span.m
-                  span.ap-ag "Codex 2"
-                  span "1 h ago"
-                span.acts
-                  button.dbtn.small [title="Import found-org/a-very-long-repository-name-that-keeps-going-without-any-break-at-all with 2 sessions" type="button"] "Import"
+            section.cc-panel.pl
+              button.pl-head [aria-expanded="true" type="button"]
+                span.twist
+                  svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
+                span.lbl "Found on your machines"
+                span.n "1 folder"
+                span.note "not projects yet"
+              div.pl-body
+                div
+                  div.found.pl-row
+                    b.n [title="found-org/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"] "found-org/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"
+                    span.where
+                      span.chip [title="build-box-with-a-long-name-0: /srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"] "build-box-with-a-long-name-0"
+                      span.chip [title="build-box-with-a-long-name-1: /srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"] "build-box-with-a-long-name-1"
+                      span.chip [title="build-box-with-a-long-name-2: /srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"] "build-box-with-a-long-name-2"
+                      span.chip [title="build-box-with-a-long-name-3: /srv/found/a-very-long-repository-name-that-keeps-going-without-any-break-at-all"] "build-box-with-a-long-name-3"
+                    span.r
+                      span.dim "Codex 2 · 1 h ago"
+                      span.acts
+                        button.dbtn.small [title="Import found-org/a-very-long-repository-name-that-keeps-going-without-any-break-at-all with 2 sessions" type="button"] "Import"
       div.cc-box [hidden]
       div.cc-box [hidden]
       div.cc-box [hidden]

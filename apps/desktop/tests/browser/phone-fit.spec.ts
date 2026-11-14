@@ -29,7 +29,7 @@ const sideways = (page: Page) => page.evaluate(() => {
   const out: string[] = [];
   // The body clips but can still be scrolled sideways, and iOS does.
   for (const box of [document.documentElement, document.body]) if (box.scrollWidth > box.clientWidth) out.push(`${box.tagName.toLowerCase()} ${box.scrollWidth} > ${box.clientWidth}`);
-  const meant = ".cc-mstrip, .agmnav, .cc-top .tools, .pj-strip, .cc-mt, pre, .dcoderen";
+  const meant = ".cc-mstrip, .agmnav, .cc-top .tools, .pj-strip, pre, .dcoderen";
   for (const el of document.querySelectorAll<HTMLElement>(".cwin *")) {
     if (!el.getClientRects().length || el.closest(meant)) continue;
     if (/auto|scroll/.test(getComputedStyle(el).overflowX) && el.scrollWidth > el.clientWidth + 1) out.push(`${el.tagName.toLowerCase()}.${String(el.className)} ${el.scrollWidth} > ${el.clientWidth}`);
@@ -162,4 +162,19 @@ test("the project page leaves no blank band above its composer on the phone", as
     return view ? parseFloat(getComputedStyle(view).paddingBottom) : -1;
   });
   expect(pad).toBe(12);
+});
+
+test("a phone machine card keeps its actions, stats and long project names inside the screen", async ({ page }) => {
+  const stats = { sampled_at: 0, disks: [{ path: "/srv", free_bytes: 400, total_bytes: 1000 }], memory_used_mb: 1024, memory_total_mb: 4096, load: null };
+  const home = { ...responses.center_home, machines: responses.center_home.machines.map(m => ({ ...m, stats, capabilities: ["docker", "gpu", "android"] })) };
+  const sync = [0, 1, 2].map(i => ({ project: `example/${long}-${i}`, machine_id: "box-0", status: "in_sync", files: 1, pending: 0, error: null }));
+  await page.setViewportSize({ width: 402, height: 874 });
+  await openDesktop(page, false, { ...responses, center_home: home, project_sync: sync, terminals_all: [] });
+  await tab(page, "Machines").click();
+  const card = page.locator("#m-box-0");
+  await expect(card.getByRole("button", { name: "New terminal" })).toBeVisible();
+  await expect(card.locator(".act")).toHaveCSS("opacity", "1");
+  await card.locator(".mfold").click();
+  await expect(card.locator(".mgrid .cc-row")).toHaveCount(3);
+  expect(await sideways(page)).toEqual([]);
 });

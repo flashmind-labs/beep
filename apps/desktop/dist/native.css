@@ -214,7 +214,7 @@ body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; l
   background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent), transparent); filter: blur(30px) }
 
 /* Mono chrome. */
-body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .cc-mt > .th, .dcoder .sec, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .dcoder .sec, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
 body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
 body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .agtab span { font: inherit }
@@ -330,7 +330,7 @@ body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .
 body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
 body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent }
-body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine), body:not(.mobile) .cc-panel.fs-list { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) .cc-panel.fs-list { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
 body:not(.mobile) :is(.bd-card, .pj-card):hover, body:not(.mobile) .bd-card:focus-visible { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 7%, transparent) }
 body:not(.mobile) .bd-empty { padding: 4px 2px; border: 0; color: var(--dim) }
 body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
@@ -356,6 +356,9 @@ body:not(.mobile) .pm-body { padding: 0 12px 10px 30px }
 body:not(.mobile) .pm-body .pm-sync { gap: 5px }
 body:not(.mobile) .pm-body hr { margin: 8px 0; background: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .cc-panel.fs-list { border: 0; border-radius: var(--radius) }
+body:not(.mobile) .pl { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) .pl-row.it .t .pj-tag { flex: none }
+body:not(.mobile) .pl-row.it .t { overflow: hidden }
 body:not(.mobile) :is(.fs-row + .fs-row, .fs-conflict + .fs-conflict, .fs-wait + .fs-wait) { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .fs-note { color: var(--dim) }
 
@@ -405,3 +408,6 @@ body:not(.mobile) .pj-org { gap: 6px; margin-bottom: 18px }
 body:not(.mobile) .pj-org h3 { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--muted) }
 body:not(.mobile) .pj-org h3 small { color: var(--dim) }
 body:not(.mobile) .pj-org ~ .pj-add { display: none }
+/* A machine card's actions show when it is pointed at or focused. */
+body:not(.mobile) .mcard .act:not(.keep) { opacity: 0; transition: opacity .12s }
+body:not(.mobile) .mcard:is(:hover, :focus-within) .act { opacity: 1 }

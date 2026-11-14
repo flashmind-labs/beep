@@ -21,12 +21,49 @@ test("outside project rows retain focus and keep import clicks separate", async 
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length)).toBe(1);
 });
 
+test("the lists under the cards fold, open a repo's items and keep button clicks apart", async ({ page }) => {
+  const item = (repo: string, number: number, kind: string) => ({ host: 'example.test', repo, number, kind, title: `Change ${number}`, url: `https://example.test/${repo}/${number}`, updated_at: 1000 - number, authored: true, assigned: false, review_requested: false, draft: false, review: 'none', checks_failing: false, comments: 0, labels: [] });
+  const items = [item('other/first', 1, 'pull_request'), item('other/first', 2, 'issue'), item('other/second', 3, 'pull_request')];
+  await openDesktop(page, false, { git_items: { items, hosts: [] } });
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  const section = page.locator('#sec-elsewhere');
+  const first = section.getByRole('button', { name: /other\/first/ }), second = section.getByRole('button', { name: /other\/second/ });
+  await expect(section.locator('.pl-head')).toContainText('2 repos · 3 open');
+  await expect(first).toContainText('1 PR · 1 issue');
+  await expect(first).toHaveAttribute('aria-expanded', 'true');
+  await expect(second).toHaveAttribute('aria-expanded', 'false');
+  await expect(section.locator('.it')).toHaveCount(2);
+  await expect(section.locator('.it').first().getByRole('button', { name: 'Review' })).toBeVisible();
+  await expect(section.locator('.it').nth(1).getByRole('button', { name: 'Review' })).toHaveCount(0);
+  await second.click();
+  await expect(second).toHaveAttribute('aria-expanded', 'true');
+  await expect(section.locator('.it')).toHaveCount(3);
+  await first.click();
+  await expect(section.locator('.it')).toHaveCount(1);
+  await section.locator('.it .t').click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').map(call => call.args.url))).toContain(items[2].url);
+  const head = section.locator('.pl-head');
+  await head.click();
+  await expect(head).toHaveAttribute('aria-expanded', 'false');
+  await expect(section.locator('.pl-row')).toHaveCount(0);
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
+  await expect(section.locator('.pl-head')).toHaveAttribute('aria-expanded', 'false');
+  await head.click();
+  await expect(section.locator('.it')).toHaveCount(1);
+  // Reply leaves the page for the agent; it must not also open the item's URL.
+  const opened = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length);
+  await section.locator('.it').getByRole('button', { name: 'Reply' }).click();
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'open_url').length)).toBe(opened);
+});
+
 test("found project actions retain focus across overview refresh", async ({ page }) => {
   const found = [{ name: 'example/found', remote: 'https://example.test/found', places: [{ machine_id: 'build-box', machine_name: 'Build box', folder: '/srv/found' }], agents: [{ agent: 'codex', sessions: 2 }], last_activity: 0 }];
   await openDesktop(page, false, { found_projects: found });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
-  const section = page.locator('#sec-found'), action = section.locator('.ap-row .acts button');
+  const section = page.locator('#sec-found'), action = section.locator('.pl-row .acts button');
   await expect(section).toContainText('example/found');
+  await expect(section.locator('.chip')).toHaveAttribute('title', 'Build box: /srv/found');
   await action.focus();
   await action.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length);
