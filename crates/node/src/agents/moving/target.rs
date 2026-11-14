@@ -134,6 +134,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         id: &record.id,
         mode: record.mode.clone(),
         model: record.model.clone(),
+        worktrees: record.worktrees.clone(),
         from: record.from,
     };
     resume(env, &arrival, &kind, &folders, copied.file_name, copy).await

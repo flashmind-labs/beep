@@ -2,7 +2,7 @@
 
 use super::{
     ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_COMMANDS, MAX_COMPACTIONS, MAX_DESCRIPTION, MAX_ENTRY,
-    MAX_LAST_MESSAGE, MAX_LINE, MAX_PLAN, MAX_THOUGHT, OpenThought, TurnFiles, TurnMade,
+    MAX_LAST_MESSAGE, MAX_LINE, MAX_PLAN, MAX_THOUGHT, OpenThought, TurnFiles, TurnMade, TurnWorktrees,
     content::{cut, image_picture, push_cut, replayed, thought_line},
     tools::ToolCall,
 };
@@ -415,6 +415,34 @@ impl Live {
             since: self.turn_since(),
             written,
         })
+    }
+
+    /// Where to look for the worktrees the turn that just ended added;
+    /// `None` when none of its commands ran `git worktree add`.
+    pub(crate) fn turn_worktrees(&self) -> Option<TurnWorktrees> {
+        let start = self.turn_start;
+        let added = self.tools.values().any(|tool| {
+            tool.entry > start
+                && tool.kind == ToolKind::Execute
+                && tool.title.contains("worktree add")
+        });
+        added.then(|| TurnWorktrees {
+            cwd: PathBuf::from(&self.info.cwd),
+            since: self.turn_since(),
+        })
+    }
+
+    /// Records `trees` as worktrees the session created; true when one is new.
+    pub(crate) fn created_worktrees(&mut self, trees: Vec<String>) -> bool {
+        let before = self.info.worktrees.len();
+
+        for tree in trees {
+            if !self.info.worktrees.contains(&tree) {
+                self.info.worktrees.push(tree);
+            }
+        }
+
+        self.info.worktrees.len() != before
     }
 
     /// Shows `pictures`, read from the files `turn_files` gave, after the

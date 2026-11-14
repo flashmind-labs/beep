@@ -8,8 +8,8 @@ use crate::agents::{
     acp::{self, Prompt},
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd},
     image_files,
-    live::{TurnFiles, TurnMade, TurnTokens, cut},
-    made_files,
+    live::{TurnFiles, TurnMade, TurnTokens, TurnWorktrees, cut},
+    made_files, worktrees,
 };
 use agent_client_protocol::{
     Agent, ConnectionTo,
@@ -336,6 +336,7 @@ impl Actor {
 
         let mut files = None;
         let mut made = None;
+        let mut worktrees = None;
         let by_user = std::mem::take(&mut self.by_user) && stop == StopReason::Cancelled;
         self.live.send_modify(|live| {
             live.end_thought(Instant::now());
@@ -350,6 +351,7 @@ impl Actor {
             state.error = error;
             files = live.turn_files();
             made = live.turn_made();
+            worktrees = live.turn_worktrees();
         });
 
         if let Some(files) = files {
@@ -358,6 +360,10 @@ impl Actor {
 
         if let Some(made) = made {
             self.find_made(made);
+        }
+
+        if let Some(worktrees) = worktrees {
+            self.find_worktrees(worktrees);
         }
 
         let (usage, commands) = watched::read_sent(&self.live, |live| {
@@ -413,6 +419,23 @@ impl Actor {
                     Vec::new()
                 });
                 Reply::Made(paths)
+            }
+            .boxed(),
+        );
+    }
+
+    /// Looks for the worktrees a turn's commands added off the async
+    /// workers; the session records them once found.
+    fn find_worktrees(&mut self, turn: TurnWorktrees) {
+        let TurnWorktrees { cwd, since } = turn;
+        let found = spawn_blocking(move || worktrees::made_since(&cwd, since));
+        self.replies.push(
+            async move {
+                let trees = found.await.unwrap_or_else(|e| {
+                    log::warn!("looking for a turn's worktrees failed: {e}");
+                    Vec::new()
+                });
+                Reply::Worktrees(trees)
             }
             .boxed(),
         );
@@ -619,3 +642,4 @@ pub(super) fn take_steers(steers: &mut VecDeque<Prompt>) -> Option<Prompt> {
 
     Some(merged)
 }
+

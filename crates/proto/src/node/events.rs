@@ -38,7 +38,7 @@ impl Read {
                 | S::InFolders { .. } => Topic::new("agents"),
                 S::Folder { root, .. } | S::ReadFile { root, .. } => Topic::keyed("files", root),
                 S::Diff { ask } => Topic::keyed("files", &ask.root),
-                S::Worktrees { folder } => Topic::keyed("files", folder),
+                S::Worktrees { folder, .. } => Topic::keyed("files", folder),
                 S::Present { .. } => Topic::new("files"),
                 S::Live { session } | S::Commands { session } => Topic::keyed("agent", session),
                 S::MoveProgress { session } => Topic::keyed("moves", session),

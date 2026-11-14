@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { type Tree, type Entry, follow, followSteps, removedCheckout, reviewHeading, rootOf, treeAt, matchesTree, finishedTools } from "../src/agentpane/worktree-state.ts";
 import { homeShort } from "../src/project/projects-state.ts";
 
-const tree = (path: string, branch: string | null, own = false): Tree => ({ path, branch, head: "abc1234", own });
+const tree = (path: string, branch: string | null, own = false): Tree => ({ path, branch, head: "abc1234", own, created: false });
 const main = tree("/srv/app", "main", true);
 const fix = tree("/srv/app/.worktrees/fix", "fix");
 const side = tree("/srv/app-side", "side");

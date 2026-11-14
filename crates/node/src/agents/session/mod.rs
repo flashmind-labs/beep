@@ -222,6 +222,8 @@ pub(super) struct Start<'a> {
     pub(super) follows: Option<watch::Receiver<Live>>,
     /// A first line for its transcript, such as the branch it started on.
     pub(super) note: Option<String>,
+    /// The linked worktrees it created.
+    pub(super) worktrees: Vec<String>,
     /// Beep's word to the agent, kept out of the transcript: in its system
     /// prompt when it takes one, else ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
@@ -277,6 +279,7 @@ impl Session {
             parent,
             follows,
             note,
+            worktrees,
             brief,
             rule,
             mcp,
@@ -355,6 +358,7 @@ impl Session {
             last_activity: timestamps.map_or(0, |(_, activity)| activity),
             parent,
             model: initial_model,
+            worktrees,
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);

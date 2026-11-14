@@ -157,7 +157,9 @@ async fn one_off_reads_are_calls_and_never_kept_live() {
         NodeFile::Missing
     ));
     assert!(matches!(
-        sessions::worktrees(&client, "/srv/project").await.unwrap(),
+        sessions::worktrees(&client, "/srv/project", None)
+            .await
+            .unwrap(),
         NodeWork::Done(_)
     ));
     assert!(matches!(

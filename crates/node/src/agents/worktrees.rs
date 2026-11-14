@@ -3,15 +3,17 @@
 //! session's repository lists (`listed_in`), which opens it to reads like a
 //! session's own folder. Read-only: nothing here changes a checkout.
 
-use super::found::{Memo, common_dir};
+use super::found::{Memo, common_dir, git_dir};
 use super::work_diff::git;
 use crate::files::paths;
 use anyhow::Result;
 use beep_proto::node::agent::Worktree;
 use std::{
     convert::Infallible,
+    fs,
     path::{Path, PathBuf},
     sync::LazyLock,
+    time::SystemTime,
 };
 
 /// Characters of a commit hash shown.
@@ -34,6 +36,7 @@ pub(super) fn parse(text: &str) -> Vec<Worktree> {
             branch: None,
             head: String::new(),
             own: false,
+            created: false,
         };
         let mut bare = false;
 
@@ -88,10 +91,12 @@ pub(super) fn checkout_of_gone(folder: &Path) -> Option<PathBuf> {
 /// The worktrees of the repository holding `folder`, already resolved and
 /// in reach; the one holding `folder` is marked `own`. When `folder` is a
 /// removed worktree, those of its main checkout, which is `own`. None when
-/// `folder` is not in a repository. Blocks on git and the file system.
-pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
+/// `folder` is not in a repository. The ones in `created` (a session's
+/// `SessionInfo::worktrees`) are marked `created`. Blocks on git and the
+/// file system.
+pub(super) fn list(folder: &Path, created: &[String]) -> Result<Vec<Worktree>> {
     if let Some(checkout) = checkout_of_gone(folder) {
-        return list(&checkout);
+        return list(&checkout, created);
     }
 
     let text = match git(folder, &["worktree", "list", "--porcelain"]) {
@@ -115,8 +120,42 @@ pub(super) fn list(folder: &Path) -> Result<Vec<Worktree>> {
     if let Some(tree) = own.and_then(|at| trees.get_mut(at)) {
         tree.own = true;
     }
+
+    // Git lists the main checkout first; only linked worktrees are made.
+    let created: Vec<PathBuf> = created
+        .iter()
+        .map(|path| paths::canonicalize(path).unwrap_or_else(|_| path.into()))
+        .collect();
+
+    for tree in trees.iter_mut().skip(1) {
+        let path = paths::canonicalize(&tree.path).unwrap_or_else(|_| tree.path.clone().into());
+        tree.created = created.contains(&path);
+    }
+
     Ok(trees)
 }
+
+/// The linked worktrees of the repository holding `folder` that were made
+/// at or after `since`, as the `commondir` file git writes once when it
+/// adds one says. Blocks on git and the file system.
+pub(super) fn made_since(folder: &Path, since: SystemTime) -> Vec<String> {
+    let Ok(trees) = list(folder, &[]) else {
+        return Vec::new();
+    };
+
+    trees
+        .into_iter()
+        .skip(1)
+        .map(|tree| tree.path)
+        .filter(|tree| {
+            git_dir(Path::new(tree))
+                .and_then(|git| fs::metadata(git.join("commondir")).ok())
+                .and_then(|meta| meta.modified().ok())
+                .is_some_and(|made| made >= since)
+        })
+        .collect()
+}
+
 
 /// Whether `real`, already resolved, lies in a worktree that git lists for
 /// the repository of one of `folders`. Every path check outside the
@@ -211,7 +250,7 @@ pub(in crate::agents) mod tests {
     fn a_folder_that_is_no_repository_has_no_worktrees() {
         let dir = TempDir::new().unwrap();
         assert!(
-            list(&paths::canonicalize(dir.path()).unwrap())
+            list(&paths::canonicalize(dir.path()).unwrap(), &[])
                 .unwrap()
                 .is_empty()
         );
@@ -244,7 +283,7 @@ pub(in crate::agents) mod tests {
     fn the_list_marks_the_worktree_holding_the_folder() {
         let (_dir, main, other) = repo_with_worktree();
         fs::create_dir(main.join("src")).unwrap();
-        let trees = list(&main.join("src")).unwrap();
+        let trees = list(&main.join("src"), &[]).unwrap();
         assert_eq!(trees.len(), 2);
         let own: Vec<_> = trees.iter().filter(|tree| tree.own).collect();
         assert_eq!(own.len(), 1);
@@ -254,6 +293,28 @@ pub(in crate::agents) mod tests {
                 .iter()
                 .any(|tree| tree.path == other.to_str().unwrap())
         );
+    }
+
+    #[test]
+    fn a_worktree_made_since_a_time_is_found_and_marked_as_created() {
+        let before = SystemTime::now() - std::time::Duration::from_secs(5);
+        let (_dir, main, other) = repo_with_worktree();
+        let other = other.to_str().unwrap().to_owned();
+        assert_eq!(made_since(&main, before), vec![other.clone()]);
+        let later = SystemTime::now() + std::time::Duration::from_secs(60);
+        assert!(made_since(&main, later).is_empty());
+
+        let created = |made: &[String]| {
+            list(&main, made)
+                .unwrap()
+                .into_iter()
+                .filter(|tree| tree.created)
+                .map(|tree| tree.path)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(created(std::slice::from_ref(&other)), vec![other.clone()]);
+        assert!(created(&[main.to_str().unwrap().to_owned()]).is_empty());
+        assert!(created(&[]).is_empty());
     }
 
     #[test]
@@ -287,7 +348,7 @@ pub(in crate::agents) mod tests {
     fn a_removed_worktree_lists_its_main_checkout_as_own() {
         for dir in [".worktrees", ".claude/worktrees"] {
             let (_tmp, main, gone) = repo_with_removed_worktree(dir);
-            let trees = list(&gone).unwrap();
+            let trees = list(&gone, &[]).unwrap();
             let own: Vec<_> = trees.iter().filter(|tree| tree.own).collect();
             assert_eq!(own.len(), 1, "{dir}");
             assert_eq!(own[0].path, main.to_str().unwrap());
@@ -297,7 +358,7 @@ pub(in crate::agents) mod tests {
     #[test]
     fn a_removed_folder_outside_the_worktree_names_lists_nothing() {
         let (_tmp, main, _gone) = repo_with_removed_worktree(".worktrees");
-        assert!(list(&main.join("elsewhere/x")).is_err());
+        assert!(list(&main.join("elsewhere/x"), &[]).is_err());
     }
 
     #[test]

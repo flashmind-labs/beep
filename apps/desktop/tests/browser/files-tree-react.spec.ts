@@ -109,7 +109,7 @@ test("switching worktrees ignores an older pending tree refresh", async ({ page 
       const name = root === "/srv/project" ? hold ? "stale.txt" : "main.txt" : "branch.txt";
       return { folders: [{ path: "", entries: [{ name, folder: false, size: 1, ignored: false, change: null }], more: 0, git: true }], truncated: false } as T;
     };
-    window.__navigation.worktrees([{ path: "/srv/project", branch: "main", head: "abc1234", own: true }, { path: "/srv/project/.worktrees/fix", branch: "fix", head: "abc1234", own: false }]);
+    window.__navigation.worktrees([{ path: "/srv/project", branch: "main", head: "abc1234", own: true, created: false }, { path: "/srv/project/.worktrees/fix", branch: "fix", head: "abc1234", own: false, created: true }]);
     window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } });
   });
   await page.getByRole("tab", { name: "Files", exact: true }).click();

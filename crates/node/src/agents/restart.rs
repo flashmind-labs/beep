@@ -39,12 +39,14 @@ const KEPT_ENTRIES: usize = 1000;
 const KEPT_MODELS: usize = 500;
 
 /// The model a session last ran on, kept so it goes on with it when it is
-/// taken over again after it ended.
+/// taken over again after it ended, and the worktrees it created.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct LastModel {
     /// The agent's own id for the session.
     session: String,
     model: ModelId,
+    #[serde(default)]
+    worktrees: Vec<String>,
 }
 
 /// Why a session is read to start again.
@@ -92,6 +94,9 @@ pub(crate) struct OpenSession {
     /// The device it used, kept as `SessionInfo::device`.
     #[serde(default)]
     device: Option<SessionDevice>,
+    /// The linked worktrees it created, kept as `SessionInfo::worktrees`.
+    #[serde(default)]
+    worktrees: Vec<String>,
 }
 
 impl OpenSession {
@@ -170,6 +175,7 @@ impl Agents {
                     Some(LastModel {
                         session: live.agent_session.clone()?,
                         model: live.info.model.clone()?,
+                        worktrees: live.info.worktrees.clone(),
                     })
                 })
             })
@@ -193,6 +199,20 @@ impl Agents {
             .iter()
             .rfind(|kept| kept.session == id)
             .map(|kept| kept.model.clone())
+    }
+
+    /// The linked worktrees session `id` created: from its state when it is
+    /// here, else as kept from before the node started.
+    pub(crate) fn created_worktrees(&self, id: &str) -> Vec<String> {
+        if let Some(session) = self.get(id) {
+            return session.info().worktrees;
+        }
+
+        crate::lock(&self.last_models)
+            .iter()
+            .rfind(|kept| kept.session == id)
+            .map(|kept| kept.worktrees.clone())
+            .unwrap_or_default()
     }
 
     /// What it takes to start `session` again, read from its state in one
@@ -236,6 +256,7 @@ impl Agents {
                 model: live.info.model.clone(),
                 title: live.info.title.clone(),
                 device: live.info.device.clone(),
+                worktrees: live.info.worktrees.clone(),
             })
         })
     }
@@ -324,6 +345,7 @@ impl Agents {
                 parent: open.parent,
                 follows,
                 note: Some(RESUMED.to_owned()),
+                worktrees: open.worktrees,
                 ..Begin::default()
             },
         )?;

@@ -179,9 +179,12 @@ pub enum SessionsRequest {
     /// `folder`, as `git worktree list` gives them. Answered with
     /// `Worktrees` (none when `folder` is not in a repository), or `Error`
     /// saying why. A node from before it answers `Error` or closes the
-    /// stream.
+    /// stream. With `session`, each worktree says whether that session
+    /// created it.
     Worktrees {
         folder: String,
+        #[serde(default)]
+        session: Option<String>,
     },
     /// Deletes the ended session `session` of the harness `agent` from this
     /// machine: its transcript file and the node's record of it. `session`
@@ -637,6 +640,9 @@ pub struct Worktree {
     /// The one holding the folder asked about.
     #[serde(default)]
     pub own: bool,
+    /// The session the list was asked for created it.
+    #[serde(default)]
+    pub created: bool,
 }
 
 /// Something a node's session did that the user would want to hear about.

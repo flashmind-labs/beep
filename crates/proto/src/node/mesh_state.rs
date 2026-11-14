@@ -214,6 +214,10 @@ pub struct SessionMove {
     /// Added after `worktree`.
     #[serde(default)]
     pub model: Option<ModelId>,
+    /// The linked worktrees the session created, as the source names them.
+    /// Added after `model`.
+    #[serde(default)]
+    pub worktrees: Vec<String>,
 }
 
 /// The linked worktree in a `SessionMove` from an app from before worktree

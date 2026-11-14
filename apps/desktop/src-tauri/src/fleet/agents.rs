@@ -341,6 +341,25 @@ pub(crate) async fn device(
     Ok(info(&client, agent, session).await?.device)
 }
 
+/// The linked worktrees session `session` of `agent` created, as its node
+/// keeps them; none when the node cannot say.
+pub(crate) async fn created_worktrees(
+    fleet: &Fleet,
+    machine: EndpointId,
+    agent: &str,
+    session: &str,
+) -> Vec<String> {
+    let read = async {
+        let client = fleet.client(machine).await?;
+        Ok::<_, DesktopError>(info(&client, agent, session).await?.worktrees)
+    };
+
+    read.await.unwrap_or_else(|e| {
+        log::warn!("could not read the worktrees of session {session}: {e}");
+        Vec::new()
+    })
+}
+
 pub(crate) async fn usage(
     fleet: &Fleet,
     machine: EndpointId,
@@ -719,9 +738,14 @@ pub(crate) async fn worktrees(
     fleet: &Fleet,
     machine: EndpointId,
     folder: &str,
+    session: Option<&str>,
 ) -> Result<Vec<Worktree>> {
     let client = fleet.client(machine).await?;
-    work(fleet, machine, sessions::worktrees(&client, folder).await?)
+    work(
+        fleet,
+        machine,
+        sessions::worktrees(&client, folder, session).await?,
+    )
 }
 
 /// The commands and skills the running session `session` offers on a

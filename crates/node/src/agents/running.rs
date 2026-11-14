@@ -486,6 +486,7 @@ impl Agents {
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
         begin.note = place.note;
         begin.brief = place.brief.map(Cow::Owned);
+        begin.worktrees.extend(place.worktree);
         self.start(kind, place.folder.as_deref(), begin)
     }
 
@@ -589,6 +590,7 @@ impl Agents {
             parent: begin.parent,
             follows: begin.follows,
             note: begin.note,
+            worktrees: begin.worktrees,
             brief,
             rule,
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
@@ -685,6 +687,8 @@ pub(super) struct Begin {
     pub(super) note: Option<String>,
     /// Beep's word to the agent ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
+    /// The linked worktrees it created, kept across restarts and moves.
+    pub(super) worktrees: Vec<String>,
     /// The session that started this one with `start_agent`.
     pub(super) parent: Option<ParentLink>,
     /// The parent's state when it runs here.

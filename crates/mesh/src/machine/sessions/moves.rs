@@ -47,13 +47,15 @@ pub async fn move_progress<S: Sessions + ?Sized>(
 }
 
 /// The worktrees of the repository holding `folder` on the node; none when
-/// it is not in one.
+/// it is not in one. With `session`, each says whether that session made it.
 pub async fn worktrees<S: Sessions + ?Sized>(
     node: &S,
     folder: &str,
+    session: Option<&str>,
 ) -> Result<NodeWork<Vec<Worktree>>, MeshError> {
     let request = SessionsRequest::Worktrees {
         folder: folder.to_owned(),
+        session: session.map(str::to_owned),
     };
 
     match once(node, request).await? {

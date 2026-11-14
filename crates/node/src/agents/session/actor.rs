@@ -130,6 +130,8 @@ pub(super) enum Reply {
     Placed(Option<WorkPlace>),
     /// The files a finished turn's commands made, relative to its folder.
     Made(Vec<String>),
+    /// The linked worktrees a finished turn's commands added.
+    Worktrees(Vec<String>),
 }
 
 /// A permission question waiting for its answer.
@@ -891,6 +893,12 @@ impl Actor {
                 if !pictures.is_empty() {
                     self.live
                         .send_modify(|live| live.show_files(entry, pictures));
+                }
+            }
+            Reply::Worktrees(trees) => {
+                if !trees.is_empty() {
+                    self.live
+                        .send_if_modified(|live| live.created_worktrees(trees));
                 }
             }
             Reply::Made(paths) => {

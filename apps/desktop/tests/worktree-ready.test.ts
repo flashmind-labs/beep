@@ -12,7 +12,7 @@ test("initial file reads wait for a removed worktree to resolve to the main chec
   const waiting = worktreesReady().then(() => { ready = true; });
   await Promise.resolve();
   assert.equal(ready, false);
-  reply([{ path: "/srv/app", branch: "main", head: "abc1234", own: true }]);
+  reply([{ path: "/srv/app", branch: "main", head: "abc1234", own: true, created: false }]);
   await waiting;
   assert.equal(paneRoot(), "/srv/app");
   delete answers.agent_worktrees;

@@ -170,6 +170,11 @@ pub struct SessionInfo {
     /// tab shows while it runs.
     #[serde(default)]
     pub device: Option<SessionDevice>,
+    /// The linked worktrees the session created, as git names them: one
+    /// Beep made when it started, and the ones its commands added. Some
+    /// may be gone since.
+    #[serde(default)]
+    pub worktrees: Vec<String>,
 }
 
 /// An emulator or simulator a session uses: the machine it runs on and its id there.
