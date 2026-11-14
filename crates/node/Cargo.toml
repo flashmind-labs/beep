@@ -1,10 +1,10 @@
 [package]
 name = "beep-node"
 version = "0.7.3"
-edition = "2024"
-license = "MPL-2.0"
-rust-version = "1.99"
-publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 
 [features]
 default = ["cli"]
@@ -36,7 +36,6 @@ host = [
     "dep:ignore",
     "dep:iroh",
     "dep:iroh-blobs",
-    "dep:iroh-tickets",
     "dep:iroh-metrics",
     "dep:jsonschema",
     "dep:metrics",
@@ -95,95 +94,94 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
-agent-client-protocol = { version = "5.2", features = ["unstable_end_turn_token_usage", "unstable_protocol_v2"], optional = true }
-anyhow = "1"
-bao-tree = { version = "0.17", optional = true }
-base64 = { version = "0.23", optional = true }
-beep-mesh = { path = "../mesh", optional = true }
+agent-client-protocol = { workspace = true, features = ["unstable_end_turn_token_usage", "unstable_protocol_v2"], optional = true }
+anyhow.workspace = true
+bao-tree = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+beep-mesh = { workspace = true, optional = true }
 # Reads CI runs as the desktop does.
-beep-projects = { path = "../projects", optional = true }
-beep-proto = { path = "../proto" }
-beep-report = { path = "../report", optional = true }
-blake3 = { version = "1", optional = true }
-chrono = { version = "0.4", optional = true }
-clap = { version = "4", features = ["derive", "env"], optional = true }
-dirs = { version = "7", optional = true }
+beep-projects = { workspace = true, optional = true }
+beep-proto.workspace = true
+beep-report = { workspace = true, optional = true }
+blake3 = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+clap = { workspace = true, features = ["derive", "env"], optional = true }
+dirs = { workspace = true, optional = true }
 # `fs::canonicalize` without the verbatim prefix Windows programs refuse.
-dunce = { version = "1", optional = true }
-fastrand = "2"
-flate2 = { version = "1", optional = true }
-futures = { version = "0.3", optional = true }
-gix = { version = "0.90", default-features = false, features = ["revision", "sha1", "sha256"], optional = true }
-hex = { version = "0.4", optional = true }
-humantime = { version = "2", optional = true }
-ignore = { version = "0.4", optional = true }
+dunce = { workspace = true, optional = true }
+fastrand.workspace = true
+flate2 = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+gix = { workspace = true, features = ["revision", "sha1", "sha256"], optional = true }
+hex = { workspace = true, optional = true }
+humantime = { workspace = true, optional = true }
+ignore = { workspace = true, optional = true }
 # Device frames: the emulator's pixels encoded, the simulator's measured.
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"], optional = true }
+image = { workspace = true, features = ["jpeg", "png"], optional = true }
 # Port mapping and metrics: a node is reached from outside.
-iroh = { version = "1.4.1", optional = true }
-iroh-blobs = { version = "0.104", default-features = false, features = ["fs-store"], optional = true }
-iroh-tickets = { version = "1", optional = true }
-iroh-metrics = { version = "1", optional = true }
-jsonschema = { version = "0.61.2", default-features = false, optional = true }
-metrics = { version = "0.24", optional = true }
-metrics-exporter-prometheus = { version = "0.18", default-features = false, optional = true }
-log = { version = "0.4", optional = true }
-notify = { version = "8", optional = true }
+iroh = { workspace = true, default-features = true, optional = true }
+iroh-blobs = { workspace = true, optional = true }
+iroh-metrics = { workspace = true, optional = true }
+jsonschema = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+metrics-exporter-prometheus = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
+notify = { workspace = true, optional = true }
 # Interactive terminals: a pseudo-terminal on Unix, ConPTY on Windows.
-portable-pty = { version = "0.9", optional = true }
+portable-pty = { workspace = true, optional = true }
 # The Android emulator's and idb's gRPC services, client side only.
-prost = { version = "0.14", optional = true }
-rand = { version = "0.10", optional = true }
-regex = { version = "1", optional = true }
+prost = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
 # `beep-node update` downloads releases, and the CI watch asks GitHub, with
 # the client setup from `beep_proto::https`.
-reqwest = { version = "0.13.5", default-features = false, optional = true }
-rmp = { version = "0.8", optional = true }
-rmp-serde = { version = "1", optional = true }
+reqwest = { workspace = true, optional = true }
+rmp = { workspace = true, optional = true }
+rmp-serde = { workspace = true, optional = true }
 # The Android emulator's discovery files.
-rust-ini = { version = "0.21", optional = true }
-roxmltree = { version = "0.21", optional = true }
+rust-ini = { workspace = true, optional = true }
+roxmltree = { workspace = true, optional = true }
 # flsh keeps its sessions in SQLite.
-rusqlite = { version = "0.42", features = ["bundled"], optional = true }
-secrecy = { version = "0.10", optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
-serde_bytes = { version = "0.11", optional = true }
-serde_json = { version = "1", optional = true }
+rusqlite = { workspace = true, optional = true }
+secrecy = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_bytes = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 # Custom agent frontmatter; the same version the server reads personas with.
-serde_yaml = { version = "0.9", optional = true }
-sha2 = { version = "0.11", optional = true }
-strum = { version = "0.28", features = ["derive"], optional = true }
-tar = { version = "0.4", default-features = false, optional = true }
-thiserror = { version = "2", optional = true }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
-tokio-stream = { version = "0.1", features = ["sync"], optional = true }
-tokio-util = { version = "0.7", features = ["codec", "rt"], optional = true }
-tempfile = { version = "3", optional = true }
-toml = { version = "1", optional = true }
+serde_yaml = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+strum = { workspace = true, optional = true }
+tar = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "time", "fs", "signal", "io-util", "sync"] }
+tokio-stream = { workspace = true, features = ["sync"], optional = true }
+tokio-util = { workspace = true, features = ["rt"], optional = true }
+tempfile = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
 # Writes Beep's keys into flsh's config.toml, keeping the rest as it was.
-toml_edit = { version = "0.25", optional = true }
-tonic = { version = "0.14", default-features = false, features = ["channel", "codegen"], optional = true }
-tonic-prost = { version = "0.14", optional = true }
-tracing = { version = "0.1", optional = true }
-uuid = { version = "1", features = ["v4"], optional = true }
-which = { version = "8", optional = true }
-zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
+toml_edit = { workspace = true, optional = true }
+tonic = { workspace = true, features = ["channel", "codegen"], optional = true }
+tonic-prost = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+uuid = { workspace = true, features = ["v4"], optional = true }
+which = { workspace = true, optional = true }
+zip = { workspace = true, optional = true }
 
 # The media and decision tools the MCP server offers from the saved API keys.
-flashmind-tools = { version = "0.3.6", default-features = false, features = ["http"], optional = true }
-flashmind-types = { version = "0.3.2", optional = true }
+flashmind-tools = { workspace = true, features = ["http"], optional = true }
+flashmind-types = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = { version = "0.2", optional = true }
-rustix = { version = "1", features = ["fs", "process"], optional = true }
+libc = { workspace = true, optional = true }
+rustix = { workspace = true, features = ["fs", "process"], optional = true }
 
 # idb_companion listens on a Unix socket.
 [target.'cfg(target_os = "macos")'.dependencies]
-hyper-util = { version = "0.1", features = ["tokio"], optional = true }
-tower = { version = "0.5", features = ["util"], optional = true }
+hyper-util = { workspace = true, features = ["tokio"], optional = true }
+tower = { workspace = true, features = ["util"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", optional = true, features = [
+windows-sys = { workspace = true, optional = true, features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Storage_FileSystem",
@@ -196,13 +194,18 @@ windows-sys = { version = "0.61", optional = true, features = [
 
 [build-dependencies]
 # Compiles the vendored gRPC protos in Rust, with no `protoc` to install.
-protox = { version = "0.10", optional = true }
-tonic-prost-build = { version = "0.14", optional = true }
+protox = { workspace = true, optional = true }
+tonic-prost-build = { workspace = true, optional = true }
 
 [dev-dependencies]
+iroh-tickets.workspace = true
 # Checks that no process-wide crypto provider gets installed.
-rustls = { version = "0.23", default-features = false }
-async-trait = "0.1"
-tokio = { version = "1", features = ["test-util"] }
+rustls.workspace = true
+async-trait.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 # Reads what Beep writes to flsh's config with flsh's own types.
-flashmind-types = "0.3.2"
+flashmind-types.workspace = true
+
+# Used only by the generated gRPC clients, and `rust-ini` is imported as `ini`.
+[package.metadata.cargo-machete]
+ignored = ["prost", "tonic-prost", "rust-ini"]

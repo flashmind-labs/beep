@@ -281,7 +281,10 @@ fn a_peer_that_is_off_does_not_hold_up_every_file() {
 async fn temp_roots(project: &Project) -> Vec<Hash> {
     let tags = project.task.parts.store.tags();
     let roots = tags.list_temp_tags().await.unwrap();
-    roots.map(|root| root.hash).collect().await
+    roots
+        .map(|root| root.expect("a temp tag lists").hash)
+        .collect()
+        .await
 }
 
 #[tokio::test]
