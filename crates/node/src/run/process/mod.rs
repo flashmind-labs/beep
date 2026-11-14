@@ -23,13 +23,18 @@ pub(crate) use imp::{Group, Held};
 pub(crate) const STOP_GRACE: Duration = Duration::from_secs(2);
 
 /// `program` as a command to start. Windows starts only `.exe` files by
-/// bare name, so there it is looked up on `PATH` with every extension
+/// bare name, so there it is looked up on the node's search path (`PATH`
+/// and Beep's tool folders) with every extension
 /// `PATHEXT` lists: npm installs tools such as `npx` and `claude` as `.cmd`
 /// files.
 pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     let program = program.as_ref();
     #[cfg(windows)]
-    if let Ok(found) = which::which(program) {
+    if let Ok(found) = which::which_in(
+        program,
+        crate::machine::provision::spawn_env::search_path(),
+        "/",
+    ) {
         return Command::from(background_command(found));
     }
 
