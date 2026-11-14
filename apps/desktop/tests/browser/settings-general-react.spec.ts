@@ -52,13 +52,16 @@ test("skill sync retries an unsuccessful read", async ({ page }) => {
   await expect(toggle).toHaveAttribute("aria-checked", "true");
 });
 
-test("phone General hides launch at login", async ({ page }) => {
+test("phone General hides what belongs to desktops", async ({ page }) => {
   await openDesktop(page, false, responses);
   await page.evaluate(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await expect(settings.getByRole("switch", { name: "Sync coding agent skills" })).toBeVisible();
-  await expect(settings.getByRole("switch", { name: "Launch at login" })).toHaveCount(0);
+  await expect(settings.getByRole("button", { name: "Report…" })).toBeVisible();
+  for (const name of ["Launch at login", "Sync coding agent skills", "Project sync", "Always use Beep sync over Syncthing"]) {
+    await expect(settings.getByRole("switch", { name })).toHaveCount(0);
+  }
+  await expect(settings.getByRole("button", { name: "Show…" })).toHaveCount(0);
 });
 
 
