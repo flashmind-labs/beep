@@ -45,6 +45,8 @@ pub(crate) enum PluginsError {
     UnsafeLink(String),
     #[error("A plugin with the id {0} is already installed from another source. Remove it first.")]
     AlreadyInstalled(PluginId),
+    #[error("{0} ships with Beep, so it cannot be installed over or removed.")]
+    Builtin(PluginId),
     #[error("No plugin with the id {0} is installed.")]
     UnknownPlugin(PluginId),
     #[error("This plugin was not installed from Git, so it has no repository to update from.")]
@@ -79,6 +81,7 @@ impl From<ManageError> for PluginsError {
             }
             ManageError::Manifest(other) => Self::InvalidManifest(other.to_string()),
             ManageError::AlreadyInstalled(id) => Self::AlreadyInstalled(id),
+            ManageError::Builtin(id) => Self::Builtin(id),
             ManageError::TooLarge => Self::TooLarge,
             ManageError::Symlink(path) => Self::UnsafeLink(path.display().to_string()),
             ManageError::Io { what, source } => Self::Disk(format!("{what}: {source}")),

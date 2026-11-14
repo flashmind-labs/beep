@@ -31,6 +31,15 @@ the plugins dir is named by `BEEP_PLUGINS_DIR` (development), a plugin with no
 record counts as on and allowed, and shows as a Dev folder. Turning it on or off,
 installing or updating it makes a record, and the record rules apply from then on.
 
+The composer cat ships inside the desktop app as a built-in plugin (source
+Built in). At each start Beep installs it into the plugins dir, allowed for what
+its manifest asks, and on unless you turned it off; that choice survives restarts
+and updates. When the app's copy differs from the folder, the app's files replace
+the folder, so edits to a built-in are overwritten at the next start: copy it under
+a new id to change it. A built-in cannot be removed, and installing another plugin
+with its id is refused. Under `BEEP_PLUGINS_DIR` nothing is written; a plugin in
+that folder with the same id runs instead.
+
 ## Manifest
 
 ```json
@@ -174,7 +183,7 @@ The host adds up the CPU time a plugin uses in its script (time waiting for a bu
 machine does not count). A plugin that uses more than
 500 ms of CPU in any 60 seconds is stopped, with the reason, and shows nothing until its files
 change. The `plugins_status` command lists each plugin's id, name, version, description,
-`permissions` asked for, `approved` permissions, `source` (`local`, `git` or `dev`),
+`permissions` asked for, `approved` permissions, `source` (`local`, `git`, `dev` or `builtin`),
 `enabled`, `state` (`waiting`, `running`, `paused`, `disabled`, `needs-approval` with
 the `missing` permissions, or `stopped` with a `reason`), `usedMs` (CPU time) over the last minute
 and `pendingTimers`. The desktop emits `plugins-status` when a plugin is added, removed

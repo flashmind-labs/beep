@@ -274,6 +274,21 @@ test("settings machines", async ({ page }) => {
   await baseline(page, "settings-machines");
 });
 
+test("settings plugins", async ({ page }) => {
+  const git = { kind: "git", url: "https://github.com/owner/idle-timer.git", ref: null, subfolder: null, commit: "4f0915a8b3c2d1e0f9a8b7c6d5e4f30211223344" };
+  const plugin = (id: string, name: string, description: string, extra: Record<string, unknown>) => ({ id, name, version: "0.2.0", description, permissions: ["ui.add"], approved: ["ui.add"], source: { kind: "builtin" }, enabled: true, state: "running", usedMs: 0, pendingTimers: 0, ...extra });
+  const plugins = [
+    plugin("composer-cat", "Composer cat", "A cat sits on the message box.", { permissions: ["ui.add", "sessions.read"], approved: ["ui.add", "sessions.read"] }),
+    plugin("idle-timer", "Idle timer", "Shows how long a session has been quiet.", { version: "1.0.3", source: git, enabled: false, state: "disabled" }),
+  ];
+  await openDesktop(page, false, { ...settingsResponses, plugins_status: plugins });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Plugins", exact: true }).click();
+  await expect(dialog.getByRole("listitem")).toHaveCount(2);
+  await baseline(page, "settings-plugins");
+});
+
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
   const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
   test(name, async ({ page }) => {

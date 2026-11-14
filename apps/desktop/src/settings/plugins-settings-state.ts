@@ -8,6 +8,7 @@ export type PluginPermission = "ui.add" | "sessions.read";
 export type PluginSource =
   | { kind: "local" }
   | { kind: "dev" }
+  | { kind: "builtin" }
   | { kind: "git"; url: string; ref: string | null; subfolder: string | null; commit: string };
 
 /// Where a plugin stands, as the host reports it.
@@ -77,6 +78,7 @@ export function sourceLabel(source: PluginSource): string {
   switch (source.kind) {
     case "local": return "Local folder";
     case "dev": return "Dev folder";
+    case "builtin": return "Built in";
     case "git": {
       const where = source.subfolder === null ? repositoryName(source.url) : `${repositoryName(source.url)}, ${source.subfolder}`;
       return `${where} at ${source.commit.slice(0, 7)}`;
@@ -89,6 +91,7 @@ export function sourceSentence(source: PluginSource): string {
   switch (source.kind) {
     case "local": return "From a folder on this computer";
     case "dev": return "From the development plugins folder";
+    case "builtin": return "Ships with Beep";
     case "git": {
       const where = source.subfolder === null ? repositoryName(source.url) : `${repositoryName(source.url)}, ${source.subfolder}`;
       return `From ${where}, commit ${source.commit.slice(0, 7)}`;
@@ -126,11 +129,12 @@ export interface RowOffers {
   switchLocked: boolean;
   update: boolean;
   allow: boolean;
+  remove: boolean;
 }
 
 export function rowOffers(row: PluginRow): RowOffers {
   const needsApproval = row.run.state === "needs-approval";
-  return { on: row.enabled && !needsApproval, switchLocked: needsApproval, update: row.source.kind === "git", allow: needsApproval };
+  return { on: row.enabled && !needsApproval, switchLocked: needsApproval, update: row.source.kind === "git", allow: needsApproval, remove: row.source.kind !== "builtin" };
 }
 
 export function consentTitle(preview: PluginPreview): string {
@@ -260,6 +264,7 @@ export function parseSource(raw: unknown): PluginSource | null {
   if (!isRecord(raw)) return null;
   if (raw.kind === "local") return { kind: "local" };
   if (raw.kind === "dev") return { kind: "dev" };
+  if (raw.kind === "builtin") return { kind: "builtin" };
   if (raw.kind !== "git") return null;
   const ref = textOrNull(raw.ref ?? null), subfolder = textOrNull(raw.subfolder ?? null);
   if (!isText(raw.url) || !isText(raw.commit) || ref === undefined || subfolder === undefined) return null;

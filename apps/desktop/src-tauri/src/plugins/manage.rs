@@ -173,6 +173,6 @@ fn git_origin(app: &AppHandle, id: &PluginId) -> Result<beep_plugins::GitOrigin,
 
     match record.origin {
         Origin::Git(origin) => Ok(origin),
-        Origin::Local | Origin::Dev => Err(PluginsError::NotFromGit),
+        Origin::Local | Origin::Dev | Origin::Builtin => Err(PluginsError::NotFromGit),
     }
 }

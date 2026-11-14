@@ -12,13 +12,14 @@ const status = (id: string, name: string, extra: Record<string, unknown> = {}) =
   source: git(id), enabled: true, state: "running", usedMs: 0, pendingTimers: 0, ...extra,
 });
 
-/// Five plugins in five states.
+/// Six plugins in six states.
 const plugins = [
   status("composer-cat", "Composer cat", { description: "A cat sits on the message box." }),
   status("session-notes", "Session notes", { version: "0.1.0", description: "A note on each session's row, set from the session header.", permissions: ["ui.add", "sessions.read"], approved: ["ui.add", "sessions.read"], source: { kind: "local" }, state: "waiting" }),
   status("idle-timer", "Idle timer", { version: "1.0.3", description: "Shows how long a session has been quiet.", source: git("beep-plugins", { subfolder: "plugins/idle-timer", commit: "91c2e07a8b3c2d1e0f9a8b7c6d5e4f3021122334" }), enabled: false, state: "disabled" }),
   status("quote-board", "Quote board", { version: "0.4.0", description: "Adds a button that asks for sessions it was not allowed to read.", permissions: ["ui.add", "sessions.read"], approved: ["ui.add"], enabled: true, state: "needs-approval", missing: ["sessions.read"] }),
   status("dev-sketch", "Dev sketch", { version: "0.0.1", description: "Loaded from the plugins folder you set for development.", source: { kind: "dev" }, state: "stopped", reason: "used 612 ms of script time in a minute" }),
+  status("tidy-header", "Tidy header", { version: "1.0.0", description: "Ships with Beep.", source: { kind: "builtin" } }),
 ];
 
 const settings = { name: "build-box", version: "0.1", autostart: false, agent_notices: false };
@@ -109,7 +110,7 @@ test("the list shows each plugin with its source, permissions and state", async 
   const { sheet, errors } = await openPlugins(page);
   const row = (name: string) => sheet.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
 
-  await expect(sheet.getByRole("listitem")).toHaveCount(5);
+  await expect(sheet.getByRole("listitem")).toHaveCount(6);
   const cat = row("Composer cat");
   await expect(cat).toContainText("0.2.0");
   await expect(cat).toContainText("A cat sits on the message box.");
@@ -122,6 +123,7 @@ test("the list shows each plugin with its source, permissions and state", async 
   await expect(row("Idle timer")).toContainText("github.com/owner/beep-plugins, plugins/idle-timer at 91c2e07");
   await expect(row("Idle timer")).toContainText("Off");
   await expect(row("Quote board")).toContainText("Needs approval");
+  await expect(row("Tidy header")).toContainText("Built in");
   await expect(row("Dev sketch")).toContainText("Dev folder");
   await expect(row("Dev sketch")).toContainText("Stopped: used 612 ms of script time in a minute");
 
@@ -133,6 +135,10 @@ test("the list shows each plugin with its source, permissions and state", async 
   await expect(sheet.getByRole("button", { name: "Update Composer cat" })).toBeVisible();
   await expect(sheet.getByRole("button", { name: "Update Session notes" })).toHaveCount(0);
   await expect(sheet.getByRole("button", { name: "Update Dev sketch" })).toHaveCount(0);
+  await expect(sheet.getByRole("switch", { name: "Tidy header" })).toBeEnabled();
+  await expect(sheet.getByRole("button", { name: "Remove Tidy header" })).toHaveCount(0);
+  await expect(sheet.getByRole("button", { name: "Remove Dev sketch" })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "Update Tidy header" })).toHaveCount(0);
   await expect(sheet.getByRole("button", { name: "Install from Git…" })).toBeVisible();
   await expect(sheet.getByRole("button", { name: "Install from folder…" })).toBeVisible();
   await expect(sheet.getByRole("button", { name: "Open plugins folder" })).toBeVisible();
@@ -178,7 +184,7 @@ test("Install from Git shows the permissions, then installs on Allow and install
 
   await expect(consent).toHaveCount(0);
   expect(await calls(page, "plugins_confirm")).toEqual([{ stage: "11111111-1111-4111-8111-111111111111" }]);
-  await expect(sheet.getByRole("listitem")).toHaveCount(6);
+  await expect(sheet.getByRole("listitem")).toHaveCount(7);
   await expect(sheet.getByRole("listitem").filter({ hasText: "Pocket timer" })).toContainText("On");
   await expect(form).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -205,7 +211,7 @@ test("cancelling or pressing Escape on the consent sheet throws the staged plugi
 
   expect(await calls(page, "plugins_cancel")).toEqual([{ stage: "11111111-1111-4111-8111-111111111111" }, { stage: "11111111-1111-4111-8111-111111111111" }]);
   expect(await calls(page, "plugins_confirm")).toEqual([]);
-  await expect(sheet.getByRole("listitem")).toHaveCount(5);
+  await expect(sheet.getByRole("listitem")).toHaveCount(6);
 });
 
 test("a typed error shows next to the form and keeps what was typed", async ({ page }) => {
@@ -295,13 +301,13 @@ test("Remove names the plugin, can be cancelled and then removes it", async ({ p
   const confirm = page.getByRole("dialog", { name: "Remove Idle timer?" });
   await expect(confirm).toBeVisible();
   await confirm.getByRole("button", { name: "Cancel" }).click();
-  await expect(sheet.getByRole("listitem")).toHaveCount(5);
+  await expect(sheet.getByRole("listitem")).toHaveCount(6);
   expect(await calls(page, "plugins_remove")).toEqual([]);
 
   await sheet.getByRole("button", { name: "Remove Idle timer" }).click();
   await page.getByRole("dialog", { name: "Remove Idle timer?" }).getByRole("button", { name: "Remove", exact: true }).click();
 
-  await expect(sheet.getByRole("listitem")).toHaveCount(4);
+  await expect(sheet.getByRole("listitem")).toHaveCount(5);
   await expect(sheet.getByRole("listitem").filter({ hasText: "Idle timer" })).toHaveCount(0);
   expect(await calls(page, "plugins_remove")).toEqual([{ id: "idle-timer" }]);
 });
@@ -315,7 +321,7 @@ test("a failed removal shows its message in the sheet and keeps the plugin", asy
 
   await expect(confirm).toContainText("cannot delete the plugin's folder: permission denied");
   await confirm.getByRole("button", { name: "Cancel" }).click();
-  await expect(sheet.getByRole("listitem")).toHaveCount(5);
+  await expect(sheet.getByRole("listitem")).toHaveCount(6);
 });
 
 test("an empty list says what plugins are and offers both installs", async ({ page }) => {

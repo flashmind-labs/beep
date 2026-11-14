@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -102,6 +102,9 @@ pub enum Origin {
     Git(GitOrigin),
     /// A folder of a development plugins folder that was never installed.
     Dev,
+    /// A plugin that ships with the app: always allowed, replaced by the app's
+    /// copy at launch, and never removed.
+    Builtin,
 }
 
 impl Origin {
@@ -109,7 +112,7 @@ impl Origin {
     /// the same repository and folder, or a local folder again.
     pub fn accepts_update_from(&self, other: &Origin) -> bool {
         match (self, other) {
-            (Origin::Local, Origin::Local) => true,
+            (Origin::Local, Origin::Local) | (Origin::Builtin, Origin::Builtin) => true,
             (Origin::Git(old), Origin::Git(new)) => {
                 old.url == new.url && old.subfolder == new.subfolder
             }
@@ -154,6 +157,8 @@ pub(crate) struct Assessment {
 pub(crate) struct Managed {
     dir: PathBuf,
     policy: Policy,
+    /// The ids of the plugins that ship with the app.
+    builtins: BTreeSet<PluginId>,
     records: Mutex<BTreeMap<PluginId, Record>>,
 }
 
@@ -179,8 +184,19 @@ impl Managed {
         Self {
             dir: dir.to_path_buf(),
             policy,
+            builtins: BTreeSet::new(),
             records: Mutex::new(records),
         }
+    }
+
+    /// Reserves the ids of the plugins that ship with the app.
+    pub(crate) fn with_builtins(mut self, ids: impl IntoIterator<Item = PluginId>) -> Self {
+        self.builtins = ids.into_iter().collect();
+        self
+    }
+
+    pub(crate) fn is_builtin_id(&self, id: &PluginId) -> bool {
+        self.builtins.contains(id)
     }
 
     pub(crate) fn policy(&self) -> Policy {

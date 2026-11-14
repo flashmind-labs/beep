@@ -103,7 +103,7 @@ function Row({ row, store, state, working }: { row: PluginRow; store: PluginsSet
       <span className="acts">
         {offers.allow && <button type="button" className="dbtn pri small" aria-label={`Allow ${row.name}`} disabled={working || busy} onClick={() => { void store.allow(row.id); }}>Allow…</button>}
         {offers.update && <button type="button" className="dbtn small" aria-label={`Update ${row.name}`} disabled={working || busy || check?.kind === "checking"} onClick={() => { void store.update(row.id); }}>Update</button>}
-        <button type="button" className="dbtn quiet small" aria-label={`Remove ${row.name}`} disabled={busy} onClick={() => askRemove(store, row)}>Remove…</button>
+        {offers.remove && <button type="button" className="dbtn quiet small" aria-label={`Remove ${row.name}`} disabled={busy} onClick={() => askRemove(store, row)}>Remove…</button>}
       </span>
     </div>
     {check !== null && <span className={`dsub plg-note${check.kind === "failed" ? " bad" : ""}`} role={check.kind === "failed" ? "alert" : "status"}>{updateLine(check)}</span>}

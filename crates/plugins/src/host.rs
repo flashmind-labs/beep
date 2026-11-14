@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::asset::{Asset, AssetHash};
 use crate::event::{EventError, Limiter, Mailbox, UiEvent};
-use crate::install::{ManageError, Preview, clean_leftovers};
+use crate::install::{Builtin, ManageError, Preview, clean_leftovers};
 use crate::instance::{InstanceBatch, InstanceError, Instances};
 use crate::job::PluginJob;
 use crate::managed::{Managed, Origin, Policy, Record, Verdict};
@@ -128,8 +128,14 @@ impl Host {
     /// `handler` what is shown and which topics the plugins follow. Plugins that start
     /// at launch are running when it returns; the others wait for their activation.
     /// Plugins stay paused until a window reports that it is visible. `policy` says
-    /// whether a plugin with no record runs.
-    pub fn start(dir: PathBuf, handler: impl Handler, policy: Policy) -> Result<Host, HostError> {
+    /// whether a plugin with no record runs. `builtins` ship with the app: they are
+    /// installed and allowed here (not under `Policy::Dev`) and cannot be removed.
+    pub fn start(
+        dir: PathBuf,
+        handler: impl Handler,
+        policy: Policy,
+        builtins: &[Builtin],
+    ) -> Result<Host, HostError> {
         let folder = |source| HostError::Folder {
             path: dir.clone(),
             source,
@@ -137,7 +143,10 @@ impl Host {
         std::fs::create_dir_all(&dir).map_err(folder)?;
         let dir = dir.canonicalize().map_err(folder)?;
         clean_leftovers(&dir);
-        let managed = Arc::new(Managed::load(&dir, policy));
+        let managed =
+            Managed::load(&dir, policy).with_builtins(builtins.iter().map(|b| b.id.clone()));
+        managed.sync_builtins(&dir, builtins);
+        let managed = Arc::new(managed);
 
         let (events, inbox) = mpsc::channel();
         let sender = events.clone();
@@ -270,8 +279,12 @@ impl Host {
     /// Stops a plugin, then deletes its folder and its record.
     pub fn remove(&self, id: &PluginId) -> Result<(), ManageError> {
         let folder = self.dir.join(id.to_string());
-        if !folder.is_dir() && self.managed.record(id).is_none() {
+        let record = self.managed.record(id);
+        if !folder.is_dir() && record.is_none() {
             return Err(ManageError::Unknown(id.clone()));
+        }
+        if record.is_some_and(|record| record.origin == Origin::Builtin) {
+            return Err(ManageError::Builtin(id.clone()));
         }
 
         // A disabled record keeps the plugin from starting again while its

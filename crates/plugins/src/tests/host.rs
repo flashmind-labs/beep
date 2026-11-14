@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::*;
 use crate::event::Action;
-use crate::install::PreviewKind;
+use crate::install::{Builtin, PreviewKind};
 use crate::instance::{
     ComposerContext, Instance, InstanceKey, InstanceRef, SessionHeaderContext, SessionRowContext,
     SlotContext,
@@ -105,7 +105,13 @@ fn start_reporting(
 ) {
     let (shown, shown_rx) = mpsc::channel();
     let (wanted, wanted_rx) = mpsc::channel();
-    let host = Host::start(dir.to_path_buf(), Reports { shown, wanted }, Policy::Dev).unwrap();
+    let host = Host::start(
+        dir.to_path_buf(),
+        Reports { shown, wanted },
+        Policy::Dev,
+        &[],
+    )
+    .unwrap();
     host.set_visible("test", true);
     host.set_instances(batch(vec![composer_instance()], vec![]))
         .unwrap();
@@ -952,9 +958,23 @@ fn a_started_host_lists_its_plugins_at_once() {
 }
 
 fn start_with(dir: &std::path::Path, policy: Policy) -> (Host, mpsc::Receiver<Vec<Placement>>) {
+    start_with_builtins(dir, policy, &[])
+}
+
+fn start_with_builtins(
+    dir: &std::path::Path,
+    policy: Policy,
+    builtins: &[Builtin],
+) -> (Host, mpsc::Receiver<Vec<Placement>>) {
     let (shown, shown_rx) = mpsc::channel();
     let (wanted, _wanted_rx) = mpsc::channel();
-    let host = Host::start(dir.to_path_buf(), Reports { shown, wanted }, policy).unwrap();
+    let host = Host::start(
+        dir.to_path_buf(),
+        Reports { shown, wanted },
+        policy,
+        builtins,
+    )
+    .unwrap();
     host.set_visible("test", true);
     host.set_instances(batch(vec![composer_instance()], vec![]))
         .unwrap();
@@ -1204,6 +1224,7 @@ fn the_handler_hears_when_a_status_changes() {
         root.path().to_path_buf(),
         StatusWatch(changed),
         Policy::Managed,
+        &[],
     )
     .unwrap();
     while heard.try_recv().is_ok() {}
@@ -1215,4 +1236,114 @@ fn the_handler_hears_when_a_status_changes() {
         status_of(&host, "cat-one").unwrap().state,
         PluginState::Paused
     );
+}
+
+const BUILTIN_V1: &[(&str, &[u8])] = &[
+    (
+        "beep-plugin.json",
+        br#"{ "id": "own-cat", "name": "Own", "version": "1.0.0", "permissions": ["ui.add"] }"#,
+    ),
+    (
+        "main.ts",
+        br#"beep.place({ slot: "composer" }, () => beep.text("one"));"#,
+    ),
+    ("art/frame.png", b"png"),
+];
+
+const BUILTIN_V2: &[(&str, &[u8])] = &[
+    (
+        "beep-plugin.json",
+        br#"{ "id": "own-cat", "name": "Own", "version": "2.0.0", "permissions": ["ui.add", "sessions.read"] }"#,
+    ),
+    (
+        "main.ts",
+        br#"beep.place({ slot: "composer" }, () => beep.text("two"));"#,
+    ),
+];
+
+fn own_cat(files: &'static [(&'static str, &'static [u8])]) -> [Builtin; 1] {
+    [Builtin {
+        id: plugin_id("own-cat"),
+        files,
+    }]
+}
+
+#[test]
+fn a_built_in_is_installed_allowed_and_running_at_first_start() {
+    let root = tempfile::tempdir().unwrap();
+
+    let (host, rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V1));
+
+    let status = status_of(&host, "own-cat").unwrap();
+    assert_eq!(status.source, Origin::Builtin);
+    assert_eq!(status.approved, [Permission::UiAdd]);
+    assert!(status.enabled);
+    assert!(root.path().join("own-cat/art/frame.png").is_file());
+    wait_for(&rx, |placements| texts(placements) == ["one"]);
+}
+
+#[test]
+fn a_changed_built_in_replaces_the_copy_and_keeps_the_off_switch() {
+    let root = tempfile::tempdir().unwrap();
+    let id = plugin_id("own-cat");
+    let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V1));
+    host.set_enabled(&id, false).unwrap();
+    drop(host);
+    std::fs::write(root.path().join("own-cat/main.ts"), "// edited").unwrap();
+
+    let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V2));
+
+    let status = status_of(&host, "own-cat").unwrap();
+    assert_eq!(status.version.to_string(), "2.0.0");
+    assert_eq!(status.state, PluginState::Disabled);
+    assert_eq!(
+        status.approved,
+        [Permission::UiAdd, Permission::SessionsRead]
+    );
+    assert!(!root.path().join("own-cat/art").exists());
+    let main = std::fs::read_to_string(root.path().join("own-cat/main.ts")).unwrap();
+    assert!(main.contains("two"));
+}
+
+#[test]
+fn a_built_in_cannot_be_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V1));
+
+    let refused = host.remove(&plugin_id("own-cat"));
+
+    assert!(matches!(refused, Err(ManageError::Builtin(_))));
+    assert!(root.path().join("own-cat").is_dir());
+}
+
+#[test]
+fn a_plugin_with_a_built_in_id_cannot_be_installed() {
+    let root = tempfile::tempdir().unwrap();
+    let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V1));
+    write_plugin(root.path(), ".stage-one", "meow");
+    std::fs::write(
+        root.path().join(".stage-one/beep-plugin.json"),
+        r#"{ "id": "own-cat", "name": "Mine", "version": "0.1.0" }"#,
+    )
+    .unwrap();
+
+    let refused = host.install(&root.path().join(".stage-one"), Origin::Local);
+
+    assert!(matches!(refused, Err(ManageError::Builtin(_))));
+}
+
+#[test]
+fn the_dev_policy_writes_no_built_in_and_runs_the_dev_copy() {
+    let root = tempfile::tempdir().unwrap();
+    write_plugin(root.path(), "own-cat", "dev");
+
+    let (host, rx) = start_with_builtins(root.path(), Policy::Dev, &own_cat(BUILTIN_V1));
+
+    assert!(!root.path().join("own-cat/art").exists());
+    assert_eq!(status_of(&host, "own-cat").unwrap().source, Origin::Dev);
+    wait_for(&rx, |placements| texts(placements) == ["dev"]);
+
+    let empty = tempfile::tempdir().unwrap();
+    let (_host, _rx) = start_with_builtins(empty.path(), Policy::Dev, &own_cat(BUILTIN_V1));
+    assert!(!empty.path().join("own-cat").exists());
 }

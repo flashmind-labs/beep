@@ -187,6 +187,8 @@ body.cbody
             span.tt "Instructions"
           button.cc-si [data-goto="skills"]
             span.tt "Skills"
+          button.cc-si [data-goto="plugins"]
+            span.tt "Plugins"
         small.dset-ver "Beep desktop 0.9.0"
       div.dset-body
         div.dset-top

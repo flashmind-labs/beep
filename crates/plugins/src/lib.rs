@@ -19,7 +19,7 @@ mod ui;
 pub use asset::{Asset, AssetHash, AssetRef, InvalidAssetHash};
 pub use event::{Action, EventError, UiEvent};
 pub use host::{Handler, Host, HostError};
-pub use install::{MAX_PLUGIN_BYTES, ManageError, Preview, PreviewKind, check_tree};
+pub use install::{Builtin, MAX_PLUGIN_BYTES, ManageError, Preview, PreviewKind, check_tree};
 pub use instance::{
     ComposerContext, Instance, InstanceBatch, InstanceError, InstanceKey, InstanceRef,
     SessionHeaderContext, SessionRowContext, SlotContext,

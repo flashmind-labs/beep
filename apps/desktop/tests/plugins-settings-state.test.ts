@@ -84,8 +84,9 @@ test("the state line says what the user sees", () => {
 });
 
 test("a row offers update for git plugins and allow for plugins that need approval", () => {
-  assert.deepEqual(rowOffers(row()), { on: true, switchLocked: false, update: true, allow: false });
-  assert.deepEqual(rowOffers(row({ source: { kind: "local" }, enabled: false, run: { state: "disabled" } })), { on: false, switchLocked: false, update: false, allow: false });
+  assert.deepEqual(rowOffers(row()), { on: true, switchLocked: false, update: true, allow: false, remove: true });
+  assert.deepEqual(rowOffers(row({ source: { kind: "local" }, enabled: false, run: { state: "disabled" } })), { on: false, switchLocked: false, update: false, allow: false, remove: true });
+  assert.equal(rowOffers(row({ source: { kind: "builtin" } })).remove, false);
   const waiting = rowOffers(row({ run: { state: "needs-approval", missing: ["ui.add"] } }));
   assert.equal(waiting.on, false, "a plugin that needs approval shows off");
   assert.equal(waiting.switchLocked, true);

@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use beep_plugins::{Handler, Host, HostError, Placement, Policy, Topic};
+use beep_plugins::{Builtin, Handler, Host, HostError, Placement, PluginId, Policy, Topic};
 use tauri::{AppHandle, Emitter};
 
 /// Names the folder plugins load from, overriding the app data folder's.
@@ -21,7 +21,57 @@ pub(crate) fn start(app: &AppHandle, data: &Path) -> Result<Host, HostError> {
     let dir = plugins_dir(configured, data);
     super::install::clean_stale(&dir);
 
-    Host::start(dir, Windows { app: app.clone() }, policy)
+    Host::start(dir, Windows { app: app.clone() }, policy, &builtins())
+}
+
+/// The composer cat's files, which are embedded in the app and shipped as a
+/// built-in plugin. `plugins/examples/composer-cat` is the source.
+const COMPOSER_CAT: &[(&str, &[u8])] = &[
+    (
+        "beep-plugin.json",
+        include_bytes!("../../../../../plugins/examples/composer-cat/beep-plugin.json"),
+    ),
+    (
+        "main.ts",
+        include_bytes!("../../../../../plugins/examples/composer-cat/main.ts"),
+    ),
+    (
+        "art/cat-blink.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-blink.png"),
+    ),
+    (
+        "art/cat-ear.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-ear.png"),
+    ),
+    (
+        "art/cat-happy.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-happy.png"),
+    ),
+    (
+        "art/cat-idle.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-idle.png"),
+    ),
+    (
+        "art/cat-tail-a.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-tail-a.png"),
+    ),
+    (
+        "art/cat-tail-b.png",
+        include_bytes!("../../../../../plugins/examples/composer-cat/art/cat-tail-b.png"),
+    ),
+];
+
+/// The plugins that ship with the app. The id is checked by a test against the
+/// embedded manifest.
+fn builtins() -> Vec<Builtin> {
+    let cat = "composer-cat".parse::<PluginId>().ok();
+
+    cat.into_iter()
+        .map(|id| Builtin {
+            id,
+            files: COMPOSER_CAT,
+        })
+        .collect()
 }
 
 /// Tells the windows what the host reports.

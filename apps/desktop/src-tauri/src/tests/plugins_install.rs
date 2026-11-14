@@ -70,7 +70,7 @@ struct Setup {
 
 fn setup() -> Setup {
     let plugins = tempfile::tempdir().unwrap();
-    let host = Host::start(plugins.path().to_path_buf(), Quiet, Policy::Managed).unwrap();
+    let host = Host::start(plugins.path().to_path_buf(), Quiet, Policy::Managed, &[]).unwrap();
 
     Setup {
         _plugins: plugins,
