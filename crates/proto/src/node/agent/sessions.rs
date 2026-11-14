@@ -761,4 +761,7 @@ pub struct RunningProcess {
     pub ports: Vec<u16>,
     #[serde(default)]
     pub left_group: bool,
+    /// The process that started it; 0 from nodes that predate it.
+    #[serde(default)]
+    pub parent: u32,
 }

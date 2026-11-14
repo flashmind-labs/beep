@@ -3,7 +3,7 @@
 import { createStore } from "zustand";
 import type { RunningActions, RunningModel } from "./running-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import type { RunningProcess } from "./running-state.ts";
+import { runningTrees, type RunningProcess } from "./running-state.ts";
 import { paneSession } from "./media.ts";
 import { draw } from "./media-draw.ts";
 import { viewKey } from "./view-memory.ts";
@@ -56,7 +56,7 @@ function syncSession() {
   if (s?.id && !s.external) queueMicrotask(() => void readRunning());
 }
 
-export function runningCount() { syncSession(); return list.length + paneTasks().length; }
+export function runningCount() { syncSession(); return runningTrees(list).length + paneTasks().length; }
 
 const visible = () => paneShown() && shellSize().width > 0 && shownDocks().length > 0;
 

@@ -361,7 +361,7 @@ body.cbody
                         i style(display)
                           svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
                         span "Running"
-                        small "2"
+                        small "3"
                     span.agwtw [hidden]
                     button.agaddterm.agpbtn [data-pact="term" title="New terminal in this folder (⌃`)"] "+ Terminal"
                     button.agpbtn [data-pact="dock" title="Dock these tabs at the bottom"]
@@ -406,18 +406,27 @@ body.cbody
                     div.agpview.running
                       div.agrunninglist
                         div.agart.agrunningrow
-                          span.t [data-whole="41" title="Click to show the whole command"]
+                          span.t [data-whole="41" title="Click to show the whole command and its processes"]
                             b "npm run dev"
                             small "since 01:20"
                           span.r
                             span ":5173"
                             button.dbtn [data-pid="41" type="button"] "Stop"
                         div.agart.agrunningrow
-                          span.t [data-whole="42" title="Click to show the whole command"]
+                          span.t [data-whole="42" title="Click to show the whole command and its processes"]
                             b "cargo watch -x check"
                             small "since 01:20"
                           span.r
                             button.dbtn [data-pid="42" type="button"] "Stop"
+                        div.agart.agrunningrow.whole
+                          span.t [data-whole="43" title="Click to fold"]
+                            b "/usr/bin/zsh -c source /srv/home/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'npm run test:browser' < /dev/null"
+                            small "since 01:20 · 3 more processes"
+                            small.child [title="npm run test:browser"] "44 npm run test:browser"
+                            small.child [title="node /srv/project/node_modules/.bin/playwright test"] "45 node playwright test"
+                            small.child [title="/srv/cache/ms-playwright/chromium_headless_shell/chrome-headless-shell --headless"] "46 chrome-headless-shell --headless"
+                          span.r
+                            button.dbtn [data-pid="43" type="button"] "Stop"
                       div.agpacts
                         span.meta "build-box · closing the session stops these"
                         span.sp
