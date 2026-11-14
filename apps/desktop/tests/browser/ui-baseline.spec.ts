@@ -335,6 +335,15 @@ for (const section of [null, "Agent accounts", "Appearance"] as const) {
 
 // Agent session
 
+test("unfolded foldable session with the sidebar collapsed", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize({ width: 750, height: 832 });
+  await openAgent(page, { mobile_paired: true });
+  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  await expect(page.locator("#agshell")).not.toHaveClass(/narrow/);
+  await baseline(page, "foldable-session");
+});
+
 test("agent session transcript", async ({ page }) => {
   await openAgent(page);
   await baseline(page, "agent-transcript");

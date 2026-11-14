@@ -94,7 +94,7 @@ export function drawSide() {
   }
 
   const host = windowHost("side");
-  placeWindowParts({ sidebar: <SidebarShell host={host} phone={onPhone()} links={links} groups={side} footer={footer(home?.machines)} addMachine={openAddMachine} /> });
+  placeWindowParts({ sidebar: <SidebarShell host={host} links={links} groups={side} footer={footer(home?.machines)} addMachine={openAddMachine} /> });
   if (currentLocation()?.view === "pane") drawTop();
 }
 

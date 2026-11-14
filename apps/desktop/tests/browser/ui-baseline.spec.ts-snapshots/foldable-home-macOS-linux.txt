@@ -5,6 +5,9 @@ body.cbody
       div.cc-head
       div.cc-brand
         b "Beep"
+        button.cc-side-toggle [aria-controls="side-content" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar" type="button"]
+          span
+            svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
       div#side-content.cc-side-list
         div.cc-grp.cc-nav
           button.cc-search.cc-si [aria-label="Search" title="Search" type="button"]
