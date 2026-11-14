@@ -572,7 +572,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dagjump:hover { border-color: var(--border-hi) }
 /* Code blocks in replies, with a copy button; tables. */
 .dcoderen.agent.md pre.dcode { position: relative; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); overflow: hidden }
-.dcoderen.agent.md pre.dcode > code { display: block; overflow-x: auto; white-space: pre; overflow-wrap: normal }
+.dcoderen.agent.md pre.dcode > code { display: block; overflow-x: auto; scrollbar-width: none; white-space: pre; overflow-wrap: normal }
 .dcoderen.agent.md pre.dcode .dcopy { all: unset; position: absolute; top: 5px; right: 6px; padding: 0 7px; border-radius: 5px; border: 1px solid var(--border); background: var(--elev); font: 11px/18px var(--body); color: var(--muted); cursor: default; opacity: 0; transition: opacity .15s }
 .dcoderen.agent.md pre.dcode:hover .dcopy, .dcoderen.agent.md pre.dcode .dcopy:focus-visible { opacity: 1 }
 .dcoderen.agent.md pre.dcode .dcopy:hover { color: var(--fg) }
@@ -685,7 +685,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .kidreply .md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px }
 .kidreply .dcoderen.agent.md pre.dcode { display: flex; align-items: flex-start; gap: 8px; overflow: hidden }
 .kidreply .dcoderen.agent.md pre.dcode .dcopy { position: static; order: 1; flex: none; opacity: 1 }
-.kidreply .md pre code { display: block; flex: 1; min-width: 0; overflow-x: auto; white-space: pre; overflow-wrap: normal }
+.kidreply .md pre code { display: block; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; white-space: pre; overflow-wrap: normal }
 .dcoderen.beepctx { font-size: 12px; color: var(--muted) }
 .dcoderen.beepctx summary { cursor: default; width: max-content }
 .dcoderen.beepctx pre { margin: 4px 0 0; padding: 6px 8px; max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 11.5px/16px var(--mono, monospace); white-space: pre-wrap }
