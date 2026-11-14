@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.9.1] - 2026-11-14
+
+### Fixed
+
+- Desktop: the Linux installers (Debian and AppImage) build again; the 0.9.0 Linux build failed because the example plugins were missing from the build.
+
 ## [0.9.0] - 2026-11-14
 
 ### Added
