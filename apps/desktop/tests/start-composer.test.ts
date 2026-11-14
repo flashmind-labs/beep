@@ -6,7 +6,7 @@ import { FolderChoice, NewAgentNotes } from "../src/agents/start-composer-view.t
 import { startDom } from "./start-react-env.ts";
 
 const actions = { submit() {}, harness() {} };
-const openMachines = () => {};
+const openMachines = () => {}, openAgents = () => {};
 
 test("machine availability notes update without replacing the composer", async () => {
   const env = startDom();
@@ -14,11 +14,11 @@ test("machine availability notes update without replacing the composer", async (
     const { makeStartComposer } = await import("../src/agents/start-composer.tsx");
     const c = makeStartComposer({ place: () => null, actions }); env.dom.window.document.body.append(c.form);
     c.input.value = "Keep this draft"; c.input.focus();
-    c.update({ notes: createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false, openMachines }) });
+    c.update({ notes: createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false, openAgents, openMachines }) });
     assert.match(c.form.textContent ?? "", /Looking for machines/);
-    c.update({ notes: createElement(NewAgentNotes, { waiting: false, none: true, noMachine: false, openMachines }) });
-    assert.ok(c.form.querySelector("#agmachines"));
-    c.update({ notes: createElement(NewAgentNotes, { waiting: false, none: false, noMachine: true, openMachines }) });
+    c.update({ notes: createElement(NewAgentNotes, { waiting: false, none: true, noMachine: false, openAgents, openMachines }) });
+    assert.match(c.form.textContent ?? "", /Install a coding agent/);
+    c.update({ notes: createElement(NewAgentNotes, { waiting: false, none: false, noMachine: true, openAgents, openMachines }) });
     assert.equal(c.form.querySelector("#agwhy")?.textContent, "Pick a machine to start.");
     assert.equal(c.input.value, "Keep this draft");
     assert.equal(document.activeElement, c.input);

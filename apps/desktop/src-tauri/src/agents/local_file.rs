@@ -100,7 +100,7 @@ pub async fn open_local_file(
 ) -> Result<()> {
     let file = resolve(&fleet, &machine_id, &root, &path)
         .await
-        .ok_or_else(|| DesktopError::BadRequest("that file is not on this Mac".into()))?;
+        .ok_or_else(|| DesktopError::BadRequest("that file is not on this computer".into()))?;
     spawn_blocking(move || {
         #[cfg(not(target_os = "macos"))]
         return match action {

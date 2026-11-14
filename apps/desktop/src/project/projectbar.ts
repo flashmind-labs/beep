@@ -44,10 +44,22 @@ export function nextBarMachine(places: readonly { machine: string; cwd: string }
   return able[(current + 1) % able.length];
 }
 
-/// What the bar's field asks for: a task, or adding the project to a machine
-/// first when it has no checkout an agent can run in.
-export function barPrompt(name: string, ready: boolean) {
-  return ready ? `Describe a task for a coding agent in ${name}` : `Add ${name} to a machine to start an agent`;
+/// Whether the bar can start an agent, or what it needs first: the project
+/// on a machine with a coding agent, or a coding agent on any machine.
+export type BarReadiness = "ready" | "no checkout" | "no agent";
+
+export function barReadiness(places: readonly { machine: string; cwd: string }[], hosts: readonly BarHost[] | null, machine: string): BarReadiness {
+  if (hosts === null || barPlace(places, hosts, machine)) return "ready";
+  return addHosts(hosts).length ? "no checkout" : "no agent";
+}
+
+/// What the bar's field asks for, and why Enter does not start yet.
+export function barPrompt(name: string, readiness: BarReadiness) {
+  switch (readiness) {
+    case "ready": return `Describe a task for a coding agent in ${name}`;
+    case "no checkout": return `Add ${name} to a machine to start an agent`;
+    case "no agent": return "No machine has a coding agent. Install one in Coding agents";
+  }
 }
 
 /// The Folder pill: what the start works on, and what it starts from.

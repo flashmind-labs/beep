@@ -40,7 +40,7 @@ async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
         })
         .await
         .unwrap_or_else(|e| Reply::Failed {
-            reason: format!("The request failed on this Mac: {e}"),
+            reason: format!("The request failed on this computer: {e}"),
             missing: None,
         });
         tx.send(&reply).await?;

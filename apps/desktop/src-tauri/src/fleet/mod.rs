@@ -360,7 +360,7 @@ impl Fleet {
         // A mesh that removed this Mac has nothing to keep.
         if old.is_member(old.me()) && old.devices().len() > 1 {
             return Err(DesktopError::BadRequest(
-                "this Mac is in a mesh with other devices".into(),
+                "this computer is in a mesh with other devices".into(),
             ));
         }
         // On disk first, so a crash after the swap still brings them along.
@@ -531,7 +531,7 @@ impl Fleet {
     pub async fn remove(&self, machine: EndpointId) -> Result<()> {
         if machine == self.me {
             return Err(DesktopError::BadRequest(
-                "this Mac cannot remove itself".into(),
+                "this computer cannot remove itself".into(),
             ));
         }
 
