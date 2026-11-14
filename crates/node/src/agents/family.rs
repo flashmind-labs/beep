@@ -227,6 +227,38 @@ impl Agents {
             .ok_or_else(|| format!("{NO_AGENT} {id}."))
     }
 
+    /// The live sessions here that other agents may list and message: every
+    /// one the user sees, oldest first.
+    pub(super) fn peers(&self) -> Vec<Arc<Session>> {
+        let mut peers: Vec<Arc<Session>> = self
+            .lock()
+            .values()
+            .filter(|session| {
+                !session.reviewer
+                    && watched::read(&session.live, |live| {
+                        live.agent_session.is_some() && live.status() != Status::Ended
+                    })
+            })
+            .cloned()
+            .collect();
+        peers.sort_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
+        peers
+    }
+
+    /// Hands `text`, from the agent `from`, to the live session `id` here,
+    /// which counts it against `PEER_MESSAGES`.
+    pub(super) async fn message(&self, from: &str, id: &str, text: String) -> Result<(), String> {
+        let session = self
+            .peers()
+            .into_iter()
+            .find(|session| session.id == id || Self::name_of(session) == id)
+            .filter(|session| Self::name_of(session) != from)
+            .ok_or_else(|| format!("No agent {id} runs there. Use agent list to find one."))?;
+
+        session.take_peer_message()?;
+        session.order(Command::Prompt(text.into())).await
+    }
+
     /// Starts the child `link` describes, here. The node that starts it
     /// checks the limits, whichever machine the parent is on.
     pub(super) async fn start_child(
