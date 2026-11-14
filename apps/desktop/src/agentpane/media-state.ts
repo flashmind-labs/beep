@@ -115,7 +115,7 @@ export const KEPT_TABS = 40;
 
 /// The narrowest a right pane and the conversation beside it get.
 const RIGHT_MIN = 280;
-const CONV_MIN_WIDTH = 300;
+const CONV_MIN_WIDTH = 360;
 /// The lowest a bottom pane and the conversation above it get.
 const BOTTOM_MIN = 150;
 const CONV_MIN_HEIGHT = 200;

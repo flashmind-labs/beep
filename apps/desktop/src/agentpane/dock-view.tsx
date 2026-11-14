@@ -50,6 +50,8 @@ const tabActions = (d: Dock): PaneTabActions => ({
   down: (event, id) => tabDown(event.nativeEvent, id, event.currentTarget),
 });
 const ACTIONS: Record<Dock, PaneTabActions> = { right: tabActions("right"), bottom: tabActions("bottom") };
+/// A folded bottom dock keeps its tabs in a row: picking one opens the dock on it.
+const UNFOLD: PaneTabActions = { ...ACTIONS.bottom, pick: id => { foldDock("bottom", false); pickTab("bottom", id); } };
 
 /// Dock `dock`: its divider, the pane with its head and views, and its strip while folded.
 export function PaneDock({ dock }: { dock: Dock }) {
@@ -80,7 +82,9 @@ export function PaneDock({ dock }: { dock: Dock }) {
         <button className="agpbtn" data-pact="fold" title="Hide the pane" onClick={() => foldDock(dock, true)}>{model && <span style={{ display: "contents" }}>{bottom ? FOLD_DOWN : FOLD_RIGHT}</span>}</button>
       </div><div className="agpviews">{model?.views.map(view => <PaneView key={view.kind === "tab" ? view.tab.id : view.kind} view={view} />)}</div></div>
     </aside>
-    <button ref={stripRefs[dock]} className="agpstrip" id={`agpstrip-${dock}`} data-dock={dock} hidden={!model?.strip} title="Show the pane" onClick={() => foldDock(dock, false)}>{model && <DockStrip model={model} />}</button></>;
+    {dock === "bottom"
+      ? <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" hidden={!model?.strip}>{model && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={UNFOLD} />}</div>
+      : <button ref={el => { stripRefs[dock].current = el; }} className="agpstrip" id={`agpstrip-${dock}`} data-dock={dock} hidden={!model?.strip} title="Show the pane" onClick={() => foldDock(dock, false)}>{model && <DockStrip model={model} />}</button>}</>;
 }
 
 function DockStrip({ model }: { model: DockModel }) {

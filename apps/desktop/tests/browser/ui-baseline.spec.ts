@@ -340,8 +340,19 @@ test("unfolded foldable session with the sidebar collapsed", async ({ page }) =>
   await page.setViewportSize({ width: 750, height: 832 });
   await openAgent(page, { mobile_paired: true });
   await page.getByRole("button", { name: "Collapse sidebar" }).click();
-  await expect(page.locator("#agshell")).not.toHaveClass(/narrow/);
+  // A phone docks Files under the conversation, never beside it.
+  await expect(page.locator("#agshell")).toHaveClass(/narrow/);
+  expect((await page.locator("#agtitle").boundingBox())?.width ?? 0).toBeGreaterThan(150);
   await baseline(page, "foldable-session");
+
+  // Folded, the dock keeps its tabs in a row; a tab opens it again.
+  await page.locator("#agpane-bottom").getByTitle("Hide the pane").click();
+  const strip = page.locator("#agpstrip-bottom");
+  await expect(strip.getByRole("tab", { name: "Changes" })).toBeVisible();
+  await baseline(page, "foldable-session-folded");
+  await strip.getByRole("tab", { name: "Changes" }).click();
+  await expect(page.locator("#agpane-bottom")).toBeVisible();
+  await expect(page.locator("#agpane-bottom .agtab.on")).toHaveAttribute("data-mtab", /changes/i);
 });
 
 test("agent session transcript", async ({ page }) => {

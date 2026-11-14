@@ -108,6 +108,8 @@ body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srg
 body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
 body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > * { pointer-events: auto }
 body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell, #pw-back) { display: none }
+/* The plan usage pill is wide: in a narrow session it would leave the title no room. Home keeps it. */
+@container (max-width: 1100px) { body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > #usage { display: none } }
 /* A project window's Back stays, at the row's start: the bar ends at the window's edge, so its
    start is the bar's own width short of the window's (cqw is of .cc-main). */
 body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top > #pw-back:not([hidden]) { position: absolute; top: 6px; left: calc(var(--top-w, 0px) - 100cqw + 6px) }
