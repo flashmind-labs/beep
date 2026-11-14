@@ -113,60 +113,91 @@ fn direct(told: Told) -> Direct {
 /// Follows `id`'s native CLI sessions, again after each break, until the
 /// receiver goes.
 async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
-    keep(&fleet, id, "session presence", async |replied| {
-        stream(&fleet, id, &out, replied).await
-    })
-    .await;
+    let mut retry = Retry::new("session presence");
+
+    loop {
+        let mut replied = false;
+        let followed = stream(&fleet, id, &out, &mut replied).await;
+
+        if !retry.again(&fleet, id, followed, replied).await {
+            return;
+        }
+    }
 }
 
 /// Follows `id`'s phones, again after each break, until the receiver goes,
 /// telling the app of each new one. The phones of the first list were
 /// there before, so they tell nothing.
 async fn phones(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
+    let mut retry = Retry::new("phones");
     let mut known = None;
-    keep(&fleet, id, "phones", async |replied| {
-        phone_stream(&fleet, id, &out, &mut known, replied).await
-    })
-    .await;
-}
-
-/// Runs `follow` on `id`, again after each break with a pause that grows
-/// while it fails, until it returns `Ok`: the receiver is gone. `follow`
-/// sets its flag once the machine sent anything.
-async fn keep(
-    fleet: &Fleet,
-    id: EndpointId,
-    what: &str,
-    mut follow: impl AsyncFnMut(&mut bool) -> Result<()>,
-) {
-    let mut backoff = Backoff::eager();
-    // An offline machine fails the same way on every try: logged once,
-    // and again when the error changes or after a stream that worked.
-    let mut logged = None;
 
     loop {
-        let started = Instant::now();
         let mut replied = false;
+        let followed = phone_stream(&fleet, id, &out, &mut known, &mut replied).await;
 
-        match follow(&mut replied).await {
-            Ok(()) => return,
-            Err(e) => {
-                let error = e.to_string();
+        if !retry.again(&fleet, id, followed, replied).await {
+            return;
+        }
+    }
+}
 
-                if logged.as_ref() != Some(&error) {
-                    log::debug!("following {what} from {}: {error}", fleet.name_of(id));
-                    logged = Some(error);
-                }
+/// When a machine's stream is opened again after it broke: at once after
+/// one that worked, else after a pause that grows while it fails.
+struct Retry {
+    what: &'static str,
+    backoff: Backoff,
+    /// An offline machine fails the same way on every try: logged once,
+    /// and again when the error changes or after a stream that worked.
+    logged: Option<String>,
+    started: Instant,
+}
+
+impl Retry {
+    fn new(what: &'static str) -> Self {
+        Self {
+            what,
+            backoff: Backoff::eager(),
+            logged: None,
+            started: Instant::now(),
+        }
+    }
+
+    /// Waits to follow `id` again after a stream ended with `followed`;
+    /// false once it ended with `Ok`, when the receiver is gone. `replied`
+    /// says whether the machine sent anything.
+    async fn again(
+        &mut self,
+        fleet: &Fleet,
+        id: EndpointId,
+        followed: Result<()>,
+        replied: bool,
+    ) -> bool {
+        if let Err(e) = followed {
+            let error = e.to_string();
+
+            if self.logged.as_ref() != Some(&error) {
+                log::debug!(
+                    "following {} from {}: {error}",
+                    self.what,
+                    fleet.name_of(id)
+                );
+                self.logged = Some(error);
             }
+        } else {
+            return false;
         }
 
-        if held(replied, started.elapsed()) {
-            backoff.reset();
-            logged = None;
+        if held(replied, self.started.elapsed()) {
+            self.backoff.reset();
+            self.logged = None;
         }
 
         until_online(fleet, id).await;
-        sleep(backoff.pause()).await;
+        sleep(self.backoff.pause()).await;
+        self.started = Instant::now();
+
+        true
     }
 }
 
