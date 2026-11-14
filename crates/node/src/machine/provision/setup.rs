@@ -4,7 +4,7 @@
 
 use super::{
     spawn_env::{self, Scope},
-    tools::{curl, listed_sha256, remove_dir, verify},
+    tools::{curl, listed_sha256, remove_dir, unpack, verify},
 };
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::setup::Reply;
@@ -107,10 +107,7 @@ async fn unpack_node(dir: &Path, work: &Path, version: &str, stem: &str, ext: &s
     let check = archive.clone();
     tokio::task::spawn_blocking(move || verify(&check, &sha256)).await??;
 
-    // tar reads zip too on Windows, and finds the compression itself.
-    let mut tar = crate::run::process::command("tar");
-    tar.arg("-xf").arg(&archive).arg("-C").arg(work);
-    run(tar, "unpacking Node.js").await?;
+    unpack(&archive, work).await?;
 
     let home = node_home(dir);
     remove_dir(&home).await?;

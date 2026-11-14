@@ -20,7 +20,6 @@ fn each_machine_gets_its_own_build() {
     let mac = node_dist("macos", "aarch64", false).expect("a build");
     assert_eq!(mac.archive("v24.11.1"), "node-v24.11.1-darwin-arm64.tar.gz");
     let windows = node_dist("windows", "x86_64", false).expect("a build");
-    assert!(windows.is_zip());
     assert_eq!(windows.archive("v24.11.1"), "node-v24.11.1-win-x64.zip");
     assert_eq!(node_dist("freebsd", "x86_64", false), None);
     assert_eq!(node_dist("linux", "riscv64", false), None);

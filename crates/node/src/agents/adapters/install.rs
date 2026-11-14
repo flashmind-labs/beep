@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     agents::kinds::{Adapter, Known},
-    machine::provision::{curl, listed_sha256, remove_dir, spawn_env, verify},
+    machine::provision::{curl, listed_sha256, remove_dir, spawn_env, unpack, verify},
     run::process::command,
 };
 use anyhow::{Context, Result, bail};
@@ -110,7 +110,7 @@ async fn download_node(dist: &NodeDist, stage: &Path) -> Result<PathBuf> {
     curl(&dist.url(&version), Some(&download)).await?;
     let file = download.clone();
     spawn_blocking(move || verify(&file, &sha256)).await??;
-    unpack(&download, dist.is_zip(), stage).await?;
+    unpack(&download, stage).await?;
     let unpacked = stage.join(dist.folder(&version));
     let program = layout::node_program(&unpacked, env::consts::OS);
     let mut version_of = command(&program);
@@ -120,25 +120,6 @@ async fn download_node(dist: &NodeDist, stage: &Path) -> Result<PathBuf> {
         .context("the downloaded node does not run")?;
     log::info!("Node.js {} unpacked", String::from_utf8_lossy(&out).trim());
     Ok(unpacked)
-}
-
-/// Unpacks the whole archive into `into`, with the `tar` every supported
-/// system has. Windows' own reads zip files too; it is named by its path,
-/// since Git for Windows puts a GNU tar that does not on `PATH`.
-async fn unpack(archive: &Path, zip: bool, into: &Path) -> Result<()> {
-    let windows_tar = env::var_os("SystemRoot")
-        .map(|root| PathBuf::from(root).join("System32").join("tar.exe"))
-        .filter(|tar| cfg!(windows) && tar.is_file());
-    let mut tar =
-        command(windows_tar.map_or_else(|| OsString::from("tar"), PathBuf::into_os_string));
-    tar.arg(if zip { "-xf" } else { "-xzf" })
-        .arg(archive)
-        .arg("-C")
-        .arg(into);
-    run(&mut tar, LOCAL_TIMEOUT)
-        .await
-        .with_context(|| format!("unpacking {}", archive.display()))?;
-    Ok(())
 }
 
 /// Installs `package` under the npm prefix `prefix` with the npm of the
