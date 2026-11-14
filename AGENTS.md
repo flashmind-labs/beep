@@ -54,18 +54,24 @@ server features, and nodes do not connect to it.
   bottom. Separate a function's stages with blank lines, including around
   control-flow blocks and before a tail return.
 
-### TypeScript
+### TypeScript and React
 
-- Application code is TypeScript. Model the domain in types: named types and
-  discriminated unions for identifiers, navigation, requests and state, with
-  exhaustive handling, not loose strings and bags of optional fields.
+- The UI is React with TypeScript. A piece of UI is a React component by
+  default: state in hooks or a store, events as props, lists as keyed
+  elements. Do not build or patch DOM by hand (`createElement` chains,
+  `innerHTML`, `querySelector` wiring, manual listeners); when you touch code
+  that does, move it to a component. The exception is something very simple
+  that has no state and no events, such as a formatter or a constant.
+- Model the domain in types: named types and discriminated unions for
+  identifiers, navigation, requests and state, with exhaustive handling, not
+  loose strings and bags of optional fields.
 - No `undefined` in models and APIs: use `null` or a named variant, and make
   required values required. Handle missing values from browser and library
   APIs at the boundary.
 - No `any`, non-null assertions or casts that bypass checking. Validate
   external data before using it.
-- Use typed libraries and frameworks for UI, navigation and shortcuts instead
-  of handwritten DOM wiring. State has one owner.
+- Use typed libraries for navigation, popovers, shortcuts and other shared
+  behavior (`react-aria-components` is already here). State has one owner.
 
 ### Rust
 
