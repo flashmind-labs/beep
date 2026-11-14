@@ -4,7 +4,6 @@
 //! sign-in" saves it.
 
 use crate::{
-    bar::app::open_url,
     error::Result,
     fleet::projects::FleetState,
     settings::cli_login::{find_tool, refused, save_gh_login},
@@ -235,7 +234,7 @@ async fn watch(
                 log::warn!("showing the GitHub code: {e}");
             }
 
-            if let Err(e) = open_url(device.url) {
+            if let Err(e) = crate::platform::open(&device.url) {
                 log::warn!("opening GitHub's device page: {e}");
             }
         }
