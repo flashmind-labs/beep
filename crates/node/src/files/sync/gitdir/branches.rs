@@ -58,15 +58,16 @@ impl Repo {
             name.starts_with(HEADS) && name.len() <= MAX_BRANCH_NAME,
             "Only local Git branches may be requested"
         );
-        self.run(&["check-ref-format", name])?;
+        gix::refs::FullName::try_from(name).context("Invalid Git branch name")?;
         Ok(())
     }
 
+    /// The object ref `name` points at, without peeling a tag.
     pub(in crate::files::sync) fn ref_oid(&self, name: &str) -> Option<Oid> {
-        let out = self
-            .run(&["rev-parse", "-q", "--verify", "--end-of-options", name])
-            .ok()?;
-        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+        let repo = self.gix().ok()?;
+        let mut reference = repo.try_find_reference(name).ok()??;
+        let id = reference.follow_to_object().ok()?;
+        Some(Oid::from(id.as_ref()))
     }
 
     pub(in crate::files::sync) fn peer_ref(peer: &EndpointId, branch: &str) -> Result<String> {

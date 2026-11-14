@@ -188,6 +188,22 @@ pub(super) fn ref_name(path: &str) -> &str {
     path.strip_prefix(PREFIX).unwrap_or(path)
 }
 
+/// When the object `id` was made, in seconds, as `for-each-ref`'s
+/// `creatordate` gives it: a commit's committer time, a tag's tagger time,
+/// and 0 for anything else.
+fn created(repo: &gix::Repository, id: &gix::oid) -> i64 {
+    let Ok(object) = repo.find_object(id) else {
+        return 0;
+    };
+
+    let seconds = match object.kind {
+        gix::object::Kind::Commit => object.into_commit().committer().ok().map(|s| s.seconds()),
+        gix::object::Kind::Tag => object.into_tag().tagger().ok().flatten().map(|s| s.seconds()),
+        _ => None,
+    };
+    seconds.unwrap_or(0)
+}
+
 /// An object name. SHA-1 names fill 20 of the bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Oid(#[serde(with = "serde_bytes")] [u8; 32]);
@@ -201,6 +217,22 @@ impl From<[u8; 32]> for Oid {
 impl AsRef<[u8; 32]> for Oid {
     fn as_ref(&self) -> &[u8; 32] {
         &self.0
+    }
+}
+
+impl From<&gix::oid> for Oid {
+    fn from(id: &gix::oid) -> Self {
+        let mut bytes = [0; 32];
+        bytes[..id.as_bytes().len()].copy_from_slice(id.as_bytes());
+        Self(bytes)
+    }
+}
+
+impl TryFrom<Oid> for gix::ObjectId {
+    type Error = anyhow::Error;
+
+    fn try_from(oid: Oid) -> Result<Self> {
+        Ok(oid.to_string().parse()?)
     }
 }
 
@@ -582,20 +614,29 @@ impl Repo {
         Ok(output)
     }
 
-    /// Every ref that travels, as the list names them.
+    /// This repository for questions about refs and history, answered in
+    /// process instead of by a git process. Like [`Self::git`], it ignores the
+    /// environment and global config that could point it elsewhere.
+    pub(super) fn gix(&self) -> Result<gix::Repository> {
+        gix::open_opts(self.root.join(GIT), gix::open::Options::isolated())
+            .context("opening the Git repository")
+    }
+
+    /// Every ref that travels, as the list names them. The sync asks this on
+    /// every scan and peer catalog, so it is read in process.
     pub(super) fn refs(&self) -> Result<Vec<RefNow>> {
-        let format = "--format=%(objectname)%00%(creatordate:unix)%00%(symref)%00%(refname)";
-        let output = self.run(&["for-each-ref", format])?;
+        let repo = self.gix()?;
         let mut refs = Vec::new();
 
-        for line in output.stdout.split(|&b| b == b'\n') {
-            let mut fields = line.split(|&b| b == 0).map(std::str::from_utf8);
-            let (Some(Ok(oid)), Some(Ok(when)), Some(Ok("")), Some(Ok(name))) =
-                (fields.next(), fields.next(), fields.next(), fields.next())
-            else {
+        for reference in repo.references()?.all()? {
+            let Ok(reference) = reference else {
                 continue;
             };
-            let Some(oid) = oid.parse::<Oid>().ok() else {
+            // A symbolic ref names another ref, which is listed itself.
+            let Some(id) = reference.target().try_id().map(ToOwned::to_owned) else {
+                continue;
+            };
+            let Ok(name) = std::str::from_utf8(reference.name().as_bstr()) else {
                 continue;
             };
             let path = format!("{PREFIX}{name}");
@@ -604,17 +645,17 @@ impl Repo {
                 continue;
             }
 
-            let secs: i64 = when.parse().unwrap_or(0);
             refs.push(RefNow {
                 found: Found {
                     path,
                     abs: self.root.clone(),
-                    stat: ref_stat(secs.saturating_mul(1000)),
+                    stat: ref_stat(created(&repo, &id).saturating_mul(1000)),
                 },
-                oid,
+                oid: Oid::from(id.as_ref()),
             });
         }
 
+        refs.sort_by(|a, b| a.found.path.cmp(&b.found.path));
         Ok(refs)
     }
 
@@ -622,10 +663,8 @@ impl Repo {
     /// `HEAD` or the ref it names changes.
     pub(super) fn head(&self) -> Option<Oid> {
         crate::agents::found::head(&self.root, || {
-            let output = self
-                .run(&["rev-parse", "-q", "--verify", "HEAD^{commit}"])
-                .ok()?;
-            Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            let id = self.gix().ok()?.head_commit().ok()?.id;
+            Some(id.to_string())
         })?
         .parse()
         .ok()
@@ -672,22 +711,20 @@ impl Repo {
     /// Whether `a` is an ancestor of `b`; `None` when git cannot say, as when
     /// one of them has not come yet.
     pub(super) fn is_ancestor(&self, a: Oid, b: Oid) -> Option<bool> {
-        let status = self
-            .git()
-            .args([
-                "merge-base",
-                "--is-ancestor",
-                &a.to_string(),
-                &b.to_string(),
-            ])
-            .output()
-            .ok()?
-            .status;
-        match status.code() {
-            Some(0) => Some(true),
-            Some(1) => Some(false),
-            _ => None,
+        let repo = self.gix().ok()?;
+        let a = gix::ObjectId::try_from(a).ok()?;
+        let b = gix::ObjectId::try_from(b).ok()?;
+
+        if !repo.has_object(a) || !repo.has_object(b) {
+            return None;
         }
+
+        if a == b {
+            return Some(true);
+        }
+
+        // An error means part of a history has not come.
+        Some(repo.merge_base(a, b).ok()?.is_some_and(|base| base == a))
     }
 
     /// Sets ref `name` to `new` if it is still `old`.

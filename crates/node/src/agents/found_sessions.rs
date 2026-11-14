@@ -580,6 +580,7 @@ impl Agents {
         };
 
         self.prepare(kind).await?;
+        super::restart::to_project(kind, id, Path::new(&cwd)).await;
         let begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
         let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
