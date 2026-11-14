@@ -1,8 +1,12 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
-  "identifier": "mobile",
-  "windows": ["center"],
-  "platforms": ["iOS", "android"],
+  "identifier": "ios",
+  "windows": [
+    "center"
+  ],
+  "platforms": [
+    "iOS"
+  ],
   "permissions": [
     "barcode-scanner:allow-scan",
     "barcode-scanner:allow-cancel",

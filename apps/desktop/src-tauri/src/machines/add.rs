@@ -8,9 +8,9 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
 };
-use beep_mesh::{DeviceKind, JoinTicket, MeshError};
+use beep_mesh::{DeviceKind, JoinTicket, MeshError, PhoneTicket};
 use iroh_tickets::Ticket;
-use qrcode::{QrCode, render::svg::Color};
+use qrcode::{EcLevel, QrCode, render::svg::Color};
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
 use tauri::State;
@@ -62,7 +62,7 @@ pub async fn mesh_invite(
         DeviceKind::Desktop => token.clone(),
     };
     let qr_svg = if phone.unwrap_or(false) {
-        Some(qr_svg(&token)?)
+        Some(qr_svg(&PhoneTicket::from(&ticket))?)
     } else {
         None
     };
@@ -91,9 +91,12 @@ pub async fn mesh_join(fleet: State<'_, Arc<Fleet>>, ticket: String) -> Result<(
     }
 }
 
-/// `data` as a QR code for a phone to scan.
-fn qr_svg(data: &str) -> Result<String> {
-    let qr = QrCode::new(data.as_bytes()).map_err(|e| DesktopError::BadRequest(e.to_string()))?;
+/// `code` as a QR code for a phone to scan: in capitals, which a QR code packs smaller, at the
+/// lowest error correction, so its modules stay large enough to read off a screen.
+fn qr_svg(code: &PhoneTicket) -> Result<String> {
+    let data = code.encode_string().to_ascii_uppercase();
+    let qr = QrCode::with_error_correction_level(data, EcLevel::L)
+        .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
     Ok(qr
         .render::<Color>()
         .quiet_zone(false)

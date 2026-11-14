@@ -45,6 +45,27 @@ fn linux_dir(state: Option<PathBuf>, data: Option<PathBuf>) -> Option<PathBuf> {
 /// Starts logging to the file, written on a thread of its own. The guard
 /// flushes it when dropped. Without a file the app runs as before, silent.
 pub fn start() -> Option<WorkerGuard> {
+    // Android has no log folder a user can reach; stderr reaches logcat.
+    #[cfg(target_os = "android")]
+    {
+        let filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(LOG_FILTER));
+        if let Err(e) = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(std::io::stderr)
+            .with_ansi(false)
+            .try_init()
+        {
+            eprintln!("no log: {e}");
+        }
+        None
+    }
+    #[cfg(not(target_os = "android"))]
+    start_file()
+}
+
+#[cfg(not(target_os = "android"))]
+fn start_file() -> Option<WorkerGuard> {
     let dir = dir()?;
     let file = match appender(&dir) {
         Ok(file) => file,

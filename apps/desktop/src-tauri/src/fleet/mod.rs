@@ -615,7 +615,7 @@ impl Fleet {
         }
 
         let mesh =
-            Mesh::join_replacing_lone(&self.dir, self.endpoint.clone(), &ticket, name).await?;
+            Mesh::join_replacing_lone(&self.dir, self.endpoint.clone(), ticket, name).await?;
         self.observe(mesh).await;
         self.ready().await.map(|_| ())
     }

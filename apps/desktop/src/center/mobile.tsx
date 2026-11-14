@@ -85,7 +85,7 @@ function apply() {
   syncMobile();
 }
 
-/// A long press opens the menu a right-click does: the touch webviews send no `contextmenu`
+/// A long press opens the menu a right-click does, in either layout on a phone: the touch webviews send no `contextmenu`
 /// of their own (iOS) or send it late (Android).
 function longPress() {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -94,7 +94,7 @@ function longPress() {
   document.addEventListener("touchstart", e => {
     clearTimeout(timer);
     const t = e.touches[0], target = e.target;
-    if (e.touches.length !== 1 || !(target instanceof Element) || !document.body.classList.contains("mobile")) return;
+    if (e.touches.length !== 1 || !(target instanceof Element) || !(onPhone() || document.body.classList.contains("mobile"))) return;
     if (target.closest("input, textarea, .tm-term, .cc-menu")) return;
     from = { x: t.clientX, y: t.clientY };
     timer = setTimeout(() => {
@@ -328,6 +328,8 @@ function watchNetwork() {
 
 export function initMobile() {
   mounted = true;
+  // Styles that differ on a phone in either layout, such as the narrower folded sidebar.
+  document.documentElement.toggleAttribute("data-phone", onPhone());
   drawMobile(at());
   apply();
   window.addEventListener("resize", apply);

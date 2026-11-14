@@ -84,8 +84,10 @@ pub fn run() {
         Some(vec![LOGIN_ARG]),
     ));
     // The camera that scans the pairing QR code.
-    #[cfg(mobile)]
+    #[cfg(target_os = "ios")]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_qr_scan::init());
     builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())

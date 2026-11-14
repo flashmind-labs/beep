@@ -118,10 +118,25 @@ ios-run device="":
     just ios-ipa
     just ios-install "$1"
 
-# Build the phone app's debug APK for arm64
+# Build the phone app's release APK for arm64, signed with the SDK's debug key for adb installs
 android-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
     bash scripts/tauri-init.sh android
-    cd apps/desktop && npm ci --silent && npm run tauri -- android build -v --debug --apk --target aarch64
+    cd apps/desktop
+    npm ci --silent
+    npm run tauri -- android build --apk --target aarch64
+    # Tauri leaves release APKs unsigned; adb installs need a signature, so use the SDK's debug key.
+    store=~/.android/debug.keystore
+    [ -f "$store" ] || keytool -genkeypair -keystore "$store" -alias androiddebugkey -storepass android -keypass android \
+        -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug" > /dev/null
+    sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:?set ANDROID_HOME}}
+    apksigner=$(ls "$sdk"/build-tools/*/apksigner | sort -V | tail -1)
+    out=src-tauri/gen/android/app/build/outputs/apk
+    apk=$(find "$out" -name '*release-unsigned.apk' | head -1)
+    "$apksigner" sign --ks "$store" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android \
+        --out "$out/beep-android.apk" "$apk"
+    echo "adb install -r apps/desktop/$out/beep-android.apk"
 
 # Build, install and launch the phone app on a connected Android device or emulator
 android-run:

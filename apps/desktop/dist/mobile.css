@@ -150,13 +150,13 @@ body.mobile .cc-pal { max-width: calc(100% - 16px) }
 body.mobile .cc-pal .it { min-height: 44px }
 body.mobile .cc-set-scrim, body.mobile .cc-scrim { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right) }
 
-/* Wide tables scroll sideways; keyboard hints have no keyboard to point at. */
+/* Wide tables scroll sideways; keyboard hints have no keyboard to point at, on any phone. */
 body.mobile .mstats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px }
 body.mobile .mgrid { grid-template-columns: minmax(0, 1fr) }
 body.mobile .mcard .cc-row.tl-row { min-height: 44px }
 body.mobile .dcoderen.agent.md :is(th, td) { min-width: 9em }
 body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
-body.mobile kbd, body.mobile .dhints, body.mobile .agkeys, body.mobile .dv-keys, body.mobile .cc-pal .foot, body.mobile .agpacts .hint { display: none }
+:is(body.mobile, html[data-phone] body) :is(kbd, .dhints, .agkeys, .dv-keys, .cc-pal .foot, .agpacts .hint) { display: none }
 /* Time filters keep each label on one line; the row scrolls when it runs out. */
 body.mobile .pj-ctl .seg { min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none }
 body.mobile .pj-ctl .dbtn { flex: none; white-space: nowrap; padding: 0 8px }

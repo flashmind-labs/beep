@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn bundled_pages_can_load_reload_and_use_fragments() {
-    let origin = if cfg!(target_os = "windows") {
+    let origin = if cfg!(any(target_os = "windows", target_os = "android")) {
         "http://tauri.localhost"
     } else {
         "tauri://localhost"

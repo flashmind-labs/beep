@@ -131,6 +131,7 @@ tauri = { version = "2", default-features = false }
 tauri-build = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-barcode-scanner = "2"
+tauri-plugin-qr-scan = { path = "apps/desktop/src-tauri/qr-scan" }
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"

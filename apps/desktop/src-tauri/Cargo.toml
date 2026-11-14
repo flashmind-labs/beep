@@ -84,12 +84,14 @@ tauri = { workspace = true, default-features = true, features = ["macos-private-
 tauri-plugin-autostart.workspace = true
 tauri-plugin-updater.workspace = true
 
-# Phone only: the camera scans the pairing QR code.
-[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
-tauri-plugin-barcode-scanner.workspace = true
+# Android scans the pairing QR code with zxing's capture screen.
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-qr-scan.workspace = true
 
 # The iPhone keeps its key in the Keychain.
 [target.'cfg(target_os = "ios")'.dependencies]
+# The camera scans the pairing QR code.
+tauri-plugin-barcode-scanner.workspace = true
 security-framework.workspace = true
 # Removes the web view's bar above the keyboard.
 objc2.workspace = true

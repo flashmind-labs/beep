@@ -11,19 +11,26 @@ export function commandKey(e: { metaKey: boolean; ctrlKey?: boolean }, windows =
 const NARROW_PX = 700;
 /// A touch screen up to this wide does too (a tablet keeps the desktop layout).
 const TOUCH_PX = 900;
+/// A phone whose shorter side is at least this wide, such as an unfolded
+/// foldable, shows the desktop layout (Android's large screen width).
+const WIDE_PHONE_PX = 600;
 
 interface LayoutEnv {
   width: number;
+  height: number;
   /// `(pointer: coarse)`: the main pointer is a finger.
   coarse: boolean;
   /// The app runs on a phone: Tauri mobile.
   phone: boolean;
 }
 
-/// Whether the center window shows the phone layout: on a phone, in a narrow
-/// window, or on a small touch screen.
+/// Whether the center window shows the phone layout: on a phone's small screen,
+/// in a narrow window, or on a small touch screen. Landscape does not make a
+/// phone wide, its shorter side decides.
 export function mobileLayout(env: LayoutEnv): boolean {
-  return env.phone || env.width < NARROW_PX || (env.coarse && env.width < TOUCH_PX);
+  if (env.phone) return Math.min(env.width, env.height) < WIDE_PHONE_PX;
+
+  return env.width < NARROW_PX || (env.coarse && env.width < TOUCH_PX);
 }
 
 /// The app runs on a phone (Tauri mobile). The Rust side may set
@@ -40,7 +47,7 @@ export function onPhone(): boolean {
 /// does not change with the window's width.
 export function isMobile(): boolean {
   if (typeof window === "undefined") return false;
-  return mobileLayout({ width: window.innerWidth, coarse: window.matchMedia("(pointer: coarse)").matches, phone: onPhone() });
+  return mobileLayout({ width: window.innerWidth, height: window.innerHeight, coarse: window.matchMedia("(pointer: coarse)").matches, phone: onPhone() });
 }
 
 /// iPhone and iPad, where saves go to the app's folder in Files.

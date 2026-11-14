@@ -351,6 +351,26 @@ for (const section of [null, "Agent accounts", "Appearance"] as const) {
 
 // Agent session
 
+test("unfolded foldable session with the sidebar collapsed", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize({ width: 750, height: 832 });
+  await openAgent(page, { mobile_paired: true });
+  await page.getByRole("button", { name: "Collapse sidebar" }).click();
+  // A phone docks Files under the conversation, never beside it.
+  await expect(page.locator("#agshell")).toHaveClass(/narrow/);
+  expect((await page.locator("#agtitle").boundingBox())?.width ?? 0).toBeGreaterThan(150);
+  await baseline(page, "foldable-session");
+
+  // Folded, the dock keeps its tabs in a row; a tab opens it again.
+  await page.locator("#agpane-bottom").getByTitle("Hide the pane").click();
+  const strip = page.locator("#agpstrip-bottom");
+  await expect(strip.getByRole("tab", { name: "Changes" })).toBeVisible();
+  await baseline(page, "foldable-session-folded");
+  await strip.getByRole("tab", { name: "Changes" }).click();
+  await expect(page.locator("#agpane-bottom")).toBeVisible();
+  await expect(page.locator("#agpane-bottom .agtab.on")).toHaveAttribute("data-mtab", /changes/i);
+});
+
 test("agent session transcript", async ({ page }) => {
   await openAgent(page);
   await baseline(page, "agent-transcript");
@@ -508,6 +528,16 @@ test("phone home", async ({ page }) => {
   await expect(page.locator("body")).toHaveClass(/mobile/);
   await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
   await baseline(page, "phone-home");
+});
+
+test("unfolded foldable home", async ({ page }) => {
+  await page.addInitScript(() => { Reflect.set(window, "__BEEP_PHONE__", true); });
+  await page.setViewportSize({ width: 690, height: 830 });
+  await openDesktop(page, false, { center_home: home, mobile_paired: true });
+  await expect(page.locator("#sec-needs .bd-card").first()).toBeVisible();
+  await expect(page.locator("body")).not.toHaveClass(/mobile/);
+  await expect(page.locator("#side kbd")).toHaveCount(0);
+  await baseline(page, "foldable-home");
 });
 
 test("phone projects", async ({ page }) => {

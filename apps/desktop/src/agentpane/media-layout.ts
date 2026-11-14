@@ -5,6 +5,7 @@ import { createRef, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { createStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
+import { onPhone } from "../ui/platform.ts";
 import { type Box, type Dock, DOCKS, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
 import type { PaneTabItem } from "./tabs-view.tsx";
 import type { IconName } from "../ui/icons.tsx";
@@ -25,7 +26,7 @@ export const shellRef = createRef<HTMLDivElement>();
 export const mainRef = createRef<HTMLDivElement>();
 export const paneRefs: Record<Dock, RefObject<HTMLElement | null>> = { right: createRef(), bottom: createRef() };
 /// The strip a folded dock leaves.
-export const stripRefs: Record<Dock, RefObject<HTMLButtonElement | null>> = { right: createRef(), bottom: createRef() };
+export const stripRefs: Record<Dock, RefObject<HTMLElement | null>> = { right: createRef(), bottom: createRef() };
 
 export const shell = () => shellRef.current?.isConnected ? shellRef.current : null;
 export const main = () => mainRef.current?.isConnected ? mainRef.current : null;
@@ -69,11 +70,11 @@ export function tabIds() {
   return [FILES, CHANGES, ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount ? [SUBS] : []), ...(hasDeviceTab() ? [DEVICE] : []), ...P.tabs.map(t => t.id)];
 }
 
-/// The width the docks lay out in. The phone layout, a phone in landscape included, shows
-/// one pane at a time, so it never has room for a right dock.
+/// The width the docks lay out in. A phone never gets a right dock: the phone layout shows one
+/// pane at a time, and an unfolded phone keeps the conversation full width with the dock under it.
 export function dockWidth(): number {
   if (!shell()) return SIDE_BY_SIDE_MIN;
-  return document.body.classList.contains("mobile") ? 0 : shellSize().width;
+  return onPhone() || document.body.classList.contains("mobile") ? 0 : shellSize().width;
 }
 
 /// The tabs in each dock, as the shell's width lets them sit.
