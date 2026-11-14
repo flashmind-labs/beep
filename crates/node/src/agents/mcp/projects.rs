@@ -12,7 +12,7 @@ use beep_proto::node::{
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 
 #[derive(Serialize)]
 struct Project {
@@ -62,7 +62,7 @@ fn names(mesh: &Mesh) -> BTreeMap<String, Option<String>> {
     names
 }
 
-fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
+pub(super) fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
     names(mesh)
         .into_keys()
         .find(|known| {
@@ -85,6 +85,20 @@ pub(super) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<Str
                 "Project {name} has no checkout on that machine. Use machines projects to find one."
             )
         })
+}
+
+/// The project whose checkout on `machine` holds `cwd`, the innermost when
+/// checkouts nest.
+pub(super) fn of_folder(mesh: &Mesh, cwd: &str, machine: EndpointId) -> Option<String> {
+    names(mesh)
+        .into_keys()
+        .filter_map(|name| {
+            let folder = project_folder(mesh, &name, &machine)?;
+            let inside = !folder.trim().is_empty() && Path::new(cwd).starts_with(&folder);
+            inside.then_some((folder.len(), name))
+        })
+        .max()
+        .map(|(_, name)| name)
 }
 
 pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {

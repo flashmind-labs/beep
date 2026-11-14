@@ -173,7 +173,10 @@ impl Tool {
                 text("text"),
             ),
             Self::StopAgent => format!("{PREFIX}Stop agent {}", text("id").unwrap_or("")),
-            Self::ListAgents => format!("{PREFIX}List agents"),
+            Self::ListAgents => match text("project") {
+                Some(project) => format!("{PREFIX}List agents in {project}"),
+                None => format!("{PREFIX}List agents"),
+            },
             Self::AskUser => with("Ask".to_owned(), text("question")),
             Self::Review => match (text("id"), text("base")) {
                 (Some(id), _) => format!("{PREFIX}Check review {id}"),

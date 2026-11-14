@@ -65,6 +65,11 @@ impl Agents {
             Refused::Images(error) => error,
             Refused::Request(_) => "this request cannot order an existing session".to_owned(),
         })?;
+
+        if matches!(command, Command::Prompt(_) | Command::Steer(_)) {
+            session.user_wrote();
+        }
+
         session.order(command).await?;
 
         if cascade {
@@ -216,6 +221,10 @@ pub async fn serve_session(
                         continue;
                     }
                 };
+                if matches!(command, Command::Prompt(_) | Command::Steer(_)) {
+                    session.user_wrote();
+                }
+
                 let error = session.order(command).await.err();
 
                 if cascade {

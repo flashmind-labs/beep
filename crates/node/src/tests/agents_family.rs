@@ -837,3 +837,53 @@ async fn a_far_parent_s_stop_all_stops_its_child_here() {
 
     rig.agents.shutdown().await;
 }
+
+#[tokio::test]
+async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_speaks() {
+    use beep_proto::node::tools::{Reply, Request as ToolRequest, Tool};
+
+    let rig = Rig::new();
+    let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let id = Agents::name_of(&session);
+    let far = SecretKeyFor::id();
+    let call = |tool: Tool, args: serde_json::Value| {
+        crate::agents::mcp::children::answer_peer(
+            &rig.agents,
+            far,
+            ToolRequest {
+                session: "far-agent".into(),
+                tool,
+                args: args.to_string(),
+                approved: Default::default(),
+            },
+        )
+    };
+
+    let Reply::Done {
+        text,
+        failed: false,
+    } = call(Tool::ListAgents, serde_json::json!({})).await
+    else {
+        panic!("the list is served");
+    };
+    assert!(text.contains(&format!("\"id\":\"{id}\"")), "{text}");
+
+    let send = || call(Tool::SendToAgent, serde_json::json!({ "id": id, "text": "hello" }));
+    for _ in 0..crate::agents::session::PEER_MESSAGES {
+        let reply = send().await;
+        assert!(matches!(&reply, Reply::Done { failed: false, .. }), "{reply:?}");
+    }
+    let refused = send().await;
+    assert!(matches!(&refused, Reply::Done { failed: true, .. }), "{refused:?}");
+
+    rig.agents
+        .send_session("top", &session.id, Request::Prompt { text: "carry on".into() })
+        .await
+        .expect("the user's prompt goes");
+    let reply = send().await;
+    assert!(matches!(&reply, Reply::Done { failed: false, .. }), "{reply:?}");
+    until(&session, |live| live.info.turns >= 8).await;
+    assert!(rig.read("top.log").contains("hello"));
+
+    rig.agents.shutdown().await;
+}

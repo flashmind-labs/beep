@@ -93,6 +93,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
             | Tool::AgentStatus
             | Tool::SendToAgent
             | Tool::StopAgent
+            | Tool::ListAgents
             | Tool::AgentParent
             | Tool::AgentCount
             | Tool::AgentNote
