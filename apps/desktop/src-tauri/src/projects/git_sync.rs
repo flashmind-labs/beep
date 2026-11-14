@@ -9,7 +9,7 @@ use crate::{
     },
 };
 use beep_projects::{
-    checkout_sync::{Move, read_state, run_move},
+    checkout_sync::{Move, read_local_state, read_state, run_move},
     model::branch_name,
 };
 use beep_proto::node::events::GitRead;
@@ -31,9 +31,12 @@ pub struct GitRow {
     error: Option<String>,
 }
 
+/// Where a checkout's state comes from.
 enum ReadFrom {
-    Subscription,
-    Checkout,
+    /// The local refs, from the subscription when one is live: no network wait.
+    LocalRefs,
+    /// The checkout after a fetch, so the counts follow the remote.
+    Fetched,
 }
 
 async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
@@ -46,19 +49,21 @@ async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
         error: None,
     };
     let read = async {
-        let mut shell = PeerShell::on(fleet, place.machine)
+        let shell = PeerShell::on(fleet, place.machine)
             .await
             .map_err(|e| e.to_string())?;
-        if matches!(from, ReadFrom::Subscription) {
-            shell = shell
-                .snapshot_git(&place.folder, GitRead::State)
-                .await
-                .map_err(|e| e.to_string())?;
-        }
+        let state = match from {
+            ReadFrom::LocalRefs => {
+                let shell = shell
+                    .snapshot_git(&place.folder, GitRead::State)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                read_local_state(&shell, &place.folder).await
+            }
+            ReadFrom::Fetched => read_state(&shell, &place.folder).await,
+        };
 
-        read_state(&shell, &place.folder)
-            .await
-            .map_err(|e| format!("{e:#}"))
+        state.map_err(|e| format!("{e:#}"))
     };
 
     match read.await {
@@ -74,10 +79,14 @@ async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
     row
 }
 
-/// The branch each online machine's checkout of `project` has out. Nothing for a project the
-/// mesh does not record.
+/// The branch each online machine's checkout of `project` has out, from local refs or after
+/// a `fetch`. Nothing for a project the mesh does not record.
 #[tauri::command]
-pub async fn project_git_state(fleet: Machines<'_>, project: String) -> Result<Vec<GitRow>> {
+pub async fn project_git_state(
+    fleet: Machines<'_>,
+    project: String,
+    fetch: bool,
+) -> Result<Vec<GitRow>> {
     if !fleet
         .mesh()
         .is_some_and(|mesh| beep_fleet::has_project(&mesh, &project))
@@ -86,11 +95,14 @@ pub async fn project_git_state(fleet: Machines<'_>, project: String) -> Result<V
     }
 
     let places = placed(&fleet, &project)?;
-    Ok(join_all(
-        places
-            .iter()
-            .map(|place| row(&fleet, place, ReadFrom::Subscription)),
-    )
+    Ok(join_all(places.iter().map(|place| {
+        let from = if fetch {
+            ReadFrom::Fetched
+        } else {
+            ReadFrom::LocalRefs
+        };
+        row(&fleet, place, from)
+    }))
     .await)
 }
 
@@ -116,5 +128,5 @@ pub async fn project_git_move(
     run_move(&shell, &place.folder, branch, direction)
         .await
         .map_err(|why| DesktopError::BadRequest(format!("{name}: {why}")))?;
-    Ok(row(&fleet, &place, ReadFrom::Checkout).await)
+    Ok(row(&fleet, &place, ReadFrom::Fetched).await)
 }
