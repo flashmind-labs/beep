@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { allowSelection, openDesktop, projectName } from "./harness.ts";
 
 test("past sessions retain focused rows and scroll on refresh", async ({ page }) => {
   const sessions = Array.from({ length: 20 }, (_, i) => ({ machine_id: "build-box", machine_name: "build-box", id: `past-${i}`, agent: "codex", title: `Past session ${i}`, cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100 - i, external: false, question: null }));
@@ -58,12 +58,11 @@ test("large past session lists virtualize while retaining the focused row", asyn
   await expect(focused).toBeFocused();
   await expect(detail.getByText('Past session 599', { exact: true })).toBeVisible();
   await detail.evaluate(el => { el.scrollTop = 0; });
+  await allowSelection(page);
   await focused.evaluate(el => {
     (document.activeElement as HTMLElement | null)?.blur();
     const range = document.createRange(), selection = document.getSelection();
     const text = el.querySelector<HTMLElement>('.t')!;
-    text.style.setProperty('user-select', 'text');
-    text.style.setProperty('-webkit-user-select', 'text');
     range.selectNodeContents(text);
     selection?.removeAllRanges(); selection?.addRange(range);
   });

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { allowSelection, openDesktop } from "./harness.ts";
 
 test("terminal list refresh keeps its rows and mounted screen", async ({ page }) => {
   const terminal = (id: string, name: string) => ({ id, project: "", machine_id: "build-box", machine_name: "build-box", name, command: "shell", cwd: "/srv/project", state: "running", code: null, started_at: 1 });
@@ -162,6 +162,7 @@ test("view-only output keeps its screen, focus, selection and scroll across read
   await expect.poll(() => screen.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThan(4);
   await screen.evaluate(element => { element.dataset.identity = "kept"; element.scrollTop = 0; element.dispatchEvent(new Event("scroll")); });
   await screen.focus();
+  await allowSelection(page);
   await screen.evaluate(element => {
     const text = element.lastChild;
     if (text) getSelection()?.setBaseAndExtent(text, 0, text, 6);

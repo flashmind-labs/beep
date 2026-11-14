@@ -41,8 +41,7 @@ test("no phone tab scrolls sideways", async ({ page }) => {
   await openPhone(page);
   for (const name of ["Home", "Projects", "Agents", "Terminals", "Machines"]) {
     await tab(page, name).click();
-    // Machines is a part of Home.
-    await expect(tab(page, name === "Machines" ? "Home" : name)).toHaveAttribute("aria-current", "true");
+    await expect(tab(page, name)).toHaveAttribute("aria-current", "true");
     expect(await sideways(page), name).toEqual([]);
   }
 });

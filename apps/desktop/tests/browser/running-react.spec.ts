@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { allowSelection, openDesktop } from "./harness.ts";
 
 test("running process rows retain focus through updates and stop safely", async ({ page }) => {
   await openDesktop(page, true);
@@ -18,6 +18,7 @@ test("running process rows retain focus through updates and stop safely", async 
   await expect(stop).toBeFocused();
   await first.locator("[data-whole]").click();
   await expect(first).toHaveClass(/whole/);
+  await allowSelection(page);
   await first.locator("b").evaluate(element => { const range = document.createRange(); range.selectNodeContents(element); const selection = document.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); });
   await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe("first process");
   await page.evaluate(rows => window.__navigation.processes(rows), [process(41, "first process"), process(42, "newer process")]);

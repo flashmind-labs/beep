@@ -42,6 +42,7 @@ test("project composer keeps draft, menu choices and issue branch across redraws
 test("project composer submits keyboard draft and attached image with the chosen checkout", async ({ page }) => {
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
+    agent_tree_upload: ".beep/uploads/example.png",
     agent_start: { session: { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null } },
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
@@ -51,16 +52,16 @@ test("project composer submits keyboard draft and attached image with the chosen
   await folder.click();
   await page.getByRole("menu", { name: "Folder" }).getByRole("menuitem", { name: "New worktree" }).click();
   await form.locator('input[type="file"]').setInputFiles({ name: "example.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64") });
-  await expect(form.locator(".ag-att")).toContainText("example.png");
+  await expect(form.locator(".attachment-count")).toHaveText("1 file");
   const input = form.getByRole("textbox", { name: "Task for a coding agent" });
   await input.fill("Inspect the attachment");
   await input.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_start").length)).toBe(1);
   const args = await page.evaluate(() => window.__navigation.calls().find(call => call.command === "agent_start")?.args);
   expect(args?.machineId).toBe("build-box");
-  expect(args?.prompt).toBe("Inspect the attachment");
+  expect(args?.prompt).toBe("Inspect the attachment\n\n@/srv/project/.beep/uploads/example.png");
   expect(args?.checkout).toEqual({ new_worktree: { base: null } });
-  expect(args?.images).toEqual([expect.objectContaining({ name: "example.png", mime: "image/png" })]);
+  expect(args?.images).toEqual([expect.objectContaining({ name: "example.jpg", mime: "image/jpeg" })]);
 });
 
 test("project composer closes and reopens its model picker", async ({ page }) => {
