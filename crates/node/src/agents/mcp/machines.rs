@@ -6,7 +6,8 @@
 use super::catalog::REMOTE_RUN;
 use super::reply::done;
 use crate::{
-    files::transfer::{Incoming, Transfers},
+    agents::live::Sent,
+    files::transfer::{Incoming, Offer},
     link::{
         Offers,
         peer_tools::{self, Caller},
@@ -27,7 +28,7 @@ use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{fmt::Write, str::FromStr, time::Duration};
-use tokio::time::timeout;
+use tokio::{sync::watch, time::timeout};
 
 /// How long a call waits for the link to a machine the mesh holds but is
 /// not connected to yet.
@@ -202,11 +203,33 @@ async fn send_files(
         return done("That is this machine.", true);
     }
 
+    // Every path is offered before any is fetched, so the call knows all
+    // it sends.
+    let mut offered = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let offer = transfers.offer_to(path, target.id).await;
+        offered.push(offer.map_err(|e| format!("not sent: {e:#}")));
+    }
+
+    let total = offered.iter().flatten().map(offered_size).sum();
+    let mut before = 0u64;
     let mut lines = Vec::new();
     let mut failed = false;
 
-    for path in &paths {
-        let sent = send_one(&transfers, mesh, target, request, path, dest.clone()).await;
+    for (path, offer) in paths.iter().zip(offered) {
+        let sent = match offer {
+            Ok(offer) => {
+                let sent = Sent {
+                    done: before,
+                    total,
+                };
+                let fetched =
+                    have_fetched(offers, mesh, target, request, &offer, dest.clone(), sent).await;
+                before = before.saturating_add(offered_size(&offer));
+                fetched
+            }
+            Err(text) => Err(text),
+        };
         failed |= sent.is_err();
         let (Ok(text) | Err(text)) = sent;
         lines.push(format!("- {path}: {text}"));
@@ -215,20 +238,28 @@ async fn send_files(
     done(lines.join("\n"), failed)
 }
 
-/// One path: its text, or why it was not sent.
-async fn send_one(
-    transfers: &Transfers,
+/// How often a session is shown how far its files have gone.
+const SHOW_SENT_EVERY: Duration = Duration::from_secs(1);
+
+/// The bytes `offer` holds.
+fn offered_size(offer: &Offer) -> u64 {
+    match &offer.reply {
+        TransferReply::Offered { size, .. } => *size,
+        _ => 0,
+    }
+}
+
+/// Has `target` fetch `offer`, showing the caller's session how far it has
+/// gone past `sent`: its text, or why it was not sent.
+async fn have_fetched(
+    offers: &Offers,
     mesh: &Mesh,
     target: &Machine,
     request: &Request,
-    path: &str,
+    offer: &Offer,
     dest: Option<String>,
+    sent: Sent,
 ) -> Result<String, String> {
-    // Held until the target has fetched it.
-    let offer = transfers
-        .offer_to(path, target.id)
-        .await
-        .map_err(|e| format!("not sent: {e:#}"))?;
     let TransferReply::Offered {
         content,
         from,
@@ -251,7 +282,14 @@ async fn send_one(
         ..request.clone()
     };
 
-    match over_the_mesh(mesh, target.id, &call).await {
+    let fetched = over_the_mesh(mesh, target.id, &call);
+    tokio::pin!(fetched);
+    let reply = tokio::select! {
+        reply = &mut fetched => reply,
+        () = show_sent(offers, &request.session, offer.sent(), sent) => fetched.await,
+    };
+
+    match reply {
         Ok(Reply::Done {
             text,
             failed: false,
@@ -259,6 +297,29 @@ async fn send_one(
         Ok(Reply::Done { text, .. }) => Err(format!("not sent: {text}")),
         Ok(other) => Err(format!("not sent: {other:?}")),
         Err(e) => Err(format!("not sent: {e:#}")),
+    }
+}
+
+/// Shows `session` the bytes sent of one offer after the ones `sent`
+/// counts, at most every `SHOW_SENT_EVERY`, until the offer ends or the
+/// session cannot be shown.
+async fn show_sent(offers: &Offers, session: &str, mut offer: watch::Receiver<u64>, sent: Sent) {
+    loop {
+        let done = sent
+            .done
+            .saturating_add(watched::read_and_update(&mut offer, |bytes| *bytes));
+        let shown = Sent { done, ..sent };
+
+        if let Err(e) = offers.agents.sending(session, shown).await {
+            log::debug!("send progress not shown: {e:#}");
+            return;
+        }
+
+        tokio::time::sleep(SHOW_SENT_EVERY).await;
+
+        if offer.changed().await.is_err() {
+            return;
+        }
     }
 }
 

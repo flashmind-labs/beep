@@ -46,7 +46,17 @@ pub(super) struct ToolCall {
     pub(super) backgrounded: bool,
     /// The skill a Claude Code `Skill` call loads.
     pub(super) skill: Option<String>,
+    /// How far the files a `send_files` call sends have gone.
+    pub(super) sent: Option<Sent>,
     pub(super) details: AgentToolCall,
+}
+
+/// The bytes a `send_files` call has sent, of all it sends. Its entry
+/// shows them as `[sent] <done> <total>` while it runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Sent {
+    pub(crate) done: u64,
+    pub(crate) total: u64,
 }
 
 /// The name a call carries: its own, else the one in its metadata.
@@ -290,6 +300,37 @@ impl Live {
         }
 
         self.write_tool(owner);
+    }
+
+    /// Shows how far the running `send_files` call has sent its files: the
+    /// latest one, as one session sends one batch at a time. True when its
+    /// entry changed.
+    pub(crate) fn sending(&mut self, sent: Sent) -> bool {
+        let call = self
+            .tools
+            .iter()
+            .filter(|(_, tool)| tool.status == ToolCallStatus::InProgress)
+            .filter(|(_, tool)| {
+                tool.beep.as_ref().is_some_and(|beep| {
+                    beep.tool.resolved(beep.input.as_ref()) == BeepTool::SendFiles
+                })
+            })
+            .max_by_key(|(_, tool)| tool.entry)
+            .map(|(id, _)| id.clone());
+        let Some(id) = call else {
+            return false;
+        };
+        let Some(tool) = self.tools.get_mut(&id) else {
+            return false;
+        };
+
+        if tool.sent == Some(sent) {
+            return false;
+        }
+
+        tool.sent = Some(sent);
+        self.write_tool(&id);
+        true
     }
 
     /// The calls the subagent `tool` started ran, as its entry names them.
@@ -556,6 +597,12 @@ impl ToolCall {
         let own = self.own_title();
         let title = run.and_then(|run| run.task.as_deref()).unwrap_or(&own);
         let mut text = format!("{title} [{}]", wire_name(&status));
+
+        if let Some(Sent { done, total }) = self.sent
+            && status == ToolCallStatus::InProgress
+        {
+            text.push_str(&format!("\n[sent] {done} {total}"));
+        }
         let run_steps: Vec<Step<'_>> = run
             .map(|run| {
                 run.steps

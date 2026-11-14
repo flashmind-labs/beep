@@ -2,7 +2,9 @@
 
 use super::{
     AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start,
-    checkout, harnesses, live::Live, models, plans,
+    checkout, harnesses,
+    live::{Live, Sent},
+    models, plans,
 };
 use crate::{
     agents::mcp::{self, Launch},
@@ -63,6 +65,17 @@ impl Agents {
             .with_context(|| format!("there is no session {session} here"))?;
         session
             .order(Command::SetDevice(device))
+            .await
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// Shows in `session` how far its running `send_files` call has sent.
+    pub(crate) async fn sending(&self, session: &str, sent: Sent) -> Result<()> {
+        let session = self
+            .get(session)
+            .with_context(|| format!("there is no session {session} here"))?;
+        session
+            .order(Command::Sending(sent))
             .await
             .map_err(anyhow::Error::msg)
     }

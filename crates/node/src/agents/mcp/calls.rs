@@ -113,6 +113,19 @@ impl Tool {
         (server == SERVER_NAME).then(|| tool.parse().ok()).flatten()
     }
 
+    /// The tool a grouped tool's `action` calls, from its arguments as far
+    /// as they have come; itself when it is not grouped or names no action.
+    pub(crate) fn resolved(self, input: Option<&Value>) -> Self {
+        let action = input
+            .map(arguments)
+            .and_then(|args| args.get("action")?.as_str())
+            .map(str::trim);
+        ungrouped(self.into(), action)
+            .and_then(Result::ok)
+            .and_then(|name| name.parse().ok())
+            .unwrap_or(self)
+    }
+
     /// The call's title, from its arguments as far as they have come.
     pub(crate) fn title(self, input: Option<&Value>) -> String {
         let args = input.map(arguments);
@@ -198,14 +211,9 @@ impl Tool {
             },
             Self::FileReport => with("File a report".to_owned(), text("description")),
             Self::Machines | Self::Run | Self::Files | Self::Agent | Self::Beep => {
-                let group: &'static str = self.into();
-                let tool = ungrouped(group, text("action"))
-                    .and_then(Result::ok)
-                    .and_then(|name| name.parse::<Self>().ok());
-
-                match tool {
-                    Some(tool) => return tool.title(input),
-                    None => format!("{PREFIX}Use {group}"),
+                match self.resolved(input) {
+                    tool if tool != self => return tool.title(input),
+                    _ => format!("{PREFIX}Use {}", Into::<&'static str>::into(self)),
                 }
             }
             Self::Plugins => match (text("action").unwrap_or_default(), text("plugin")) {
