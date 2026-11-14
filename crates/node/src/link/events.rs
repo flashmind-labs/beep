@@ -32,6 +32,7 @@ const MAX_FILE_ROOTS: usize = 512;
 const TOO_MANY_ROOTS: &str = "too many watched directories; subscribe to specific file roots";
 
 mod git;
+mod git_reads;
 mod snapshots;
 pub(crate) mod sources;
 pub(super) mod subscriptions;

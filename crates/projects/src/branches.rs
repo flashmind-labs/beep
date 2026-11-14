@@ -143,7 +143,7 @@ fn ok(ran: &ShellOutput) -> Result<()> {
 /// The most branches listed.
 const MAX_BRANCHES: usize = 100;
 /// The most refs read for a list.
-const MAX_REFS: u32 = 300;
+pub const MAX_REFS: u32 = 300;
 /// Sets `$d` to the default branch (`origin`'s HEAD, else `fallback`) and `$base` to its commit.
 fn base_lines(fallback: &str) -> String {
     format!(
