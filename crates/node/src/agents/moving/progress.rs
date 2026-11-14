@@ -3,15 +3,12 @@
 //! that a session it ended is still served as running until its files are
 //! scanned, and that it gave a move up.
 
-use super::{Env, folder::project_folder};
-use crate::{files::syncthing::Syncthing, lock};
-use anyhow::Result;
+use crate::lock;
 use beep_proto::node::agent::{MovePhase, MoveProgress};
 use beep_proto::watched;
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex},
 };
 use tokio::sync::watch;
 
@@ -45,14 +42,6 @@ pub(crate) struct Moves {
     tracked: Mutex<HashMap<String, Tracked>>,
     held: Mutex<HashSet<String>>,
     refused: Mutex<HashMap<String, String>>,
-    /// The worktree a session being moved out of works in.
-    worktrees: Mutex<HashMap<String, PathBuf>>,
-    /// What each of those held when it was sent.
-    sent: Mutex<HashMap<String, String>>,
-    /// Worktree sessions whose snapshot a live read already tried.
-    previewed: Mutex<HashSet<String>>,
-    /// What the moves of this node share, for requests about a move.
-    env: Mutex<Weak<Env>>,
 }
 
 /// A session the source ended is served as running while this lives, so a
@@ -95,55 +84,6 @@ impl Moves {
     pub(super) fn forget(&self, id: &str) {
         lock(&self.tracked).remove(id);
         lock(&self.refused).remove(id);
-        lock(&self.worktrees).remove(id);
-        lock(&self.sent).remove(id);
-        lock(&self.previewed).remove(id);
-    }
-
-    /// The worktree of session `id` is `dir`: a target asks for its commit
-    /// and uncommitted work once the session ended.
-    pub(super) fn set_worktree(&self, id: &str, dir: PathBuf) {
-        lock(&self.worktrees).insert(id.to_owned(), dir);
-    }
-
-    /// The fingerprint of what the worktree of session `id` held when its
-    /// commit and work were sent.
-    pub(super) fn set_sent(&self, id: &str, fingerprint: String) {
-        lock(&self.sent).insert(id.to_owned(), fingerprint);
-    }
-
-    /// True the first time it is asked for session `id`: a live read of a
-    /// worktree session tries the snapshot once, not on every poll.
-    pub(super) fn first_preview(&self, id: &str) -> bool {
-        lock(&self.previewed).insert(id.to_owned())
-    }
-
-    pub(super) fn sent_of(&self, id: &str) -> Option<String> {
-        lock(&self.sent).get(id).cloned()
-    }
-
-    pub(super) fn worktree_of(&self, id: &str) -> Option<PathBuf> {
-        lock(&self.worktrees).get(id).cloned()
-    }
-
-    pub(super) fn use_env(&self, env: Weak<Env>) {
-        *lock(&self.env) = env;
-    }
-
-    /// Makes Syncthing leave this project's Git metadata and worktrees alone.
-    pub(crate) async fn prepare_worktree(&self, project: &str) -> Result<()> {
-        let env = lock(&self.env).upgrade();
-        let Some(env) = env else {
-            return Ok(());
-        };
-
-        if let Some(folder) = project_folder(&env.mesh, project, &env.mesh.me())
-            && let Some(managed) = Syncthing::local().check(Path::new(&folder)).await
-        {
-            managed.protect_checkout().await?;
-        }
-
-        Ok(())
     }
 
     /// How the move of `id` stands here, when this machine is part of one.

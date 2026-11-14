@@ -9,11 +9,11 @@ use crate::{
 };
 use beep_mesh::{
     Key,
-    machine::sessions::{MoveState, WorktreeMove, move_progress, worktree_move},
+    machine::sessions::{MoveState, move_progress},
 };
 use beep_proto::{
     AgentSlug, ModelId,
-    node::mesh_state::{MovedWorktree, SessionMove, StateValue, SyncSpec},
+    node::mesh_state::{SessionMove, StateValue, SyncSpec},
 };
 use iroh::EndpointId;
 use std::path::{Component, Path};
@@ -26,23 +26,14 @@ pub struct MoveAsk<'a> {
     pub from: EndpointId,
     pub to: EndpointId,
     pub project: &'a str,
-    /// The folder the session works in on the source.
+    /// The folder the session works in on the source: its project folder
+    /// or a folder below it.
     pub cwd: &'a str,
-    /// It works in a linked worktree of the project, not its checkout.
-    pub worktree: Option<AskedWorktree<'a>>,
     pub mode: Option<String>,
     /// The model it runs on.
     pub model: Option<ModelId>,
     /// Stop the turn instead of waiting for it.
     pub stop: bool,
-}
-
-/// The linked worktree a session works in on the source.
-pub struct AskedWorktree<'a> {
-    /// The worktree's folder.
-    pub folder: &'a str,
-    /// The branch checked out in it.
-    pub branch: &'a str,
 }
 
 impl Desk {
@@ -65,9 +56,6 @@ impl Desk {
         let theirs = self
             .project_folder(ask.project, ask.from)
             .ok_or_else(|| FleetError::refused("the source has no checkout of the project"))?;
-        if let Some(worktree) = &ask.worktree {
-            self.check_worktree_move(&ask, worktree).await?;
-        }
 
         if self.project_folder(ask.project, ask.to).is_none() {
             return Err(FleetError::refused(
@@ -75,14 +63,9 @@ impl Desk {
             ));
         }
 
-        // A worktree session's folder is below the worktree, or below the
-        // checkout when it started there and entered the worktree later: the
-        // target takes the checkout's paths into the worktree it makes.
-        let path = ask
-            .worktree
-            .as_ref()
-            .and_then(|w| inside(ask.cwd, w.folder))
-            .or_else(|| inside(ask.cwd, &theirs))
+        // The session resumes in the target's project folder, or the same
+        // folder below it.
+        let path = inside(ask.cwd, &theirs)
             .ok_or_else(|| FleetError::refused("the session works outside the project's checkout"))?
             .to_owned();
         let record = SessionMove {
@@ -95,10 +78,8 @@ impl Desk {
             mode: ask.mode,
             stop: ask.stop,
             at: now_ms(),
-            worktree: ask.worktree.as_ref().map(|w| MovedWorktree {
-                branch: w.branch.to_owned(),
-                from: w.folder.to_owned(),
-            }),
+            // Sessions run in the project folder, never in a worktree.
+            worktree: None,
             model: ask.model,
         };
         let _one = WRITES.lock().await;
@@ -146,61 +127,6 @@ impl Desk {
         ))
     }
 
-    /// Whether `machine` can take a session working in a worktree on
-    /// `branch` of `project`.
-    pub async fn worktree_move(
-        &self,
-        machine: EndpointId,
-        project: &str,
-        branch: &str,
-    ) -> Result<WorktreeMove> {
-        let client = self.peers.client(machine).await?;
-        Ok(worktree_move(&client, project, branch).await?)
-    }
-
-    /// Refuses, before anything stops, a worktree session that either
-    /// machine cannot move: a node from before worktree moves, or a
-    /// Syncthing set not to sync the worktree.
-    async fn check_worktree_move(
-        &self,
-        ask: &MoveAsk<'_>,
-        worktree: &AskedWorktree<'_>,
-    ) -> Result<()> {
-        if worktree.branch.is_empty() {
-            return Err(FleetError::refused(
-                "a session in a worktree with no branch cannot move",
-            ));
-        }
-
-        for machine in [ask.from, ask.to] {
-            // A machine that is away is asked when it returns: the target
-            // checks again before it takes the session.
-            let Ok(answer) = self
-                .worktree_move(machine, ask.project, worktree.branch)
-                .await
-            else {
-                continue;
-            };
-
-            match answer {
-                WorktreeMove::Takes => {}
-                WorktreeMove::NeedsUpdate => {
-                    return Err(FleetError::refused(
-                        "update the machines first: one cannot move worktree sessions",
-                    ));
-                }
-                WorktreeMove::Ignored if machine == ask.to => {
-                    return Err(FleetError::refused(
-                        "Syncthing is set not to sync this worktree, so it cannot move to that machine",
-                    ));
-                }
-                WorktreeMove::Ignored => {}
-            }
-        }
-
-        Ok(())
-    }
-
     /// Takes back the move of session `id`: the machines stop it unless
     /// the target already resumed the session.
     pub async fn cancel_move(&self, id: &str) -> Result<()> {
@@ -234,14 +160,22 @@ const KEEP_MOVES_MS: u64 = 30 * 24 * 3600 * 1000;
 /// A session id no move has, to ask a node whether it knows moves at all.
 const PROBE: &str = "probe";
 
-/// `cwd` relative to `base`, when it is `base` or a folder below it.
+/// `cwd` relative to `base`, when it is `base` or a folder below it. A
+/// worktree under `base` (`.worktrees/` or `.claude/worktrees/`) is `base`
+/// itself: sessions run in the project folder.
 fn inside<'a>(cwd: &'a str, base: &str) -> Option<&'a str> {
-    Path::new(cwd)
-        .strip_prefix(base)
-        .ok()
-        .filter(|rest| {
-            rest.components()
-                .all(|part| matches!(part, Component::Normal(_)))
-        })
-        .and_then(Path::to_str)
+    let rest = Path::new(cwd).strip_prefix(base).ok()?;
+
+    if !rest
+        .components()
+        .all(|part| matches!(part, Component::Normal(_)))
+    {
+        return None;
+    }
+
+    if rest.starts_with(".worktrees") || rest.starts_with(".claude/worktrees") {
+        return Some("");
+    }
+
+    rest.to_str()
 }

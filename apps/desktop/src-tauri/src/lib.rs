@@ -180,7 +180,6 @@ pub fn run() {
             agents::moving::session_move,
             agents::moving::session_move_cancel,
             agents::moving::session_move_probe,
-            agents::moving::session_move_worktree_probe,
             agents::moving::session_move_progress,
             agents::moving::session_moves,
             agents::files::agent_tree,

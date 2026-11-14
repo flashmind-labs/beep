@@ -431,11 +431,9 @@ pub async fn serve_sessions(
         SessionsRequest::MoveProgress { session } => SessionsReply::Moving {
             progress: agents.moves.progress(&session),
         },
-        SessionsRequest::MoveCheck { project, branch: _ } => agents
-            .moves
-            .prepare_worktree(&project)
-            .await
-            .map_or_else(failed, |()| SessionsReply::MoveChecked { ignored: false }),
+        // Asked by apps from before worktree moves were removed, before they
+        // send one: this node takes it as a move to the project folder.
+        SessionsRequest::MoveCheck { .. } => SessionsReply::MoveChecked { ignored: false },
         // Asked by apps from before background copies were removed: this
         // node keeps no copies.
         SessionsRequest::Copies {} => SessionsReply::Copies { copies: Vec::new() },

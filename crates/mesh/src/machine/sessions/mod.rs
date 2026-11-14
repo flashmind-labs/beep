@@ -15,7 +15,7 @@ pub use files::{
     custom_agents, edit_files, folder, image, media, present, read_file, share, thumb, tree,
     upload_file, write_file,
 };
-pub use moves::{MoveState, WorktreeMove, move_progress, worktree_move, worktrees};
+pub use moves::{MoveState, move_progress, worktrees};
 pub use query::{
     external, external_named, found_folders, in_folders, list, list_all, live, models, transcript,
     transcript_before,
