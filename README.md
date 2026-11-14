@@ -1,94 +1,104 @@
-# Beep
+<h1 align="center">Beep</h1>
 
-Desktops, phones and `beep-node`s form a signed mesh over iroh. The only
-server is `beep-server`, which receives the apps' problem reports.
+<p align="center">
+  Run coding agents on every machine you own, from one desktop or your phone.
+</p>
 
-```text
-crates/proto/           Node and mesh wire types and framing
-crates/mesh/            Signed membership, tickets and replicated state
-crates/fleet/           Desktop-side projects, credentials and settings
-crates/projects/        Project code node and desktop share: imports, hosts, issues
-crates/node/            beep-node: agents, files, sync and processes
-crates/report/          Problem reports
-crates/server/          beep-server: receives problem reports
-apps/desktop/           Tauri app: macOS and Windows tray app, and the
-                        iOS and Android phone app
-deploy/                 Container entrypoints and compose file
-scripts/                Build helpers
-```
+<p align="center">
+  <img src="apps/desktop/tests/browser/ui-baseline.spec.ts-snapshots/home-overview-macOS-linux.png" alt="The Beep desktop: a board of agents across projects and machines" width="860">
+</p>
 
-## Report server
+Desktops, phones and `beep-node`s form a signed peer-to-peer mesh over iroh.
+No server sits in the middle: a phone pairs with a desktop once, then reaches
+your machines directly.
+
+<p align="center">
+  <img src="apps/desktop/tests/browser/ui-baseline.spec.ts-snapshots/agent-work-macOS-linux.png" alt="An agent session with its files, changes and running commands" width="860">
+</p>
+
+## Get started
 
 ```sh
-cp config.example.toml config.toml
-cargo run -p beep-server -- config.toml
+just desktop-dev      # run the desktop app
+just desktop-build    # build it
+just desktop-check    # type checks and tests
 ```
 
-Reports go to `[reports.r2]`, or to `[reports].folder` for development.
-`deploy/compose.yaml` runs it with Docker Compose; it listens on loopback
-port 47122 and needs a proxy or tunnel with TLS in front.
-`just reports`, `just report <id>` and `just report-solved <id>` manage stored
-reports.
+Add a machine from the desktop: it gives you a one-use ticket for `beep-node`.
 
 ## beep-node in Docker
 
-Each node release publishes a small beep-node image (amd64 and arm64): the
-static binary, git, curl, a shell and CA certificates. It runs as uid 1000 and keeps
-its key and mesh in `/data`. To join a mesh, pass a ticket from the desktop's
-Add a machine:
+Each node release publishes a small image (amd64 and arm64) with the static
+binary, git, curl, a shell and CA certificates. It runs as uid 1000 and keeps
+its key and mesh in `/data`.
 
 ```sh
 docker run -d --restart unless-stopped --hostname build-box \
   -e BEEP_TICKET=... -v beep-node:/data registry.example/beep-node
 ```
 
-The ticket is used once, on the first start; later starts reuse `/data`. The
-host name is the machine's name in the mesh. `BEEP_NODE_WORKSPACE` shares a
-folder with the other devices of the mesh. Allow UDP 47120 through the firewall, or add
-`-p 47120:47120/udp`. Upgrade by pulling a newer tag; `beep-node update` does
-not work in the container. No coding agents are installed: derive an image
-`FROM` this one and add the harnesses you use.
+- The ticket is used once; later starts reuse `/data`.
+- The host name is the machine's name in the mesh.
+- `BEEP_NODE_WORKSPACE` shares a folder with the rest of the mesh.
+- Allow UDP 47120 through the firewall, or add `-p 47120:47120/udp`.
+- Upgrade by pulling a newer tag. No coding agents are installed: build
+  `FROM` this image and add the ones you use.
 
 ## Phones
 
-The phone app is the desktop app built with Tauri for iOS and Android. On a
-phone it pairs with a desktop's phone code and joins the mesh as an observer:
-it runs no node and reaches machines over the mesh.
+The phone app is the desktop app built for iOS and Android. It pairs with a
+desktop's phone code and joins the mesh as an observer.
 
 ```sh
-just ios-sim-run      # iPhone 17 simulator
-just ios-run          # connected iPhone, signed with your development team
+just ios-sim-run      # iPhone simulator
+just ios-run          # connected iPhone
 just android-run      # connected device or emulator
 ```
 
-iOS builds need Xcode and `rustup target add aarch64-apple-ios
-aarch64-apple-ios-sim`. Android builds need the SDK and NDK with
-`ANDROID_HOME` and `NDK_HOME` set, and `rustup target add
-aarch64-linux-android`.
+iOS needs Xcode and `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.
+Android needs the SDK and NDK with `ANDROID_HOME` and `NDK_HOME` set, and
+`rustup target add aarch64-linux-android`.
 
-### Releases
-
-`just patch <apps>` and `just minor <apps>` bump the listed apps (`desktop`,
-`beep-node`, `android`, `ios` or `all`) to the next 0.x patch or minor version,
-freeze their changelogs, commit together and push main with the release tags.
-`just release [apps]` does a patch bump of the listed apps, or of every app
-without arguments. Add `--dry-run` to check versions without releasing. Tags
-make CI build and publish each app; Android goes to Play's beta track and iOS
-to TestFlight. `just server-release <version>` tags the server.
-
-## Tests
-
-```sh
-cargo test -p beep-server
-```
-
-### Windows desktop
+## Windows
 
 Windows x64 needs the WebView2 runtime. With Rust's MSVC toolchain, Visual
-Studio C++ Build Tools and Node installed, run `scripts/build-desktop-windows.ps1`
-in PowerShell to build the current-user NSIS installer.
+Studio C++ Build Tools and Node installed, `scripts/build-desktop-windows.ps1`
+builds the NSIS installer. On Linux, `scripts/build-desktop-windows.sh` builds
+a portable executable with cargo-xwin. Ctrl+Alt+Space opens the bar; desktop
+control is unavailable.
 
-On Linux with cargo-xwin and its Clang/LLVM prerequisites, run
-`scripts/build-desktop-windows.sh` to build a portable executable.
-Ctrl+Alt+Space opens the bar; Control replaces Command in app shortcuts.
-Desktop control is unavailable on Windows.
+## Report server
+
+`beep-server` only receives the apps' problem reports.
+
+```sh
+cp config.example.toml config.toml
+cargo run -p beep-server -- config.toml
+```
+
+Reports go to `[reports.r2]`, or to `[reports].folder` in development.
+`deploy/compose.yaml` runs it on loopback port 47122 behind a TLS proxy.
+`just reports`, `just report <id>` and `just report-solved <id>` manage them.
+
+## Releases
+
+`just patch <apps>` and `just minor <apps>` bump `desktop`, `beep-node`,
+`android`, `ios` or `all`, freeze their changelogs, commit and push main with
+the tags. `just release [apps]` does a patch bump; `--dry-run` checks versions.
+Tags make CI build and publish each app. `just server-release <version>` tags
+the server.
+
+## Layout
+
+```text
+crates/proto/      wire types and framing
+crates/mesh/       signed membership, tickets and replicated state
+crates/fleet/      desktop projects, credentials and settings
+crates/projects/   project code shared by node and desktop
+crates/node/       beep-node: agents, files, sync and processes
+crates/report/     problem reports
+crates/server/     beep-server
+apps/desktop/      Tauri app for macOS, Windows, iOS and Android
+deploy/            container entrypoints and compose file
+scripts/           build helpers
+```
