@@ -835,9 +835,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-rail button[disabled] { opacity: .35; cursor: default }
 .agc-rail .cc-ag { width: 26px; height: 26px; font-size: 10px }
 .agc-list .cc-ag { width: 18px; height: 18px; font-size: 8px; flex: none }
-.agc-list { display: grid; align-content: start; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: thin; min-width: 0; padding-bottom: 8px; box-sizing: border-box }
-.agc-find { position: sticky; top: 0; z-index: 1; padding: 12px 12px 8px; background: var(--deep) }
-.agc-models { display: grid; align-content: start; min-width: 0 }
+.agc-list { display: flex; flex-direction: column; max-height: calc(var(--pick-h) - 2px); min-width: 0 }
+.agc-find { padding: 12px 12px 8px }
+.agc-models { display: grid; align-content: start; min-width: 0; min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; padding-bottom: 8px; box-sizing: border-box }
 .agc-search { display: block; width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 4%, transparent); color: var(--fg); font: inherit; font-size: 13px; outline: 0; caret-color: var(--accent) }
 .agc-search::placeholder { color: var(--dim) }
 .agc-search:focus { border-color: color-mix(in srgb, var(--accent) 70%, transparent) }

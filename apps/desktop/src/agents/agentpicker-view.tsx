@@ -96,7 +96,7 @@ export function AgentPicker({ picked, effort, offered, everywhere, machineName, 
       return <button key={item.agent} type="button" data-agh={item.agent} aria-pressed={item.agent === picked.agent}
         title={title} disabled={!item.enabled} onClick={() => { setLit(null); onAgent(item.agent); }}><HarnessIcon agent={item.agent}/></button>;
     })}</div>
-    <div className="agc-list" ref={list}><div className="agc-find"><input ref={search} className="agc-search" spellCheck={false} autoComplete="off"
+    <div className="agc-list"><div className="agc-find"><input ref={search} className="agc-search" spellCheck={false} autoComplete="off"
       placeholder={offered.length > 1 ? "Search models…" : `Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
       onKeyDown={event => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -108,7 +108,7 @@ export function AgentPicker({ picked, effort, offered, everywhere, machineName, 
           if (row) onModel(row);
         }
       }}/></div>
-      <div className="agc-models"><ModelRows rows={rows} picked={picked} highlight={highlight} lit={lit} list={list} onModel={onModel} />
+      <div className="agc-models" ref={list}><ModelRows rows={rows} picked={picked} highlight={highlight} lit={lit} list={list} onModel={onModel} />
         {note && <p className="none" role="status">{loading && <><Spinner /> </>}{note}</p>}
         {failed && <button type="button" data-agretry="" onClick={onRetry}>Retry</button>}
       </div>
@@ -131,7 +131,7 @@ const PICK_HEIGHT = 340;
 
 /// The model column's rows, drawing only those near the view: a harness can
 /// offer hundreds of models. The highlighted row scrolls into view as the
-/// arrow keys move it, below the search field that sticks on top.
+/// arrow keys move it.
 function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
   rows: readonly PickRow[];
   picked: Picked;
@@ -140,29 +140,25 @@ function ModelRows({ rows, picked, highlight, lit, list, onModel }: {
   list: RefObject<HTMLDivElement | null>;
   onModel: (row: PickRow) => void;
 }) {
-  const box = useRef<HTMLDivElement>(null);
-  // How far down the list the rows start, under the search field.
-  const [above, setAbove] = useState(0);
-  useLayoutEffect(() => { setAbove((box.current?.offsetTop ?? 0) - (list.current?.offsetTop ?? 0)); }, [list]);
   const getItemKey = useCallback((index: number) => { const row = rows[index]; return row ? rowKey(row) : index; }, [rows]);
   // Rows of another harness than the picked one carry its badge.
   const badged = rows.some(row => row.agent !== picked.agent);
   const virtual = useVirtualizer({
     count: rows.length, getScrollElement: () => list.current, estimateSize: () => MODEL_ROW, getItemKey, overscan: 8,
-    scrollMargin: above, scrollPaddingStart: above, initialRect: { width: 0, height: PICK_HEIGHT },
+    initialRect: { width: 0, height: PICK_HEIGHT },
     // A row takes the size the ResizeObserver reports before it paints;
     // measuring each as it mounts would lay the picker out once per row.
     measureElement: (node, entry, instance) => entry?.borderBoxSize?.[0]?.blockSize ?? instance.measurementsCache[instance.indexFromElement(node)]?.size ?? MODEL_ROW,
   });
   useLayoutEffect(() => { if (highlight >= 0) virtual.scrollToIndex(highlight, { align: "auto" }); }, [lit]);
 
-  return <div ref={box} style={{ position: "relative", height: virtual.getTotalSize() }}>
+  return <div style={{ position: "relative", height: virtual.getTotalSize() }}>
     {virtual.getVirtualItems().map(item => {
       const row = rows[item.index];
       // The search field is the list's one Tab stop: a focused row would unmount as it scrolls away.
       return <button key={item.key} ref={virtual.measureElement} data-index={item.index} type="button" tabIndex={-1} data-agmo={row.value}
         className={`${row.value === picked.model && row.agent === picked.agent ? "on" : ""}${row.value && row.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
-        style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start - above}px)` }}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start}px)` }}
         onClick={() => onModel(row)}>{badged && <HarnessIcon agent={row.agent}/>}{row.label}{row.note && <small>{row.note}</small>}</button>;
     })}
   </div>;
