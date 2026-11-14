@@ -165,6 +165,7 @@ async fn start(tool: Tool) -> State {
                     orders,
                 });
                 let program = find(command(tool).0);
+                log::info!("{tool} sign-in started");
                 tokio::spawn(run(tool, program, state_tx, orders_rx));
                 state
             }
@@ -215,11 +216,6 @@ async fn run(
     orders: mpsc::Receiver<Order>,
 ) {
     let ended = drive(tool, program, &state, orders).await;
-
-    if let Err(reason) = &ended {
-        log::info!("{tool} sign-in ended: {reason}");
-    }
-
     let signed_in = ended.is_ok();
     state.send_replace(match ended {
         Ok(()) => State::SignedIn {},
@@ -239,7 +235,10 @@ async fn drive(
     mut orders: mpsc::Receiver<Order>,
 ) -> Result<(), String> {
     let (name, args) = command(tool);
-    let program = program.ok_or_else(|| format!("{name} is not installed on this machine."))?;
+    let Some(program) = program else {
+        log::info!("{tool} sign-in failed: {name} is not installed");
+        return Err(format!("{name} is not installed on this machine."));
+    };
     let mut command = process::command(&program);
     // No credentials: the agent signs in on its own.
     spawn_env::apply(&mut command, Scope::Probe);
@@ -252,7 +251,10 @@ async fn drive(
         .kill_on_drop(true);
     let child = command
         .spawn()
-        .map_err(|e| format!("{name} could not start: {e}"))?;
+        .map_err(|e| {
+            log::info!("{tool} sign-in failed: {name} could not start: {e}");
+            format!("{name} could not start: {e}")
+        })?;
     let mut child = GroupLeader::new(child);
     let mut stdin = child.child_mut().stdin.take();
     let (output_tx, mut output) = mpsc::channel(16);
@@ -288,6 +290,7 @@ async fn drive(
 
                     if !shown && let Some(prompt) = read::prompt(tool, &seen) {
                         shown = true;
+                        log::info!("{tool} sign-in: the sign-in link was offered");
                         state.send_replace(prompt);
                         changed(tool);
                     }
@@ -295,20 +298,44 @@ async fn drive(
                 None => output_open = false,
             },
             exit = child.child_mut().wait() => {
+                // The status is logged, never the output: it can hold a link or code.
+                match &exit {
+                    Ok(status) => log::info!("{tool} sign-in: {name} exited with {status}"),
+                    Err(e) => log::info!("{tool} sign-in: waiting for {name} failed: {e}"),
+                }
                 break match exit {
-                    Ok(status) if status.success() && shown => Ok(()),
-                    _ => Err(read::failure(name, &seen)),
+                    Ok(status) if status.success() && shown => {
+                        log::info!("{tool} sign-in ended: signed in");
+                        Ok(())
+                    }
+                    _ => {
+                        log::info!("{tool} sign-in ended: failed, {name} did not sign in");
+                        Err(read::failure(name, &seen))
+                    }
                 };
             }
             order = orders.recv() => match order {
                 Some(Order::Answer(text)) => {
+                    log::info!("{tool} sign-in: a code was received from the caller");
+
                     if let Err(e) = give(stdin.as_mut(), &text).await {
                         log::warn!("{tool} sign-in: {e}");
                     }
                 }
-                Some(Order::Cancel) | None => break Err("The sign-in was cancelled.".into()),
+                Some(Order::Cancel) => {
+                    log::info!("{tool} sign-in ended: cancelled by the caller");
+                    break Err("The sign-in was cancelled.".into());
+                }
+                None => {
+                    log::info!("{tool} sign-in ended: the caller went away");
+                    break Err("The sign-in was cancelled.".into());
+                }
             },
             () = sleep_until(link_by) => {
+                log::info!(
+                    "{tool} sign-in ended: failed, {}",
+                    if shown { "not finished in time" } else { "no sign-in link printed" }
+                );
                 break Err(if shown {
                     "The sign-in was not finished within 10 minutes.".into()
                 } else {
