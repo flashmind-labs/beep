@@ -227,11 +227,11 @@ function keyboard() {
   document.addEventListener("focusin", follow);
   document.addEventListener("focusout", follow);
 
-  // A tap on a send button keeps the field focused. Losing focus would put the keyboard away and
-  // move the button before the click lands, so the first tap only hid the keyboard.
+  // A tap on a send button, or any button in the field, keeps the field focused. Losing focus would
+  // put the keyboard away and move the button before the click lands, so the first tap only hid the keyboard.
   // WebKit moves focus on mousedown even when pointerdown was prevented.
   document.addEventListener("mousedown", e => {
-    if (document.body.classList.contains("mobile") && typing() && e.target instanceof Element && e.target.closest(SEND)) e.preventDefault();
+    if (document.body.classList.contains("mobile") && typing() && e.target instanceof Element && e.target.closest(`${SEND}, .dinput button`)) e.preventDefault();
   }, true);
 
   document.addEventListener("focusin", e => {
