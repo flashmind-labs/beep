@@ -60,7 +60,7 @@ test("a session in landscape keeps its head to one line", async ({ page }) => {
   expect(pane?.x).toBe(0);
   expect(pane?.width).toBe(844);
   await page.screenshot({ path: "../../.artifacts/phone-landscape-files.png" });
-  await page.locator("#agmnav").getByRole("button", { name: "Log" }).click();
+  await page.locator("#agmnav").getByRole("button", { name: "Chat" }).click();
   await page.screenshot({ path: "../../.artifacts/phone-landscape-session.png" });
 });
 
@@ -68,8 +68,22 @@ test("a file opened from the log takes a phone's screen", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openDesktop(page, false, { agent_view: view, center_home: home });
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
-  await expect(page.locator("#agmnav [aria-selected=true]")).toHaveText("Log");
+  await expect(page.locator("#agmnav [aria-selected=true]")).toHaveText("Chat");
   await page.locator("code.fref", { hasText: "src/upload.rs" }).click();
   await expect(page.locator(".agconv")).toBeHidden();
   await expect(page.locator("#agmnav [aria-selected=true]")).toHaveText("upload.rs");
+});
+
+test("a phone reopens a session on its chat, not the last picture it showed", async ({ page }) => {
+  // The session last showed a picture, as one tapped in its chat leaves it.
+  const pic = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  await page.addInitScript(url => localStorage.setItem("beep.projectView.build-box\ns", JSON.stringify({ on: { right: url, bottom: url }, tabs: [{ path: null, url, name: "shot.png" }] })), pic);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDesktop(page, false, { agent_view: view, center_home: home });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), { ...session, id: "other" });
+  await expect(page.locator("#agmnav")).toBeVisible();
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  await expect(page.locator("#agmnav")).toContainText("shot.png");
+  await expect(page.locator("#agmnav [aria-selected=true]")).toHaveText("Chat");
+  await expect(page.locator(".agconv")).toBeVisible();
 });

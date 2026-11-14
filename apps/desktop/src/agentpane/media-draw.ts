@@ -86,10 +86,10 @@ function publish(split: Record<Dock, string[]>) {
   place({ right: dockModel("right", split.right), bottom: dockModel("bottom", split.bottom) }, { phone: phone && { tabs: phone, selected: log ? "log" : P.on.bottom } });
 }
 
-/// On a phone the session shows one pane at a time: Log, the conversation, or one of the
+/// On a phone the session shows one pane at a time: Chat, the conversation, or one of the
 /// bottom dock's tabs filling the screen; mobile.css hides the dock's own strip.
 function phoneTabs(ids: string[]) {
-  return [{ id: "log", name: "Log" }, ...ids.map(id => ({ id, name: paneTabItem(id).name }))];
+  return [{ id: "log", name: "Chat" }, ...ids.map(id => ({ id, name: paneTabItem(id).name }))];
 }
 
 /// A tab picked in the phone's strip.

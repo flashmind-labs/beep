@@ -157,7 +157,7 @@ body.cbody.mb-full.mobile
             div#agshell.agshell.mb-log.narrow
               div#agmain.agmain
                 nav#agmnav.agmnav
-                  button [aria-selected="true" data-mnav="log" type="button"] "Log"
+                  button [aria-selected="true" data-mnav="log" type="button"] "Chat"
                   button [aria-selected="false" data-mnav="files" type="button"] "Files"
                   button [aria-selected="false" data-mnav="changes" type="button"] "Changes"
                   button [aria-selected="false" data-mnav="running" type="button"] "Running"
