@@ -50,6 +50,8 @@ impl Wsl {
         } else if let Some(keeper) = keeper::running() {
             keeper.halt().await;
         }
+
+        env::changed();
     }
 }
 

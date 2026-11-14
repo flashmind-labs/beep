@@ -15,6 +15,7 @@
 use super::{distro::DistroName, steps};
 use crate::{
     lock,
+    machine::env,
     run::process::{self, GroupLeader},
 };
 use anyhow::{Context, Result};
@@ -332,7 +333,7 @@ async fn keep_running(
             pause.as_secs().max(1)
         );
         log::warn!("the node in WSL distribution {distro}: {said}");
-        problem.send_replace(Some(said));
+        tell(problem, Some(said));
 
         select! {
             () = sleep(pause) => {}
@@ -357,14 +358,15 @@ async fn after_exit(
 
     match listed.iter().find(|listed| listed.name == *distro) {
         None => {
-            problem.send_replace(Some(format!("There is no WSL distribution {distro} any more.")));
+            tell(problem, Some(format!("There is no WSL distribution {distro} any more.")));
             Some(Ended::Gone)
         }
         Some(listed) if !listed.running => {
             log::info!("WSL stopped {distro}: its node waits to be turned on");
-            problem.send_replace(Some(format!(
-                "WSL stopped {distro}. Turn it on to start its node again."
-            )));
+            tell(
+                problem,
+                Some(format!("WSL stopped {distro}. Turn it on to start its node again.")),
+            );
             Some(Ended::Paused)
         }
         Some(_) => None,
@@ -408,7 +410,7 @@ async fn run_once(
             }
             () = &mut settled, if !was_settled => {
                 was_settled = true;
-                problem.send_replace(None);
+                tell(problem, None);
             }
             () = stop.cancelled() => break,
         }
@@ -423,6 +425,13 @@ async fn run_once(
 
     leader.stop(Duration::ZERO).await;
     Ok(None)
+}
+
+/// Notes why a node does not run, or that it runs, and has the machine's
+/// report say so.
+fn tell(problem: &watch::Sender<Option<String>>, now: Option<String>) {
+    problem.send_replace(now);
+    env::changed();
 }
 
 /// Keeps the last `TAIL_LINES` lines of the node's log.
