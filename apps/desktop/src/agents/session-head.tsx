@@ -31,8 +31,8 @@ export function agentHints() {
   if (s?.status === "ended") return slim([[ICON.ret, "continue"], ["esc", "back"]]);
 
   if (turnRuns()) {
-    if (stoppingNow()) return slim([]);
-    return slim([...mode, ["⌘.", "stop"], ["esc", "back"]]);
+    const stop: readonly Hint[] = stoppingNow() ? [] : [["⌘.", "stop"]];
+    return slim([...mode, ...stop, ["esc", "back"]]);
   }
 
   return slim([...mode, ["⌘U", "thoughts"], ["⌘Y", "commands"], ["esc", "back"]]);
