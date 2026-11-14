@@ -19,8 +19,8 @@ use beep_proto::node::{
     tools::{Reply, Request, Tool},
 };
 use beep_report::{
-    Answer, Period, SendError, Sender, Share, Target, collect, collect_within, draft, redact, send,
-    server_url, zip,
+    Answer, Period, SendError, Sender, Share, Target, collect, collect_within, draft, find_gh,
+    gh_signed_in, issue, open_issue, redact, send, server_url, zip,
 };
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use regex::RegexBuilder;
@@ -33,6 +33,7 @@ const MAX_MINUTES: u32 = 7 * 24 * 60;
 const DEFAULT_LINES: usize = 300;
 const MAX_LINES: usize = 2000;
 const SEND: &str = "send";
+const SEND_AND_ISSUE: &str = "issue";
 /// What a node says of the machines it cannot read.
 const ONLY_HERE: &str = "This agent runs on a node, and only a desktop reads another \
     machine's status and log, so this is this machine alone. Start the agent on a desktop to \
@@ -521,19 +522,34 @@ async fn file(
         name: name.into(),
         kind,
     };
+    let gh = match find_gh() {
+        Some(gh) if gh_signed_in(&gh).await => Some(gh),
+        _ => None,
+    };
+    let mut detail =
+        format!("{description}\n\nWith Beep's logs from {covers}, of {machines}, secrets removed.");
+    let mut options = vec![option(SEND, "Send", OptionKind::AllowOnce)];
+
+    if gh.is_some() {
+        detail.push_str(
+            " Send and open issue also opens a public GitHub issue with your gh: this \
+             description, the reference and versions, no logs.",
+        );
+        options.insert(
+            0,
+            option(SEND_AND_ISSUE, "Send and open issue", OptionKind::AllowOnce),
+        );
+    }
+
+    options.push(option("keep", "Don't send", OptionKind::RejectOnce));
     let question = Asking {
         text: "Send a problem report to Beep?".to_owned(),
-        detail: Some(format!(
-            "{description}\n\nWith Beep's logs from {covers}, of {machines}, secrets removed."
-        )),
-        options: vec![
-            option(SEND, "Send", OptionKind::AllowOnce),
-            option("keep", "Don't send", OptionKind::RejectOnce),
-        ],
+        detail: Some(detail),
+        options,
     };
-
-    match timeout(ASK_LIMIT, offers.agents.ask(session, question)).await {
-        Ok(Ok(Answered::Picked(option))) if option.id == SEND => {}
+    let with_issue = match timeout(ASK_LIMIT, offers.agents.ask(session, question)).await {
+        Ok(Ok(Answered::Picked(option))) if option.id == SEND => false,
+        Ok(Ok(Answered::Picked(option))) if option.id == SEND_AND_ISSUE => true,
         Ok(Ok(_)) => {
             return Err(
                 "The user did not send the report. Do not try again unless they ask.".to_owned(),
@@ -541,7 +557,7 @@ async fn file(
         }
         Ok(Err(e)) => return Err(format!("Not sent: {e:#}")),
         Err(_) => return Err("Not sent: the user did not answer within an hour.".to_owned()),
-    }
+    };
 
     let since = period.since_now();
     let shares = collect(peers.report_targets(), since).await;
@@ -561,11 +577,11 @@ async fn file(
             .iter()
             .map(|machine| format!("{} {}", machine.name, machine.answer.label()))
             .collect();
-        zip(&draft).map(|body| (body, answers))
+        zip(&draft).map(|body| (body, answers, draft.manifest))
     })
     .await
     .map_err(|e| format!("Not sent: {e}"))?;
-    let (body, answers) = built.map_err(|e| format!("Not sent: {e}"))?;
+    let (body, answers, manifest) = built.map_err(|e| format!("Not sent: {e}"))?;
     let url = server_url().map_err(|e| format!("Not sent: {e}"))?;
     let receipt = send(&url, body, &key).await.map_err(|e| match e {
         SendError::Refused(words) => format!("Not sent: {words}"),
@@ -579,6 +595,18 @@ async fn file(
 
     if only_here(peers) {
         text.push_str(" Only this machine's log went: a node reads no other machine's.");
+    }
+
+    if let Some(gh) = gh.filter(|_| with_issue) {
+        // The report reached Beep: a failed issue is said, not a failed call.
+        let opened = match issue(&manifest, &receipt.reference) {
+            Ok(issue) => open_issue(&gh, &issue).await.map_err(|e| e.to_string()),
+            Err(e) => Err(e.to_string()),
+        };
+        match opened {
+            Ok(url) => text.push_str(&format!("\nIssue: {url}")),
+            Err(e) => text.push_str(&format!("\nThe GitHub issue did not open: {e}")),
+        }
     }
 
     Ok(text)
