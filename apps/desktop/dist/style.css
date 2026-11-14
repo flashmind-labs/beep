@@ -1064,8 +1064,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agtree:focus-visible .agtr[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: -1px }
 .agctx :is(button, [role="menuitem"]).warn { color: var(--hot) }
 
-/* Centered new-agent composer, also used with a preset project. */
-.agc-wrap { flex: 1; min-height: 0; overflow: auto; scrollbar-width: none; padding: 16px; display: flex; flex-direction: column }
+/* Centered new-agent composer, also used with a preset project. Only scrolls down: the start
+   screen's painting is wider than the page. */
+.agc-wrap { flex: 1; min-height: 0; overflow: hidden auto; scrollbar-width: none; padding: 16px; display: flex; flex-direction: column }
 .cc-pjc.centered { width: 100%; max-width: 760px; box-sizing: border-box; margin: auto; gap: 16px; padding-block: 32px }
 .cc-pjc.centered .agc-intro { text-align: center; padding: 0 16px 24px }
 .cc-pjc.centered .agc-intro h3 { max-width: 680px; margin: 0 auto; font-size: 48px; line-height: 1; font-weight: 500; letter-spacing: -.04em; text-wrap: balance }
