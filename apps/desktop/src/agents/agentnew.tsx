@@ -210,7 +210,7 @@ function drawParts() {
   f.agent = harnessFor(preferred ?? f.agent, formAgents(), AGENT_ORDER);
   f.effort = keepEffort(f.agent, f.effort);
   syncModel();
-  const none = !!AG.hosts && !hosts.length;
+  const none = !!AG.hosts && !addHosts(hosts).length;
   const missing = AG.error === "prompt";
   const host = formHost();
   c.update({
@@ -228,10 +228,11 @@ function drawParts() {
   drawPill(c, none);
   drawPicker(c);
   drawUnder(c);
-  c.update({ notes: <NewAgentNotes waiting={!AG.hosts} none={none} noMachine={!f.machine && !!AG.hosts?.length} openMachines={openMachines} /> });
+  c.update({ notes: <NewAgentNotes waiting={!AG.hosts} none={none} noMachine={!f.machine && !!AG.hosts?.length} openAgents={openAgents} openMachines={openMachines} /> });
 }
 
-function openMachines() { void import("../machines/machines.tsx").then(m => m.renderMachines()); }
+export function openMachines() { void import("../machines/machines.tsx").then(m => m.renderMachines()); }
+export function openAgents() { void import("../center/views.tsx").then(v => v.go("providers")); }
 
 function drawPill(c: StartComposer, none: boolean) {
   const f = AG.form;

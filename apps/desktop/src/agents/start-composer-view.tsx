@@ -95,6 +95,14 @@ export function StartComposerView({ nodes, choices, projectPicker, externalChoic
   </>;
 }
 
-export function NewAgentNotes({ waiting, none, noMachine, openMachines }: { waiting: boolean; none: boolean; noMachine: boolean; openMachines(): void }) {
-  return <div className="agnew-notes"><div className="agc-why" id="agwhy" hidden={!noMachine}>{noMachine && <><span className="ddot off" /><span>Pick a machine to start.</span></>}</div><div id="aghelp">{waiting ? <div className="agc-note"><Spinner /> Looking for machines…</div> : none ? <div className="agc-help"><b>No machine can run an agent yet</b><ol><li>Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh.</li><li>Open Add a machine and run the <code>beep-node mesh join</code> command it shows there.</li></ol><div><Button id="agmachines" onClick={openMachines}>Machines settings</Button></div></div> : null}</div></div>;
+interface NoAgentActions { openAgents(): void; openMachines(): void }
+
+export function NewAgentNotes({ waiting, none, noMachine, ...actions }: { waiting: boolean; none: boolean; noMachine: boolean } & NoAgentActions) {
+  return <div className="agnew-notes"><div className="agc-why" id="agwhy" hidden={!noMachine}>{noMachine && <><span className="ddot off" /><span>Pick a machine to start.</span></>}</div><div id="aghelp">{waiting ? <div className="agc-note"><Spinner /> Looking for machines…</div> : none ? <NoAgentHelp {...actions} /> : null}</div></div>;
+}
+
+/// No machine has a coding agent: install one from Coding agents, or add a
+/// machine that has one.
+export function NoAgentHelp({ openAgents, openMachines }: NoAgentActions) {
+  return <div className="agc-help"><b>No machine has a coding agent yet</b><ol><li>Install Claude Code, Codex or another agent on a machine from Coding agents.</li><li>Or add a machine that has one: install beep-node there and run the <code>beep-node mesh join</code> command from Add a machine.</li></ol><div className="dline wrap"><Button look="primary" onClick={openAgents}>Install a coding agent</Button><Button onClick={openMachines}>Machines settings</Button></div></div>;
 }

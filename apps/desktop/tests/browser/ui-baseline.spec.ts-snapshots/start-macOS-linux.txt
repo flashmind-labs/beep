@@ -213,13 +213,14 @@ body.cbody
                   div#agwhy.agc-why [hidden]
                   div#aghelp
                     div.agc-help
-                      b "No machine can run an agent yet"
+                      b "No machine has a coding agent yet"
                       ol
-                        li "Install beep-node on a computer that has Claude Code, Codex, Gemini CLI, pi or flsh."
-                        li "Open Add a machine and run the command it shows there."
+                        li "Install Claude Code, Codex or another agent on a machine from Coding agents."
+                        li "Or add a machine that has one: install beep-node there and run the command from Add a machine."
                           code "beep-node mesh join"
-                      div
-                        button#agmachines.dbtn [type="button"] "Machines settings"
+                      div.dline.wrap
+                        button.dbtn.pri [type="button"] "Install a coding agent"
+                        button.dbtn [type="button"] "Machines settings"
             div.agkeys.prompt-stash-bar
               div.dhints.slim
                 span "model"
