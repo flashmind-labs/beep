@@ -19,7 +19,7 @@
 // `git diff`, and commit them with the change.
 
 import { expect, test, type Page } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { openDesktop, openStartForm, projectName } from "./harness.ts";
 
 /// The frozen wall clock every state renders at.
 const NOW = Date.UTC(2026, 0, 15, 12, 0, 0);
@@ -172,11 +172,11 @@ test("search palette", async ({ page }) => {
   await baseline(page, "palette");
 });
 
-test("start screen", async ({ page }, info) => {
+test("start screen", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   // The headline is drawn by lot when the screen opens; the screenshot needs the same one each run.
   await page.evaluate(() => { Math.random = () => 0; });
-  await page.keyboard.press(info.project.name === "Windows" ? "Control+n" : "Meta+n");
+  await openStartForm(page);
   await expect(page.locator(".cc-pjc.centered .agc-intro h3")).toBeVisible();
   await baseline(page, "start");
 });

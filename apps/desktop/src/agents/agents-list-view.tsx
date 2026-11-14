@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
-import { AGENT_ICON, agentsList, listedMenu, newFromList, openListed, toggleEnded, type ListedSession } from "./agents.ts";
+import { newChat } from "../bar/core.ts";
+import { AGENT_ICON, agentsList, listedMenu, openListed, toggleEnded, type ListedSession } from "./agents.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { SessionRowSlot } from "../plugins/slot-view.tsx";
 import type { MachinesReach } from "../machines/machine-state.ts";
@@ -19,7 +20,7 @@ export function AgentsList({ hints }: { hints: HintViewModel }) {
   const any = list.live.length + list.ended.length > 0;
   const row = (entry: ListedSession, index: number, gone: boolean) => <SessionRow key={entry.row.key} index={index} entry={entry} gone={gone} picked={index === list.selected} pickedRef={index === list.selected ? selected : null} />;
 
-  return <><div className="dhead"><span className="tt"><b>Coding agents</b><small>{list.summary}</small></span><Button id="agNew" onClick={newFromList}><Icon />New<kbd>⌘⇧A</kbd></Button></div>
+  return <><div className="dhead"><span className="tt"><b>Coding agents</b><small>{list.summary}</small></span><Button id="agNew" onClick={newChat}><Icon />New<kbd>⌘⇧A</kbd></Button></div>
     {list.error && <div className="derr dpadx">{list.error}</div>}
     <div className="dagscroll">
       {any && <div className="dlist top" role="listbox" aria-label="Coding agents">

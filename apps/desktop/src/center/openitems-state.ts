@@ -124,17 +124,26 @@ export function itemChips(item: Item & Pick<GitItemRow, "draft" | "assigned">) {
   return out;
 }
 
-/// What Review prefills in Start a coding agent: the prompt and, when the
-/// project is imported, the folder on an online machine that has it.
-export function reviewStart(
-  item: Pick<GitItemRow, "host" | "url">,
-  project: { name?: string; machines?: readonly { id: string; folder: string }[] } | null | undefined,
-  machines: readonly { id: string; online: boolean }[] | null | undefined,
-) {
+/// A project for Review and Reply: its name and checkouts.
+export interface StartProject { name: string; machines?: readonly { id: string; folder: string }[] }
+type Hosts = readonly { id: string; online: boolean }[] | null | undefined;
+
+/// What Review prefills in Start a coding agent: the prompt and the
+/// project, on an online machine that has a checkout of it when one does.
+export function reviewStart(item: Pick<GitItemRow, "host" | "url">, project: StartProject, machines: Hosts) {
   const tool = item.host === "github.com" ? "gh" : "teacli";
   const prompt = `Review PR ${item.url}. Read the diff with ${tool}, read the code around each change, and run the tests that cover it. Report real defects with file, line and how they fail, and say what you ran. Post your review only after I approve it.`;
+  return { prompt, at: projectStart(project, machines) };
+}
+
+/// What Reply prefills: a prompt to help reply, in the item's project.
+export function replyStart(item: Pick<GitItemRow, "url">, project: StartProject, machines: Hosts) {
+  return { prompt: `Help me reply to ${item.url}`, at: projectStart(project, machines) };
+}
+
+function projectStart(project: StartProject, machines: Hosts) {
   const online = new Set((machines || []).filter(m => m.online).map(m => m.id));
-  const at = project?.machines?.find(m => online.has(m.id) && m.folder) || null;
-  const places = (project?.machines || []).filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
-  return { prompt, at: at ? { machine: at.id, cwd: at.folder, places, ...(project?.name ? { project: project.name } : {}) } : null };
+  const places = (project.machines || []).filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
+  const at = places.find(p => online.has(p.machine)) ?? null;
+  return { machine: at?.machine ?? null, cwd: at?.cwd ?? null, places, project: project.name };
 }

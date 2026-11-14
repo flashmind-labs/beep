@@ -3,9 +3,9 @@ import { loadOlder } from "../agents/older.ts";
 import { logSearchSources, revealLogUnit, watchLogSearch } from "../agents/logwindow.tsx";
 import type { ChatBody } from "../ui/turn.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
-import { closeAgentNewMenus, renderAgentNew } from "../agents/agentnew.tsx";
+import { closeAgentNewMenus } from "../agents/agentnew.tsx";
 import { agentBack, agentKeys } from "../agents/agents.ts";
-import { $, bar, PANE, S, windowHooks } from "./core.ts";
+import { $, bar, newChat, PANE, S } from "./core.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { closeFilesMenu } from "../agentpane/files.ts";
 import { viewerKeys } from "../chat/media.tsx";
@@ -75,11 +75,11 @@ document.addEventListener("keydown", e => {
 
   if (cmd && e.shiftKey && key === "a") {
     e.preventDefault();
-    return renderAgentNew("", S.view === "agents" ? "agents" : "waiting");
+    return newChat();
   }
 
   if (cmd && e.key === ",") { e.preventDefault(); return renderSettings(); }
   if (cmd && key === "q") { e.preventDefault(); return invoke("quit"); }
   // The window picks the agent's start: the project's while one of its sessions shows.
-  if (cmd && key === "n") { e.preventDefault(); return windowHooks ? windowHooks.newAgent() : renderAgentNew("", S.view === "waiting" ? "waiting" : "hide"); }
+  if (cmd && key === "n") { e.preventDefault(); return newChat(); }
 });

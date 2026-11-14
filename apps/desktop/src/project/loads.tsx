@@ -17,11 +17,10 @@ import { FoundSection, RepoSection } from "./outside-lists.tsx";
 import type { RecentSessions } from "./split-view.tsx";
 import { foundFor, withSyncthing, projectPastSessions, nextSessions, type Project, type ProjectMachineRow, type SessionRow, type SyncthingPlace, type WhereRow } from "./projects-state.ts";
 import { repoFromRemote } from "../addproject/importproject-state.ts";
-import { reviewStart } from "../center/openitems-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId } from "./localid.ts";
 import { state, pages, keep, pageFresh } from "../center/state.ts";
-import { openUrl, refreshGit, replyItem } from "../center/openitems.ts";
+import { openUrl, refreshGit } from "../center/openitems.ts";
 import { currentLocation, go } from "../center/views.tsx";
 import { projectRows, importSheet, addProject, importFromPage, loadFound } from "../center/sidebar.tsx";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage } from "./sections.ts";
@@ -393,13 +392,10 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
     const here = foundFor(state.found, r.repo);
     const failed = here && state.foundError?.name === here.name ? state.foundError.message : null;
     const importing = !!here && state.importing === here.name;
-    return { key: `${r.host} ${r.repo}`, name: r.repo, failed, last: r.last, open: i === 0, items: r.items,
+    return { key: `${r.host} ${r.repo}`, name: r.repo, failed, last: r.last, open: i === 0, items: r.items, start: null,
       action: { label: importing ? "Importing…" : "Import project", primary: i === 0, disabled: !!here && state.importing != null, run: () => { if (here) void importFromPage(here); else importSheet(r.repo); } } };
   });
-  return <div id="sec-elsewhere"><RepoSection id="section:elsewhere" title="Your PRs and issues elsewhere" note="in repos without a project" repos={body} open={openUrl}
-    review={item => go("pane", { agentnew: reviewStart(item, null, state.home?.machines?.filter(m => m.can_host !== false)) })}
-    reply={item => { void replyItem(item); }}
-  /></div>;
+  return <div id="sec-elsewhere"><RepoSection id="section:elsewhere" title="Your PRs and issues elsewhere" note="in repos without a project" repos={body} open={openUrl} /></div>;
 }
 
 // Reopened sessions and moves change independently of project membership.

@@ -79,6 +79,12 @@ export function toWindow(target: unknown) {
   return invoke("center_open", { target }).catch(() => {});
 }
 
+/// A new chat starts in a project: the window's own pick, else Projects.
+export function newChat() {
+  if (windowHooks) return windowHooks.newAgent();
+  void toWindow({ projects: { project: null } });
+}
+
 /// Set by the window once it has loaded the pane.
 export let windowHooks: WindowHooks | null = null;
 export function connectWindow(hooks: WindowHooks) {
