@@ -3688,3 +3688,32 @@ async fn repository_copies_rename_independently_and_retries_keep_successful_host
     assert_eq!(requests.lock().unwrap().len(), calls.len());
     server.abort();
 }
+
+#[tokio::test]
+async fn beep_sync_over_syncthing_excludes_existing_projects() {
+    use beep_proto::node::mesh_state::ProjectRecord;
+    let studio = create("studio").await;
+    let desk = desk(&studio, &[]).await;
+    let key = Key::Project("example/repo".to_owned());
+    let record = ProjectRecord {
+        url: "https://example.com/example/repo".into(),
+        syncthing_files: Some(true),
+        ..ProjectRecord::default()
+    };
+    studio
+        .mesh
+        .set(key.clone(), Some(record.to_bytes().unwrap()))
+        .await
+        .unwrap();
+    assert!(!desk.beep_sync_over_syncthing());
+
+    desk.set_beep_sync_over_syncthing(true).await.unwrap();
+
+    assert!(desk.beep_sync_over_syncthing());
+    assert_eq!(
+        desk.project_syncthing_mode("example/repo", None)
+            .await
+            .unwrap(),
+        Some(false)
+    );
+}

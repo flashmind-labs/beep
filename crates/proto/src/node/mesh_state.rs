@@ -99,6 +99,9 @@ pub struct ProjectSyncSettings {
     /// Projects individually paused before the master switch was turned off.
     #[serde(default)]
     pub paused_projects: BTreeSet<String>,
+    /// Every project, and each one imported later, is excluded from Syncthing.
+    #[serde(default)]
+    pub beep_sync_over_syncthing: bool,
 }
 
 impl Default for ProjectSyncSettings {
@@ -106,6 +109,7 @@ impl Default for ProjectSyncSettings {
         Self {
             enabled: true,
             paused_projects: BTreeSet::new(),
+            beep_sync_over_syncthing: false,
         }
     }
 }
