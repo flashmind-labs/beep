@@ -63,6 +63,7 @@
 .dv-tr .nm i { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-style: normal }
 .dv-tr .nm b { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 400 }
 .dv-tr .ct { font-size: 11px; display: flex; gap: 6px }
+.dv-cm { padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-style: normal; font-variant-numeric: tabular-nums }
 .dv-st { font: 600 10.5px var(--mono); text-align: center; color: var(--muted) }
 .dv-st.A { color: var(--dv-add-fg) } .dv-st.D { color: var(--dv-del-fg) } .dv-st.M { color: var(--warn) } .dv-st.R { color: var(--dv-hunk-fg) }
 .dv-files { min-height: 0; min-width: 0; overflow: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; overscroll-behavior: contain }

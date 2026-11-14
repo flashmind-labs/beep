@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { compactFolders, grouped, lineMatches, matchesFilter, splitPath, STATUS_LETTER, type DiffFile, type LineMatch } from "./diff-state.ts";
 
@@ -23,6 +24,8 @@ type Row =
 
 interface DiffTreeProps {
   files: readonly DiffFile[];
+  /// How many draft comments each file has, by path.
+  comments: ReadonlyMap<string, number>;
   filter: string;
   current: string | null;
   closedFolders: ReadonlySet<string>;
@@ -136,12 +139,13 @@ export function DiffTree(props: DiffTreeProps) {
         </summary>
       </details>;
     }
-    const f = row.item.file;
+    const f = row.item.file, comments = props.comments.get(f.path) ?? 0;
     return <button type="button" className={`dv-tr${props.current === f.path ? " on" : ""}`} data-path={f.path}
       title={f.old_path ? `${f.old_path} -> ${f.path}` : f.path}
       onClick={() => props.onFile(f.path)} onContextMenu={event => props.onMenu(event, f)}>
       <span className={`dv-st ${STATUS_LETTER[f.status]}`}>{STATUS_LETTER[f.status]}</span>
       <span className="nm"><b>{row.item.name}</b></span><span className="ct">
+        {!!comments && <i className="dv-cm" title={plural(comments, "comment", "comments")}>{comments}</i>}
         {!!f.additions && <i className="dv-plus">+{grouped(f.additions)}</i>}
         {!!f.deletions && <i className="dv-minus">-{grouped(f.deletions)}</i>}
       </span>

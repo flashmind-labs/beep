@@ -374,6 +374,13 @@ export interface ReviewComment {
   by?: string;
 }
 
+/// How many comments each file has, by path.
+export function commentCounts(comments: readonly ReviewComment[]) {
+  const out = new Map<string, number>();
+  for (const c of comments) out.set(c.path, (out.get(c.path) ?? 0) + 1);
+  return out;
+}
+
 /// How a row is named in [`Placed`]: the side and its line number.
 export const lineKey = (side: ReviewComment["side"], n: number) => `${side}:${n}`;
 
