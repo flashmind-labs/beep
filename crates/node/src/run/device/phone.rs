@@ -9,8 +9,10 @@ use anyhow::{Context, Result, bail};
 use beep_proto::node::events::Topic;
 use beep_proto::watched;
 use beep_proto::node::device::{
-    Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, TouchPhase,
+    Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, Reply, Request,
+    TouchPhase,
 };
+use beep_proto::node::{LinkRx, LinkTx};
 use futures::future::join_all;
 use image::{ImageFormat, codecs::jpeg::JpegEncoder, imageops::FilterType};
 use std::{
@@ -31,9 +33,6 @@ const LONG_PRESS: Duration = Duration::from_millis(500);
 /// How far a finger may move, in screen pixels, and still tap.
 const TAP_SLOP: f64 = 16.0;
 const JPEG_QUALITY: u8 = 80;
-/// How often a phone is asked which screen is on: a foldable changes
-/// screens as it opens and closes.
-const SCREEN_CHECK: Duration = Duration::from_secs(2);
 const PNG_SIGNATURE: &[u8] = b"\x89PNG";
 const NO_ADB: &str = "adb is not installed on this machine.";
 /// The first wait before following adb again after it stopped, doubled
@@ -43,6 +42,10 @@ const TRACK_RETRY_MAX: Duration = Duration::from_secs(300);
 /// Turns the screen a quarter turn and holds it there, as auto-rotate would.
 const ROTATE: &str = "settings put system accelerometer_rotation 0; \
     settings put system user_rotation $(( ($(settings get system user_rotation) + 1) % 4 ))";
+
+/// The phones here as adb last listed them, kept by `track`.
+static PHONES: LazyLock<watch::Sender<Vec<Device>>> =
+    LazyLock::new(|| watch::Sender::new(Vec::new()));
 
 /// Each phone's Android release, by serial, asked once.
 static RELEASES: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Mutex::default);
@@ -116,9 +119,34 @@ async fn follow_adb(adb: &Path) -> Result<()> {
 
     while out.read(&mut read).await? > 0 {
         events::system().changed(Topic::new("devices"));
+        let phones = list().await;
+        PHONES.send_if_modified(|known| {
+            let changed = *known != phones;
+            *known = phones;
+            changed
+        });
     }
 
     Ok(())
+}
+
+/// Sends the phones here now and again on every change, until the caller
+/// closes the stream.
+pub(super) async fn follow(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+    let mut phones = PHONES.subscribe();
+
+    loop {
+        let devices = watched::read_and_update(&mut phones, Clone::clone);
+        tx.send(&Reply::Devices { devices }).await?;
+
+        tokio::select! {
+            changed = phones.changed() => changed?,
+            closed = rx.recv::<Request>() => match closed? {
+                Some(other) => log::debug!("phones: ignoring {other:?} while following"),
+                None => return Ok(()),
+            },
+        }
+    }
 }
 
 /// A phone in `adb devices -l`.
@@ -194,18 +222,14 @@ async fn capture(
     size: watch::Sender<Option<(u32, u32)>>,
 ) {
     let mut last = Vec::new();
-    let mut lit: Option<String> = None;
-    let mut checked: Option<Instant> = None;
 
     let reason = loop {
-        if checked.is_none_or(|at| at.elapsed() >= SCREEN_CHECK) {
-            lit = call(&adb, &id, &["shell", "dumpsys", "display"])
-                .await
-                .ok()
-                .and_then(|out| lit_screen(&String::from_utf8_lossy(&out)));
-            checked = Some(Instant::now());
-        }
-
+        // Asked before every frame, so a foldable's view changes screens
+        // on the next frame after it opens or closes.
+        let lit = call(&adb, &id, &["shell", "dumpsys", "display"])
+            .await
+            .ok()
+            .and_then(|out| lit_screen(&String::from_utf8_lossy(&out)));
         let mut args = vec!["exec-out", "screencap", "-p"];
 
         if let Some(display) = &lit {

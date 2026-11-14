@@ -4,7 +4,8 @@
 //! view: the node sends a `Frame` whenever the screen changes, newest only,
 //! and the desktop sends `Input` until it closes the stream or the node sends
 //! `Ended`. `Platforms` gets one `Reply::Platforms`: the mobile platforms a
-//! checkout builds for.
+//! checkout builds for. `FollowPhones` turns the stream into the machine's
+//! phone list, sent now and on every change.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -56,6 +57,9 @@ pub enum Request {
     Platforms {
         root: String,
     },
+    /// The machine's phones now, then again each time one comes or goes,
+    /// as `Reply::Devices`, until the desktop closes the stream.
+    FollowPhones {},
 }
 
 /// Something the user did on the attached device's screen or buttons.
