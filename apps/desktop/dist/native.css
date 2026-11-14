@@ -116,9 +116,10 @@ body:not(.mobile) .cc-main:has(#pw-back:not([hidden])) .dhead.ag-head { padding-
 body:not(.mobile) .nt-bell { border: 0 }
 body:not(.mobile) .dhead.ag-head { height: 40px; padding: 0 112px 0 14px; gap: 8px; border-bottom: 0 }
 body:not(.mobile) .ag-head .dcoderav { width: 18px; height: 18px; border: 0; background: none }
-body:not(.mobile) .ag-head .tt { display: flex; align-items: baseline; gap: 10px }
-body:not(.mobile) .ag-head .tt b { flex: 0 1 auto; font-size: 13.5px }
-body:not(.mobile) .ag-head .tt small { flex: 0 1 auto; min-width: 0 }
+/* The title, with where the session runs on a line of its own under it, so neither is cut short. */
+body:not(.mobile) .ag-head .tt { display: grid; line-height: 16px }
+body:not(.mobile) .ag-head .tt b { font-size: 13px }
+body:not(.mobile) .ag-head .tt small { min-width: 0; line-height: 14px }
 body:not(.mobile) .ag-head .dstate { padding: 0; border: 0; background: none; font-size: 12px; font-weight: 500 }
 body:not(.mobile) .ag-head .dstate::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px }
 
@@ -135,7 +136,7 @@ body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
    are two cards set into it with the divider in the gap between them ----- */
 body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) { border-color: transparent; background: transparent; overflow: visible }
-body:not(.mobile) .dhead.ag-head { height: 34px; padding-left: 6px }
+body:not(.mobile) .dhead.ag-head { height: 42px; padding-left: 6px }
 body:not(.mobile) .cc-main:has(> #pane-box:not([hidden]) > .dbar[data-view="agent"]) > .cc-top { height: 34px; padding-right: 4px }
 body:not(.mobile) .agshell > :is(.agmain, .agpane) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .agshell > .agdiv { width: 6px; margin: 0 }
