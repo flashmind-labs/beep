@@ -43,7 +43,7 @@ const MIN_SIDE: u32 = 64;
 
 /// Serves one stream: answers `List`, `Boot`, `Shutdown` and `Platforms`
 /// until the desktop closes it, or follows a device once it asks to
-/// `Attach`.
+/// `Attach`, or the phones once it asks to `FollowPhones`.
 pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
     while let Some(request) = rx.recv::<Request>().await? {
         let reply = match request {
@@ -53,6 +53,7 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
             Request::Boot { id } => done(boot(&id).await),
             Request::Shutdown { id } => done(shutdown(&id).await),
             Request::Attach { id, max_side } => return attach(tx, rx, &id, max_side).await,
+            Request::FollowPhones {} => return phone::follow(tx, rx).await,
             Request::Input { .. } => Reply::Failed {
                 reason: "No device is attached.".to_owned(),
             },

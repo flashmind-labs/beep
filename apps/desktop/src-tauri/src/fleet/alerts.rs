@@ -1,8 +1,8 @@
 //! What coding agents on the machines of the mesh want the user for, sent
 //! by the machines themselves. The alerts and runs streams are
-//! `beep_fleet::alerts`; this adds the native CLI sessions each machine
-//! tells, and routes all of it to the app. An answer goes back to the
-//! machine.
+//! `beep_fleet::alerts`; this adds the native CLI sessions and the phones
+//! each machine tells, and routes all of it to the app. An answer goes back
+//! to the machine.
 
 use super::{Fleet, Opened};
 use crate::error::Result;
@@ -13,9 +13,11 @@ use beep_proto::watched;
 use beep_proto::{
     AgentNoticeKey, Notice,
     node::agent::{ExternalSession, RunNews, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
+    node::device::{self, Device, DeviceId},
 };
 use iroh::EndpointId;
 use std::{
+    collections::HashSet,
     str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
@@ -40,6 +42,11 @@ pub(crate) enum Direct {
     Presence {
         machine: EndpointId,
         sessions: Vec<ExternalSession>,
+    },
+    /// adb on `machine` sees a phone it did not list before.
+    Phone {
+        machine: EndpointId,
+        device: Box<Device>,
     },
 }
 
@@ -67,6 +74,9 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
         let presence = shared::each_machine(&mesh, |id| {
             tokio::spawn(presence(fleet.clone(), id, out.clone()))
         });
+        let phones = shared::each_machine(&mesh, |id| {
+            tokio::spawn(phones(fleet.clone(), id, out.clone()))
+        });
         let routing = async {
             while let Some(told) = told.recv().await {
                 if out.send(direct(told)).await.is_err() {
@@ -82,7 +92,7 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
                     return;
                 }
             }
-            _ = async { select! { _ = alerts => {}, _ = presence => {}, _ = routing => {} } } => {
+            _ = async { select! { _ = alerts => {}, _ = presence => {}, _ = phones => {}, _ = routing => {} } } => {
                 // The mesh closed: wait for the next one.
                 if opened.changed().await.is_err() {
                     return;
@@ -103,37 +113,90 @@ fn direct(told: Told) -> Direct {
 /// Follows `id`'s native CLI sessions, again after each break, until the
 /// receiver goes.
 async fn presence(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
-    let mut backoff = Backoff::eager();
-    // An offline machine fails the same way on every try: logged once,
-    // and again when the error changes or after a stream that worked.
-    let mut logged = None;
+    let mut retry = Retry::new("session presence");
 
     loop {
-        let started = Instant::now();
         let mut replied = false;
+        let followed = stream(&fleet, id, &out, &mut replied).await;
 
-        match stream(&fleet, id, &out, &mut replied).await {
-            Ok(()) => return,
-            Err(e) => {
-                let error = e.to_string();
+        if !retry.again(&fleet, id, followed, replied).await {
+            return;
+        }
+    }
+}
 
-                if logged.as_ref() != Some(&error) {
-                    log::debug!(
-                        "following session presence from {}: {error}",
-                        fleet.name_of(id)
-                    );
-                    logged = Some(error);
-                }
-            }
+/// Follows `id`'s phones, again after each break, until the receiver goes,
+/// telling the app of each new one. The phones of the first list were
+/// there before, so they tell nothing.
+async fn phones(fleet: Arc<Fleet>, id: EndpointId, out: mpsc::Sender<Direct>) {
+    let mut retry = Retry::new("phones");
+    let mut known = None;
+
+    loop {
+        let mut replied = false;
+        let followed = phone_stream(&fleet, id, &out, &mut known, &mut replied).await;
+
+        if !retry.again(&fleet, id, followed, replied).await {
+            return;
+        }
+    }
+}
+
+/// When a machine's stream is opened again after it broke: at once after
+/// one that worked, else after a pause that grows while it fails.
+struct Retry {
+    what: &'static str,
+    backoff: Backoff,
+    /// An offline machine fails the same way on every try: logged once,
+    /// and again when the error changes or after a stream that worked.
+    logged: Option<String>,
+    started: Instant,
+}
+
+impl Retry {
+    fn new(what: &'static str) -> Self {
+        Self {
+            what,
+            backoff: Backoff::eager(),
+            logged: None,
+            started: Instant::now(),
+        }
+    }
+
+    /// Waits to follow `id` again after a stream ended with `followed`;
+    /// false once it ended with `Ok`, when the receiver is gone. `replied`
+    /// says whether the machine sent anything.
+    async fn again(
+        &mut self,
+        fleet: &Fleet,
+        id: EndpointId,
+        followed: Result<()>,
+        replied: bool,
+    ) -> bool {
+        let Err(e) = followed else {
+            return false;
+        };
+        let error = e.to_string();
+
+        if self.logged.as_ref() != Some(&error) {
+            log::debug!(
+                "following {} from {}: {error}",
+                self.what,
+                fleet.name_of(id)
+            );
+            self.logged = Some(error);
         }
 
-        if held(replied, started.elapsed()) {
-            backoff.reset();
-            logged = None;
+        if held(replied, self.started.elapsed()) {
+            self.backoff.reset();
+            self.logged = None;
         }
 
-        until_online(&fleet, id).await;
-        sleep(backoff.pause()).await;
+        until_online(fleet, id).await;
+        sleep(self.backoff.pause()).await;
+        self.started = Instant::now();
+
+        true
     }
 }
 
@@ -190,6 +253,59 @@ async fn stream(
             return Ok(());
         }
     }
+}
+
+/// One stream of `id`'s phones. `Ok` when the receiver is gone; `known`
+/// holds the phones last listed, `None` before the first list.
+async fn phone_stream(
+    fleet: &Fleet,
+    id: EndpointId,
+    out: &mpsc::Sender<Direct>,
+    known: &mut Option<HashSet<DeviceId>>,
+    replied: &mut bool,
+) -> Result<()> {
+    let client = fleet.client(id).await?;
+    let (mut tx, mut rx) = client.open(device::PROTOCOL).await?;
+    tx.send(&device::Request::FollowPhones {})
+        .await
+        .map_err(MeshError::Link)?;
+
+    // `tx` stays open: finishing it ends the stream.
+    loop {
+        let reply = rx.recv::<device::Reply>().await.map_err(MeshError::Link)?;
+        let Some(device::Reply::Devices { devices }) = reply else {
+            let reason = "the machine does not follow its phones";
+            return Err(MeshError::Link(anyhow::anyhow!(reason)).into());
+        };
+        *replied = true;
+
+        for device in new_phones(known, devices) {
+            let phone = Direct::Phone {
+                machine: id,
+                device: Box::new(device),
+            };
+
+            if out.send(phone).await.is_err() {
+                return Ok(());
+            }
+        }
+    }
+}
+
+/// The phones of `listed` that `known` does not hold, none for the first
+/// list; `known` becomes `listed`.
+fn new_phones(known: &mut Option<HashSet<DeviceId>>, listed: Vec<Device>) -> Vec<Device> {
+    let ids = listed.iter().map(|device| device.id.clone()).collect();
+    let fresh = match known.as_ref() {
+        Some(known) => listed
+            .into_iter()
+            .filter(|device| !known.contains(&device.id))
+            .collect(),
+        None => Vec::new(),
+    };
+    *known = Some(ids);
+
+    fresh
 }
 
 /// Answers the question `key` names, on the machine that asked it. Refused

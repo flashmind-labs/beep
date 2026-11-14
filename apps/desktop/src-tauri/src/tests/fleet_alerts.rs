@@ -51,7 +51,10 @@ async fn heard(heard: &mut mpsc::Receiver<Direct>) -> Notice {
         loop {
             match heard.recv().await.expect("the stream follows") {
                 Direct::Notice(notice) => return *notice,
-                Direct::Connected | Direct::Run(_) | Direct::Presence { .. } => {}
+                Direct::Connected
+                | Direct::Run(_)
+                | Direct::Presence { .. }
+                | Direct::Phone { .. } => {}
             }
         }
     })
@@ -129,5 +132,29 @@ async fn an_offline_machine_is_not_asked_again_until_it_is_back() {
     assert!(
         waited.is_err(),
         "a machine that is not online is waited for"
+    );
+}
+
+fn phone(id: &str) -> Device {
+    Device {
+        id: DeviceId(id.to_owned()),
+        name: id.to_owned(),
+        platform: beep_proto::node::device::Platform::Android,
+        state: beep_proto::node::device::DeviceState::On,
+        os: None,
+        phone: true,
+    }
+}
+
+#[test]
+fn only_a_phone_that_comes_after_the_first_list_is_new() {
+    let mut known = None;
+    assert!(new_phones(&mut known, vec![phone("a")]).is_empty());
+    let fresh = new_phones(&mut known, vec![phone("a"), phone("b")]);
+    assert_eq!(fresh, [phone("b")]);
+    assert!(new_phones(&mut known, vec![phone("b")]).is_empty());
+    assert_eq!(
+        new_phones(&mut known, vec![phone("a"), phone("b")]),
+        [phone("a")]
     );
 }

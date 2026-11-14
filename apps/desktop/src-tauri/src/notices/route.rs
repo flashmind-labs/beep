@@ -55,6 +55,10 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
                     });
                 }
             }
+            Direct::Phone { machine, device } => {
+                let on = app.state::<Arc<Fleet>>().name_of(machine);
+                notify::text(&app, "Phone connected", &format!("{} on {on}", device.name));
+            }
             // Connected again: what waits on the user may have changed
             // meanwhile.
             Direct::Connected => {
