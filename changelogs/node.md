@@ -2,6 +2,36 @@
 
 Earlier releases predate this changelog.
 
+## [0.6.31] - 2026-11-14
+
+### Added
+
+- Node: an agent can start another agent in the background. The
+  background agent is deleted when the agent that started it closes. It
+  does not show on the project page.
+
+### Changed
+
+- Node: a session moved to this machine resumes in the project folder,
+  and the node no longer makes a worktree for it. Committed branches
+  arrive through Git. Uncommitted work in a worktree stays on the
+  machine it was on.
+- Node: a coding agent sign-in started from another machine now writes a
+  line to the node's log at each step: started, link offered, code
+  received, and how it ended. The log never holds the link, the code or
+  the agent's output.
+
+### Fixed
+
+- Node: agents working in a worktree name files by their full path from the session folder, so links in their replies open in the file pane.
+
+### Performance
+
+- Node: a project's branch list and each branch's upstream, ahead and
+  behind counts are read directly from Git instead of starting a Git process
+  for every branch whenever refs change. Branches refresh faster and use less
+  battery.
+
 ## [0.6.30] - 2026-11-14
 
 ### Changed
