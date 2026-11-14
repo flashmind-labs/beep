@@ -312,10 +312,10 @@ body.cbody
         form.cc-pjc
           div.box
             div.cx-layer [aria-hidden="true" hidden]
-            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="Add example/widget to a machine to start an agent" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
+            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="No machine has a coding agent. Install one in Coding agents" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
             div.row
               span.choices
-                button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "Add to a machine"
+                button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "Install a coding agent"
                 button.pill [data-composer="folder" disabled title="The checkout, a new worktree, or an existing worktree" type="button"] "Current checkout"
                   small "as it is"
                 span.choices [data-composer="extra"]
@@ -331,6 +331,15 @@ body.cbody
                 kbd "⏎"
             div.pick
           span.cc-err.cc-progress [role="status"]
+          div.agc-help
+            b "No machine has a coding agent yet"
+            ol
+              li "Install Claude Code, Codex or another agent on a machine from Coding agents."
+              li "Or add a machine that has one: install beep-node there and run the command from Add a machine."
+                code "beep-node mesh join"
+            div.dline.wrap
+              button.dbtn.pri [type="button"] "Install a coding agent"
+              button.dbtn [type="button"] "Machines settings"
           div.agkeys.prompt-stash-bar
             div.dhints.slim
               span "model"

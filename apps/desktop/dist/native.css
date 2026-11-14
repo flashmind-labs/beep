@@ -67,7 +67,8 @@ body:not(.mobile) .cc-pjc .row > .dbtn.quiet { width: 26px; height: 26px; min-he
 body:not(.mobile) .cc-pjc :is(.agc-send, .row > button[type="submit"]) { display: none }
 
 /* ----- Sidebar: quiet section names, and the open row filled in the text's own colour ----- */
-body:not(.mobile) .cc-grp h3 { font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--dim) }
+/* The sidebar's section labels sit on its painting, so they take the items' colour to stay readable. */
+body:not(.mobile) .cc-grp h3 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--fg) }
 body:not(.mobile) :is(.cc-si[aria-current="true"], .cc-org[aria-current="true"], .cc-chat:has(.open[aria-current="true"])) { background: color-mix(in srgb, var(--fg) 10%, transparent) }
 body:not(.mobile) .cc-si .n { color: var(--dim) }
 
@@ -200,7 +201,6 @@ body:not(.mobile) .cc-foot > button { padding: 0 5px }
 /* ----- On the macOS material the window is dark tinted glass: the desktop shows through only
    faintly, so the sidebar keeps the skin's own colour and its words stay readable. ----- */
 html[data-material="vibrant"] body:not(.mobile) .cwin { background: color-mix(in srgb, var(--deep) 78%, transparent) }
-html[data-material="vibrant"] body:not(.mobile) .cc-grp h3 { color: var(--muted) }
 html[data-material="vibrant"] body:not(.mobile) .cc-si { color: var(--fg) }
 
 /* ===== The look (#690): a dark, nearly one-colour window in the Linear manner. The chrome (labels,
@@ -215,7 +215,7 @@ body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; l
   background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent), transparent); filter: blur(30px) }
 
 /* Mono chrome. */
-body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-grp h3, .cc-pal h5, .cc-set .dset-h, .dcoder .sec, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-pal h5, .cc-set .dset-h, .dcoder .sec, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
 body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
 body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .agtab span { font: inherit }
