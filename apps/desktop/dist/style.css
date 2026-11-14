@@ -1204,6 +1204,9 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 /* Attached files live in a window opened from the input bar. */
 #agfield #agatt { padding: 0; flex: none }
 .attachment-count { white-space: nowrap; flex: none; font-size: 12px }
+#agfield { position: relative }
+.agupbar { position: absolute; left: 0; right: 0; top: 0; height: 3px; overflow: hidden; border-radius: var(--radius) var(--radius) 0 0; background: var(--ctl-fill) }
+.agupbar > span { display: block; height: 100%; background: var(--accent); transition: width .2s }
 .attachment-window { position: relative; width: min(800px, calc(100vw - 32px)); max-height: 85dvh; display: flex; flex-direction: column; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--fg); outline: none }
 /* A picture opened from the window covers the app, not the window, which is as short as its list. */
 .attachment-window > .dviewer { position: fixed }
