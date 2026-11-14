@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, State};
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_opener::OpenerExt;
 
 #[derive(Serialize)]
 pub struct Settings {
@@ -131,14 +132,18 @@ pub fn quit(app: AppHandle) {
     app.exit(0);
 }
 
-/// Opens a link from a reply in the browser, never in the bar.
+/// Opens a link from a reply in the browser, never in the bar. The opener
+/// plugin also opens it on a phone, where the `open` crate cannot.
 #[tauri::command]
-pub fn open_url(url: String) -> Result<()> {
+pub fn open_url(app: AppHandle, url: String) -> Result<()> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(DesktopError::BadRequest("only web links open".into()));
     }
 
-    crate::platform::open(&url)
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(anyhow::Error::from)?;
+    Ok(())
 }
 
 /// Shows the app's log folder in Finder, for Show log in the tray and on Home.
