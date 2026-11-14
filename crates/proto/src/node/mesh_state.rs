@@ -204,9 +204,10 @@ pub struct SessionMove {
     pub stop: bool,
     /// Milliseconds since the Unix epoch.
     pub at: u64,
-    /// The session works in a linked worktree: `path` is then relative to
-    /// that worktree, not to the project's checkout. Added after the others,
-    /// so a node from before it reads the rest.
+    /// Was the linked worktree a session moved out of. Sessions run in the
+    /// project folder now: always `None` when written, and a node resumes a
+    /// record that has one in its project folder. Kept for its place on the
+    /// wire.
     #[serde(default)]
     pub worktree: Option<MovedWorktree>,
     /// The model the session runs on, which the target resumes it on.
@@ -215,8 +216,8 @@ pub struct SessionMove {
     pub model: Option<ModelId>,
 }
 
-/// The linked worktree a session moves out of: the target makes a worktree
-/// on the same branch in its own checkout.
+/// The linked worktree in a `SessionMove` from an app from before worktree
+/// moves were removed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MovedWorktree {
     pub branch: String,

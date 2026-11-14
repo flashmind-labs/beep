@@ -6,7 +6,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::projects::{FleetState, desk},
 };
-use beep_fleet::{AskedWorktree, MoveAsk, MoveState, WorktreeMove};
+use beep_fleet::{MoveAsk, MoveState};
 use beep_proto::{
     ApiError, ModelId,
     node::{
@@ -110,8 +110,6 @@ pub async fn session_move(
     session: String,
     project: String,
     cwd: String,
-    worktree_folder: Option<String>,
-    worktree_branch: Option<String>,
     mode: Option<String>,
     model: Option<String>,
     stop: bool,
@@ -123,10 +121,6 @@ pub async fn session_move(
         to: machine(&to)?,
         project: &project,
         cwd: &cwd,
-        worktree: worktree_folder.as_deref().map(|folder| AskedWorktree {
-            folder,
-            branch: worktree_branch.as_deref().unwrap_or_default(),
-        }),
         mode,
         model: model.map(ModelId::new),
         stop,
@@ -140,30 +134,6 @@ pub async fn session_move(
 pub async fn session_move_probe(fleet: FleetState<'_>, machine_id: String) -> Result<bool> {
     let machine = machine(&machine_id)?;
     Ok(desk(&fleet).await?.takes_moves(machine).await?)
-}
-
-/// Whether the node of `machine_id` can take a session working in a worktree
-/// on `branch` of `project`: `takes`, `ignored` (its Syncthing is set not to
-/// sync the worktree) or `update` (its node is from before worktree moves).
-#[tauri::command]
-pub async fn session_move_worktree_probe(
-    fleet: FleetState<'_>,
-    machine_id: String,
-    project: String,
-    branch: String,
-) -> Result<&'static str> {
-    let machine = machine(&machine_id)?;
-    Ok(
-        match desk(&fleet)
-            .await?
-            .worktree_move(machine, &project, &branch)
-            .await?
-        {
-            WorktreeMove::Takes => "takes",
-            WorktreeMove::Ignored => "ignored",
-            WorktreeMove::NeedsUpdate => "update",
-        },
-    )
 }
 
 /// Takes back the move of `session`, unless it already resumed on the target.

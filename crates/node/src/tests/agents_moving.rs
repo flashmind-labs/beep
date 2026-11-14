@@ -13,7 +13,6 @@ fn move_with(harness: Harness, transcript: &str, file: &str) -> Stored {
         &Folders {
             old: PathBuf::from("/srv/laptop/app"),
             new: PathBuf::from("/work/app"),
-            workspace: None,
         },
     )
 }
@@ -116,9 +115,10 @@ fn flsh_changes_the_header_folder_only_and_files_under_flshs_names() {
 }
 
 #[test]
-fn worktree_session_paths_follow_the_destination_for_every_harness() {
-    let old = Path::new("/srv/source/project/.worktrees/fix/src");
-    let new = Path::new("/srv/target/project/.worktrees/fix/src");
+fn paths_in_the_project_follow_the_destination_for_every_harness() {
+    let (from, to) = (Path::new("/srv/source/project"), Path::new("/srv/target/project"));
+    let old = from.join(".worktrees/fix/src");
+    let new = to.join(".worktrees/fix/src");
     let file = format!("rollout-2026-11-04T09-30-00-{ID}.jsonl");
     for (harness, input) in [
         (
@@ -154,10 +154,9 @@ fn worktree_session_paths_follow_the_destination_for_every_harness() {
             ID,
             &file,
             &Folders {
-                old: old.to_owned(),
-                new: new.to_owned(),
-                workspace: None,
-            },
+                old: from.to_owned(),
+                new: to.to_owned(),
+                },
         );
         assert!(
             text(&out).contains(new.to_str().unwrap()),

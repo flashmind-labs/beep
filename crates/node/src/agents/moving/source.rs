@@ -8,15 +8,14 @@ use super::{
     Env,
     progress::Target,
     saved::{Phase, Saved},
-    worktree,
 };
 use crate::agents::live::Live;
 use crate::agents::{OpenSession, Session, session::Command};
 use anyhow::{Context, Result, anyhow};
 use beep_proto::node::{agent::Status, mesh_state::SessionMove};
 use beep_proto::watched;
-use std::{path::PathBuf, sync::Arc};
-use tokio::{sync::watch, task::spawn_blocking};
+use std::sync::Arc;
+use tokio::sync::watch;
 
 pub(super) async fn run(
     env: &Env,
@@ -37,18 +36,6 @@ pub(super) async fn run(
     }
 
     env.agents.until_reopened().await;
-
-    if record.worktree.is_some()
-        && let Err(e) = env.agents.moves.prepare_worktree(&record.project).await
-    {
-        return fail(env, record, None, &e).await;
-    }
-
-    if let Some(worktree) = &record.worktree {
-        env.agents
-            .moves
-            .set_worktree(&record.id, PathBuf::from(&worktree.from));
-    }
     // A target reads the session as running until its files are scanned.
     let held = env.agents.moves.hold(&record.id);
     // Set once the session ended here: a restart finds it in what is kept.
@@ -133,7 +120,6 @@ async fn end(
                 phase: Phase::Closed,
                 reason: None,
                 open: open.clone(),
-                made: None,
             },
         )
         .context("keeping that the session ended")?;
@@ -172,7 +158,6 @@ async fn land(
 
         match now {
             Target::Landed => {
-                detach(env, record).await;
                 return env
                     .state
                     .save(&record.id, &Saved::over(record.at, Phase::Done, None))
@@ -183,35 +168,6 @@ async fn land(
         }
 
         target.changed().await.context("the move lost its target")?;
-    }
-}
-
-/// The session runs on the target, on the worktree's branch: this machine's
-/// worktree lets go of it, at the same commit, so the branch can sync. The
-/// worktree and its files stay.
-async fn detach(env: &Env, record: &SessionMove) {
-    let Some(worktree) = &record.worktree else {
-        return;
-    };
-    let dir = PathBuf::from(&worktree.from);
-    // What was sent, when this node sent it (a restart forgets): the
-    // worktree is cleaned only if it still holds exactly that.
-    let sent = env.agents.moves.sent_of(&record.id);
-
-    match spawn_blocking(move || worktree::detach_clean(&dir, sent.as_deref())).await {
-        Ok(Ok(true)) => log::info!(
-            "the worktree of session {} is detached and clean: its work went with it",
-            record.id
-        ),
-        Ok(Ok(false)) => {}
-        Ok(Err(e)) => log::warn!(
-            "the worktree of session {} still holds its branch: {e:#}",
-            record.id
-        ),
-        Err(e) => log::warn!(
-            "the worktree of session {} was not detached: {e}",
-            record.id
-        ),
     }
 }
 

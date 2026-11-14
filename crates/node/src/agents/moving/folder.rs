@@ -27,24 +27,11 @@ pub(crate) fn project_folder(mesh: &Mesh, project: &str, machine: &EndpointId) -
 pub(super) struct Folders {
     pub(super) old: PathBuf,
     pub(super) new: PathBuf,
-    /// The original checkout, when the session later entered a worktree.
-    pub(super) workspace: Option<Workspace>,
-}
-
-#[derive(Clone)]
-pub(super) struct Workspace {
-    pub(super) checkout: PathBuf,
-    pub(super) old: PathBuf,
-    pub(super) new: PathBuf,
 }
 
 impl Folders {
     pub(super) fn remap(&self, value: &str) -> Option<String> {
-        match &self.workspace {
-            Some(workspace) => remap(value, &workspace.old, &workspace.new)
-                .or_else(|| remap(value, &workspace.checkout, &workspace.new)),
-            None => remap(value, &self.old, &self.new),
-        }
+        remap(value, &self.old, &self.new)
     }
 }
 
@@ -103,7 +90,3 @@ fn decode(text: &str) -> Option<String> {
 
     String::from_utf8(out).ok()
 }
-
-#[cfg(test)]
-#[path = "../../tests/agents_moving_folder.rs"]
-mod tests;

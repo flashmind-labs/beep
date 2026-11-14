@@ -242,7 +242,6 @@ impl Agents {
                 &super::folder::Folders {
                     old,
                     new,
-                    workspace: None,
                 },
             );
             let target = if harness == Harness::Codex {

@@ -18,7 +18,6 @@ mod saved;
 mod source;
 mod store;
 mod target;
-mod worktree;
 
 #[cfg(all(test, unix))]
 #[path = "../../tests/agents_moving_move_tests.rs"]
@@ -123,7 +122,6 @@ pub(crate) fn rehome_claude(id: &str, old: &Path, new: &Path) -> Result<()> {
     let folders = folder::Folders {
         old: old.to_owned(),
         new: new.to_owned(),
-        workspace: None,
     };
     let stored = claude::rewrite(&std::fs::read(&from)?, id, &folders);
     store::write(&projects.join(&stored.path), &stored)

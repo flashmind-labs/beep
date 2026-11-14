@@ -7,11 +7,7 @@
 //! Sent as compact msgpack: a field is added only at the end with
 //! `#[serde(default)]`.
 
-use super::{
-    Harness,
-    progress::Target,
-    worktree::{self, MAX_BUNDLE, MAX_PATCH, Work, snapshot},
-};
+use super::{Harness, progress::Target};
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
@@ -29,7 +25,6 @@ use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::watch,
-    task::spawn_blocking,
     time::timeout,
 };
 
@@ -42,7 +37,7 @@ const CHUNK: usize = 256 * 1024;
 pub(super) const MAX_TRANSCRIPT: u64 = 1024 * 1024 * 1024;
 /// How long a read waits for the source's next message before it gives up,
 /// so a stalled stream fails and is tried again. The source hashes the copy
-/// and may snapshot a worktree before it answers.
+/// before it answers.
 const QUIET_FOR: Duration = Duration::from_secs(60);
 const AUTHORIZE_FOR: Duration = Duration::from_secs(10);
 
@@ -57,8 +52,8 @@ pub(crate) enum Request {
         id: String,
         from: u64,
         prefix_hash: Vec<u8>,
-        /// The session works in a worktree: after the last bytes, when the
-        /// session does not run, send its commit and uncommitted work.
+        /// Asked for a worktree's commit and uncommitted work by nodes from
+        /// before worktree moves were removed. Sent false, ignored.
         #[serde(default)]
         worktree: bool,
     },
@@ -75,8 +70,7 @@ pub(crate) enum Request {
     /// Asks how the move of session `id` made at `at` stands, which the
     /// machine it moves to knows. Sent by the source.
     State { id: String, at: u64 },
-    /// The commits of a moving session's worktree. Only this request receives
-    /// `Bundle` and `BundleEnd`, so older transcript readers keep working.
+    /// Asked by nodes from before worktree moves were removed; refused.
     WorktreeBundle { id: String, head: String },
 }
 
@@ -93,12 +87,13 @@ pub(crate) enum Reply {
     Chunk {
         data: Vec<u8>,
     },
-    /// Sent before `End` of a worktree session that does not run: the commit
-    /// its worktree is at. A patch of the uncommitted work follows, in
-    /// `Patch` pieces.
+    /// Were a worktree's commit and uncommitted work; never sent now. Kept
+    /// so the replies after them keep their place on the wire.
+    #[allow(dead_code)]
     Work {
         head: String,
     },
+    #[allow(dead_code)]
     Patch {
         data: Vec<u8>,
     },
@@ -126,11 +121,6 @@ pub(crate) enum Reply {
         /// The session runs on the target.
         landed: bool,
     },
-    /// Pieces of a Git bundle, answered only to `WorktreeBundle`.
-    Bundle {
-        data: Vec<u8>,
-    },
-    BundleEnd {},
 }
 
 /// What a request is, for the check of who may make it.
@@ -233,7 +223,7 @@ pub(super) async fn serve(
             id,
             from,
             prefix_hash,
-            worktree,
+            worktree: _,
         }) => {
             if !access.allows(Asked::Read, &id).await {
                 return tx.send(&refuse("no move of that session to you")).await;
@@ -252,82 +242,19 @@ pub(super) async fn serve(
             // ended. A session that may still be coming back from a
             // restart, or that the source is still finishing with, counts
             // as running.
-            // A worktree asked for that the source has not registered yet
-            // (its task has not started) is not read as ended: it would
-            // come without its commit and work.
-            let unregistered = worktree && agents.moves.worktree_of(&id).is_none();
-            let live =
-                !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id) || unregistered;
-            let work = match worktree.then(|| agents.moves.worktree_of(&id)).flatten() {
-                Some(dir) if !live => Some(dir),
-                _ => None,
-            };
-            // What only the snapshot could refuse (a repository of its own
-            // among the new files, changes too large) is refused on the first
-            // read, while the session still runs: the source stops nothing
-            // for a move that cannot be taken.
-            if live
-                && worktree
-                && let Some(dir) = agents.moves.worktree_of(&id)
-                && agents.moves.first_preview(&id)
-            {
-                // The snapshot itself, bounded at `MAX_PATCH` and thrown
-                // away: whatever it cannot read, the final read could not
-                // either.
-                match spawn_blocking(move || snapshot(&dir).map(|_| ())).await {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => {
-                        let message = format!("{e:#}");
-                        return tx.send(&Reply::Refused { message }).await;
-                    }
-                    Err(e) => {
-                        let message = format!("{e}");
-                        return tx.send(&Reply::Refused { message }).await;
-                    }
-                }
-            }
+            let live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
 
-            match send_after(&mut tx, &found, from, &prefix_hash, live, work).await {
-                Ok(sent) => {
-                    if let Some(sent) = sent {
-                        agents.moves.set_sent(&id, sent);
-                    }
-
-                    tx.finish().await
-                }
+            match send_after(&mut tx, &found, from, &prefix_hash, live).await {
+                Ok(()) => tx.finish().await,
                 Err(e) => {
                     let message = format!("{e:#}");
                     tx.send(&Reply::Refused { message }).await
                 }
             }
         }
-        Some(Request::WorktreeBundle { id, head }) => {
-            if !access.allows(Asked::Read, &id).await {
-                return tx.send(&refuse("no move of that session to you")).await;
-            }
-
-            if let Some(why) = agents.moves.refusal(&id) {
-                return tx.send(&refuse(&why)).await;
-            }
-
-            let Some(dir) = agents.moves.worktree_of(&id) else {
-                return tx.send(&refuse("the session has no moving worktree")).await;
-            };
-            let bundled = spawn_blocking(move || worktree::bundle(&dir, &head)).await?;
-            let bytes = match bundled {
-                Ok(bytes) => bytes,
-                Err(e) => return tx.send(&refuse(&format!("{e:#}"))).await,
-            };
-
-            for chunk in bytes.chunks(CHUNK) {
-                tx.send(&Reply::Bundle {
-                    data: chunk.to_vec(),
-                })
-                .await?;
-            }
-
-            tx.send(&Reply::BundleEnd {}).await?;
-            tx.finish().await
+        Some(Request::WorktreeBundle { .. }) => {
+            tx.send(&refuse("this machine no longer moves worktrees"))
+                .await
         }
         Some(Request::List {} | Request::Copy { .. }) => {
             tx.send(&refuse("this machine no longer makes background copies"))
@@ -395,8 +322,7 @@ async fn send_after(
     from: u64,
     prefix_hash: &[u8],
     live: bool,
-    worktree: Option<PathBuf>,
-) -> Result<Option<String>> {
+) -> Result<()> {
     let mut file = File::open(&found.path).await?;
     let size = file.metadata().await?.len();
 
@@ -434,25 +360,7 @@ async fn send_after(
         .await?;
     }
 
-    let mut sent = None;
-
-    if let Some(dir) = worktree {
-        let work = spawn_blocking(move || snapshot(&dir)).await??;
-        sent = Some(work.fingerprint());
-        tx.send(&Reply::Work { head: work.head }).await?;
-
-        for piece in work.patch.chunks(CHUNK) {
-            tx.send(&Reply::Patch {
-                data: piece.to_vec(),
-            })
-            .await?;
-        }
-    }
-
-    tx.send(&Reply::End { size, live }).await?;
-    // What a worktree held when it was sent, for the source to know later
-    // that it still holds that and nothing else.
-    Ok(sent)
+    tx.send(&Reply::End { size, live }).await
 }
 
 /// The blake3 hash of the first `len` bytes of `file`.
@@ -489,9 +397,6 @@ pub(crate) struct Pulled {
     /// The copy was not a start of the source's: it was set aside, and
     /// this is a fresh one.
     pub(crate) restarted: bool,
-    /// The worktree's commit and uncommitted work, when asked for and the
-    /// session did not run.
-    pub(crate) work: Option<Work>,
 }
 
 /// What `pull` asks for.
@@ -499,8 +404,6 @@ pub(crate) struct Ask<'a> {
     pub(crate) agent: AgentSlug,
     pub(crate) id: &'a str,
     pub(crate) copy: &'a Path,
-    /// Asks for the worktree's commit and uncommitted work as well.
-    pub(crate) worktree: bool,
 }
 
 /// Brings the copy at `ask.copy` up to date from the stream of a source.
@@ -516,19 +419,14 @@ pub(super) async fn pull_within(
     ask: Ask<'_>,
     quiet: Duration,
 ) -> Result<Pulled> {
-    let Ask {
-        agent,
-        id,
-        copy,
-        worktree,
-    } = ask;
+    let Ask { agent, id, copy } = ask;
     let (from, prefix_hash) = held(copy).await?;
     let request = Request::Read {
         agent,
         id: id.to_owned(),
         from,
         prefix_hash,
-        worktree,
+        worktree: false,
     };
     tx.send(&request).await?;
     let (start, file_name) = match next(&mut rx, quiet).await? {
@@ -554,29 +452,11 @@ pub(super) async fn pull_within(
     #[cfg(unix)]
     out.mode(0o600);
     let mut out = out.open(copy).await?;
-    let mut work: Option<Work> = None;
 
     loop {
         match next(&mut rx, quiet).await? {
             Some(Reply::Chunk { data }) => {
                 out.write_all(&data).await?;
-            }
-            Some(Reply::Work { head }) => {
-                work = Some(Work {
-                    head,
-                    patch: Vec::new(),
-                });
-            }
-            Some(Reply::Patch { data }) => {
-                let Some(work) = work.as_mut() else {
-                    bail!("the source sent a patch before its commit");
-                };
-
-                if work.patch.len() + data.len() > MAX_PATCH {
-                    return Err(Refused("the uncommitted changes are too large".into()).into());
-                }
-
-                work.patch.extend_from_slice(&data);
             }
             Some(Reply::End { size, live }) => {
                 out.sync_all().await?;
@@ -591,43 +471,10 @@ pub(super) async fn pull_within(
                     live,
                     file_name,
                     restarted,
-                    work,
                 });
             }
             Some(Reply::Refused { message }) => return Err(Refused(message).into()),
             _ => bail!("the source stopped before the end"),
-        }
-    }
-}
-
-/// Reads commits separately from the transcript, without extending existing replies.
-pub(super) async fn pull_bundle(
-    mut tx: LinkTx,
-    mut rx: LinkRx,
-    id: &str,
-    head: &str,
-) -> Result<Vec<u8>> {
-    tx.send(&Request::WorktreeBundle {
-        id: id.to_owned(),
-        head: head.to_owned(),
-    })
-    .await?;
-    let mut bytes = Vec::new();
-
-    loop {
-        match next(&mut rx, QUIET_FOR).await? {
-            Some(Reply::Bundle { data }) => {
-                if data.len() > MAX_BUNDLE.saturating_sub(bytes.len()) {
-                    bail!("the worktree's commit history is too large to move");
-                }
-
-                bytes.extend_from_slice(&data);
-            }
-            Some(Reply::BundleEnd {}) => return Ok(bytes),
-            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
-            _ => {
-                bail!("the source could not send the worktree's commits; update its node and retry")
-            }
         }
     }
 }

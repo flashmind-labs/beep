@@ -110,11 +110,6 @@ test("the files step says why they do not come", () => {
   assert.equal(rows[1].text, "Project files: this checkout is at abc and another machine's at def");
 });
 
-test("a machine whose Syncthing leaves the worktree out cannot take it", () => {
-  assert.deepEqual(targetNote(target({ ignored: true }), "codex"), { note: "Syncthing is set not to sync this worktree", enabled: false, offline: false });
-  assert.equal(targetNote(target({ ignored: true, old: true }), "codex").note, "update this machine first");
-});
-
 test("an open session follows its move once the new machine lists it", () => {
   const r: MoveRecord = { session: "s1", agent: "codex", from: "box", to: "air", project: "acme/widget", at: 1 };
   const records = bySession([r]);

@@ -24,12 +24,12 @@ mod sync;
 pub mod temporary;
 mod usage;
 
-pub use beep_mesh::machine::sessions::{MoveState, WorktreeMove};
+pub use beep_mesh::machine::sessions::MoveState;
 pub use desk::Desk;
 pub use error::{FleetError, Result};
 pub use git_board::{GitKept, GitUpdate};
 pub use issues::{has_project, places, project_id, project_names};
-pub use moves::{AskedWorktree, MoveAsk};
+pub use moves::MoveAsk;
 pub use nearest::nearest_first;
 pub use notice_read::{Read, digest, mark_read, read_marks};
 pub use observer::{observe, phone_ticket};

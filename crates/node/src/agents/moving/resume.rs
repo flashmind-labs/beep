@@ -87,7 +87,3 @@ pub(super) async fn resume(
     )?;
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "../../tests/agents_moving_resume.rs"]
-mod tests;

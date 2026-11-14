@@ -207,11 +207,10 @@ pub enum SessionsRequest {
     MoveProgress {
         session: String,
     },
-    /// Whether this node can take a session that works in a worktree of
-    /// `project`, on `branch`: it makes the worktree itself, and says if
-    /// its Syncthing is set not to sync that folder. Answered with
-    /// `MoveChecked`; a node from before it closes the stream, and takes
-    /// checkout sessions only.
+    /// Asked by apps from before worktree moves were removed, before they
+    /// move a session in a worktree. Answered with `MoveChecked` and
+    /// `ignored: false`: the node resumes such a session in the project
+    /// folder.
     MoveCheck {
         project: String,
         branch: String,
@@ -557,8 +556,7 @@ pub enum SessionsReply {
     },
     /// The answer to `MoveCheck`.
     MoveChecked {
-        /// The worktree's folder is one Syncthing keeps in step here, and
-        /// its `.stignore` leaves it out: the session cannot move.
+        /// Always false now.
         ignored: bool,
     },
     /// The answer to `Copies`.
