@@ -7,6 +7,14 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.8.35] - 2026-11-14
+
+### Performance
+
+- Desktop: Git sync and the project and session views read branches,
+  commits and repository folders directly instead of starting a Git
+  process for each question, which uses less battery.
+
 ## [0.8.34] - 2026-11-14
 
 ### Added
