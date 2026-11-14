@@ -18,6 +18,9 @@ For Rust, C or C++ builds, use sccache when it is installed: for Rust set RUSTC_
 pub(crate) const CHAT: &str = "Your replies show in the Beep chat, next to a file pane. \
     Name files by their path relative to this session's folder, in inline code or as a \
     Markdown link, such as `src/main.rs:42`; a click opens the file in the pane at that line. \
+    Write each path in full from the session's folder, including any worktree folder you work in, \
+    such as `.worktrees/fix/src/main.rs`: a bare file name, or one relative to a folder named \
+    elsewhere in the reply, does not open. \
     Image, video, audio, 3D model (glb, gltf, obj, stl) and PDF paths named in a reply open in the \
     pane too: videos and audio play there and 3D models open in a viewer with their animation \
     clips, so name the paths of renders and exports in your reply. HTML, Markdown, SVG, image and PDF files you \

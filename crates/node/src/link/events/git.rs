@@ -84,6 +84,11 @@ fn script(root: &str, query: GitRead) -> Result<String> {
 
 pub(super) async fn read(agents: &Agents, root: &str, query: GitRead) -> Result<GitOutput> {
     let root = agents.reachable(root, Access::Read).await?;
+
+    if let Some(output) = read_in_process(&root, &query).await {
+        return Ok(output);
+    }
+
     let root = root.to_str().context("the Git folder is not UTF-8")?;
     let command = for_machine(&script(root, query)?, cfg!(windows)).into_owned();
     let link = local_link();
@@ -120,6 +125,32 @@ pub(super) async fn read(agents: &Agents, root: &str, query: GitRead) -> Result<
                 });
             }
             _ => bail!("unexpected Git shell result"),
+        }
+    }
+}
+
+/// The state and branch reads, which subscriptions repeat on every ref
+/// change, answered by gitoxide with the text their scripts print. `None`
+/// for the other reads, or when gitoxide cannot say: the script answers.
+async fn read_in_process(root: &Path, query: &GitRead) -> Option<GitOutput> {
+    let (root, query) = (root.to_owned(), query.clone());
+    let output = tokio::task::spawn_blocking(move || match query {
+        GitRead::State => Some(super::git_reads::state(&root)),
+        GitRead::Branches { fallback } => Some(super::git_reads::branches(&root, &fallback)),
+        GitRead::History { .. } | GitRead::Files { .. } => None,
+    })
+    .await
+    .ok()??;
+
+    match output {
+        Ok(output) => Some(GitOutput {
+            exit_code: Some(0),
+            timed_out: false,
+            output,
+        }),
+        Err(e) => {
+            log::debug!("Git read falls back to git: {e:#}");
+            None
         }
     }
 }

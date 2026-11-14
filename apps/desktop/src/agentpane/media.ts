@@ -287,11 +287,12 @@ function leaveLog() {
   if (paneModel.getState().phone) setPaneModel({ log: false });
 }
 
-/// ⌘2, ⌘3, ⌘4: the pane's Files, Changes or Artifacts tab (`n` from 0). False
-/// when there is no pane, or no artifact to list.
+/// ⌘2 to ⌘9: the pane's tab `n` (from 0), counting the right strip's tabs
+/// then the bottom one's. False when there is no pane or no such tab.
 export function showPaneTab(n: number) {
-  const id = [FILES, CHANGES, ARTS][n];
-  if (!id || !shell() || (id === ARTS && !artifactCount())) return false;
+  const { right, bottom } = docked();
+  const id = [...right, ...bottom][n];
+  if (!id || !shell()) return false;
   const d = dockOf(id);
   P.layout.hidden[d] = false;
   if (P.zoom) P.zoom = d;

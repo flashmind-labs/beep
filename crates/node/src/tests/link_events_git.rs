@@ -369,3 +369,68 @@ mod current {
         finished.unwrap();
     }
 }
+
+/// Runs `script` the way the shell read would, for comparing with gitoxide.
+async fn sh(script: &str) -> String {
+    let output = Command::new("sh").arg("-c").arg(script).output().await.unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[tokio::test]
+async fn gitoxide_reads_the_state_and_branches_the_scripts_print() {
+    use beep_projects::{branches, checkout_sync};
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().canonicalize().unwrap();
+    let origin = base.join("origin");
+    let work = base.join("work");
+    std::fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "-q", "-b", "main"]).await;
+
+    for message in ["one", "two"] {
+        git(&origin, &["commit", "-q", "--allow-empty", "-m", message]).await;
+    }
+
+    git(&base, &["clone", "-q", "origin", "work"]).await;
+    git(&origin, &["commit", "-q", "--allow-empty", "-m", "upstream only"]).await;
+    git(&work, &["fetch", "-q"]).await;
+    git(&work, &["commit", "-q", "--allow-empty", "-m", "local only\n\nwith a body"]).await;
+    git(&work, &["branch", "old", "HEAD~2"]).await;
+    git(&work, &["switch", "-q", "-c", "feature"]).await;
+
+    for message in ["feature one", "feature two"] {
+        git(&work, &["commit", "-q", "--allow-empty", "-m", message]).await;
+    }
+
+    git(&work, &["switch", "-q", "main"]).await;
+    let linked = base.join("linked");
+    git(&work, &["worktree", "add", "-q", linked.to_str().unwrap(), "feature"]).await;
+
+    for root in [&work, &linked] {
+        let folder = root.to_str().unwrap();
+        let scripted = sh(&checkout_sync::local_state_script(folder)).await;
+        let native = super::super::git_reads::state(root).unwrap();
+        assert_eq!(
+            checkout_sync::parse_state(&native).unwrap(),
+            checkout_sync::parse_state(&scripted).unwrap(),
+            "{native}\n---\n{scripted}"
+        );
+
+        let scripted = sh(&branches::branches_script(folder, "main")).await;
+        let native = super::super::git_reads::branches(root, "main").unwrap();
+        assert_eq!(
+            format!("{:?}", branches::parse_branches(&native).unwrap()),
+            format!("{:?}", branches::parse_branches(&scripted).unwrap()),
+            "{native}\n---\n{scripted}"
+        );
+    }
+
+    git(&work, &["switch", "-q", "--detach", "HEAD"]).await;
+    let scripted = sh(&checkout_sync::local_state_script(work.to_str().unwrap())).await;
+    let native = super::super::git_reads::state(&work).unwrap();
+    assert_eq!(
+        checkout_sync::parse_state(&native).unwrap(),
+        checkout_sync::parse_state(&scripted).unwrap()
+    );
+}
