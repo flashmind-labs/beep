@@ -19,9 +19,10 @@ export interface TurnHeading {
 
 /// A turn's heading: how long it worked and what it did. With a `turn` it is
 /// a button that opens or folds the steps. A running turn's clock is on its
-/// live line, so without a `turn` it has none.
+/// live line, so without a `turn` it has none. A finished turn of unknown
+/// length has nothing to say, so it has none either.
 export function turnHeading(value: Omit<TurnHeading, "kind" | "id">): TurnHeading | null {
-  if (value.state !== "done" && value.turn === null) return null;
+  if (value.turn === null && (value.state !== "done" || value.ms === null)) return null;
   return { kind: "heading", id: value.turn === null ? "turn" : `steps:${value.turn}`, ...value };
 }
 

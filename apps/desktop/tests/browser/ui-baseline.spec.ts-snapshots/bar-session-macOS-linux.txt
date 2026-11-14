@@ -34,11 +34,6 @@ body
                             p "The login page redirects to a blank page after sign in. Find out why and fix it."
                       div style(display)
                         div.dcoderturn
-                          span.hd
-                            span "Worked"
-                          span.when "10:00"
-                      div style(display)
-                        div.dcoderturn
                           button.hd [aria-expanded="false" data-turn="1" title="Show the steps"]
                             span "Ran 1 command, read 1 file"
                             svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
