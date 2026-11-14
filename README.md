@@ -5,18 +5,42 @@
 </p>
 
 <p align="center">
+  <a href="https://beep.flashmind.com/download/macos"><b>macOS</b></a> ·
+  <a href="https://beep.flashmind.com/download/windows"><b>Windows</b></a> ·
+  <a href="https://beep.flashmind.com/download/linux"><b>Linux</b></a>
+  <br>
+  <a href="https://beep.flashmind.com">Website</a> ·
+  <a href="https://beep.flashmind.com/docs/">Docs</a> ·
+  <a href="https://beep.flashmind.com/docs/getting-started/">Getting started</a>
+</p>
+
+<p align="center">
   <img src="apps/desktop/tests/browser/ui-baseline.spec.ts-snapshots/first-run-macOS-linux.png" alt="Welcome to Beep, over a painted sunrise" width="860">
 </p>
 
-Desktops, phones and `beep-node`s form a signed peer-to-peer mesh over iroh.
-No server sits in the middle: a phone pairs with a desktop once, then reaches
-your machines directly.
+## What it does
+
+- **Peer to peer.** Desktops, phones and `beep-node`s form a signed mesh over
+  [iroh](https://github.com/n0-computer/iroh): QUIC, encrypted end to end. No
+  Beep server, no cloud, no account.
+- **Your agents, your subscriptions.** Start Claude Code, Codex and other
+  agents on any machine, with that machine's sign-in, files and tools.
+- **Projects follow you.** Git commits move between machines; non-Git folders
+  sync as files. Coding agent skills can sync too.
+- **One board.** Sessions, terminals, reviews, pull requests and issues from
+  every machine in one place.
+- **Every platform.** A [Tauri](https://tauri.app) app for macOS, Windows and
+  Linux, the same app on iOS and Android, and `beep-node` for servers and
+  containers.
 
 <p align="center">
   <img src="apps/desktop/tests/browser/ui-baseline.spec.ts-snapshots/agent-work-macOS-linux.png" alt="An agent session with its files, changes and running commands" width="860">
 </p>
 
-## Get started
+Read [how Beep works](https://beep.flashmind.com/docs/architecture/) for the
+mesh, tickets and sync in detail.
+
+## Build from source
 
 ```sh
 just desktop-dev      # run the desktop app
