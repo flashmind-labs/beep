@@ -124,7 +124,7 @@ export const projectsView: CenterView<"projects"> = {
       const sub = rows?.length ? overviewSub(overviewGroups(rows, state.top, state.groups)) : "Repositories on your machines";
       // Group controls follow mesh support.
       const tools = [state.groups ? <Button key="group" small className="pj-tool" aria-label="New group" onClick={() => editGroup()}><span style={{ display: "contents" }}><Icon name="folder" /></span> New group</Button> : null,
-        <Button key="add" small className="pj-tool" aria-label="Add a project" onClick={addProject}><span style={{ display: "contents" }}><Icon name="plus" /></span> Add a project</Button>];
+        <Button key="add" small className="pj-tool fab" aria-label="Add a project" onClick={addProject}><span style={{ display: "contents" }}><Icon name="plus" /></span> Add a project</Button>];
       return { title: "Projects", sub, reactTools: tools };
     }
 
@@ -133,7 +133,7 @@ export const projectsView: CenterView<"projects"> = {
 
     if (p) {
       // A phone starts agents from here; its page has no bar.
-      if (isMobile()) tools.push(<Button key="new" small className="pj-tool" aria-label="New agent" onClick={() => go("pane", { draft: { project: p.name, machine: null } })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New agent</Button>);
+      if (isMobile()) tools.push(<Button key="new" small className="pj-tool fab" aria-label="New agent" onClick={() => go("pane", { draft: { project: p.name, machine: null } })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New agent</Button>);
 
       // A phone's top bar has no room for them: they go in the menu.
       const forges = forgeLinks(p.url, runs.hosts(localProjectId(p.name)));
