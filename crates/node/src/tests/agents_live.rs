@@ -1425,3 +1425,32 @@ fn replay_dates_match_the_saved_tail_when_prompts_repeat() {
     assert_eq!(entries[0].sent_at, None);
     assert_eq!(entries[2].sent_at, Some(123));
 }
+
+#[test]
+fn a_running_file_send_shows_the_bytes_sent_until_it_ends() {
+    let mut live = live();
+    live.prompted("send the build");
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "send", "title": "mcp__beep__files",
+        "status": "in_progress", "_meta": {"claudeCode": {"toolName": "mcp__beep__files"}},
+        "rawInput": {"action": "send", "machine": "build-box", "paths": ["app.apk"]}
+    })));
+    let sent = tools::Sent {
+        done: 400,
+        total: 1200,
+    };
+
+    assert!(live.sending(sent));
+    assert!(!live.sending(sent));
+    let text = live.transcript(10).0.last().unwrap().text.clone();
+    assert_eq!(
+        text,
+        "Beep: Send 1 file to build-box [in_progress]\n[sent] 400 1200"
+    );
+
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "send", "status": "completed"
+    })));
+    let text = live.transcript(10).0.last().unwrap().text.clone();
+    assert_eq!(text, "Beep: Send 1 file to build-box [completed]");
+}

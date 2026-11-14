@@ -108,3 +108,31 @@ fn a_synced_peer_gets_only_the_project_blobs_and_only_raw() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn a_fetch_counts_the_bytes_sent_of_every_blob() {
+    use beep_proto::watched;
+    use iroh_blobs::provider::events::{TransferProgress, TransferStarted};
+
+    let (tx, rx) = irpc::channel::mpsc::channel(8);
+    let (sent, watched) = watch::channel(0);
+    let counting = tokio::spawn(count(rx, Some(sent)));
+    let started = |index, size| TransferStarted {
+        index,
+        hash: Hash::new(b"blob"),
+        size,
+    };
+
+    tx.send(started(0, 64).into()).await.unwrap();
+    tx.send(TransferProgress { end_offset: 64 }.into())
+        .await
+        .unwrap();
+    tx.send(started(1, 1000).into()).await.unwrap();
+    tx.send(TransferProgress { end_offset: 400 }.into())
+        .await
+        .unwrap();
+    drop(tx);
+    counting.await.unwrap();
+
+    assert_eq!(watched::read(&watched, |bytes| *bytes), 464);
+}

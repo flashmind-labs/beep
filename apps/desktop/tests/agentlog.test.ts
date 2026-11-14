@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, parseTool, subagent, tailLines } from "../src/agents/agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, parseTool, sentFiles, subagent, tailLines } from "../src/agents/agentlog.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -119,4 +119,10 @@ test("exitCode reads every spelling and takes the last by default", () => {
   assert.equal(exitCode("exit code 1\nrun exit 0 to quit"), 0);
   assert.equal(exitCode("exit code 1\nrun exit 0 to quit", true), 1);
   assert.equal(exitCode("nothing"), null);
+});
+
+test("a running file send names the bytes it has sent, apart from its output", () => {
+  assert.deepEqual(sentFiles("[sent] 412000000 1200000000"), { sent: "412 MB of 1.2 GB", output: "" });
+  assert.deepEqual(sentFiles("[sent] 0 2048\n- a.apk: sent"), { sent: "0 B of 2.0 KB", output: "- a.apk: sent" });
+  assert.deepEqual(sentFiles("- a.apk: sent"), { sent: null, output: "- a.apk: sent" });
 });

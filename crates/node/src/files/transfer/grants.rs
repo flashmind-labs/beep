@@ -1,6 +1,7 @@
 //! Who may fetch what from this node's blob store. A source grants one
 //! peer one root while its offer is open; the blobs protocol asks the
 //! handler here about every connection and request, and refuses the rest.
+//! A granted fetch counts the bytes it sent, for the offer to show.
 
 use crate::lock;
 use iroh::EndpointId;
@@ -9,14 +10,16 @@ use iroh_blobs::{
     protocol::GetRequest,
     provider::events::{
         AbortReason, ConnectMode, EventMask, EventSender, ObserveMode, ProviderMessage,
-        RequestMode, ThrottleMode,
+        RequestMode, RequestUpdate, ThrottleMode,
     },
 };
+use irpc::channel::mpsc::Receiver;
 use std::{
     collections::HashMap,
     fmt,
     sync::{Arc, Mutex, OnceLock},
 };
+use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 
 /// How many provider events wait for the handler.
@@ -61,6 +64,8 @@ struct Inner {
 struct Grant {
     peer: EndpointId,
     content: HashAndFormat,
+    /// The most bytes one fetch of it has sent.
+    sent: watch::Sender<u64>,
 }
 
 /// A grant, held while its offer is open.
@@ -68,6 +73,14 @@ struct Grant {
 pub(crate) struct GrantGuard {
     grants: Arc<Grants>,
     id: u64,
+    sent: watch::Receiver<u64>,
+}
+
+impl GrantGuard {
+    /// The most bytes one fetch of the grant has sent so far.
+    pub(crate) fn sent(&self) -> watch::Receiver<u64> {
+        self.sent.clone()
+    }
 }
 
 impl Drop for GrantGuard {
@@ -82,10 +95,19 @@ impl Grants {
         let mut inner = lock(&self.inner);
         let id = inner.next;
         inner.next += 1;
-        inner.grants.insert(id, Grant { peer, content });
+        let (sent, watched) = watch::channel(0);
+        inner.grants.insert(
+            id,
+            Grant {
+                peer,
+                content,
+                sent,
+            },
+        );
         GrantGuard {
             grants: self.clone(),
             id,
+            sent: watched,
         }
     }
 
@@ -126,8 +148,13 @@ impl Grants {
     }
 
     /// Whether the peer on `connection` may make `request`: a root it was
-    /// granted, and for a file only the blob itself.
-    fn get(&self, connection: u64, request: &GetRequest) -> Result<(), AbortReason> {
+    /// granted, and for a file only the blob itself. A granted root comes
+    /// with where its bytes sent go.
+    fn get(
+        &self,
+        connection: u64,
+        request: &GetRequest,
+    ) -> Result<Option<watch::Sender<u64>>, AbortReason> {
         let inner = lock(&self.inner);
         let peer = inner
             .connections
@@ -137,7 +164,7 @@ impl Grants {
             return Err(AbortReason::Permission);
         }
 
-        let allowed = inner.grants.values().any(|grant| {
+        let granted = inner.grants.values().find(|grant| {
             grant.peer == *peer
                 && grant.content.hash == request.hash
                 && (grant.content.format == BlobFormat::HashSeq || request.ranges.is_blob())
@@ -149,10 +176,10 @@ impl Grants {
                     .get()
                     .is_some_and(|access| access.may_get(peer, &request.hash))
         };
-        if allowed || synced() {
-            Ok(())
-        } else {
-            Err(AbortReason::Permission)
+        match granted {
+            Some(grant) => Ok(Some(grant.sent.clone())),
+            None if synced() => Ok(None),
+            None => Err(AbortReason::Permission),
         }
     }
 }
@@ -163,7 +190,7 @@ impl Grants {
 pub(crate) fn events(grants: Arc<Grants>) -> (EventSender, AbortOnDropHandle<()>) {
     let mask = EventMask {
         connected: ConnectMode::Intercept,
-        get: RequestMode::Intercept,
+        get: RequestMode::InterceptLog,
         get_many: RequestMode::Disabled,
         push: RequestMode::Disabled,
         observe: ObserveMode::Intercept,
@@ -186,7 +213,11 @@ pub(crate) fn events(grants: Arc<Grants>) -> (EventSender, AbortOnDropHandle<()>
                 ProviderMessage::ConnectionClosed(msg) => grants.closed(msg.connection_id),
                 ProviderMessage::GetRequestReceived(msg) => {
                     let answer = grants.get(msg.connection_id, &msg.request);
-                    msg.tx.send(answer).await.ok();
+                    let sent = answer.as_ref().ok().cloned().flatten();
+                    msg.tx.send(answer.map(drop)).await.ok();
+                    // The fetch waits on its updates being read, so they
+                    // are read to the end even when nobody counts them.
+                    tokio::spawn(count(msg.rx, sent));
                 }
                 ProviderMessage::ObserveRequestReceived(msg) => {
                     msg.tx.send(Err(AbortReason::Permission)).await.ok();
@@ -203,6 +234,33 @@ pub(crate) fn events(grants: Arc<Grants>) -> (EventSender, AbortOnDropHandle<()>
         }
     });
     (sender, AbortOnDropHandle::new(task))
+}
+
+/// Reads one fetch's updates to their end, counting the bytes it sent of
+/// the blobs it started into `sent`, which keeps the most any fetch sent.
+async fn count(mut updates: Receiver<RequestUpdate>, sent: Option<watch::Sender<u64>>) {
+    // The blobs this fetch finished, and the one it sends now.
+    let (mut finished, mut size, mut offset) = (0u64, 0u64, 0u64);
+
+    while let Ok(Some(update)) = updates.recv().await {
+        match update {
+            RequestUpdate::Started(started) => {
+                finished = finished.saturating_add(size);
+                (size, offset) = (started.size, 0);
+            }
+            RequestUpdate::Progress(progress) => offset = progress.end_offset,
+            RequestUpdate::Completed(_) | RequestUpdate::Aborted(_) => {}
+        }
+
+        if let Some(sent) = &sent {
+            let now = finished.saturating_add(offset.min(size));
+            sent.send_if_modified(|most| {
+                let more = now > *most;
+                *most = (*most).max(now);
+                more
+            });
+        }
+    }
 }
 
 #[cfg(test)]

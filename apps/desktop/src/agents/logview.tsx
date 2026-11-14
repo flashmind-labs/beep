@@ -1,7 +1,7 @@
 import { compactPromptAttachments } from "./promptparts-state.ts";
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
-import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, mediaPaths, parseTool, subagent, tailLines } from "./agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, mediaPaths, parseTool, sentFiles, subagent, tailLines } from "./agentlog.ts";
 import { toolDetails } from "./tool-details.ts";
 import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, plural, tokenCount } from "../ui/format.ts";
@@ -210,8 +210,10 @@ const toolStarts = new Map<string, number>();
 
 /// A tool entry as one line: its mark and a short label ("Ran cargo test").
 function toolData(en: AgentEntry, at: number, pictures: string): ToolActivity | null {
-  const { title, status, output } = parseTool(imageLines(en.text).text);
-  if (subagent(output)) return null;
+  const parsed = parseTool(imageLines(en.text).text), { title, status } = parsed;
+  if (subagent(parsed.output)) return null;
+  // A running file send names the bytes it has sent first.
+  const { sent, output } = sentFiles(parsed.output);
   const failed = status === "failed", open = stepOpen(failed, at === newestStep, AG.steps.get(at));
   // A command in the background runs on after its turn ended.
   const live = status === "in_progress" && (AGENT_ACTIVE.has(AG.page?.session.status) || backgroundedEntry(at));
@@ -239,7 +241,7 @@ function toolData(en: AgentEntry, at: number, pictures: string): ToolActivity | 
     const tail = tailLines(output), whole = AG.all.has(at);
     const more = !tail.cut ? null : whole ? "Show less" : `Show all ${tail.total === 1 ? "of it" : `${tail.total} lines`}`;
     const body: ToolBody | null = open ? { kind: "beep", detail: beep.detail || null, output: output ? { text: whole ? output : tail.shown, whole } : null, more } : null;
-    const head = { tip: beepLine(title) ?? title, label: live ? beep.doing : beep.done, machine: beep.machine, line: beep.detail && !open ? beep.detail.split("\n")[0] : null, status: [beep.files, state].filter(Boolean).join(" · "), since };
+    const head = { tip: beepLine(title) ?? title, label: live ? beep.doing : beep.done, machine: beep.machine, line: beep.detail && !open ? beep.detail.split("\n")[0] : null, status: [beep.files, live ? sent : null, state].filter(Boolean).join(" · "), since };
     return { ...common, body, layout: { kind: "beep", head } };
   }
 

@@ -24,6 +24,7 @@ mod v2;
 
 pub(crate) use content::cut;
 use tools::ToolCall;
+pub(crate) use tools::Sent;
 
 /// The most transcript entries kept; older ones are dropped.
 const MAX_ENTRIES: usize = 5000;

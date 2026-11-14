@@ -780,6 +780,7 @@ dependencies = [
  "iroh-blobs",
  "iroh-metrics",
  "iroh-tickets",
+ "irpc",
  "jsonschema",
  "libc",
  "log",

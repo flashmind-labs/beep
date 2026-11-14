@@ -37,6 +37,7 @@ host = [
     "dep:iroh",
     "dep:iroh-blobs",
     "dep:iroh-metrics",
+    "dep:irpc",
     "dep:jsonschema",
     "dep:metrics",
     "dep:metrics-exporter-prometheus",
@@ -121,6 +122,7 @@ image = { workspace = true, features = ["jpeg", "png"], optional = true }
 # Port mapping and metrics: a node is reached from outside.
 iroh = { workspace = true, default-features = true, optional = true }
 iroh-blobs = { workspace = true, optional = true }
+irpc = { workspace = true, optional = true }
 iroh-metrics = { workspace = true, optional = true }
 jsonschema = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }

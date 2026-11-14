@@ -77,6 +77,7 @@ iroh-base = { version = "1.4.1", default-features = false }
 iroh-blobs = { version = "0.105", default-features = false, features = ["fs-store"] }
 iroh-metrics = "1"
 iroh-tickets = "1"
+irpc = { version = "1", default-features = false }
 jsonschema = { version = "0.61.2", default-features = false }
 libc = "0.2"
 log = "0.4"

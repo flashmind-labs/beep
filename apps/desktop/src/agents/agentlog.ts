@@ -2,6 +2,7 @@
 
 import { MEDIA_EXTENSIONS } from "../agentpane/media-state.ts";
 import { codeFile } from "../agentpane/files-state.ts";
+import { bytes } from "../ui/format.ts";
 
 const STATUSES = ["pending", "in_progress", "completed", "failed"];
 const LIVE = new RegExp(`^([\\s\\S]*?) \\[(${STATUSES.join("|")})\\](?:\\n([\\s\\S]*))?$`);
@@ -92,6 +93,15 @@ export function exitCode(output: string, first = false) {
   const all = [...output.matchAll(/\b(?:exit(?:ed with)?(?:\s+(?:code|status))?|status)\s*:?\s*(-?\d+)\b/gi)];
   const hit = first ? all[0] : all[all.length - 1];
   return hit ? Number(hit[1]) : null;
+}
+
+/// How far a running file send has gone, from the `[sent] <done> <total>`
+/// line the node writes first in its output ("412 MB of 1.2 GB"), and the
+/// output without it. `sent` is null for any other call.
+export function sentFiles(output: string): { sent: string | null; output: string } {
+  const m = /^\[sent\] (\d+) (\d+)(?:\n|$)/.exec(output);
+  if (!m) return { sent: null, output };
+  return { sent: `${bytes(Number(m[1]))} of ${bytes(Number(m[2]))}`, output: output.slice(m[0].length) };
 }
 
 /// A step of a subagent, as the node writes it on the call that started it.

@@ -169,7 +169,14 @@ pub(crate) struct Offer {
     /// Always `Reply::Offered`.
     pub(crate) reply: Reply,
     _offered: offer::Offered,
-    _grant: grants::GrantGuard,
+    grant: grants::GrantGuard,
+}
+
+impl Offer {
+    /// The most bytes one fetch of it has sent so far.
+    pub(crate) fn sent(&self) -> watch::Receiver<u64> {
+        self.grant.sent()
+    }
 }
 
 /// One shared file, fetchable by one device until `until`.
@@ -458,7 +465,7 @@ impl Transfers {
         Ok(Offer {
             reply: offered.reply.clone(),
             _offered: offered,
-            _grant: grant,
+            grant,
         })
     }
 

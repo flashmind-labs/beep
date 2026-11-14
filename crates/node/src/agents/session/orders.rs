@@ -114,6 +114,10 @@ impl Actor {
                 });
                 Ok(Ok(()))
             }
+            Command::Sending(sent) => {
+                self.live.send_if_modified(|live| live.sending(sent));
+                Ok(Ok(()))
+            }
         }
     }
 

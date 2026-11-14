@@ -9,7 +9,7 @@ use super::{
     compaction::{Compactor, Policy, Route},
     images::Images,
     known,
-    live::Live,
+    live::{Live, Sent},
     processes::Processes,
     route, unix_now,
     usage::UsageHub,
@@ -120,6 +120,8 @@ pub(super) enum Command {
     StopTask(String),
     /// Keeps the device the session uses, or forgets it.
     SetDevice(Option<SessionDevice>),
+    /// How far the running `send_files` call has sent its files.
+    Sending(Sent),
     /// Puts a question of the node's own to the user, as the agent's are:
     /// `ask_user` or an approval for the Beep MCP server. The answer goes
     /// to `reply`; it is dropped when the session ends or the turn is
