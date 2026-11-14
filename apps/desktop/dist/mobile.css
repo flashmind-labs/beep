@@ -267,3 +267,9 @@ body.mobile .cc-tabs button[aria-selected="true"] { background: color-mix(in srg
 body.mobile .pj-org ~ .pj-add { display: none }
 body.mobile .cc-view:has(.painted-art.haze) { position: relative; isolation: isolate }
 body.mobile .cc-view .painted-art.haze { display: block; position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }
+
+/* While typing in a session the keyboard leaves little room: the top bar keeps only the safe
+   area, the head only its title, and the tab strip goes, so the chat has what is left. */
+body.mobile.mb-kbd .cwin:has(#agfield:focus-within) .cc-top { min-height: 0; padding: env(safe-area-inset-top) 0 0 }
+body.mobile.mb-kbd .cwin:has(#agfield:focus-within) :is(.cc-top > *, #agmnav, .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse)) { display: none }
+body.mobile.mb-kbd .cwin:has(#agfield:focus-within) .dhead { padding-block: 4px }
