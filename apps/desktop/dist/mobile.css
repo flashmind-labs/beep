@@ -57,6 +57,12 @@ body.mobile .cc-menu .lbl { font-size: 12px; padding: 6px 12px 4px }
 /* Home. */
 body.mobile .cc-view { padding: 12px 12px calc(16px + env(safe-area-inset-bottom)); gap: 14px }
 body.mobile.mb-full .cc-view, body.mobile .cc-box:has(:is(.cc-comp, .cc-pjc)) .cc-view { padding-bottom: 12px }
+/* A split page scrolls inside itself: its board ends at the tab bar, with the room below its last card. */
+body.mobile .cc-view.split { padding-bottom: 0 }
+body.mobile .cc-view.split .pj-board { padding-bottom: calc(16px + env(safe-area-inset-bottom)) }
+/* A picture opened over the whole window keeps its Close below the status bar, where taps land. */
+body.mobile .dover { padding-bottom: env(safe-area-inset-bottom) }
+body.mobile .dover .vt { padding-top: calc(12px + env(safe-area-inset-top)) }
 body.mobile .cc-mstrip { flex-wrap: nowrap; gap: 8px; margin: 0 -12px; padding: 0 12px; overflow-x: auto; border: 0; border-radius: 0; background: none; scrollbar-width: none }
 body.mobile .cc-mstrip::-webkit-scrollbar { display: none }
 body.mobile .cc-mstrip > .m { flex: none; min-width: 132px; min-height: 0; text-align: left; justify-items: start; align-content: center; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface) }

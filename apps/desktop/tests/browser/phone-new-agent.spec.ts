@@ -11,6 +11,10 @@ test("a phone starts an agent from the + in the project's top bar", async ({ pag
   // The page keeps its room: the task bar is not on it.
   await expect(page.locator("textarea")).toHaveCount(0);
 
+  // The board runs down to the tab bar.
+  const ends = await page.evaluate(() => [document.querySelector(".pj-board")!.getBoundingClientRect().bottom, document.querySelector("#mb-tabs")!.getBoundingClientRect().top]);
+  expect(ends[0]).toBe(ends[1]);
+
   // The forge links wait in the menu.
   await expect(page.locator(".cc-top .tools button")).toHaveCount(2);
   await page.locator('.cc-top button[aria-label="More"]').tap();
