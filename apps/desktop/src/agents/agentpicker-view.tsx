@@ -9,8 +9,6 @@ import { useDialogRef } from "../ui/parts.tsx";
 
 interface PickerProps {
   picked: Picked;
-  /// The thinking level the search names, taken with the model picked.
-  effort: string | null;
   offered: readonly string[];
   everywhere: readonly string[];
   machineName: string | null;
@@ -74,13 +72,15 @@ export function AgentPillContent({ agent, detail }: { agent: string; detail: str
   return <><HarnessIcon agent={agent}/>{detail}<Icon name="caretDown" size={12} /></>;
 }
 
-export function AgentPicker({ picked, effort, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, anchor, bounds, search }: PickerProps) {
+export function AgentPicker({ picked, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, anchor, bounds, search }: PickerProps) {
   const name = agentKind(picked.agent).name, levels = effortsOf(picked.agent);
   // The highlighted row is kept by its model, so a list that streams in
   // keeps it where it still shows; another harness or machine starts over.
   const [lit, setLit] = useState<string | null>(null);
   const highlight = lit === null ? -1 : rows.findIndex(row => rowKey(row) === lit);
   useLayoutEffect(() => { setLit(null); }, [machineId, picked.agent]);
+  // The thinking level the search names, taken with the model picked.
+  const effort = (rows[highlight] ?? rows[0])?.effort ?? null;
   const move = (to: number) => { const row = rows[to]; if (!row) return; setLit(rowKey(row)); };
   // The rows have one height, so only their number changes the picker's
   // size, and only up to the most its unplaced height shows: past that,
@@ -122,7 +122,7 @@ export function AgentPicker({ picked, effort, offered, everywhere, machineName, 
 }
 
 /// A row's identity: the same model can show under several harnesses.
-const rowKey = (row: PickRow) => `${row.agent}/${row.value}`;
+const rowKey = (row: PickRow) => `${row.agent}/${row.value}/${row.effort ?? ""}`;
 
 /// A model row's height and the picker's tallest before it is placed, as the
 /// stylesheet sets them.

@@ -158,7 +158,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   const entry = key ? MODELS.get(key) : undefined;
   const failed = entry?.status === "failed";
   const loading = entry?.status === "loading" && !lists[0]?.list;
-  const data = machine ? searchRows(lists, search) : { rows: [{ value: "", label: "Default", note: "its own", agent: p.agent }], note: o.noMachine };
+  const data = machine ? searchRows(lists, search) : { rows: [{ value: "", label: "Default", note: "its own", agent: p.agent, effort: null }], note: o.noMachine };
   const note = failed ? "Couldn't load models." : loading ? "Asking the machine which models it has…" : data.note;
   const onRetry = () => {
     const current = key ? MODELS.get(key) : undefined;
@@ -167,13 +167,13 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   };
   o.render(
     <AgentPicker
-      picked={p} effort={keepEffort(p.agent, search.effort)} offered={o.offered} everywhere={o.everywhere} machineName={o.machine?.name ?? null} machineId={o.machine?.id ?? null}
+      picked={p} offered={o.offered} everywhere={o.everywhere} machineName={o.machine?.name ?? null} machineId={o.machine?.id ?? null}
       rows={data.rows} note={note} loading={loading} failed={failed}
       onRetry={onRetry}
       onQuery={(query: string) => { p.query = query; drawPicker(el, o); }}
       onAgent={(next: string) => { p.agent = next; p.query = ""; p.model = ""; o.changed("agent"); }}
       onModel={(row: PickRow) => {
-        const effort = keepEffort(row.agent, search.effort);
+        const effort = keepEffort(row.agent, row.effort);
         if (row.agent !== p.agent) p.effort = effort ?? keepEffort(row.agent, p.effort);
         else if (effort) p.effort = effort;
         p.agent = row.agent; p.model = row.value; p.query = "";

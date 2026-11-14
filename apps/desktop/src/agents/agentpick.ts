@@ -86,7 +86,7 @@ export interface ModelRow {
 /// The model column for `list` (`undefined` while the machine is asked, `null`
 /// when it cannot say), filtered by `query`.
 export function modelRows(list: AgentModels | null | undefined, query: string): { rows: ModelRow[]; note: string } {
-  const q = query.trim(), words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const q = query.trim(), words = searchText(q).split(/\s+/).filter(Boolean);
   // The harness's own "default" entry is our Default row: one row, whose
   // note says what it resolves to.
   const isDefault = (m: ModelInfo) => m.id.toLowerCase() === "default" || /^default\b/i.test(m.name);
@@ -97,7 +97,7 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   const first: ModelRow = { value: "", label: "Default", note: resolves };
   // Every word of the query, in any order, as flashmind-cli matches models: in the
   // name, the id or the provider.
-  const fits = (r: ModelRow) => { const text = `${r.label} ${r.value} ${r.note}`.toLowerCase(); return words.every(w => text.includes(w)); };
+  const fits = (r: ModelRow) => { const text = searchText(`${r.label} ${r.value} ${r.note}`); return words.every(w => text.includes(w)); };
   if (list === undefined) return { rows: [first], note: "Asking the machine which models it has…" };
   if (list === null) return { rows: [first], note: "Couldn't load models." };
   if (list.pick === "fixed") return { rows: [first], note: "It runs its own model here." };
@@ -114,34 +114,35 @@ export function modelRows(list: AgentModels | null | undefined, query: string): 
   return { rows, note: rows.length ? "" : "No model matches." };
 }
 
-/// A picker search split into what it names, as in `opus 5.5 high` or
-/// `pi sonnet low`: a harness among those offered, a thinking level and the
-/// words a model must match.
+/// Lowercase text with `-` and `_` read as `.`, so `5.5` finds `claude-opus-5-5`.
+const searchText = (text: string) => text.toLowerCase().replace(/[-_]/g, ".");
+
+/// A picker search split into what it names, as in `opus 5.5 high`,
+/// `deepseek v4 h` or `pi sonnet low`: a harness among those offered, and
+/// the words a model and its thinking level must match.
 export interface ModelSearch {
   agent: string | null;
-  effort: string | null;
   words: string;
 }
 
-const EFFORT_WORDS = new Set(Object.values(EFFORTS).flatMap(levels => levels.map(e => e.value)));
-
 export function modelSearch(query: string, offered: readonly string[]): ModelSearch {
-  let agent: string | null = null, effort: string | null = null;
+  let agent: string | null = null;
   const words: string[] = [];
 
   for (const word of query.trim().split(/\s+/).filter(Boolean)) {
     const w = word.toLowerCase();
-    if (EFFORT_WORDS.has(w)) effort = w;
-    else if (!agent && offered.includes(w)) agent = w;
+    if (!agent && offered.includes(w)) agent = w;
     else words.push(word);
   }
 
-  return { agent, effort, words: words.join(" ") };
+  return { agent, words: words.join(" ") };
 }
 
-/// A model row and the harness it runs under.
+/// A model row, the harness it runs under and the thinking level the search
+/// named, if any.
 export interface PickRow extends ModelRow {
   agent: string;
+  effort: string | null;
 }
 
 /// The harnesses a search looks in: the one it names, else every harness
@@ -149,21 +150,54 @@ export interface PickRow extends ModelRow {
 /// come first, else the picked one.
 export function searchedHarnesses(search: ModelSearch, picked: string, offered: readonly string[]): string[] {
   if (search.agent) return [search.agent];
-  return search.words && offered.length > 1 ? [...offered].sort(byOrder(RAIL)) : [picked];
+  const levels = Object.values(EFFORTS).flat();
+  const namesModel = wordsOf(search.words).some(w => !levels.some(level => startsLevel(w, level)));
+  return namesModel && offered.length > 1 ? [...offered].sort(byOrder(RAIL)) : [picked];
 }
 
-/// The rows of several harnesses for a search, models named outright before
-/// a Default that happens to match, so Enter takes the model typed. A
-/// harness that lists no models only joins when the search names it.
+/// The rows of several harnesses for a search. Each word matches the model,
+/// or the start of a thinking level, so `opus 5.5 h` shows `Opus 5.5 · High`.
+/// Models named outright come before a Default that happens to match, so
+/// Enter takes the model typed. A harness that lists no models only joins
+/// when the search names it.
 export function searchRows(lists: readonly { agent: string; list: AgentModels | null | undefined }[], search: ModelSearch): { rows: PickRow[]; note: string } {
   const named = lists.length === 1 || !!search.agent;
   const rows = lists
     .filter(({ list }) => named || list?.pick === "listed")
-    .flatMap(({ agent, list }) => modelRows(list, search.words).rows.map(row => ({ ...row, agent })));
-  const sorted = search.words ? [...rows.filter(r => r.value), ...rows.filter(r => !r.value)] : rows;
-  const note = named ? modelRows(lists[0]?.list, search.words).note : sorted.length ? "" : "No model matches.";
+    .flatMap(({ agent, list }) => readings(search.words, effortsOf(agent)).flatMap(({ effort, rest }) =>
+      modelRows(list, rest).rows.map(row => ({
+        ...row,
+        label: effort ? `${row.label} · ${effort.label}` : row.label,
+        agent,
+        effort: effort?.value ?? null,
+        typed: !!rest,
+      }))));
+  const sorted = [...rows.filter(r => r.value || !r.typed), ...rows.filter(r => !r.value && r.typed)]
+    .map(({ typed: _, ...row }) => row);
+  const note = named ? modelRows(lists[0]?.list, sorted.some(r => r.value) ? "" : search.words).note
+    : sorted.length ? "" : "No model matches.";
   return { rows: sorted, note };
 }
+
+/// The ways to read a search: every word for the model, and for each level
+/// that some words start, that level with the other words for the model.
+function readings(search: string, levels: readonly Effort[]): { effort: Effort | null; rest: string }[] {
+  const all = wordsOf(search);
+  const leveled = levels.flatMap(effort => {
+    const rest = all.filter(w => !startsLevel(w, effort));
+    return rest.length < all.length ? [{ effort, rest: rest.join(" ") }] : [];
+  });
+  return [{ effort: null, rest: search }, ...leveled];
+}
+
+const wordsOf = (text: string) => text.split(/\s+/).filter(Boolean);
+
+/// Whether `word` starts the level's value or label: `h` and `hi` are High,
+/// `xhi` and `extra` are Extra high.
+const startsLevel = (word: string, level: Effort) => {
+  const w = word.toLowerCase();
+  return level.value.startsWith(w) || level.label.toLowerCase().startsWith(w);
+};
 
 /// Resolve a readable title at the boundary; IDs take precedence over titles.
 export function modelId(list: AgentModels | null | undefined, model: string): string {
