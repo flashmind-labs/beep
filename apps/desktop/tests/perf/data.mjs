@@ -27,6 +27,7 @@ function machines(n) {
       tools: ["git", "node", "claude", "codex", "docker", "cargo", "python3", "just"].map((name, k) => ({ name, version: `0.${k}.${i}` })),
       logins: [{ tool: "gh", signed_in: i % 2 === 0, account: i % 2 === 0 ? "fake-user" : null }],
       avds: [],
+      gpus: [],
     },
   }));
 }

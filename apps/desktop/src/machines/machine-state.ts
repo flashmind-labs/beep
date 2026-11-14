@@ -24,6 +24,7 @@ export interface MachineEnv {
   tools: MachineTool[];
   logins: { tool: string; signed_in: boolean; account: string | null }[];
   avds: string[];
+  gpus: MachineGpu[];
 }
 
 /// A machine as `list_machines` gives it (MachineView).

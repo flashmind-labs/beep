@@ -52,7 +52,7 @@ test("Start shows what this computer lacks and Set up starts the run", async () 
   const { testing: { render, fireEvent, findByRole }, FirstRunScreen, close } = await page();
   const { idleWork } = await import("../src/center/firstrun-state.ts");
   const env = {
-    os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [],
+    os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], gpus: [],
     tools: [{ name: "git", version: "2.47.1" }], logins: [],
   };
   const state = { env, skipped: new Set<never>(), installed: new Set<never>(), work: idleWork(), running: false };

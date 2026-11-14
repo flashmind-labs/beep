@@ -183,7 +183,7 @@ test("start screen", async ({ page }) => {
 
 test("home machines", async ({ page }) => {
   const stats = { sampled_at: NOW, disks: [{ path: folder, free_bytes: 412e9, total_bytes: 1e12 }, { path: "/mnt/data", free_bytes: 1.8e12, total_bytes: 2e12 }], memory_used_mb: 38_000, memory_total_mb: 124_000, load: 1.4 };
-  const online = { ...machine("build-box", "build-box", true, 2), env: { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostname: "build-box", cpus: 32, memory_mb: 124_000, home: "/srv", tools: [], logins: [], avds: [] }, stats, capabilities: ["docker", "gpu", "android"] };
+  const online = { ...machine("build-box", "build-box", true, 2), env: { os: "linux", os_version: "Ubuntu 26.04", arch: "x86_64", hostname: "build-box", cpus: 32, memory_mb: 124_000, home: "/srv", tools: [], logins: [], avds: [], gpus: [] }, stats, capabilities: ["docker", "gpu", "android"] };
   const names = ["example/widget", "example/gadget", "example/alpha", "example/bravo", "example/charlie", "tools/echo", "tools/foxtrot", "site/landing", "site/docs"];
   const sync = [{ project: "tools/delta", machine_id: "build-box", status: "syncing", files: 62, pending: 38, error: null }, ...names.map(name => ({ project: name, machine_id: "build-box", status: "in_sync", files: 90, pending: 0, error: null }))];
   const terminal = { id: "t1", project: "", machine_id: "build-box", machine_name: "build-box", name: "dev server", command: "shell", cwd: folder, state: "running", code: null, started_at: NOW - 600_000 };
@@ -549,7 +549,7 @@ test("phone projects overflow", async ({ page }) => {
 
 /// The first launch on a computer that is alone in its mesh.
 async function openFirstRun(page: Page) {
-  const env = { os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "build-box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], tools: [{ name: "git", version: "2.50.1" }, { name: "node", version: "25.9.0" }, { name: "claude", version: "2.1.0" }], logins: [] };
+  const env = { os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "build-box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], gpus: [], tools: [{ name: "git", version: "2.50.1" }, { name: "node", version: "25.9.0" }, { name: "claude", version: "2.1.0" }], logins: [] };
   await openDesktop(page, false, { center_home: home, list_machines: [{ ...machine(machineId, machineId, true, 0), env }] });
   await page.addInitScript(() => localStorage.removeItem("beep.firstRunDone"));
   await page.reload();

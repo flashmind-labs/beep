@@ -36,7 +36,7 @@ test("machine list retains focused rows through live updates and routes actions"
     fireEvent.click(view.getByRole("button", { name: "Link another desktop" }));
     assert.equal(added, 1);
     assert.equal(linked, 1);
-    const withAdapter: Machine = { ...machine, env: { os: "linux", os_version: "Linux", arch: "x86_64", hostname: "host", cpus: 2, memory_mb: 1024, home: "/path/to/work", tools: [], logins: [], avds: [] }, adapters: [{ agent: "codex", failed: "offline" }] };
+    const withAdapter: Machine = { ...machine, env: { os: "linux", os_version: "Linux", arch: "x86_64", hostname: "host", cpus: 2, memory_mb: 1024, home: "/path/to/work", tools: [], logins: [], avds: [], gpus: [] }, adapters: [{ agent: "codex", failed: "offline" }] };
     view.rerender(createElement(MachineList, { ...props, list: [withAdapter] }));
     selected = "";
     const retry = view.getByRole("button", { name: "Try again" });
