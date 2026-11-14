@@ -178,7 +178,7 @@ pub(crate) fn uploads(images: Vec<PastedImage>) -> Result<Vec<Upload>> {
 /// The last node that reads no `StopAll`.
 const BEFORE_STOP_ALL: Version = Version::new(0, 5, 0);
 /// The last node that reads no `SetDevice`.
-pub(crate) const BEFORE_SET_DEVICE: Version = Version::new(0, 6, 27);
+pub(crate) const BEFORE_SET_DEVICE: Version = Version::new(0, 6, 28);
 
 /// Whether a node of `version` is newer than `last`, the last release
 /// without a request. A node that has not said its version is taken as older.

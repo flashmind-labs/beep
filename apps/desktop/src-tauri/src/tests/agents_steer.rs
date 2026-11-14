@@ -88,8 +88,8 @@ fn new_requests_go_only_to_nodes_that_read_them() {
     assert!(!stops_all(Some("0.5.0")));
     assert!(stops_all(Some("0.5.1")));
     assert!(stops_all(Some("0.6.0")));
-    assert!(!newer_than(Some("0.6.27"), &BEFORE_SET_DEVICE));
-    assert!(newer_than(Some("0.6.28"), &BEFORE_SET_DEVICE));
+    assert!(!newer_than(Some("0.6.28"), &BEFORE_SET_DEVICE));
+    assert!(newer_than(Some("0.6.29"), &BEFORE_SET_DEVICE));
 }
 
 #[test]
